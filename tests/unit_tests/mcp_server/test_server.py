@@ -16,8 +16,12 @@ def _mock_task():
 
 
 class _FakeActivity:
+    _next_pk = 0
+
     def __init__(self, task_result_id):
         self.task_result_id = task_result_id
+        type(self)._next_pk += 1
+        self.pk = type(self)._next_pk
 
 
 async def _fake_acreate_activity(**kwargs):
@@ -25,7 +29,25 @@ async def _fake_acreate_activity(**kwargs):
 
 
 def _patch_acreate():
-    return patch("activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity)
+    # Patch acreate_activity and silence the post-create title task enqueue so
+    # tests don't depend on the queue backend.
+    acreate_patch = patch(
+        "activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity
+    )
+    title_patch = patch("activity.services.generate_title_task")
+
+    class _Combined:
+        def __enter__(self):
+            mock_create = acreate_patch.__enter__()
+            mock_title = title_patch.__enter__()
+            mock_title.aenqueue = AsyncMock(return_value=None)
+            return mock_create
+
+        def __exit__(self, exc_type, exc, tb):
+            title_patch.__exit__(exc_type, exc, tb)
+            return acreate_patch.__exit__(exc_type, exc, tb)
+
+    return _Combined()
 
 
 @pytest.mark.django_db(transaction=True)
