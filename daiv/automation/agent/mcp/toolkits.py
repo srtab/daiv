@@ -10,6 +10,7 @@ from automation.agent.toolkits import BaseToolkit
 if TYPE_CHECKING:
     from langchain_core.tools.base import BaseTool
 
+    from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
     from automation.agent.mcp.schemas import ToolFilter
 
 logger = logging.getLogger("daiv.tools")
@@ -56,6 +57,17 @@ class MCPToolkit(BaseToolkit):
             tool.metadata = {"mcp_server": tool.name}
 
         return tools
+
+    @classmethod
+    async def aget_deferred_index(cls) -> DeferredMCPToolsIndex:
+        """Build a `DeferredMCPToolsIndex` from MCP tools, applying server filters.
+
+        Returns an empty index when no MCP servers are configured.
+        """
+        from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
+
+        tools = await cls.get_tools()
+        return DeferredMCPToolsIndex(tools)
 
 
 def _apply_tool_filters(tools: list[BaseTool], filters: dict[str, ToolFilter]) -> list[BaseTool]:

@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from automation.agent.mcp.schemas import ToolFilter
 from automation.agent.mcp.toolkits import _apply_tool_filters
@@ -87,3 +87,41 @@ class TestApplyToolFilters:
         assert "sentry_delete_project" not in names
         assert "context7_query-docs" in names
         assert "context7_resolve-library-id" not in names
+
+
+class TestMCPToolkitDeferredIndex:
+    @patch("automation.agent.mcp.toolkits.MultiServerMCPClient")
+    @patch("automation.agent.mcp.registry.mcp_registry")
+    async def test_returns_index_with_tools(self, mock_registry, mock_client_class):
+        from langchain_core.tools import StructuredTool
+
+        from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
+        from automation.agent.mcp.toolkits import MCPToolkit
+
+        mock_registry.get_connections_and_filters.return_value = ({"github": MagicMock(url="http://example/mcp")}, {})
+        mock_client = MagicMock()
+        mock_client.get_tools = AsyncMock(
+            return_value=[
+                StructuredTool.from_function(
+                    func=lambda **kwargs: "ok", name="github_create_issue", description="Create issue"
+                )
+            ]
+        )
+        mock_client_class.return_value = mock_client
+
+        index = await MCPToolkit.aget_deferred_index()
+
+        assert isinstance(index, DeferredMCPToolsIndex)
+        assert index.get("github_create_issue") is not None
+
+    @patch("automation.agent.mcp.registry.mcp_registry")
+    async def test_returns_empty_index_when_no_servers(self, mock_registry):
+        from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
+        from automation.agent.mcp.toolkits import MCPToolkit
+
+        mock_registry.get_connections_and_filters.return_value = ({}, {})
+
+        index = await MCPToolkit.aget_deferred_index()
+
+        assert isinstance(index, DeferredMCPToolsIndex)
+        assert index.get("anything") is None
