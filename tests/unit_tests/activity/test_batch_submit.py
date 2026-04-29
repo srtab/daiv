@@ -160,6 +160,7 @@ class TestSubmitBatchRunsSync:
         class _Stub:
             def __init__(self, task_result_id):
                 self.task_result_id = task_result_id
+                self.pk = uuid.uuid4()
 
         async def _flaky_create(**kwargs):
             if kwargs["repo_id"] == "o/b":

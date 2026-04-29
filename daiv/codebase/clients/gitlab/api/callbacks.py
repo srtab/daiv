@@ -123,6 +123,7 @@ class IssueCallback(BaseCallback):
                 use_max=self.object_attributes.has_max_label(),
                 user=daiv_user,
                 external_username=self.user.username,
+                title=self.object_attributes.title,
             )
         except Exception:
             logger.exception(
@@ -200,6 +201,7 @@ class NoteCallback(BaseCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.user.username,
+                    title=self.issue.title,
                 )
             except Exception:
                 logger.exception(
@@ -230,6 +232,7 @@ class NoteCallback(BaseCallback):
                     use_max=self.merge_request.has_max_label(),
                     user=daiv_user,
                     external_username=self.user.username,
+                    title=self.merge_request.title,
                 )
             except Exception:
                 logger.exception(

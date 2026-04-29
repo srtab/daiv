@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.db.models import Q
 from django.utils import timezone
 
+from automation.titling.services import TitlerService
+from automation.titling.tasks import generate_title_task
 from chat.models import ChatThread
 
 if TYPE_CHECKING:
@@ -13,6 +16,8 @@ if TYPE_CHECKING:
 
     from accounts.models import User
     from codebase.base import MergeRequest
+
+logger = logging.getLogger("daiv.chat")
 
 
 # A claim that hasn't bumped last_active_at within this window is considered
@@ -42,15 +47,18 @@ class ChatThreadService:
         """First sight of ``thread_id`` creates the row under ``user``; later calls
         return the existing row regardless of owner. Caller must enforce ownership.
         """
-        thread, _created = await ChatThread.objects.aget_or_create(
+        first_message = _extract_first_user_message(input_data)
+        thread, created = await ChatThread.objects.aget_or_create(
             thread_id=thread_id,
-            defaults={
-                "user": user,
-                "repo_id": repo_id,
-                "ref": ref,
-                "title": _extract_first_user_message(input_data)[:120],
-            },
+            defaults={"user": user, "repo_id": repo_id, "ref": ref, "title": TitlerService.heuristic(first_message)},
         )
+        if created and first_message:
+            try:
+                await generate_title_task.aenqueue(
+                    entity_type="chat_thread", pk=thread.thread_id, prompt=first_message, repo_id=repo_id, ref=ref
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to enqueue title task for chat thread %s", thread.thread_id)
         return thread
 
     @staticmethod

@@ -105,6 +105,7 @@ class IssueCallback(GitHubCallback):
                 use_max=self.issue.has_max_label(),
                 user=daiv_user,
                 external_username=self.sender.username,
+                title=self.issue.title,
             )
         except Exception:
             logger.exception("Failed to create activity for issue %s#%s", self.repository.full_name, self.issue.number)
@@ -172,6 +173,7 @@ class IssueCommentCallback(GitHubCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
+                    title=self.issue.title,
                 )
             except Exception:
                 logger.exception(
@@ -200,6 +202,7 @@ class IssueCommentCallback(GitHubCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
+                    title=self.issue.title,
                 )
             except Exception:
                 logger.exception(

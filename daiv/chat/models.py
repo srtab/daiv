@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import logging
+
 from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from automation.titling.services import TitlerService
+from automation.titling.tasks import generate_title_task
 from chat.managers import ChatThreadManager
+
+logger = logging.getLogger("daiv.chat")
 
 
 class ChatThread(models.Model):
@@ -43,12 +49,28 @@ class ChatThread(models.Model):
     @classmethod
     async def aget_or_create_from_activity(cls, user, activity) -> tuple[ChatThread, bool]:
         """Look up or create a thread that continues an activity run. Idempotent."""
-        return await cls.objects.aget_or_create(
+        # Reuse the activity's already-generated title when present — both rows describe
+        # the same underlying run, so re-titling would just spend tokens to land on the
+        # same answer.
+        existing_title = (activity.title or "").strip()
+        thread, created = await cls.objects.aget_or_create(
             thread_id=activity.thread_id,
             defaults={
                 "user": user,
                 "repo_id": activity.repo_id,
                 "ref": activity.ref or "",
-                "title": (activity.prompt or "")[:120],
+                "title": existing_title or TitlerService.heuristic(activity.prompt or ""),
             },
         )
+        if created and not existing_title and activity.prompt:
+            try:
+                await generate_title_task.aenqueue(
+                    entity_type="chat_thread",
+                    pk=thread.thread_id,
+                    prompt=activity.prompt,
+                    repo_id=activity.repo_id,
+                    ref=activity.ref or "",
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to enqueue title task for chat thread %s", thread.thread_id)
+        return thread, created

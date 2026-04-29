@@ -88,6 +88,8 @@ class Activity(models.Model):
 
     status = models.CharField(_("status"), max_length=10, choices=ActivityStatus.choices, default=ActivityStatus.READY)
 
+    title = models.CharField(_("title"), max_length=120, blank=True, default="")
+
     batch_id = models.UUIDField(
         _("batch ID"),
         null=True,
