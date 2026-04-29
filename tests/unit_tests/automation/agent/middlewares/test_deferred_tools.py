@@ -121,3 +121,72 @@ class TestDeferredMCPToolsMiddleware:
 
         result = await middleware.awrap_model_call(_request(), handler)
         assert result is sentinel
+
+
+class TestDeferredMCPToolsMiddlewareHardFail:
+    async def test_corrective_message_for_unloaded_tool_call(self):
+        from langchain_core.messages import AIMessage, ToolMessage
+
+        github = _make_tool("github_create_issue", "Create issue")
+        index = DeferredMCPToolsIndex([github])
+        middleware = DeferredMCPToolsMiddleware(index)
+
+        ai_message = AIMessage(
+            content="", tool_calls=[{"name": "github_create_issue", "id": "call_abc", "args": {}, "type": "tool_call"}]
+        )
+        response = MagicMock()
+        response.messages = [ai_message]
+
+        async def handler(req):
+            return response
+
+        request = _request(state={})
+        result = await middleware.awrap_model_call(request, handler)
+
+        tool_messages = [m for m in result.messages if isinstance(m, ToolMessage)]
+        assert len(tool_messages) == 1
+        assert tool_messages[0].tool_call_id == "call_abc"
+        assert "tool_search" in tool_messages[0].content
+        assert "github_create_issue" in tool_messages[0].content
+
+    async def test_no_corrective_message_for_loaded_tool_call(self):
+        from langchain_core.messages import AIMessage, ToolMessage
+
+        github = _make_tool("github_create_issue", "Create issue")
+        index = DeferredMCPToolsIndex([github])
+        middleware = DeferredMCPToolsMiddleware(index)
+
+        ai_message = AIMessage(
+            content="", tool_calls=[{"name": "github_create_issue", "id": "call_abc", "args": {}, "type": "tool_call"}]
+        )
+        response = MagicMock()
+        response.messages = [ai_message]
+
+        async def handler(req):
+            return response
+
+        request = _request(state={"loaded_tool_names": {"github_create_issue"}})
+        result = await middleware.awrap_model_call(request, handler)
+
+        assert not [m for m in result.messages if isinstance(m, ToolMessage)]
+
+    async def test_no_corrective_message_for_non_deferred_tool(self):
+        from langchain_core.messages import AIMessage, ToolMessage
+
+        index = DeferredMCPToolsIndex([])
+        middleware = DeferredMCPToolsMiddleware(index)
+
+        ai_message = AIMessage(
+            content="",
+            tool_calls=[{"name": "read_file", "id": "call_xyz", "args": {"path": "/x"}, "type": "tool_call"}],
+        )
+        response = MagicMock()
+        response.messages = [ai_message]
+
+        async def handler(req):
+            return response
+
+        request = _request(state={})
+        result = await middleware.awrap_model_call(request, handler)
+
+        assert not [m for m in result.messages if isinstance(m, ToolMessage)]

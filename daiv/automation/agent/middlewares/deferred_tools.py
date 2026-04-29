@@ -48,4 +48,43 @@ class DeferredMCPToolsMiddleware(AgentMiddleware):
         # request.tools contains no MCP tools when the deferred flag is on — see graph.py wiring.
         new_tools = [*request.tools, *self._index.always_loaded_tools(), *loaded_tools]
 
-        return await handler(request.override(tools=new_tools, system_prompt=new_system_prompt))
+        response = await handler(request.override(tools=new_tools, system_prompt=new_system_prompt))
+        self._inject_corrective_messages(response, loaded_names)
+        return response
+
+    def _inject_corrective_messages(self, response: ModelResponse, loaded_names: set[str]) -> None:
+        """Append a ToolMessage when the model called a deferred tool that wasn't loaded.
+
+        Without this, the agent's tool node returns a generic "unknown tool" error
+        and the model often retries blindly. A targeted hint pointing at `tool_search`
+        cuts the recovery loop to a single follow-up turn.
+        """
+        from langchain_core.messages import AIMessage, ToolMessage
+
+        messages = getattr(response, "messages", None)
+        if not messages:
+            return
+        last = messages[-1]
+        if not isinstance(last, AIMessage) or not getattr(last, "tool_calls", None):
+            return
+
+        accessible = loaded_names | {t.name for t in self._index.always_loaded_tools()}
+
+        corrective: list[ToolMessage] = []
+        for call in last.tool_calls:
+            name = call.get("name", "")
+            entry = self._index.get(name)
+            if entry is None or name in accessible:
+                continue
+            corrective.append(
+                ToolMessage(
+                    content=(
+                        f"Tool '{name}' is deferred and not yet loaded. "
+                        f"Call tool_search with select=['{name}'] first, then retry."
+                    ),
+                    tool_call_id=call["id"],
+                )
+            )
+
+        if corrective:
+            response.messages = [*messages, *corrective]
