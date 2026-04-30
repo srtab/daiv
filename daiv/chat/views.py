@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponseGone
+from django.http import Http404, HttpResponseGone, QueryDict
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+from django.utils.translation import gettext_lazy as _
 from django.views.generic import DetailView, ListView, View
 
 from activity.models import Activity
@@ -36,7 +37,44 @@ class ChatThreadListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        return ChatThread.objects.for_user(self.request.user)
+        user = self.request.user
+        if user.is_admin and self.request.GET.get("all") == "1":
+            qs = ChatThread.objects.all()
+        else:
+            qs = ChatThread.objects.for_user(user)
+
+        q = self.request.GET.get("q", "").strip()
+        if q:
+            qs = qs.filter(title__icontains=q)
+
+        repo_id = self.request.GET.get("repo_id", "").strip()
+        if repo_id:
+            qs = qs.filter(repo_id=repo_id)
+
+        status = self.request.GET.get("status", "").strip().lower()
+        if status == "active":
+            qs = qs.filter(active_run_id__isnull=False)
+        elif status == "idle":
+            qs = qs.filter(active_run_id__isnull=True)
+
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        user = self.request.user
+        base_qs = ChatThread.objects.all() if user.is_admin else ChatThread.objects.for_user(user)
+        ctx["available_repos"] = list(base_qs.values_list("repo_id", flat=True).distinct().order_by("repo_id"))
+        ctx["status_choices"] = [("", _("All")), ("active", _("Active")), ("idle", _("Idle"))]
+        ctx["selected_thread_id"] = self.kwargs.get("thread_id") or self.request.GET.get("selected", "")
+        keep = ["q", "repo_id", "status", "all"]
+        qs = QueryDict(mutable=True)
+        for k in keep:
+            v = self.request.GET.get(k)
+            if v:
+                qs[k] = v
+        ctx["filter_qs"] = qs.urlencode()
+        ctx["filter_signature"] = qs.urlencode()
+        return ctx
 
     def get_breadcrumbs(self):
         return [{"label": "Chat", "url": None}]

@@ -15,6 +15,48 @@ def other_user(db):
 
 
 @pytest.mark.django_db
+def test_list_view_filters_by_title_q(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-1", user=member_user, repo_id="a/b", title="Auth refactor")
+    ChatThread.objects.create(thread_id="t-2", user=member_user, repo_id="a/b", title="Database migration")
+
+    resp = member_client.get(reverse("chat_list"), {"q": "auth"})
+
+    assert resp.status_code == 200
+    threads = list(resp.context["threads"])
+    assert [t.thread_id for t in threads] == ["t-1"]
+
+
+@pytest.mark.django_db
+def test_list_view_filters_by_repo_id(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-a", user=member_user, repo_id="a/b", title="X")
+    ChatThread.objects.create(thread_id="t-b", user=member_user, repo_id="c/d", title="Y")
+
+    resp = member_client.get(reverse("chat_list"), {"repo_id": "c/d"})
+
+    assert [t.thread_id for t in resp.context["threads"]] == ["t-b"]
+
+
+@pytest.mark.django_db
+def test_list_view_filters_by_status_active(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-active", user=member_user, repo_id="a/b", title="X", active_run_id="r1")
+    ChatThread.objects.create(thread_id="t-idle", user=member_user, repo_id="a/b", title="Y")
+
+    resp = member_client.get(reverse("chat_list"), {"status": "active"})
+
+    assert [t.thread_id for t in resp.context["threads"]] == ["t-active"]
+
+
+@pytest.mark.django_db
+def test_list_view_filters_by_status_idle(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-active", user=member_user, repo_id="a/b", title="X", active_run_id="r1")
+    ChatThread.objects.create(thread_id="t-idle", user=member_user, repo_id="a/b", title="Y")
+
+    resp = member_client.get(reverse("chat_list"), {"status": "idle"})
+
+    assert [t.thread_id for t in resp.context["threads"]] == ["t-idle"]
+
+
+@pytest.mark.django_db
 def test_list_view_requires_login(client):
     resp = client.get(reverse("chat_list"))
     assert resp.status_code == 302
