@@ -212,6 +212,7 @@ async def create_daiv_agent(
         MemoryMiddleware(
             backend=backend,
             sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
+            add_cache_control=True,
         ),
         SkillsMiddleware(
             backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES], subagents=subagents

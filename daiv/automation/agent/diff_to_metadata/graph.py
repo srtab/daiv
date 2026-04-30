@@ -74,6 +74,7 @@ def create_diff_to_metadata_graph(
         MemoryMiddleware(
             backend=backend,
             sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
+            add_cache_control=True,
         ),
         AnthropicPromptCachingMiddleware(),
         dynamic_system_prompt,
