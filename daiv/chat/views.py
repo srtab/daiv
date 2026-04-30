@@ -5,19 +5,18 @@ from typing import Any
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponseGone, QueryDict
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import DetailView, ListView, View
 
 from activity.models import Activity
 from asgiref.sync import async_to_sync
 
-from accounts.mixins import BreadcrumbMixin
 from chat.models import ChatThread
 from chat.repo_state import aget_existing_mr_payload, mr_to_payload
 from chat.turns import build_turns
 from chat.usage import aggregate_messages_usage
 from core.checkpointer import open_checkpointer
+from core.htmx import is_htmx
 
 
 async def _ahydrate(thread_id: str) -> tuple[list[Any], bool, dict | None]:
@@ -31,7 +30,7 @@ async def _ahydrate(thread_id: str) -> tuple[list[Any], bool, dict | None]:
     return messages, False, mr_to_payload(channel_values.get("merge_request"))
 
 
-class ChatThreadListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
+class ChatThreadListView(LoginRequiredMixin, ListView):
     model = ChatThread
     template_name = "chat/chat_list.html"
     context_object_name = "threads"
@@ -82,11 +81,8 @@ class ChatThreadListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
         ctx["filter_signature"] = qs.urlencode()
         return ctx
 
-    def get_breadcrumbs(self):
-        return [{"label": "Chat", "url": None}]
 
-
-class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
+class ChatThreadDetailView(LoginRequiredMixin, DetailView):
     """Renders the chat page for a specific thread, or the empty state when no
     ``thread_id`` URL kwarg is present (the ``chat_new`` route).
     """
@@ -95,6 +91,11 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
     template_name = "chat/chat_detail.html"
     context_object_name = "thread"
     pk_url_kwarg = "thread_id"
+
+    def get_template_names(self):
+        if is_htmx(self.request):
+            return ["chat/_detail.html"]
+        return [self.template_name]
 
     def get_queryset(self):
         return ChatThread.objects.for_user(self.request.user)
@@ -107,6 +108,7 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         thread = ctx.setdefault("thread", None)
+        ctx["initial_pane"] = "detail" if thread is not None else "list"
         if thread is None:
             ctx.update({
                 "turns": [],
@@ -125,13 +127,6 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["merge_request"] = merge_request
         ctx["usage_summary"] = aggregate_messages_usage(messages_history).to_dict()
         return ctx
-
-    def get_breadcrumbs(self):
-        chat_url = reverse("chat_list")
-        thread = getattr(self, "object", None)
-        if thread is None:
-            return [{"label": "Chat", "url": chat_url}, {"label": "New", "url": None}]
-        return [{"label": "Chat", "url": chat_url}, {"label": thread.title or thread.thread_id[:8], "url": None}]
 
 
 class ChatThreadFromActivityView(LoginRequiredMixin, View):

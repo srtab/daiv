@@ -381,6 +381,42 @@ def test_detail_view_skips_mr_lookup_when_branch_is_default(member_client, membe
 
 
 @pytest.mark.django_db
+def test_detail_view_htmx_returns_partial_only(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-htmx", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(
+            reverse("chat_detail", kwargs={"thread_id": thread.thread_id}), headers={"HX-Request": "true"}
+        )
+
+    template_names = {t.name for t in resp.templates if t.name}
+    assert "chat/_detail.html" in template_names
+    assert "_workspace.html" not in template_names
+
+
+@pytest.mark.django_db
+def test_detail_view_primes_initial_pane_to_detail(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-pane", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    assert resp.context["initial_pane"] == "detail"
+
+
+@pytest.mark.django_db
 def test_from_activity_404_for_other_users_activity(member_client, other_user):
     activity = Activity.objects.create(
         trigger_type=TriggerType.UI_JOB, repo_id="a/b", ref="main", prompt="x", thread_id="t-x", user=other_user
