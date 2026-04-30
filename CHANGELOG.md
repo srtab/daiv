@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Generalized deferred-tools loading out of the MCP layer into a standalone `automation.agent.deferred` module. `DeferredMCPToolsMiddleware` is renamed to `DeferredToolsMiddleware`, settings move from `MCPSettings.DEFERRED_TOOLS_*` to a dedicated `DEFERRED_*` prefix in `automation.agent.deferred.conf`, and the middleware now accepts an explicit `always_loaded` set plus optional `extra_tools`. `MCPToolkit.aget_deferred_index` is removed. An `ALWAYS_LOADED_TOOLS` constant in `graph.py` lists the tools that are always kept in context.
 - Improved diff-to-metadata prompts to enforce repository conventions from memory, incorporate ticket identifiers from context, and reduce vague language in generated PR titles, descriptions, and commit messages.
 - Improved diff-to-metadata prompts to extract and include external references (Sentry issue URLs, Jira ticket URLs, error-tracking links) from issue context into generated PR descriptions and commit messages.
 - Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini, with Claude Haiku 4.5 as fallback.
