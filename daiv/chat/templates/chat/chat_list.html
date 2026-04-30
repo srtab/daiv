@@ -1,6 +1,24 @@
 {# daiv/chat/templates/chat/chat_list.html #}
 {% extends "_workspace.html" %}
-{% load i18n %}
+{% load static i18n %}
+
+{% block head_extra %}
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'chat/css/diff.css' %}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark-dimmed.min.css">
+{% endblock %}
+
+{% block alpine_plugins %}
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.2/lib/marked.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.4.1/dist/purify.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/diff@9.0.0/dist/diff.min.js"></script>
+  <script defer src="{% static 'chat/js/markdown.js' %}"></script>
+  <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
+  <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+  <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
+{% endblock %}
 
 {% block app_section_label %}{% trans "Chat" %}{% endblock %}
 
