@@ -5,11 +5,12 @@ import time
 from dataclasses import dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
-from ag_ui.core.events import EventType, RunErrorEvent
+from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
@@ -101,6 +102,7 @@ class ChatRunStreamer:
             async with (
                 open_checkpointer() as checkpointer,
                 set_runtime_ctx(repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref) as runtime_ctx,
+                track_usage_metadata() as usage_handler,
             ):
                 agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
                 langsmith_config = build_langsmith_config(
@@ -130,6 +132,8 @@ class ChatRunStreamer:
                             await ChatThreadService.heartbeat(self.thread_id, self.run_id)
                         except Exception:
                             logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
+                summary = build_usage_summary(usage_handler.usage_metadata).to_dict()
+                yield self.encoder.encode(CustomEvent(name="chat.usage", value=summary))
                 clean_run = True
         except Exception:
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)

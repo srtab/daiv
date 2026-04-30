@@ -712,8 +712,8 @@
             this._applyRepoState({ merge_request: mr, ref: mr ? mr.source_branch : undefined });
           }
         }
-      } else if (type === "chat.usage" && evt.payload) {
-        this.usage_summary = evt.payload;
+      } else if (type === "CUSTOM" && evt.name === "chat.usage") {
+        this.usage_summary = evt.value;
       } else {
         // Cheap visibility for unrecognised AG-UI events so future upstream
         // additions don't vanish silently from the chat UI.
