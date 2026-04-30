@@ -1,0 +1,11 @@
+{# daiv/chat/templates/chat/_thread_list.html #}
+{% load i18n %}
+{% if threads %}
+  <div data-filter="{{ filter_signature|default:'' }}">
+    {% include "chat/_thread_rows.html" %}
+  </div>
+{% else %}
+  <div class="px-6 py-10 text-center text-sm text-gray-500">
+    {% trans "No threads match these filters." %}
+  </div>
+{% endif %}

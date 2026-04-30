@@ -1,0 +1,12 @@
+{# daiv/chat/templates/chat/_thread_rows.html — context: threads, page_obj, selected_thread_id, filter_qs #}
+{% for t in threads %}
+  {% include "chat/_thread_row.html" with t=t selected_thread_id=selected_thread_id %}
+{% endfor %}
+{% if page_obj.has_next %}
+<div hx-get="{% url 'chat_list' %}?page={{ page_obj.next_page_number }}&fragment=rows{% if filter_qs %}&{{ filter_qs }}{% endif %}"
+     hx-trigger="revealed once"
+     hx-swap="outerHTML"
+     class="px-4 py-6 text-center text-xs text-gray-600">
+  {% load i18n %}{% trans "Loading more…" %}
+</div>
+{% endif %}
