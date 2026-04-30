@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added automatic suggestion to add an `AGENTS.md` file when DAIV creates a merge request for a repository that doesn't have one. The suggestion includes a one-click link to create a pre-filled issue. Can be disabled globally via `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False` or per-repository by setting `context_file_name: null` in `.daiv.yml`.
 - Added support for custom subagents defined per-repository. Place markdown files in `.agents/subagents/` with YAML frontmatter (`name`, `description`, optional `model`) and a body that becomes the subagent's system prompt. Custom subagents have the same capabilities as the built-in general-purpose subagent.
 - Added support for custom global skills available across all repositories. Mount skill directories to `/home/daiv/data/skills/` (configurable via `DAIV_AGENT_CUSTOM_SKILLS_PATH`). Custom global skills follow the same format as built-in skills and can override them.
+- Added deferred tool loading for the agent, reducing the number of tools visible to the model at startup and loading additional tools on demand based on the task context.
 
 ### Fixed
 
@@ -41,7 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Added deferred tool loading for the agent, reducing the number of tools visible to the model at startup and loading additional tools on demand based on the task context.
 - Improved diff-to-metadata prompts to enforce repository conventions from memory, incorporate ticket identifiers from context, and reduce vague language in generated PR titles, descriptions, and commit messages.
 - Improved diff-to-metadata prompts to extract and include external references (Sentry issue URLs, Jira ticket URLs, error-tracking links) from issue context into generated PR descriptions and commit messages.
 - Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini, with Claude Haiku 4.5 as fallback.
