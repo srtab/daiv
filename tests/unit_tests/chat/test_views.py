@@ -26,6 +26,55 @@ def test_list_view_filters_by_title_q(member_client, member_user):
     assert [t.thread_id for t in threads] == ["t-1"]
 
 
+@pytest.fixture
+def admin_user(db):
+    return User.objects.create_user(
+        username="admin",
+        email="admin@test.com",
+        password="x",  # noqa: S106
+        role=Role.ADMIN,
+    )
+
+
+@pytest.fixture
+def admin_client(client, admin_user):
+    client.force_login(admin_user)
+    return client
+
+
+@pytest.mark.django_db
+def test_list_view_admin_with_all_param_sees_all_threads(admin_client, admin_user, other_user):
+    ChatThread.objects.create(thread_id="t-mine", user=admin_user, repo_id="a/b")
+    ChatThread.objects.create(thread_id="t-theirs", user=other_user, repo_id="a/b")
+
+    resp = admin_client.get(reverse("chat_list"), {"all": "1"})
+
+    ids = {t.thread_id for t in resp.context["threads"]}
+    assert ids == {"t-mine", "t-theirs"}
+
+
+@pytest.mark.django_db
+def test_list_view_admin_without_all_param_sees_only_own(admin_client, admin_user, other_user):
+    ChatThread.objects.create(thread_id="t-mine", user=admin_user, repo_id="a/b")
+    ChatThread.objects.create(thread_id="t-theirs", user=other_user, repo_id="a/b")
+
+    resp = admin_client.get(reverse("chat_list"))
+
+    ids = {t.thread_id for t in resp.context["threads"]}
+    assert ids == {"t-mine"}
+
+
+@pytest.mark.django_db
+def test_list_view_member_with_all_param_still_only_sees_own(member_client, member_user, other_user):
+    ChatThread.objects.create(thread_id="t-mine", user=member_user, repo_id="a/b")
+    ChatThread.objects.create(thread_id="t-theirs", user=other_user, repo_id="a/b")
+
+    resp = member_client.get(reverse("chat_list"), {"all": "1"})
+
+    ids = {t.thread_id for t in resp.context["threads"]}
+    assert ids == {"t-mine"}
+
+
 @pytest.mark.django_db
 def test_list_view_filters_by_repo_id(member_client, member_user):
     ChatThread.objects.create(thread_id="t-a", user=member_user, repo_id="a/b", title="X")
