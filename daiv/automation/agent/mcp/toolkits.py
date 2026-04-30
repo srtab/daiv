@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
 from automation.agent.toolkits import BaseToolkit
 
 if TYPE_CHECKING:
@@ -52,10 +51,6 @@ class MCPToolkit(BaseToolkit):
             tool.metadata = {"mcp_server": tool.name}
 
         return tools
-
-    @classmethod
-    async def aget_deferred_index(cls) -> DeferredMCPToolsIndex:
-        return DeferredMCPToolsIndex(await cls.get_tools())
 
 
 def _apply_tool_filters(tools: list[BaseTool], filters: dict[str, ToolFilter]) -> list[BaseTool]:

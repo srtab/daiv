@@ -1,4 +1,4 @@
-from automation.agent.mcp.deferred.state import union_loaded_tool_names
+from automation.agent.deferred.state import union_loaded_tool_names
 
 
 class TestUnionLoadedToolNames:

@@ -23,9 +23,9 @@ from langchain.agents.middleware import (
 
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES, ModelName
-from automation.agent.mcp.conf import settings as mcp_settings
+from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.mcp.toolkits import MCPToolkit
-from automation.agent.middlewares.deferred_tools import DeferredMCPToolsMiddleware
+from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import FilesystemMiddleware
 from automation.agent.middlewares.git import GitMiddleware
@@ -52,6 +52,21 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.agent")
+
+
+# Tools always bound to the model; everything else is deferred behind tool_search.
+ALWAYS_LOADED_TOOLS = frozenset({
+    "ls",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "glob",
+    "grep",
+    "bash",
+    "write_todos",
+    "skill",
+    "task",
+})
 
 
 class _Unset:
@@ -198,14 +213,7 @@ async def create_daiv_agent(
     )
     subagents.extend(custom_subagents)
 
-    deferred_index = None
-    if mcp_settings.DEFERRED_TOOLS_ENABLED:
-        deferred_index = await MCPToolkit.aget_deferred_index()
-        if not deferred_index.deferred_entries() and not deferred_index.always_loaded_tools():
-            logger.warning(
-                "MCP_DEFERRED_TOOLS_ENABLED is True but the deferred index is empty — "
-                "MCP servers may be unreachable or unconfigured. Agent will run without MCP tools."
-            )
+    mcp_tools = await MCPToolkit.get_tools()
 
     agent_conditional_middlewares = []
 
@@ -217,12 +225,13 @@ async def create_daiv_agent(
         agent_conditional_middlewares.append(SandboxMiddleware())
     if fallback_models:
         agent_conditional_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
-    if deferred_index is not None:
+    if deferred_settings.ENABLED:
         agent_conditional_middlewares.append(
-            DeferredMCPToolsMiddleware(
-                deferred_index,
-                top_k_default=mcp_settings.DEFERRED_TOOLS_TOP_K_DEFAULT,
-                top_k_max=mcp_settings.DEFERRED_TOOLS_TOP_K_MAX,
+            DeferredToolsMiddleware(
+                always_loaded=ALWAYS_LOADED_TOOLS,
+                extra_tools=mcp_tools,
+                top_k_default=deferred_settings.TOP_K_DEFAULT,
+                top_k_max=deferred_settings.TOP_K_MAX,
             )
         )
     if middleware:
@@ -259,7 +268,7 @@ async def create_daiv_agent(
         dynamic_daiv_system_prompt,
     ]
 
-    initial_tools = [] if deferred_index is not None else await MCPToolkit.get_tools()
+    initial_tools = [] if deferred_settings.ENABLED else mcp_tools
 
     return create_agent(
         model,

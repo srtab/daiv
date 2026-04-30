@@ -6,38 +6,43 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-from automation.agent.mcp.deferred.state import DeferredMCPToolsState  # noqa: TC001
+from automation.agent.deferred.state import DeferredToolsState  # noqa: TC001
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from langchain_core.tools import BaseTool
 
-    from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
+    from automation.agent.deferred.index import DeferredToolsIndex
 
 TOOL_SEARCH_NAME = "tool_search"
 
 TOOL_SEARCH_DESCRIPTION = """\
-Load deferred tools by keyword search or by exact name.
+Load deferred tools by exact name or, as a fallback, by keyword search.
 
-Use this when you need a capability that isn't currently available. Tool names
-listed in <available-deferred-tools> are deferred — their schemas are not loaded
-by default. Call tool_search with a keyword query, or pass exact names in
-`select` if you already know what you need. Loaded tools remain available for
-the rest of this session.
+Tool names listed in <available-deferred-tools> are deferred — their schemas
+are not loaded by default. Loaded tools remain available for the rest of this
+session.
+
+Prefer `select=[<name>, ...]` with exact names from <available-deferred-tools>
+— that is faster and more precise than a query. Use `query=` only when you
+cannot identify the right tool from the list and want to search by capability.
 
 Examples:
-  - tool_search(query="create github issue")
-  - tool_search(query="", select=["sentry_find_organizations"])"""
+  - tool_search(select=["gitlab"])              # preferred when the name is known
+  - tool_search(select=["sentry_find_organizations", "sentry_list_issues"])
+  - tool_search(query="open pull request")      # only when browsing for capability"""
 
 
-def make_tool_search(index: DeferredMCPToolsIndex, *, top_k_default: int, top_k_max: int) -> BaseTool:
+def make_tool_search(get_index: Callable[[], DeferredToolsIndex], *, top_k_default: int, top_k_max: int) -> BaseTool:
     async def tool_search(
-        query: Annotated[str, "Keywords describing the capability needed (e.g. 'create github issue')."],
-        runtime: ToolRuntime[object, DeferredMCPToolsState],
-        select: Annotated[
-            list[str] | None, "Optional list of exact tool names to load directly, bypassing search."
-        ] = None,
+        runtime: ToolRuntime[object, DeferredToolsState],
+        select: Annotated[list[str] | None, "Exact tool names to load. Preferred when the name is known."] = None,
+        query: Annotated[str, "Keywords describing the capability. Use only when `select` cannot be used."] = "",
         top_k: Annotated[int | None, "Number of search results to return."] = None,
     ) -> Command:
+        index = get_index()
+
         missing: list[str] = []
         if select:
             entries = []

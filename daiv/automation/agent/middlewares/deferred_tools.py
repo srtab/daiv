@@ -6,35 +6,73 @@ from typing import TYPE_CHECKING
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 
-from automation.agent.mcp.deferred.prompt import build_deferred_tools_block
-from automation.agent.mcp.deferred.search_tool import make_tool_search
-from automation.agent.mcp.deferred.state import DeferredMCPToolsState
+from automation.agent.deferred.index import DeferredToolsIndex
+from automation.agent.deferred.prompt import build_deferred_tools_block
+from automation.agent.deferred.search_tool import TOOL_SEARCH_NAME, make_tool_search
+from automation.agent.deferred.state import DeferredToolsState
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterable
 
     from langchain.agents.middleware.types import ModelRequest, ModelResponse
-
-    from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
+    from langchain_core.tools import BaseTool
 
 logger = logging.getLogger("daiv.tools")
 
 
-class DeferredMCPToolsMiddleware(AgentMiddleware):
-    state_schema = DeferredMCPToolsState
+class DeferredToolsMiddleware(AgentMiddleware):
+    """Defers every tool not in ``always_loaded`` behind a ``tool_search`` capability.
 
-    def __init__(self, index: DeferredMCPToolsIndex, *, top_k_default: int = 5, top_k_max: int = 10) -> None:
+    On the first model call, the middleware snapshots the union of ``request.tools`` and
+    ``extra_tools``, sends only the always-loaded tools (plus already-loaded deferred ones)
+    to the model, and indexes the rest for ``tool_search``. Subsequent calls reuse the index.
+    """
+
+    state_schema = DeferredToolsState
+
+    def __init__(
+        self,
+        *,
+        always_loaded: Iterable[str],
+        extra_tools: Iterable[BaseTool] = (),
+        top_k_default: int = 5,
+        top_k_max: int = 10,
+    ) -> None:
         if not 0 < top_k_default <= top_k_max:
             raise ValueError(f"require 0 < top_k_default <= top_k_max, got {top_k_default=} {top_k_max=}")
         super().__init__()
-        self._index = index
-        self.tools = [make_tool_search(index, top_k_default=top_k_default, top_k_max=top_k_max)]
+        # tool_search itself is always loaded — without it the agent can't load deferred tools.
+        self._always_loaded: set[str] = {*always_loaded, TOOL_SEARCH_NAME}
+        self._extra_tools: list[BaseTool] = list(extra_tools)
+        self._index: DeferredToolsIndex | None = None
+        self.tools = [make_tool_search(self._get_index, top_k_default=top_k_default, top_k_max=top_k_max)]
+
+    def _get_index(self) -> DeferredToolsIndex:
+        if self._index is None:
+            # Defensive: tool_search shouldn't be reachable before the first awrap_model_call,
+            # since the model can't call it until the wrapped handler runs at least once.
+            return DeferredToolsIndex([])
+        return self._index
+
+    def _build_index(self, request_tools: Iterable[BaseTool]) -> DeferredToolsIndex:
+        seen: set[str] = set()
+        deferred: list[BaseTool] = []
+        for tool in (*request_tools, *self._extra_tools):
+            if tool.name in seen or tool.name in self._always_loaded:
+                seen.add(tool.name)
+                continue
+            seen.add(tool.name)
+            deferred.append(tool)
+        return DeferredToolsIndex(deferred)
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
+        if self._index is None:
+            self._index = self._build_index(request.tools)
+
         loaded_names: set[str] = request.state.get("loaded_tool_names") or set()
-        loaded_tools: list = []
+        loaded_tools: list[BaseTool] = []
         stale: list[str] = []
         for name in loaded_names:
             entry = self._index.get(name)
@@ -50,7 +88,20 @@ class DeferredMCPToolsMiddleware(AgentMiddleware):
         if suffix:
             new_system_prompt = f"{new_system_prompt}\n\n{suffix}" if new_system_prompt else suffix
 
-        new_tools = [*request.tools, *self._index.always_loaded_tools(), *loaded_tools]
+        # Filter request.tools to always-loaded ones; the rest are deferred.
+        allowed: list[BaseTool] = []
+        seen_names: set[str] = set()
+        for tool in request.tools:
+            if tool.name in self._always_loaded and tool.name not in seen_names:
+                allowed.append(tool)
+                seen_names.add(tool.name)
+        # Surface any always-loaded extra_tools the request doesn't already carry.
+        for tool in self._extra_tools:
+            if tool.name in self._always_loaded and tool.name not in seen_names:
+                allowed.append(tool)
+                seen_names.add(tool.name)
+
+        new_tools = [*allowed, *loaded_tools]
 
         response = await handler(request.override(tools=new_tools, system_prompt=new_system_prompt))
         self._inject_corrective_messages(response, loaded_names)
@@ -59,13 +110,13 @@ class DeferredMCPToolsMiddleware(AgentMiddleware):
     def _inject_corrective_messages(self, response: ModelResponse, loaded_names: set[str]) -> None:
         # Without this, the tool node emits a generic "unknown tool" error and the model often retries blindly.
         messages = getattr(response, "messages", None)
-        if not messages:
+        if not messages or self._index is None:
             return
         last = messages[-1]
         if not isinstance(last, AIMessage) or not getattr(last, "tool_calls", None):
             return
 
-        accessible = loaded_names | self._index.always_loaded_names()
+        accessible = loaded_names | self._always_loaded
 
         corrective: list[ToolMessage] = []
         for call in last.tool_calls:

@@ -10,5 +10,5 @@ def union_loaded_tool_names(left: set[str] | None, right: set[str] | None) -> se
     return (left or set()) | (right or set())
 
 
-class DeferredMCPToolsState(AgentState):
+class DeferredToolsState(AgentState):
     loaded_tool_names: NotRequired[Annotated[set[str], PrivateStateAttr, union_loaded_tool_names]]

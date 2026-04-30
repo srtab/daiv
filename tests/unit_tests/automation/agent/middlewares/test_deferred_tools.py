@@ -2,8 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from langchain_core.tools import StructuredTool
 
-from automation.agent.mcp.deferred.index import DeferredMCPToolsIndex
-from automation.agent.middlewares.deferred_tools import DeferredMCPToolsMiddleware
+from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 
 
 def _make_tool(name: str, description: str) -> StructuredTool:
@@ -28,25 +27,22 @@ def _request(*, system_prompt: str = "", tools: list | None = None, state: dict 
     return request
 
 
-class TestDeferredMCPToolsMiddleware:
+class TestDeferredToolsMiddleware:
     def test_exposes_tool_search_via_tools_attr(self):
-        index = DeferredMCPToolsIndex([])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set())
         assert len(middleware.tools) == 1
         assert middleware.tools[0].name == "tool_search"
 
     def test_state_schema_is_deferred_state(self):
-        from automation.agent.mcp.deferred.state import DeferredMCPToolsState
+        from automation.agent.deferred.state import DeferredToolsState
 
-        index = DeferredMCPToolsIndex([])
-        middleware = DeferredMCPToolsMiddleware(index)
-        assert middleware.state_schema is DeferredMCPToolsState
+        middleware = DeferredToolsMiddleware(always_loaded=set())
+        assert middleware.state_schema is DeferredToolsState
 
     async def test_appends_loaded_tools_to_request(self):
         github = _make_tool("github_create_issue", "Create issue")
         sentry = _make_tool("sentry_find_orgs", "List orgs")
-        index = DeferredMCPToolsIndex([github, sentry])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github, sentry])
 
         request = _request(state={"loaded_tool_names": {"github_create_issue"}})
         captured: dict = {}
@@ -62,12 +58,12 @@ class TestDeferredMCPToolsMiddleware:
         assert "github_create_issue" in tool_names
         assert "sentry_find_orgs" not in tool_names
 
-    async def test_appends_always_loaded_tools(self):
+    async def test_always_loaded_tools_pass_through(self):
+        read_file = _make_tool("read_file", "Read a file")
         github = _make_tool("github_create_issue", "Create issue")
-        index = DeferredMCPToolsIndex([github], always_loaded={"github_create_issue"})
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded={"read_file"}, extra_tools=[github])
 
-        request = _request(state={})
+        request = _request(tools=[read_file], state={})
         captured: dict = {}
 
         async def handler(req):
@@ -76,12 +72,48 @@ class TestDeferredMCPToolsMiddleware:
 
         await middleware.awrap_model_call(request, handler)
 
-        assert "github_create_issue" in [t.name for t in captured["tools"]]
+        names = [t.name for t in captured["tools"]]
+        assert "read_file" in names
+        assert "github_create_issue" not in names
+
+    async def test_deferred_request_tools_filtered_out(self):
+        read_file = _make_tool("read_file", "Read a file")
+        web_fetch = _make_tool("web_fetch", "Fetch a URL")
+        middleware = DeferredToolsMiddleware(always_loaded={"read_file"})
+
+        request = _request(tools=[read_file, web_fetch], state={})
+        captured: dict = {}
+
+        async def handler(req):
+            captured["tools"] = list(req.tools)
+            return MagicMock()
+
+        await middleware.awrap_model_call(request, handler)
+
+        names = [t.name for t in captured["tools"]]
+        assert "read_file" in names
+        assert "web_fetch" not in names
+
+    async def test_request_tools_indexed_for_search(self):
+        read_file = _make_tool("read_file", "Read a file")
+        web_fetch = _make_tool("web_fetch", "Fetch a URL from the web")
+        middleware = DeferredToolsMiddleware(always_loaded={"read_file"})
+
+        request = _request(tools=[read_file, web_fetch], state={"loaded_tool_names": {"web_fetch"}})
+        captured: dict = {}
+
+        async def handler(req):
+            captured["tools"] = list(req.tools)
+            return MagicMock()
+
+        await middleware.awrap_model_call(request, handler)
+
+        names = [t.name for t in captured["tools"]]
+        assert "web_fetch" in names
 
     async def test_appends_block_to_system_prompt(self):
         github = _make_tool("github_create_issue", "Create issue")
-        index = DeferredMCPToolsIndex([github])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
 
         request = _request(system_prompt="EXISTING PROMPT", state={})
         captured: dict = {}
@@ -98,8 +130,7 @@ class TestDeferredMCPToolsMiddleware:
 
     async def test_no_block_when_all_tools_loaded(self):
         github = _make_tool("github_create_issue", "Create issue")
-        index = DeferredMCPToolsIndex([github])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
 
         request = _request(system_prompt="EXISTING PROMPT", state={"loaded_tool_names": {"github_create_issue"}})
         captured: dict = {}
@@ -114,8 +145,7 @@ class TestDeferredMCPToolsMiddleware:
 
     async def test_system_prompt_none_does_not_pollute(self):
         github = _make_tool("github_create_issue", "Create issue")
-        index = DeferredMCPToolsIndex([github])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
 
         request = _request(system_prompt=None, state={})
         captured: dict = {}
@@ -132,29 +162,32 @@ class TestDeferredMCPToolsMiddleware:
     async def test_init_rejects_invalid_top_k(self):
         import pytest
 
-        index = DeferredMCPToolsIndex([])
         with pytest.raises(ValueError):
-            DeferredMCPToolsMiddleware(index, top_k_default=10, top_k_max=5)
+            DeferredToolsMiddleware(always_loaded=set(), top_k_default=10, top_k_max=5)
         with pytest.raises(ValueError):
-            DeferredMCPToolsMiddleware(index, top_k_default=0, top_k_max=5)
+            DeferredToolsMiddleware(always_loaded=set(), top_k_default=0, top_k_max=5)
 
     async def test_returns_handler_response(self):
-        index = DeferredMCPToolsIndex([])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set())
         sentinel = object()
         handler = AsyncMock(return_value=sentinel)
 
         result = await middleware.awrap_model_call(_request(), handler)
         assert result is sentinel
 
+    def test_tool_search_is_always_loaded(self):
+        # Even if the caller forgets, tool_search must be always-loaded — otherwise the
+        # agent has no way to load deferred tools.
+        middleware = DeferredToolsMiddleware(always_loaded=set())
+        assert "tool_search" in middleware._always_loaded  # noqa: SLF001
 
-class TestDeferredMCPToolsMiddlewareHardFail:
+
+class TestDeferredToolsMiddlewareCorrectiveMessages:
     async def test_corrective_message_for_unloaded_tool_call(self):
         from langchain_core.messages import AIMessage, ToolMessage
 
         github = _make_tool("github_create_issue", "Create issue")
-        index = DeferredMCPToolsIndex([github])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
 
         ai_message = AIMessage(
             content="", tool_calls=[{"name": "github_create_issue", "id": "call_abc", "args": {}, "type": "tool_call"}]
@@ -178,8 +211,7 @@ class TestDeferredMCPToolsMiddlewareHardFail:
         from langchain_core.messages import AIMessage, ToolMessage
 
         github = _make_tool("github_create_issue", "Create issue")
-        index = DeferredMCPToolsIndex([github])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
 
         ai_message = AIMessage(
             content="", tool_calls=[{"name": "github_create_issue", "id": "call_abc", "args": {}, "type": "tool_call"}]
@@ -198,8 +230,7 @@ class TestDeferredMCPToolsMiddlewareHardFail:
     async def test_no_corrective_message_for_non_deferred_tool(self):
         from langchain_core.messages import AIMessage, ToolMessage
 
-        index = DeferredMCPToolsIndex([])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded={"read_file"})
 
         ai_message = AIMessage(
             content="",
@@ -221,8 +252,7 @@ class TestDeferredMCPToolsMiddlewareHardFail:
 
         a = _make_tool("github_create_issue", "Create issue")
         b = _make_tool("sentry_find_orgs", "List orgs")
-        index = DeferredMCPToolsIndex([a, b])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[a, b])
 
         ai_message = AIMessage(
             content="",
@@ -243,8 +273,7 @@ class TestDeferredMCPToolsMiddlewareHardFail:
         assert sorted(m.tool_call_id for m in tool_messages) == ["call_1", "call_2"]
 
     async def test_response_without_messages_attr_does_not_crash(self):
-        index = DeferredMCPToolsIndex([])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set())
 
         class _Bare:
             pass
@@ -258,8 +287,7 @@ class TestDeferredMCPToolsMiddlewareHardFail:
         import logging
 
         github = _make_tool("github_create_issue", "Create issue")
-        index = DeferredMCPToolsIndex([github])
-        middleware = DeferredMCPToolsMiddleware(index)
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
 
         captured: dict = {}
 
