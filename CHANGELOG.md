@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added automatic suggestion to add an `AGENTS.md` file when DAIV creates a merge request for a repository that doesn't have one. The suggestion includes a one-click link to create a pre-filled issue. Can be disabled globally via `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False` or per-repository by setting `context_file_name: null` in `.daiv.yml`.
 - Added support for custom subagents defined per-repository. Place markdown files in `.agents/subagents/` with YAML frontmatter (`name`, `description`, optional `model`) and a body that becomes the subagent's system prompt. Custom subagents have the same capabilities as the built-in general-purpose subagent.
 - Added support for custom global skills available across all repositories. Mount skill directories to `/home/daiv/data/skills/` (configurable via `DAIV_AGENT_CUSTOM_SKILLS_PATH`). Custom global skills follow the same format as built-in skills and can override them.
+- Added deferred tool loading for the agent, reducing the number of tools visible to the model at startup and loading additional tools on demand based on the task context.
 
 ### Fixed
 
