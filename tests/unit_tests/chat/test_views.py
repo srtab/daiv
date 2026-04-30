@@ -159,6 +159,33 @@ def test_list_view_only_shows_users_threads(member_client, member_user, other_us
 
 
 @pytest.mark.django_db
+def test_detail_view_exposes_usage_summary_for_messages_with_metadata(member_client, member_user):
+    from langchain_core.messages import AIMessage
+
+    thread = ChatThread.objects.create(thread_id="t-usage", user=member_user, repo_id="a/b", ref="main")
+    msg = AIMessage(content="x", id="m-1")
+    msg.usage_metadata = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+    msg.response_metadata = {"model_name": "anthropic/claude-sonnet-4.6"}
+
+    tup = MagicMock(checkpoint={"channel_values": {"messages": [msg]}})
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=tup)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    assert resp.status_code == 200
+    summary = resp.context["usage_summary"]
+    assert summary["total_tokens"] == 15
+    assert summary["input_tokens"] == 10
+    assert summary["output_tokens"] == 5
+
+
+@pytest.mark.django_db
 def test_detail_view_404s_for_other_user_thread(member_client, other_user):
     thread = ChatThread.objects.create(thread_id="t-other", user=other_user, repo_id="a/b", ref="main")
     resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
