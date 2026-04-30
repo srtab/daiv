@@ -1,0 +1,11 @@
+{# daiv/chat/templates/chat/_chip_files.html — opens panel='files' #}
+<button type="button"
+        @click="panel = (panel === 'files' ? null : 'files')"
+        :class="panel === 'files' ? 'bg-violet-500/30 border-violet-400 text-white' : 'border-white/[0.08] text-gray-300'"
+        class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors"
+        x-show="filesTouched.length > 0">
+  <span class="font-semibold" x-text="filesTouched.length"></span>
+  <span>files</span>
+  <span x-show="fileLineDelta.added" class="text-green-400" x-text="`+${fileLineDelta.added}`"></span>
+  <span x-show="fileLineDelta.removed" class="text-red-400" x-text="`-${fileLineDelta.removed}`"></span>
+</button>
