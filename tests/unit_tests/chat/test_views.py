@@ -106,6 +106,42 @@ def test_list_view_filters_by_status_idle(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_list_view_rows_fragment_returns_rows_only(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-1", user=member_user, repo_id="a/b", title="X")
+
+    resp = member_client.get(reverse("chat_list"), {"fragment": "rows"})
+
+    assert resp.status_code == 200
+    template_names = {t.name for t in resp.templates if t.name}
+    assert "chat/_thread_rows.html" in template_names
+    assert "chat/chat_list.html" not in template_names
+
+
+@pytest.mark.django_db
+def test_list_view_full_render_includes_workspace_shell(member_client, member_user):
+    resp = member_client.get(reverse("chat_list"))
+
+    assert resp.status_code == 200
+    template_names = {t.name for t in resp.templates if t.name}
+    assert "_workspace.html" in template_names
+    assert "chat/chat_list.html" in template_names
+
+
+@pytest.mark.django_db
+def test_list_view_rows_fragment_paginates_with_sentinel(member_client, member_user):
+    for i in range(30):
+        ChatThread.objects.create(thread_id=f"t-{i:02d}", user=member_user, repo_id="a/b", title=f"T{i}")
+
+    page1 = member_client.get(reverse("chat_list"))
+    assert b'hx-trigger="revealed once"' in page1.content
+
+    page2 = member_client.get(reverse("chat_list"), {"page": 2, "fragment": "rows"})
+    assert page2.status_code == 200
+    # Only 30 - 25 = 5 rows on page 2; no sentinel because there's no page 3.
+    assert b'hx-trigger="revealed once"' not in page2.content
+
+
+@pytest.mark.django_db
 def test_list_view_requires_login(client):
     resp = client.get(reverse("chat_list"))
     assert resp.status_code == 302

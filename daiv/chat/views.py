@@ -36,6 +36,11 @@ class ChatThreadListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
     context_object_name = "threads"
     paginate_by = 25
 
+    def get_template_names(self):
+        if self.request.GET.get("fragment") == "rows":
+            return ["chat/_thread_rows.html"]
+        return [self.template_name]
+
     def get_queryset(self):
         user = self.request.user
         if user.is_admin and self.request.GET.get("all") == "1":
