@@ -381,6 +381,15 @@ def test_detail_view_skips_mr_lookup_when_branch_is_default(member_client, membe
 
 
 @pytest.mark.django_db
+def test_list_view_htmx_filter_request_returns_thread_rows(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-1", user=member_user, repo_id="a/b", title="X")
+    resp = member_client.get(reverse("chat_list"), {"q": "X"}, headers={"HX-Request": "true"})
+    template_names = {t.name for t in resp.templates if t.name}
+    assert "chat/_thread_list.html" in template_names
+    assert "chat/chat_list.html" not in template_names
+
+
+@pytest.mark.django_db
 def test_detail_view_htmx_returns_partial_only(member_client, member_user):
     thread = ChatThread.objects.create(thread_id="t-htmx", user=member_user, repo_id="a/b", ref="main")
     with (

@@ -39,6 +39,8 @@ class ChatThreadListView(LoginRequiredMixin, ListView):
     def get_template_names(self):
         if self.request.GET.get("fragment") == "rows":
             return ["chat/_thread_rows.html"]
+        if is_htmx(self.request):
+            return ["chat/_thread_list.html"]
         return [self.template_name]
 
     def get_queryset(self):
