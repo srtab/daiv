@@ -31,9 +31,17 @@ class TestGeneralPurposeSubagent:
         return Mock()
 
     @pytest.fixture
-    def mock_runtime_ctx(self):
-        """Create a mock runtime context."""
-        return Mock()
+    def mock_runtime_ctx(self, tmp_path):
+        """Create a mock runtime context with a real working_dir on disk.
+
+        ``working_dir`` must be a real path because ``FilesystemMiddleware``
+        wraps it in :class:`pathlib.Path` when ``sandbox_sync`` is on.
+        """
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(repo_dir)
+        return ctx
 
     def test_returns_subagent(self, mock_model, mock_backend, mock_runtime_ctx):
         """Test that create_general_purpose_subagent returns a SubAgent."""
@@ -133,8 +141,10 @@ class TestCustomSubagents:
         return Mock()
 
     @pytest.fixture
-    def mock_runtime_ctx(self):
-        return Mock()
+    def mock_runtime_ctx(self, tmp_path):
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(tmp_path / "repo")
+        return ctx
 
     async def test_loads_custom_subagent(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from deepagents.backends.filesystem import FilesystemBackend
