@@ -1,5 +1,6 @@
 import logging
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
@@ -55,7 +56,11 @@ def _build_general_purpose_middleware(
 
     middleware = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
-        FilesystemMiddleware(backend=backend),
+        FilesystemMiddleware(
+            backend=backend,
+            sandbox_sync=sandbox_enabled,
+            working_dir=Path(runtime.gitrepo.working_dir) if sandbox_enabled else None,
+        ),
         GitPlatformMiddleware(git_platform=runtime.git_platform),
         SummarizationMiddleware(
             model=model,

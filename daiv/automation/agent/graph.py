@@ -251,7 +251,11 @@ async def create_daiv_agent(
         ),
         SubAgentMiddleware(backend=backend, subagents=subagents),
         *agent_conditional_middlewares,
-        FilesystemMiddleware(backend=backend),
+        FilesystemMiddleware(
+            backend=backend,
+            sandbox_sync=_sandbox_enabled,
+            working_dir=Path(ctx.gitrepo.working_dir) if _sandbox_enabled else None,
+        ),
         GitMiddleware(auto_commit_changes=auto_commit_changes),
         GitPlatformMiddleware(git_platform=ctx.git_platform),
         SummarizationMiddleware(
