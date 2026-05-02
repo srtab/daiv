@@ -1,3 +1,5 @@
+import base64
+
 import httpx
 
 from core.conf import settings
@@ -30,6 +32,21 @@ class DAIVSandboxClient:
             response = await client.post("session/", json=request.model_dump(mode="json"))
             response.raise_for_status()
             return response.json()["session_id"]
+
+    async def seed_session(self, session_id: str, repo_archive: bytes) -> None:
+        """
+        Seed a session with the initial state of /repo.
+
+        One-shot per session; the sandbox returns 409 on re-seed (caller's
+        responsibility to avoid).
+        """
+        async with httpx.AsyncClient(
+            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
+        ) as client:
+            response = await client.post(
+                f"session/{session_id}/seed/", json={"repo_archive": base64.b64encode(repo_archive).decode()}
+            )
+            response.raise_for_status()
 
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         """
