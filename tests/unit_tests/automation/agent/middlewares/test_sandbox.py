@@ -268,16 +268,58 @@ class TestRunBashCommands:
 
 class TestSandboxMiddleware:
     async def test_abefore_agent_starts_session_and_sets_session_id(self, tmp_path: Path):
-        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "README.md").write_text("hello")
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
-        with patch(
-            "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session", new=AsyncMock(return_value="sess_1")
-        ) as start_session_mock:
+        with (
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_1"),
+            ) as start_session_mock,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ) as seed_session_mock,
+        ):
             middleware = SandboxMiddleware(close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_1"}
         start_session_mock.assert_awaited_once()
+        seed_session_mock.assert_awaited_once()
+        # seed_session is called with (session_id, repo_archive=...) — assert the keyword.
+        _args, kwargs = seed_session_mock.call_args
+        assert "repo_archive" in kwargs
+        assert isinstance(kwargs["repo_archive"], (bytes, bytearray))
+
+    async def test_abefore_agent_closes_session_on_seed_failure(self, tmp_path: Path):
+        """If seed_session raises, the started session is closed (no leak)."""
+        import pytest
+
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "README.md").write_text("hello")
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
+
+        close_mock = AsyncMock(return_value=None)
+
+        with (
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_leaky"),
+            ),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session",
+                new=AsyncMock(side_effect=RuntimeError("simulated seed failure")),
+            ),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_mock),
+        ):
+            middleware = SandboxMiddleware(close_session=True)
+            with pytest.raises(RuntimeError, match="simulated seed failure"):
+                await middleware.abefore_agent({}, runtime)
+
+        close_mock.assert_awaited_once_with("sess_leaky")
 
     async def test_abefore_agent_reuses_session_id_when_close_session_false(self, tmp_path: Path):
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import io
 import json
 import logging
+import tarfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired
 
 import httpx
@@ -256,6 +260,16 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
     )
 
 
+def _make_repo_archive(working_dir: str) -> bytes:
+    """Tar the contents of `working_dir` (members are relative to working_dir)."""
+    repo_dir = Path(working_dir)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for child in repo_dir.iterdir():
+            tf.add(child, arcname=child.name)
+    return buf.getvalue()
+
+
 async def _run_bash_commands(commands: list[str], session_id: str) -> RunCommandsResponse | None:
     """
     Run bash commands in the daiv-sandbox service session.
@@ -326,6 +340,9 @@ class SandboxMiddleware(AgentMiddleware):
         """
         Prepare state for lazy sandbox session start.
 
+        Starts the session, seeds the workspace from the on-disk repo, and
+        cleans up the session on seed failure to avoid container leaks.
+
         Args:
             state (StateT): The state of the agent.
             runtime (Runtime[RuntimeCtx]): The runtime context.
@@ -338,7 +355,8 @@ class SandboxMiddleware(AgentMiddleware):
             # lifecycle. Skip starting a duplicate.
             return None
 
-        session_id = await DAIVSandboxClient().start_session(
+        client = DAIVSandboxClient()
+        session_id = await client.start_session(
             StartSessionRequest(
                 base_image=runtime.context.config.sandbox.base_image,
                 extract_patch=True,
@@ -347,6 +365,15 @@ class SandboxMiddleware(AgentMiddleware):
                 cpus=runtime.context.config.sandbox.cpus,
             )
         )
+        try:
+            archive = await asyncio.to_thread(_make_repo_archive, runtime.context.gitrepo.working_dir)
+            await client.seed_session(session_id, repo_archive=archive)
+        except Exception:
+            try:
+                await client.close_session(session_id)
+            except Exception:
+                logger.warning("Failed to close session %s after seed failure", session_id)
+            raise
         return {"session_id": session_id}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
