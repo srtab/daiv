@@ -27,7 +27,7 @@
   <div class="flex flex-1 min-w-0">
     {# Column 2 — list pane #}
     <section class="flex flex-col border-r border-white/[0.06] bg-[#0b1020]
-                    w-full lg:w-[320px] lg:shrink-0"
+                    w-full lg:w-[380px] lg:shrink-0"
              :class="{ 'hidden lg:flex': mobilePane === 'detail' }"
              aria-label="{% trans 'Threads' %}">
       <div class="border-b border-white/[0.06] px-4 py-3">
@@ -43,28 +43,6 @@
     <section class="flex flex-col flex-1 min-w-0 bg-[#0e1530]"
              :class="{ 'hidden lg:flex': mobilePane === 'list' }"
              aria-label="{% trans 'Detail' %}">
-      <header class="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-2.5 sm:px-6">
-        <button type="button"
-                @click="mobilePane = 'list'"
-                class="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.06] text-gray-400"
-                aria-label="{% trans 'Back to list' %}">
-          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <button type="button"
-                @click="mobileNavOpen = !mobileNavOpen"
-                class="sm:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.06] text-gray-400"
-                aria-label="{% translate 'Open navigation' %}">
-          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/>
-          </svg>
-        </button>
-        <div class="flex-1"></div>
-        <span class="hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">
-          {% block app_section_label %}{% endblock %}
-        </span>
-      </header>
       <div id="workspace-detail" class="flex-1 min-h-0 overflow-y-auto">
         {% block workspace_detail %}{% endblock %}
       </div>

@@ -1,5 +1,6 @@
 {# daiv/chat/templates/chat/_chip_todos.html — opens panel='todos' #}
 <button type="button"
+        x-show="latestTodos.length > 0"
         @click="panel = (panel === 'todos' ? null : 'todos')"
         :class="panel === 'todos' ? 'bg-violet-500/30 border-violet-400 text-white' : 'border-white/[0.08] text-gray-300'"
         class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors">

@@ -23,6 +23,14 @@
 
   {% if thread %}
   <div class="chat-detail-header flex items-center gap-3 border-b border-white/[0.06] px-4 py-2.5">
+    <button type="button"
+            @click="mobilePane = 'list'"
+            class="lg:hidden inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.06] text-gray-400"
+            aria-label="{% trans 'Back to list' %}">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
     <span class="truncate font-medium text-white" x-text="thread ? (thread.title || '{{ thread.title|default:thread.thread_id|escapejs }}') : ''">
       {{ thread.title|default:thread.thread_id }}
     </span>
@@ -33,6 +41,17 @@
       {% include "chat/_chip_usage.html" %}
       {% include "chat/_chip_mr.html" %}
     </div>
+  </div>
+  {% else %}
+  <div class="lg:hidden flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5">
+    <button type="button"
+            @click="mobilePane = 'list'"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] text-gray-400"
+            aria-label="{% trans 'Back to list' %}">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
   </div>
   {% endif %}
 

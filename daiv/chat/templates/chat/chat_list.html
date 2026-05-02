@@ -20,8 +20,6 @@
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
 {% endblock %}
 
-{% block app_section_label %}{% trans "Chat" %}{% endblock %}
-
 {% block workspace_filters %}{% include "chat/_filter_bar.html" %}{% endblock %}
 
 {% block workspace_list %}{% include "chat/_thread_list.html" %}{% endblock %}

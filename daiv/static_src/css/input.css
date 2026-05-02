@@ -268,14 +268,15 @@ a, button, [role="button"] {
   /* <main> is the page scroll container (claude.ai / chatgpt pattern). The
      wrapper is `min-h-full flex flex-col` from chat_detail.html, so the chat
      fills main when content is short and grows naturally past that as turns
-     accumulate. `grid-template-rows: minmax(0, 1fr)` makes the column stretch
-     to fill the grid even when content is short; without it the column
-     collapses to content height and the sticky composer can't reach the
-     viewport bottom. */
+     accumulate. Two rows: `auto` for the optional sticky header, then
+     `minmax(0, 1fr)` so .chat-column always fills the remaining height and the
+     sticky composer reaches the viewport bottom. .chat-column is pinned to
+     row 2 so the 1fr track is always assigned to it even when the header row
+     is empty (display:none or absent). */
   .chat-shell {
     display: grid;
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 0;
     flex: 1 1 auto;
   }
@@ -306,7 +307,16 @@ a, button, [role="button"] {
     }
   }
 
+  .chat-detail-header {
+    grid-column: 1 / -1;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #0e1530;
+  }
+
   .chat-column {
+    grid-row: 2;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -462,7 +472,7 @@ a, button, [role="button"] {
 
   .chat-transcript {
     flex: 1 1 auto;
-    padding: 1.5rem 0 4rem 0;
+    padding: 1.5rem 1.5rem 4rem;
   }
 
   .chat-hero {

@@ -458,6 +458,110 @@ def test_from_activity_410_when_checkpoint_missing(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_detail_view_full_page_includes_sidebar_context(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-sidebar", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    assert resp.status_code == 200
+    assert "threads" in resp.context
+    assert "page_obj" in resp.context
+    assert resp.context["selected_thread_id"] == thread.thread_id
+
+
+@pytest.mark.django_db
+def test_detail_view_htmx_excludes_sidebar_context(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-htmx-ctx", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(
+            reverse("chat_detail", kwargs={"thread_id": thread.thread_id}), headers={"HX-Request": "true"}
+        )
+
+    assert resp.status_code == 200
+    assert "threads" not in resp.context
+    assert "page_obj" not in resp.context
+
+
+@pytest.mark.django_db
+def test_detail_view_available_repos_respects_user_visibility(member_client, member_user, other_user):
+    ChatThread.objects.create(thread_id="t-mine", user=member_user, repo_id="a/b", ref="main")
+    ChatThread.objects.create(thread_id="t-theirs", user=other_user, repo_id="x/y", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": "t-mine"}))
+
+    assert resp.context["available_repos"] == ["a/b"]
+
+
+@pytest.mark.django_db
+def test_detail_view_filter_params_preserved_in_sidebar(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-a", user=member_user, repo_id="a/b", title="Auth refactor", ref="main")
+    ChatThread.objects.create(thread_id="t-b", user=member_user, repo_id="a/b", title="DB migration", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": "t-a"}), {"q": "auth", "page": "2"})
+
+    threads = list(resp.context["threads"])
+    assert [t.thread_id for t in threads] == ["t-a"]
+    assert "q=auth" in resp.context["filter_qs"]
+    assert "page" not in resp.context["filter_qs"]
+
+
+@pytest.mark.django_db
+def test_thread_list_extras_filter_qs_strips_page_and_unknown_params(member_client, member_user):
+    resp = member_client.get(reverse("chat_list"), {"q": "auth", "status": "active", "page": "1", "unknown": "val"})
+    filter_qs = resp.context["filter_qs"]
+    assert "q=auth" in filter_qs
+    assert "status=active" in filter_qs
+    assert "page" not in filter_qs
+    assert "unknown" not in filter_qs
+
+
+@pytest.mark.django_db
+def test_detail_view_empty_state_has_correct_pane_and_no_selection(member_client):
+    resp = member_client.get(reverse("chat_new"))
+    assert resp.context["initial_pane"] == "list"
+    assert resp.context["selected_thread_id"] == ""
+
+
+@pytest.mark.django_db
+def test_list_view_filters_unknown_status_shows_all(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-active", user=member_user, repo_id="a/b", active_run_id="r1")
+    ChatThread.objects.create(thread_id="t-idle", user=member_user, repo_id="a/b")
+
+    resp = member_client.get(reverse("chat_list"), {"status": "unknown"})
+
+    ids = {t.thread_id for t in resp.context["threads"]}
+    assert ids == {"t-active", "t-idle"}
+
+
+@pytest.mark.django_db
 def test_from_activity_creates_thread_and_redirects(member_client, member_user):
     activity = Activity.objects.create(
         trigger_type=TriggerType.UI_JOB,
