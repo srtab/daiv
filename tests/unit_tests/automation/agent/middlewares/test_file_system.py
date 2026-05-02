@@ -279,7 +279,8 @@ async def test_sync_edit_file_pre_read_failure(fake_client, working_repo):
         file_path=f"/{working_repo.name}/missing.py", old_string="a", new_string="b", runtime=runtime
     )
 
-    assert "cannot read" in result.lower()
+    # Upstream returns the canonical "not found" error; we defer to it instead of inventing our own.
+    assert "not found" in result.lower()
     assert not (working_repo / "missing.py").exists()
     fake_client.apply_file_mutations.assert_not_awaited()
 
@@ -310,3 +311,53 @@ async def test_sync_write_surfaces_critical_when_rollback_fails(fake_client, wor
 
     assert "CRITICAL" in result
     assert "rollback also failed" in result
+
+
+async def test_read_only_with_sandbox_sync_strips_write_and_edit(working_repo):
+    """`read_only=True` takes precedence over `sandbox_sync=True`.
+
+    Constructs without `working_dir`, sets no syncer, and strips write/edit from the tool list.
+    """
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, read_only=True, sandbox_sync=True)
+
+    tool_names = {t.name for t in mw.tools}
+    assert "write_file" not in tool_names
+    assert "edit_file" not in tool_names
+    assert mw._syncer is None
+
+
+async def test_upstream_success_prefixes_remain_stable(working_repo):
+    """Guard against deepagents bumps that change the success-message wording.
+
+    The wrapper detects success via `startswith("Updated file")` / `startswith("Successfully replaced")`.
+    If upstream rewords either, sandbox sync would silently stop firing — pin the contract here so a
+    deepagents bump fails this test instead of failing in production.
+    """
+    from deepagents.backends.filesystem import FilesystemBackend
+    from deepagents.middleware.filesystem import FilesystemMiddleware as BaseFilesystemMiddleware
+
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    base = BaseFilesystemMiddleware(backend=backend)
+
+    write_tool = next(t for t in base.tools if t.name == "write_file")
+    edit_tool = next(t for t in base.tools if t.name == "edit_file")
+    runtime = _make_runtime(state={}, working_dir=working_repo)
+
+    write_result = await write_tool.coroutine(
+        file_path=f"/{working_repo.name}/contract.py", content="x", runtime=runtime
+    )
+    assert write_result.startswith("Updated file"), (
+        f"upstream changed write success format; update wrap_write_tool prefix check: {write_result!r}"
+    )
+
+    edit_result = await edit_tool.coroutine(
+        file_path=f"/{working_repo.name}/contract.py", old_string="x", new_string="y", runtime=runtime
+    )
+    assert edit_result.startswith("Successfully replaced"), (
+        f"upstream changed edit success format; update wrap_edit_tool prefix check: {edit_result!r}"
+    )
