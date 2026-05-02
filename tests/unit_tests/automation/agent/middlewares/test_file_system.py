@@ -178,6 +178,52 @@ async def test_sync_edit_file_rolls_back_on_sync_failure(fake_client, working_re
     assert "Error" in result or "failed" in result.lower()
 
 
+async def test_write_file_handles_5xx_with_rollback(fake_client, working_repo):
+    """A 500 from the sandbox propagates as a tool error and triggers rollback."""
+    import httpx
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+
+    fake_client.apply_file_mutations.side_effect = httpx.HTTPStatusError(
+        "500", request=httpx.Request("POST", "x"), response=httpx.Response(500)
+    )
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+
+    write = next(t for t in mw.tools if t.name == "write_file")
+    runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    result = await write.coroutine(file_path=f"/{working_repo.name}/foo.py", content="x", runtime=runtime)
+    assert not (working_repo / "foo.py").exists()
+    assert "Error" in result
+
+
+async def test_edit_file_handles_network_error(fake_client, working_repo):
+    """A network error during edit_file rolls back to the pre-edit content."""
+    import httpx
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+
+    target = working_repo / "foo.py"
+    target.write_text("a\nb\n")
+    fake_client.apply_file_mutations.side_effect = httpx.RequestError(
+        "conn refused", request=httpx.Request("POST", "x")
+    )
+
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    edit = next(t for t in mw.tools if t.name == "edit_file")
+    runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    result = await edit.coroutine(
+        file_path=f"/{working_repo.name}/foo.py", old_string="a", new_string="z", runtime=runtime
+    )
+    assert (working_repo / "foo.py").read_text() == "a\nb\n"
+    assert "Error" in result
+
+
 async def test_sandbox_sync_disabled_uses_unmodified_tools(working_repo):
     """When sandbox_sync=False, deepagents' tools run without sync."""
     from deepagents.backends.filesystem import FilesystemBackend
