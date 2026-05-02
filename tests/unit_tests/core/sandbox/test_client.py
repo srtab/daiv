@@ -47,3 +47,44 @@ async def test_seed_session_raises_on_409(fake_settings, monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     with pytest.raises(httpx.HTTPStatusError):
         await DAIVSandboxClient().seed_session("sid-123", repo_archive=b"tar")
+
+
+async def test_apply_file_mutations_posts_payload(fake_settings, monkeypatch):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import ApplyMutationsRequest, PutMutation
+
+    captured: dict = {}
+
+    async def fake_post(self, url, json):
+        captured["url"] = url
+        captured["json"] = json
+        return httpx.Response(
+            200,
+            json={"results": [{"path": "/repo/x.py", "ok": True, "error": None}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    req = ApplyMutationsRequest(mutations=[PutMutation(path="/repo/x.py", content=base64.b64encode(b"hi"), mode=0o644)])
+    resp = await DAIVSandboxClient().apply_file_mutations("sid", req)
+
+    assert captured["url"] == "session/sid/files/"
+    assert resp.results[0].ok is True
+
+
+async def test_apply_file_mutations_returns_per_item_failures(fake_settings, monkeypatch):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import ApplyMutationsRequest, PutMutation
+
+    async def fake_post(self, url, json):
+        return httpx.Response(
+            200,
+            json={"results": [{"path": "/skills/x", "ok": False, "error": "must be under /repo"}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    req = ApplyMutationsRequest(mutations=[PutMutation(path="/skills/x", content=base64.b64encode(b""), mode=0o644)])
+    resp = await DAIVSandboxClient().apply_file_mutations("sid", req)
+    assert resp.results[0].ok is False
+    assert resp.results[0].error == "must be under /repo"
