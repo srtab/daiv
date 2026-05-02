@@ -1,4 +1,4 @@
-from pydantic import Base64Str, BaseModel, Field, field_validator
+from pydantic import Base64Bytes, Base64Str, BaseModel, Field, field_validator
 
 MAX_OUTPUT_LENGTH = 2000
 
@@ -7,7 +7,6 @@ class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
     extract_patch: bool = Field(default=True, description="Whether to extract the patch of the changed files.")
-    ephemeral: bool = Field(default=False, description="Whether to make the session ephemeral or persistent.")
     network_enabled: bool = Field(default=False, description="Whether to enable the network for the session.")
     memory_bytes: int | None = Field(default=None, description="Memory in bytes to be used for the session.")
     cpus: float | None = Field(default=None, description="CPUs to be used for the session.")
@@ -25,9 +24,6 @@ class StartSessionRequest(BaseModel):
 
 class RunCommandsRequest(BaseModel):
     commands: list[str] = Field(description="The commands to run in the session.")
-    archive: str | None = Field(
-        default=None, description="The archive to use as the working directory for the commands."
-    )
     fail_fast: bool = Field(default=True, description="Whether to fail fast if any command fails.")
 
 
@@ -53,3 +49,27 @@ class RunCommandsResponse(BaseModel):
 
     results: list[RunCommandResult]
     patch: Base64Str | None
+
+
+class PutMutation(BaseModel):
+    path: str = Field(description="Absolute path inside the sandbox, must be under /repo.")
+    content: Base64Bytes = Field(description="Base64-encoded full file content.")
+    mode: int = Field(ge=0, le=0o7777, description="POSIX mode bits to set on the file.")
+
+
+class ApplyMutationsRequest(BaseModel):
+    mutations: list[PutMutation] = Field(min_length=1, max_length=64)
+
+
+class MutationResult(BaseModel):
+    path: str
+    ok: bool
+    error: str | None = None
+
+
+class ApplyMutationsResponse(BaseModel):
+    results: list[MutationResult]
+
+
+class SeedSessionRequest(BaseModel):
+    repo_archive: Base64Bytes = Field(description="Tar archive that becomes the initial state of /repo.")
