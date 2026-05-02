@@ -59,6 +59,13 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 
 **Django settings** — split across `daiv/daiv/settings/components/`; the test module is `daiv.settings.test`.
 
+**Sandbox wire schemas** — `daiv/core/sandbox/schemas.dump.json` is the canonical sandbox-side schema dump. The `tests/unit_tests/core/sandbox/test_schema_consistency.py` test will fail if the daiv-side schemas drift from it. Regenerate after any change to `daiv-sandbox/daiv_sandbox/schemas.py`:
+
+```bash
+cd ~/work/personal/daiv-sandbox && uv run --all-extras python scripts/dump_schemas.py \
+    > ~/work/personal/daiv/daiv/core/sandbox/schemas.dump.json
+```
+
 ## Where changes usually go
 
 | Change type | Start here |
