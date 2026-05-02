@@ -38,15 +38,14 @@ async def test_seed_session_posts_repo_archive(fake_settings, monkeypatch):
     assert captured["json"]["repo_archive"] == base64.b64encode(b"tar-bytes").decode()
 
 
-async def test_seed_session_raises_on_409(fake_settings, monkeypatch):
+async def test_seed_session_treats_409_as_already_seeded(fake_settings, monkeypatch):
     from core.sandbox.client import DAIVSandboxClient
 
     async def fake_post(self, url, json):
         return httpx.Response(409, json={"detail": "Session already seeded"}, request=httpx.Request("POST", url))
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-    with pytest.raises(httpx.HTTPStatusError):
-        await DAIVSandboxClient().seed_session("sid-123", repo_archive=b"tar")
+    await DAIVSandboxClient().seed_session("sid-123", repo_archive=b"tar")
 
 
 async def test_apply_file_mutations_posts_payload(fake_settings, monkeypatch):

@@ -240,3 +240,73 @@ async def test_sandbox_sync_disabled_uses_unmodified_tools(working_repo):
 
     assert (working_repo / "foo.py").exists()
     assert "Updated file" in result
+
+
+async def test_sync_write_file_rejects_path_outside_working_dir(fake_client, working_repo, tmp_path):
+    """A write to a path outside working_dir is rolled back; sandbox is never called."""
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+
+    write = next(t for t in mw.tools if t.name == "write_file")
+    runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    result = await write.coroutine(file_path=f"/{outside.name}/leak.py", content="oops", runtime=runtime)
+
+    assert not (outside / "leak.py").exists()
+    fake_client.apply_file_mutations.assert_not_awaited()
+    assert "Error" in result
+
+
+async def test_sync_edit_file_pre_read_failure(fake_client, working_repo):
+    """edit_file on a missing path returns a read error, never calls the sandbox, never creates the file."""
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+
+    edit = next(t for t in mw.tools if t.name == "edit_file")
+    runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    result = await edit.coroutine(
+        file_path=f"/{working_repo.name}/missing.py", old_string="a", new_string="b", runtime=runtime
+    )
+
+    assert "cannot read" in result.lower()
+    assert not (working_repo / "missing.py").exists()
+    fake_client.apply_file_mutations.assert_not_awaited()
+
+
+async def test_sync_write_surfaces_critical_when_rollback_fails(fake_client, working_repo, monkeypatch):
+    """If the sandbox sync fails AND rollback also fails, the agent gets a CRITICAL marker."""
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+
+    fake_client.apply_file_mutations.side_effect = RuntimeError("sandbox down")
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+
+    write = next(t for t in mw.tools if t.name == "write_file")
+    runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    real_unlink = os.unlink
+
+    def fail_unlink(path, *a, **kw):  # noqa: ARG001
+        if str(path).endswith("foo.py"):
+            raise OSError("disk gone")
+        return real_unlink(path, *a, **kw)
+
+    monkeypatch.setattr(os, "unlink", fail_unlink)
+
+    result = await write.coroutine(file_path=f"/{working_repo.name}/foo.py", content="x", runtime=runtime)
+
+    assert "CRITICAL" in result
+    assert "rollback also failed" in result

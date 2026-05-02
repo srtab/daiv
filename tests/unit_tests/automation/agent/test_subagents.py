@@ -400,6 +400,47 @@ class TestCustomSubagents:
         assert len(result) == 1
         assert any(isinstance(m, ModelFallbackMiddleware) for m in result[0]["middleware"])
 
+    async def test_subagent_write_file_uses_parent_session_id(self, tmp_path, mock_model):
+        """The subagent's sync-aware write_file must thread the parent's session_id into the sandbox call."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        from automation.agent.middlewares import file_system as fs_module
+        from automation.agent.subagents import create_general_purpose_subagent
+        from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(repo_dir)
+
+        fake_client = AsyncMock()
+        fake_client.apply_file_mutations.return_value = ApplyMutationsResponse(
+            results=[MutationResult(path="/repo/sub.py", ok=True, error=None)]
+        )
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(fs_module, "DAIVSandboxClient", lambda: fake_client)
+            sub = create_general_purpose_subagent(mock_model, backend, ctx)
+
+        fs_mw = next(m for m in sub["middleware"] if isinstance(m, FilesystemMiddleware))
+        write = next(t for t in fs_mw.tools if t.name == "write_file")
+
+        # Subagent inherits the parent's session_id via runtime.state.
+        runtime = SimpleNamespace(
+            state={"session_id": "parent-sid"},
+            context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(repo_dir))),
+        )
+        result = await write.coroutine(file_path=f"/{repo_dir.name}/sub.py", content="x", runtime=runtime)
+
+        assert "Updated file" in result
+        fake_client.apply_file_mutations.assert_awaited_once()
+        call_session_id = fake_client.apply_file_mutations.call_args.args[0]
+        assert call_session_id == "parent-sid"
+
     async def test_skips_invalid_model(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from deepagents.backends.filesystem import FilesystemBackend
 

@@ -1,4 +1,5 @@
 import base64
+import logging
 
 import httpx
 
@@ -10,8 +11,11 @@ from .schemas import (
     ApplyMutationsResponse,
     RunCommandsRequest,
     RunCommandsResponse,
+    SeedSessionRequest,
     StartSessionRequest,
 )
+
+logger = logging.getLogger("daiv.sandbox")
 
 
 class DAIVSandboxClient:
@@ -43,15 +47,19 @@ class DAIVSandboxClient:
         """
         Seed a session with the initial state of /repo.
 
-        One-shot per session; the sandbox returns 409 on re-seed (caller's
-        responsibility to avoid).
+        One-shot per session. A 409 from the sandbox (already seeded) is
+        treated as a no-op so retries and checkpoint replays are safe.
         """
         async with httpx.AsyncClient(
             timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
         ) as client:
             response = await client.post(
-                f"session/{session_id}/seed/", json={"repo_archive": base64.b64encode(repo_archive).decode()}
+                f"session/{session_id}/seed/",
+                json=SeedSessionRequest(repo_archive=base64.b64encode(repo_archive)).model_dump(mode="json"),
             )
+            if response.status_code == 409:
+                logger.info("Sandbox session %s already seeded; skipping", session_id)
+                return
             response.raise_for_status()
 
     async def apply_file_mutations(self, session_id: str, request: ApplyMutationsRequest) -> ApplyMutationsResponse:

@@ -271,22 +271,13 @@ def _make_repo_archive(working_dir: str) -> bytes:
 
 
 async def _run_bash_commands(commands: list[str], session_id: str) -> RunCommandsResponse | None:
-    """
-    Run bash commands in the daiv-sandbox service session.
-
-    The sandbox workspace is kept in sync with daiv via eager forward sync
-    (see SyncingFilesystemMiddleware) and the patch_extractor's per-turn diff,
-    so we no longer ship the working tree as an archive on every call.
-    """
+    """Run bash commands in the existing sandbox session."""
     try:
         return await DAIVSandboxClient().run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=True))
     except httpx.RequestError:
         logger.exception("Unexpected error calling sandbox API.")
         return None
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 400:
-            logger.error("Bad request calling sandbox API: %s", e.response.text)
-            return None
         logger.exception("Status code %s calling sandbox API: %s", e.response.status_code, e.response.text)
         return None
 
@@ -372,7 +363,7 @@ class SandboxMiddleware(AgentMiddleware):
             try:
                 await client.close_session(session_id)
             except Exception:
-                logger.warning("Failed to close session %s after seed failure", session_id)
+                logger.exception("Failed to close session %s after seed failure", session_id)
             raise
         return {"session_id": session_id}
 
@@ -388,11 +379,19 @@ class SandboxMiddleware(AgentMiddleware):
             dict[str, str] | None: The state updates with the closed sandbox session ID.
         """
         if self.close_session and "session_id" in state and state["session_id"] is not None:
+            session_id = state["session_id"]
             try:
-                await DAIVSandboxClient().close_session(state["session_id"])
-            except httpx.HTTPStatusError:
-                # Ignore errors closing the session, it's not critical. Maybe the session was already closed.
-                logger.warning("Error closing sandbox session: %s", state["session_id"])
+                await DAIVSandboxClient().close_session(session_id)
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status in (404, 409):
+                    logger.debug("Sandbox session %s already closed (status=%s)", session_id, status)
+                else:
+                    logger.exception(
+                        "Sandbox session %s close returned status=%s; container may have leaked", session_id, status
+                    )
+            except httpx.RequestError:
+                logger.exception("Sandbox session %s close request failed; container may have leaked", session_id)
             return {"session_id": None}
         return None
 

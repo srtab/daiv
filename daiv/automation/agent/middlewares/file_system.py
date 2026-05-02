@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
 import stat
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from deepagents.backends.utils import validate_path
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
@@ -20,6 +21,9 @@ from langchain_core.tools import StructuredTool
 
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.schemas import ApplyMutationsRequest, PutMutation
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger("daiv.tools")
 
@@ -139,16 +143,18 @@ class FilesystemMiddleware(BaseFilesystemMiddleware):
             )
 
     def _install_sync_wrappers(self, *, backend, working_dir: Path, sandbox_client_factory) -> None:
-        """Replace write_file (and edit_file once Task 17 lands) with sync-aware versions."""
-        new_tools = []
-        for tool in self.tools:
-            if tool.name == "write_file":
-                new_tools.append(_make_sync_write_tool(backend, working_dir, sandbox_client_factory))
-            elif tool.name == "edit_file" and _make_sync_edit_tool is not None:
-                new_tools.append(_make_sync_edit_tool(backend, working_dir, sandbox_client_factory))
-            else:
-                new_tools.append(tool)
-        self.tools = new_tools
+        # Single lock per middleware instance: serializes the
+        # snapshot→local-write→sandbox-sync critical section across all
+        # concurrent write_file/edit_file calls in one agent run, so
+        # rollback can never overwrite a sibling tool call's edit.
+        sync_lock = asyncio.Lock()
+        replacements = {"write_file": _make_sync_write_tool, "edit_file": _make_sync_edit_tool}
+        self.tools = [
+            replacements[tool.name](backend, working_dir, sandbox_client_factory, sync_lock)
+            if tool.name in replacements
+            else tool
+            for tool in self.tools
+        ]
 
 
 def _sandbox_path_for(local_path: str | Path, working_dir: Path) -> str:
@@ -165,21 +171,50 @@ async def _sync_put(client, session_id: str, sandbox_path: str, content: bytes, 
     try:
         response = await client.apply_file_mutations(session_id, request)
     except Exception as exc:
+        logger.exception("sandbox apply_file_mutations failed for %s", sandbox_path)
         return False, f"sandbox sync raised: {exc}"
     result = response.results[0]
     return result.ok, result.error
 
 
-def _rollback_write(path) -> None:
+def _format_sync_error(reason: str, *, rollback_ok: bool) -> str:
+    if rollback_ok:
+        return f"Error: {reason}"
+    return f"CRITICAL: {reason}; rollback also failed — local state is desynced from sandbox"
+
+
+async def _mirror_to_sandbox(
+    *,
+    runtime,
+    resolved_path: Path | str,
+    working_dir: Path,
+    sandbox_client_factory,
+    content_bytes: bytes,
+    mode: int,
+    rollback: Callable[[], bool],
+) -> str | None:
+    """Mirror a successful local write/edit to the sandbox; rollback on failure.
+
+    Returns an error string for the tool to surface, or None on success.
+    """
     try:
-        Path(path).unlink(missing_ok=True)
-    except OSError:
-        logger.exception("rollback unlink failed for %s", path)
+        sandbox_path = _sandbox_path_for(resolved_path, working_dir)
+    except ValueError as exc:
+        return _format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=rollback())
+
+    session_id = runtime.state.get("session_id") if runtime.state else None
+    if not session_id:
+        return _format_sync_error("sandbox session not started", rollback_ok=rollback())
+
+    ok, err = await _sync_put(sandbox_client_factory(), session_id, sandbox_path, content_bytes, mode)
+    if not ok:
+        return _format_sync_error(f"failed to sync to sandbox: {err}", rollback_ok=rollback())
+    return None
 
 
-def _make_sync_write_tool(backend, working_dir: Path, sandbox_client_factory) -> StructuredTool:
-    """A sync-aware replacement for deepagents' write_file."""
-
+def _make_sync_write_tool(
+    backend, working_dir: Path, sandbox_client_factory, sync_lock: asyncio.Lock
+) -> StructuredTool:
     async def coroutine(
         file_path: Annotated[str, "Absolute path where the file should be created. Must be absolute, not relative."],
         content: Annotated[str, "The text content to write to the file. This parameter is required."],
@@ -190,42 +225,45 @@ def _make_sync_write_tool(backend, working_dir: Path, sandbox_client_factory) ->
         except ValueError as e:
             return f"Error: {e}"
 
-        # Resolve to a real on-disk path so we can read mode/bytes after the write.
         resolved_path = backend._resolve_path(validated_path)
 
-        result = await backend.awrite(validated_path, content)
-        if result.error:
-            return result.error
+        async with sync_lock:
+            result = await backend.awrite(validated_path, content)
+            if result.error:
+                return result.error
 
-        try:
-            sandbox_path = _sandbox_path_for(resolved_path, working_dir)
-            content_bytes = Path(resolved_path).read_bytes()
-            mode = stat.S_IMODE(Path(resolved_path).stat().st_mode)
-        except (ValueError, OSError) as exc:
-            _rollback_write(resolved_path)
-            return f"Error: failed to prepare sandbox sync for {file_path}: {exc}"
+            def _rollback() -> bool:
+                try:
+                    Path(resolved_path).unlink(missing_ok=True)
+                except OSError:
+                    logger.exception("rollback unlink failed for %s", resolved_path)
+                    return False
+                return True
 
-        session_id = (runtime.state or {}).get("session_id")
-        if not session_id:
-            _rollback_write(resolved_path)
-            return "Error: sandbox session not started"
+            try:
+                mode = stat.S_IMODE(Path(resolved_path).stat().st_mode)
+            except OSError as exc:
+                return _format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=_rollback())
 
-        client = sandbox_client_factory()
-        ok, err = await _sync_put(client, session_id, sandbox_path, content_bytes, mode)
-        if not ok:
-            _rollback_write(resolved_path)
-            return f"Error: failed to sync write to sandbox: {err}"
-
-        return f"Updated file {result.path}"
+            error = await _mirror_to_sandbox(
+                runtime=runtime,
+                resolved_path=resolved_path,
+                working_dir=working_dir,
+                sandbox_client_factory=sandbox_client_factory,
+                content_bytes=content.encode(),
+                mode=mode,
+                rollback=_rollback,
+            )
+            if error:
+                return error
+            return f"Updated file {result.path}"
 
     return StructuredTool.from_function(
         name="write_file", description=WRITE_FILE_TOOL_DESCRIPTION, coroutine=coroutine, infer_schema=True
     )
 
 
-def _make_sync_edit_tool(backend, working_dir: Path, sandbox_client_factory) -> StructuredTool:
-    """A sync-aware replacement for deepagents' edit_file."""
-
+def _make_sync_edit_tool(backend, working_dir: Path, sandbox_client_factory, sync_lock: asyncio.Lock) -> StructuredTool:
     async def coroutine(
         file_path: Annotated[str, "Absolute path to the file to edit. Must be absolute, not relative."],
         old_string: Annotated[
@@ -245,44 +283,43 @@ def _make_sync_edit_tool(backend, working_dir: Path, sandbox_client_factory) -> 
 
         resolved_path = backend._resolve_path(validated_path)
 
-        # Snapshot pre-edit bytes + mode for rollback.
-        try:
-            pre_bytes = Path(resolved_path).read_bytes()
-            pre_mode = stat.S_IMODE(Path(resolved_path).stat().st_mode)
-        except OSError as exc:
-            return f"Error: cannot read {file_path} before edit: {exc}"
-
-        result = await backend.aedit(validated_path, old_string, new_string, replace_all=replace_all)
-        if result.error:
-            return result.error
-
-        def _rollback() -> None:
+        async with sync_lock:
             try:
-                Path(resolved_path).write_bytes(pre_bytes)
-                os.chmod(resolved_path, pre_mode)  # noqa: PTH101
-            except OSError:
-                logger.exception("rollback restore failed for %s", resolved_path)
+                pre_bytes = Path(resolved_path).read_bytes()
+                pre_mode = stat.S_IMODE(Path(resolved_path).stat().st_mode)
+            except OSError as exc:
+                return f"Error: cannot read {file_path} before edit: {exc}"
 
-        try:
-            sandbox_path = _sandbox_path_for(resolved_path, working_dir)
-            post_bytes = Path(resolved_path).read_bytes()
-            post_mode = stat.S_IMODE(Path(resolved_path).stat().st_mode)
-        except (ValueError, OSError) as exc:
-            _rollback()
-            return f"Error: failed to prepare sandbox sync for {file_path}: {exc}"
+            result = await backend.aedit(validated_path, old_string, new_string, replace_all=replace_all)
+            if result.error:
+                return result.error
 
-        session_id = (runtime.state or {}).get("session_id")
-        if not session_id:
-            _rollback()
-            return "Error: sandbox session not started"
+            def _rollback() -> bool:
+                try:
+                    Path(resolved_path).write_bytes(pre_bytes)
+                    os.chmod(resolved_path, pre_mode)  # noqa: PTH101
+                except OSError:
+                    logger.exception("rollback restore failed for %s", resolved_path)
+                    return False
+                return True
 
-        client = sandbox_client_factory()
-        ok, err = await _sync_put(client, session_id, sandbox_path, post_bytes, post_mode)
-        if not ok:
-            _rollback()
-            return f"Error: failed to sync edit to sandbox: {err}"
+            try:
+                post_bytes = Path(resolved_path).read_bytes()
+            except OSError as exc:
+                return _format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=_rollback())
 
-        return f"Successfully replaced {result.occurrences} instance(s) of the string in '{result.path}'"
+            error = await _mirror_to_sandbox(
+                runtime=runtime,
+                resolved_path=resolved_path,
+                working_dir=working_dir,
+                sandbox_client_factory=sandbox_client_factory,
+                content_bytes=post_bytes,
+                mode=pre_mode,
+                rollback=_rollback,
+            )
+            if error:
+                return error
+            return f"Successfully replaced {result.occurrences} instance(s) of the string in '{result.path}'"
 
     return StructuredTool.from_function(
         name="edit_file", description=EDIT_FILE_TOOL_DESCRIPTION, coroutine=coroutine, infer_schema=True

@@ -1,4 +1,6 @@
-from pydantic import Base64Bytes, Base64Str, BaseModel, Field, field_validator
+from __future__ import annotations
+
+from pydantic import Base64Bytes, Base64Str, BaseModel, Field, field_validator, model_validator
 
 MAX_OUTPUT_LENGTH = 2000
 
@@ -65,6 +67,14 @@ class MutationResult(BaseModel):
     path: str
     ok: bool
     error: str | None = None
+
+    @model_validator(mode="after")
+    def _ok_xor_error(self) -> MutationResult:
+        if self.ok and self.error is not None:
+            raise ValueError("MutationResult: ok=True must have error=None")
+        if not self.ok and self.error is None:
+            raise ValueError("MutationResult: ok=False must include an error message")
+        return self
 
 
 class ApplyMutationsResponse(BaseModel):

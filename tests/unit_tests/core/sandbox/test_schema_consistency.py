@@ -34,6 +34,9 @@ _SHARED_TYPES = [
     "SeedSessionRequest",
 ]
 
+# Types that exist on both sides but are deliberately allowed to diverge.
+_INTENTIONALLY_DIVERGENT = {"RunCommandsRequest", "RunCommandsResponse", "RunCommandResult", "StartSessionRequest"}
+
 
 @pytest.mark.parametrize("type_name", _SHARED_TYPES)
 def test_daiv_schema_matches_sandbox_dump(type_name):
@@ -51,4 +54,22 @@ def test_daiv_schema_matches_sandbox_dump(type_name):
         f"Schema for {type_name} drifted between daiv and daiv-sandbox.\n"
         f"Sandbox: {json.dumps(sandbox_schema, indent=2, sort_keys=True)}\n"
         f"Daiv:    {json.dumps(daiv_schema, indent=2, sort_keys=True)}"
+    )
+
+
+def test_shared_types_list_covers_dump():
+    """Catches the inverse drift: a new type added to the sandbox dump that the daiv side never registered.
+
+    Without this, additions on the sandbox side stay invisible because the per-type
+    parametrization only iterates the hardcoded ``_SHARED_TYPES`` list.
+    """
+    dump_path = Path(__file__).parents[4] / "daiv" / "core" / "sandbox" / "schemas.dump.json"
+    sandbox_dump = json.loads(dump_path.read_text())
+    daiv_module = __import__("core.sandbox.schemas", fromlist=["*"])
+
+    dumped_types_present_on_daiv = {name for name in sandbox_dump if hasattr(daiv_module, name)}
+    untracked = dumped_types_present_on_daiv - set(_SHARED_TYPES) - _INTENTIONALLY_DIVERGENT
+    assert not untracked, (
+        f"Types {sorted(untracked)} exist in both repos' schemas but are neither in _SHARED_TYPES "
+        "nor in _INTENTIONALLY_DIVERGENT. Categorize them in the test."
     )
