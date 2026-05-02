@@ -15,6 +15,133 @@ def other_user(db):
 
 
 @pytest.mark.django_db
+def test_list_view_filters_by_title_q(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-1", user=member_user, repo_id="a/b", title="Auth refactor")
+    ChatThread.objects.create(thread_id="t-2", user=member_user, repo_id="a/b", title="Database migration")
+
+    resp = member_client.get(reverse("chat_list"), {"q": "auth"})
+
+    assert resp.status_code == 200
+    threads = list(resp.context["threads"])
+    assert [t.thread_id for t in threads] == ["t-1"]
+
+
+@pytest.fixture
+def admin_user(db):
+    return User.objects.create_user(
+        username="admin",
+        email="admin@test.com",
+        password="x",  # noqa: S106
+        role=Role.ADMIN,
+    )
+
+
+@pytest.fixture
+def admin_client(client, admin_user):
+    client.force_login(admin_user)
+    return client
+
+
+@pytest.mark.django_db
+def test_list_view_admin_with_all_param_sees_all_threads(admin_client, admin_user, other_user):
+    ChatThread.objects.create(thread_id="t-mine", user=admin_user, repo_id="a/b")
+    ChatThread.objects.create(thread_id="t-theirs", user=other_user, repo_id="a/b")
+
+    resp = admin_client.get(reverse("chat_list"), {"all": "1"})
+
+    ids = {t.thread_id for t in resp.context["threads"]}
+    assert ids == {"t-mine", "t-theirs"}
+
+
+@pytest.mark.django_db
+def test_list_view_admin_without_all_param_sees_only_own(admin_client, admin_user, other_user):
+    ChatThread.objects.create(thread_id="t-mine", user=admin_user, repo_id="a/b")
+    ChatThread.objects.create(thread_id="t-theirs", user=other_user, repo_id="a/b")
+
+    resp = admin_client.get(reverse("chat_list"))
+
+    ids = {t.thread_id for t in resp.context["threads"]}
+    assert ids == {"t-mine"}
+
+
+@pytest.mark.django_db
+def test_list_view_member_with_all_param_still_only_sees_own(member_client, member_user, other_user):
+    ChatThread.objects.create(thread_id="t-mine", user=member_user, repo_id="a/b")
+    ChatThread.objects.create(thread_id="t-theirs", user=other_user, repo_id="a/b")
+
+    resp = member_client.get(reverse("chat_list"), {"all": "1"})
+
+    ids = {t.thread_id for t in resp.context["threads"]}
+    assert ids == {"t-mine"}
+
+
+@pytest.mark.django_db
+def test_list_view_filters_by_repo_id(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-a", user=member_user, repo_id="a/b", title="X")
+    ChatThread.objects.create(thread_id="t-b", user=member_user, repo_id="c/d", title="Y")
+
+    resp = member_client.get(reverse("chat_list"), {"repo_id": "c/d"})
+
+    assert [t.thread_id for t in resp.context["threads"]] == ["t-b"]
+
+
+@pytest.mark.django_db
+def test_list_view_filters_by_status_active(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-active", user=member_user, repo_id="a/b", title="X", active_run_id="r1")
+    ChatThread.objects.create(thread_id="t-idle", user=member_user, repo_id="a/b", title="Y")
+
+    resp = member_client.get(reverse("chat_list"), {"status": "active"})
+
+    assert [t.thread_id for t in resp.context["threads"]] == ["t-active"]
+
+
+@pytest.mark.django_db
+def test_list_view_filters_by_status_idle(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-active", user=member_user, repo_id="a/b", title="X", active_run_id="r1")
+    ChatThread.objects.create(thread_id="t-idle", user=member_user, repo_id="a/b", title="Y")
+
+    resp = member_client.get(reverse("chat_list"), {"status": "idle"})
+
+    assert [t.thread_id for t in resp.context["threads"]] == ["t-idle"]
+
+
+@pytest.mark.django_db
+def test_list_view_rows_fragment_returns_rows_only(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-1", user=member_user, repo_id="a/b", title="X")
+
+    resp = member_client.get(reverse("chat_list"), {"fragment": "rows"})
+
+    assert resp.status_code == 200
+    template_names = {t.name for t in resp.templates if t.name}
+    assert "chat/_thread_rows.html" in template_names
+    assert "chat/chat_list.html" not in template_names
+
+
+@pytest.mark.django_db
+def test_list_view_full_render_includes_workspace_shell(member_client, member_user):
+    resp = member_client.get(reverse("chat_list"))
+
+    assert resp.status_code == 200
+    template_names = {t.name for t in resp.templates if t.name}
+    assert "_workspace.html" in template_names
+    assert "chat/chat_list.html" in template_names
+
+
+@pytest.mark.django_db
+def test_list_view_rows_fragment_paginates_with_sentinel(member_client, member_user):
+    for i in range(30):
+        ChatThread.objects.create(thread_id=f"t-{i:02d}", user=member_user, repo_id="a/b", title=f"T{i}")
+
+    page1 = member_client.get(reverse("chat_list"))
+    assert b'hx-trigger="revealed once"' in page1.content
+
+    page2 = member_client.get(reverse("chat_list"), {"page": 2, "fragment": "rows"})
+    assert page2.status_code == 200
+    # Only 30 - 25 = 5 rows on page 2; no sentinel because there's no page 3.
+    assert b'hx-trigger="revealed once"' not in page2.content
+
+
+@pytest.mark.django_db
 def test_list_view_requires_login(client):
     resp = client.get(reverse("chat_list"))
     assert resp.status_code == 302
@@ -29,6 +156,33 @@ def test_list_view_only_shows_users_threads(member_client, member_user, other_us
     assert resp.status_code == 200
     threads = list(resp.context["threads"])
     assert [t.thread_id for t in threads] == [mine.thread_id]
+
+
+@pytest.mark.django_db
+def test_detail_view_exposes_usage_summary_for_messages_with_metadata(member_client, member_user):
+    from langchain_core.messages import AIMessage
+
+    thread = ChatThread.objects.create(thread_id="t-usage", user=member_user, repo_id="a/b", ref="main")
+    msg = AIMessage(content="x", id="m-1")
+    msg.usage_metadata = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+    msg.response_metadata = {"model_name": "anthropic/claude-sonnet-4.6"}
+
+    tup = MagicMock(checkpoint={"channel_values": {"messages": [msg]}})
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=tup)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    assert resp.status_code == 200
+    summary = resp.context["usage_summary"]
+    assert summary["total_tokens"] == 15
+    assert summary["input_tokens"] == 10
+    assert summary["output_tokens"] == 5
 
 
 @pytest.mark.django_db
@@ -227,6 +381,51 @@ def test_detail_view_skips_mr_lookup_when_branch_is_default(member_client, membe
 
 
 @pytest.mark.django_db
+def test_list_view_htmx_filter_request_returns_thread_rows(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-1", user=member_user, repo_id="a/b", title="X")
+    resp = member_client.get(reverse("chat_list"), {"q": "X"}, headers={"HX-Request": "true"})
+    template_names = {t.name for t in resp.templates if t.name}
+    assert "chat/_thread_list.html" in template_names
+    assert "chat/chat_list.html" not in template_names
+
+
+@pytest.mark.django_db
+def test_detail_view_htmx_returns_partial_only(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-htmx", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(
+            reverse("chat_detail", kwargs={"thread_id": thread.thread_id}), headers={"HX-Request": "true"}
+        )
+
+    template_names = {t.name for t in resp.templates if t.name}
+    assert "chat/_detail.html" in template_names
+    assert "_workspace.html" not in template_names
+
+
+@pytest.mark.django_db
+def test_detail_view_primes_initial_pane_to_detail(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-pane", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    assert resp.context["initial_pane"] == "detail"
+
+
+@pytest.mark.django_db
 def test_from_activity_404_for_other_users_activity(member_client, other_user):
     activity = Activity.objects.create(
         trigger_type=TriggerType.UI_JOB, repo_id="a/b", ref="main", prompt="x", thread_id="t-x", user=other_user
@@ -256,6 +455,110 @@ def test_from_activity_410_when_checkpoint_missing(member_client, member_user):
         cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
         resp = member_client.post(reverse("chat_from_activity", kwargs={"activity_id": activity.id}))
     assert resp.status_code == 410
+
+
+@pytest.mark.django_db
+def test_detail_view_full_page_includes_sidebar_context(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-sidebar", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    assert resp.status_code == 200
+    assert "threads" in resp.context
+    assert "page_obj" in resp.context
+    assert resp.context["selected_thread_id"] == thread.thread_id
+
+
+@pytest.mark.django_db
+def test_detail_view_htmx_excludes_sidebar_context(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-htmx-ctx", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(
+            reverse("chat_detail", kwargs={"thread_id": thread.thread_id}), headers={"HX-Request": "true"}
+        )
+
+    assert resp.status_code == 200
+    assert "threads" not in resp.context
+    assert "page_obj" not in resp.context
+
+
+@pytest.mark.django_db
+def test_detail_view_available_repos_respects_user_visibility(member_client, member_user, other_user):
+    ChatThread.objects.create(thread_id="t-mine", user=member_user, repo_id="a/b", ref="main")
+    ChatThread.objects.create(thread_id="t-theirs", user=other_user, repo_id="x/y", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": "t-mine"}))
+
+    assert resp.context["available_repos"] == ["a/b"]
+
+
+@pytest.mark.django_db
+def test_detail_view_filter_params_preserved_in_sidebar(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-a", user=member_user, repo_id="a/b", title="Auth refactor", ref="main")
+    ChatThread.objects.create(thread_id="t-b", user=member_user, repo_id="a/b", title="DB migration", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=MagicMock(checkpoint={"channel_values": {"messages": []}}))
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": "t-a"}), {"q": "auth", "page": "2"})
+
+    threads = list(resp.context["threads"])
+    assert [t.thread_id for t in threads] == ["t-a"]
+    assert "q=auth" in resp.context["filter_qs"]
+    assert "page" not in resp.context["filter_qs"]
+
+
+@pytest.mark.django_db
+def test_thread_list_extras_filter_qs_strips_page_and_unknown_params(member_client, member_user):
+    resp = member_client.get(reverse("chat_list"), {"q": "auth", "status": "active", "page": "1", "unknown": "val"})
+    filter_qs = resp.context["filter_qs"]
+    assert "q=auth" in filter_qs
+    assert "status=active" in filter_qs
+    assert "page" not in filter_qs
+    assert "unknown" not in filter_qs
+
+
+@pytest.mark.django_db
+def test_detail_view_empty_state_has_correct_pane_and_no_selection(member_client):
+    resp = member_client.get(reverse("chat_new"))
+    assert resp.context["initial_pane"] == "list"
+    assert resp.context["selected_thread_id"] == ""
+
+
+@pytest.mark.django_db
+def test_list_view_filters_unknown_status_shows_all(member_client, member_user):
+    ChatThread.objects.create(thread_id="t-active", user=member_user, repo_id="a/b", active_run_id="r1")
+    ChatThread.objects.create(thread_id="t-idle", user=member_user, repo_id="a/b")
+
+    resp = member_client.get(reverse("chat_list"), {"status": "unknown"})
+
+    ids = {t.thread_id for t in resp.context["threads"]}
+    assert ids == {"t-active", "t-idle"}
 
 
 @pytest.mark.django_db

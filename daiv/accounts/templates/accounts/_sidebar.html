@@ -96,13 +96,18 @@
     </a>
     {% endif %}
 
-    {# Footer — API docs pinned to the bottom #}
-    <div class="mt-auto border-t border-white/[0.05] pt-3">
-      <a href="{% url 'api:openapi-view' %}"
-         class="flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-gray-500 transition-colors hover:text-gray-300">
-        {% icon "code-bracket" "h-3.5 w-3.5" %}
-        <span>{% translate "API documentation" %}</span>
-      </a>
-    </div>
   </nav>
+
+  {# Footer — bell, user menu, API docs pinned to the bottom #}
+  <div class="mt-auto border-t border-white/[0.05] pt-3 pb-3 px-3 space-y-2">
+    <div class="flex items-center justify-between gap-2">
+      {% include "notifications/_bell.html" %}
+      {% include "accounts/_user_menu.html" %}
+    </div>
+    <a href="{% url 'api:openapi-view' %}"
+       class="flex items-center gap-3 rounded-lg px-2 py-2 text-xs text-gray-500 transition-colors hover:text-gray-300">
+      {% icon "code-bracket" "h-3.5 w-3.5" %}
+      <span>{% translate "API documentation" %}</span>
+    </a>
+  </div>
 </aside>

@@ -140,6 +140,13 @@
     _resumePoll: null,
     _thinkingPhrase: THINKING_LABELS[0],
     filesTouchedLimit: 20,
+    panel: null,
+    usage_summary: (() => {
+      try {
+        const el = document.getElementById("chat-initial-usage");
+        return el ? JSON.parse(el.textContent || "null") : null;
+      } catch { return null; }
+    })(),
 
     // The new-chat repo picker is its own Alpine root; it dispatches the
     // `daiv:chat-repo-changed` window event whenever its single-repo selection
@@ -360,6 +367,28 @@
 
     get showJumpToLatest() {
       return this.streaming && !this._autoFollow;
+    },
+
+    get fileLineDelta() {
+      let added = 0, removed = 0;
+      for (const f of this.filesTouched) {
+        if (typeof f.added === "number") added += f.added;
+        if (typeof f.removed === "number") removed += f.removed;
+      }
+      return { added, removed };
+    },
+
+    formatTokens(n) {
+      if (!n) return "0";
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+      if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+      return String(n);
+    },
+
+    formatCost(c) {
+      const v = Number(c);
+      if (!Number.isFinite(v)) return "0.00";
+      return v.toFixed(2);
     },
 
     // ---------- Rendering helpers used inline by x-html ---------------
@@ -683,6 +712,8 @@
             this._applyRepoState({ merge_request: mr, ref: mr ? mr.source_branch : undefined });
           }
         }
+      } else if (type === "CUSTOM" && evt.name === "chat.usage") {
+        this.usage_summary = evt.value;
       } else {
         // Cheap visibility for unrecognised AG-UI events so future upstream
         // additions don't vanish silently from the chat UI.

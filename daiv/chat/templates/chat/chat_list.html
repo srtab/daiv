@@ -1,48 +1,35 @@
-{% extends "base_app.html" %}
-{% load i18n %}
+{# daiv/chat/templates/chat/chat_list.html #}
+{% extends "_workspace.html" %}
+{% load static i18n %}
 
-{% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
+{% block head_extra %}
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'chat/css/diff.css' %}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark-dimmed.min.css">
+{% endblock %}
 
-{% block app_content %}
-<div class="mb-6 flex items-center justify-between">
-  <h1 class="text-2xl font-semibold text-white">{% trans "Chat" %}</h1>
-  <a href="{% url 'chat_new' %}" class="btn-primary">{% trans "New chat" %}</a>
+{% block alpine_plugins %}
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.2/lib/marked.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.4.1/dist/purify.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/diff@9.0.0/dist/diff.min.js"></script>
+  <script defer src="{% static 'chat/js/markdown.js' %}"></script>
+  <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
+  <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+  <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
+{% endblock %}
+
+{% block workspace_filters %}{% include "chat/_filter_bar.html" %}{% endblock %}
+
+{% block workspace_list %}{% include "chat/_thread_list.html" %}{% endblock %}
+
+{% block workspace_detail %}
+<div class="flex h-full flex-col items-center justify-center px-6 text-center">
+  <h1 class="text-xl font-semibold text-white">{% trans "Pick a thread or start a new one." %}</h1>
+  <p class="mt-2 text-sm text-gray-400">
+    {% trans "Your conversations live on the left. Open one to continue, or create a new chat below." %}
+  </p>
+  <a href="{% url 'chat_new' %}" class="btn-primary mt-6">{% trans "New chat" %}</a>
 </div>
-
-{% if threads %}
-  <ul class="space-y-2">
-    {% for t in threads %}
-      <li>
-        <a href="{% url 'chat_detail' thread_id=t.thread_id %}"
-           class="block rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 transition-colors hover:border-white/[0.18]">
-          <div class="flex items-center justify-between gap-3">
-            {% if t.title %}
-            <span class="truncate font-medium text-white">{{ t.title }}</span>
-            {% else %}
-            <span class="truncate text-sm italic text-gray-500">{% trans "generating title…" %}</span>
-            {% endif %}
-            <span class="shrink-0 text-xs text-gray-500">{{ t.last_active_at|timesince }} {% trans "ago" %}</span>
-          </div>
-          <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span class="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-xs text-gray-400">{{ t.repo_id }}</span>
-            {% if t.ref %}
-            <span class="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 font-mono text-xs text-gray-400">{{ t.ref }}</span>
-            {% endif %}
-            {% if t.active_run_id %}
-            <span class="inline-flex items-center gap-1 text-xs text-green-400">
-              <span class="h-1.5 w-1.5 rounded-full bg-green-400"></span>{% trans "active" %}
-            </span>
-            {% endif %}
-          </div>
-        </a>
-      </li>
-    {% endfor %}
-  </ul>
-  {% include "accounts/_pagination.html" %}
-{% else %}
-  <div class="rounded-xl border border-dashed border-white/[0.08] p-12 text-center">
-    <p class="text-gray-400">{% trans "No conversations yet." %}</p>
-    <a href="{% url 'chat_new' %}" class="btn-primary mt-4 inline-flex">{% trans "Start a chat" %}</a>
-  </div>
-{% endif %}
 {% endblock %}

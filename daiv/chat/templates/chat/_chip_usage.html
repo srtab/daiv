@@ -1,0 +1,10 @@
+{# daiv/chat/templates/chat/_chip_usage.html — read-only #}
+<span class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.02] px-2 py-0.5 text-xs text-gray-300"
+      x-show="usage_summary && usage_summary.total_tokens > 0">
+  <template x-if="usage_summary && usage_summary.cost_usd">
+    <span x-text="`$${formatCost(usage_summary.cost_usd)}`"></span>
+  </template>
+  <template x-if="!(usage_summary && usage_summary.cost_usd)">
+    <span><span class="font-semibold" x-text="formatTokens(usage_summary.total_tokens)"></span> tok</span>
+  </template>
+</span>

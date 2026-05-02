@@ -1,0 +1,31 @@
+{# daiv/chat/templates/chat/_panel_todos.html #}
+{% load i18n %}
+<aside x-show="panel === 'todos'" x-cloak
+       x-transition:enter="transition-transform duration-150"
+       x-transition:enter-start="translate-x-full"
+       x-transition:enter-end="translate-x-0"
+       x-transition:leave="transition-transform duration-100"
+       x-transition:leave-start="translate-x-0"
+       x-transition:leave-end="translate-x-full"
+       @click.outside="panel = null"
+       @keydown.escape.window="panel = null"
+       class="absolute right-0 top-0 h-full w-[300px] max-w-full
+              border-l border-white/[0.08] bg-[#0c1228] p-4 shadow-2xl z-30 overflow-y-auto">
+  <div class="mb-3 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-white">{% trans "Todos" %}
+      <span class="ml-1 text-xs text-gray-500" x-text="`${todosDone}/${latestTodos.length}`"></span>
+    </h2>
+    <button type="button" @click="panel = null"
+            class="text-gray-500 hover:text-white" aria-label="{% trans 'Close' %}">×</button>
+  </div>
+  <template x-if="!latestTodos.length">
+    <div class="text-sm text-gray-500">{% trans "No todos yet." %}</div>
+  </template>
+  <template x-for="t in latestTodos" :key="t.content">
+    <div class="flex items-start gap-2 py-1.5 text-sm"
+         :class="(t.status||'pending').toLowerCase() === 'completed' ? 'text-gray-500 line-through' : 'text-gray-200'">
+      <span x-text="todoIcon(t.status)" class="text-xs"></span>
+      <span x-text="t.content"></span>
+    </div>
+  </template>
+</aside>

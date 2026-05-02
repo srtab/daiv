@@ -1,0 +1,50 @@
+{# daiv/chat/templates/chat/_thread_list.html #}
+{% load i18n %}
+{% if threads %}
+  <div data-filter="{{ filter_signature|default:'' }}">
+    {% include "chat/_thread_rows.html" %}
+  </div>
+{% else %}
+  <div class="px-6 py-10 text-center text-sm text-gray-500">
+    {% trans "No threads match these filters." %}
+  </div>
+{% endif %}
+<script>
+(function() {
+  const root = document.getElementById('workspace-list');
+  if (!root || root.__selectionWired) return;
+  root.__selectionWired = true;
+  root.addEventListener('click', function(evt) {
+    const row = evt.target.closest('[data-thread-id]');
+    if (!row) return;
+    root.querySelectorAll('[data-selected]').forEach(el => el.removeAttribute('data-selected'));
+    row.dataset.selected = 'true';
+  });
+  window.addEventListener('popstate', function() {
+    const m = window.location.pathname.match(/\/chat\/([^\/]+)\/?$/);
+    const id = m && m[1] !== 'new' ? m[1] : null;
+    root.querySelectorAll('[data-thread-id]').forEach(el => {
+      if (id && el.dataset.threadId === id) el.dataset.selected = 'true';
+      else el.removeAttribute('data-selected');
+    });
+  });
+})();
+(function() {
+  const root = document.getElementById('workspace-list');
+  if (!root || root.__filterGuardWired) return;
+  root.__filterGuardWired = true;
+  document.body.addEventListener('htmx:beforeOnLoad', function(evt) {
+    if (!evt.detail || !evt.detail.elt) return;
+    const triggerWrapper = root.querySelector('[data-filter]');
+    if (!triggerWrapper) return;
+    const url = new URL(evt.detail.requestConfig.path || '', window.location.origin);
+    const params = new URLSearchParams(url.search);
+    const reqSig = ['q','repo_id','status','all'].map(k => `${k}=${params.get(k) || ''}`).join('&');
+    const curSig = triggerWrapper.dataset.filter || '';
+    // Only guard sentinel-driven appends (fragment=rows). Filter-form swaps are fine.
+    if (params.get('fragment') === 'rows' && reqSig !== curSig) {
+      evt.preventDefault();
+    }
+  });
+})();
+</script>

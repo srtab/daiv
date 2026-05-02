@@ -1,0 +1,6 @@
+{# daiv/chat/templates/chat/_status_pill.html #}
+{% load i18n %}
+<span class="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs"
+      :class="runStatus.label === 'active' ? 'text-green-400' : 'text-gray-400'">
+  <span x-text="runStatus.label"></span>
+</span>

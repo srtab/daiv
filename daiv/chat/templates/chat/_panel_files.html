@@ -1,0 +1,31 @@
+{# daiv/chat/templates/chat/_panel_files.html #}
+{% load i18n %}
+<aside x-show="panel === 'files'" x-cloak
+       x-transition:enter="transition-transform duration-150"
+       x-transition:enter-start="translate-x-full"
+       x-transition:enter-end="translate-x-0"
+       x-transition:leave="transition-transform duration-100"
+       x-transition:leave-start="translate-x-0"
+       x-transition:leave-end="translate-x-full"
+       @click.outside="panel = null"
+       @keydown.escape.window="panel = null"
+       class="absolute right-0 top-0 h-full w-[300px] max-w-full
+              border-l border-white/[0.08] bg-[#0c1228] p-4 shadow-2xl z-30 overflow-y-auto">
+  <div class="mb-3 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-white">{% trans "Files changed" %}
+      <span class="ml-1 text-xs text-gray-500" x-text="filesTouched.length"></span>
+    </h2>
+    <button type="button" @click="panel = null"
+            class="text-gray-500 hover:text-white" aria-label="{% trans 'Close' %}">×</button>
+  </div>
+  <template x-if="!filesTouched.length">
+    <div class="text-sm text-gray-500">{% trans "No files changed yet." %}</div>
+  </template>
+  <template x-for="f in filesTouched" :key="f.path">
+    <button type="button" class="block w-full text-left py-1.5 text-sm text-gray-200 hover:text-white"
+            @click="jumpToTool(f.segmentId); panel = null">
+      <span x-text="fileOpMark(f.op)" class="mr-2 text-xs text-gray-500"></span>
+      <span x-text="f.path"></span>
+    </button>
+  </template>
+</aside>

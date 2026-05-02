@@ -1,0 +1,8 @@
+{# daiv/chat/templates/chat/_chip_mr.html — link out, conditional #}
+<template x-if="thread && thread.merge_request">
+  <a :href="thread.merge_request.web_url" target="_blank" rel="noopener"
+     class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.02] px-2 py-0.5 text-xs text-gray-300 hover:border-violet-400">
+    <span x-text="`MR #${thread.merge_request.iid}`"></span>
+    <span aria-hidden="true">→</span>
+  </a>
+</template>

@@ -32,10 +32,9 @@
         </svg>
       </button>
       <div class="flex-1"></div>
-      <div class="flex items-center gap-4">
-        {% include "notifications/_bell.html" %}
-        {% include "accounts/_user_menu.html" %}
-      </div>
+      <span class="hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">
+        {% block app_section_label %}{% endblock %}
+      </span>
     </header>
 
     <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 py-8 sm:px-6 sm:py-10">
