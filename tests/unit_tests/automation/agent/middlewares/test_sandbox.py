@@ -1,6 +1,4 @@
 import base64
-import io
-import tarfile
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -19,7 +17,6 @@ def _make_sandbox_config_mock(disallow=(), allow=()):
     config = Mock()
     config.sandbox = Mock()
     config.sandbox.base_image = "python:3.12"
-    config.sandbox.ephemeral = False
     config.sandbox.network_enabled = False
     config.sandbox.memory_bytes = None
     config.sandbox.cpus = None
@@ -253,39 +250,20 @@ class TestBashToolPolicyEnforcement:
 
 
 class TestRunBashCommands:
-    async def test_run_bash_commands_creates_archive_and_includes_git(self, tmp_path: Path):
-        repo_dir = tmp_path / "repoX"
-        (repo_dir / "src").mkdir(parents=True)
-        (repo_dir / "src" / "app.py").write_text("print('hi')\n")
-        (repo_dir / ".gitignore").write_text("*.pyc\n")
-        (repo_dir / "pyproject.toml").write_text("[project]\nname = 'repoX'\n")
-
-        # Note: current implementation includes `.git` in the archive.
-        (repo_dir / ".git").mkdir()
-        (repo_dir / ".git" / "config").write_text("[core]\nrepositoryformatversion = 0\n")
-
+    async def test_run_bash_commands_no_archive_field(self):
+        """_run_bash_commands no longer tarballs the working dir; archive is gone from RunCommandsRequest."""
         run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
         with patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.run_commands", new=run_commands_mock):
-            response = await _run_bash_commands(["echo ok"], repo_dir, "sess_1")
+            response = await _run_bash_commands(["echo ok"], "sess_1")
 
         assert response is not None
-
         run_commands_mock.assert_awaited_once()
         _session_id, request = run_commands_mock.call_args.args
 
-        archive_bytes = base64.b64decode(request.archive)
-        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tar:
-            names = tar.getnames()
-
-        # Rootless: no repoX/ prefix
-        assert ".gitignore" in names
-        assert "pyproject.toml" in names
-        assert "src" in names
-        assert "src/app.py" in names
-        assert not any(n.startswith("repoX/") for n in names)
-
-        # `.git` is included in the archive (current behavior)
-        assert any(n == ".git" or n.startswith(".git/") for n in names)
+        # The RunCommandsRequest schema no longer has an archive field.
+        dumped = request.model_dump()
+        assert "archive" not in dumped
+        assert dumped["commands"] == ["echo ok"]
 
 
 class TestSandboxMiddleware:

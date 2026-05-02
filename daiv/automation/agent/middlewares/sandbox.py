@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import base64
-import io
 import json
 import logging
-import tarfile
-from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired
 
 import httpx
@@ -154,9 +150,7 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
     if denial_error:
         return denial_error
 
-    repo_working_dir = Path(runtime.context.gitrepo.working_dir)
-
-    response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
+    response = await _run_bash_commands([command], runtime.state["session_id"])
     if response is None:
         return (
             "error: Failed to run command. Verify that the command is valid. "
@@ -262,31 +256,16 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
     )
 
 
-async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: str) -> RunCommandsResponse | None:
+async def _run_bash_commands(commands: list[str], session_id: str) -> RunCommandsResponse | None:
     """
     Run bash commands in the daiv-sandbox service session.
 
-    Args:
-        commands: The list of commands to execute.
-        repo_dir: The repository directory.
-        session_id: The sandbox session ID.
-
-    Returns:
-        The response from running the commands.
+    The sandbox workspace is kept in sync with daiv via eager forward sync
+    (see SyncingFilesystemMiddleware) and the patch_extractor's per-turn diff,
+    so we no longer ship the working tree as an archive on every call.
     """
-    tar_archive = io.BytesIO()
-
-    with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
-        for child in repo_dir.iterdir():
-            tar.add(child, arcname=child.name)
-
     try:
-        response = await DAIVSandboxClient().run_commands(
-            session_id,
-            RunCommandsRequest(
-                commands=commands, archive=base64.b64encode(tar_archive.getvalue()).decode(), fail_fast=True
-            ),
-        )
+        return await DAIVSandboxClient().run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=True))
     except httpx.RequestError:
         logger.exception("Unexpected error calling sandbox API.")
         return None
@@ -294,13 +273,8 @@ async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: st
         if e.response.status_code == 400:
             logger.error("Bad request calling sandbox API: %s", e.response.text)
             return None
-
         logger.exception("Status code %s calling sandbox API: %s", e.response.status_code, e.response.text)
         return None
-    finally:
-        tar_archive.close()
-
-    return response
 
 
 class SandboxState(AgentState):
@@ -368,7 +342,6 @@ class SandboxMiddleware(AgentMiddleware):
             StartSessionRequest(
                 base_image=runtime.context.config.sandbox.base_image,
                 extract_patch=True,
-                ephemeral=runtime.context.config.sandbox.ephemeral,
                 network_enabled=runtime.context.config.sandbox.network_enabled,
                 memory_bytes=runtime.context.config.sandbox.memory_bytes,
                 cpus=runtime.context.config.sandbox.cpus,
