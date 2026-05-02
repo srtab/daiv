@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 import stat
 from pathlib import Path
 from typing import Annotated
@@ -222,6 +223,67 @@ def _make_sync_write_tool(backend, working_dir: Path, sandbox_client_factory) ->
     )
 
 
-# Task 17 sets `_make_sync_edit_tool` to a real implementation. Until then it's
-# `None`, which `_install_sync_wrappers` treats as "skip the edit_file replacement".
-_make_sync_edit_tool = None
+def _make_sync_edit_tool(backend, working_dir: Path, sandbox_client_factory) -> StructuredTool:
+    """A sync-aware replacement for deepagents' edit_file."""
+
+    async def coroutine(
+        file_path: Annotated[str, "Absolute path to the file to edit. Must be absolute, not relative."],
+        old_string: Annotated[
+            str, "The exact text to find and replace. Must be unique in the file unless replace_all is True."
+        ],
+        new_string: Annotated[str, "The text to replace old_string with. Must be different from old_string."],
+        runtime,
+        *,
+        replace_all: Annotated[
+            bool, "If True, replace all occurrences of old_string. If False (default), old_string must be unique."
+        ] = False,
+    ) -> str:
+        try:
+            validated_path = validate_path(file_path)
+        except ValueError as e:
+            return f"Error: {e}"
+
+        resolved_path = backend._resolve_path(validated_path)
+
+        # Snapshot pre-edit bytes + mode for rollback.
+        try:
+            pre_bytes = Path(resolved_path).read_bytes()
+            pre_mode = stat.S_IMODE(Path(resolved_path).stat().st_mode)
+        except OSError as exc:
+            return f"Error: cannot read {file_path} before edit: {exc}"
+
+        result = await backend.aedit(validated_path, old_string, new_string, replace_all=replace_all)
+        if result.error:
+            return result.error
+
+        def _rollback() -> None:
+            try:
+                Path(resolved_path).write_bytes(pre_bytes)
+                os.chmod(resolved_path, pre_mode)  # noqa: PTH101
+            except OSError:
+                logger.exception("rollback restore failed for %s", resolved_path)
+
+        try:
+            sandbox_path = _sandbox_path_for(resolved_path, working_dir)
+            post_bytes = Path(resolved_path).read_bytes()
+            post_mode = stat.S_IMODE(Path(resolved_path).stat().st_mode)
+        except (ValueError, OSError) as exc:
+            _rollback()
+            return f"Error: failed to prepare sandbox sync for {file_path}: {exc}"
+
+        session_id = (runtime.state or {}).get("session_id")
+        if not session_id:
+            _rollback()
+            return "Error: sandbox session not started"
+
+        client = sandbox_client_factory()
+        ok, err = await _sync_put(client, session_id, sandbox_path, post_bytes, post_mode)
+        if not ok:
+            _rollback()
+            return f"Error: failed to sync edit to sandbox: {err}"
+
+        return f"Successfully replaced {result.occurrences} instance(s) of the string in '{result.path}'"
+
+    return StructuredTool.from_function(
+        name="edit_file", description=EDIT_FILE_TOOL_DESCRIPTION, coroutine=coroutine, infer_schema=True
+    )

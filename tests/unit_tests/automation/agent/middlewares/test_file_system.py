@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import stat
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -115,6 +117,65 @@ async def test_sync_write_file_missing_session_id(fake_client, working_repo):
     assert not (working_repo / "foo.py").exists()
     assert "session" in result.lower()
     fake_client.apply_file_mutations.assert_not_awaited()
+
+
+async def test_sync_edit_file_writes_locally_and_syncs(fake_client, working_repo):
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+    from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
+
+    target = working_repo / "foo.py"
+    target.write_text("hello world\n")
+    os.chmod(target, 0o755)  # noqa: PTH101, S103
+
+    fake_client.apply_file_mutations.return_value = ApplyMutationsResponse(
+        results=[MutationResult(path="/repo/foo.py", ok=True, error=None)]
+    )
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+
+    edit = next(t for t in mw.tools if t.name == "edit_file")
+    runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    result = await edit.coroutine(
+        file_path=f"/{working_repo.name}/foo.py", old_string="hello", new_string="goodbye", runtime=runtime
+    )
+
+    assert (working_repo / "foo.py").read_text() == "goodbye world\n"
+    # Mode preserved.
+    assert stat.S_IMODE(target.stat().st_mode) == 0o755
+    args = fake_client.apply_file_mutations.call_args
+    mutation = args.args[1].mutations[0]
+    assert mutation.mode == 0o755
+    assert mutation.content == b"goodbye world\n"
+    assert "Successfully replaced" in result
+
+
+async def test_sync_edit_file_rolls_back_on_sync_failure(fake_client, working_repo):
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+
+    target = working_repo / "foo.py"
+    target.write_text("original\n")
+    os.chmod(target, 0o644)  # noqa: PTH101
+
+    fake_client.apply_file_mutations.side_effect = RuntimeError("network down")
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+
+    edit = next(t for t in mw.tools if t.name == "edit_file")
+    runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    result = await edit.coroutine(
+        file_path=f"/{working_repo.name}/foo.py", old_string="original", new_string="modified", runtime=runtime
+    )
+
+    # Pre-edit content and mode restored.
+    assert (working_repo / "foo.py").read_text() == "original\n"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o644
+    assert "Error" in result or "failed" in result.lower()
 
 
 async def test_sandbox_sync_disabled_uses_unmodified_tools(working_repo):
