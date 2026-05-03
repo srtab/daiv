@@ -59,6 +59,8 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 
 **Django settings** — split across `daiv/daiv/settings/components/`; the test module is `daiv.settings.test`.
 
+**Python 3.14 except syntax (PEP 758)** — `except E1, E2:` is valid and equivalent to `except (E1, E2):`. Ruff canonicalises to the unparenthesised form, so do NOT "fix" it back to parens; both run, and rewriting is just churn.
+
 **Sandbox wire schemas** — `daiv/core/sandbox/schemas.dump.json` is the canonical sandbox-side schema dump. The `tests/unit_tests/core/sandbox/test_schema_consistency.py` test will fail if the daiv-side schemas drift from it. Regenerate after any change to `daiv-sandbox/daiv_sandbox/schemas.py`:
 
 ```bash
