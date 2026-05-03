@@ -66,7 +66,6 @@ The sandbox is configured per-repository in `.daiv.yml`:
 sandbox:
   base_image: "python:3.12-bookworm"  # Docker image (set to null to disable)
   network_enabled: false               # Allow network access
-  ephemeral: false                     # Ephemeral sessions
   memory_bytes: 4294967296             # Memory limit (4 GB)
   cpus: 2.0                            # CPU limit
   command_policy:
@@ -78,7 +77,6 @@ sandbox:
 | ------------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
 | `base_image`              | `python:3.12-bookworm` | Docker image for the sandbox. Set to `null` to disable the sandbox for this repository. |
 | `network_enabled`         | `false`                | Whether the container can access the network.                                           |
-| `ephemeral`               | `false`                | Whether sessions are ephemeral (no state persistence).                                  |
 | `memory_bytes`            | `null` (unlimited)     | Memory limit in bytes.                                                                  |
 | `cpus`                    | `null` (unlimited)     | CPU limit.                                                                              |
 | `command_policy.allow`    | `[]`                   | Commands to explicitly allow.                                                           |

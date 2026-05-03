@@ -2331,7 +2331,6 @@ The sandbox is configured per-repository in `.daiv.yml`:
 sandbox:
   base_image: "python:3.12-bookworm"  # Docker image (set to null to disable)
   network_enabled: false               # Allow network access
-  ephemeral: false                     # Ephemeral sessions
   memory_bytes: 4294967296             # Memory limit (4 GB)
   cpus: 2.0                            # CPU limit
   command_policy:
@@ -2343,7 +2342,6 @@ sandbox:
 | ------------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
 | `base_image`              | `python:3.12-bookworm` | Docker image for the sandbox. Set to `null` to disable the sandbox for this repository. |
 | `network_enabled`         | `false`                | Whether the container can access the network.                                           |
-| `ephemeral`               | `false`                | Whether sessions are ephemeral (no state persistence).                                  |
 | `memory_bytes`            | `null` (unlimited)     | Memory limit in bytes.                                                                  |
 | `cpus`                    | `null` (unlimited)     | CPU limit.                                                                              |
 | `command_policy.allow`    | `[]`                   | Commands to explicitly allow.                                                           |
@@ -2539,7 +2537,6 @@ slash_commands:
 # Sandbox
 sandbox:
   base_image: "python:3.12-bookworm"
-  ephemeral: false
   network_enabled: false
   cpus: 2.0
   memory_bytes: 4294967296
@@ -2626,15 +2623,14 @@ slash_commands:
 
 Configure the sandbox for command execution. See [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) for a full explanation of what the sandbox does and how the command policy works.
 
-| Option                            | Type            | Default                | Description                                |
-| --------------------------------- | --------------- | ---------------------- | ------------------------------------------ |
-| `sandbox.base_image`              | `str \| null`   | `python:3.12-bookworm` | Docker image. Set to `null` to disable.    |
-| `sandbox.ephemeral`               | `bool`          | `false`                | Ephemeral sessions (no state persistence). |
-| `sandbox.network_enabled`         | `bool`          | `false`                | Allow network access.                      |
-| `sandbox.cpus`                    | `float \| null` | `null`                 | CPU limit.                                 |
-| `sandbox.memory_bytes`            | `int \| null`   | `null`                 | Memory limit in bytes.                     |
-| `sandbox.command_policy.allow`    | `list[str]`     | `[]`                   | Command prefixes to explicitly permit.     |
-| `sandbox.command_policy.disallow` | `list[str]`     | `[]`                   | Command prefixes to block.                 |
+| Option                            | Type            | Default                | Description                             |
+| --------------------------------- | --------------- | ---------------------- | --------------------------------------- |
+| `sandbox.base_image`              | `str \| null`   | `python:3.12-bookworm` | Docker image. Set to `null` to disable. |
+| `sandbox.network_enabled`         | `bool`          | `false`                | Allow network access.                   |
+| `sandbox.cpus`                    | `float \| null` | `null`                 | CPU limit.                              |
+| `sandbox.memory_bytes`            | `int \| null`   | `null`                 | Memory limit in bytes.                  |
+| `sandbox.command_policy.allow`    | `list[str]`     | `[]`                   | Command prefixes to explicitly permit.  |
+| `sandbox.command_policy.disallow` | `list[str]`     | `[]`                   | Command prefixes to block.              |
 
 ## Branch naming and commit conventions
 

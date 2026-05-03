@@ -34,7 +34,6 @@ slash_commands:
 # Sandbox
 sandbox:
   base_image: "python:3.12-bookworm"
-  ephemeral: false
   network_enabled: false
   cpus: 2.0
   memory_bytes: 4294967296
@@ -121,15 +120,14 @@ slash_commands:
 
 Configure the sandbox for command execution. See [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) for a full explanation of what the sandbox does and how the command policy works.
 
-| Option                            | Type            | Default                | Description                                |
-| --------------------------------- | --------------- | ---------------------- | ------------------------------------------ |
-| `sandbox.base_image`              | `str \| null`   | `python:3.12-bookworm` | Docker image. Set to `null` to disable.    |
-| `sandbox.ephemeral`               | `bool`          | `false`                | Ephemeral sessions (no state persistence). |
-| `sandbox.network_enabled`         | `bool`          | `false`                | Allow network access.                      |
-| `sandbox.cpus`                    | `float \| null` | `null`                 | CPU limit.                                 |
-| `sandbox.memory_bytes`            | `int \| null`   | `null`                 | Memory limit in bytes.                     |
-| `sandbox.command_policy.allow`    | `list[str]`     | `[]`                   | Command prefixes to explicitly permit.     |
-| `sandbox.command_policy.disallow` | `list[str]`     | `[]`                   | Command prefixes to block.                 |
+| Option                            | Type            | Default                | Description                             |
+| --------------------------------- | --------------- | ---------------------- | --------------------------------------- |
+| `sandbox.base_image`              | `str \| null`   | `python:3.12-bookworm` | Docker image. Set to `null` to disable. |
+| `sandbox.network_enabled`         | `bool`          | `false`                | Allow network access.                   |
+| `sandbox.cpus`                    | `float \| null` | `null`                 | CPU limit.                              |
+| `sandbox.memory_bytes`            | `int \| null`   | `null`                 | Memory limit in bytes.                  |
+| `sandbox.command_policy.allow`    | `list[str]`     | `[]`                   | Command prefixes to explicitly permit.  |
+| `sandbox.command_policy.disallow` | `list[str]`     | `[]`                   | Command prefixes to block.              |
 
 ## Branch naming and commit conventions
 
