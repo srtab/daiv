@@ -331,6 +331,27 @@ async def test_read_only_with_sandbox_sync_strips_write_and_edit(working_repo):
     assert mw._syncer is None
 
 
+async def test_wrapped_tools_inject_runtime(working_repo):
+    """Regression: `runtime` must be annotated so LangChain treats it as an injected arg.
+
+    Without the `ToolRuntime` annotation, langchain leaves `runtime` in the LLM-facing schema
+    and never injects it, so the agent's first edit_file/write_file call crashes with
+    `missing 1 required positional argument: 'runtime'`.
+    """
+    from deepagents.backends.filesystem import FilesystemBackend
+
+    from automation.agent.middlewares.file_system import FilesystemMiddleware
+
+    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+
+    write = next(t for t in mw.tools if t.name == "write_file")
+    edit = next(t for t in mw.tools if t.name == "edit_file")
+
+    assert "runtime" not in write.args, f"runtime leaked into LLM args: {list(write.args)}"
+    assert "runtime" not in edit.args, f"runtime leaked into LLM args: {list(edit.args)}"
+
+
 async def test_upstream_success_prefixes_remain_stable(working_repo):
     """Guard against deepagents bumps that change the success-message wording.
 

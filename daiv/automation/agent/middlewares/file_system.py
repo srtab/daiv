@@ -17,6 +17,8 @@ from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import FilesystemMiddleware as BaseFilesystemMiddleware
+from deepagents.middleware.filesystem import FilesystemState
+from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_core.tools import BaseTool, StructuredTool
 
@@ -161,7 +163,7 @@ class _SandboxSyncer:
                 str, "Absolute path where the file should be created. Must be absolute, not relative."
             ],
             content: Annotated[str, "The text content to write to the file. This parameter is required."],
-            runtime,
+            runtime: ToolRuntime[None, FilesystemState],
         ) -> str:
             async with syncer.lock:
                 upstream_result = await original_coroutine(file_path=file_path, content=content, runtime=runtime)
@@ -189,7 +191,7 @@ class _SandboxSyncer:
                 return error or upstream_result
 
         return StructuredTool.from_function(
-            name=original.name, description=original.description, coroutine=wrapped, args_schema=original.args_schema
+            name=original.name, description=original.description, coroutine=wrapped, infer_schema=True
         )
 
     def wrap_edit_tool(self, original: BaseTool) -> StructuredTool:
@@ -203,7 +205,7 @@ class _SandboxSyncer:
                 str, "The exact text to find and replace. Must be unique in the file unless replace_all is True."
             ],
             new_string: Annotated[str, "The text to replace old_string with. Must be different from old_string."],
-            runtime,
+            runtime: ToolRuntime[None, FilesystemState],
             *,
             replace_all: Annotated[
                 bool, "If True, replace all occurrences of old_string. If False (default), old_string must be unique."
@@ -256,7 +258,7 @@ class _SandboxSyncer:
                 return error or upstream_result
 
         return StructuredTool.from_function(
-            name=original.name, description=original.description, coroutine=wrapped, args_schema=original.args_schema
+            name=original.name, description=original.description, coroutine=wrapped, infer_schema=True
         )
 
 
