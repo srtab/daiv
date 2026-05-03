@@ -64,6 +64,16 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 
 **Django settings** — test module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is injected automatically in tests.
 
+**Python 3.14 except syntax (PEP 758)** — `except E1, E2:` is valid and equivalent to `except (E1, E2):`. Ruff canonicalises to the unparenthesised form, so do NOT "fix" it back to parens; both run, and rewriting is just churn.
+
+**Sandbox wire schemas** — `daiv/core/sandbox/schemas.dump.json` is the canonical sandbox-side schema dump. The `tests/unit_tests/core/sandbox/test_schema_consistency.py` test will fail if the daiv-side schemas drift from it. Regenerate after any change to `daiv_sandbox/schemas.py` in the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repo:
+
+```bash
+# from a checkout of the daiv-sandbox repo
+uv run --all-extras python scripts/dump_schemas.py \
+    > /path/to/daiv/daiv/core/sandbox/schemas.dump.json
+```
+
 ## Where changes usually go
 
 | Change type | Start here |

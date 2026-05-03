@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import base64
+import asyncio
 import io
 import json
 import logging
@@ -154,9 +154,7 @@ async def bash_tool(command: Annotated[str, "The command to execute."], runtime:
     if denial_error:
         return denial_error
 
-    repo_working_dir = Path(runtime.context.gitrepo.working_dir)
-
-    response = await _run_bash_commands([command], repo_working_dir, runtime.state["session_id"])
+    response = await _run_bash_commands([command], runtime.state["session_id"])
     if response is None:
         return (
             "error: Failed to run command. Verify that the command is valid. "
@@ -262,45 +260,26 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
     )
 
 
-async def _run_bash_commands(commands: list[str], repo_dir: Path, session_id: str) -> RunCommandsResponse | None:
-    """
-    Run bash commands in the daiv-sandbox service session.
-
-    Args:
-        commands: The list of commands to execute.
-        repo_dir: The repository directory.
-        session_id: The sandbox session ID.
-
-    Returns:
-        The response from running the commands.
-    """
-    tar_archive = io.BytesIO()
-
-    with tarfile.open(fileobj=tar_archive, mode="w:gz") as tar:
+def _make_repo_archive(working_dir: str) -> bytes:
+    """Tar the contents of `working_dir` (members are relative to working_dir)."""
+    repo_dir = Path(working_dir)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         for child in repo_dir.iterdir():
-            tar.add(child, arcname=child.name)
+            tf.add(child, arcname=child.name)
+    return buf.getvalue()
 
+
+async def _run_bash_commands(commands: list[str], session_id: str) -> RunCommandsResponse | None:
+    """Run bash commands in the existing sandbox session."""
     try:
-        response = await DAIVSandboxClient().run_commands(
-            session_id,
-            RunCommandsRequest(
-                commands=commands, archive=base64.b64encode(tar_archive.getvalue()).decode(), fail_fast=True
-            ),
-        )
+        return await DAIVSandboxClient().run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=True))
     except httpx.RequestError:
         logger.exception("Unexpected error calling sandbox API.")
         return None
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 400:
-            logger.error("Bad request calling sandbox API: %s", e.response.text)
-            return None
-
         logger.exception("Status code %s calling sandbox API: %s", e.response.status_code, e.response.text)
         return None
-    finally:
-        tar_archive.close()
-
-    return response
 
 
 class SandboxState(AgentState):
@@ -352,6 +331,9 @@ class SandboxMiddleware(AgentMiddleware):
         """
         Prepare state for lazy sandbox session start.
 
+        Starts the session, seeds the workspace from the on-disk repo, and
+        cleans up the session on seed failure to avoid container leaks.
+
         Args:
             state (StateT): The state of the agent.
             runtime (Runtime[RuntimeCtx]): The runtime context.
@@ -364,16 +346,25 @@ class SandboxMiddleware(AgentMiddleware):
             # lifecycle. Skip starting a duplicate.
             return None
 
-        session_id = await DAIVSandboxClient().start_session(
+        client = DAIVSandboxClient()
+        session_id = await client.start_session(
             StartSessionRequest(
                 base_image=runtime.context.config.sandbox.base_image,
                 extract_patch=True,
-                ephemeral=runtime.context.config.sandbox.ephemeral,
                 network_enabled=runtime.context.config.sandbox.network_enabled,
                 memory_bytes=runtime.context.config.sandbox.memory_bytes,
                 cpus=runtime.context.config.sandbox.cpus,
             )
         )
+        try:
+            archive = await asyncio.to_thread(_make_repo_archive, runtime.context.gitrepo.working_dir)
+            await client.seed_session(session_id, repo_archive=archive)
+        except Exception:
+            try:
+                await client.close_session(session_id)
+            except Exception:
+                logger.exception("Failed to close session %s after seed failure", session_id)
+            raise
         return {"session_id": session_id}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
@@ -388,11 +379,19 @@ class SandboxMiddleware(AgentMiddleware):
             dict[str, str] | None: The state updates with the closed sandbox session ID.
         """
         if self.close_session and "session_id" in state and state["session_id"] is not None:
+            session_id = state["session_id"]
             try:
-                await DAIVSandboxClient().close_session(state["session_id"])
-            except httpx.HTTPStatusError:
-                # Ignore errors closing the session, it's not critical. Maybe the session was already closed.
-                logger.warning("Error closing sandbox session: %s", state["session_id"])
+                await DAIVSandboxClient().close_session(session_id)
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status in (404, 409):
+                    logger.debug("Sandbox session %s already closed (status=%s)", session_id, status)
+                else:
+                    logger.exception(
+                        "Sandbox session %s close returned status=%s; container may have leaked", session_id, status
+                    )
+            except httpx.RequestError:
+                logger.exception("Sandbox session %s close request failed; container may have leaked", session_id)
             return {"session_id": None}
         return None
 

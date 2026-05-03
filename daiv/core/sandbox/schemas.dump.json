@@ -1,0 +1,395 @@
+{
+  "ApplyMutationsRequest": {
+    "$defs": {
+      "PutMutation": {
+        "properties": {
+          "content": {
+            "description": "Base64-encoded full file content.",
+            "format": "base64",
+            "title": "Content",
+            "type": "string"
+          },
+          "mode": {
+            "description": "POSIX mode bits to set on the file.",
+            "maximum": 4095,
+            "minimum": 0,
+            "title": "Mode",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Absolute path inside the sandbox, must be under /repo.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content",
+          "mode"
+        ],
+        "title": "PutMutation",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "mutations": {
+        "items": {
+          "$ref": "#/$defs/PutMutation"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "title": "Mutations",
+        "type": "array"
+      }
+    },
+    "required": [
+      "mutations"
+    ],
+    "title": "ApplyMutationsRequest",
+    "type": "object"
+  },
+  "ApplyMutationsResponse": {
+    "$defs": {
+      "MutationResult": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Per-item error message when ok=False.",
+            "title": "Error"
+          },
+          "ok": {
+            "description": "Whether the mutation was applied successfully.",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "The path the mutation targeted.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "ok"
+        ],
+        "title": "MutationResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "results": {
+        "items": {
+          "$ref": "#/$defs/MutationResult"
+        },
+        "title": "Results",
+        "type": "array"
+      }
+    },
+    "required": [
+      "results"
+    ],
+    "title": "ApplyMutationsResponse",
+    "type": "object"
+  },
+  "MutationResult": {
+    "properties": {
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Per-item error message when ok=False.",
+        "title": "Error"
+      },
+      "ok": {
+        "description": "Whether the mutation was applied successfully.",
+        "title": "Ok",
+        "type": "boolean"
+      },
+      "path": {
+        "description": "The path the mutation targeted.",
+        "title": "Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "ok"
+    ],
+    "title": "MutationResult",
+    "type": "object"
+  },
+  "PutMutation": {
+    "properties": {
+      "content": {
+        "description": "Base64-encoded full file content.",
+        "format": "base64",
+        "title": "Content",
+        "type": "string"
+      },
+      "mode": {
+        "description": "POSIX mode bits to set on the file.",
+        "maximum": 4095,
+        "minimum": 0,
+        "title": "Mode",
+        "type": "integer"
+      },
+      "path": {
+        "description": "Absolute path inside the sandbox, must be under /repo.",
+        "title": "Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "content",
+      "mode"
+    ],
+    "title": "PutMutation",
+    "type": "object"
+  },
+  "RunRequest": {
+    "properties": {
+      "commands": {
+        "description": "List of bash commands to be executed in the sandbox.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Commands",
+        "type": "array"
+      },
+      "fail_fast": {
+        "default": false,
+        "description": "Stop execution immediately if any command fails (exit_code != 0). Defaults to False for backward compatibility.",
+        "title": "Fail Fast",
+        "type": "boolean"
+      },
+      "timeout": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Maximum execution time in seconds for each command. Overrides the server default (DAIV_SANDBOX_COMMAND_TIMEOUT). 0 means no timeout.",
+        "title": "Timeout"
+      }
+    },
+    "required": [
+      "commands"
+    ],
+    "title": "RunRequest",
+    "type": "object"
+  },
+  "RunResponse": {
+    "$defs": {
+      "RunResult": {
+        "properties": {
+          "command": {
+            "description": "Command that was executed.",
+            "title": "Command",
+            "type": "string"
+          },
+          "exit_code": {
+            "description": "Exit code of the command.",
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "output": {
+            "description": "Output of the command.",
+            "title": "Output",
+            "type": "string"
+          },
+          "workdir": {
+            "description": "Working directory of the command.",
+            "title": "Workdir",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "output",
+          "exit_code",
+          "workdir"
+        ],
+        "title": "RunResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "patch": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Base64-encoded patch with the changes.",
+        "title": "Patch"
+      },
+      "results": {
+        "description": "List of results of each command.",
+        "items": {
+          "$ref": "#/$defs/RunResult"
+        },
+        "title": "Results",
+        "type": "array"
+      }
+    },
+    "required": [
+      "results",
+      "patch"
+    ],
+    "title": "RunResponse",
+    "type": "object"
+  },
+  "RunResult": {
+    "properties": {
+      "command": {
+        "description": "Command that was executed.",
+        "title": "Command",
+        "type": "string"
+      },
+      "exit_code": {
+        "description": "Exit code of the command.",
+        "title": "Exit Code",
+        "type": "integer"
+      },
+      "output": {
+        "description": "Output of the command.",
+        "title": "Output",
+        "type": "string"
+      },
+      "workdir": {
+        "description": "Working directory of the command.",
+        "title": "Workdir",
+        "type": "string"
+      }
+    },
+    "required": [
+      "command",
+      "output",
+      "exit_code",
+      "workdir"
+    ],
+    "title": "RunResult",
+    "type": "object"
+  },
+  "SeedSessionRequest": {
+    "description": "Initial state for a freshly-started session.\n\nFuture-extensible: e.g. a `skills_archive: Base64Bytes | None = None` field\nwill land here when skill seeding is implemented (spec \u00a73.15).",
+    "properties": {
+      "repo_archive": {
+        "description": "Tar archive that becomes the initial state of /repo.",
+        "format": "base64",
+        "title": "Repo Archive",
+        "type": "string"
+      }
+    },
+    "required": [
+      "repo_archive"
+    ],
+    "title": "SeedSessionRequest",
+    "type": "object"
+  },
+  "StartSessionRequest": {
+    "properties": {
+      "base_image": {
+        "description": "Docker image to be used as the base image for the sandbox.",
+        "title": "Base Image",
+        "type": "string"
+      },
+      "cpus": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "CPUs to be used for the sandbox.",
+        "title": "Cpus"
+      },
+      "environment": {
+        "anyOf": [
+          {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Environment variables to set in the container at startup.",
+        "title": "Environment"
+      },
+      "extract_patch": {
+        "default": false,
+        "description": "Whether to extract a patch with the changes made by the executed commands.",
+        "title": "Extract Patch",
+        "type": "boolean"
+      },
+      "memory_bytes": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Memory in bytes to be used for the sandbox.",
+        "title": "Memory Bytes"
+      },
+      "network_enabled": {
+        "default": false,
+        "description": "Whether to enable network for the sandbox.",
+        "title": "Network Enabled",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "base_image"
+    ],
+    "title": "StartSessionRequest",
+    "type": "object"
+  },
+  "StartSessionResponse": {
+    "properties": {
+      "session_id": {
+        "description": "Unique identifier for the session.",
+        "title": "Session Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "title": "StartSessionResponse",
+    "type": "object"
+  }
+}

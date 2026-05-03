@@ -1,9 +1,21 @@
+import base64
+import logging
+
 import httpx
 
 from core.conf import settings
 from core.site_settings import site_settings
 
-from .schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
+from .schemas import (
+    ApplyMutationsRequest,
+    ApplyMutationsResponse,
+    RunCommandsRequest,
+    RunCommandsResponse,
+    SeedSessionRequest,
+    StartSessionRequest,
+)
+
+logger = logging.getLogger("daiv.sandbox")
 
 
 class DAIVSandboxClient:
@@ -30,6 +42,40 @@ class DAIVSandboxClient:
             response = await client.post("session/", json=request.model_dump(mode="json"))
             response.raise_for_status()
             return response.json()["session_id"]
+
+    async def seed_session(self, session_id: str, repo_archive: bytes) -> None:
+        """
+        Seed a session with the initial state of /repo.
+
+        One-shot per session. A 409 from the sandbox (already seeded) is
+        treated as a no-op so retries and checkpoint replays are safe.
+        """
+        async with httpx.AsyncClient(
+            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
+        ) as client:
+            response = await client.post(
+                f"session/{session_id}/seed/",
+                json=SeedSessionRequest(repo_archive=base64.b64encode(repo_archive)).model_dump(mode="json"),
+            )
+            if response.status_code == 409:
+                logger.info("Sandbox session %s already seeded; skipping", session_id)
+                return
+            response.raise_for_status()
+
+    async def apply_file_mutations(self, session_id: str, request: ApplyMutationsRequest) -> ApplyMutationsResponse:
+        """
+        Apply a batch of file mutations to /repo on the sandbox session.
+
+        Per-item failures are returned as `MutationResult(ok=False, error=...)`.
+        Caller (e.g. the sync wrapper) is responsible for rolling back local
+        state when `ok=False` or when this method raises.
+        """
+        async with httpx.AsyncClient(
+            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
+        ) as client:
+            response = await client.post(f"session/{session_id}/files/", json=request.model_dump(mode="json"))
+            response.raise_for_status()
+            return ApplyMutationsResponse.model_validate(response.json())
 
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         """

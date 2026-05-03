@@ -94,10 +94,6 @@ class Sandbox(BaseModel):
             "To disable the sandbox, set this to `null`."
         ),
     )
-    ephemeral: bool = Field(
-        default_factory=lambda: site_settings.sandbox_ephemeral,
-        description="Whether to make sandbox sessions ephemeral (server decides persistence behavior).",
-    )
     network_enabled: bool = Field(
         default_factory=lambda: site_settings.sandbox_network_enabled,
         description="Whether to enable the network in the sandbox.",

@@ -49,10 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increased Claude max output tokens from 4,096 to 16,384.
 - Renamed several environment variables to use the `DAIV_` prefix consistently: `AUTOMATION_WEB_SEARCH_*` → `DAIV_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` → `DAIV_WEB_FETCH_*`, `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` → `DAIV_SUGGEST_CONTEXT_FILE_ENABLED`, `DIFF_TO_METADATA_*` → `DAIV_DIFF_TO_METADATA_*`, `JOBS_THROTTLE_RATE` → `DAIV_JOBS_THROTTLE_RATE`. Provider API key env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`) are unchanged.
 - Upgraded `deepagents` from 0.4.12 to 0.5.1, adding prompt caching, large message eviction, CRLF normalization, and multimodal file support; migrated from deprecated `als_info` backend method to the new `als` API.
+- Reworked sandbox file sync: `write_file` and `edit_file` now push changes to the sandbox eagerly per tool call, and `bash_tool` no longer tarballs the entire working tree on every invocation. Substantially reduces per-turn cost on long agent runs. **BREAKING**: requires the matching daiv-sandbox release with the new mutation/seed wire protocol.
 
 ### Removed
 
 - Removed GPT-4.1-mini, GPT-4.1, and GPT-5.2 from the model catalog; added GPT-5.4, GPT-5.4-mini, Z-AI GLM-5-turbo, and MiniMax M2-7.
+- **BREAKING:** Removed `sandbox.ephemeral` from `.daiv.yml`. Sandbox sessions are now persistent between bash calls; users who relied on per-turn fresh workspaces must close the session and start a new one.
 - **BREAKING:** Removed the `mcp-proxy` container and its API configuration endpoint. Now MCP servers are configured with isolated per-MCP `supergateway` containers — each built-in MCP server (Sentry, Context7) now runs in its own container. Existing `docker-compose.yml` and stack files must be updated.
 - **BREAKING:** Removed `MCP_PROXY_HOST`, `MCP_PROXY_ADDR`, `MCP_PROXY_AUTH_TOKEN`, and `MCP_CONFIG_API_KEY` settings. MCP server credentials (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) are now configured on the MCP containers directly, not as DAIV application settings
 
