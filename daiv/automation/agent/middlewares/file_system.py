@@ -97,22 +97,37 @@ def _format_sync_error(reason: str, *, rollback_ok: bool) -> str:
 class _SandboxSyncer:
     """Mirrors successful local writes to the sandbox session associated with the agent run.
 
-    Bundles the backend, the working_dir → /repo mapping, the sandbox client factory, and a
-    single lock that serialises the upstream-write→sandbox-sync critical section across all
-    concurrent write_file/edit_file calls in one agent run, so rollback can never overwrite a
-    sibling tool call's edit. The edit-path snapshot is taken outside the lock — if it fails we
-    short-circuit to upstream's canonical "not found" error rather than acquiring the lock for
-    a doomed call.
+    Bundles the backend, the working_dir → /repo mapping, a long-lived sandbox client (opened
+    lazily on first mirror so its TCP+TLS pool is reused across every write/edit in the run),
+    and a single lock that serialises the upstream-write→sandbox-sync critical section across
+    all concurrent write_file/edit_file calls in one agent run, so rollback can never overwrite
+    a sibling tool call's edit. The edit-path snapshot is taken outside the lock — if it fails
+    we short-circuit to upstream's canonical "not found" error rather than acquiring the lock
+    for a doomed call.
     """
 
     backend: Any
     working_dir: Path
-    client_factory: Callable[[], DAIVSandboxClient]
+    client: DAIVSandboxClient
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _resolved_working_dir: Path = field(init=False, repr=False)
+    _opened: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._resolved_working_dir = self.working_dir.resolve()
+
+    async def _ensure_client(self) -> DAIVSandboxClient:
+        # Callers always invoke this from inside ``self.lock`` (via ``mirror``),
+        # so the open-once flag does not need its own guard.
+        if not self._opened:
+            await self.client.open()
+            self._opened = True
+        return self.client
+
+    async def aclose(self) -> None:
+        if self._opened:
+            self._opened = False
+            await self.client.close()
 
     def sandbox_path(self, local_path: str | Path) -> str:
         """Map ``<working_dir>/<rel>`` → ``/repo/<rel>``. Raises ``ValueError`` if outside ``working_dir``."""
@@ -139,7 +154,8 @@ class _SandboxSyncer:
             mutations=[PutMutation(path=sandbox_path, content=base64.b64encode(content_bytes), mode=mode)]
         )
         try:
-            response = await self.client_factory().apply_file_mutations(session_id, request)
+            client = await self._ensure_client()
+            response = await client.apply_file_mutations(session_id, request)
         except Exception as exc:
             logger.exception("sandbox apply_file_mutations failed for %s", sandbox_path)
             return _format_sync_error(f"sandbox sync raised: {exc}", rollback_ok=rollback())
@@ -342,9 +358,8 @@ class FilesystemMiddleware(BaseFilesystemMiddleware):
         # Resolve the factory at construction time so test monkeypatching of
         # `DAIVSandboxClient` on this module sticks (default args are captured
         # at function-definition time, which would defeat the monkeypatch).
-        return _SandboxSyncer(
-            backend=backend, working_dir=Path(working_dir), client_factory=sandbox_client_factory or DAIVSandboxClient
-        )
+        factory = sandbox_client_factory or DAIVSandboxClient
+        return _SandboxSyncer(backend=backend, working_dir=Path(working_dir), client=factory())
 
     def _create_write_file_tool(self) -> BaseTool:
         original = super()._create_write_file_tool()
@@ -353,3 +368,8 @@ class FilesystemMiddleware(BaseFilesystemMiddleware):
     def _create_edit_file_tool(self) -> BaseTool:
         original = super()._create_edit_file_tool()
         return self._syncer.wrap_edit_tool(original) if self._syncer is not None else original
+
+    async def aafter_agent(self, state, runtime) -> dict | None:
+        if self._syncer is not None:
+            await self._syncer.aclose()
+        return await super().aafter_agent(state, runtime)

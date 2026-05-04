@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from git import Repo
 
-from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands, bash_tool
+from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands
 from core.conf import settings as core_settings
+from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.schemas import RunCommandsResponse
 
 if TYPE_CHECKING:
@@ -49,6 +50,13 @@ def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
     return runtime
 
 
+def _bash_tool_with_fake_client(client: Mock):
+    """Build a fresh SandboxMiddleware with ``client`` pre-installed and return its bash tool."""
+    middleware = SandboxMiddleware(close_session=True)
+    middleware._client = client
+    return middleware.tools[0]
+
+
 class TestBashTool:
     async def test_bash_tool_applies_patch_and_returns_results_json(self, tmp_path: Path):
         repo_dir = tmp_path / "repoX"
@@ -78,9 +86,11 @@ class TestBashTool:
         response = RunCommandsResponse(results=[], patch=base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"))
 
         runtime = _make_bash_runtime(repo)
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=response)
+        bash_tool = _bash_tool_with_fake_client(client)
 
-        with patch("automation.agent.middlewares.sandbox._run_bash_commands", new=AsyncMock(return_value=response)):
-            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
+        output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
         assert file_path.read_text() == "new\n"
         import json as _json
@@ -89,18 +99,38 @@ class TestBashTool:
         assert payload["commands"] == []
         # The patch just edits hello.txt — nothing added/deleted/renamed.
         assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
+        client.run_commands.assert_awaited_once()
 
     async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
+        import httpx
+
         repo_dir = tmp_path / "repoX"
         repo_dir.mkdir(parents=True)
         repo = Repo.init(repo_dir)
 
         runtime = _make_bash_runtime(repo)
+        client = Mock()
+        client.run_commands = AsyncMock(side_effect=httpx.RequestError("boom"))
+        bash_tool = _bash_tool_with_fake_client(client)
 
-        with patch("automation.agent.middlewares.sandbox._run_bash_commands", new=AsyncMock(return_value=None)):
-            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
+        output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
-        assert output.startswith("error: Failed to run command.")
+        assert output.startswith("error: Sandbox call failed")
+
+    async def test_bash_tool_raises_when_client_not_opened(self, tmp_path: Path):
+        """Calling the bash tool before ``abefore_agent`` opens the client must fail loud."""
+        import pytest
+
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        repo = Repo.init(repo_dir)
+
+        runtime = _make_bash_runtime(repo)
+        middleware = SandboxMiddleware(close_session=True)
+        bash_tool = middleware.tools[0]
+
+        with pytest.raises(RuntimeError, match="bash tool invoked before abefore_agent"):
+            await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
 
 class TestBashToolPolicyEnforcement:
@@ -119,11 +149,12 @@ class TestBashToolPolicyEnforcement:
         runtime.tool_call_id = "call_policy"
         runtime.state["session_id"] = "sess_policy"
 
+        client = Mock()
+        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
+        client.run_commands = run_mock
+        bash_tool = _bash_tool_with_fake_client(client)
+
         with (
-            patch(
-                "automation.agent.middlewares.sandbox._run_bash_commands",
-                new=AsyncMock(return_value=RunCommandsResponse(results=[], patch=None)),
-            ) as run_mock,
             patch.object(core_settings, "SANDBOX_COMMAND_POLICY_DISALLOW", ()),
             patch.object(core_settings, "SANDBOX_COMMAND_POLICY_ALLOW", ()),
         ):
@@ -253,8 +284,10 @@ class TestRunBashCommands:
     async def test_run_bash_commands_no_archive_field(self):
         """_run_bash_commands no longer tarballs the working dir; archive is gone from RunCommandsRequest."""
         run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
-        with patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.run_commands", new=run_commands_mock):
-            response = await _run_bash_commands(["echo ok"], "sess_1")
+        client = Mock()
+        client.run_commands = run_commands_mock
+
+        response = await _run_bash_commands(client, ["echo ok"], "sess_1")
 
         assert response is not None
         run_commands_mock.assert_awaited_once()
@@ -267,13 +300,24 @@ class TestRunBashCommands:
 
 
 class TestSandboxMiddleware:
+    @staticmethod
+    def _patch_client_lifecycle():
+        """Stub ``DAIVSandboxClient.open``/``close`` so no real httpx.AsyncClient is created."""
+        return (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=AsyncMock(return_value=None)),
+        )
+
     async def test_abefore_agent_starts_session_and_sets_session_id(self, tmp_path: Path):
         repo_dir = tmp_path / "repoX"
         repo_dir.mkdir(parents=True)
         (repo_dir / "README.md").write_text("hello")
         runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
+        open_patch, close_patch = self._patch_client_lifecycle()
         with (
+            open_patch,
+            close_patch,
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_1"),
@@ -292,9 +336,10 @@ class TestSandboxMiddleware:
         _args, kwargs = seed_session_mock.call_args
         assert "repo_archive" in kwargs
         assert isinstance(kwargs["repo_archive"], (bytes, bytearray))
+        assert middleware._client is not None
 
     async def test_abefore_agent_closes_session_on_seed_failure(self, tmp_path: Path):
-        """If seed_session raises, the started session is closed (no leak)."""
+        """If seed_session raises, the started session is closed and the client is released (no leak)."""
         import pytest
 
         repo_dir = tmp_path / "repoX"
@@ -302,9 +347,12 @@ class TestSandboxMiddleware:
         (repo_dir / "README.md").write_text("hello")
         runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
-        close_mock = AsyncMock(return_value=None)
+        close_session_mock = AsyncMock(return_value=None)
+        client_close_mock = AsyncMock(return_value=None)
 
         with (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_leaky"),
@@ -313,52 +361,132 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session",
                 new=AsyncMock(side_effect=RuntimeError("simulated seed failure")),
             ),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_mock),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_session_mock),
         ):
             middleware = SandboxMiddleware(close_session=True)
             with pytest.raises(RuntimeError, match="simulated seed failure"):
                 await middleware.abefore_agent({}, runtime)
 
-        close_mock.assert_awaited_once_with("sess_leaky")
+        close_session_mock.assert_awaited_once_with("sess_leaky")
+        client_close_mock.assert_awaited_once()
+        assert middleware._client is None
+
+    async def test_abefore_agent_releases_client_on_start_session_failure(self, tmp_path: Path):
+        """If start_session raises (sandbox unreachable / 5xx), the just-opened client is released."""
+        import pytest
+
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
+
+        close_session_mock = AsyncMock(return_value=None)
+        client_close_mock = AsyncMock(return_value=None)
+
+        with (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(side_effect=RuntimeError("sandbox unreachable")),
+            ),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_session_mock),
+        ):
+            middleware = SandboxMiddleware(close_session=True)
+            with pytest.raises(RuntimeError, match="sandbox unreachable"):
+                await middleware.abefore_agent({}, runtime)
+
+        # No session was started, so close_session must NOT be called.
+        close_session_mock.assert_not_awaited()
+        # But the client we opened must be released.
+        client_close_mock.assert_awaited_once()
+        assert middleware._client is None
+
+    async def test_aafter_agent_releases_client_when_close_session_raises_unexpected(self, tmp_path: Path):
+        """``finally`` releases the client even when close_session raises an unhandled exception."""
+        import pytest
+
+        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
+        state = {"session_id": "sess_1"}
+
+        client_close_mock = AsyncMock(return_value=None)
+        with (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session",
+                new=AsyncMock(side_effect=RuntimeError("unexpected")),
+            ),
+        ):
+            middleware = SandboxMiddleware(close_session=True)
+            middleware._client = DAIVSandboxClient()
+            with pytest.raises(RuntimeError, match="unexpected"):
+                await middleware.aafter_agent(state, runtime)
+
+        client_close_mock.assert_awaited_once()
+        assert middleware._client is None
 
     async def test_abefore_agent_reuses_session_id_when_close_session_false(self, tmp_path: Path):
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "sess_existing"}
 
-        with patch(
-            "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session", new=AsyncMock(return_value="sess_1")
-        ) as start_session_mock:
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_1"),
+            ) as start_session_mock,
+        ):
             middleware = SandboxMiddleware(close_session=False)
             update = await middleware.abefore_agent(state, runtime)
 
         assert update is None
         start_session_mock.assert_not_awaited()
+        assert middleware._client is not None
 
     async def test_aafter_agent_closes_session_and_clears_session_id(self, tmp_path: Path):
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "sess_1"}
 
-        with patch(
-            "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
-        ) as close_session_mock:
+        client_close_mock = AsyncMock(return_value=None)
+        with (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
+            ) as close_session_mock,
+        ):
             middleware = SandboxMiddleware(close_session=True)
+            middleware._client = DAIVSandboxClient()
             update = await middleware.aafter_agent(state, runtime)
 
         assert update == {"session_id": None}
         close_session_mock.assert_awaited_once_with("sess_1")
+        client_close_mock.assert_awaited_once()
+        assert middleware._client is None
 
     async def test_aafter_agent_does_not_close_session_when_close_session_false(self, tmp_path: Path):
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "sess_1"}
 
-        with patch(
-            "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
-        ) as close_session_mock:
+        client_close_mock = AsyncMock(return_value=None)
+        with (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
+            ) as close_session_mock,
+        ):
             middleware = SandboxMiddleware(close_session=False)
+            middleware._client = DAIVSandboxClient()
             update = await middleware.aafter_agent(state, runtime)
 
         assert update is None
         close_session_mock.assert_not_awaited()
+        # Subagent path: session is the parent's, but the client we opened still must be released.
+        client_close_mock.assert_awaited_once()
+        assert middleware._client is None
 
     async def test_awrap_model_call_appends_sandbox_system_prompt(self, tmp_path: Path):
         from langchain.agents.middleware import ModelRequest, ModelResponse

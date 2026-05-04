@@ -1,5 +1,7 @@
-import base64
+from __future__ import annotations
+
 import logging
+from typing import Self
 
 import httpx
 
@@ -11,7 +13,6 @@ from .schemas import (
     ApplyMutationsResponse,
     RunCommandsRequest,
     RunCommandsResponse,
-    SeedSessionRequest,
     StartSessionRequest,
 )
 
@@ -21,10 +22,37 @@ logger = logging.getLogger("daiv.sandbox")
 class DAIVSandboxClient:
     """
     Client to interact with the daiv-sandbox service.
+
+    Open the client once and reuse it for the lifetime of an agent run so a
+    single ``httpx.AsyncClient`` (with its TCP+TLS connection pool) is shared
+    across every call. Headers and timeout are resolved from ``site_settings``
+    on open, so runtime changes propagate on the next open.
     """
 
     def __init__(self):
         self.url = settings.SANDBOX_URL.unicode_string()
+        self._client: httpx.AsyncClient | None = None
+
+    async def open(self) -> Self:
+        """Open the underlying ``httpx.AsyncClient``. Re-entry is rejected to avoid leaking the previous client."""
+        if self._client is not None:
+            raise RuntimeError("DAIVSandboxClient is already open; nested entry would leak the previous httpx client")
+        self._client = httpx.AsyncClient(
+            base_url=self.url, headers=self._get_headers(), timeout=site_settings.sandbox_timeout
+        )
+        return self
+
+    async def close(self) -> None:
+        """Close the underlying ``httpx.AsyncClient``. Safe to call when not open."""
+        client, self._client = self._client, None
+        if client is not None:
+            await client.aclose()
+
+    async def __aenter__(self) -> Self:
+        return await self.open()
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self.close()
 
     async def start_session(self, request: StartSessionRequest) -> str:
         """
@@ -36,31 +64,31 @@ class DAIVSandboxClient:
         Returns:
             The session ID.
         """
-        async with httpx.AsyncClient(
-            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
-        ) as client:
-            response = await client.post("session/", json=request.model_dump(mode="json"))
-            response.raise_for_status()
-            return response.json()["session_id"]
+        response = await self._client.post("session/", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return response.json()["session_id"]
 
-    async def seed_session(self, session_id: str, repo_archive: bytes) -> None:
+    async def seed_session(
+        self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
+    ) -> None:
         """
-        Seed a session with the initial state of /repo.
+        Seed a session with the initial state of /repo and/or /skills.
 
-        One-shot per session. A 409 from the sandbox (already seeded) is
-        treated as a no-op so retries and checkpoint replays are safe.
+        One-shot per session: a 409 from the sandbox (already seeded) is treated
+        as a no-op so retries and checkpoint replays are safe.
         """
-        async with httpx.AsyncClient(
-            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
-        ) as client:
-            response = await client.post(
-                f"session/{session_id}/seed/",
-                json=SeedSessionRequest(repo_archive=base64.b64encode(repo_archive)).model_dump(mode="json"),
-            )
-            if response.status_code == 409:
-                logger.info("Sandbox session %s already seeded; skipping", session_id)
-                return
-            response.raise_for_status()
+        files = {
+            name: (name, archive, "application/octet-stream")
+            for name, archive in (("repo_archive", repo_archive), ("skills_archive", skills_archive))
+            if archive is not None
+        }
+        if not files:
+            raise ValueError("seed_session requires at least one of repo_archive or skills_archive")
+        response = await self._client.post(f"session/{session_id}/seed/", files=files)
+        if response.status_code == 409:
+            logger.info("Sandbox session %s already seeded; skipping", session_id)
+            return
+        response.raise_for_status()
 
     async def apply_file_mutations(self, session_id: str, request: ApplyMutationsRequest) -> ApplyMutationsResponse:
         """
@@ -70,12 +98,9 @@ class DAIVSandboxClient:
         Caller (e.g. the sync wrapper) is responsible for rolling back local
         state when `ok=False` or when this method raises.
         """
-        async with httpx.AsyncClient(
-            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
-        ) as client:
-            response = await client.post(f"session/{session_id}/files/", json=request.model_dump(mode="json"))
-            response.raise_for_status()
-            return ApplyMutationsResponse.model_validate(response.json())
+        response = await self._client.post(f"session/{session_id}/files/", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return ApplyMutationsResponse.model_validate(response.json())
 
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         """
@@ -88,12 +113,9 @@ class DAIVSandboxClient:
         Returns:
             RunCommandResponse: The response from running the commands.
         """
-        async with httpx.AsyncClient(
-            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
-        ) as client:
-            response = await client.post(f"session/{session_id}/", json=request.model_dump(mode="json"))
-            response.raise_for_status()
-            return RunCommandsResponse.model_validate(response.json())
+        response = await self._client.post(f"session/{session_id}/", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return RunCommandsResponse.model_validate(response.json())
 
     async def close_session(self, session_id: str):
         """
@@ -102,11 +124,8 @@ class DAIVSandboxClient:
         Args:
             session_id (str): The session ID.
         """
-        async with httpx.AsyncClient(
-            timeout=site_settings.sandbox_timeout, base_url=self.url, headers=self._get_headers()
-        ) as client:
-            response = await client.delete(f"session/{session_id}/")
-            response.raise_for_status()
+        response = await self._client.delete(f"session/{session_id}/")
+        response.raise_for_status()
 
     def _get_headers(self) -> dict[str, str]:
         """
