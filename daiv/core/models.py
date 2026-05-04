@@ -166,6 +166,22 @@ class SiteConfiguration(models.Model):
         help_text=_("Fallback model used when the primary fails."),
     )
 
+    # -- Titling --
+    titling_model_name = models.CharField(
+        _("model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Model for generating chat thread and activity titles from prompts."),
+    )
+    titling_fallback_model_name = models.CharField(
+        _("fallback model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Fallback model used when the primary fails."),
+    )
+
     # -- Web Search --
     web_search_enabled = models.BooleanField(
         _("web search enabled"), null=True, help_text=_("Enable or disable the web search tool.")
@@ -355,6 +371,8 @@ class SiteConfiguration(models.Model):
         "agent_explore_fallback_model_name",
         "diff_to_metadata_model_name",
         "diff_to_metadata_fallback_model_name",
+        "titling_model_name",
+        "titling_fallback_model_name",
         "web_fetch_model_name",
     )
 
@@ -377,6 +395,7 @@ class SiteConfiguration(models.Model):
             match=("diff_to_metadata_*",),
             icon="diff-to-metadata",
         ),
+        FieldGroup(key="titling", title=_("Titling"), match=("titling_*",), icon="chat-bubble"),
         FieldGroup(
             key="providers",
             title=_("Providers"),

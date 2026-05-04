@@ -101,6 +101,8 @@ class SiteConfigurationForm(forms.ModelForm):
             "agent_recursion_limit",
             "diff_to_metadata_model_name",
             "diff_to_metadata_fallback_model_name",
+            "titling_model_name",
+            "titling_fallback_model_name",
             "web_search_enabled",
             "web_search_max_results",
             "web_search_engine",

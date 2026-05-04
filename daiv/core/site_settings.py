@@ -44,6 +44,9 @@ def _build_field_defaults() -> dict[str, Any]:
         # Diff to Metadata
         "diff_to_metadata_model_name": ModelName.GPT_5_4_MINI,
         "diff_to_metadata_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        # Titling
+        "titling_model_name": ModelName.GPT_5_4_MINI,
+        "titling_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
         # Web Search
         "web_search_enabled": True,
         "web_search_max_results": 5,
