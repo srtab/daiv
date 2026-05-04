@@ -9,8 +9,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from automation.agent.base import BaseAgent
-from automation.agent.constants import ModelName
 from automation.titling.services import MAX_TITLE_LENGTH
+from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.automation.titling")
 
@@ -72,7 +72,9 @@ def generate_title_task(
         )
 
     try:
-        structured_llm = _structured(ModelName.GPT_5_4_MINI).with_fallbacks([_structured(ModelName.CLAUDE_HAIKU_4_5)])
+        structured_llm = _structured(site_settings.titling_model_name).with_fallbacks([
+            _structured(site_settings.titling_fallback_model_name)
+        ])
     except RuntimeError:
         logger.exception(
             "generate_title_task: model not configured for %s pk=%s — feature disabled until API key is set",
