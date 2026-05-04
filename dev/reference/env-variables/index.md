@@ -331,3 +331,12 @@ Generates pull request titles, descriptions, and commit messages from diffs.
 | ------------------------------------------- | --------------------------------------------- | ------------------ |
 | `DAIV_DIFF_TO_METADATA_MODEL_NAME`          | Primary model for diff-to-metadata generation | `gpt-5.4-mini`     |
 | `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails     | `claude-haiku-4.5` |
+
+### Titling
+
+Generates short titles for chat threads and activities from the user's initial prompt.
+
+| Variable                           | Description                               | Default            |
+| ---------------------------------- | ----------------------------------------- | ------------------ |
+| `DAIV_TITLING_MODEL_NAME`          | Primary model for title generation        | `gpt-5.4-mini`     |
+| `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-4.5` |

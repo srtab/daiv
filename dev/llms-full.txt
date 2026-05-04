@@ -3436,6 +3436,15 @@ Generates pull request titles, descriptions, and commit messages from diffs.
 | `DAIV_DIFF_TO_METADATA_MODEL_NAME`          | Primary model for diff-to-metadata generation | `gpt-5.4-mini`     |
 | `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails     | `claude-haiku-4.5` |
 
+### Titling
+
+Generates short titles for chat threads and activities from the user's initial prompt.
+
+| Variable                           | Description                               | Default            |
+| ---------------------------------- | ----------------------------------------- | ------------------ |
+| `DAIV_TITLING_MODEL_NAME`          | Primary model for title generation        | `gpt-5.4-mini`     |
+| `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-4.5` |
+
 # Agent Architecture
 
 DAIV uses a single AI agent built on [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep agent framework from [LangChain](https://python.langchain.com/) with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on [LangGraph](https://langchain-ai.github.io/langgraph/). This page covers the technical architecture for those who want to understand how DAIV works under the hood.
