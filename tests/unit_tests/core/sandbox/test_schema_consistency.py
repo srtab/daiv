@@ -26,13 +26,7 @@ def _normalize(schema):
 # differ between the two repos: daiv's RunCommands* keeps a stable client API,
 # StartSessionRequest accepts a Dockerfile alternative, and StartSessionResponse
 # isn't modelled on the daiv side.
-_SHARED_TYPES = [
-    "ApplyMutationsRequest",
-    "ApplyMutationsResponse",
-    "MutationResult",
-    "PutMutation",
-    "SeedSessionRequest",
-]
+_SHARED_TYPES = ["ApplyMutationsRequest", "ApplyMutationsResponse", "MutationResult", "PutMutation"]
 
 # Types that exist on both sides but are deliberately allowed to diverge.
 _INTENTIONALLY_DIVERGENT = {"RunCommandsRequest", "RunCommandsResponse", "RunCommandResult", "StartSessionRequest"}

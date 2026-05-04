@@ -13,13 +13,6 @@ def test_put_mutation_validates_mode_range():
         PutMutation(path="/repo/foo.py", content=base64.b64encode(b"x"), mode=0o10000)
 
 
-def test_seed_session_request_carries_repo_archive():
-    from core.sandbox.schemas import SeedSessionRequest
-
-    req = SeedSessionRequest(repo_archive=base64.b64encode(b"tar"))
-    assert req.repo_archive == b"tar"
-
-
 def test_run_commands_request_no_archive():
     from core.sandbox.schemas import RunCommandsRequest
 

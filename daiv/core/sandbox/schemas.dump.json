@@ -294,22 +294,6 @@
     "title": "RunResult",
     "type": "object"
   },
-  "SeedSessionRequest": {
-    "description": "Initial state for a freshly-started session.\n\nFuture-extensible: e.g. a `skills_archive: Base64Bytes | None = None` field\nwill land here when skill seeding is implemented (spec \u00a73.15).",
-    "properties": {
-      "repo_archive": {
-        "description": "Tar archive that becomes the initial state of /repo.",
-        "format": "base64",
-        "title": "Repo Archive",
-        "type": "string"
-      }
-    },
-    "required": [
-      "repo_archive"
-    ],
-    "title": "SeedSessionRequest",
-    "type": "object"
-  },
   "StartSessionRequest": {
     "properties": {
       "base_image": {

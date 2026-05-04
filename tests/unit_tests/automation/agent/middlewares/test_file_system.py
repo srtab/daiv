@@ -382,3 +382,44 @@ async def test_upstream_success_prefixes_remain_stable(working_repo):
     assert edit_result.startswith("Successfully replaced"), (
         f"upstream changed edit success format; update wrap_edit_tool prefix check: {edit_result!r}"
     )
+
+
+class TestSandboxSyncerLifecycle:
+    """Cover the open-once-on-first-mirror / close-once invariant of `_SandboxSyncer`."""
+
+    @staticmethod
+    def _make_syncer(working_repo, fake_client):
+        from automation.agent.middlewares.file_system import _SandboxSyncer
+
+        return _SandboxSyncer(backend=object(), working_dir=working_repo, client=fake_client)
+
+    async def test_aclose_is_noop_when_never_opened(self, fake_client, working_repo):
+        syncer = self._make_syncer(working_repo, fake_client)
+        await syncer.aclose()
+        fake_client.close.assert_not_awaited()
+
+    async def test_first_mirror_opens_client_then_aclose_closes_once(
+        self, fake_client, working_repo, tmp_path, monkeypatch
+    ):
+        from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
+
+        fake_client.apply_file_mutations.return_value = ApplyMutationsResponse(
+            results=[MutationResult(path="/repo/foo.py", ok=True, error=None)]
+        )
+        target = working_repo / "foo.py"
+        target.write_text("hello")
+        syncer = self._make_syncer(working_repo, fake_client)
+        runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+        async with syncer.lock:
+            await syncer.mirror(
+                runtime=runtime, resolved_path=target, content_bytes=b"hello", mode=0o644, rollback=lambda: True
+            )
+        fake_client.open.assert_awaited_once()
+
+        await syncer.aclose()
+        fake_client.close.assert_awaited_once()
+
+        # Second aclose must not re-close.
+        await syncer.aclose()
+        fake_client.close.assert_awaited_once()

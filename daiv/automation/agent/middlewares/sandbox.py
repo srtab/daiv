@@ -12,7 +12,7 @@ import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -145,35 +145,6 @@ Git safety (highest priority):
 - VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash."""  # noqa: E501
 
 
-@tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
-async def bash_tool(command: Annotated[str, "The command to execute."], runtime: ToolRuntime[RuntimeCtx]) -> str:
-    """
-    Tool to run a list of Bash commands in a persistent shell session.
-    """
-    denial_error = _check_command_policy(command, runtime)
-    if denial_error:
-        return denial_error
-
-    response = await _run_bash_commands([command], runtime.state["session_id"])
-    if response is None:
-        return (
-            "error: Failed to run command. Verify that the command is valid. "
-            "If the commands are valid, maybe the bash tool is not working properly."
-        )
-
-    if response.patch:
-        try:
-            GitManager(runtime.context.gitrepo).apply_patch(response.patch)
-        except Exception:
-            logger.exception("[%s] Error applying patch to the repository.", bash_tool.name)
-            return "error: Failed to persist the changes. The bash tool is not working properly."
-
-    return json.dumps({
-        "commands": [result.model_dump(mode="json") for result in response.results],
-        "files_changed": files_changed_from_patch(response.patch),
-    })
-
-
 def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:
     """
     Parse *command* with Parable and evaluate it against the effective policy.
@@ -270,10 +241,12 @@ def _make_repo_archive(working_dir: str) -> bytes:
     return buf.getvalue()
 
 
-async def _run_bash_commands(commands: list[str], session_id: str) -> RunCommandsResponse | None:
-    """Run bash commands in the existing sandbox session."""
+async def _run_bash_commands(
+    client: DAIVSandboxClient, commands: list[str], session_id: str
+) -> RunCommandsResponse | None:
+    """Run bash commands in the existing sandbox session using the supplied long-lived client."""
     try:
-        return await DAIVSandboxClient().run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=True))
+        return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=True))
     except httpx.RequestError:
         logger.exception("Unexpected error calling sandbox API.")
         return None
@@ -325,14 +298,54 @@ class SandboxMiddleware(AgentMiddleware):
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
 
         self.close_session = close_session
-        self.tools = [bash_tool]
+        self._client: DAIVSandboxClient | None = None
+        self.tools = [self._build_bash_tool()]
+
+    def _build_bash_tool(self) -> BaseTool:
+        """Build a bash tool bound to this middleware's per-run sandbox client."""
+
+        @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
+        async def bash_tool(
+            command: Annotated[str, "The command to execute."], runtime: ToolRuntime[RuntimeCtx]
+        ) -> str:
+            """Run a Bash command in the persistent shell session of this run."""
+            denial_error = _check_command_policy(command, runtime)
+            if denial_error:
+                return denial_error
+
+            if self._client is None:
+                raise RuntimeError("SandboxMiddleware bash tool invoked before abefore_agent opened the sandbox client")
+
+            response = await _run_bash_commands(self._client, [command], runtime.state["session_id"])
+            if response is None:
+                return (
+                    "error: Sandbox call failed (transport or HTTP error — see server logs). "
+                    "The bash tool may be unavailable for this run."
+                )
+
+            if response.patch:
+                try:
+                    GitManager(runtime.context.gitrepo).apply_patch(response.patch)
+                except Exception:
+                    logger.exception("[%s] Error applying patch to the repository.", BASH_TOOL_NAME)
+                    return "error: Failed to persist the changes. The bash tool is not working properly."
+
+            return json.dumps({
+                "commands": [result.model_dump(mode="json") for result in response.results],
+                "files_changed": files_changed_from_patch(response.patch),
+            })
+
+        return bash_tool
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
-        Prepare state for lazy sandbox session start.
+        Open the per-run sandbox client and lazily start a session.
 
         Starts the session, seeds the workspace from the on-disk repo, and
-        cleans up the session on seed failure to avoid container leaks.
+        cleans up the session on seed failure to avoid container leaks. The
+        client stays open for the rest of the agent run so every bash call
+        and (for the file-system middleware) every file mirror reuses the
+        same connection pool.
 
         Args:
             state (StateT): The state of the agent.
@@ -341,35 +354,49 @@ class SandboxMiddleware(AgentMiddleware):
         Returns:
             dict[str, str] | None: The state updates with the sandbox session ID.
         """
-        if not self.close_session and "session_id" in state:
-            # Subagent path: the parent already started a session and owns its
-            # lifecycle. Skip starting a duplicate.
-            return None
-
         client = DAIVSandboxClient()
-        session_id = await client.start_session(
-            StartSessionRequest(
-                base_image=runtime.context.config.sandbox.base_image,
-                extract_patch=True,
-                network_enabled=runtime.context.config.sandbox.network_enabled,
-                memory_bytes=runtime.context.config.sandbox.memory_bytes,
-                cpus=runtime.context.config.sandbox.cpus,
-            )
-        )
+        await client.open()
+        self._client = client
+
         try:
-            archive = await asyncio.to_thread(_make_repo_archive, runtime.context.gitrepo.working_dir)
-            await client.seed_session(session_id, repo_archive=archive)
-        except Exception:
+            if not self.close_session and "session_id" in state:
+                # Subagent path: parent owns session lifecycle; we just keep our client open
+                # so bash calls reuse the pool.
+                return None
+
+            session_id = await client.start_session(
+                StartSessionRequest(
+                    base_image=runtime.context.config.sandbox.base_image,
+                    extract_patch=True,
+                    network_enabled=runtime.context.config.sandbox.network_enabled,
+                    memory_bytes=runtime.context.config.sandbox.memory_bytes,
+                    cpus=runtime.context.config.sandbox.cpus,
+                )
+            )
             try:
-                await client.close_session(session_id)
+                archive = await asyncio.to_thread(_make_repo_archive, runtime.context.gitrepo.working_dir)
+                await client.seed_session(session_id, repo_archive=archive)
             except Exception:
-                logger.exception("Failed to close session %s after seed failure", session_id)
+                try:
+                    await client.close_session(session_id)
+                except Exception:
+                    logger.exception("Failed to close session %s after seed failure", session_id)
+                raise
+        except BaseException:
+            # Release the client we just opened; otherwise its httpx pool leaks for the run.
+            await client.close()
+            self._client = None
             raise
         return {"session_id": session_id}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
-        Close the sandbox session after the agent finishes the execution loop.
+        Close the sandbox session and the long-lived client after the agent finishes.
+
+        ``aafter_agent`` only runs on a successful agent loop; on agent failure the
+        client is not awaited closed and may leak its httpx pool until process
+        teardown. Acceptable today because each run is short-lived; revisit if
+        agent runs grow long enough that leaked pools matter.
 
         Args:
             state (StateT): The state of the agent.
@@ -378,22 +405,33 @@ class SandboxMiddleware(AgentMiddleware):
         Returns:
             dict[str, str] | None: The state updates with the closed sandbox session ID.
         """
-        if self.close_session and "session_id" in state and state["session_id"] is not None:
-            session_id = state["session_id"]
-            try:
-                await DAIVSandboxClient().close_session(session_id)
-            except httpx.HTTPStatusError as exc:
-                status = exc.response.status_code
-                if status in (404, 409):
-                    logger.debug("Sandbox session %s already closed (status=%s)", session_id, status)
-                else:
-                    logger.exception(
-                        "Sandbox session %s close returned status=%s; container may have leaked", session_id, status
-                    )
-            except httpx.RequestError:
-                logger.exception("Sandbox session %s close request failed; container may have leaked", session_id)
-            return {"session_id": None}
-        return None
+        client = self._client
+        try:
+            if client is not None and self.close_session and "session_id" in state and state["session_id"] is not None:
+                session_id = state["session_id"]
+                try:
+                    await client.close_session(session_id)
+                except httpx.HTTPStatusError as exc:
+                    status = exc.response.status_code
+                    if status in (404, 409):
+                        logger.debug("Sandbox session %s already closed (status=%s)", session_id, status)
+                    else:
+                        logger.exception(
+                            "Sandbox session %s close returned status=%s; container may have leaked", session_id, status
+                        )
+                except httpx.RequestError:
+                    logger.exception("Sandbox session %s close request failed; container may have leaked", session_id)
+                return {"session_id": None}
+            return None
+        finally:
+            if client is not None:
+                # Wrap teardown so a transport-level failure can't mask whatever close_session
+                # (or another caller) was already raising.
+                try:
+                    await client.close()
+                except Exception:
+                    logger.exception("Failed to close sandbox httpx client; pool may have leaked")
+                self._client = None
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

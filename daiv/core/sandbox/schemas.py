@@ -79,7 +79,3 @@ class MutationResult(BaseModel):
 
 class ApplyMutationsResponse(BaseModel):
     results: list[MutationResult]
-
-
-class SeedSessionRequest(BaseModel):
-    repo_archive: Base64Bytes = Field(description="Tar archive that becomes the initial state of /repo.")
