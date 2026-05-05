@@ -5,6 +5,10 @@ from daiv.settings.components import PROJECT_DIR
 # Path where the builtin skills are stored in the filesystem to be copied to the repository.
 BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 
+# Virtual path (under the FilesystemBackend root, sibling to the repo working tree) where
+# global skills — builtins and custom globals — are materialized at agent start.
+GLOBAL_SKILLS_PATH = "/skills"
+
 # Path where the skills are stored in repository.
 CURSOR_SKILLS_PATH = ".cursor/skills"
 CLAUDE_CODE_SKILLS_PATH = ".claude/skills"

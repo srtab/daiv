@@ -16,7 +16,7 @@ from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import AGENTS_SKILLS_PATH, BUILTIN_SKILLS_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
@@ -179,33 +179,24 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     async def _copy_global_skills(self, agent_path: Path) -> tuple[list[str], list[str]]:
         """
-        Copy builtin and custom global skills to the project skills directory if they don't exist.
+        Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
+        sibling to the repo working tree.
 
-        This allows the agent to find built-in and custom global skills and execute scripts bundled with them as if they
-        were project skills, even if the project skills directory is not set up. The copied skills folder includes a
-        .gitignore file to prevent the skills from being committed to the repository.
+        Custom global skills override builtins with the same name (later writes in
+        ``files_to_upload`` win).
 
-        Custom global skills override built-in skills with the same name. Users can override both by creating skills
-        with the same name in the project skills directory and committing them to the repository.
-
-        Args:
-            agent_path: The path to the agent's repository.
-
-        Returns:
-            A tuple of (builtin skill names, custom global skill names).
+        Returns a tuple of (builtin skill names, custom global skill names).
         """
         files_to_upload: list[tuple[str, bytes]] = []
-        project_skills_path = Path(f"/{agent_path.name}/{AGENTS_SKILLS_PATH}")
+        skills_path = Path(GLOBAL_SKILLS_PATH)
 
-        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, project_skills_path, files_to_upload)
+        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
 
         custom_global_skills: list[str] = []
         custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH
         if custom_skills_path is not None and custom_skills_path.is_dir():
             try:
-                custom_global_skills = self._collect_skill_files(
-                    custom_skills_path, project_skills_path, files_to_upload
-                )
+                custom_global_skills = self._collect_skill_files(custom_skills_path, skills_path, files_to_upload)
             except OSError:
                 logger.exception("Failed to read custom global skills from '%s', skipping", custom_skills_path)
         elif custom_skills_path is not None:
@@ -244,9 +235,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                             files_to_upload.append((str(dest_path), source_path.read_bytes()))
                         except OSError:
                             logger.warning("Failed to read skill file '%s', skipping", source_path)
-
-            dest_path = project_skills_path / skill_dir.relative_to(source_root)
-            files_to_upload.append((str(dest_path / ".gitignore"), b"*"))
 
         return skill_names
 
@@ -379,15 +367,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return parse_slash_command(text_content, bot_username)
 
     def _skill_tool_generator(self) -> BaseTool:
-        """
-        Generate a skill tool.
-
-        Args:
-            backend: The backend to read the skill from.
-
-        Returns:
-            A BaseTool.
-        """
+        """Generate a skill tool."""
 
         async def skill_tool(
             skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],

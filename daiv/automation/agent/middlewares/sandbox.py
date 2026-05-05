@@ -15,6 +15,7 @@ from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
+from automation.agent.constants import GLOBAL_SKILLS_PATH
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, files_changed_from_patch
 from core.conf import settings
@@ -241,6 +242,32 @@ def _make_repo_archive(working_dir: str) -> bytes:
     return buf.getvalue()
 
 
+def _make_skills_archive(skills_dir: Path) -> bytes | None:
+    """Tar the contents of ``skills_dir`` (members relative to it). Return ``None`` if missing/empty."""
+    if not skills_dir.is_dir():
+        return None
+    try:
+        children = list(skills_dir.iterdir())
+    except OSError:
+        logger.warning(
+            "Could not read skills directory '%s'; seeding without skills archive", skills_dir, exc_info=True
+        )
+        return None
+    if not children:
+        return None
+    buf = io.BytesIO()
+    try:
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            for child in children:
+                tf.add(child, arcname=child.name)
+    except OSError, tarfile.TarError:
+        logger.warning(
+            "Failed to build skills archive from '%s'; seeding without skills archive", skills_dir, exc_info=True
+        )
+        return None
+    return buf.getvalue()
+
+
 async def _run_bash_commands(
     client: DAIVSandboxClient, commands: list[str], session_id: str
 ) -> RunCommandsResponse | None:
@@ -374,8 +401,12 @@ class SandboxMiddleware(AgentMiddleware):
                 )
             )
             try:
-                archive = await asyncio.to_thread(_make_repo_archive, runtime.context.gitrepo.working_dir)
-                await client.seed_session(session_id, repo_archive=archive)
+                working_dir = Path(runtime.context.gitrepo.working_dir)
+                repo_archive, skills_archive = await asyncio.gather(
+                    asyncio.to_thread(_make_repo_archive, str(working_dir)),
+                    asyncio.to_thread(_make_skills_archive, working_dir.parent / Path(GLOBAL_SKILLS_PATH).name),
+                )
+                await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:
                 try:
                     await client.close_session(session_id)

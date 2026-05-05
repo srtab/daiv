@@ -87,7 +87,10 @@ class ChatThreadFromActivityView(LoginRequiredMixin, View):
     """Bridge: create (or reuse) a ChatThread for an activity and redirect to it."""
 
     def post(self, request, *, activity_id):
-        activity = get_object_or_404(Activity, pk=activity_id, user=request.user)
+        # Mirror ActivityDetailView's visibility (Activity.objects.by_owner) so the
+        # button rendered there always works — webhook activities have user=None and
+        # are reached via external_username; without this the bridge 404s.
+        activity = get_object_or_404(Activity.objects.by_owner(request.user), pk=activity_id)
         if not activity.thread_id:
             raise Http404
 

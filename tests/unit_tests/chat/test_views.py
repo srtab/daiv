@@ -236,6 +236,31 @@ def test_from_activity_404_for_other_users_activity(member_client, other_user):
 
 
 @pytest.mark.django_db
+def test_from_activity_succeeds_for_webhook_activity_matched_by_external_username(member_client, member_user):
+    # Webhook activities land with user=None and external_username set — the same
+    # criteria ActivityDetailView uses to render the "Continue as chat" button.
+    activity = Activity.objects.create(
+        trigger_type=TriggerType.ISSUE_WEBHOOK,
+        repo_id="a/b",
+        ref="main",
+        prompt="x",
+        thread_id="t-wh",
+        user=None,
+        external_username=member_user.username,
+    )
+    tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
+    with patch("chat.views.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=tup)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.post(reverse("chat_from_activity", kwargs={"activity_id": activity.id}))
+    assert resp.status_code == 302
+    assert resp["Location"] == reverse("chat_detail", kwargs={"thread_id": "t-wh"})
+    assert ChatThread.objects.filter(thread_id="t-wh", user=member_user).exists()
+
+
+@pytest.mark.django_db
 def test_from_activity_404_when_activity_has_no_thread_id(member_client, member_user):
     activity = Activity.objects.create(
         trigger_type=TriggerType.UI_JOB, repo_id="a/b", ref="main", prompt="x", user=member_user
