@@ -1,16 +1,30 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from "react";
-import { CopilotKit } from "@copilotkit/react-core";
+import { CopilotKit, useDefaultTool } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import "@copilotkit/react-ui/styles.css";
 import { HttpAgent } from "@ag-ui/client";
 import { MergeRequestCard } from "./MergeRequestCard";
 import { useDaivState } from "./state/coagent";
 import { useRunStatus } from "./use_run_status";
+import { renderTool } from "./tools";
+function mapStatus(s) {
+    if (s === "complete")
+        return "complete";
+    return "running";
+}
 function ChatBody({ threadId }) {
     const { state } = useDaivState();
     const [blocked, setBlocked] = useState(false);
     const { active } = useRunStatus(`/api/chat/threads/${threadId}/status`);
+    useDefaultTool({
+        render: ({ name, args, status, result }) => renderTool({
+            name,
+            args: (args ?? {}),
+            status: mapStatus(status),
+            result,
+        }),
+    });
     useEffect(() => {
         if (blocked && !active)
             setBlocked(false);
