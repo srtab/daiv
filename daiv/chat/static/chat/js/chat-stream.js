@@ -637,9 +637,11 @@
       } else if (type === AGUI.TOOL_CALL_ARGS) {
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
-        // Phase chips intentionally ignore args (the structured-response JSON
-        // is not user-facing).
-        if (seg && seg.type === "tool_call" && !seg.sealed) {
+        if (!seg) {
+          console.warn("chat: TOOL_CALL_ARGS for unknown tool_call_id", evt.toolCallId);
+        } else if (seg.type === "tool_call" && !seg.sealed) {
+          // Phase chips intentionally ignore args (the structured-response JSON
+          // is not user-facing).
           seg.args += evt.delta || "";
         }
       } else if (type === AGUI.TOOL_CALL_END) {
@@ -655,7 +657,10 @@
       } else if (type === AGUI.TOOL_CALL_RESULT) {
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
-        if (!seg) return;
+        if (!seg) {
+          console.warn("chat: TOOL_CALL_RESULT for unknown tool_call_id", evt.toolCallId);
+          return;
+        }
         if (seg.type === "publish_phase") {
           seg.status = "done";
         } else {

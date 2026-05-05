@@ -9,6 +9,7 @@ subagent has already streamed events.
 
 from ag_ui.core.events import (
     EventType,
+    RawEvent,
     StateSnapshotEvent,
     TextMessageContentEvent,
     TextMessageStartEvent,
@@ -26,6 +27,18 @@ def _ev(klass, *, ns: str = "", chunk: dict | None = None, **kwargs):
     if chunk is not None:
         raw["data"] = {"chunk": chunk}
     return klass(raw_event=raw, **kwargs)
+
+
+def _chat_model_end(*, output: object | None, ns: str = "") -> RawEvent:
+    """Mirror ag_ui_langgraph's ``on_chat_model_end`` shape: payload on ``event``
+    (not ``raw_event``), AIMessage output under ``data.output``.
+    """
+    payload: dict = {
+        "event": "on_chat_model_end",
+        "metadata": {"langgraph_checkpoint_ns": ns},
+        "data": {"output": output},
+    }
+    return RawEvent(event=payload)
 
 
 async def _drain(stream):
@@ -454,6 +467,145 @@ async def test_filter_drops_misrouted_args_for_already_synthesized_tcid():
     args_events = [e for e in out if e.type == EventType.TOOL_CALL_ARGS]
     # Only the synthesized ARGS for tc-s — the misrouted one is dropped.
     assert [a.delta for a in args_events] == ['{"x": 1}']
+
+
+async def test_filter_synthesizes_from_chat_model_end_for_parallel_siblings():
+    # Snapshot synthesis can't catch this case — the tools node's snapshots
+    # only carry the per-tool ToolMessages, not the parent AIMessage.
+    natural_start = _ev(
+        ToolCallStartEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 0, "id": "tc1", "name": "edit_file", "args": ""}]},
+        tool_call_id="tc1",
+        tool_call_name="edit_file",
+    )
+    natural_end = _ev(ToolCallEndEvent, ns="model:m", tool_call_id="tc1")
+    model_end = _chat_model_end(
+        output={
+            "type": "ai",
+            "tool_calls": [
+                {"id": "tc1", "name": "edit_file", "args": {"path": "a.md"}},
+                {"id": "tc2", "name": "edit_file", "args": {"path": "b.md"}},
+                {"id": "tc3", "name": "edit_file", "args": {"path": "c.md"}},
+            ],
+        }
+    )
+    out = await _drain(_filter([natural_start, natural_end, model_end]))
+    starts = [(e.tool_call_id, e.tool_call_name) for e in out if e.type == EventType.TOOL_CALL_START]
+    # tc1 from the natural stream + tc2 and tc3 synthesized from on_chat_model_end.
+    assert starts == [("tc1", "edit_file"), ("tc2", "edit_file"), ("tc3", "edit_file")]
+    args = [(e.tool_call_id, e.delta) for e in out if e.type == EventType.TOOL_CALL_ARGS]
+    # Synthesized siblings carry their finalized args; the natural tc1 had no
+    # ARGS event in this minimal sequence so it doesn't appear here.
+    assert args == [("tc2", '{"path": "b.md"}'), ("tc3", '{"path": "c.md"}')]
+
+
+async def test_filter_chat_model_end_dedupes_late_reemit():
+    model_end = _chat_model_end(
+        output={"type": "ai", "tool_calls": [{"id": "tc-x", "name": "edit_file", "args": {"k": 1}}]}
+    )
+    late_start = _ev(ToolCallStartEvent, ns="tools:p", tool_call_id="tc-x", tool_call_name="edit_file")
+    late_args = _ev(ToolCallArgsEvent, ns="tools:p", tool_call_id="tc-x", delta='{"k":1}')
+    late_end = _ev(ToolCallEndEvent, ns="tools:p", tool_call_id="tc-x")
+    result = _ev(ToolCallResultEvent, ns="", tool_call_id="tc-x", message_id="r", content="ok")
+
+    out = await _drain(_filter([model_end, late_start, late_args, late_end, result]))
+    types = [e.type for e in out]
+    # RAW (passes through) + synthesized START/ARGS/END + RESULT — late re-emit dropped.
+    assert types == [
+        EventType.RAW,
+        EventType.TOOL_CALL_START,
+        EventType.TOOL_CALL_ARGS,
+        EventType.TOOL_CALL_END,
+        EventType.TOOL_CALL_RESULT,
+    ]
+
+
+async def test_filter_chat_model_end_skips_naturally_started_tcid():
+    natural = _ev(
+        ToolCallStartEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 0, "id": "tc1", "name": "edit_file", "args": ""}]},
+        tool_call_id="tc1",
+        tool_call_name="edit_file",
+    )
+    model_end = _chat_model_end(
+        output={"type": "ai", "tool_calls": [{"id": "tc1", "name": "edit_file", "args": {"x": 1}}]}
+    )
+    out = await _drain(_filter([natural, model_end]))
+    starts = [e for e in out if e.type == EventType.TOOL_CALL_START]
+    assert [s.tool_call_id for s in starts] == ["tc1"]
+
+
+async def test_filter_chat_model_end_skips_already_synthesized_tcid():
+    snapshot = _ev(
+        StateSnapshotEvent,
+        ns="",
+        snapshot={"messages": [{"type": "ai", "tool_calls": [{"id": "tc1", "name": "edit_file", "args": {}}]}]},
+    )
+    model_end = _chat_model_end(output={"type": "ai", "tool_calls": [{"id": "tc1", "name": "edit_file", "args": {}}]})
+    out = await _drain(_filter([snapshot, model_end]))
+    starts = [e for e in out if e.type == EventType.TOOL_CALL_START]
+    assert [s.tool_call_id for s in starts] == ["tc1"]
+
+
+async def test_filter_passes_unrelated_raw_events_through():
+    other_raw = RawEvent(event={"event": "on_tool_start", "metadata": {"langgraph_checkpoint_ns": ""}})
+    out = await _drain(_filter([other_raw]))
+    assert [e.type for e in out] == [EventType.RAW]
+
+
+async def test_filter_drops_nested_chat_model_end_raw():
+    # Synthesizing a subagent's tool_calls into the parent stream would create
+    # phantom cards for tools the parent never invoked.
+    nested_model_end = _chat_model_end(
+        ns="tools:p|model:s",
+        output={"type": "ai", "tool_calls": [{"id": "tc-nested", "name": "edit_file", "args": {}}]},
+    )
+    out = await _drain(_filter([nested_model_end]))
+    assert out == []
+
+
+async def test_filter_chat_model_end_handles_malformed_payloads():
+    cases = [
+        # No data key at all.
+        RawEvent(event={"event": "on_chat_model_end", "metadata": {"langgraph_checkpoint_ns": ""}}),
+        # data.output is None.
+        RawEvent(
+            event={"event": "on_chat_model_end", "metadata": {"langgraph_checkpoint_ns": ""}, "data": {"output": None}}
+        ),
+        # tool_calls missing on the output.
+        RawEvent(
+            event={
+                "event": "on_chat_model_end",
+                "metadata": {"langgraph_checkpoint_ns": ""},
+                "data": {"output": {"type": "ai", "content": "no tools"}},
+            }
+        ),
+        # tool_call entry missing id.
+        RawEvent(
+            event={
+                "event": "on_chat_model_end",
+                "metadata": {"langgraph_checkpoint_ns": ""},
+                "data": {"output": {"type": "ai", "tool_calls": [{"name": "edit_file", "args": {}}]}},
+            }
+        ),
+    ]
+    for ev in cases:
+        out = await _drain(_filter([ev]))
+        assert [e.type for e in out] == [EventType.RAW], f"failed for raw={ev.event}"
+
+
+async def test_filter_chat_model_end_handles_aimessage_object():
+    # In the live stream output arrives as an AIMessage instance (this filter
+    # runs in front of the AGUI encoder that serializes to dicts).
+    from langchain_core.messages import AIMessage
+
+    output = AIMessage(content="", id="m1", tool_calls=[{"id": "tc-obj", "name": "edit_file", "args": {"k": 1}}])
+    model_end = _chat_model_end(output=output)
+    out = await _drain(_filter([model_end]))
+    starts = [e for e in out if e.type == EventType.TOOL_CALL_START]
+    assert [(s.tool_call_id, s.tool_call_name) for s in starts] == [("tc-obj", "edit_file")]
 
 
 async def test_filter_skips_synthesis_when_latest_ai_has_no_tool_calls():
