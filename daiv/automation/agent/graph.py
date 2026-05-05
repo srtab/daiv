@@ -22,7 +22,13 @@ from langchain.agents.middleware import (
 )
 
 from automation.agent.base import BaseAgent, ThinkingLevel
-from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES, ModelName
+from automation.agent.constants import (
+    AGENTS_MEMORY_PATH,
+    GLOBAL_SKILLS_PATH,
+    SKILLS_SOURCES,
+    SUBAGENTS_SOURCES,
+    ModelName,
+)
 from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
@@ -248,7 +254,7 @@ async def create_daiv_agent(
         ),
         SkillsMiddleware(
             backend=backend,
-            sources=["/skills", *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
+            sources=[GLOBAL_SKILLS_PATH, *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
             subagents=subagents,
         ),
         SubAgentMiddleware(backend=backend, subagents=subagents),

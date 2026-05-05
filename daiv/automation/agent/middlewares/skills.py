@@ -16,7 +16,7 @@ from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
@@ -179,35 +179,18 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     async def _copy_global_skills(self, agent_path: Path) -> tuple[list[str], list[str]]:
         """
-        Materialize builtin and custom global skills into the virtual ``/skills/`` path under the
-        FilesystemBackend root (i.e., ``agent_path.parent / "skills"`` on the host), sibling to the repo.
+        Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
+        sibling to the repo working tree.
 
-        The skills directory lives outside the repo so it is never committed to git
-        and rides on the daiv-sandbox ``skills_archive`` instead of the ``repo_archive``.
-        Per-repo skills (committed under ``<repo>/.agents/skills`` etc.) continue to
-        travel via ``repo_archive`` and override globals through source ordering: the parent
-        ``SkillsMiddleware.abefore_agent`` iterates sources left to right with last-source-wins,
-        and ``SKILLS_SOURCES`` paths are placed after ``/skills`` in the sources list.
+        Custom global skills override builtins with the same name (later writes in
+        ``files_to_upload`` win).
 
-        Custom global skills override built-in skills with the same name: both passes append to
-        the same ``files_to_upload`` list (builtins first, custom globals second), and
-        ``aupload_files`` writes in list order with the last write to each path winning.
-
-        Args:
-            agent_path: The path to the agent's repository working tree. Its parent
-                is the FilesystemBackend root, under which the virtual ``/skills/`` path is rooted.
-
-        Returns:
-            A tuple of (builtin skill names, custom global skill names).
+        Returns a tuple of (builtin skill names, custom global skill names).
         """
         files_to_upload: list[tuple[str, bytes]] = []
-        skills_path = Path("/skills")
+        skills_path = Path(GLOBAL_SKILLS_PATH)
 
-        builtin_skills: list[str] = []
-        if BUILTIN_SKILLS_PATH.is_dir():
-            builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
-        else:
-            logger.error("Builtin skills path '%s' does not exist or is not a directory", BUILTIN_SKILLS_PATH)
+        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
 
         custom_global_skills: list[str] = []
         custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH

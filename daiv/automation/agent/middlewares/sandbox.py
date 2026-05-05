@@ -15,6 +15,7 @@ from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
+from automation.agent.constants import GLOBAL_SKILLS_PATH
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, files_changed_from_patch
 from core.conf import settings
@@ -403,7 +404,7 @@ class SandboxMiddleware(AgentMiddleware):
                 working_dir = Path(runtime.context.gitrepo.working_dir)
                 repo_archive, skills_archive = await asyncio.gather(
                     asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                    asyncio.to_thread(_make_skills_archive, working_dir.parent / "skills"),
+                    asyncio.to_thread(_make_skills_archive, working_dir.parent / Path(GLOBAL_SKILLS_PATH).name),
                 )
                 await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:

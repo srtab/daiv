@@ -138,9 +138,7 @@ class TestSkillsMiddleware:
         assert (skills_root / "skill-two" / "SKILL.md").read_text() == _make_skill_md(
             name="skill-two", description="does two"
         )
-        # No .gitignore files should be written — destination is outside the repo.
         assert not list(skills_root.rglob(".gitignore"))
-        # __pycache__ and stray top-level files are skipped.
         assert not (skills_root / "__pycache__").exists()
         assert not any(p.name == "not_a_dir.txt" for p in skills_root.rglob("*"))
 
@@ -593,7 +591,6 @@ class TestCustomGlobalSkills:
         (repo_skill / "SKILL.md").write_text(_make_skill_md(name="shared-skill", description="repo version"))
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        # /skills first, per-repo last → deepagents "later wins" makes per-repo override the global.
         middleware = SkillsMiddleware(backend=backend, sources=["/skills", f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
@@ -605,11 +602,8 @@ class TestCustomGlobalSkills:
 
         assert result is not None
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
-        # Per-repo content wins via source ordering (last source wins in deepagents).
+        # Per-repo content wins (last source wins); metadata still labels by name-registration origin.
         assert skills["shared-skill"]["description"] == "repo version"
-        # The metadata label reflects name registration, not content origin: "shared-skill" was
-        # registered as a global skill by _copy_global_skills, so is_global is set even though
-        # the per-repo content won. This is consistent with the current labelling strategy.
         assert skills["shared-skill"]["metadata"].get("is_global") is True
         assert "is_builtin" not in skills["shared-skill"]["metadata"]
 

@@ -334,11 +334,8 @@ class TestSandboxMiddleware:
         assert update == {"session_id": "sess_1"}
         start_session_mock.assert_awaited_once()
         seed_session_mock.assert_awaited_once()
-        # seed_session is called with (session_id, repo_archive=..., skills_archive=...).
         _args, kwargs = seed_session_mock.call_args
-        assert "repo_archive" in kwargs
-        assert isinstance(kwargs["repo_archive"], (bytes, bytearray))
-        # No /skills/ sibling exists for this test, so skills_archive must be None.
+        assert isinstance(kwargs.get("repo_archive"), (bytes, bytearray))
         assert kwargs.get("skills_archive") is None
         assert middleware._client is not None
 
