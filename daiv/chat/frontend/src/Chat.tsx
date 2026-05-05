@@ -1,8 +1,30 @@
+import { useState, useEffect } from "react";
 import { CopilotKit } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import "@copilotkit/react-ui/styles.css";
 import { HttpAgent } from "@ag-ui/client";
 import type { MountConfig } from "./config";
+import { MergeRequestCard } from "./MergeRequestCard";
+import { useDaivState } from "./state/coagent";
+import { useRunStatus } from "./use_run_status";
+
+function ChatBody({ threadId }: { threadId: string }) {
+  const { state } = useDaivState();
+  const [blocked, setBlocked] = useState(false);
+  const { active } = useRunStatus(`/api/chat/threads/${threadId}/status`);
+
+  useEffect(() => {
+    if (blocked && !active) setBlocked(false);
+  }, [blocked, active]);
+
+  return (
+    <div className="chat-layout">
+      {blocked && <div className="chat-blocked-banner">Another run is in progress…</div>}
+      <CopilotChat />
+      <MergeRequestCard mr={state.merge_request ?? null} />
+    </div>
+  );
+}
 
 export function Chat({ cfg }: { cfg: MountConfig }) {
   return (
@@ -19,7 +41,7 @@ export function Chat({ cfg }: { cfg: MountConfig }) {
         }),
       }}
     >
-      <CopilotChat />
+      <ChatBody threadId={cfg.threadId} />
     </CopilotKit>
   );
 }

@@ -1,8 +1,22 @@
-import { jsx as _jsx } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useState, useEffect } from "react";
 import { CopilotKit } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import "@copilotkit/react-ui/styles.css";
 import { HttpAgent } from "@ag-ui/client";
+import { MergeRequestCard } from "./MergeRequestCard";
+import { useDaivState } from "./state/coagent";
+import { useRunStatus } from "./use_run_status";
+function ChatBody({ threadId }) {
+    const { state } = useDaivState();
+    const [blocked, setBlocked] = useState(false);
+    const { active } = useRunStatus(`/api/chat/threads/${threadId}/status`);
+    useEffect(() => {
+        if (blocked && !active)
+            setBlocked(false);
+    }, [blocked, active]);
+    return (_jsxs("div", { className: "chat-layout", children: [blocked && _jsx("div", { className: "chat-blocked-banner", children: "Another run is in progress\u2026" }), _jsx(CopilotChat, {}), _jsx(MergeRequestCard, { mr: state.merge_request ?? null })] }));
+}
 export function Chat({ cfg }) {
     return (_jsx(CopilotKit, { selfManagedAgents: {
             DAIV: new HttpAgent({
@@ -14,5 +28,5 @@ export function Chat({ cfg }) {
                 },
                 threadId: cfg.threadId,
             }),
-        }, children: _jsx(CopilotChat, {}) }));
+        }, children: _jsx(ChatBody, { threadId: cfg.threadId }) }));
 }
