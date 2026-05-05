@@ -17,6 +17,8 @@ def _usage_metadata(
     total_tokens: int | None = None,
     cache_creation: int = 0,
     cache_read: int = 0,
+    ephemeral_5m: int = 0,
+    ephemeral_1h: int = 0,
     reasoning: int = 0,
 ) -> dict[str, Any]:
     """Build a UsageMetadata dict as produced by UsageMetadataCallbackHandler."""
@@ -30,6 +32,10 @@ def _usage_metadata(
         input_details["cache_creation"] = cache_creation
     if cache_read:
         input_details["cache_read"] = cache_read
+    if ephemeral_5m:
+        input_details["ephemeral_5m_input_tokens"] = ephemeral_5m
+    if ephemeral_1h:
+        input_details["ephemeral_1h_input_tokens"] = ephemeral_1h
     if input_details:
         d["input_token_details"] = input_details
 
@@ -244,6 +250,153 @@ class TestPerCallPricing:
         assert summary.cost_usd is not None
         # by_model.cost_usd should equal the run total (only one model).
         assert summary.by_model["claude-sonnet-4-6"]["cost_usd"] == summary.cost_usd
+
+
+class TestEphemeralCacheWrites:
+    """langchain-anthropic stores 1h/5m cache-write counts under ``ephemeral_*_input_tokens``
+    and zeroes ``cache_creation`` when that breakdown is present. Per-TTL counts must be
+    billed correctly and the 1h surcharge applied (Anthropic prices 1h writes at 2x base,
+    while genai-prices only models the 5m rate).
+    """
+
+    def test_reproduces_langsmith_cost_for_known_trace(self):
+        """Trace ``019df81d`` has 414953/2029 tokens with 308360 cache_read and 106570
+        ephemeral_1h cache writes; LangSmith reports total $0.762432.
+        """
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(
+            _llm_result(
+                "claude-sonnet-4-6",
+                _usage_metadata(input_tokens=414953, output_tokens=2029, cache_read=308360, ephemeral_1h=106570),
+            )
+        )
+        summary = build_usage_summary(handler)
+        assert summary.cost_usd is not None
+        # Reconstruct the LangSmith formula exactly:
+        # uncached*$3 + cache_read*$0.30 + ephemeral_1h*$6 + output*$15  (all per-million).
+        assert Decimal(summary.cost_usd) == Decimal("0.762432")
+
+    def test_ephemeral_5m_billed_at_5m_rate(self):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(
+            _llm_result(
+                "claude-sonnet-4-6", _usage_metadata(input_tokens=100_000, output_tokens=0, ephemeral_5m=100_000)
+            )
+        )
+        summary = build_usage_summary(handler)
+        assert summary.cost_usd is not None
+        # 100K tokens entirely as 5m cache writes: 100_000 * $3.75/M = $0.375.
+        assert Decimal(summary.cost_usd) == Decimal("0.375")
+
+    def test_ephemeral_1h_priced_higher_than_5m(self):
+        """1h cache writes cost strictly more than the same volume as 5m writes."""
+
+        def _cost(*, ephemeral_1h: int, ephemeral_5m: int) -> Decimal:
+            handler = CostAwareUsageMetadataCallbackHandler()
+            handler.on_llm_end(
+                _llm_result(
+                    "claude-sonnet-4-6",
+                    _usage_metadata(
+                        input_tokens=100_000, output_tokens=0, ephemeral_5m=ephemeral_5m, ephemeral_1h=ephemeral_1h
+                    ),
+                )
+            )
+            summary = build_usage_summary(handler)
+            assert summary.cost_usd is not None
+            return Decimal(summary.cost_usd)
+
+        cost_1h = _cost(ephemeral_1h=100_000, ephemeral_5m=0)
+        cost_5m = _cost(ephemeral_1h=0, ephemeral_5m=100_000)
+        # 1h surcharge for Sonnet 4.6 is $2.25/M (= 2*$3 − $3.75); for 100K tokens that's $0.225.
+        assert cost_1h - cost_5m == Decimal("0.225")
+
+    def test_legacy_cache_creation_still_priced(self):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(
+            _llm_result(
+                "claude-sonnet-4-6", _usage_metadata(input_tokens=100_000, output_tokens=0, cache_creation=100_000)
+            )
+        )
+        summary = build_usage_summary(handler)
+        # Same as the 5m case — no surcharge, just the genai-prices cache_write rate.
+        assert summary.cost_usd is not None
+        assert Decimal(summary.cost_usd) == Decimal("0.375")
+
+    def test_surcharge_skipped_for_non_anthropic_provider(self):
+        """The 1h surcharge is Anthropic-specific. A non-Anthropic model with the same
+        input_token_details shape must price exactly as genai-prices reports, no surcharge.
+        """
+        from genai_prices import Usage, calc_price
+
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(
+            _llm_result("gpt-5.4", _usage_metadata(input_tokens=100_000, output_tokens=0, ephemeral_1h=10_000))
+        )
+        summary = build_usage_summary(handler)
+        expected = calc_price(
+            Usage(input_tokens=100_000, output_tokens=0, cache_write_tokens=10_000), model_ref="gpt-5.4"
+        ).total_price
+        assert summary.cost_usd is not None
+        assert Decimal(summary.cost_usd) == expected
+
+    def test_surcharge_uses_tiered_rate_above_200k(self):
+        """Sonnet 4.5 has TieredPrices crossing at 200K. Above the threshold the surcharge
+        must use the tier rate (2*$6 − $7.50 = $4.50/M), not the base rate.
+        """
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(
+            _llm_result(
+                "claude-sonnet-4-5", _usage_metadata(input_tokens=250_000, output_tokens=0, ephemeral_1h=10_000)
+            )
+        )
+        summary = build_usage_summary(handler)
+        assert summary.cost_usd is not None
+        # genai-prices base cost (tier rate, all tokens billed as cache_write since
+        # cache_write_tokens=ephemeral_1h=10_000 and the rest is uncached input):
+        # uncached = 250_000 − 10_000 = 240_000 @ $6/M = $1.440
+        # cache_write = 10_000 @ $7.50/M = $0.075
+        # surcharge = 10_000 * (2*$6 − $7.50)/M = $0.045
+        assert Decimal(summary.cost_usd) == Decimal("1.560")
+
+    def test_openrouter_routed_anthropic_gets_surcharge(self):
+        """Routing Anthropic via OpenRouter (model_name like ``anthropic/claude-sonnet-4.6``)
+        resolves to provider ``openrouter`` but underlying pricing is Anthropic's, so the
+        1h surcharge must still apply.
+        """
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(
+            _llm_result(
+                "anthropic/claude-sonnet-4.6",
+                _usage_metadata(input_tokens=100_000, output_tokens=0, ephemeral_1h=100_000),
+            )
+        )
+        summary = build_usage_summary(handler)
+        assert summary.cost_usd is not None
+        # Same shape as the 1h-vs-5m delta test: 100K @ ($3.75/M base + $2.25/M surcharge) = $0.600.
+        assert Decimal(summary.cost_usd) == Decimal("0.600")
+
+    def test_mixed_cache_fields_sum_into_cache_writes(self):
+        """``cache_creation``, ``ephemeral_5m_input_tokens`` and ``ephemeral_1h_input_tokens``
+        all contribute to ``cache_write_tokens``; the surcharge applies only to the 1h slice.
+        """
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(
+            _llm_result(
+                "claude-sonnet-4-6",
+                _usage_metadata(
+                    input_tokens=100_000,
+                    output_tokens=0,
+                    cache_creation=20_000,
+                    ephemeral_5m=30_000,
+                    ephemeral_1h=50_000,
+                ),
+            )
+        )
+        summary = build_usage_summary(handler)
+        assert summary.cost_usd is not None
+        # All 100K billed as cache_write at $3.75/M = $0.375, plus 50K ephemeral_1h surcharge
+        # at $2.25/M = $0.1125 → $0.4875.
+        assert Decimal(summary.cost_usd) == Decimal("0.4875")
 
 
 class TestEmptyMetadataWarning:
