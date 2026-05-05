@@ -10,10 +10,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from genai_prices import Usage, calc_price
+from genai_prices.types import TieredPrices
 from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration
 from langchain_core.tracers.context import register_configure_hook
+
+from automation.agent.base import ModelProvider
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -23,13 +26,39 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.usage")
 
 
+def _resolve_mtok_rate(field_mtok: Decimal | TieredPrices | None, total_input_tokens: int) -> Decimal | None:
+    """Resolve the per-million-token rate that applies at ``total_input_tokens``.
+
+    Mirrors ``genai_prices.types.calc_mtok_price`` tier selection.
+    """
+    if field_mtok is None:
+        return None
+    if isinstance(field_mtok, TieredPrices):
+        applicable = field_mtok.base
+        for tier in reversed(field_mtok.tiers):
+            if total_input_tokens > tier.start:
+                applicable = tier.price
+                break
+        return applicable
+    return field_mtok
+
+
 def _calc_model_cost(model_name: str, usage_metadata: Mapping[str, Any]) -> Decimal | None:
     """Return None if the model is not in the pricing database."""
     input_details = usage_metadata.get("input_token_details") or {}
+    # langchain-anthropic zeroes ``cache_creation`` whenever it has the per-TTL breakdown
+    # and stores the actual counts under ``ephemeral_5m_input_tokens`` /
+    # ``ephemeral_1h_input_tokens`` (see ``_create_usage_metadata`` in chat_models.py).
+    # Sum all three so we don't silently drop the cache-write portion of input.
+    ephemeral_5m = input_details.get("ephemeral_5m_input_tokens") or 0
+    ephemeral_1h = input_details.get("ephemeral_1h_input_tokens") or 0
+    cache_write_tokens = (input_details.get("cache_creation") or 0) + ephemeral_5m + ephemeral_1h
+
+    input_tokens = usage_metadata.get("input_tokens", 0)
     genai_usage = Usage(
-        input_tokens=usage_metadata.get("input_tokens", 0),
+        input_tokens=input_tokens,
         output_tokens=usage_metadata.get("output_tokens", 0),
-        cache_write_tokens=input_details.get("cache_creation") or 0,
+        cache_write_tokens=cache_write_tokens,
         cache_read_tokens=input_details.get("cache_read") or 0,
     )
     # OpenRouter model names contain a slash (e.g. "anthropic/claude-sonnet-4.6")
@@ -43,7 +72,35 @@ def _calc_model_cost(model_name: str, usage_metadata: Mapping[str, Any]) -> Deci
     except ValueError, TypeError, ArithmeticError:
         logger.warning("Cost calculation failed for model %r", model_name, exc_info=True)
         return None
-    return result.total_price
+
+    cost = result.total_price
+
+    # Anthropic prices 1-hour ephemeral cache writes at 2x the base input rate, while
+    # 5-minute writes are 1.25x. genai-prices' single ``cache_write_mtok`` reflects only
+    # the 5-minute rate, so add the (1h − 5m) differential for the 1h portion.
+    # OpenRouter-routed Anthropic models share the underlying rates and need the same surcharge.
+    is_anthropic = result.provider.id == ModelProvider.ANTHROPIC or model_name.startswith(
+        f"{ModelProvider.ANTHROPIC.value}/"
+    )
+    if ephemeral_1h and is_anthropic:
+        input_rate = _resolve_mtok_rate(result.model_price.input_mtok, input_tokens)
+        cache_write_rate = _resolve_mtok_rate(result.model_price.cache_write_mtok, input_tokens)
+        if input_rate is not None and cache_write_rate is not None:
+            surcharge_per_mtok = Decimal(2) * input_rate - cache_write_rate
+            cost += Decimal(ephemeral_1h) * surcharge_per_mtok / Decimal(1_000_000)
+        else:
+            # Pricing entry is missing a rate (e.g. older Claude models with no cache pricing).
+            # Surface the under-billing so it doesn't slip past silently.
+            logger.warning(
+                "1h cache-write surcharge skipped for %r: input_rate=%s cache_write_rate=%s; "
+                "%d ephemeral_1h tokens billed at the 5m rate",
+                model_name,
+                input_rate,
+                cache_write_rate,
+                ephemeral_1h,
+            )
+
+    return cost
 
 
 class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
