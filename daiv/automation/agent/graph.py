@@ -247,7 +247,9 @@ async def create_daiv_agent(
             add_cache_control=True,
         ),
         SkillsMiddleware(
-            backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES], subagents=subagents
+            backend=backend,
+            sources=["/skills", *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
+            subagents=subagents,
         ),
         SubAgentMiddleware(backend=backend, subagents=subagents),
         *agent_conditional_middlewares,
