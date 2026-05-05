@@ -179,3 +179,8 @@ daiv-traces/
 predictions.json
 
 .worktrees/
+
+# Vite frontend build
+daiv/chat/frontend/node_modules/
+daiv/chat/frontend/dist/
+daiv/chat/static/chat/dist/
