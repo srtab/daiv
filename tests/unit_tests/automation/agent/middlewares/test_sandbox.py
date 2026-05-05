@@ -334,10 +334,12 @@ class TestSandboxMiddleware:
         assert update == {"session_id": "sess_1"}
         start_session_mock.assert_awaited_once()
         seed_session_mock.assert_awaited_once()
-        # seed_session is called with (session_id, repo_archive=...) — assert the keyword.
+        # seed_session is called with (session_id, repo_archive=..., skills_archive=...).
         _args, kwargs = seed_session_mock.call_args
         assert "repo_archive" in kwargs
         assert isinstance(kwargs["repo_archive"], (bytes, bytearray))
+        # No /skills/ sibling exists for this test, so skills_archive must be None.
+        assert kwargs.get("skills_archive") is None
         assert middleware._client is not None
 
     async def test_abefore_agent_closes_session_on_seed_failure(self, tmp_path: Path):
@@ -489,6 +491,38 @@ class TestSandboxMiddleware:
         # Subagent path: session is the parent's, but the client we opened still must be released.
         client_close_mock.assert_awaited_once()
         assert middleware._client is None
+
+    async def test_abefore_agent_passes_skills_archive_when_skills_dir_populated(self, tmp_path: Path):
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "README.md").write_text("hello")
+
+        skills_dir = tmp_path / "skills"
+        (skills_dir / "skill-one").mkdir(parents=True)
+        (skills_dir / "skill-one" / "SKILL.md").write_text("hi")
+
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
+
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_skills"),
+            ),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ) as seed_session_mock,
+        ):
+            middleware = SandboxMiddleware(close_session=True)
+            update = await middleware.abefore_agent({}, runtime)
+
+        assert update == {"session_id": "sess_skills"}
+        seed_session_mock.assert_awaited_once()
+        _args, kwargs = seed_session_mock.call_args
+        assert isinstance(kwargs.get("repo_archive"), (bytes, bytearray))
+        assert isinstance(kwargs.get("skills_archive"), (bytes, bytearray))
 
     def test_make_skills_archive_returns_none_when_dir_missing(self, tmp_path: Path):
         from automation.agent.middlewares.sandbox import _make_skills_archive

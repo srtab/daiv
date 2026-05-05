@@ -388,8 +388,12 @@ class SandboxMiddleware(AgentMiddleware):
                 )
             )
             try:
-                archive = await asyncio.to_thread(_make_repo_archive, runtime.context.gitrepo.working_dir)
-                await client.seed_session(session_id, repo_archive=archive)
+                working_dir = Path(runtime.context.gitrepo.working_dir)
+                repo_archive, skills_archive = await asyncio.gather(
+                    asyncio.to_thread(_make_repo_archive, str(working_dir)),
+                    asyncio.to_thread(_make_skills_archive, working_dir.parent / "skills"),
+                )
+                await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:
                 try:
                     await client.close_session(session_id)
