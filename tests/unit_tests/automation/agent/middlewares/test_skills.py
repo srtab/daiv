@@ -109,7 +109,7 @@ class TestSkillsMiddleware:
         assert skills["custom-skill"]["metadata"]["owner"] == "user"
         assert "is_builtin" not in skills["custom-skill"]["metadata"]
 
-    async def test_uploads_missing_files_and_gitignore(self, tmp_path: Path):
+    async def test_materializes_global_skills_under_skills_dir(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
         repo_name = "repoX"
@@ -125,23 +125,24 @@ class TestSkillsMiddleware:
         (builtin / "__pycache__" / "ignored.txt").write_text("ignored\n")
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=[f"/{repo_name}/{AGENTS_SKILLS_PATH}"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
             await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
 
-        project_skills = tmp_path / repo_name / AGENTS_SKILLS_PATH
-        assert (project_skills / "skill-one" / "SKILL.md").read_text() == _make_skill_md(
+        skills_root = tmp_path / "skills"
+        assert (skills_root / "skill-one" / "SKILL.md").read_text() == _make_skill_md(
             name="skill-one", description="does one"
         )
-        assert (project_skills / "skill-one" / "helpers" / "util.py").read_text() == "print('one')\n"
-        assert (project_skills / "skill-two" / "SKILL.md").read_text() == _make_skill_md(
+        assert (skills_root / "skill-one" / "helpers" / "util.py").read_text() == "print('one')\n"
+        assert (skills_root / "skill-two" / "SKILL.md").read_text() == _make_skill_md(
             name="skill-two", description="does two"
         )
-        assert (project_skills / "skill-one" / ".gitignore").read_text() == "*"
-        assert (project_skills / "skill-two" / ".gitignore").read_text() == "*"
-        assert not (project_skills / "__pycache__").exists()
-        assert not any(p.name == "not_a_dir.txt" for p in project_skills.rglob("*"))
+        # No .gitignore files should be written — destination is outside the repo.
+        assert not list(skills_root.rglob(".gitignore"))
+        # __pycache__ and stray top-level files are skipped.
+        assert not (skills_root / "__pycache__").exists()
+        assert not any(p.name == "not_a_dir.txt" for p in skills_root.rglob("*"))
 
     async def test_skips_file_upload_when_dest_exists(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
