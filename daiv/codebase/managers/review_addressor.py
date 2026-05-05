@@ -12,10 +12,18 @@ from unidiff.patch import Line
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
-from codebase.base import GitPlatform, MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
+from codebase.base import (
+    GitPlatform,
+    MergeRequest,
+    Note,
+    NoteDiffPosition,
+    NoteDiffPositionType,
+    NotePositionType,
+    Scope,
+)
+from codebase.utils import compute_thread_id
 from core.checkpointer import open_checkpointer
 from core.constants import BOT_NAME
-from core.utils import generate_uuid
 
 from .base import BaseManager
 
@@ -189,17 +197,35 @@ class CommentsAddressorManager(BaseManager):
     Manages the comments addressing process.
     """
 
-    def __init__(self, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
+    def __init__(
+        self,
+        *,
+        merge_request: MergeRequest,
+        mention_comment_id: str,
+        runtime_ctx: RuntimeCtx,
+        thread_id: str | None = None,
+    ):
         super().__init__(runtime_ctx=runtime_ctx)
         self.merge_request = merge_request
         self.mention_comment_id = mention_comment_id
-        self.thread_id = generate_uuid(
-            f"{self.ctx.repository.slug}:{self.ctx.scope}/{self.merge_request.merge_request_id}"
-        )
+        if thread_id is None:
+            thread_id = compute_thread_id(
+                repo_slug=self.ctx.repository.slug,
+                scope=Scope.MERGE_REQUEST,
+                entity_iid=self.merge_request.merge_request_id,
+            )
+        elif not thread_id:
+            raise ValueError(f"thread_id must be non-empty or None, got {thread_id!r}")
+        self.thread_id = thread_id
 
     @classmethod
     async def address_comments(
-        cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx
+        cls,
+        *,
+        merge_request: MergeRequest,
+        mention_comment_id: str,
+        runtime_ctx: RuntimeCtx,
+        thread_id: str | None = None,
     ) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -212,7 +238,12 @@ class CommentsAddressorManager(BaseManager):
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag.
         """
-        manager = cls(merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
+        manager = cls(
+            merge_request=merge_request,
+            mention_comment_id=mention_comment_id,
+            runtime_ctx=runtime_ctx,
+            thread_id=thread_id,
+        )
 
         try:
             return await manager._address_comments()
@@ -288,10 +319,7 @@ class CommentsAddressorManager(BaseManager):
                     self._add_unable_to_address_review_note()
 
                 return await self._build_agent_result(
-                    daiv_agent,
-                    agent_config,
-                    response=response_text,
-                    usage=build_usage_summary(usage_handler.usage_metadata).to_dict(),
+                    daiv_agent, agent_config, response=response_text, usage=build_usage_summary(usage_handler).to_dict()
                 )
 
     def _add_unable_to_address_review_note(self, *, draft_published: bool = False):

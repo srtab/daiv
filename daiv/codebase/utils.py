@@ -14,13 +14,29 @@ from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
 from core.constants import BOT_NAME
+from core.utils import generate_uuid
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from git import Repo
 
-    from codebase.base import Discussion, Note, User
+    from codebase.base import Discussion, Note, Scope, User
+
+
+def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
+    """Deterministic LangGraph checkpoint key for an issue or merge-request conversation.
+
+    Webhook callbacks mint this to set ``Activity.thread_id`` before enqueueing the
+    addressor task; the addressor managers must compute the same value so follow-up
+    events resume the same checkpointer state.
+    """
+    if not repo_slug or scope is None or entity_iid is None or entity_iid == "":
+        raise ValueError(
+            f"compute_thread_id requires non-empty values; "
+            f"got repo_slug={repo_slug!r}, scope={scope!r}, entity_iid={entity_iid!r}"
+        )
+    return generate_uuid(f"{repo_slug}:{scope}/{entity_iid}")
 
 
 def get_repo_ref(repo: Repo) -> str:

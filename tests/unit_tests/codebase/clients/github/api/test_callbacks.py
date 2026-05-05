@@ -297,3 +297,91 @@ class TestPullRequestCallback:
             await callback.process_callback()
 
         assert mock_task.aenqueue.call_args.kwargs["merged_at"] == ""
+
+
+@pytest.mark.django_db
+class TestProcessCallbackThreadId:
+    """The deterministic thread_id minted in the callback must reach both the task
+    and the Activity row, so the Activity can later be joined to LangSmith traces."""
+
+    async def test_issue_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_client):
+        from unittest.mock import AsyncMock, patch
+
+        from codebase.base import Scope
+        from codebase.utils import compute_thread_id
+
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)])
+        callback.sender = User(**{"id": 10, "login": "testuser"})
+        expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+
+        with (
+            patch("codebase.clients.github.api.callbacks.address_issue_task") as mock_task,
+            patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected
+
+    async def test_issue_comment_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_config):
+        from unittest.mock import AsyncMock, patch
+
+        from codebase.base import Scope
+        from codebase.utils import compute_thread_id
+
+        # Plain issue (no pull_request) → ISSUE scope branch.
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Bug", state="open", labels=[]),
+            comment=Comment(id=200, body="@daiv help", user=User(**{"id": 10, "login": "alice"})),
+        )
+        expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+
+        with (
+            patch("codebase.clients.github.api.callbacks.address_issue_task") as mock_task,
+            patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.github.api.callbacks.note_mentions_daiv", return_value=True),
+            patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected
+
+    async def test_pr_review_comment_callback_passes_thread_id(self, monkeypatch_dependencies, mock_repo_config):
+        from unittest.mock import AsyncMock, patch
+
+        from codebase.base import Scope
+        from codebase.utils import compute_thread_id
+
+        mock_repo_config.pull_request_assistant.enabled = True
+
+        # Issue with pull_request set → MR review branch.
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(
+                id=100, number=99, title="PR", state="open", labels=[], pull_request={"url": "https://example/pr/99"}
+            ),
+            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 10, "login": "alice"})),
+        )
+        expected = compute_thread_id(repo_slug="owner/repo", scope=Scope.MERGE_REQUEST, entity_iid=99)
+
+        with (
+            patch("codebase.clients.github.api.callbacks.address_mr_comments_task") as mock_task,
+            patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.github.api.callbacks.note_mentions_daiv", return_value=True),
+            patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected

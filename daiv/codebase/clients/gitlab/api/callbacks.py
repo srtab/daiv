@@ -8,11 +8,12 @@ from gitlab.exceptions import GitlabError
 
 from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
+from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task
-from codebase.utils import note_mentions_daiv
+from codebase.utils import compute_thread_id, note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
 from .models import (  # noqa: TC001
@@ -110,8 +111,11 @@ class IssueCallback(BaseCallback):
             self._client.create_issue_emoji(self.project.path_with_namespace, self.object_attributes.iid, Emoji.EYES)
         except GitlabError:
             logger.warning("Failed to add reaction to issue %s", self.object_attributes.iid, exc_info=True)
+        thread_id = compute_thread_id(
+            repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.object_attributes.iid
+        )
         result = await address_issue_task.aenqueue(
-            repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid
+            repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid, thread_id=thread_id
         )
         daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         try:
@@ -124,6 +128,7 @@ class IssueCallback(BaseCallback):
                 user=daiv_user,
                 external_username=self.user.username,
                 title=self.object_attributes.title,
+                thread_id=thread_id,
             )
         except Exception:
             logger.exception(
@@ -186,10 +191,14 @@ class NoteCallback(BaseCallback):
                 )
             except GitlabError:
                 logger.warning("Failed to add reaction to issue comment %s", self.object_attributes.id, exc_info=True)
+            thread_id = compute_thread_id(
+                repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.issue.iid
+            )
             result = await address_issue_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
                 mention_comment_id=self.object_attributes.discussion_id,
+                thread_id=thread_id,
             )
             try:
                 await acreate_activity(
@@ -202,6 +211,7 @@ class NoteCallback(BaseCallback):
                     user=daiv_user,
                     external_username=self.user.username,
                     title=self.issue.title,
+                    thread_id=thread_id,
                 )
             except Exception:
                 logger.exception(
@@ -217,10 +227,14 @@ class NoteCallback(BaseCallback):
                 )
             except GitlabError:
                 logger.warning("Failed to add reaction to MR comment %s", self.object_attributes.id, exc_info=True)
+            thread_id = compute_thread_id(
+                repo_slug=self.project.path_with_namespace, scope=Scope.MERGE_REQUEST, entity_iid=self.merge_request.iid
+            )
             result = await address_mr_comments_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 merge_request_id=self.merge_request.iid,
                 mention_comment_id=self.object_attributes.discussion_id,
+                thread_id=thread_id,
             )
             try:
                 await acreate_activity(
@@ -233,6 +247,7 @@ class NoteCallback(BaseCallback):
                     user=daiv_user,
                     external_username=self.user.username,
                     title=self.merge_request.title,
+                    thread_id=thread_id,
                 )
             except Exception:
                 logger.exception(
