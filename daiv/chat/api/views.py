@@ -1,4 +1,4 @@
-from django.http import Http404, HttpRequest, StreamingHttpResponse
+from django.http import HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from ag_ui.encoder import EventEncoder
@@ -51,7 +51,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     repo_id = request.headers.get(HEADER_REPO_ID)
     ref = request.headers.get(HEADER_REF)
     if not repo_id or not ref:
-        raise Http404("Repository ID or reference not found")
+        raise HttpError(400, f"Missing required header(s): {HEADER_REPO_ID}, {HEADER_REF}")
 
     user = request.auth  # ty: ignore[unresolved-attribute]
     thread_id = input_data.thread_id

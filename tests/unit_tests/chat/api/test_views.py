@@ -54,22 +54,22 @@ def _mock_stream(*_args, **_kwargs):
 
 
 @pytest.mark.django_db
-async def test_missing_repo_id_header_returns_404(client: TestAsyncClient, authed):
+async def test_missing_repo_id_header_returns_400(client: TestAsyncClient, authed):
     _, raw, user = authed
     response = await client.post(
         "/chat/completions", json=_run_agent_input(), headers=_auth_headers(raw, **{"X-Ref": "main"})
     )
-    assert response.status_code == 404
+    assert response.status_code == 400
     await user.adelete()
 
 
 @pytest.mark.django_db
-async def test_missing_ref_header_returns_404(client: TestAsyncClient, authed):
+async def test_missing_ref_header_returns_400(client: TestAsyncClient, authed):
     _, raw, user = authed
     response = await client.post(
         "/chat/completions", json=_run_agent_input(), headers=_auth_headers(raw, **{"X-Repo-ID": "owner/repo"})
     )
-    assert response.status_code == 404
+    assert response.status_code == 400
     await user.adelete()
 
 

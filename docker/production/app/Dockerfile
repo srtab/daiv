@@ -33,6 +33,20 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --no-default-groups --no-install-project
 
 #########################################################################################################
+# Chat frontend build
+#########################################################################################################
+FROM node:20-alpine AS chat-frontend
+
+WORKDIR /app/daiv/chat/frontend
+RUN corepack enable
+
+COPY daiv/chat/frontend/package.json daiv/chat/frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY daiv/chat/frontend/ ./
+RUN pnpm build
+
+#########################################################################################################
 # Python build image
 #########################################################################################################
 FROM python:3.14.2-slim-bookworm AS python-builder
@@ -84,6 +98,9 @@ COPY --chown=daiv:daiv --from=app-compiler /.venv /home/daiv/.venv
 
 # Copy application code
 COPY --chown=daiv:daiv ./daiv /home/daiv/app
+
+# Vite-built frontend bundle — must run AFTER the ./daiv copy so dist/ wins.
+COPY --chown=daiv:daiv --from=chat-frontend /app/daiv/chat/static/chat/dist /home/daiv/app/chat/static/chat/dist
 COPY --chown=daiv:daiv ./docker/production/app/entrypoint /home/daiv/entrypoint
 COPY --chown=daiv:daiv ./docker/production/app/start-app /home/daiv/start-app
 COPY --chown=daiv:daiv ./docker/production/app/start-worker /home/daiv/start-worker

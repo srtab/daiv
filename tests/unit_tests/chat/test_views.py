@@ -303,3 +303,45 @@ def test_from_activity_creates_thread_and_redirects(member_client, member_user):
     assert resp.status_code == 302
     assert ChatThread.objects.filter(thread_id="t-alive", user=member_user).exists()
     assert resp["Location"] == reverse("chat_detail", kwargs={"thread_id": "t-alive"})
+
+
+@pytest.mark.django_db
+def test_chat_detail_renders_react_shell_when_next_flag_set(member_client, member_user, settings):
+    settings.VITE_DEV_SERVER = "http://localhost:5173"
+    thread = ChatThread.objects.create(thread_id="t-react", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}) + "?next=1")
+    assert resp.status_code == 200
+    assert b'id="copilot-root"' in resp.content
+    assert b'data-thread-id="t-react"' in resp.content
+    assert b'data-repo-id="a/b"' in resp.content
+    assert b'data-ref="main"' in resp.content
+    assert b"data-csrf=" not in resp.content
+    assert b"localhost:5173" in resp.content
+    assert b"chat-stream.js" not in resp.content
+    assert b"marked.umd" not in resp.content
+    assert b"dompurify" not in resp.content
+
+
+@pytest.mark.django_db
+def test_chat_detail_renders_legacy_alpine_shell_without_flag(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-legacy", user=member_user, repo_id="a/b", ref="main")
+    with (
+        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+    assert resp.status_code == 200
+    assert b"x-data=" in resp.content
+    assert b'id="copilot-root"' not in resp.content

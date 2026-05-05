@@ -12,6 +12,7 @@
 {% endblock %}
 
 {% block alpine_plugins %}
+  {% if not next_chat %}
   <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.2/lib/marked.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.4.1/dist/purify.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
@@ -20,11 +21,13 @@
   <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
   <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
+  {% endif %}
 {% endblock %}
 
 {% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
 
 {% block app_content %}
+{% if not next_chat %}
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
 
@@ -175,4 +178,16 @@
 
     {% include "chat/_rail.html" %}
   </div>
+{% else %}
+  {% load vite %}
+  <div id="copilot-root"
+       data-thread-id="{{ thread.thread_id }}"
+       data-repo-id="{{ thread.repo_id }}"
+       data-ref="{{ thread.ref }}"
+       data-csrf-token="{{ csrf_token }}">
+    <noscript>JavaScript is required for the chat view.</noscript>
+    <div id="copilot-fallback">Chat failed to load — refresh the page.</div>
+  </div>
+  {% vite_asset 'src/main.tsx' %}
+{% endif %}
 {% endblock %}
