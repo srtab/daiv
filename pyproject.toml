@@ -40,7 +40,7 @@ dependencies = [
   "httpx==0.28.1",
   "ipython==9.13.0",
   "jinja2==3.1.6",
-  "langchain[anthropic,community,google-genai,openai]==1.2.15",
+  "langchain[anthropic,community,google-genai,openai]==1.2.17",
   "langchain-mcp-adapters==0.2.2",
   "langgraph==1.1.10",
   "langgraph-checkpoint-redis==0.4.1",
