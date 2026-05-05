@@ -33,6 +33,16 @@ class TestDeferredToolsMiddleware:
         assert len(middleware.tools) == 1
         assert middleware.tools[0].name == "tool_search"
 
+    def test_extra_tools_registered_via_tools_attr(self):
+        # langchain.agents.factory collects middleware.tools into the runtime ToolNode.
+        # If extra_tools (e.g. MCP tools) aren't exposed here, the model can "load" them via
+        # tool_search but the ToolNode rejects the subsequent call as "not a valid tool".
+        github = _make_tool("github_create_issue", "Create issue")
+        sentry = _make_tool("sentry_find_orgs", "List orgs")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github, sentry])
+        names = [t.name for t in middleware.tools]
+        assert names == ["tool_search", "github_create_issue", "sentry_find_orgs"]
+
     def test_state_schema_is_deferred_state(self):
         from automation.agent.deferred.state import DeferredToolsState
 

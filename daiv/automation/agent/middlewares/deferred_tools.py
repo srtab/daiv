@@ -45,7 +45,14 @@ class DeferredToolsMiddleware(AgentMiddleware):
         self._always_loaded: set[str] = {*always_loaded, TOOL_SEARCH_NAME}
         self._extra_tools: list[BaseTool] = list(extra_tools)
         self._index: DeferredToolsIndex | None = None
-        self.tools = [make_tool_search(self._get_index, top_k_default=top_k_default, top_k_max=top_k_max)]
+        # Expose extra_tools to the agent factory so they are registered with the runtime ToolNode
+        # at build time (langchain/agents/factory.py collects middleware.tools into available_tools).
+        # awrap_model_call still filters them out of the model's view until they're loaded via
+        # tool_search — registration here only makes them executable when the model calls them.
+        self.tools = [
+            make_tool_search(self._get_index, top_k_default=top_k_default, top_k_max=top_k_max),
+            *self._extra_tools,
+        ]
 
     def _get_index(self) -> DeferredToolsIndex:
         if self._index is None:
