@@ -43,6 +43,9 @@ class StubClient:
     def create_issue_emoji(self, *_a, **_kw):
         pass
 
+    def create_merge_request_note_emoji(self, *_a, **_kw):
+        pass
+
 
 @pytest.fixture
 def stub_client():
@@ -516,3 +519,97 @@ class TestMergeRequestCallback:
             await callback.process_callback()
 
         assert mock_task.aenqueue.call_args.kwargs["merged_at"] == ""
+
+
+@pytest.mark.django_db
+class TestProcessCallbackThreadId:
+    """The deterministic thread_id minted in the callback must reach both the task
+    and the Activity row, so the Activity can later be joined to LangSmith traces."""
+
+    async def test_issue_callback_passes_thread_id(self, monkeypatch_dependencies):
+        from unittest.mock import AsyncMock, patch
+
+        from codebase.base import Scope
+        from codebase.utils import compute_thread_id
+
+        callback = create_issue_callback(action=IssueAction.OPEN, issue_labels=[Label(title="daiv")])
+        expected = compute_thread_id(repo_slug="group/repo", scope=Scope.ISSUE, entity_iid=42)
+
+        with (
+            patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.return_value = None
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected
+
+    async def test_note_callback_on_mr_passes_thread_id(self, monkeypatch_dependencies):
+        from unittest.mock import AsyncMock, patch
+
+        from codebase.base import Scope
+        from codebase.utils import compute_thread_id
+
+        callback = create_note_callback("@daiv please review")
+        expected = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=1)
+
+        with (
+            patch("codebase.clients.gitlab.api.callbacks.address_mr_comments_task") as mock_task,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected
+
+    async def test_note_callback_on_issue_passes_thread_id(self, monkeypatch_dependencies):
+        from unittest.mock import AsyncMock, patch
+
+        from codebase.base import Scope
+        from codebase.utils import compute_thread_id
+
+        callback = NoteCallback(
+            object_kind="note",
+            project=Project(id=1, path_with_namespace="group/repo", default_branch="main"),
+            user=User(id=2, username="reviewer", name="Reviewer", email="reviewer@example.com"),
+            issue=Issue(
+                id=100,
+                iid=7,
+                title="Bug",
+                description="x",
+                state="opened",
+                assignee_id=None,
+                action=IssueAction.OPEN,
+                labels=[],
+                type="Issue",
+            ),
+            object_attributes=Note(
+                id=200,
+                action=NoteAction.CREATE,
+                noteable_type=NoteableType.ISSUE,
+                noteable_id=7,
+                discussion_id="discussion_2",
+                note="@daiv please look",
+                system=False,
+            ),
+        )
+        expected = compute_thread_id(repo_slug="group/repo", scope=Scope.ISSUE, entity_iid=7)
+
+        with (
+            patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["thread_id"] == expected
