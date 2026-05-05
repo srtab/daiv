@@ -1,4 +1,4 @@
-import type { ToolRenderProps } from "./types";
+import { formatResult, type ToolRenderProps } from "./types";
 
 export function TaskTool({ args, status, result }: ToolRenderProps) {
   const sub = (args.subagent_type as string) ?? "subagent";
@@ -11,7 +11,7 @@ export function TaskTool({ args, status, result }: ToolRenderProps) {
         </span>
         {desc && <span className="chat-tool__path">{desc}</span>}
       </summary>
-      {result != null && <pre className="chat-tool__code">{String(result)}</pre>}
+      {result != null && <pre className="chat-tool__code">{formatResult(result)}</pre>}
     </details>
   );
 }

@@ -99,7 +99,7 @@ COPY --chown=daiv:daiv --from=app-compiler /.venv /home/daiv/.venv
 # Copy application code
 COPY --chown=daiv:daiv ./daiv /home/daiv/app
 
-# Copy Vite-built frontend bundle (overrides any stale placeholder in ./daiv)
+# Vite-built frontend bundle — must run AFTER the ./daiv copy so dist/ wins.
 COPY --chown=daiv:daiv --from=chat-frontend /app/daiv/chat/static/chat/dist /home/daiv/app/chat/static/chat/dist
 COPY --chown=daiv:daiv ./docker/production/app/entrypoint /home/daiv/entrypoint
 COPY --chown=daiv:daiv ./docker/production/app/start-app /home/daiv/start-app

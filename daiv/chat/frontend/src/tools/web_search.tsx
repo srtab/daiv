@@ -1,4 +1,4 @@
-import type { ToolRenderProps } from "./types";
+import { formatResult, type ToolRenderProps } from "./types";
 
 export function WebSearchTool({ args, status, result }: ToolRenderProps) {
   const query = (args.query as string) ?? "";
@@ -7,7 +7,7 @@ export function WebSearchTool({ args, status, result }: ToolRenderProps) {
       <summary>
         <code>{query}</code>
       </summary>
-      {result != null && <pre className="chat-tool__code">{String(result)}</pre>}
+      {result != null && <pre className="chat-tool__code">{formatResult(result)}</pre>}
     </details>
   );
 }

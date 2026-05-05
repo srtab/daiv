@@ -99,7 +99,13 @@ class SubagentEventFilter:
                 if isinstance(tcid, str) and tcid in self._synthesized:
                     continue
                 if isinstance(tcid, str) and tcid in self._natural_ended:
-                    # OnToolEnd re-emit after the natural lifecycle already closed; drop.
+                    # OnToolEnd re-emits the full Start/Args/End triple for tool_calls
+                    # that already streamed their natural lifecycle. The first pass is
+                    # authoritative — CopilotKit's tool-call state machine has already
+                    # rendered ``complete``; re-emitting would either double-render or
+                    # flip the segment back to ``running``. Mirrors the synthesized
+                    # branch above (synthesized START suppresses the natural one;
+                    # natural END suppresses the re-emitted one).
                     continue
                 if event.type == EventType.TOOL_CALL_START and isinstance(tcid, str):
                     self._natural_started.add(tcid)

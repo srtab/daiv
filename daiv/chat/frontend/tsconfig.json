@@ -8,6 +8,7 @@
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "isolatedModules": true,
+    "noEmit": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vitest/globals", "@testing-library/jest-dom"]

@@ -26,8 +26,12 @@ export function EditFileTool({ args, status }: ToolRenderProps) {
   const oldStr = (args.old_str as string) ?? "";
   const newStr = (args.new_str as string) ?? "";
   if (!oldStr || !newStr) return card(status, path || "edit_file");
-  const unified = makeUnifiedDiff(path, oldStr, newStr);
-  const [file] = parseDiff(unified, { nearbySequences: "zip" });
+  let file: ReturnType<typeof parseDiff>[number] | undefined;
+  try {
+    [file] = parseDiff(makeUnifiedDiff(path, oldStr, newStr), { nearbySequences: "zip" });
+  } catch (err) {
+    console.warn("EditFileTool: parseDiff failed", err);
+  }
   return card(
     status,
     path || "edit_file",

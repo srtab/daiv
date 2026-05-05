@@ -320,7 +320,14 @@ def test_chat_detail_renders_react_shell_when_next_flag_set(member_client, membe
         resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}) + "?next=1")
     assert resp.status_code == 200
     assert b'id="copilot-root"' in resp.content
-    assert b"data-thread-id" in resp.content
+    assert b'data-thread-id="t-react"' in resp.content
+    assert b'data-repo-id="a/b"' in resp.content
+    assert b'data-ref="main"' in resp.content
+    assert b"data-csrf=" not in resp.content
+    assert b"localhost:5173" in resp.content
+    assert b"chat-stream.js" not in resp.content
+    assert b"marked.umd" not in resp.content
+    assert b"dompurify" not in resp.content
 
 
 @pytest.mark.django_db
@@ -337,3 +344,4 @@ def test_chat_detail_renders_legacy_alpine_shell_without_flag(member_client, mem
         resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
     assert resp.status_code == 200
     assert b"x-data=" in resp.content
+    assert b'id="copilot-root"' not in resp.content

@@ -5,6 +5,7 @@ type BashResult = { stdout?: string; stderr?: string; exit_code?: number };
 function asResult(r: unknown): BashResult {
   if (r && typeof r === "object") return r as BashResult;
   if (typeof r === "string") return { stdout: r };
+  if (r != null) console.warn("BashTool: unexpected result shape", r);
   return {};
 }
 
@@ -13,7 +14,7 @@ export function BashTool({ args, status, result }: ToolRenderProps) {
   const r = asResult(result);
   const failed = typeof r.exit_code === "number" && r.exit_code !== 0;
   return (
-    <details className="chat-tool" data-status={status} data-failed={failed}>
+    <details className="chat-tool" data-status={status} data-failed={failed ? "true" : undefined}>
       <summary>
         <code className="chat-tool__cmd">{cmd}</code>
         {typeof r.exit_code === "number" && (
