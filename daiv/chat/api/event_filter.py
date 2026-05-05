@@ -42,17 +42,13 @@ class SubagentEventFilter:
 
     This filter:
 
-    * captures every top-level tool_call from STATE_SNAPSHOT events and
-      synthesizes TOOL_CALL_START + ARGS + END for any tcid that was *not*
+    * synthesizes TOOL_CALL_START + ARGS + END for any tcid that was *not*
       naturally started by ag_ui_langgraph (the dropped #1 case AND the
-      parallel-call siblings beyond the first in #3),
-    * additionally synthesizes from ``on_chat_model_end`` RAW events. The
-      ``tools`` node's STATE_SNAPSHOTs only carry the freshly-appended
-      ToolMessages — never the parent AIMessage with the unstarted tool_calls
-      — so the snapshot path alone misses the parallel-sibling case in
-      practice. The ``on_chat_model_end`` payload carries the full AIMessage
-      (with all tool_calls and finalized args) and fires before any tool
-      executes, so synthesis here lands before the first ``TOOL_CALL_RESULT``,
+      parallel-call siblings beyond the first in #3). Two sources are watched:
+      STATE_SNAPSHOT events, and ``on_chat_model_end`` RAW events. The latter
+      is required because the ``tools`` node's STATE_SNAPSHOTs only carry the
+      freshly-appended ToolMessages — never the parent AIMessage — so the
+      snapshot path alone cannot recover parallel siblings,
     * drops misrouted natural ``TOOL_CALL_ARGS`` events whose underlying
       chunk's ``tool_call_chunks[0].index > 0`` — the delta belongs to a
       sibling, not to the tcid in the event,
@@ -78,39 +74,14 @@ class SubagentEventFilter:
                 # (e.g. the merge-request pill) commit before the synthesized
                 # tool_call segments append to the same turn.
                 yield event
-
-                pending: dict[str, tuple[str, Any]] = {}
-                for tcid, name, args in self._iter_latest_tool_calls(event):
-                    if tcid in self._synthesized or tcid in self._natural_started:
-                        continue
-                    pending[tcid] = (name, args)
-
-                for tcid, (name, args) in pending.items():
-                    yield ToolCallStartEvent(type=EventType.TOOL_CALL_START, tool_call_id=tcid, tool_call_name=name)
-                    if args:
-                        # ``default=str`` so a Pydantic model / datetime / other
-                        # non-JSON-native object in args doesn't kill the entire
-                        # chat stream — better a stringified field than RUN_ERROR.
-                        delta = args if isinstance(args, str) else json.dumps(args, default=str)
-                        yield ToolCallArgsEvent(type=EventType.TOOL_CALL_ARGS, tool_call_id=tcid, delta=delta)
-                    yield ToolCallEndEvent(type=EventType.TOOL_CALL_END, tool_call_id=tcid)
-                    self._synthesized.add(tcid)
+                for synth in self._synthesize_unstarted(self._iter_latest_tool_calls(event)):
+                    yield synth
                 continue
 
             if event.type == EventType.RAW:
                 yield event
-                pending: dict[str, tuple[str, Any]] = {}
-                for tcid, name, args in self._iter_chat_model_end_tool_calls(event):
-                    if tcid in self._synthesized or tcid in self._natural_started:
-                        continue
-                    pending[tcid] = (name, args)
-                for tcid, (name, args) in pending.items():
-                    yield ToolCallStartEvent(type=EventType.TOOL_CALL_START, tool_call_id=tcid, tool_call_name=name)
-                    if args:
-                        delta = args if isinstance(args, str) else json.dumps(args, default=str)
-                        yield ToolCallArgsEvent(type=EventType.TOOL_CALL_ARGS, tool_call_id=tcid, delta=delta)
-                    yield ToolCallEndEvent(type=EventType.TOOL_CALL_END, tool_call_id=tcid)
-                    self._synthesized.add(tcid)
+                for synth in self._synthesize_unstarted(self._iter_chat_model_end_tool_calls(event)):
+                    yield synth
                 continue
 
             if event.type == EventType.TOOL_CALL_ARGS and self._is_misrouted_arg(event):
@@ -135,11 +106,7 @@ class SubagentEventFilter:
         ``"<node>:UUID"`` segment (e.g. ``"model:..."``, ``"tools:..."``) with no
         pipe.
         """
-        # Non-RAW events expose the LangChain payload as ``raw_event``; RAW
-        # events use ``event`` (their semantic payload). Try both so RAW events
-        # emitted from a nested subgraph still get filtered out by the ``|`` ns
-        # check — otherwise they'd reach the on_chat_model_end synthesis path
-        # below and synthesize subagent tool_calls into the parent stream.
+        # RAW events carry their LC payload on ``event``; others on ``raw_event``.
         raw = getattr(event, "raw_event", None)
         if not isinstance(raw, dict):
             raw = getattr(event, "event", None)
@@ -166,11 +133,43 @@ class SubagentEventFilter:
         idx = cls._field(tcc[0], "index")
         return isinstance(idx, int) and idx > 0
 
+    def _synthesize_unstarted(self, tool_calls: Iterable[tuple[str, str, Any]]) -> list[BaseEvent]:
+        """Build START + (optional ARGS) + END events for every tcid not yet
+        emitted, recording each in ``_synthesized``. Returns a list (not a
+        generator) so callers can simply iterate-and-yield without juggling
+        ``yield from`` inside an async generator.
+        """
+        events: list[BaseEvent] = []
+        for tcid, name, args in tool_calls:
+            if tcid in self._synthesized or tcid in self._natural_started:
+                continue
+            events.append(ToolCallStartEvent(type=EventType.TOOL_CALL_START, tool_call_id=tcid, tool_call_name=name))
+            if args:
+                # ``default=str`` so a Pydantic model / datetime / other
+                # non-JSON-native object in args doesn't kill the entire chat
+                # stream — better a stringified field than RUN_ERROR.
+                delta = args if isinstance(args, str) else json.dumps(args, default=str)
+                events.append(ToolCallArgsEvent(type=EventType.TOOL_CALL_ARGS, tool_call_id=tcid, delta=delta))
+            events.append(ToolCallEndEvent(type=EventType.TOOL_CALL_END, tool_call_id=tcid))
+            self._synthesized.add(tcid)
+        return events
+
+    @classmethod
+    def _iter_tool_calls_on(cls, message: Any) -> Iterable[tuple[str, str, Any]]:
+        """Yield ``(tool_call_id, name, args)`` for every well-formed tool_call
+        on a single AIMessage (dict or BaseMessage instance).
+        """
+        for tc in cls._field(message, "tool_calls") or []:
+            tcid = cls._field(tc, "id")
+            name = cls._field(tc, "name")
+            if isinstance(tcid, str) and isinstance(name, str):
+                yield tcid, name, cls._field(tc, "args")
+
     @classmethod
     def _iter_latest_tool_calls(cls, event: BaseEvent) -> Iterable[tuple[str, str, Any]]:
-        """Yield ``(tool_call_id, name, args)`` for every tool_call on the
-        snapshot's latest AIMessage. Caller is responsible for dedup against
-        already-emitted ids — this is just the per-snapshot scan.
+        """Yield tool_calls from the snapshot's latest AIMessage. Older AIMessages
+        are skipped — their tool_calls are already in ``_synthesized`` /
+        ``_natural_started`` from prior snapshots.
         """
         snap = getattr(event, "snapshot", None)
         if not isinstance(snap, dict):
@@ -178,26 +177,16 @@ class SubagentEventFilter:
         msgs = snap.get("messages")
         if not isinstance(msgs, list):
             return
-        # Only the latest AIMessage matters — older AIMessages' tool_calls are
-        # already in ``_synthesized`` / ``_natural_started`` from prior snapshots.
         for m in reversed(msgs):
             if cls._msg_role(m) not in ("ai", "assistant"):
                 continue
-            for tc in cls._field(m, "tool_calls") or []:
-                tcid = cls._field(tc, "id")
-                name = cls._field(tc, "name")
-                if isinstance(tcid, str) and isinstance(name, str):
-                    yield tcid, name, cls._field(tc, "args")
+            yield from cls._iter_tool_calls_on(m)
             return
 
     @classmethod
     def _iter_chat_model_end_tool_calls(cls, event: BaseEvent) -> Iterable[tuple[str, str, Any]]:
-        """Yield ``(tool_call_id, name, args)`` for every tool_call on the
-        AIMessage output of an ``on_chat_model_end`` RAW event.
-
-        Returns nothing for non-RAW events, RAW events for other LangChain
-        phases, or malformed payloads — the caller treats an empty iterator
-        as "no synthesis needed" and yields the original event unchanged.
+        """Yield tool_calls from the AIMessage output of an ``on_chat_model_end``
+        RAW event. Empty for any other event shape.
         """
         if event.type != EventType.RAW:
             return
@@ -205,13 +194,8 @@ class SubagentEventFilter:
         if not isinstance(raw, dict) or raw.get("event") != "on_chat_model_end":
             return
         output = (raw.get("data") or {}).get("output")
-        if output is None:
-            return
-        for tc in cls._field(output, "tool_calls") or []:
-            tcid = cls._field(tc, "id")
-            name = cls._field(tc, "name")
-            if isinstance(tcid, str) and isinstance(name, str):
-                yield tcid, name, cls._field(tc, "args")
+        if output is not None:
+            yield from cls._iter_tool_calls_on(output)
 
     @staticmethod
     def _field(obj: Any, name: str, default: Any = None) -> Any:

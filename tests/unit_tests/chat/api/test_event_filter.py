@@ -30,11 +30,8 @@ def _ev(klass, *, ns: str = "", chunk: dict | None = None, **kwargs):
 
 
 def _chat_model_end(*, output: object | None, ns: str = "") -> RawEvent:
-    """Construct a ``RawEvent`` shaped like ag_ui_langgraph's ``on_chat_model_end``.
-
-    Mirrors the live stream: payload sits on ``event`` (not ``raw_event``), the
-    LangChain event name is ``on_chat_model_end``, and the AIMessage output is
-    under ``data.output``. ``ns`` lets tests assert nested-subgraph filtering.
+    """Mirror ag_ui_langgraph's ``on_chat_model_end`` shape: payload on ``event``
+    (not ``raw_event``), AIMessage output under ``data.output``.
     """
     payload: dict = {
         "event": "on_chat_model_end",
@@ -473,12 +470,8 @@ async def test_filter_drops_misrouted_args_for_already_synthesized_tcid():
 
 
 async def test_filter_synthesizes_from_chat_model_end_for_parallel_siblings():
-    # The realistic parallel-edit scenario: the model streams natural
-    # START/ARGS/END for the first tool_call only, then on_chat_model_end
-    # arrives carrying all three tcids in its AIMessage output. Without this
-    # path the tools node's STATE_SNAPSHOT only contains the per-tool
-    # ToolMessages (no AIMessage), so the snapshot synthesis path can't catch
-    # the missing siblings — they have to be synthesized here.
+    # Snapshot synthesis can't catch this case — the tools node's snapshots
+    # only carry the per-tool ToolMessages, not the parent AIMessage.
     natural_start = _ev(
         ToolCallStartEvent,
         ns="model:m",
@@ -508,10 +501,6 @@ async def test_filter_synthesizes_from_chat_model_end_for_parallel_siblings():
 
 
 async def test_filter_chat_model_end_dedupes_late_reemit():
-    # After on_chat_model_end synthesizes a sibling's START/ARGS/END, the late
-    # OnToolEnd re-emit carrying the same tcid must be dropped — otherwise the
-    # chat UI sees duplicate START events and either renders two cards or has
-    # to seal the second one defensively.
     model_end = _chat_model_end(
         output={"type": "ai", "tool_calls": [{"id": "tc-x", "name": "edit_file", "args": {"k": 1}}]}
     )
@@ -533,9 +522,6 @@ async def test_filter_chat_model_end_dedupes_late_reemit():
 
 
 async def test_filter_chat_model_end_skips_naturally_started_tcid():
-    # If a tcid was naturally started during streaming, on_chat_model_end must
-    # NOT re-synthesize it — that would produce a duplicate START event for a
-    # tool whose card already exists.
     natural = _ev(
         ToolCallStartEvent,
         ns="model:m",
@@ -552,8 +538,6 @@ async def test_filter_chat_model_end_skips_naturally_started_tcid():
 
 
 async def test_filter_chat_model_end_skips_already_synthesized_tcid():
-    # Snapshot fires first (rare but possible) and synthesizes tc1; the
-    # subsequent on_chat_model_end must not re-synthesize the same tcid.
     snapshot = _ev(
         StateSnapshotEvent,
         ns="",
@@ -566,17 +550,14 @@ async def test_filter_chat_model_end_skips_already_synthesized_tcid():
 
 
 async def test_filter_passes_unrelated_raw_events_through():
-    # RAW events for non-on_chat_model_end phases (on_chat_model_stream,
-    # on_tool_start, etc.) must pass through unchanged with no synthesis.
     other_raw = RawEvent(event={"event": "on_tool_start", "metadata": {"langgraph_checkpoint_ns": ""}})
     out = await _drain(_filter([other_raw]))
     assert [e.type for e in out] == [EventType.RAW]
 
 
 async def test_filter_drops_nested_chat_model_end_raw():
-    # A RAW on_chat_model_end emitted from a nested subgraph must be dropped
-    # entirely — synthesizing the subagent's tool_calls into the parent stream
-    # would create phantom cards for tools the parent never invoked.
+    # Synthesizing a subagent's tool_calls into the parent stream would create
+    # phantom cards for tools the parent never invoked.
     nested_model_end = _chat_model_end(
         ns="tools:p|model:s",
         output={"type": "ai", "tool_calls": [{"id": "tc-nested", "name": "edit_file", "args": {}}]},
@@ -586,8 +567,6 @@ async def test_filter_drops_nested_chat_model_end_raw():
 
 
 async def test_filter_chat_model_end_handles_malformed_payloads():
-    # Defensive: malformed RAW shapes must not crash the filter; the event
-    # passes through with no synthesis.
     cases = [
         # No data key at all.
         RawEvent(event={"event": "on_chat_model_end", "metadata": {"langgraph_checkpoint_ns": ""}}),
@@ -618,9 +597,8 @@ async def test_filter_chat_model_end_handles_malformed_payloads():
 
 
 async def test_filter_chat_model_end_handles_aimessage_object():
-    # In the live stream the on_chat_model_end output is an AIMessage instance
-    # (the AGUI encoder serializes objects to dicts later, but this filter
-    # sits in front of the encoder). ``_field`` must read attributes too.
+    # In the live stream output arrives as an AIMessage instance (this filter
+    # runs in front of the AGUI encoder that serializes to dicts).
     from langchain_core.messages import AIMessage
 
     output = AIMessage(content="", id="m1", tool_calls=[{"id": "tc-obj", "name": "edit_file", "args": {"k": 1}}])

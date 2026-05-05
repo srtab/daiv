@@ -637,16 +637,11 @@
       } else if (type === AGUI.TOOL_CALL_ARGS) {
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
-        // Orphan ARGS (no preceding START for this tcid) used to drop silently.
-        // Surface them so an upstream regression — e.g. ag_ui_langgraph skipping
-        // a parallel-tool_call sibling's START — is at least visible in the
-        // console instead of producing a card with empty args.
         if (!seg) {
           console.warn("chat: TOOL_CALL_ARGS for unknown tool_call_id", evt.toolCallId);
         } else if (seg.type === "tool_call" && !seg.sealed) {
           // Phase chips intentionally ignore args (the structured-response JSON
-          // is not user-facing); sealed segments already have their final args
-          // from the natural stream and must not be appended to by re-emits.
+          // is not user-facing).
           seg.args += evt.delta || "";
         }
       } else if (type === AGUI.TOOL_CALL_END) {
@@ -663,10 +658,6 @@
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
         if (!seg) {
-          // Result without a preceding START — the tool card is missing from
-          // the UI. Logged so the underlying upstream gap (e.g. a skipped
-          // TOOL_CALL_START for a parallel sibling that finishes first) shows
-          // up in the console instead of presenting as a silently-dropped edit.
           console.warn("chat: TOOL_CALL_RESULT for unknown tool_call_id", evt.toolCallId);
           return;
         }
