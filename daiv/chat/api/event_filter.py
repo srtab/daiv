@@ -57,6 +57,7 @@ class SubagentEventFilter:
     def __init__(self) -> None:
         self._synthesized: set[str] = set()
         self._natural_started: set[str] = set()
+        self._natural_ended: set[str] = set()
 
     async def apply(self, stream: AsyncIterator[BaseEvent]) -> AsyncIterator[BaseEvent]:
         async for event in stream:
@@ -97,8 +98,13 @@ class SubagentEventFilter:
                 tcid = getattr(event, "tool_call_id", None)
                 if isinstance(tcid, str) and tcid in self._synthesized:
                     continue
+                if isinstance(tcid, str) and tcid in self._natural_ended:
+                    # OnToolEnd re-emit after the natural lifecycle already closed; drop.
+                    continue
                 if event.type == EventType.TOOL_CALL_START and isinstance(tcid, str):
                     self._natural_started.add(tcid)
+                if event.type == EventType.TOOL_CALL_END and isinstance(tcid, str) and tcid in self._natural_started:
+                    self._natural_ended.add(tcid)
 
             yield event
 
