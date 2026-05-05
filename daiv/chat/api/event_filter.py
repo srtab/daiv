@@ -46,6 +46,13 @@ class SubagentEventFilter:
       synthesizes TOOL_CALL_START + ARGS + END for any tcid that was *not*
       naturally started by ag_ui_langgraph (the dropped #1 case AND the
       parallel-call siblings beyond the first in #3),
+    * additionally synthesizes from ``on_chat_model_end`` RAW events. The
+      ``tools`` node's STATE_SNAPSHOTs only carry the freshly-appended
+      ToolMessages — never the parent AIMessage with the unstarted tool_calls
+      — so the snapshot path alone misses the parallel-sibling case in
+      practice. The ``on_chat_model_end`` payload carries the full AIMessage
+      (with all tool_calls and finalized args) and fires before any tool
+      executes, so synthesis here lands before the first ``TOOL_CALL_RESULT``,
     * drops misrouted natural ``TOOL_CALL_ARGS`` events whose underlying
       chunk's ``tool_call_chunks[0].index > 0`` — the delta belongs to a
       sibling, not to the tcid in the event,
@@ -90,6 +97,22 @@ class SubagentEventFilter:
                     self._synthesized.add(tcid)
                 continue
 
+            if event.type == EventType.RAW:
+                yield event
+                pending: dict[str, tuple[str, Any]] = {}
+                for tcid, name, args in self._iter_chat_model_end_tool_calls(event):
+                    if tcid in self._synthesized or tcid in self._natural_started:
+                        continue
+                    pending[tcid] = (name, args)
+                for tcid, (name, args) in pending.items():
+                    yield ToolCallStartEvent(type=EventType.TOOL_CALL_START, tool_call_id=tcid, tool_call_name=name)
+                    if args:
+                        delta = args if isinstance(args, str) else json.dumps(args, default=str)
+                        yield ToolCallArgsEvent(type=EventType.TOOL_CALL_ARGS, tool_call_id=tcid, delta=delta)
+                    yield ToolCallEndEvent(type=EventType.TOOL_CALL_END, tool_call_id=tcid)
+                    self._synthesized.add(tcid)
+                continue
+
             if event.type == EventType.TOOL_CALL_ARGS and self._is_misrouted_arg(event):
                 continue
 
@@ -112,7 +135,14 @@ class SubagentEventFilter:
         ``"<node>:UUID"`` segment (e.g. ``"model:..."``, ``"tools:..."``) with no
         pipe.
         """
+        # Non-RAW events expose the LangChain payload as ``raw_event``; RAW
+        # events use ``event`` (their semantic payload). Try both so RAW events
+        # emitted from a nested subgraph still get filtered out by the ``|`` ns
+        # check — otherwise they'd reach the on_chat_model_end synthesis path
+        # below and synthesize subagent tool_calls into the parent stream.
         raw = getattr(event, "raw_event", None)
+        if not isinstance(raw, dict):
+            raw = getattr(event, "event", None)
         if not isinstance(raw, dict):
             return ""
         md = raw.get("metadata") or {}
@@ -159,6 +189,29 @@ class SubagentEventFilter:
                 if isinstance(tcid, str) and isinstance(name, str):
                     yield tcid, name, cls._field(tc, "args")
             return
+
+    @classmethod
+    def _iter_chat_model_end_tool_calls(cls, event: BaseEvent) -> Iterable[tuple[str, str, Any]]:
+        """Yield ``(tool_call_id, name, args)`` for every tool_call on the
+        AIMessage output of an ``on_chat_model_end`` RAW event.
+
+        Returns nothing for non-RAW events, RAW events for other LangChain
+        phases, or malformed payloads — the caller treats an empty iterator
+        as "no synthesis needed" and yields the original event unchanged.
+        """
+        if event.type != EventType.RAW:
+            return
+        raw = getattr(event, "event", None)
+        if not isinstance(raw, dict) or raw.get("event") != "on_chat_model_end":
+            return
+        output = (raw.get("data") or {}).get("output")
+        if output is None:
+            return
+        for tc in cls._field(output, "tool_calls") or []:
+            tcid = cls._field(tc, "id")
+            name = cls._field(tc, "name")
+            if isinstance(tcid, str) and isinstance(name, str):
+                yield tcid, name, cls._field(tc, "args")
 
     @staticmethod
     def _field(obj: Any, name: str, default: Any = None) -> Any:
