@@ -179,21 +179,23 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     async def _copy_global_skills(self, agent_path: Path) -> tuple[list[str], list[str]]:
         """
-        Materialize builtin and custom global skills into ``<tmpdir>/skills/`` (sibling to the repo).
+        Materialize builtin and custom global skills into the virtual ``/skills/`` path under the
+        FilesystemBackend root (i.e., ``agent_path.parent / "skills"`` on the host), sibling to the repo.
 
         The skills directory lives outside the repo so it is never committed to git
         and rides on the daiv-sandbox ``skills_archive`` instead of the ``repo_archive``.
         Per-repo skills (committed under ``<repo>/.agents/skills`` etc.) continue to
-        travel via ``repo_archive`` and override globals through source ordering in
-        the ``SkillsMiddleware`` parent class.
+        travel via ``repo_archive`` and override globals through source ordering: the parent
+        ``SkillsMiddleware.abefore_agent`` iterates sources left to right with last-source-wins,
+        and ``SKILLS_SOURCES`` paths are placed after ``/skills`` in the sources list.
 
-        Custom global skills override built-in skills with the same name: the second
-        pass writes after the first, and ``aupload_files`` honors order so the last
-        write wins.
+        Custom global skills override built-in skills with the same name: both passes append to
+        the same ``files_to_upload`` list (builtins first, custom globals second), and
+        ``aupload_files`` writes in list order with the last write to each path winning.
 
         Args:
             agent_path: The path to the agent's repository working tree. Its parent
-                is the FilesystemBackend root, under which ``/skills/`` is rooted.
+                is the FilesystemBackend root, under which the virtual ``/skills/`` path is rooted.
 
         Returns:
             A tuple of (builtin skill names, custom global skill names).
@@ -201,7 +203,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         files_to_upload: list[tuple[str, bytes]] = []
         skills_path = Path("/skills")
 
-        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
+        builtin_skills: list[str] = []
+        if BUILTIN_SKILLS_PATH.is_dir():
+            builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
+        else:
+            logger.error("Builtin skills path '%s' does not exist or is not a directory", BUILTIN_SKILLS_PATH)
 
         custom_global_skills: list[str] = []
         custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH
@@ -378,15 +384,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return parse_slash_command(text_content, bot_username)
 
     def _skill_tool_generator(self) -> BaseTool:
-        """
-        Generate a skill tool.
-
-        Args:
-            backend: The backend to read the skill from.
-
-        Returns:
-            A BaseTool.
-        """
+        """Generate a skill tool."""
 
         async def skill_tool(
             skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],

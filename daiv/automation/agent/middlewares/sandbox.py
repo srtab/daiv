@@ -245,13 +245,25 @@ def _make_skills_archive(skills_dir: Path) -> bytes | None:
     """Tar the contents of ``skills_dir`` (members relative to it). Return ``None`` if missing/empty."""
     if not skills_dir.is_dir():
         return None
-    children = list(skills_dir.iterdir())
+    try:
+        children = list(skills_dir.iterdir())
+    except OSError:
+        logger.warning(
+            "Could not read skills directory '%s'; seeding without skills archive", skills_dir, exc_info=True
+        )
+        return None
     if not children:
         return None
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-        for child in children:
-            tf.add(child, arcname=child.name)
+    try:
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            for child in children:
+                tf.add(child, arcname=child.name)
+    except OSError, tarfile.TarError:
+        logger.warning(
+            "Failed to build skills archive from '%s'; seeding without skills archive", skills_dir, exc_info=True
+        )
+        return None
     return buf.getvalue()
 
 

@@ -605,7 +605,13 @@ class TestCustomGlobalSkills:
 
         assert result is not None
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
+        # Per-repo content wins via source ordering (last source wins in deepagents).
         assert skills["shared-skill"]["description"] == "repo version"
+        # The metadata label reflects name registration, not content origin: "shared-skill" was
+        # registered as a global skill by _copy_global_skills, so is_global is set even though
+        # the per-repo content won. This is consistent with the current labelling strategy.
+        assert skills["shared-skill"]["metadata"].get("is_global") is True
+        assert "is_builtin" not in skills["shared-skill"]["metadata"]
 
     async def test_custom_global_skills_disabled_when_path_is_none(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend

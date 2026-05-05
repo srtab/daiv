@@ -555,6 +555,29 @@ class TestSandboxMiddleware:
         # No top-level wrapper directory.
         assert not any(n.startswith("skills/") for n in names)
 
+    def test_make_skills_archive_returns_none_on_iterdir_oserror(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_skills_archive
+
+        skills = tmp_path / "skills"
+        skills.mkdir()
+
+        with patch("automation.agent.middlewares.sandbox.Path.iterdir", side_effect=PermissionError("denied")):
+            result = _make_skills_archive(skills)
+
+        assert result is None
+
+    def test_make_skills_archive_returns_none_on_tar_error(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_skills_archive
+
+        skills = tmp_path / "skills"
+        (skills / "skill-one").mkdir(parents=True)
+        (skills / "skill-one" / "SKILL.md").write_text("hello")
+
+        with patch("automation.agent.middlewares.sandbox.tarfile.open", side_effect=tarfile.TarError("boom")):
+            result = _make_skills_archive(skills)
+
+        assert result is None
+
     async def test_awrap_model_call_appends_sandbox_system_prompt(self, tmp_path: Path):
         from langchain.agents.middleware import ModelRequest, ModelResponse
 
