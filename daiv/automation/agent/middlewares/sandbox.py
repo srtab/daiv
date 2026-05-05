@@ -241,6 +241,20 @@ def _make_repo_archive(working_dir: str) -> bytes:
     return buf.getvalue()
 
 
+def _make_skills_archive(skills_dir: Path) -> bytes | None:
+    """Tar the contents of ``skills_dir`` (members relative to it). Return ``None`` if missing/empty."""
+    if not skills_dir.is_dir():
+        return None
+    children = list(skills_dir.iterdir())
+    if not children:
+        return None
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for child in children:
+            tf.add(child, arcname=child.name)
+    return buf.getvalue()
+
+
 async def _run_bash_commands(
     client: DAIVSandboxClient, commands: list[str], session_id: str
 ) -> RunCommandsResponse | None:

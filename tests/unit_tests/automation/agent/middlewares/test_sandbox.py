@@ -1,4 +1,6 @@
 import base64
+import io
+import tarfile
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -487,6 +489,37 @@ class TestSandboxMiddleware:
         # Subagent path: session is the parent's, but the client we opened still must be released.
         client_close_mock.assert_awaited_once()
         assert middleware._client is None
+
+    def test_make_skills_archive_returns_none_when_dir_missing(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_skills_archive
+
+        assert _make_skills_archive(tmp_path / "nonexistent") is None
+
+    def test_make_skills_archive_returns_none_when_dir_empty(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_skills_archive
+
+        empty = tmp_path / "skills"
+        empty.mkdir()
+        assert _make_skills_archive(empty) is None
+
+    def test_make_skills_archive_packs_children_relative_to_root(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_skills_archive
+
+        skills = tmp_path / "skills"
+        (skills / "skill-one").mkdir(parents=True)
+        (skills / "skill-one" / "SKILL.md").write_text("hello")
+        (skills / "skill-two").mkdir()
+        (skills / "skill-two" / "SKILL.md").write_text("world")
+
+        archive = _make_skills_archive(skills)
+        assert isinstance(archive, bytes)
+
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+            names = sorted(tf.getnames())
+        assert "skill-one/SKILL.md" in names
+        assert "skill-two/SKILL.md" in names
+        # No top-level wrapper directory.
+        assert not any(n.startswith("skills/") for n in names)
 
     async def test_awrap_model_call_appends_sandbox_system_prompt(self, tmp_path: Path):
         from langchain.agents.middleware import ModelRequest, ModelResponse
