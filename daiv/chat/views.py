@@ -73,6 +73,7 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["expired"] = expired
         ctx["active_run_id"] = thread.active_run_id
         ctx["merge_request"] = merge_request
+        ctx["next_chat"] = self.request.GET.get("next") == "1"
         return ctx
 
     def get_breadcrumbs(self):
