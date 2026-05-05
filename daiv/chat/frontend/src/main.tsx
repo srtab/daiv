@@ -1,11 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { Chat } from "./Chat";
+import { readMountConfig } from "./config";
 
-const el = document.getElementById("copilot-root");
-if (!el) throw new Error("copilot-root mount node not found");
-
+const cfg = readMountConfig();
+const el = document.getElementById("copilot-root")!;
 createRoot(el).render(
   <StrictMode>
-    <div>chat-frontend bundle loaded</div>
+    <Chat cfg={cfg} />
   </StrictMode>,
 );
