@@ -61,7 +61,7 @@ Reload RT after editing: `apache2ctl graceful` (or whichever reload command your
 | Stage       | `TransactionCreate`                            |
 | Applies To  | *(leave empty for now — configured in step 3)* |
 
-1. Paste the body of [`rt-daiv-triage.scrip.pl`](https://srtab.github.io/daiv/dev/integrations/rt/rt-daiv-triage.scrip.pl) into the **Custom action preparation code** field. Leave **Custom condition** and **Custom action cleanup code** empty. Save.
+1. Put `return 1;` in the **Custom action preparation code** field and paste the body of [`rt-daiv-triage.scrip.pl`](https://srtab.github.io/daiv/dev/integrations/rt/rt-daiv-triage.scrip.pl) into the **Custom action cleanup code** field. Leave **Custom condition** empty. Save. (Cleanup runs after the ticket transaction is committed, so the agent can load the new ticket via the RT MCP.)
 1. Edit the `%QUEUE_REPO_MAP` hash at the top of the pasted code so each queue you care about maps to the correct DAIV `repo_id` (e.g. `group/project`).
 
 ### 3. Attach the Scrip to queues
@@ -76,7 +76,7 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
 1. `tail -f /var/log/request-tracker4/rt.log` (or your RT log path) — look for:
 
 ```
-daiv-triage: submitted job <uuid> for ticket <id> (queue=... repo=...)
+daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo=...)
 ```
 
 1. Open the DAIV **Activity** page and confirm a new `API_JOB` run exists for the target repo.

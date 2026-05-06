@@ -54,12 +54,12 @@ POST /api/jobs
 
 **Request body:**
 
-| Field     | Type    | Required | Description                                                               |
-| --------- | ------- | -------- | ------------------------------------------------------------------------- |
-| `repo_id` | string  | yes      | Repository identifier (e.g., `group/project`)                             |
-| `prompt`  | string  | yes      | The prompt to send to the agent                                           |
-| `ref`     | string  | no       | Git ref (branch/tag). Defaults to the repository's default branch         |
-| `use_max` | boolean | no       | Use the more capable model with thinking set to high. Defaults to `false` |
+| Field       | Type             | Required | Description                                                                                                                                                                |
+| ----------- | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repos`     | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch-or-sha" }` — `ref` is optional and defaults to the repository's default branch. |
+| `prompt`    | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`.                                                            |
+| `use_max`   | boolean          | no       | Use the more capable model with thinking set to high. Defaults to `false`.                                                                                                 |
+| `notify_on` | string           | no       | Override the user's notification preference for this batch. One of `never`, `always`, `on_success`, `on_failure`.                                                          |
 
 **Example:**
 
@@ -68,7 +68,7 @@ curl -s -X POST https://daiv.example.com/api/jobs \
   -H "Authorization: Bearer $DAIV_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "repo_id": "mygroup/myproject",
+    "repos": [{"repo_id": "mygroup/myproject"}],
     "prompt": "List all Python files and summarize the project structure"
   }'
 ```
@@ -77,9 +77,19 @@ curl -s -X POST https://daiv.example.com/api/jobs \
 
 ```
 {
-  "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5"
+  "batch_id": "5b9e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90",
+  "jobs": [
+    {
+      "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5",
+      "repo_id": "mygroup/myproject",
+      "ref": null
+    }
+  ],
+  "failed": []
 }
 ```
+
+Each entry in `jobs` is an independent run — poll each `job_id` separately. Pre-enqueue rejections (e.g. unknown `repo_id`) are reported in `failed` as `{repo_id, ref, error}`; the rest of the batch still runs.
 
 ### Poll job status
 
@@ -94,12 +104,15 @@ GET /api/jobs/{job_id}
   "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5",
   "status": "SUCCESSFUL",
   "result": "Here are the Python files...",
+  "merge_request_url": null,
   "error": null,
   "created_at": "2026-03-27T18:22:39.012Z",
   "started_at": "2026-03-27T18:22:39.401Z",
   "finished_at": "2026-03-27T18:22:52.402Z"
 }
 ```
+
+`merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs).
 
 **Status values:**
 
@@ -138,12 +151,12 @@ Once a job reaches `SUCCESSFUL` or `FAILED`, the status is final. The `result` f
 DAIV_URL="https://daiv.example.com"
 API_KEY="your-api-key"
 
-# Submit
+# Submit (single-repo batch)
 JOB_ID=$(curl -s -X POST "$DAIV_URL/api/jobs" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"repo_id":"mygroup/myproject","prompt":"List all TODO comments"}' \
-  | jq -r '.job_id')
+  -d '{"repos":[{"repo_id":"mygroup/myproject"}],"prompt":"List all TODO comments"}' \
+  | jq -r '.jobs[0].job_id')
 
 echo "Job submitted: $JOB_ID"
 
@@ -177,9 +190,9 @@ triage-and-create-issues:
         -H "Authorization: Bearer $DAIV_API_KEY" \
         -H "Content-Type: application/json" \
         -d '{
-          "repo_id": "mygroup/myproject",
+          "repos": [{"repo_id": "mygroup/myproject"}],
           "prompt": "Triage the RT queue and identify code-related tickets. Return a summary with ticket IDs, descriptions, and priorities."
-        }' | jq -r '.job_id')
+        }' | jq -r '.jobs[0].job_id')
 
     # Step 2: Poll until done
     - |
@@ -199,7 +212,7 @@ triage-and-create-issues:
         -H "Authorization: Bearer $DAIV_API_KEY" \
         -H "Content-Type: application/json" \
         -d "$(jq -n --arg prompt "Based on this triage report, create GitLab issues for each actionable item: $TRIAGE" \
-          '{repo_id: "mygroup/myproject", prompt: $prompt}')"
+          '{repos: [{repo_id: "mygroup/myproject"}], prompt: $prompt}')"
 ```
 
 Tip

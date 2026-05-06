@@ -10,8 +10,10 @@
 #     Stage:         TransactionCreate
 #     Applies To:    (select the queues you want triaged)
 #
-# Paste the body below into the "Custom action preparation code" field
-# (leave "Custom condition" and "Custom action cleanup code" empty).
+# Put `return 1;` in the "Custom action preparation code" field and paste
+# the body below into the "Custom action cleanup code" field (leave
+# "Custom condition" empty). Cleanup runs after the ticket transaction
+# is committed, so the agent can load the ticket via the RT MCP.
 #
 # Requires two entries in RT_SiteConfig.pm:
 #   Set($DAIV_URL,     'https://daiv.example.com');
@@ -89,7 +91,7 @@ End with a one-line **Recommendation** (e.g. "assign to backend",
 PROMPT
 
         my $payload = JSON::encode_json({
-            repo_id => $repo,
+            repos   => [ { repo_id => $repo } ],
             prompt  => $prompt,
             use_max => JSON::true,
         });
@@ -106,11 +108,15 @@ PROMPT
             # A malformed 2xx body must not masquerade as a submit failure —
             # the job was accepted. Guard decode_json separately and log a
             # warning instead of letting the outer eval call it an exception.
-            my $raw    = $res->decoded_content // '';
-            my $parsed = eval { JSON::decode_json($raw) };
-            my $job_id = (ref($parsed) eq 'HASH' && $parsed->{job_id}) || '?';
+            my $raw      = $res->decoded_content // '';
+            my $parsed   = eval { JSON::decode_json($raw) };
+            my $batch_id = (ref($parsed) eq 'HASH' && $parsed->{batch_id}) || '?';
+            my $job_id   = '?';
+            if (ref($parsed) eq 'HASH' && ref($parsed->{jobs}) eq 'ARRAY' && @{$parsed->{jobs}}) {
+                $job_id = $parsed->{jobs}[0]{job_id} // '?';
+            }
             $RT::Logger->info(
-                "daiv-triage: submitted job $job_id for ticket $id (queue=$queue repo=$repo)"
+                "daiv-triage: submitted job $job_id (batch $batch_id) for ticket $id (queue=$queue repo=$repo)"
             );
         }
         elsif ($res->code == 429) {
