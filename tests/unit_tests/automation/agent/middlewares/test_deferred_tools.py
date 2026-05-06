@@ -138,20 +138,35 @@ class TestDeferredToolsMiddleware:
         assert "<available-deferred-tools>" in captured["system_prompt"]
         assert "github_create_issue" in captured["system_prompt"]
 
-    async def test_no_block_when_all_tools_loaded(self):
+    async def test_system_prompt_is_byte_identical_regardless_of_loaded_state(self):
+        # Cache-stability invariant: any per-call mutation of the system prompt invalidates
+        # Anthropic's prompt cache from byte 0. The deferred-tools block must therefore be
+        # the same in calls before and after a deferred tool is loaded.
         github = _make_tool("github_create_issue", "Create issue")
-        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github])
+        sentry = _make_tool("sentry_find_orgs", "List orgs")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[github, sentry])
 
-        request = _request(system_prompt="EXISTING PROMPT", state={"loaded_tool_names": {"github_create_issue"}})
-        captured: dict = {}
+        captured: list[str] = []
 
         async def handler(req):
-            captured["system_prompt"] = req.system_prompt
+            captured.append(req.system_prompt)
             return MagicMock()
 
-        await middleware.awrap_model_call(request, handler)
+        # Before any deferred tool is loaded.
+        await middleware.awrap_model_call(_request(system_prompt="P", state={}), handler)
+        # After one is loaded.
+        await middleware.awrap_model_call(
+            _request(system_prompt="P", state={"loaded_tool_names": {"github_create_issue"}}), handler
+        )
+        # After both are loaded.
+        await middleware.awrap_model_call(
+            _request(system_prompt="P", state={"loaded_tool_names": {"github_create_issue", "sentry_find_orgs"}}),
+            handler,
+        )
 
-        assert "<available-deferred-tools>" not in captured["system_prompt"]
+        assert captured[0] == captured[1] == captured[2]
+        assert "github_create_issue" in captured[0]
+        assert "sentry_find_orgs" in captured[0]
 
     async def test_system_prompt_none_does_not_pollute(self):
         github = _make_tool("github_create_issue", "Create issue")
@@ -168,6 +183,33 @@ class TestDeferredToolsMiddleware:
 
         assert not captured["system_prompt"].startswith("\n")
         assert "<available-deferred-tools>" in captured["system_prompt"]
+
+    async def test_loaded_tools_appended_in_stable_index_order(self):
+        # Cache-stability invariant: the tools array must grow monotonically by appending
+        # in a deterministic order. Anthropic's prefix-match cache loses the previously
+        # cached prefix if any earlier tool is reordered or replaced.
+        a = _make_tool("a_tool", "A")
+        b = _make_tool("b_tool", "B")
+        c = _make_tool("c_tool", "C")
+        middleware = DeferredToolsMiddleware(always_loaded=set(), extra_tools=[a, b, c])
+
+        captured: list[list[str]] = []
+
+        async def handler(req):
+            captured.append([t.name for t in req.tools])
+            return MagicMock()
+
+        # Load b first, then a — order of `loaded_tool_names` set is irrelevant; output
+        # must follow index order (a, b, c) regardless.
+        await middleware.awrap_model_call(_request(state={"loaded_tool_names": {"b_tool"}}), handler)
+        await middleware.awrap_model_call(_request(state={"loaded_tool_names": {"a_tool", "b_tool"}}), handler)
+        await middleware.awrap_model_call(
+            _request(state={"loaded_tool_names": {"a_tool", "b_tool", "c_tool"}}), handler
+        )
+
+        # tool_search is the only always-loaded tool here; deferred order is index order.
+        deferred_only = [[n for n in step if n != "tool_search"] for step in captured]
+        assert deferred_only == [["b_tool"], ["a_tool", "b_tool"], ["a_tool", "b_tool", "c_tool"]]
 
     async def test_init_rejects_invalid_top_k(self):
         import pytest
