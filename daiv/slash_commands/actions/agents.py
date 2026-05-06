@@ -7,7 +7,10 @@ from slash_commands.base import SlashCommand
 from slash_commands.decorator import slash_command
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from deepagents.graph import SubAgent
+    from deepagents.middleware.subagents import CompiledSubAgent
 
 
 @slash_command(command="agents", scopes=[Scope.GLOBAL, Scope.ISSUE, Scope.MERGE_REQUEST])
@@ -18,7 +21,9 @@ class AgentsSlashCommand(SlashCommand):
 
     description: str = "Shows the list of available sub-agents with their names and descriptions."
 
-    async def execute_for_agent(self, *, args: str, available_subagents: list[SubAgent], **kwargs) -> str:
+    async def execute_for_agent(
+        self, *, args: str, available_subagents: Sequence[SubAgent | CompiledSubAgent], **kwargs
+    ) -> str:
         """
         Execute agents command for agent middleware.
 

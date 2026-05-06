@@ -16,17 +16,18 @@ from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import FilesystemMiddleware as BaseFilesystemMiddleware
 from deepagents.middleware.filesystem import FilesystemState
+from langchain.agents.middleware.types import AgentMiddleware
 from langchain.tools import ToolRuntime  # noqa: TC002
-from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_core.tools import BaseTool, StructuredTool
 
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.schemas import ApplyMutationsRequest, PutMutation
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
+
+    from langchain.agents.middleware.types import ModelRequest, ModelResponse
 
 logger = logging.getLogger("daiv.tools")
 
@@ -62,23 +63,21 @@ READ_FILE_TOOL_DESCRIPTION = _with_path_reminder(READ_FILE_TOOL_DESCRIPTION_BASE
 WRITE_FILE_TOOL_DESCRIPTION = _with_path_reminder(WRITE_FILE_TOOL_DESCRIPTION_BASE, _WRITE_FILE_EXTRA)
 EDIT_FILE_TOOL_DESCRIPTION = _with_path_reminder(EDIT_FILE_TOOL_DESCRIPTION_BASE)
 
-DAIV_FILESYSTEM_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
-    """\
-## Filesystem Tools
+WRITE_FILE_TOOL = "write_file"
+EDIT_FILE_TOOL = "edit_file"
+WRITE_TOOL_NAMES = frozenset({WRITE_FILE_TOOL, EDIT_FILE_TOOL})
 
-You have access to a filesystem which you can interact with using these tools.
-Tool-call arguments (ls/read_file{{^read_only}}/edit_file{{/read_only}}/etc.) MUST use absolute paths (start with "/").
-User-visible output MUST NEVER contain "/repo/" and MUST use repo-relative paths (e.g. daiv/core/utils.py).""",
-    "mustache",
+FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE = (
+    'Filesystem tool-call arguments (ls/read_file/edit_file/etc.) MUST use absolute paths (start with "/").'
 )
 
-_CUSTOM_TOOL_DESCRIPTIONS = {
+CUSTOM_TOOL_DESCRIPTIONS = {
     "grep": GREP_TOOL_DESCRIPTION,
     "glob": GLOB_TOOL_DESCRIPTION,
     "ls": LIST_FILES_TOOL_DESCRIPTION,
     "read_file": READ_FILE_TOOL_DESCRIPTION,
-    "write_file": WRITE_FILE_TOOL_DESCRIPTION,
-    "edit_file": EDIT_FILE_TOOL_DESCRIPTION,
+    WRITE_FILE_TOOL: WRITE_FILE_TOOL_DESCRIPTION,
+    EDIT_FILE_TOOL: EDIT_FILE_TOOL_DESCRIPTION,
 }
 
 
@@ -289,87 +288,55 @@ def _require_coroutine(tool: BaseTool):
 # ---------------------------------------------------------------------------
 
 
-class FilesystemMiddleware(BaseFilesystemMiddleware):
-    """DAIV's FilesystemMiddleware customisation.
+class FilesystemSandboxSyncMiddleware(AgentMiddleware):
+    """Mirrors successful local ``write_file``/``edit_file`` calls to the daiv-sandbox session.
 
-    Adds:
-    - Custom tool descriptions referencing absolute paths.
-    - A `read_only` mode that strips the write/edit tools.
-    - When `sandbox_sync=True`, wraps upstream's `write_file` and `edit_file`
-      so each successful local write is mirrored to the daiv-sandbox session
-      named by `state["session_id"]`. Reads still go against local disk for
-      speed; bash-induced changes flow back via the patch extractor's per-turn
-      diff.
+    Wraps upstream's ``write_file`` and ``edit_file`` tools at ``wrap_model_call`` time.
+    Reads still go against local disk for speed; bash-induced changes flow back via the
+    patch extractor's per-turn diff.
 
     Args:
-        backend: Backend for file storage. Should be a deepagents `FilesystemBackend`.
-        read_only: When True, removes write_file and edit_file from the exposed tools.
-        sandbox_sync: When True, replace write_file/edit_file with sync-aware versions.
-        working_dir: Required when sandbox_sync=True. The on-disk repo root used to
-            map local paths to sandbox paths (`/<rel>` from `<working_dir>` →
-            `/repo/<rel>`).
-        sandbox_client_factory: Optional override of the DAIVSandboxClient factory.
+        backend: Backend used to resolve ``/repo``-relative paths to on-disk paths.
+            Must be the same instance that backs upstream's ``FilesystemMiddleware``.
+        working_dir: The on-disk repo root used to map local paths to sandbox paths
+            (``<working_dir>/<rel>`` → ``/repo/<rel>``).
+        sandbox_client_factory: Optional override of the ``DAIVSandboxClient`` factory.
             Useful for tests.
-
-    Example:
-        ```python
-        from deepagents.backends.filesystem import FilesystemBackend
-        from automation.agent.middlewares.file_system import FilesystemMiddleware
-
-        backend = FilesystemBackend(root_dir="/workspace", virtual_mode=True)
-        middleware = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir="/workspace/repo")
-        ```
     """
 
     def __init__(
         self,
-        *args,
-        read_only: bool = False,
-        sandbox_sync: bool = False,
-        working_dir: Path | str | None = None,
+        *,
+        backend: Any,
+        working_dir: Path | str,
         sandbox_client_factory: Callable[[], DAIVSandboxClient] | None = None,
-        **kwargs,
     ) -> None:
-        kwargs.setdefault("system_prompt", DAIV_FILESYSTEM_SYSTEM_PROMPT.format(read_only=read_only).content)
-        kwargs.setdefault("custom_tool_descriptions", _CUSTOM_TOOL_DESCRIPTIONS)
-
-        # The syncer must exist before `super().__init__` because the base class calls
-        # `self._create_write_file_tool()` and `self._create_edit_file_tool()` directly during
-        # init; our overrides consult `self._syncer` to decide whether to wrap.
-        self._syncer = (
-            self._build_syncer(kwargs, working_dir, sandbox_client_factory) if sandbox_sync and not read_only else None
-        )
-
-        super().__init__(*args, **kwargs)
-
-        excluded = {"execute"} | ({"edit_file", "write_file"} if read_only else set())
-        self.tools = [tool for tool in self.tools if tool.name not in excluded]
-
-    @staticmethod
-    def _build_syncer(
-        kwargs: dict, working_dir: Path | str | None, sandbox_client_factory: Callable[[], DAIVSandboxClient] | None
-    ) -> _SandboxSyncer:
-        if working_dir is None:
-            raise ValueError("sandbox_sync=True requires working_dir to be provided")
-        # `BaseFilesystemMiddleware.__init__` is keyword-only, so backend always lands in kwargs.
-        backend = kwargs.get("backend")
-        if backend is None:
-            raise ValueError("sandbox_sync=True requires the backend to be provided")
+        super().__init__()
         # Resolve the factory at construction time so test monkeypatching of
-        # `DAIVSandboxClient` on this module sticks (default args are captured
+        # ``DAIVSandboxClient`` on this module sticks (default args are captured
         # at function-definition time, which would defeat the monkeypatch).
         factory = sandbox_client_factory or DAIVSandboxClient
-        return _SandboxSyncer(backend=backend, working_dir=Path(working_dir), client=factory())
+        self._syncer = _SandboxSyncer(backend=backend, working_dir=Path(working_dir), client=factory())
+        self._wrap_cache: dict[str, BaseTool] = {}
 
-    def _create_write_file_tool(self) -> BaseTool:
-        original = super()._create_write_file_tool()
-        return self._syncer.wrap_write_tool(original) if self._syncer is not None else original
+    def _wrap_if_needed(self, tool: BaseTool | dict[str, Any]) -> BaseTool | dict[str, Any]:
+        if not isinstance(tool, BaseTool) or tool.name not in WRITE_TOOL_NAMES:
+            return tool
+        cached = self._wrap_cache.get(tool.name)
+        if cached is not None:
+            return cached
+        wrapped = (
+            self._syncer.wrap_write_tool(tool) if tool.name == WRITE_FILE_TOOL else self._syncer.wrap_edit_tool(tool)
+        )
+        self._wrap_cache[tool.name] = wrapped
+        return wrapped
 
-    def _create_edit_file_tool(self) -> BaseTool:
-        original = super()._create_edit_file_tool()
-        return self._syncer.wrap_edit_tool(original) if self._syncer is not None else original
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        new_tools: list[BaseTool | dict[str, Any]] = [self._wrap_if_needed(tool) for tool in request.tools]
+        return await handler(request.override(tools=new_tools))
 
     async def aafter_agent(self, state, runtime) -> dict | None:
-        if self._syncer is not None:
-            await self._syncer.aclose()
-        return await super().aafter_agent(state, runtime)
+        await self._syncer.aclose()
+        return None

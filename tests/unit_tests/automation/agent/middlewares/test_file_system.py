@@ -14,6 +14,39 @@ def _make_runtime(state, working_dir, gitrepo=None):
     )
 
 
+def _build_synced_filesystem(*, backend, working_dir=None, read_only=False, sandbox_sync=False):
+    """Test helper: build upstream ``FilesystemMiddleware`` and apply DAIV's syncer wrappers.
+
+    Mirrors the old DAIV ``FilesystemMiddleware`` subclass shape so the per-tool tests
+    can keep iterating ``mw.tools``. Production code uses upstream's middleware plus
+    ``FilesystemSandboxSyncMiddleware`` directly.
+    """
+    from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
+
+    from automation.agent.middlewares import file_system as fs_module
+
+    fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
+
+    if read_only:
+        fs.tools = [t for t in fs.tools if t.name not in fs_module.WRITE_TOOL_NAMES]
+        return fs
+
+    if sandbox_sync:
+        client = fs_module.DAIVSandboxClient()
+        syncer = fs_module._SandboxSyncer(backend=backend, working_dir=working_dir, client=client)
+        new_tools = []
+        for tool in fs.tools:
+            if tool.name == fs_module.WRITE_FILE_TOOL:
+                new_tools.append(syncer.wrap_write_tool(tool))
+            elif tool.name == fs_module.EDIT_FILE_TOOL:
+                new_tools.append(syncer.wrap_edit_tool(tool))
+            else:
+                new_tools.append(tool)
+        fs.tools = new_tools
+
+    return fs
+
+
 @pytest.fixture
 def fake_client(monkeypatch):
     """Patch DAIVSandboxClient with an AsyncMock and yield the mock."""
@@ -35,14 +68,13 @@ def working_repo(tmp_path):
 async def test_sync_write_file_writes_locally_and_syncs(fake_client, working_repo):
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
     from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
 
     fake_client.apply_file_mutations.return_value = ApplyMutationsResponse(
         results=[MutationResult(path="/repo/foo.py", ok=True, error=None)]
     )
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -65,11 +97,9 @@ async def test_sync_write_file_writes_locally_and_syncs(fake_client, working_rep
 async def test_sync_write_file_rolls_back_on_sync_failure(fake_client, working_repo):
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     fake_client.apply_file_mutations.side_effect = RuntimeError("network down")
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -84,14 +114,13 @@ async def test_sync_write_file_rolls_back_on_sync_failure(fake_client, working_r
 async def test_sync_write_file_rolls_back_on_per_item_failure(fake_client, working_repo):
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
     from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
 
     fake_client.apply_file_mutations.return_value = ApplyMutationsResponse(
         results=[MutationResult(path="/repo/foo.py", ok=False, error="server-side validation failed")]
     )
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -105,10 +134,8 @@ async def test_sync_write_file_rolls_back_on_per_item_failure(fake_client, worki
 async def test_sync_write_file_missing_session_id(fake_client, working_repo):
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     runtime = _make_runtime(state={}, working_dir=working_repo)  # no session_id
@@ -122,7 +149,6 @@ async def test_sync_write_file_missing_session_id(fake_client, working_repo):
 async def test_sync_edit_file_writes_locally_and_syncs(fake_client, working_repo):
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
     from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
 
     target = working_repo / "foo.py"
@@ -133,7 +159,7 @@ async def test_sync_edit_file_writes_locally_and_syncs(fake_client, working_repo
         results=[MutationResult(path="/repo/foo.py", ok=True, error=None)]
     )
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     edit = next(t for t in mw.tools if t.name == "edit_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -155,15 +181,13 @@ async def test_sync_edit_file_writes_locally_and_syncs(fake_client, working_repo
 async def test_sync_edit_file_rolls_back_on_sync_failure(fake_client, working_repo):
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     target = working_repo / "foo.py"
     target.write_text("original\n")
     os.chmod(target, 0o644)  # noqa: PTH101
 
     fake_client.apply_file_mutations.side_effect = RuntimeError("network down")
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     edit = next(t for t in mw.tools if t.name == "edit_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -183,13 +207,11 @@ async def test_write_file_handles_5xx_with_rollback(fake_client, working_repo):
     import httpx
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     fake_client.apply_file_mutations.side_effect = httpx.HTTPStatusError(
         "500", request=httpx.Request("POST", "x"), response=httpx.Response(500)
     )
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -204,8 +226,6 @@ async def test_edit_file_handles_network_error(fake_client, working_repo):
     import httpx
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     target = working_repo / "foo.py"
     target.write_text("a\nb\n")
     fake_client.apply_file_mutations.side_effect = httpx.RequestError(
@@ -213,7 +233,7 @@ async def test_edit_file_handles_network_error(fake_client, working_repo):
     )
 
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
     edit = next(t for t in mw.tools if t.name == "edit_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
 
@@ -228,10 +248,8 @@ async def test_sandbox_sync_disabled_uses_unmodified_tools(working_repo):
     """When sandbox_sync=False, deepagents' tools run without sync."""
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=False)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=False)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     runtime = _make_runtime(state={}, working_dir=working_repo)
@@ -246,12 +264,10 @@ async def test_sync_write_file_rejects_path_outside_working_dir(fake_client, wor
     """A write to a path outside working_dir is rolled back; sandbox is never called."""
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     outside = tmp_path / "elsewhere"
     outside.mkdir()
     backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -267,10 +283,8 @@ async def test_sync_edit_file_pre_read_failure(fake_client, working_repo):
     """edit_file on a missing path returns a read error, never calls the sandbox, never creates the file."""
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     edit = next(t for t in mw.tools if t.name == "edit_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -289,11 +303,9 @@ async def test_sync_write_surfaces_critical_when_rollback_fails(fake_client, wor
     """If the sandbox sync fails AND rollback also fails, the agent gets a CRITICAL marker."""
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     fake_client.apply_file_mutations.side_effect = RuntimeError("sandbox down")
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     runtime = _make_runtime(state={"session_id": "sid"}, working_dir=working_repo)
@@ -320,15 +332,12 @@ async def test_read_only_with_sandbox_sync_strips_write_and_edit(working_repo):
     """
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, read_only=True, sandbox_sync=True)
+    mw = _build_synced_filesystem(backend=backend, read_only=True, sandbox_sync=True)
 
     tool_names = {t.name for t in mw.tools}
     assert "write_file" not in tool_names
     assert "edit_file" not in tool_names
-    assert mw._syncer is None
 
 
 async def test_wrapped_tools_inject_runtime(working_repo):
@@ -340,10 +349,8 @@ async def test_wrapped_tools_inject_runtime(working_repo):
     """
     from deepagents.backends.filesystem import FilesystemBackend
 
-    from automation.agent.middlewares.file_system import FilesystemMiddleware
-
     backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
-    mw = FilesystemMiddleware(backend=backend, sandbox_sync=True, working_dir=working_repo)
+    mw = _build_synced_filesystem(backend=backend, sandbox_sync=True, working_dir=working_repo)
 
     write = next(t for t in mw.tools if t.name == "write_file")
     edit = next(t for t in mw.tools if t.name == "edit_file")
@@ -423,3 +430,90 @@ class TestSandboxSyncerLifecycle:
         # Second aclose must not re-close.
         await syncer.aclose()
         fake_client.close.assert_awaited_once()
+
+
+class TestFilesystemSandboxSyncMiddlewareWrap:
+    """Cover the production wrap path: ``awrap_model_call`` + ``_wrap_if_needed`` + ``_wrap_cache``.
+
+    The per-tool tests above hand-compose syncer wrappers via the test helper; these tests go
+    through the actual middleware so a regression in the dispatch logic surfaces here.
+    """
+
+    @staticmethod
+    def _make_request(tools):
+        captured = {}
+
+        async def handler(req):
+            captured["tools"] = list(req.tools)
+            return object()
+
+        request = SimpleNamespace(tools=tools, override=lambda **kw: SimpleNamespace(tools=kw["tools"]))
+        return request, handler, captured
+
+    async def test_wraps_write_and_edit_passes_through_others(self, fake_client, working_repo):
+        from deepagents.backends.filesystem import FilesystemBackend
+        from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
+
+        from automation.agent.middlewares.file_system import FilesystemSandboxSyncMiddleware
+
+        backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+        upstream = UpstreamFilesystemMiddleware(backend=backend)
+        write = next(t for t in upstream.tools if t.name == "write_file")
+        edit = next(t for t in upstream.tools if t.name == "edit_file")
+        read = next(t for t in upstream.tools if t.name == "read_file")
+        unrelated_dict = {"name": "ls"}
+
+        mw = FilesystemSandboxSyncMiddleware(backend=backend, working_dir=working_repo)
+        request, handler, captured = self._make_request([write, edit, read, unrelated_dict])
+
+        await mw.awrap_model_call(request, handler)
+
+        out_by_name = {t.name if hasattr(t, "name") else t["name"]: t for t in captured["tools"]}
+        # write_file and edit_file are replaced (different object identity).
+        assert out_by_name["write_file"] is not write
+        assert out_by_name["edit_file"] is not edit
+        # Non-write tools pass through unchanged.
+        assert out_by_name["read_file"] is read
+        assert out_by_name["ls"] is unrelated_dict
+
+    async def test_cache_reuses_wrapped_tool_across_calls(self, fake_client, working_repo):
+        from deepagents.backends.filesystem import FilesystemBackend
+        from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
+
+        from automation.agent.middlewares.file_system import FilesystemSandboxSyncMiddleware
+
+        backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+        upstream = UpstreamFilesystemMiddleware(backend=backend)
+        write = next(t for t in upstream.tools if t.name == "write_file")
+
+        mw = FilesystemSandboxSyncMiddleware(backend=backend, working_dir=working_repo)
+        request1, handler1, captured1 = self._make_request([write])
+        request2, handler2, captured2 = self._make_request([write])
+
+        await mw.awrap_model_call(request1, handler1)
+        await mw.awrap_model_call(request2, handler2)
+
+        wrapped1 = next(t for t in captured1["tools"] if t.name == "write_file")
+        wrapped2 = next(t for t in captured2["tools"] if t.name == "write_file")
+        assert wrapped1 is wrapped2, "cache must return the same wrapped tool instance"
+
+    async def test_aafter_agent_closes_opened_syncer(self, fake_client, working_repo):
+        """Regression: ``aafter_agent`` must close an opened syncer.
+
+        The syncer's own ``aclose`` no-ops when never opened, so the test must mark the
+        syncer as opened before calling ``aafter_agent`` — otherwise the assertion would
+        pass even if ``aafter_agent`` did nothing.
+        """
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        from automation.agent.middlewares.file_system import FilesystemSandboxSyncMiddleware
+
+        backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+        mw = FilesystemSandboxSyncMiddleware(backend=backend, working_dir=working_repo)
+        # Force the open-once flag without opening a real connection.
+        mw._syncer._opened = True
+
+        result = await mw.aafter_agent(state={}, runtime=_make_runtime(state={}, working_dir=working_repo))
+
+        fake_client.close.assert_awaited_once()
+        assert result is None
