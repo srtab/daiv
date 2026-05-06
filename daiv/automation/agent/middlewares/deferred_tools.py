@@ -79,18 +79,18 @@ class DeferredToolsMiddleware(AgentMiddleware):
             self._index = self._build_index(request.tools)
 
         loaded_names: set[str] = request.state.get("loaded_tool_names") or set()
-        loaded_tools: list[BaseTool] = []
-        stale: list[str] = []
-        for name in loaded_names:
-            entry = self._index.get(name)
-            if entry is None:
-                stale.append(name)
-            else:
-                loaded_tools.append(entry.tool)
-        if stale:
-            logger.warning("Dropping stale loaded_tool_names not present in deferred index: %s", sorted(stale))
+        # Iterate the index in its (insertion-ordered) registration order, not the `loaded_names`
+        # set. Set iteration is not contractually stable across CPython versions, and any
+        # reordering of the tools array invalidates Anthropic's cached prefix.
+        loaded_tools: list[BaseTool] = [
+            entry.tool for entry in self._index.deferred_entries() if entry.name in loaded_names
+        ]
+        if loaded_names:
+            stale = sorted(loaded_names - set(self._index.names()))
+            if stale:
+                logger.warning("Dropping stale loaded_tool_names not present in deferred index: %s", stale)
 
-        suffix = build_deferred_tools_block(self._index, loaded_names)
+        suffix = build_deferred_tools_block(self._index)
         new_system_prompt = request.system_prompt or ""
         if suffix:
             new_system_prompt = f"{new_system_prompt}\n\n{suffix}" if new_system_prompt else suffix
