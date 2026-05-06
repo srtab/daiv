@@ -19,6 +19,13 @@ a, button, [role="button"] {
   display: none !important;
 }
 
+/* Drop <main>'s bottom padding on chat detail so the sticky dock reaches
+   the actual viewport bottom. `!important` is needed to beat Tailwind's
+   `py-8`/`sm:py-10` utilities applied directly on <main>. */
+main:has(.chat-shell) {
+  padding-bottom: 0 !important;
+}
+
 .animate-fade-up {
   animation: fade-up 0.5s ease-out both;
 }
@@ -548,13 +555,15 @@ a, button, [role="button"] {
     z-index: 20;
   }
 
-  .chat-column--empty .chat-composer {
+  .chat-column--empty .chat-dock {
     position: relative;
     bottom: auto;
     margin-top: 12px;
+    padding: 0;
+    background: transparent;
   }
 
-  .chat-column--empty .chat-composer::before {
+  .chat-column--empty .chat-dock::before {
     display: none;
   }
 
@@ -1271,32 +1280,48 @@ a, button, [role="button"] {
 
   /* Composer */
 
-  .chat-composer {
+  /* Sticky dock that holds the composer and disclaimer. The dock supplies a
+     solid mask behind the composer so transcript content scrolling past
+     doesn't bleed through the composer's rounded corners. */
+  .chat-dock {
     position: sticky;
-    bottom: 16px;
+    bottom: 0;
     flex: 0 0 auto;
     margin: 0;
-    padding: 12px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 16px;
-    background: linear-gradient(180deg, rgba(20, 22, 40, 0.85), rgba(12, 14, 30, 0.85));
-    backdrop-filter: blur(14px);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    padding: 0 0 8px;
+    background: #030712;
     z-index: 10;
   }
 
-  /* Soft fade behind scrolled content above the sticky composer. Stops a few
-     pixels short of the composer's top border so it doesn't visually erase
-     the (intentionally faint) 1px top border. */
-  .chat-composer::before {
+  /* Soft fade above the dock so transcript content fades into the mask
+     instead of clipping abruptly at the dock's top edge. */
+  .chat-dock::before {
     content: "";
     position: absolute;
     left: 0;
     right: 0;
-    bottom: calc(100% + 2px);
+    bottom: 100%;
     height: 40px;
     pointer-events: none;
-    background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 0.45));
+    background: linear-gradient(180deg, rgba(3, 7, 18, 0), rgba(3, 7, 18, 1));
+  }
+
+  .chat-dock__disclaimer {
+    margin-top: 6px;
+    text-align: center;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #64748b;
+  }
+
+  .chat-composer {
+    position: relative;
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(20, 22, 40, 0.95), rgba(12, 14, 30, 0.95));
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .chat-composer:focus-within {

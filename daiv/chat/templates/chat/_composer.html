@@ -1,92 +1,98 @@
 {% load i18n %}
-<form @submit.prevent="submit()"
-      class="chat-composer"
-      :class="{ 'chat-composer--sending': (streaming || resuming) }"
-      x-show="thread || draftRepoId"
-      x-transition.opacity.duration.300ms>
+<div class="chat-dock"
+     x-show="thread || draftRepoId"
+     x-transition.opacity.duration.300ms>
+  <form @submit.prevent="submit()"
+        class="chat-composer"
+        :class="{ 'chat-composer--sending': (streaming || resuming) }">
 
-  <button type="button"
-          class="chat-jump"
-          x-show="showJumpToLatest"
-          @click="scrollToBottom({force: true})"
-          x-transition.opacity>↓ {% trans "Jump to latest" %}</button>
+    <button type="button"
+            class="chat-jump"
+            x-show="showJumpToLatest"
+            @click="scrollToBottom({force: true})"
+            x-transition.opacity>↓ {% trans "Jump to latest" %}</button>
 
-  {% comment %}
-  Chip is suppressed while the user is still composing their first prompt — the picker's
-  own chip in the hero already advertises the selection. Once the first message is sent
-  the hero unmounts and `thread` becomes truthy, so the chip takes over here.
-  {% endcomment %}
-  <div class="chat-composer__meta" x-show="thread" x-cloak>
-    <span class="repo-chip">
-      <span class="repo-chip__btn">
-        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 6h16M4 12h16M4 18h10"/>
-        </svg>
-        <span x-text="thread?.repo_id"></span>
-      </span>
-      <span class="repo-chip__btn"
-            :class="thread?.merge_request ? 'repo-chip__btn--accent' : ''">
-        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 3v12a3 3 0 003 3h9m-3-3l3 3-3 3"/>
-          <circle cx="6" cy="18" r="3"/>
-          <circle cx="18" cy="6" r="3"/>
-        </svg>
-        <span class="repo-chip__btn--branch" x-text="thread?.ref"></span>
-      </span>
-    </span>
-
-    {# MR pill — only renders once the agent's commit has produced a merge request. #}
-    <template x-if="thread?.merge_request">
-      <a class="repo-chip repo-chip--mr"
-         :href="thread.merge_request.url || '#'"
-         :target="thread.merge_request.url ? '_blank' : '_self'"
-         rel="noopener noreferrer"
-         :title="thread.merge_request.title || ''">
+    {% comment %}
+    Chip is suppressed while the user is still composing their first prompt — the picker's
+    own chip in the hero already advertises the selection. Once the first message is sent
+    the hero unmounts and `thread` becomes truthy, so the chip takes over here.
+    {% endcomment %}
+    <div class="chat-composer__meta" x-show="thread" x-cloak>
+      <span class="repo-chip">
         <span class="repo-chip__btn">
-          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="6" cy="6" r="2.5"/>
-            <circle cx="6" cy="18" r="2.5"/>
-            <circle cx="18" cy="18" r="2.5"/>
-            <path d="M6 8.5v7"/>
-            <path d="M6 6h7a5 5 0 015 5v4.5"/>
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 6h16M4 12h16M4 18h10"/>
           </svg>
-          <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% trans "MR" %}'"></span>
-          <span x-show="thread.merge_request.draft"
-                class="repo-chip__badge"
-                x-cloak>{% trans "draft" %}</span>
+          <span x-text="thread?.repo_id"></span>
         </span>
-      </a>
-    </template>
-  </div>
+        <span class="repo-chip__btn"
+              :class="thread?.merge_request ? 'repo-chip__btn--accent' : ''">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 3v12a3 3 0 003 3h9m-3-3l3 3-3 3"/>
+            <circle cx="6" cy="18" r="3"/>
+            <circle cx="18" cy="6" r="3"/>
+          </svg>
+          <span class="repo-chip__btn--branch" x-text="thread?.ref"></span>
+        </span>
+      </span>
 
-  <label for="chat_prompt" class="sr-only">{% trans "Message DAIV" %}</label>
-  <textarea id="chat_prompt"
-            x-ref="prompt"
-            x-model="draftMessage"
-            @input="autosize()"
-            @keydown.meta.enter.prevent="submit()"
-            @keydown.ctrl.enter.prevent="submit()"
-            rows="2"
-            :disabled="(streaming || resuming)"
-            placeholder="{% trans 'Describe the change, the bug, or what to explore…' %}"
-            class="chat-composer__textarea"></textarea>
+      {# MR pill — only renders once the agent's commit has produced a merge request. #}
+      <template x-if="thread?.merge_request">
+        <a class="repo-chip repo-chip--mr"
+           :href="thread.merge_request.url || '#'"
+           :target="thread.merge_request.url ? '_blank' : '_self'"
+           rel="noopener noreferrer"
+           :title="thread.merge_request.title || ''">
+          <span class="repo-chip__btn">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="6" cy="6" r="2.5"/>
+              <circle cx="6" cy="18" r="2.5"/>
+              <circle cx="18" cy="18" r="2.5"/>
+              <path d="M6 8.5v7"/>
+              <path d="M6 6h7a5 5 0 015 5v4.5"/>
+            </svg>
+            <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% trans "MR" %}'"></span>
+            <span x-show="thread.merge_request.draft"
+                  class="repo-chip__badge"
+                  x-cloak>{% trans "draft" %}</span>
+          </span>
+        </a>
+      </template>
+    </div>
 
-  <div class="chat-composer__actions">
-    <div class="chat-composer__hint">
-      <kbd class="chat-composer__kbd">⌘</kbd>
-      <kbd class="chat-composer__kbd">↵</kbd>
-      <span>{% trans "to send" %}</span>
+    <label for="chat_prompt" class="sr-only">{% trans "Message DAIV" %}</label>
+    <textarea id="chat_prompt"
+              x-ref="prompt"
+              x-model="draftMessage"
+              @input="autosize()"
+              @keydown.meta.enter.prevent="submit()"
+              @keydown.ctrl.enter.prevent="submit()"
+              rows="2"
+              :disabled="(streaming || resuming)"
+              placeholder="{% trans 'Describe the change, the bug, or what to explore…' %}"
+              class="chat-composer__textarea"></textarea>
+
+    <div class="chat-composer__actions">
+      <div class="chat-composer__hint">
+        <kbd class="chat-composer__kbd">⌘</kbd>
+        <kbd class="chat-composer__kbd">↵</kbd>
+        <span>{% trans "to send" %}</span>
+      </div>
+      <div style="display: inline-flex; gap: 8px;">
+        <button type="button" x-show="(streaming || resuming)" @click="stop()"
+                class="chat-composer__btn chat-composer__btn--stop">{% trans "Stop" %}</button>
+        <button type="submit" :disabled="(streaming || resuming) || !canSend()"
+                class="chat-composer__btn chat-composer__btn--send">
+          <span x-text="(streaming || resuming) ? '{% trans 'Sending…' %}' : '{% trans 'Send' %}'"></span>
+          <svg x-show="!(streaming || resuming)" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M10.22 16.78a.75.75 0 0 1-1.06-1.06l4.47-4.47H4a.75.75 0 0 1 0-1.5h9.63l-4.47-4.47a.75.75 0 1 1 1.06-1.06l5.75 5.75a.75.75 0 0 1 0 1.06l-5.75 5.75Z"/>
+          </svg>
+        </button>
+      </div>
     </div>
-    <div style="display: inline-flex; gap: 8px;">
-      <button type="button" x-show="(streaming || resuming)" @click="stop()"
-              class="chat-composer__btn chat-composer__btn--stop">{% trans "Stop" %}</button>
-      <button type="submit" :disabled="(streaming || resuming) || !canSend()"
-              class="chat-composer__btn chat-composer__btn--send">
-        <span x-text="(streaming || resuming) ? '{% trans 'Sending…' %}' : '{% trans 'Send' %}'"></span>
-        <svg x-show="!(streaming || resuming)" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M10.22 16.78a.75.75 0 0 1-1.06-1.06l4.47-4.47H4a.75.75 0 0 1 0-1.5h9.63l-4.47-4.47a.75.75 0 1 1 1.06-1.06l5.75 5.75a.75.75 0 0 1 0 1.06l-5.75 5.75Z"/>
-        </svg>
-      </button>
-    </div>
-  </div>
-</form>
+  </form>
+
+  <p class="chat-dock__disclaimer">
+    {% trans "DAIV can make mistakes. Verify important information." %}
+  </p>
+</div>
