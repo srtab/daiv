@@ -17,17 +17,14 @@ from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import FilesystemState
-from langchain.agents.middleware.types import AgentMiddleware
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, StructuredTool
 
-from core.sandbox.client import DAIVSandboxClient
+from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.schemas import ApplyMutationsRequest, PutMutation
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from langchain.agents.middleware.types import ModelRequest, ModelResponse
+    from collections.abc import Callable
 
 logger = logging.getLogger("daiv.tools")
 
@@ -93,16 +90,15 @@ def _format_sync_error(reason: str, *, rollback_ok: bool) -> str:
 
 
 @dataclass
-class _SandboxSyncer:
+class SandboxSyncer:
     """Mirrors successful local writes to the sandbox session associated with the agent run.
 
-    Bundles the backend, the working_dir → /repo mapping, a long-lived sandbox client (opened
-    lazily on first mirror so its TCP+TLS pool is reused across every write/edit in the run),
-    and a single lock that serialises the upstream-write→sandbox-sync critical section across
-    all concurrent write_file/edit_file calls in one agent run, so rollback can never overwrite
-    a sibling tool call's edit. The edit-path snapshot is taken outside the lock — if it fails
-    we short-circuit to upstream's canonical "not found" error rather than acquiring the lock
-    for a doomed call.
+    Bundles the backend, the working_dir → /repo mapping, the sandbox client (owned and
+    lifecycle-managed by ``SandboxMiddleware``), and a single lock that serialises the
+    upstream-write→sandbox-sync critical section across all concurrent write_file/edit_file
+    calls in one agent run, so rollback can never overwrite a sibling tool call's edit.
+    The edit-path snapshot is taken outside the lock — if it fails we short-circuit to
+    upstream's canonical "not found" error rather than acquiring the lock for a doomed call.
     """
 
     backend: Any
@@ -110,23 +106,9 @@ class _SandboxSyncer:
     client: DAIVSandboxClient
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _resolved_working_dir: Path = field(init=False, repr=False)
-    _opened: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._resolved_working_dir = self.working_dir.resolve()
-
-    async def _ensure_client(self) -> DAIVSandboxClient:
-        # Callers always invoke this from inside ``self.lock`` (via ``mirror``),
-        # so the open-once flag does not need its own guard.
-        if not self._opened:
-            await self.client.open()
-            self._opened = True
-        return self.client
-
-    async def aclose(self) -> None:
-        if self._opened:
-            self._opened = False
-            await self.client.close()
 
     def sandbox_path(self, local_path: str | Path) -> str:
         """Map ``<working_dir>/<rel>`` → ``/repo/<rel>``. Raises ``ValueError`` if outside ``working_dir``."""
@@ -153,8 +135,7 @@ class _SandboxSyncer:
             mutations=[PutMutation(path=sandbox_path, content=base64.b64encode(content_bytes), mode=mode)]
         )
         try:
-            client = await self._ensure_client()
-            response = await client.apply_file_mutations(session_id, request)
+            response = await self.client.apply_file_mutations(session_id, request)
         except Exception as exc:
             logger.exception("sandbox apply_file_mutations failed for %s", sandbox_path)
             return _format_sync_error(f"sandbox sync raised: {exc}", rollback_ok=rollback())
@@ -281,62 +262,3 @@ def _require_coroutine(tool: BaseTool):
     if tool.coroutine is None:
         raise TypeError(f"upstream tool {tool.name!r} has no async coroutine to wrap")
     return tool.coroutine
-
-
-# ---------------------------------------------------------------------------
-# Middleware
-# ---------------------------------------------------------------------------
-
-
-class FilesystemSandboxSyncMiddleware(AgentMiddleware):
-    """Mirrors successful local ``write_file``/``edit_file`` calls to the daiv-sandbox session.
-
-    Wraps upstream's ``write_file`` and ``edit_file`` tools at ``wrap_model_call`` time.
-    Reads still go against local disk for speed; bash-induced changes flow back via the
-    patch extractor's per-turn diff.
-
-    Args:
-        backend: Backend used to resolve ``/repo``-relative paths to on-disk paths.
-            Must be the same instance that backs upstream's ``FilesystemMiddleware``.
-        working_dir: The on-disk repo root used to map local paths to sandbox paths
-            (``<working_dir>/<rel>`` → ``/repo/<rel>``).
-        sandbox_client_factory: Optional override of the ``DAIVSandboxClient`` factory.
-            Useful for tests.
-    """
-
-    def __init__(
-        self,
-        *,
-        backend: Any,
-        working_dir: Path | str,
-        sandbox_client_factory: Callable[[], DAIVSandboxClient] | None = None,
-    ) -> None:
-        super().__init__()
-        # Resolve the factory at construction time so test monkeypatching of
-        # ``DAIVSandboxClient`` on this module sticks (default args are captured
-        # at function-definition time, which would defeat the monkeypatch).
-        factory = sandbox_client_factory or DAIVSandboxClient
-        self._syncer = _SandboxSyncer(backend=backend, working_dir=Path(working_dir), client=factory())
-        self._wrap_cache: dict[str, BaseTool] = {}
-
-    def _wrap_if_needed(self, tool: BaseTool | dict[str, Any]) -> BaseTool | dict[str, Any]:
-        if not isinstance(tool, BaseTool) or tool.name not in WRITE_TOOL_NAMES:
-            return tool
-        cached = self._wrap_cache.get(tool.name)
-        if cached is not None:
-            return cached
-        wrapped = (
-            self._syncer.wrap_write_tool(tool) if tool.name == WRITE_FILE_TOOL else self._syncer.wrap_edit_tool(tool)
-        )
-        self._wrap_cache[tool.name] = wrapped
-        return wrapped
-
-    async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
-    ) -> ModelResponse:
-        new_tools: list[BaseTool | dict[str, Any]] = [self._wrap_if_needed(tool) for tool in request.tools]
-        return await handler(request.override(tools=new_tools))
-
-    async def aafter_agent(self, state, runtime) -> dict | None:
-        await self._syncer.aclose()
-        return None

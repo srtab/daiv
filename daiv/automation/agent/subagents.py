@@ -17,7 +17,6 @@ from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
     FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE,
     WRITE_TOOL_NAMES,
-    FilesystemSandboxSyncMiddleware,
 )
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
@@ -70,14 +69,6 @@ def _build_general_purpose_middleware(
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS),
-    ]
-
-    if sandbox_enabled:
-        middleware.append(
-            FilesystemSandboxSyncMiddleware(backend=backend, working_dir=Path(runtime.gitrepo.working_dir))
-        )
-
-    middleware.extend([
         GitPlatformMiddleware(git_platform=runtime.git_platform),
         SummarizationMiddleware(
             model=model,
@@ -90,7 +81,7 @@ def _build_general_purpose_middleware(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
-    ])
+    ]
 
     if web_search_enabled:
         middleware.append(WebSearchMiddleware())
@@ -99,7 +90,9 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if sandbox_enabled:
-        middleware.append(SandboxMiddleware(close_session=False))
+        middleware.append(
+            SandboxMiddleware(backend=backend, working_dir=Path(runtime.gitrepo.working_dir), close_session=False)
+        )
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))

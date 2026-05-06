@@ -26,7 +26,7 @@ from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
-from automation.agent.middlewares.file_system import FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE, FilesystemSandboxSyncMiddleware
+from automation.agent.middlewares.file_system import FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
@@ -219,11 +219,7 @@ async def create_daiv_agent(
             sources=[GLOBAL_SKILLS_PATH, *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
             subagents=subagents,
         ),
-        *(
-            [FilesystemSandboxSyncMiddleware(backend=backend, working_dir=agent_path), SandboxMiddleware()]
-            if _sandbox_enabled
-            else []
-        ),
+        *([SandboxMiddleware(backend=backend, working_dir=agent_path)] if _sandbox_enabled else []),
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),

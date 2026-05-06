@@ -15,7 +15,6 @@ import pytest
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import ModelFallbackMiddleware
 
-from automation.agent.middlewares.file_system import FilesystemSandboxSyncMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
@@ -60,7 +59,6 @@ class TestGeneralPurposeMiddleware:
             web_fetch_enabled=True,
         )
         assert any(isinstance(m, FilesystemMiddleware) for m in middleware)
-        assert any(isinstance(m, FilesystemSandboxSyncMiddleware) for m in middleware)
         assert any(isinstance(m, GitPlatformMiddleware) for m in middleware)
         assert any(isinstance(m, WebFetchMiddleware) for m in middleware)
         assert any(isinstance(m, WebSearchMiddleware) for m in middleware)
@@ -78,7 +76,6 @@ class TestGeneralPurposeMiddleware:
             web_fetch_enabled=True,
         )
         assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
-        assert not any(isinstance(m, FilesystemSandboxSyncMiddleware) for m in middleware)
 
     def test_excludes_web_search_middleware(self, mock_model, mock_backend, mock_runtime_ctx):
         middleware = _build_general_purpose_middleware(
@@ -132,14 +129,14 @@ class TestGeneralPurposeMiddleware:
 
         DAIV-custom contract: a subagent inheriting the parent runtime's ``session_id`` calls the
         sandbox under that same session, never opening a fresh one. Exercises the production wrap
-        path: ``_build_general_purpose_middleware`` → ``FilesystemSandboxSyncMiddleware.awrap_model_call``
-        → wrapped ``write_file``.
+        path: ``_build_general_purpose_middleware`` → ``SandboxMiddleware.awrap_model_call`` →
+        wrapped ``write_file``.
         """
         from types import SimpleNamespace
 
         from deepagents.backends.filesystem import FilesystemBackend
 
-        from automation.agent.middlewares import file_system as fs_module
+        from automation.agent.middlewares.file_system import SandboxSyncer
         from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
 
         repo_dir = tmp_path / "repo"
@@ -153,25 +150,28 @@ class TestGeneralPurposeMiddleware:
         )
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(fs_module, "DAIVSandboxClient", lambda: fake_client)
-            middleware = _build_general_purpose_middleware(
-                mock_model, backend, ctx, sandbox_enabled=True, web_search_enabled=False, web_fetch_enabled=False
-            )
+        middleware = _build_general_purpose_middleware(
+            mock_model, backend, ctx, sandbox_enabled=True, web_search_enabled=False, web_fetch_enabled=False
+        )
 
         fs_mw = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
-        sync_mw = next(m for m in middleware if isinstance(m, FilesystemSandboxSyncMiddleware))
+        sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
+        # Inject fake client + syncer to skip network setup that abefore_agent would otherwise drive.
+        sandbox_mw._client = fake_client
+        sandbox_mw._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=fake_client)
 
-        # Drive the production wrap path: the sync middleware re-wraps tools at
-        # ``awrap_model_call`` time, so go through it rather than reaching into private state.
         captured = {}
 
         async def handler(req):
             captured["tools"] = list(req.tools)
             return object()
 
-        request = SimpleNamespace(tools=list(fs_mw.tools), override=lambda **kw: SimpleNamespace(tools=kw["tools"]))
-        await sync_mw.awrap_model_call(request, handler)
+        request = SimpleNamespace(
+            tools=list(fs_mw.tools),
+            system_prompt="base prompt",
+            override=lambda **kw: SimpleNamespace(tools=kw["tools"], system_prompt=kw["system_prompt"]),
+        )
+        await sandbox_mw.awrap_model_call(request, handler)
         write = next(t for t in captured["tools"] if t.name == "write_file")
 
         runtime = SimpleNamespace(
