@@ -11,6 +11,7 @@ from langchain.agents.middleware import (
     InterruptOnConfig,
     ModelFallbackMiddleware,
     ModelRequest,
+    TodoListMiddleware,
     dynamic_prompt,
 )
 
@@ -112,9 +113,12 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         current_branch=get_repo_ref(context.gitrepo),
     )
 
-    inherited_system_prompt = ""
-    if request.system_prompt:
-        inherited_system_prompt = request.system_prompt + "\n\n"
+    # The harness profile sets ``base_system_prompt=""`` to suppress upstream's
+    # BASE_AGENT_PROMPT, but model-level profiles (e.g. anthropic:claude-opus-4-7)
+    # still contribute a ``system_prompt_suffix`` we want to keep. Strip to drop
+    # leading whitespace introduced by an empty base + suffix concat.
+    inherited = (request.system_prompt or "").strip()
+    inherited_system_prompt = f"{inherited}\n\n" if inherited else ""
 
     return (
         OUTPUT_INVARIANTS_SYSTEM_PROMPT
@@ -214,6 +218,7 @@ async def create_daiv_agent(
     mcp_tools = await MCPToolkit.get_tools()
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         SkillsMiddleware(
             backend=backend,
             sources=[GLOBAL_SKILLS_PATH, *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
