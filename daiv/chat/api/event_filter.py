@@ -50,8 +50,13 @@ class SubagentEventFilter:
       freshly-appended ToolMessages — never the parent AIMessage — so the
       snapshot path alone cannot recover parallel siblings,
     * drops misrouted natural ``TOOL_CALL_ARGS`` events whose underlying
-      chunk's ``tool_call_chunks[0].index > 0`` — the delta belongs to a
-      sibling, not to the tcid in the event,
+      chunk's ``tool_call_chunks[0].index`` doesn't match the chunk index
+      recorded when its natural TOOL_CALL_START fired. When case #1 drops
+      the index=0 tool's START, the first natural START fires at
+      chunk.index>0 and that tool's own args stream at the same index — a
+      blanket ``index>0`` drop would discard the only naturally-streamed
+      tool's body. Tracking each tcid's natural-start chunk index keeps its
+      own deltas while still dropping siblings ag_ui_langgraph misroutes,
     * drops every nested event (``|`` in ns),
     * drops the LATE OnToolEnd re-emitted START/ARGS/END for tool_calls we
       already synthesized (deduping by tool_call_id).
@@ -60,6 +65,7 @@ class SubagentEventFilter:
     def __init__(self) -> None:
         self._synthesized: set[str] = set()
         self._natural_started: set[str] = set()
+        self._natural_index: dict[str, int] = {}
 
     async def apply(self, stream: AsyncIterator[BaseEvent]) -> AsyncIterator[BaseEvent]:
         async for event in stream:
@@ -93,6 +99,9 @@ class SubagentEventFilter:
                     continue
                 if event.type == EventType.TOOL_CALL_START and isinstance(tcid, str):
                     self._natural_started.add(tcid)
+                    idx = self._chunk_index(event)
+                    if idx is not None:
+                        self._natural_index[tcid] = idx
 
             yield event
 
@@ -115,23 +124,49 @@ class SubagentEventFilter:
         md = raw.get("metadata") or {}
         return str(md.get("langgraph_checkpoint_ns", "") or "")
 
-    @classmethod
-    def _is_misrouted_arg(cls, event: BaseEvent) -> bool:
+    def _is_misrouted_arg(self, event: BaseEvent) -> bool:
         """True if a natural TOOL_CALL_ARGS event's underlying chunk belongs to a
-        sibling tool_call (chunk index > 0) but ag_ui_langgraph attributed it to
-        the first call's tool_call_id.
+        sibling tool_call. ag_ui_langgraph attributes every streamed arg delta
+        to the first naturally-started tcid (its ``current_stream``); the
+        chunk's ``tool_call_chunks[0].index`` identifies which tool the delta
+        actually belongs to. We compare against the index recorded when this
+        tcid's natural TOOL_CALL_START fired — the static "index > 0" rule
+        only holds when the natural START claimed index=0.
+        """
+        tcid = getattr(event, "tool_call_id", None)
+        if not isinstance(tcid, str):
+            return False
+        chunk_idx = self._chunk_index(event)
+        if chunk_idx is None:
+            return False
+        natural_idx = self._natural_index.get(tcid)
+        if natural_idx is None:
+            # No natural START recorded for this tcid yet (e.g. ag_ui_langgraph
+            # dropped it via the text→tool_call transition). Fall back to the
+            # original heuristic; synthesis at on_chat_model_end will still
+            # repair the tcid's args from the AIMessage output.
+            return chunk_idx > 0
+        return chunk_idx != natural_idx
+
+    @classmethod
+    def _chunk_index(cls, event: BaseEvent) -> int | None:
+        """Read ``raw_event.data.chunk.tool_call_chunks[0].index`` if present.
+
+        Returns ``None`` for any event whose payload doesn't carry a streaming
+        chunk (e.g. STATE_SNAPSHOT, RAW, the OnToolEnd re-emit whose raw_event
+        carries ``data.input``/``data.output`` but no ``chunk``).
         """
         raw = getattr(event, "raw_event", None)
         if not isinstance(raw, dict):
-            return False
+            return None
         chunk = (raw.get("data") or {}).get("chunk")
         if chunk is None:
-            return False
+            return None
         tcc = cls._field(chunk, "tool_call_chunks") or []
         if not tcc:
-            return False
+            return None
         idx = cls._field(tcc[0], "index")
-        return isinstance(idx, int) and idx > 0
+        return idx if isinstance(idx, int) else None
 
     def _synthesize_unstarted(self, tool_calls: Iterable[tuple[str, str, Any]]) -> list[BaseEvent]:
         """Build START + (optional ARGS) + END events for every tcid not yet
