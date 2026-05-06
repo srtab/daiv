@@ -286,9 +286,10 @@ async def test_filter_synthesizes_args_string_passthrough_without_reencoding():
 
 async def test_filter_only_synthesizes_latest_ai_message_tool_calls():
     # Older AI messages in the snapshot have already been streamed (their
-    # tool_calls are in ``task_calls`` from a prior snapshot). The filter
-    # must only consider the latest AIMessage so a snapshot reissuing old
-    # history doesn't re-trigger synthesis for already-completed tasks.
+    # tcids are recorded in ``_synthesized`` / ``_natural_started`` from a
+    # prior snapshot). The filter must only consider the latest AIMessage so
+    # a snapshot reissuing old history doesn't re-trigger synthesis for
+    # already-completed tasks.
     snapshot = _ev(
         StateSnapshotEvent,
         ns="",
@@ -312,7 +313,7 @@ async def test_filter_drops_misrouted_args_for_sibling_tool_calls():
     # carry the *first* tool's id but the underlying chunk's
     # ``tool_call_chunks[0].index`` points at the sibling. Drop those so the
     # first tool's args don't get a concatenated JSON blob; the sibling is
-    # recovered via STATE_SNAPSHOT synthesis.
+    # recovered via synthesis (STATE_SNAPSHOT or on_chat_model_end RAW).
     natural_start = _ev(
         ToolCallStartEvent,
         ns="model:m",
@@ -340,6 +341,41 @@ async def test_filter_drops_misrouted_args_for_sibling_tool_calls():
     out = await _drain(_filter([natural_start, own_arg, sibling_arg]))
     assert [e.type for e in out] == [EventType.TOOL_CALL_START, EventType.TOOL_CALL_ARGS]
     assert out[1].delta == '{"path":"a.py"}'
+
+
+async def test_filter_keeps_own_args_when_natural_start_at_nonzero_index():
+    # When ag_ui_langgraph drops the index=0 sibling's TOOL_CALL_START via the
+    # text→tool_call transition, the first natural START fires for the *next*
+    # tool with chunk.index=1 (or higher). That tool's own args also stream at
+    # the same index — a blanket ``index > 0`` drop would discard them and
+    # leave the only naturally-streamed tool with no body. The recorded-index
+    # check must keep its own deltas while still dropping siblings the LLM
+    # streams afterwards.
+    natural_start = _ev(
+        ToolCallStartEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 1, "id": "tc-second", "name": "gitlab", "args": ""}]},
+        tool_call_id="tc-second",
+        tool_call_name="gitlab",
+    )
+    own_arg = _ev(
+        ToolCallArgsEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 1, "args": '{"path":"a"}'}]},
+        tool_call_id="tc-second",
+        delta='{"path":"a"}',
+    )
+    # Sibling at chunk.index=2 — ag_ui_langgraph still routes under tc-second.
+    sibling_arg = _ev(
+        ToolCallArgsEvent,
+        ns="model:m",
+        chunk={"tool_call_chunks": [{"index": 2, "args": '{"path":"b"}'}]},
+        tool_call_id="tc-second",
+        delta='{"path":"b"}',
+    )
+    out = await _drain(_filter([natural_start, own_arg, sibling_arg]))
+    assert [e.type for e in out] == [EventType.TOOL_CALL_START, EventType.TOOL_CALL_ARGS]
+    assert out[1].delta == '{"path":"a"}'
 
 
 async def test_filter_synthesizes_sibling_tool_calls_after_natural_first():

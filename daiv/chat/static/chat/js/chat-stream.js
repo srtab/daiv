@@ -651,7 +651,9 @@
         // args streaming finishes — to flip the phase chip to done.
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
-        if (seg && seg.type === "publish_phase") {
+        if (!seg) {
+          console.warn("chat: TOOL_CALL_END for unknown tool_call_id", evt.toolCallId);
+        } else if (seg.type === "publish_phase") {
           seg.status = "done";
         }
       } else if (type === AGUI.TOOL_CALL_RESULT) {
