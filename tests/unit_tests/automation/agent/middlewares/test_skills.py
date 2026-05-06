@@ -4,11 +4,12 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
-from automation.agent.middlewares.skills import SkillsMiddleware
+from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SkillsMiddleware
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
 from slash_commands.base import SlashCommand
@@ -483,6 +484,65 @@ class TestSkillsMiddleware:
         assert "is_builtin" not in skills["agents-skill"]["metadata"]
         assert skills["cursor-skill"]["description"] == "from cursor"
         assert "is_builtin" not in skills["cursor-skill"]["metadata"]
+
+
+class TestReadOnlyMode:
+    """Tests for read-only skill mode enforcement at the tool-call layer.
+
+    Gating at execution rather than by stripping tools from the model request keeps
+    the cached prompt prefix (tool list) stable across skill activation and exit.
+    """
+
+    @staticmethod
+    def _make_middleware(tmp_path: Path) -> SkillsMiddleware:
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        return SkillsMiddleware(backend=FilesystemBackend(root_dir=tmp_path, virtual_mode=True), sources=["/skills"])
+
+    @staticmethod
+    def _make_request(*, name: str, mode: str | None, call_id: str) -> ToolCallRequest:
+        return ToolCallRequest(
+            tool_call={"name": name, "args": {}, "id": call_id},
+            tool=None,
+            state={"active_skill_mode": mode},
+            runtime=Mock(),
+        )
+
+    async def test_blocks_writes_in_read_only_mode(self, tmp_path: Path):
+        middleware = self._make_middleware(tmp_path)
+        request = self._make_request(name="edit_file", mode=SKILL_MODE_READ_ONLY, call_id="call-1")
+        handler = AsyncMock()
+
+        result = await middleware.awrap_tool_call(request, handler)
+
+        handler.assert_not_awaited()
+        assert isinstance(result, ToolMessage)
+        assert result.tool_call_id == "call-1"
+        assert result.status == "error"
+        assert "edit_file" in result.content
+        assert "read-only" in result.content
+
+    async def test_allows_reads_in_read_only_mode(self, tmp_path: Path):
+        middleware = self._make_middleware(tmp_path)
+        request = self._make_request(name="read_file", mode=SKILL_MODE_READ_ONLY, call_id="call-2")
+        expected = ToolMessage(content="ok", tool_call_id="call-2")
+        handler = AsyncMock(return_value=expected)
+
+        result = await middleware.awrap_tool_call(request, handler)
+
+        handler.assert_awaited_once_with(request)
+        assert result is expected
+
+    async def test_allows_writes_when_mode_inactive(self, tmp_path: Path):
+        middleware = self._make_middleware(tmp_path)
+        request = self._make_request(name="edit_file", mode=None, call_id="call-3")
+        expected = ToolMessage(content="ok", tool_call_id="call-3")
+        handler = AsyncMock(return_value=expected)
+
+        result = await middleware.awrap_tool_call(request, handler)
+
+        handler.assert_awaited_once_with(request)
+        assert result is expected
 
 
 class TestCustomGlobalSkills:

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, NotRequired, override
 from deepagents.middleware.skills import SkillMetadata, SkillsState, SkillsStateUpdate
 from deepagents.middleware.skills import SkillsMiddleware as DeepAgentsSkillsMiddleware
 from langchain.agents.middleware import hook_config
-from langchain.agents.middleware.types import ModelRequest, ModelResponse, PrivateStateAttr
+from langchain.agents.middleware.types import PrivateStateAttr
 from langchain.tools import ToolRuntime, tool  # noqa: TC002
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from deepagents.graph import SubAgent
+    from langchain.agents.middleware.types import ToolCallRequest
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
@@ -256,16 +257,29 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return AVAILABLE_SKILLS_TEMPLATE.format(skills_list=skills)
 
     @override
-    async def awrap_model_call(
-        self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
-    ) -> ModelResponse:
-        """Filter write tools when the active skill declares read-only mode."""
-        active_mode = request.state.get("active_skill_mode")
-        if active_mode == SKILL_MODE_READ_ONLY:
-            filtered_tools = [t for t in request.tools if t.name not in WRITE_TOOL_NAMES]
-            modified = self.modify_request(request.override(tools=filtered_tools))
-            return await handler(modified)
-        return await super().awrap_model_call(request, handler)
+    async def awrap_tool_call(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
+    ) -> ToolMessage | Command:
+        """Refuse write-tool execution when the active skill declares read-only mode.
+
+        Enforced at the tool layer rather than by stripping tools from the model request,
+        so the cached prompt prefix (which includes the tool list) stays stable across
+        skill activation and skill exit. Filtering at request-time invalidates the
+        Anthropic prompt cache and forces a full prefix re-create on the next call.
+        """
+        if (
+            request.tool_call["name"] in WRITE_TOOL_NAMES
+            and request.state.get("active_skill_mode") == SKILL_MODE_READ_ONLY
+        ):
+            return ToolMessage(
+                content=(
+                    f"Refused: tool '{request.tool_call['name']}' is unavailable while a read-only skill is active. "
+                    "Read-only skills must not modify files. Wait for the user's follow-up before writing."
+                ),
+                tool_call_id=request.tool_call["id"],
+                status="error",
+            )
+        return await handler(request)
 
     @staticmethod
     def _has_user_followup(messages: list[AnyMessage]) -> bool:
