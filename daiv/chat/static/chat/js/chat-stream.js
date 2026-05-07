@@ -455,8 +455,15 @@
       this._autoFollow = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
 
+      // Send only user turns. Streamed assistant turns carry a client-minted
+      // UUID (set when we pushed the placeholder), but the server stored the
+      // AIMessage under its own LangChain-generated id — echoing the assistant
+      // turn back would slip past ag_ui_langgraph's id-based dedupe and append
+      // a duplicate AIMessage to the checkpoint. The agent reads prior history
+      // from the checkpointer; it doesn't need the client to replay it.
       const priorMessages = this.turns
         .slice(0, -1)
+        .filter((t) => t.role === "user")
         .map((t) => ({
           id: t.id,
           role: t.role,
