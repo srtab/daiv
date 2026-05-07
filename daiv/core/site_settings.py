@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import json
 import logging
 from typing import Any, ClassVar
 
@@ -23,6 +24,28 @@ def _get_docker_secret_cached(name: str) -> str | None:
     value = get_docker_secret(name, default=None)
     _docker_secret_cache[name] = value
     return value
+
+
+def _parse_auth_headers_json(raw: str) -> dict[str, dict[str, SecretStr]]:
+    """Parse a JSON string into the ``web_fetch_auth_headers`` dict shape."""
+    if not raw:
+        return {}
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("DAIV_WEB_FETCH_AUTH_HEADERS contains invalid JSON; ignoring.")
+        return {}
+
+    if not isinstance(decoded, dict) or not all(
+        isinstance(domain, str)
+        and isinstance(headers, dict)
+        and all(isinstance(name, str) and isinstance(value, str) for name, value in headers.items())
+        for domain, headers in decoded.items()
+    ):
+        logger.warning("DAIV_WEB_FETCH_AUTH_HEADERS has unexpected shape; ignoring.")
+        return {}
+
+    return {domain: {name: SecretStr(value) for name, value in headers.items()} for domain, headers in decoded.items()}
 
 
 def _build_field_defaults() -> dict[str, Any]:
@@ -113,6 +136,20 @@ class SiteSettings:
     def FIELD_DEFAULTS(self) -> dict[str, Any]:  # noqa: N802
         """Effective defaults for every configurable field (lazy-loaded to avoid import-time issues)."""
         return _get_field_defaults()
+
+    @property
+    def web_fetch_auth_headers(self) -> dict[str, dict[str, SecretStr]]:
+        """
+        Per-domain HTTP headers used by ``web_fetch``.
+
+        Priority: env var ``DAIV_WEB_FETCH_AUTH_HEADERS`` (JSON) > DB rows > ``{}``.
+        """
+        from core.models import WebFetchAuthHeader
+
+        raw = _get_docker_secret_cached("DAIV_WEB_FETCH_AUTH_HEADERS")
+        if raw is not None:
+            return _parse_auth_headers_json(raw)
+        return WebFetchAuthHeader.get_cached()
 
     def __getattr__(self, name: str) -> Any:
         from core.models import SiteConfiguration
