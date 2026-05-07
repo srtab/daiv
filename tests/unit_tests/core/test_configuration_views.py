@@ -33,6 +33,17 @@ def url():
     return reverse("site_configuration")
 
 
+# Management form data for the empty web_fetch auth-headers formset that the
+# view always renders. Existing POSTs need to include this so the formset
+# validates as empty.
+_HEADERS_MGMT = {
+    "headers-TOTAL_FORMS": "0",
+    "headers-INITIAL_FORMS": "0",
+    "headers-MIN_NUM_FORMS": "0",
+    "headers-MAX_NUM_FORMS": "1000",
+}
+
+
 class TestGetAccess:
     def test_admin_can_access(self, client, admin_user, url):
         client.force_login(admin_user)
@@ -109,6 +120,7 @@ class TestPostSave:
                 "agent_model_name_provider": "anthropic",
                 "agent_model_name_model": "claude-sonnet-4-6",
                 "agent_recursion_limit": 100,
+                **_HEADERS_MGMT,
             },
         )
         assert response.status_code == 302
@@ -119,7 +131,7 @@ class TestPostSave:
 
     def test_save_boolean_checked(self, client, admin_user, url):
         client.force_login(admin_user)
-        response = client.post(url, {"web_search_enabled": "on"})
+        response = client.post(url, {"web_search_enabled": "on", **_HEADERS_MGMT})
         assert response.status_code == 302
 
         config = SiteConfiguration.objects.get_instance()
@@ -133,7 +145,7 @@ class TestPostSave:
 
         client.force_login(admin_user)
         # POST without web_search_enabled = checkbox unchecked
-        response = client.post(url, {})
+        response = client.post(url, {**_HEADERS_MGMT})
         assert response.status_code == 302
 
         config.refresh_from_db()
@@ -146,7 +158,8 @@ class TestPostSave:
 
         client.force_login(admin_user)
         response = client.post(
-            url, {"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"}
+            url,
+            {"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6", **_HEADERS_MGMT},
         )
         assert response.status_code == 302
 
@@ -197,7 +210,8 @@ class TestPostSave:
     def test_member_cannot_post(self, client, member_user, url):
         client.force_login(member_user)
         response = client.post(
-            url, {"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"}
+            url,
+            {"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6", **_HEADERS_MGMT},
         )
         assert response.status_code == 403
 
@@ -372,7 +386,7 @@ class TestClearSecretViaHttp:
         config.save()
 
         client.force_login(admin_user)
-        response = client.post(url, {"clear_anthropic_api_key": "1"})
+        response = client.post(url, {"clear_anthropic_api_key": "1", **_HEADERS_MGMT})
         assert response.status_code == 302
 
         config.refresh_from_db()

@@ -1,0 +1,54 @@
+{% load i18n %}
+<div class="mt-6 border-t border-white/[0.06] pt-5">
+    <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-white">{% trans "Per-domain auth headers" %}</h3>
+        {% if web_fetch_auth_headers_env_locked %}
+            {% include "core/_env_lock_badge.html" %}
+        {% endif %}
+    </div>
+    <p class="mt-1 text-xs text-gray-400">
+        {% trans "Send custom HTTP headers when web_fetch contacts a domain. Match is exact (no subdomains)." %}
+    </p>
+
+    {% if web_fetch_auth_headers_env_locked %}
+        <div class="mt-4 space-y-2 text-sm">
+            {% for domain, headers in web_fetch_auth_headers_env_value.items %}
+                {% for name, value in headers.items %}
+                    <div class="grid grid-cols-12 gap-3 text-gray-300">
+                        <code class="col-span-4">{{ domain }}</code>
+                        <code class="col-span-3">{{ name }}</code>
+                        <span class="col-span-5 text-gray-500">●●●●●●●</span>
+                    </div>
+                {% endfor %}
+            {% empty %}
+                <p class="text-xs text-gray-500">{% trans "No headers configured via DAIV_WEB_FETCH_AUTH_HEADERS." %}</p>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="mt-4"
+             x-data="webFetchAuthHeadersFormset({ totalFormsId: '{{ web_fetch_auth_headers_formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ web_fetch_auth_headers_formset.total_form_count }} })">
+            {{ web_fetch_auth_headers_formset.management_form }}
+            {% if web_fetch_auth_headers_formset.non_form_errors %}
+                <p class="mb-3 text-xs text-red-300">{{ web_fetch_auth_headers_formset.non_form_errors.0 }}</p>
+            {% endif %}
+            <div x-show="total > 0"
+                 class="grid grid-cols-12 gap-3 mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+                <div class="col-span-4">{% trans "Domain" %}</div>
+                <div class="col-span-3">{% trans "Header name" %}</div>
+                <div class="col-span-4">{% trans "Header value" %}</div>
+                <div class="col-span-1"></div>
+            </div>
+            <div x-ref="rows" class="space-y-3">
+                {% for row in web_fetch_auth_headers_formset %}
+                    {% include "core/web_fetch_auth_header_row.html" with row=row %}
+                {% endfor %}
+            </div>
+            <template x-ref="rowTemplate">
+                {% include "core/web_fetch_auth_header_row.html" with row=web_fetch_auth_headers_formset.empty_form %}
+            </template>
+            <button type="button" class="btn-secondary mt-4" @click="addRow()">
+                {% trans "Add header" %}
+            </button>
+        </div>
+    {% endif %}
+</div>

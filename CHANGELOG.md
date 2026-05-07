@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added per-domain auth headers for the `web_fetch` tool to the configuration UI under **Web Fetch → Per-domain auth headers**. Each row pairs a domain (exact match) with an HTTP header name and a header value (encrypted at rest). Replaces the previous env-only `AUTOMATION_WEB_FETCH_AUTH_HEADERS` setting; the new env override is `DAIV_WEB_FETCH_AUTH_HEADERS` (same JSON shape). Operators using the old name must rename it.
 - Added a "Start a run" page at `/dashboard/runs/new/` for launching new agent runs from the UI, and a "Retry" button on terminal non-webhook activities that pre-fills the form with the original prompt, repository, ref, and max-mode flag.
 - Added configurable models for the titling task (chat thread and activity titles). The primary and fallback models can now be set via `DAIV_TITLING_MODEL_NAME` / `DAIV_TITLING_FALLBACK_MODEL_NAME` env vars or the configuration UI under a new **Titling** section. Defaults remain `gpt-5.4-mini` (primary) and `claude-haiku-4.5` (fallback).
 - Added model fallback support to all subagents (general-purpose, explore, and custom). When the primary LLM provider is unavailable, subagents now automatically fall back to an alternate provider, matching the existing behavior of the main agent. Includes a new `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` setting (default: `gpt-5-4-mini`) configurable via the dashboard or environment variable.

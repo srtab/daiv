@@ -18,6 +18,9 @@ logger = logging.getLogger("daiv.core")
 SITE_CONFIGURATION_CACHE_KEY = "site_configuration"
 SITE_CONFIGURATION_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
+WEB_FETCH_AUTH_HEADERS_CACHE_KEY = "web_fetch_auth_headers"
+WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+
 
 @dataclass(frozen=True)
 class FieldGroup:
@@ -576,3 +579,126 @@ class SiteConfiguration(models.Model):
     def _invalidate_cache() -> None:
         cache.delete(SITE_CONFIGURATION_CACHE_KEY)
         logger.info("Invalidated site configuration cache")
+
+
+class WebFetchAuthHeader(models.Model):
+    """
+    Per-domain HTTP header used by the ``web_fetch`` tool when contacting a host.
+
+    Values are stored encrypted via :class:`EncryptedFieldDescriptor`.
+    """
+
+    domain = models.CharField(_("domain"), max_length=255)
+    header_name = models.CharField(_("header name"), max_length=255)
+
+    _header_value_encrypted = models.TextField(blank=True, null=True, editable=False)
+
+    header_value = EncryptedFieldDescriptor("header_value")
+
+    class Meta:
+        verbose_name = _("web fetch auth header")
+        verbose_name_plural = _("web fetch auth headers")
+        ordering = ("domain", "header_name")
+        constraints = [models.UniqueConstraint(fields=("domain", "header_name"), name="unique_web_fetch_auth_header")]
+
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+    def __str__(self) -> str:
+        return f"{self.domain} → {self.header_name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        super().save(*args, **kwargs)
+        type(self).invalidate_cache()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        result = super().delete(*args, **kwargs)
+        type(self).invalidate_cache()
+        return result
+
+    def get_secret_hint(self) -> str | None:
+        """Return a masked hint for the row's header value, or ``None`` if unset."""
+        value = self.header_value
+        if value is None:
+            return None
+        from core.encryption import mask_secret
+
+        return mask_secret(value)
+
+    @classmethod
+    def _build_from_db(cls) -> dict[str, dict[str, Any]]:
+        """Read all rows and build the grouped dict. Caller manages DB connections."""
+        from pydantic import SecretStr
+
+        out: dict[str, dict[str, SecretStr]] = {}
+        for row in cls.objects.all():
+            value = row.header_value
+            if value is None:
+                # ``EncryptedFieldDescriptor`` returns None when the column is
+                # NULL or when decryption failed (e.g. after key rotation).
+                # The descriptor already logs decryption errors; we log here
+                # so operators can correlate "no auth headers sent" with
+                # specific row PKs.
+                logger.error("WebFetchAuthHeader row pk=%s has no readable value; skipping", row.pk)
+                continue
+            out.setdefault(row.domain, {})[row.header_name] = SecretStr(value)
+        return out
+
+    @classmethod
+    def _load_and_cache(cls) -> dict[str, dict[str, Any]]:
+        """
+        Read all rows from the database, cache the grouped dict, and return it.
+
+        Safe to call from any thread: manages DB connections via
+        ``close_old_connections`` for ``ThreadPoolExecutor`` use. A broad
+        ``except`` is intentional: ``web_fetch`` is on the agent's hot path
+        and a DB outage / migration gap should degrade to "no auth headers"
+        rather than crash the tool. The exception is logged so operators can
+        diagnose the underlying failure.
+        """
+        from django.db import close_old_connections
+
+        try:
+            close_old_connections()
+            out = cls._build_from_db()
+        except Exception:  # noqa: BLE001 — degrade gracefully on DB/migration/encryption errors
+            logger.exception("WebFetchAuthHeader rows not available; falling back to empty dict")
+            return {}
+        finally:
+            with contextlib.suppress(Exception):
+                close_old_connections()
+
+        cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, out, WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT)
+        return out
+
+    @classmethod
+    def get_cached(cls) -> dict[str, dict[str, Any]]:
+        """
+        Return all rows grouped by domain, with values wrapped in
+        :class:`pydantic.SecretStr`.
+
+        Async-safe: in async contexts the DB fallback runs in a
+        :class:`ThreadPoolExecutor` to avoid Django's
+        ``SynchronousOnlyOperation``. Cache hits are returned directly with
+        no thread hop, since ``django.core.cache`` is async-safe.
+        """
+        cached = cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+        if cached is not None:
+            return cached
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return cls._load_and_cache()
+
+        try:
+            return cls._executor.submit(cls._load_and_cache).result(timeout=5)
+        except concurrent.futures.TimeoutError:
+            logger.error("WebFetchAuthHeader lookup timed out (5s) in async context; falling back to empty dict")
+            return {}
+        except Exception:  # noqa: BLE001 — see _load_and_cache rationale
+            logger.exception("WebFetchAuthHeader async lookup failed; falling back to empty dict")
+            return {}
+
+    @classmethod
+    def invalidate_cache(cls) -> None:
+        cache.delete(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
