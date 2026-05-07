@@ -9,4 +9,7 @@ class AutomationConfig(AppConfig):
     verbose_name = _("Automation")
 
     def ready(self):
+        from automation.agent.profile import register as register_harness_profile
+
+        register_harness_profile()
         autodiscover_modules("agent.mcp.servers")

@@ -16,6 +16,7 @@ from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
 from automation.agent.constants import GLOBAL_SKILLS_PATH
+from automation.agent.middlewares.file_system import WRITE_FILE_TOOL, WRITE_TOOL_NAMES, SandboxSyncer
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, files_changed_from_patch
 from core.conf import settings
@@ -27,7 +28,9 @@ from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from typing import Any
 
+    from deepagents.backends import BackendProtocol
     from langgraph.runtime import Runtime
 
 
@@ -295,10 +298,27 @@ class SandboxState(AgentState):
 
 class SandboxMiddleware(AgentMiddleware):
     """
-    Middleware to manage a sandbox session for running commands.
+    Middleware to manage a sandbox session for running commands and mirroring filesystem writes.
 
-    This middleware lazily starts a sandbox session the first time the bash tool is called and
-    closes it after the agent finishes the execution loop. It also adds the sandbox tools to the agent.
+    Owns the per-run sandbox session lifecycle (start in ``abefore_agent``, close in
+    ``aafter_agent``) and exposes:
+
+    - The ``bash`` tool for running shell commands inside the sandbox.
+    - A wrapper around upstream's ``write_file``/``edit_file`` tools that mirrors each
+      successful local write to the sandbox so subsequent ``bash`` invocations see a
+      coherent filesystem.
+
+    A single ``DAIVSandboxClient`` is opened in ``abefore_agent`` and reused for both
+    bash execution and write mirroring.
+
+    Args:
+        backend: Filesystem backend used to resolve ``/repo``-relative paths to on-disk
+            paths. Must be the same instance that backs upstream's ``FilesystemMiddleware``.
+        working_dir: On-disk repo root used to map local paths to sandbox paths
+            (``<working_dir>/<rel>`` → ``/repo/<rel>``).
+        close_session: Whether to close the session after the agent finishes the execution
+            loop. Set to ``False`` when used in subagents so the parent agent owns session
+            lifecycle.
 
     Example:
         ```python
@@ -306,26 +326,23 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware()],
+            middleware=[SandboxMiddleware(backend=backend, working_dir="/workspace/repo")],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(self, *, close_session: bool = True):
-        """
-        Initialize the middleware.
-
-        Args:
-            close_session: Whether to close the session after the agent finishes the execution loop.
-                Useful when using the sandbox in subagents to avoid closing the session in the parent agent.
-        """
+    def __init__(self, *, backend: BackendProtocol, working_dir: Path | str, close_session: bool = True):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
 
+        self._backend = backend
+        self._working_dir = Path(working_dir)
         self.close_session = close_session
         self._client: DAIVSandboxClient | None = None
+        self._syncer: SandboxSyncer | None = None
+        self._wrap_cache: dict[str, BaseTool] = {}
         self.tools = [self._build_bash_tool()]
 
     def _build_bash_tool(self) -> BaseTool:
@@ -384,6 +401,7 @@ class SandboxMiddleware(AgentMiddleware):
         client = DAIVSandboxClient()
         await client.open()
         self._client = client
+        self._syncer = SandboxSyncer(backend=self._backend, working_dir=self._working_dir, client=client)
 
         try:
             if not self.close_session and "session_id" in state:
@@ -417,6 +435,7 @@ class SandboxMiddleware(AgentMiddleware):
             # Release the client we just opened; otherwise its httpx pool leaks for the run.
             await client.close()
             self._client = None
+            self._syncer = None
             raise
         return {"session_id": session_id}
 
@@ -463,12 +482,26 @@ class SandboxMiddleware(AgentMiddleware):
                 except Exception:
                     logger.exception("Failed to close sandbox httpx client; pool may have leaked")
                 self._client = None
+                self._syncer = None
+
+    def _wrap_if_needed(self, tool: BaseTool | dict[str, Any]) -> BaseTool | dict[str, Any]:
+        """Wrap upstream's ``write_file``/``edit_file`` so successful writes are mirrored to the sandbox."""
+        if self._syncer is None or not isinstance(tool, BaseTool) or tool.name not in WRITE_TOOL_NAMES:
+            return tool
+        cached = self._wrap_cache.get(tool.name)
+        if cached is not None:
+            return cached
+        wrapped = (
+            self._syncer.wrap_write_tool(tool) if tool.name == WRITE_FILE_TOOL else self._syncer.wrap_edit_tool(tool)
+        )
+        self._wrap_cache[tool.name] = wrapped
+        return wrapped
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
         """
-        Update the system prompt with the sandbox system prompts.
+        Append the sandbox system prompt and re-wrap write/edit tools to mirror to the sandbox.
 
         Args:
             request: The model request being processed.
@@ -477,6 +510,7 @@ class SandboxMiddleware(AgentMiddleware):
         Returns:
             The model response from the handler.
         """
-        request = request.override(system_prompt=request.system_prompt + "\n\n" + SANDBOX_SYSTEM_PROMPT)
-
-        return await handler(request)
+        new_tools: list[BaseTool | dict[str, Any]] = [self._wrap_if_needed(tool) for tool in request.tools]
+        return await handler(
+            request.override(system_prompt=request.system_prompt + "\n\n" + SANDBOX_SYSTEM_PROMPT, tools=new_tools)
+        )
