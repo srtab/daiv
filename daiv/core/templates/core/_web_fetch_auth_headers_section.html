@@ -47,8 +47,12 @@
 </div>
 
 <script>
-    document.addEventListener('alpine:init', () => {
-        Alpine.data('webFetchAuthHeadersFormset', ({ totalFormsId, initialTotal }) => ({
+    // Guard against re-registration if this partial is ever swapped in (e.g. via HTMX)
+    // after Alpine has already initialized the page.
+    if (!window._webFetchAuthHeadersFormsetRegistered) {
+        window._webFetchAuthHeadersFormsetRegistered = true;
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('webFetchAuthHeadersFormset', ({ totalFormsId, initialTotal }) => ({
             total: initialTotal,
             addRow() {
                 const totalInput = document.getElementById(totalFormsId);
@@ -67,6 +71,7 @@
                     rowEl.remove();
                 }
             },
-        }));
-    });
+            }));
+        });
+    }
 </script>

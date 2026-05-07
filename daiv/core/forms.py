@@ -388,6 +388,8 @@ class SiteConfigurationForm(forms.ModelForm):
 # Web Fetch auth headers
 # ---------------------------------------------------------------------------
 
+WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX = "headers"
+
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9-]+$")
 
 
@@ -411,23 +413,12 @@ class WebFetchAuthHeaderForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["domain"].widget.attrs.update({"placeholder": "example.com"})
         self.fields["header_name"].widget.attrs.update({"placeholder": "X-API-Key"})
-        if self.instance and self.instance.pk:
-            hint = WebFetchAuthHeaderForm._mask_hint(self.instance.header_value)
-        else:
-            hint = None
+        hint = self.instance.get_secret_hint() if self.instance and self.instance.pk else None
         self.fields["header_value"].secret_hint = hint  # type: ignore[attr-defined]
-
-    @staticmethod
-    def _mask_hint(value: str | None) -> str | None:
-        if value is None:
-            return None
-        from core.encryption import mask_secret
-
-        return mask_secret(value)
 
     def has_changed(self) -> bool:
         if self.empty_permitted and not any(
-            (self.data.get(self.add_prefix(name)) or "").strip() for name in ("domain", "header_name", "header_value")
+            (self[name].value() or "").strip() for name in ("domain", "header_name", "header_value")
         ):
             return False
         return super().has_changed()
@@ -451,19 +442,16 @@ class WebFetchAuthHeaderForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
-        domain = cleaned.get("domain")
-        header_name = cleaned.get("header_name")
-        header_value = cleaned.get("header_value")
-        keeping_existing_value = bool(self.instance and self.instance.pk and not header_value)
-        any_filled = bool(domain or header_name or header_value or keeping_existing_value)
-        all_filled_or_kept = bool(domain and header_name and (header_value or keeping_existing_value))
-        if any_filled and not all_filled_or_kept:
-            if not domain:
-                self.add_error("domain", _("Required."))
-            if not header_name:
-                self.add_error("header_name", _("Required."))
-            if not header_value and not keeping_existing_value:
-                self.add_error("header_value", _("Required."))
+        keeping_existing_value = bool(self.instance and self.instance.pk and not cleaned.get("header_value"))
+        present = {
+            "domain": bool(cleaned.get("domain")),
+            "header_name": bool(cleaned.get("header_name")),
+            "header_value": bool(cleaned.get("header_value")) or keeping_existing_value,
+        }
+        if any(present.values()) and not all(present.values()):
+            for field, is_present in present.items():
+                if not is_present:
+                    self.add_error(field, _("Required."))
         return cleaned
 
     def save(self, commit: bool = True) -> WebFetchAuthHeader:

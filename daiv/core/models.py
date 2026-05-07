@@ -601,6 +601,8 @@ class WebFetchAuthHeader(models.Model):
         ordering = ("domain", "header_name")
         constraints = [models.UniqueConstraint(fields=("domain", "header_name"), name="unique_web_fetch_auth_header")]
 
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
     def __str__(self) -> str:
         return f"{self.domain} → {self.header_name}"
 
@@ -613,33 +615,41 @@ class WebFetchAuthHeader(models.Model):
         type(self).invalidate_cache()
         return result
 
-    # Shared executor with SiteConfiguration's pattern — see comment there.
-    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    def get_secret_hint(self) -> str | None:
+        """Return a masked hint for the row's header value, or ``None`` if unset."""
+        value = self.header_value
+        if value is None:
+            return None
+        from core.encryption import mask_secret
+
+        return mask_secret(value)
+
+    @classmethod
+    def _build_from_db(cls) -> dict[str, dict[str, Any]]:
+        """Read all rows and build the grouped dict. Caller manages DB connections."""
+        from pydantic import SecretStr
+
+        out: dict[str, dict[str, SecretStr]] = {}
+        for row in cls.objects.all():
+            value = row.header_value
+            if value is None:
+                continue
+            out.setdefault(row.domain, {})[row.header_name] = SecretStr(value)
+        return out
 
     @classmethod
     def _fetch_from_cache_or_db(cls) -> dict[str, dict[str, Any]]:
         """
-        Cache-first lookup that builds the dict via the ORM if needed.
+        Build the dict via the ORM and cache it.
 
         Safe to call from any thread: manages DB connections via
         ``close_old_connections`` for ``ThreadPoolExecutor`` use.
         """
-        from pydantic import SecretStr
-
-        cached = cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
-        if cached is not None:
-            return cached
-
         from django.db import close_old_connections
 
-        out: dict[str, dict[str, SecretStr]] = {}
         try:
             close_old_connections()
-            for row in cls.objects.all():
-                value = row.header_value
-                if value is None:
-                    continue
-                out.setdefault(row.domain, {})[row.header_name] = SecretStr(value)
+            out = cls._build_from_db()
         except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
             logger.exception("WebFetchAuthHeader rows not available; falling back to {}")
             return {}
@@ -657,9 +667,16 @@ class WebFetchAuthHeader(models.Model):
         :class:`pydantic.SecretStr`. Rows whose value cannot be decrypted
         are silently skipped (the descriptor logs the failure).
 
-        Async-safe: when called from an event loop, the lookup runs in a
-        :class:`ThreadPoolExecutor` to avoid Django's ``SynchronousOnlyOperation``.
+        Async-safe: in async contexts the DB fallback runs in a
+        :class:`ThreadPoolExecutor` to avoid Django's
+        ``SynchronousOnlyOperation``. Cache hits are returned directly with
+        no thread hop, since ``django.core.cache`` is async-safe.
         """
+        # Fast path: cache hit on the calling thread, no executor round-trip.
+        cached = cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+        if cached is not None:
+            return cached
+
         try:
             asyncio.get_running_loop()
         except RuntimeError:

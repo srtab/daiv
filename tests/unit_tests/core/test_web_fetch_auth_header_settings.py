@@ -12,23 +12,6 @@ def ss():
     return SiteSettings()
 
 
-@pytest.fixture(autouse=True)
-def clear_docker_secret_cache():
-    """Reset the cache so monkeypatched env vars are seen on each test."""
-    from core import site_settings as ss_module
-
-    ss_module._docker_secret_cache.clear()
-    yield
-    ss_module._docker_secret_cache.clear()
-
-
-def _create_row(domain: str, header_name: str, header_value: str) -> WebFetchAuthHeader:
-    row = WebFetchAuthHeader(domain=domain, header_name=header_name)
-    row.header_value = header_value
-    row.save()
-    return row
-
-
 class TestParseAuthHeadersJson:
     def test_parses_valid_json(self):
         result = _parse_auth_headers_json('{"context7.com": {"X-API-Key": "sk-abc"}}')
@@ -56,14 +39,14 @@ class TestWebFetchAuthHeadersProperty:
     def test_default_is_empty_dict_when_nothing_set(self, ss):
         assert ss.web_fetch_auth_headers == {}
 
-    def test_db_rows_returned_when_env_unset(self, ss):
-        _create_row("context7.com", "X-API-Key", "sk-abc")
+    def test_db_rows_returned_when_env_unset(self, ss, make_auth_header):
+        make_auth_header("context7.com", "X-API-Key", "sk-abc")
         result = ss.web_fetch_auth_headers
         assert isinstance(result["context7.com"]["X-API-Key"], SecretStr)
         assert result["context7.com"]["X-API-Key"].get_secret_value() == "sk-abc"
 
-    def test_env_var_overrides_db(self, ss, monkeypatch):
-        _create_row("context7.com", "X-API-Key", "from-db")
+    def test_env_var_overrides_db(self, ss, make_auth_header, monkeypatch):
+        make_auth_header("context7.com", "X-API-Key", "from-db")
         monkeypatch.setenv("DAIV_WEB_FETCH_AUTH_HEADERS", '{"context7.com": {"X-API-Key": "from-env"}}')
         from core import site_settings as ss_module
 

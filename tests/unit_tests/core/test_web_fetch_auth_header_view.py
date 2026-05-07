@@ -4,34 +4,8 @@ from django.urls import reverse
 
 import pytest
 
-from accounts.models import Role, User
+from core.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 from core.models import WebFetchAuthHeader
-
-
-@pytest.fixture
-def admin_user(db):
-    return User.objects.create_user(
-        username="admin",
-        email="admin@test.com",
-        password="testpass123",  # noqa: S106
-        role=Role.ADMIN,
-    )
-
-
-@pytest.fixture
-def admin_client(admin_user, client):
-    client.force_login(admin_user)
-    return client
-
-
-def _create_row(domain: str, header_name: str, header_value: str) -> WebFetchAuthHeader:
-    row = WebFetchAuthHeader(domain=domain, header_name=header_name)
-    row.header_value = header_value
-    row.save()
-    return row
-
-
-PREFIX = "headers"
 
 
 def _management(total: int, initial: int = 0) -> dict[str, str]:
@@ -45,8 +19,8 @@ def _management(total: int, initial: int = 0) -> dict[str, str]:
 
 @pytest.mark.django_db
 class TestSiteConfigurationViewWithAuthHeaders:
-    def test_get_renders_formset(self, admin_client):
-        _create_row("context7.com", "X-API-Key", "sk-abc")
+    def test_get_renders_formset(self, admin_client, make_auth_header):
+        make_auth_header("context7.com", "X-API-Key", "sk-abc")
         response = admin_client.get(reverse("site_configuration"))
         assert response.status_code == 200
         body = response.content.decode()
@@ -67,8 +41,8 @@ class TestSiteConfigurationViewWithAuthHeaders:
         assert response.status_code in (200, 302)
         assert WebFetchAuthHeader.objects.filter(domain="context7.com", header_name="X-API-Key").exists()
 
-    def test_post_deletes_marked_row(self, admin_client):
-        row = _create_row("context7.com", "X-API-Key", "sk-abc")
+    def test_post_deletes_marked_row(self, admin_client, make_auth_header):
+        row = make_auth_header("context7.com", "X-API-Key", "sk-abc")
         data = {
             **_management(total=1, initial=1),
             f"{PREFIX}-0-id": str(row.pk),
