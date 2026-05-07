@@ -613,12 +613,16 @@ class WebFetchAuthHeader(models.Model):
         type(self).invalidate_cache()
         return result
 
+    # Shared executor with SiteConfiguration's pattern — see comment there.
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
     @classmethod
-    def get_cached(cls) -> dict[str, dict[str, Any]]:
+    def _fetch_from_cache_or_db(cls) -> dict[str, dict[str, Any]]:
         """
-        Return all rows grouped by domain, with values wrapped in
-        :class:`pydantic.SecretStr`. Rows whose value cannot be decrypted
-        are silently skipped (the descriptor logs the failure).
+        Cache-first lookup that builds the dict via the ORM if needed.
+
+        Safe to call from any thread: manages DB connections via
+        ``close_old_connections`` for ``ThreadPoolExecutor`` use.
         """
         from pydantic import SecretStr
 
@@ -626,15 +630,49 @@ class WebFetchAuthHeader(models.Model):
         if cached is not None:
             return cached
 
+        from django.db import close_old_connections
+
         out: dict[str, dict[str, SecretStr]] = {}
-        for row in cls.objects.all():
-            value = row.header_value
-            if value is None:
-                continue
-            out.setdefault(row.domain, {})[row.header_name] = SecretStr(value)
+        try:
+            close_old_connections()
+            for row in cls.objects.all():
+                value = row.header_value
+                if value is None:
+                    continue
+                out.setdefault(row.domain, {})[row.header_name] = SecretStr(value)
+        except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
+            logger.exception("WebFetchAuthHeader rows not available; falling back to {}")
+            return {}
+        finally:
+            with contextlib.suppress(Exception):
+                close_old_connections()
 
         cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, out, WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT)
         return out
+
+    @classmethod
+    def get_cached(cls) -> dict[str, dict[str, Any]]:
+        """
+        Return all rows grouped by domain, with values wrapped in
+        :class:`pydantic.SecretStr`. Rows whose value cannot be decrypted
+        are silently skipped (the descriptor logs the failure).
+
+        Async-safe: when called from an event loop, the lookup runs in a
+        :class:`ThreadPoolExecutor` to avoid Django's ``SynchronousOnlyOperation``.
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return cls._fetch_from_cache_or_db()
+
+        try:
+            return cls._executor.submit(cls._fetch_from_cache_or_db).result(timeout=5)
+        except concurrent.futures.TimeoutError:
+            logger.error("WebFetchAuthHeader lookup timed out (5s) in async context; falling back to {}")
+            return {}
+        except Exception:  # noqa: BLE001
+            logger.exception("WebFetchAuthHeader lookup failed (async context); falling back to {}")
+            return {}
 
     @classmethod
     def invalidate_cache(cls) -> None:

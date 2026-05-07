@@ -67,7 +67,7 @@ def _get_auth_headers_for_url(url: str) -> dict[str, str]:
     """
     hostname = urlparse(url).hostname or ""
     matched: list[tuple[str, dict[str, SecretStr]]] = []
-    for domain, headers in automation_env_settings.WEB_FETCH_AUTH_HEADERS.items():
+    for domain, headers in site_settings.web_fetch_auth_headers.items():
         if hostname == domain:
             matched.append((domain, headers))
     # Merge from least-specific to most-specific so longer domains win.

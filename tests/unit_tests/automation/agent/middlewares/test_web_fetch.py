@@ -249,36 +249,36 @@ async def test_rejects_large_content(httpx_mock):
 
 
 async def test_get_auth_headers_exact_domain_match():
-    with patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings:
-        mock_env_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
+    with patch.object(web_fetch_module, "site_settings") as mock_site_settings:
+        mock_site_settings.web_fetch_auth_headers = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
         result = web_fetch_module._get_auth_headers_for_url("https://context7.com/api/v1/context")
     assert result == {"X-API-Key": "sk-abc"}
 
 
 async def test_get_auth_headers_subdomain_match():
-    with patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings:
-        mock_env_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
+    with patch.object(web_fetch_module, "site_settings") as mock_site_settings:
+        mock_site_settings.web_fetch_auth_headers = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
         result = web_fetch_module._get_auth_headers_for_url("https://api.context7.com/endpoint")
     assert result == {}
 
 
 async def test_get_auth_headers_no_match():
-    with patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings:
-        mock_env_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
+    with patch.object(web_fetch_module, "site_settings") as mock_site_settings:
+        mock_site_settings.web_fetch_auth_headers = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
         result = web_fetch_module._get_auth_headers_for_url("https://example.com/page")
     assert result == {}
 
 
 async def test_get_auth_headers_rejects_false_suffix():
-    with patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings:
-        mock_env_settings.WEB_FETCH_AUTH_HEADERS = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
+    with patch.object(web_fetch_module, "site_settings") as mock_site_settings:
+        mock_site_settings.web_fetch_auth_headers = {"context7.com": {"X-API-Key": SecretStr("sk-abc")}}
         result = web_fetch_module._get_auth_headers_for_url("https://notcontext7.com/page")
     assert result == {}
 
 
 async def test_get_auth_headers_more_specific_domain_wins():
-    with patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings:
-        mock_env_settings.WEB_FETCH_AUTH_HEADERS = {
+    with patch.object(web_fetch_module, "site_settings") as mock_site_settings:
+        mock_site_settings.web_fetch_auth_headers = {
             "example.com": {"X-API-Key": SecretStr("generic")},
             "api.example.com": {"X-API-Key": SecretStr("specific")},
         }
@@ -297,7 +297,7 @@ async def test_fetch_url_text_injects_auth_headers(httpx_mock):
         patch.object(web_fetch_module, "site_settings") as mock_site_settings,
         patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
     ):
-        mock_env_settings.WEB_FETCH_AUTH_HEADERS = {"example.com": {"X-API-Key": SecretStr("sk-abc")}}
+        mock_site_settings.web_fetch_auth_headers = {"example.com": {"X-API-Key": SecretStr("sk-abc")}}
         mock_site_settings.web_fetch_timeout_seconds = 1
         mock_env_settings.WEB_FETCH_PROXY_URL = None
         mock_site_settings.web_fetch_max_content_chars = 999_999
