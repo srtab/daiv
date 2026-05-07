@@ -87,3 +87,50 @@ class TestWebFetchAuthHeaderCache:
 
         row.delete()
         assert cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY) is None
+
+
+class TestWebFetchAuthHeaderAsyncCache:
+    """Async-context coverage for ``get_cached``: cache fast path skips the
+    executor; cache miss dispatches via the executor.
+
+    Uses mocks rather than real DB rows so a single transactional fixture
+    isn't dragged across the test thread + executor thread.
+    """
+
+    def setup_method(self):
+        cache.delete(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+
+    async def test_async_cache_hit_skips_executor(self):
+        cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, {"x.com": {"H": "v"}}, 60)
+
+        from unittest.mock import patch
+
+        with patch.object(WebFetchAuthHeader, "_executor") as mock_executor:
+            result = WebFetchAuthHeader.get_cached()
+
+        assert result == {"x.com": {"H": "v"}}
+        assert not mock_executor.submit.called
+
+    async def test_async_cache_miss_dispatches_to_executor(self):
+        from unittest.mock import patch
+
+        sentinel = {"x.com": {"H": "from-executor"}}
+        with patch.object(WebFetchAuthHeader, "_load_and_cache", return_value=sentinel) as mock_load:
+            result = WebFetchAuthHeader.get_cached()
+
+        assert result is sentinel
+        assert mock_load.called
+
+
+@pytest.mark.django_db
+class TestWebFetchAuthHeaderSecretHint:
+    def test_returns_masked_hint_when_set(self, make_auth_header):
+        row = make_auth_header("context7.com", "X-API-Key", "sk-this-is-a-secret-value")
+        hint = row.get_secret_hint()
+        assert hint is not None
+        assert "sk-this-is-a-secret-value" not in hint
+
+    def test_returns_none_when_value_missing(self, make_auth_header):
+        row = make_auth_header("context7.com", "X-API-Key", "v")
+        row._header_value_encrypted = None
+        assert row.get_secret_hint() is None

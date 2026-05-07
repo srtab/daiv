@@ -633,25 +633,35 @@ class WebFetchAuthHeader(models.Model):
         for row in cls.objects.all():
             value = row.header_value
             if value is None:
+                # ``EncryptedFieldDescriptor`` returns None when the column is
+                # NULL or when decryption failed (e.g. after key rotation).
+                # The descriptor already logs decryption errors; we log here
+                # so operators can correlate "no auth headers sent" with
+                # specific row PKs.
+                logger.error("WebFetchAuthHeader row pk=%s has no readable value; skipping", row.pk)
                 continue
             out.setdefault(row.domain, {})[row.header_name] = SecretStr(value)
         return out
 
     @classmethod
-    def _fetch_from_cache_or_db(cls) -> dict[str, dict[str, Any]]:
+    def _load_and_cache(cls) -> dict[str, dict[str, Any]]:
         """
-        Build the dict via the ORM and cache it.
+        Read all rows from the database, cache the grouped dict, and return it.
 
         Safe to call from any thread: manages DB connections via
-        ``close_old_connections`` for ``ThreadPoolExecutor`` use.
+        ``close_old_connections`` for ``ThreadPoolExecutor`` use. A broad
+        ``except`` is intentional: ``web_fetch`` is on the agent's hot path
+        and a DB outage / migration gap should degrade to "no auth headers"
+        rather than crash the tool. The exception is logged so operators can
+        diagnose the underlying failure.
         """
         from django.db import close_old_connections
 
         try:
             close_old_connections()
             out = cls._build_from_db()
-        except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
-            logger.exception("WebFetchAuthHeader rows not available; falling back to {}")
+        except Exception:  # noqa: BLE001 — degrade gracefully on DB/migration/encryption errors
+            logger.exception("WebFetchAuthHeader rows not available; falling back to empty dict")
             return {}
         finally:
             with contextlib.suppress(Exception):
@@ -664,15 +674,13 @@ class WebFetchAuthHeader(models.Model):
     def get_cached(cls) -> dict[str, dict[str, Any]]:
         """
         Return all rows grouped by domain, with values wrapped in
-        :class:`pydantic.SecretStr`. Rows whose value cannot be decrypted
-        are silently skipped (the descriptor logs the failure).
+        :class:`pydantic.SecretStr`.
 
         Async-safe: in async contexts the DB fallback runs in a
         :class:`ThreadPoolExecutor` to avoid Django's
         ``SynchronousOnlyOperation``. Cache hits are returned directly with
         no thread hop, since ``django.core.cache`` is async-safe.
         """
-        # Fast path: cache hit on the calling thread, no executor round-trip.
         cached = cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
         if cached is not None:
             return cached
@@ -680,15 +688,15 @@ class WebFetchAuthHeader(models.Model):
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return cls._fetch_from_cache_or_db()
+            return cls._load_and_cache()
 
         try:
-            return cls._executor.submit(cls._fetch_from_cache_or_db).result(timeout=5)
+            return cls._executor.submit(cls._load_and_cache).result(timeout=5)
         except concurrent.futures.TimeoutError:
-            logger.error("WebFetchAuthHeader lookup timed out (5s) in async context; falling back to {}")
+            logger.error("WebFetchAuthHeader lookup timed out (5s) in async context; falling back to empty dict")
             return {}
-        except Exception:  # noqa: BLE001
-            logger.exception("WebFetchAuthHeader lookup failed (async context); falling back to {}")
+        except Exception:  # noqa: BLE001 — see _load_and_cache rationale
+            logger.exception("WebFetchAuthHeader async lookup failed; falling back to empty dict")
             return {}
 
     @classmethod

@@ -27,25 +27,28 @@ def _get_docker_secret_cached(name: str) -> str | None:
 
 
 def _parse_auth_headers_json(raw: str) -> dict[str, dict[str, SecretStr]]:
-    """Parse a JSON string into the ``web_fetch_auth_headers`` dict shape."""
+    """
+    Parse the ``DAIV_WEB_FETCH_AUTH_HEADERS`` env value.
+
+    Returns ``{}`` on missing / malformed / wrong-shape input. Logs an error
+    when the env var is set but unparseable so misconfiguration is visible
+    to operators — auth headers are silently skipped otherwise. Domains are
+    lower-cased to match ``WebFetchAuthHeaderForm.clean_domain``.
+    """
+    from pydantic import TypeAdapter, ValidationError
+
     if not raw:
         return {}
     try:
-        decoded = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.warning("DAIV_WEB_FETCH_AUTH_HEADERS contains invalid JSON; ignoring.")
+        decoded = TypeAdapter(dict[str, dict[str, str]]).validate_json(raw)
+    except json.JSONDecodeError, ValidationError:
+        logger.exception("DAIV_WEB_FETCH_AUTH_HEADERS could not be parsed; ignoring.")
         return {}
 
-    if not isinstance(decoded, dict) or not all(
-        isinstance(domain, str)
-        and isinstance(headers, dict)
-        and all(isinstance(name, str) and isinstance(value, str) for name, value in headers.items())
+    return {
+        domain.lower(): {name: SecretStr(value) for name, value in headers.items()}
         for domain, headers in decoded.items()
-    ):
-        logger.warning("DAIV_WEB_FETCH_AUTH_HEADERS has unexpected shape; ignoring.")
-        return {}
-
-    return {domain: {name: SecretStr(value) for name, value in headers.items()} for domain, headers in decoded.items()}
+    }
 
 
 def _build_field_defaults() -> dict[str, Any]:

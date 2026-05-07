@@ -384,10 +384,6 @@ class SiteConfigurationForm(forms.ModelForm):
         return labels.get(name, "")
 
 
-# ---------------------------------------------------------------------------
-# Web Fetch auth headers
-# ---------------------------------------------------------------------------
-
 WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX = "headers"
 
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9-]+$")

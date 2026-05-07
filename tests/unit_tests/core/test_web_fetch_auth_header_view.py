@@ -38,7 +38,7 @@ class TestSiteConfigurationViewWithAuthHeaders:
             f"{PREFIX}-0-header_value": "sk-abc",
         }
         response = admin_client.post(reverse("site_configuration"), data=data)
-        assert response.status_code in (200, 302)
+        assert response.status_code == 302
         assert WebFetchAuthHeader.objects.filter(domain="context7.com", header_name="X-API-Key").exists()
 
     def test_post_deletes_marked_row(self, admin_client, make_auth_header):
@@ -64,3 +64,32 @@ class TestSiteConfigurationViewWithAuthHeaders:
         }
         admin_client.post(reverse("site_configuration"), data=data)
         assert not WebFetchAuthHeader.objects.exists()
+
+    def test_env_locked_ignores_submitted_formset(self, admin_client, make_auth_header, monkeypatch):
+        """When ``DAIV_WEB_FETCH_AUTH_HEADERS`` is set, a POST that tries to
+        create a row OR delete an existing one must be ignored — env-locked
+        config must not be mutable through the UI.
+        """
+        from core import site_settings as ss_module
+
+        existing = make_auth_header("kept.example.com", "X-Old", "old-value")
+        monkeypatch.setenv("DAIV_WEB_FETCH_AUTH_HEADERS", '{"x.com": {"H": "v"}}')
+        ss_module._docker_secret_cache.clear()
+
+        data = {
+            **_management(total=2, initial=1),
+            # Try to delete the existing row.
+            f"{PREFIX}-0-id": str(existing.pk),
+            f"{PREFIX}-0-domain": "kept.example.com",
+            f"{PREFIX}-0-header_name": "X-Old",
+            f"{PREFIX}-0-header_value": "",
+            f"{PREFIX}-0-DELETE": "on",
+            # Try to create a new row.
+            f"{PREFIX}-1-domain": "evil.example.com",
+            f"{PREFIX}-1-header_name": "X-New",
+            f"{PREFIX}-1-header_value": "smuggled",
+        }
+        admin_client.post(reverse("site_configuration"), data=data)
+
+        assert WebFetchAuthHeader.objects.filter(pk=existing.pk).exists()
+        assert not WebFetchAuthHeader.objects.filter(domain="evil.example.com").exists()
