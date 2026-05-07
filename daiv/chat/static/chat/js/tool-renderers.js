@@ -141,18 +141,23 @@
         if (minus) badges.push(badge(`−${minus}`, "danger"));
       }
     }
-    if (result && String(result).toLowerCase().startsWith("error")) {
+    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
       badges.push(badge("error", "danger"));
     }
     return { label: "edit_file", path, badges };
   };
 
-  const sigWriteFile = (args, _result, argsStr) => {
+  const sigWriteFile = (args, result, argsStr) => {
     const path = pickKeyOrPartial(args, ["path", "file_path"], argsStr) ?? "";
     const content = pickKeyOrPartial(args, ["content", "text"], argsStr) ?? "";
-    const lines = String(content).split("\n").length;
     const badges = [];
-    if (content) badges.push(badge(`new · ${lines} lines`, "info"));
+    if (content) {
+      const lines = String(content).split("\n").length;
+      badges.push(badge(`+${lines}`, "success"));
+    }
+    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
+      badges.push(badge("error", "danger"));
+    }
     return { label: "write_file", path, badges };
   };
 
@@ -521,29 +526,45 @@
     return `<div class="chat-bash">${cmdLine}${outBlock}${exitLine}</div>`;
   };
 
+  // Returns null when jsdiff isn't loaded so callers can fall back to text.
+  const jsdiffBody = (path, oldStr, newStr, result, context) => {
+    if (!window.Diff) return null;
+    const patch = window.Diff.createPatch(path, oldStr, newStr, "", "", { context });
+    const lines = patch.split("\n").filter(
+      (l) => !l.startsWith("Index:") && !/^=+$/.test(l),
+    );
+    const parts = [diffBody(lines.join("\n"))];
+    if (result && ERROR_PREFIX_RE.test(String(result).trim())) {
+      parts.push(block("Error", pre(String(result))));
+    }
+    return parts.join("");
+  };
+
   const editFileBody = (argsStr, result) => {
     const args = parseArgs(argsStr);
     const path = pickKey(args, ["path", "file_path"]) ?? "";
     const oldStr = pickKey(args, ["old_string"]);
     const newStr = pickKey(args, ["new_string"]);
 
-    // Both strings fully parsed + jsdiff loaded → real unified diff. Partial
-    // streaming values would produce misleading hunks, so we require full args.
-    if (oldStr != null && newStr != null && window.Diff) {
-      const patch = window.Diff.createPatch(path, String(oldStr), String(newStr), "", "", { context: 2 });
-      // Strip the "Index:" / "===" header jsdiff emits — diffBody only needs
-      // the ---/+++/@@/+/- lines.
-      const lines = patch.split("\n").filter(
-        (l) => !l.startsWith("Index:") && !/^=+$/.test(l),
-      );
-      const parts = [diffBody(lines.join("\n"))];
-      if (result && String(result).toLowerCase().startsWith("error")) {
-        parts.push(block("Error", pre(String(result))));
-      }
-      return parts.join("");
+    // Partial streaming args would produce misleading hunks, so require both.
+    if (oldStr != null && newStr != null) {
+      const html = jsdiffBody(path, String(oldStr), String(newStr), result, 2);
+      if (html) return html;
     }
+    if (result) return block("Result", pre(String(result)));
+    return genericBody(argsStr, result);
+  };
 
-    // Streaming / unparseable args — show what the tool returned for context.
+  const writeFileBody = (argsStr, result) => {
+    const args = parseArgs(argsStr);
+    const path = pickKey(args, ["path", "file_path"]) ?? "";
+    const content = pickKey(args, ["content", "text"]);
+
+    if (content) {
+      const html = jsdiffBody(path, "", String(content), result, 0);
+      if (html) return html;
+      return block("Content", pre(String(content)));
+    }
     if (result) return block("Result", pre(String(result)));
     return genericBody(argsStr, result);
   };
@@ -691,7 +712,7 @@
       if (text && ERROR_PREFIX_RE.test(text.trim())) return block("Error", pre(text));
       return resultOnlyBody("Contents", result);
     },
-    write_file: (_args, result) => resultOnlyBody("Result", result),
+    write_file: (args, result) => writeFileBody(args, result),
     edit_file: (args, result) => editFileBody(args, result),
     grep: (args, result) => grepBody(result),
     glob: (_args, result) => {
