@@ -125,16 +125,18 @@ class TestGeneralPurposeMiddleware:
         assert not any(isinstance(m, ModelFallbackMiddleware) for m in middleware)
 
     async def test_subagent_write_file_uses_parent_session_id(self, tmp_path, mock_model):
-        """The subagent's sync-aware write_file must thread the parent's session_id into the sandbox call.
+        """The subagent's sandbox-mirroring write_file must thread the parent's session_id into the sandbox call.
 
         DAIV-custom contract: a subagent inheriting the parent runtime's ``session_id`` calls the
-        sandbox under that same session, never opening a fresh one. Exercises the production wrap
-        path: ``_build_general_purpose_middleware`` → ``SandboxMiddleware.awrap_model_call`` →
-        wrapped ``write_file``.
+        sandbox under that same session, never opening a fresh one. Exercises the production
+        intercept path: ``_build_general_purpose_middleware`` → ``SandboxMiddleware.awrap_tool_call``
+        → ``SandboxSyncer.mirror``.
         """
         from types import SimpleNamespace
 
         from deepagents.backends.filesystem import FilesystemBackend
+        from langchain_core.messages import ToolMessage
+        from langgraph.prebuilt.tool_node import ToolCallRequest
 
         from automation.agent.middlewares.file_system import SandboxSyncer
         from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
@@ -160,27 +162,34 @@ class TestGeneralPurposeMiddleware:
         sandbox_mw._client = fake_client
         sandbox_mw._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=fake_client)
 
-        captured = {}
-
-        async def handler(req):
-            captured["tools"] = list(req.tools)
-            return object()
-
-        request = SimpleNamespace(
-            tools=list(fs_mw.tools),
-            system_prompt="base prompt",
-            override=lambda **kw: SimpleNamespace(tools=kw["tools"], system_prompt=kw["system_prompt"]),
-        )
-        await sandbox_mw.awrap_model_call(request, handler)
-        write = next(t for t in captured["tools"] if t.name == "write_file")
-
+        write = next(t for t in fs_mw.tools if t.name == "write_file")
         runtime = SimpleNamespace(
             state={"session_id": "parent-sid"},
             context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(repo_dir))),
+            tool_call_id="call_subagent",
         )
-        result = await write.coroutine(file_path=f"/{repo_dir.name}/sub.py", content="x", runtime=runtime)
 
-        assert "Updated file" in result
+        request = ToolCallRequest(
+            tool_call={
+                "name": "write_file",
+                "args": {"file_path": f"/{repo_dir.name}/sub.py", "content": "x"},
+                "id": "call_subagent",
+                "type": "tool_call",
+            },
+            tool=write,
+            state=runtime.state,
+            runtime=runtime,
+        )
+
+        async def handler(req: ToolCallRequest) -> ToolMessage:
+            text = await req.tool.coroutine(**req.tool_call["args"], runtime=req.runtime)
+            return ToolMessage(content=text, tool_call_id=req.tool_call["id"], name=req.tool.name)
+
+        result = await sandbox_mw.awrap_tool_call(request, handler)
+
+        assert isinstance(result, ToolMessage)
+        assert isinstance(result.content, str)
+        assert "Updated file" in result.content
         fake_client.apply_file_mutations.assert_awaited_once()
         call_session_id = fake_client.apply_file_mutations.call_args.args[0]
         assert call_session_id == "parent-sid"

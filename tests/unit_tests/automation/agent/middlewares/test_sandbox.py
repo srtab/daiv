@@ -603,3 +603,74 @@ class TestSandboxMiddleware:
         assert seen_prompt is not None
         assert seen_prompt.startswith("base prompt")
         assert SANDBOX_SYSTEM_PROMPT in seen_prompt
+
+
+class TestAwrapToolCall:
+    """Tool dispatch is intercepted at ToolNode level, not via ``awrap_model_call``.
+
+    These tests pin the entry point: ``awrap_tool_call`` must intercept dispatched
+    write_file/edit_file calls so that the mirror runs against ``ToolNode.tools_by_name``,
+    which is built once at agent-creation time and not updated by ``awrap_model_call``.
+    """
+
+    @staticmethod
+    def _request(tool_name: str, args: dict, *, runtime=None):
+        from langgraph.prebuilt.tool_node import ToolCallRequest
+
+        tool = Mock(spec_set=["name"])
+        tool.name = tool_name
+        return ToolCallRequest(
+            tool_call={"name": tool_name, "args": args, "id": "call_1", "type": "tool_call"},
+            tool=tool,
+            state={},
+            runtime=runtime or Mock(),
+        )
+
+    async def test_passes_through_when_tool_is_not_write_or_edit(self, tmp_path: Path):
+        request = self._request("read_file", {"file_path": "/repo/foo.py"})
+        middleware = _make_middleware()
+        middleware._syncer = Mock()  # set so we don't bypass on syncer-missing path
+
+        sentinel = object()
+
+        async def handler(req):
+            assert req is request
+            return sentinel
+
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result is sentinel
+
+    async def test_passes_through_when_syncer_not_initialized(self, tmp_path: Path):
+        """Pre-``abefore_agent`` dispatch is rare but must not raise."""
+        request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x"})
+        middleware = _make_middleware()
+        # _syncer is None — abefore_agent never ran.
+
+        sentinel = object()
+
+        async def handler(req):
+            return sentinel
+
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result is sentinel
+
+    async def test_passes_through_when_tool_is_none(self, tmp_path: Path):
+        """Unregistered tool calls reach awrap_tool_call with ``request.tool=None``."""
+        from langgraph.prebuilt.tool_node import ToolCallRequest
+
+        request = ToolCallRequest(
+            tool_call={"name": "unknown", "args": {}, "id": "call_1", "type": "tool_call"},
+            tool=None,
+            state={},
+            runtime=Mock(),
+        )
+        middleware = _make_middleware()
+        middleware._syncer = Mock()
+
+        sentinel = object()
+
+        async def handler(req):
+            return sentinel
+
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result is sentinel
