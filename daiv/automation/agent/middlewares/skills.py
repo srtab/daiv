@@ -17,15 +17,17 @@ from langgraph.types import Command
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH
+from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from deepagents.graph import SubAgent
+    from deepagents.middleware.subagents import CompiledSubAgent
     from langchain.agents.middleware.types import ToolCallRequest
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
@@ -35,7 +37,6 @@ logger = logging.getLogger("daiv.tools")
 
 SKILL_ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
 SKILL_MODE_READ_ONLY = "read-only"
-WRITE_TOOL_NAMES = frozenset({"edit_file", "write_file"})
 
 
 class DAIVSkillsState(SkillsState):
@@ -114,7 +115,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     state_schema = DAIVSkillsState
 
-    def __init__(self, *args, subagents: list[SubAgent] | None = None, **kwargs):
+    def __init__(self, *args, subagents: Sequence[SubAgent | CompiledSubAgent] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]

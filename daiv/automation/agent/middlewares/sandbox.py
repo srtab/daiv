@@ -4,18 +4,29 @@ import asyncio
 import io
 import json
 import logging
+import os
+import stat
 import tarfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired
 
 import httpx
-from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse, ToolCallRequest
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
 from automation.agent.constants import GLOBAL_SKILLS_PATH
+from automation.agent.middlewares.file_system import (
+    EDIT_FILE_TOOL,
+    EDIT_SUCCESS_PREFIX,
+    WRITE_SUCCESS_PREFIX,
+    WRITE_TOOL_NAMES,
+    SandboxSyncer,
+    format_sync_error,
+)
 from codebase.context import RuntimeCtx  # noqa: TC001
 from codebase.utils import GitManager, files_changed_from_patch
 from core.conf import settings
@@ -27,8 +38,11 @@ from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from typing import Any
 
+    from deepagents.backends import BackendProtocol
     from langgraph.runtime import Runtime
+    from langgraph.types import Command
 
 
 logger = logging.getLogger("daiv.tools")
@@ -295,10 +309,27 @@ class SandboxState(AgentState):
 
 class SandboxMiddleware(AgentMiddleware):
     """
-    Middleware to manage a sandbox session for running commands.
+    Middleware to manage a sandbox session for running commands and mirroring filesystem writes.
 
-    This middleware lazily starts a sandbox session the first time the bash tool is called and
-    closes it after the agent finishes the execution loop. It also adds the sandbox tools to the agent.
+    Owns the per-run sandbox session lifecycle (start in ``abefore_agent``, close in
+    ``aafter_agent``) and exposes:
+
+    - The ``bash`` tool for running shell commands inside the sandbox.
+    - A wrapper around upstream's ``write_file``/``edit_file`` tools that mirrors each
+      successful local write to the sandbox so subsequent ``bash`` invocations see a
+      coherent filesystem.
+
+    A single ``DAIVSandboxClient`` is opened in ``abefore_agent`` and reused for both
+    bash execution and write mirroring.
+
+    Args:
+        backend: Filesystem backend used to resolve ``/repo``-relative paths to on-disk
+            paths. Must be the same instance that backs upstream's ``FilesystemMiddleware``.
+        working_dir: On-disk repo root used to map local paths to sandbox paths
+            (``<working_dir>/<rel>`` → ``/repo/<rel>``).
+        close_session: Whether to close the session after the agent finishes the execution
+            loop. Set to ``False`` when used in subagents so the parent agent owns session
+            lifecycle.
 
     Example:
         ```python
@@ -306,26 +337,22 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware()],
+            middleware=[SandboxMiddleware(backend=backend, working_dir="/workspace/repo")],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(self, *, close_session: bool = True):
-        """
-        Initialize the middleware.
-
-        Args:
-            close_session: Whether to close the session after the agent finishes the execution loop.
-                Useful when using the sandbox in subagents to avoid closing the session in the parent agent.
-        """
+    def __init__(self, *, backend: BackendProtocol, working_dir: Path | str, close_session: bool = True):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
 
+        self._backend = backend
+        self._working_dir = Path(working_dir)
         self.close_session = close_session
         self._client: DAIVSandboxClient | None = None
+        self._syncer: SandboxSyncer | None = None
         self.tools = [self._build_bash_tool()]
 
     def _build_bash_tool(self) -> BaseTool:
@@ -384,6 +411,7 @@ class SandboxMiddleware(AgentMiddleware):
         client = DAIVSandboxClient()
         await client.open()
         self._client = client
+        self._syncer = SandboxSyncer(backend=self._backend, working_dir=self._working_dir, client=client)
 
         try:
             if not self.close_session and "session_id" in state:
@@ -417,6 +445,7 @@ class SandboxMiddleware(AgentMiddleware):
             # Release the client we just opened; otherwise its httpx pool leaks for the run.
             await client.close()
             self._client = None
+            self._syncer = None
             raise
         return {"session_id": session_id}
 
@@ -463,12 +492,13 @@ class SandboxMiddleware(AgentMiddleware):
                 except Exception:
                     logger.exception("Failed to close sandbox httpx client; pool may have leaked")
                 self._client = None
+                self._syncer = None
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
         """
-        Update the system prompt with the sandbox system prompts.
+        Append the sandbox system prompt to the request.
 
         Args:
             request: The model request being processed.
@@ -477,6 +507,152 @@ class SandboxMiddleware(AgentMiddleware):
         Returns:
             The model response from the handler.
         """
-        request = request.override(system_prompt=request.system_prompt + "\n\n" + SANDBOX_SYSTEM_PROMPT)
+        return await handler(request.override(system_prompt=request.system_prompt + "\n\n" + SANDBOX_SYSTEM_PROMPT))
 
-        return await handler(request)
+    async def awrap_tool_call(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
+    ) -> ToolMessage | Command[Any]:
+        """
+        Mirror successful local ``write_file``/``edit_file`` results to the sandbox session.
+
+        Tool dispatch happens through ``ToolNode.tools_by_name``, which is built once at
+        agent-creation time. Wrapping the tool object in ``awrap_model_call`` only changes
+        what is bound to the model — the dispatched tool is still upstream's. ``awrap_tool_call``
+        intercepts the actual dispatch, so the mirror runs whenever the model calls the tool.
+
+        Args:
+            request: The tool call request.
+            handler: The handler executing the tool.
+
+        Returns:
+            The tool result, or a replacement ``ToolMessage`` describing a sync error.
+        """
+        if request.tool is None or request.tool.name not in WRITE_TOOL_NAMES or self._syncer is None:
+            return await handler(request)
+
+        if request.tool.name == EDIT_FILE_TOOL:
+            return await self._mirror_edit(request, handler)
+        return await self._mirror_write(request, handler)
+
+    async def _mirror_write(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
+    ) -> ToolMessage | Command[Any]:
+        """Dispatch ``write_file`` and mirror the new file to the sandbox under the syncer lock.
+
+        The lock serialises with concurrent writes/edits in the same run so a rollback
+        (unlink) cannot race with a sibling tool's edit on the same path.
+        """
+        assert self._syncer is not None  # guarded by awrap_tool_call
+        syncer = self._syncer
+        args = request.tool_call["args"]
+        file_path = args["file_path"]
+        content = args["content"]
+
+        async with syncer.lock:
+            result = await handler(request)
+            if not _is_text_success(result, WRITE_SUCCESS_PREFIX):
+                return result
+
+            try:
+                target = syncer.resolve_target(file_path)
+            except (OSError, ValueError) as exc:
+                # Upstream succeeded so the file is on disk, but we can't determine where —
+                # surface CRITICAL so the agent knows local state may be desynced.
+                return _replace_tool_message(
+                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=False)
+                )
+
+            def _rollback() -> bool:
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    logger.exception("rollback unlink failed for %s", target)
+                    return False
+                return True
+
+            try:
+                mode = stat.S_IMODE(target.stat().st_mode)
+            except OSError as exc:
+                return _replace_tool_message(
+                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=_rollback())
+                )
+
+            error = await syncer.mirror(
+                runtime=request.runtime,
+                resolved_path=target,
+                content_bytes=content.encode(),
+                mode=mode,
+                rollback=_rollback,
+            )
+            return _replace_tool_message(result, error) if error else result
+
+    async def _mirror_edit(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
+    ) -> ToolMessage | Command[Any]:
+        """Dispatch ``edit_file`` and mirror the post-edit file under the syncer lock.
+
+        Snapshots pre-edit bytes + mode outside the lock so rollback can restore them on
+        sync failure. The lock then serialises dispatch through mirror so a sibling write
+        cannot interleave with our restore.
+        """
+        assert self._syncer is not None  # guarded by awrap_tool_call
+        syncer = self._syncer
+        args = request.tool_call["args"]
+        file_path = args["file_path"]
+
+        # Snapshot must happen before dispatch so we can rebuild the file on sync failure.
+        # If anything fails here (invalid path, missing file), let upstream produce the
+        # canonical "not found" error instead of inventing our own.
+        try:
+            target = syncer.resolve_target(file_path)
+            pre_bytes = target.read_bytes()
+            pre_mode = stat.S_IMODE(target.stat().st_mode)
+        except ValueError, OSError:
+            return await handler(request)
+
+        async with syncer.lock:
+            result = await handler(request)
+            if not _is_text_success(result, EDIT_SUCCESS_PREFIX):
+                return result
+
+            def _rollback() -> bool:
+                try:
+                    target.write_bytes(pre_bytes)
+                    os.chmod(target, pre_mode)  # noqa: PTH101
+                except OSError:
+                    logger.exception("rollback restore failed for %s", target)
+                    return False
+                return True
+
+            try:
+                post_bytes = target.read_bytes()
+            except OSError as exc:
+                return _replace_tool_message(
+                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=_rollback())
+                )
+
+            error = await syncer.mirror(
+                runtime=request.runtime,
+                resolved_path=target,
+                content_bytes=post_bytes,
+                mode=pre_mode,
+                rollback=_rollback,
+            )
+            return _replace_tool_message(result, error) if error else result
+
+
+def _is_text_success(result: ToolMessage | Command[Any], prefix: str) -> bool:
+    """True iff ``result`` is a non-error ToolMessage whose text content starts with ``prefix``."""
+    if not isinstance(result, ToolMessage) or result.status == "error":
+        return False
+    return isinstance(result.content, str) and result.content.startswith(prefix)
+
+
+def _replace_tool_message(original: ToolMessage | Command[Any], error_text: str) -> ToolMessage:
+    """Return a new ``ToolMessage`` carrying ``error_text`` keyed to the same tool call.
+
+    Caller must have verified ``original`` is a successful ``ToolMessage``; only used after
+    upstream dispatch succeeded but the post-dispatch sync step failed.
+    """
+    assert isinstance(original, ToolMessage)
+    return ToolMessage(content=error_text, tool_call_id=original.tool_call_id, name=original.name, status="error")

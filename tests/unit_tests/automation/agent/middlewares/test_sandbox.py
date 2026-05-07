@@ -52,9 +52,17 @@ def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
     return runtime
 
 
+def _make_middleware(*, close_session: bool = True) -> SandboxMiddleware:
+    """Build a SandboxMiddleware with dummy backend/working_dir; tests that don't exercise
+    write-sync never read these values."""
+    from pathlib import Path
+
+    return SandboxMiddleware(backend=Mock(), working_dir=Path("/dummy"), close_session=close_session)
+
+
 def _bash_tool_with_fake_client(client: Mock):
     """Build a fresh SandboxMiddleware with ``client`` pre-installed and return its bash tool."""
-    middleware = SandboxMiddleware(close_session=True)
+    middleware = _make_middleware()
     middleware._client = client
     return middleware.tools[0]
 
@@ -128,7 +136,7 @@ class TestBashTool:
         repo = Repo.init(repo_dir)
 
         runtime = _make_bash_runtime(repo)
-        middleware = SandboxMiddleware(close_session=True)
+        middleware = _make_middleware(close_session=True)
         bash_tool = middleware.tools[0]
 
         with pytest.raises(RuntimeError, match="bash tool invoked before abefore_agent"):
@@ -328,7 +336,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
-            middleware = SandboxMiddleware(close_session=True)
+            middleware = _make_middleware(close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_1"}
@@ -364,7 +372,7 @@ class TestSandboxMiddleware:
             ),
             patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_session_mock),
         ):
-            middleware = SandboxMiddleware(close_session=True)
+            middleware = _make_middleware(close_session=True)
             with pytest.raises(RuntimeError, match="simulated seed failure"):
                 await middleware.abefore_agent({}, runtime)
 
@@ -392,7 +400,7 @@ class TestSandboxMiddleware:
             ),
             patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_session_mock),
         ):
-            middleware = SandboxMiddleware(close_session=True)
+            middleware = _make_middleware(close_session=True)
             with pytest.raises(RuntimeError, match="sandbox unreachable"):
                 await middleware.abefore_agent({}, runtime)
 
@@ -418,7 +426,7 @@ class TestSandboxMiddleware:
                 new=AsyncMock(side_effect=RuntimeError("unexpected")),
             ),
         ):
-            middleware = SandboxMiddleware(close_session=True)
+            middleware = _make_middleware(close_session=True)
             middleware._client = DAIVSandboxClient()
             with pytest.raises(RuntimeError, match="unexpected"):
                 await middleware.aafter_agent(state, runtime)
@@ -439,7 +447,7 @@ class TestSandboxMiddleware:
                 new=AsyncMock(return_value="sess_1"),
             ) as start_session_mock,
         ):
-            middleware = SandboxMiddleware(close_session=False)
+            middleware = _make_middleware(close_session=False)
             update = await middleware.abefore_agent(state, runtime)
 
         assert update is None
@@ -458,7 +466,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
             ) as close_session_mock,
         ):
-            middleware = SandboxMiddleware(close_session=True)
+            middleware = _make_middleware(close_session=True)
             middleware._client = DAIVSandboxClient()
             update = await middleware.aafter_agent(state, runtime)
 
@@ -479,7 +487,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
             ) as close_session_mock,
         ):
-            middleware = SandboxMiddleware(close_session=False)
+            middleware = _make_middleware(close_session=False)
             middleware._client = DAIVSandboxClient()
             update = await middleware.aafter_agent(state, runtime)
 
@@ -512,7 +520,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
-            middleware = SandboxMiddleware(close_session=True)
+            middleware = _make_middleware(close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_skills"}
@@ -580,7 +588,7 @@ class TestSandboxMiddleware:
 
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
 
-        middleware = SandboxMiddleware()
+        middleware = _make_middleware()
 
         seen_prompt: str | None = None
 
@@ -595,3 +603,74 @@ class TestSandboxMiddleware:
         assert seen_prompt is not None
         assert seen_prompt.startswith("base prompt")
         assert SANDBOX_SYSTEM_PROMPT in seen_prompt
+
+
+class TestAwrapToolCall:
+    """Tool dispatch is intercepted at ToolNode level, not via ``awrap_model_call``.
+
+    These tests pin the entry point: ``awrap_tool_call`` must intercept dispatched
+    write_file/edit_file calls so that the mirror runs against ``ToolNode.tools_by_name``,
+    which is built once at agent-creation time and not updated by ``awrap_model_call``.
+    """
+
+    @staticmethod
+    def _request(tool_name: str, args: dict, *, runtime=None):
+        from langgraph.prebuilt.tool_node import ToolCallRequest
+
+        tool = Mock(spec_set=["name"])
+        tool.name = tool_name
+        return ToolCallRequest(
+            tool_call={"name": tool_name, "args": args, "id": "call_1", "type": "tool_call"},
+            tool=tool,
+            state={},
+            runtime=runtime or Mock(),
+        )
+
+    async def test_passes_through_when_tool_is_not_write_or_edit(self, tmp_path: Path):
+        request = self._request("read_file", {"file_path": "/repo/foo.py"})
+        middleware = _make_middleware()
+        middleware._syncer = Mock()  # set so we don't bypass on syncer-missing path
+
+        sentinel = object()
+
+        async def handler(req):
+            assert req is request
+            return sentinel
+
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result is sentinel
+
+    async def test_passes_through_when_syncer_not_initialized(self, tmp_path: Path):
+        """Pre-``abefore_agent`` dispatch is rare but must not raise."""
+        request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x"})
+        middleware = _make_middleware()
+        # _syncer is None — abefore_agent never ran.
+
+        sentinel = object()
+
+        async def handler(req):
+            return sentinel
+
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result is sentinel
+
+    async def test_passes_through_when_tool_is_none(self, tmp_path: Path):
+        """Unregistered tool calls reach awrap_tool_call with ``request.tool=None``."""
+        from langgraph.prebuilt.tool_node import ToolCallRequest
+
+        request = ToolCallRequest(
+            tool_call={"name": "unknown", "args": {}, "id": "call_1", "type": "tool_call"},
+            tool=None,
+            state={},
+            runtime=Mock(),
+        )
+        middleware = _make_middleware()
+        middleware._syncer = Mock()
+
+        sentinel = object()
+
+        async def handler(req):
+            return sentinel
+
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result is sentinel
