@@ -576,3 +576,27 @@ class SiteConfiguration(models.Model):
     def _invalidate_cache() -> None:
         cache.delete(SITE_CONFIGURATION_CACHE_KEY)
         logger.info("Invalidated site configuration cache")
+
+
+class WebFetchAuthHeader(models.Model):
+    """
+    Per-domain HTTP header used by the ``web_fetch`` tool when contacting a host.
+
+    Values are stored encrypted via :class:`EncryptedFieldDescriptor`.
+    """
+
+    domain = models.CharField(_("domain"), max_length=255)
+    header_name = models.CharField(_("header name"), max_length=255)
+
+    _header_value_encrypted = models.TextField(blank=True, null=True, editable=False)
+
+    header_value = EncryptedFieldDescriptor("header_value")
+
+    class Meta:
+        verbose_name = _("web fetch auth header")
+        verbose_name_plural = _("web fetch auth headers")
+        ordering = ("domain", "header_name")
+        constraints = [models.UniqueConstraint(fields=("domain", "header_name"), name="unique_web_fetch_auth_header")]
+
+    def __str__(self) -> str:
+        return f"{self.domain} → {self.header_name}"
