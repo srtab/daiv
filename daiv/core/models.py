@@ -18,6 +18,9 @@ logger = logging.getLogger("daiv.core")
 SITE_CONFIGURATION_CACHE_KEY = "site_configuration"
 SITE_CONFIGURATION_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
+WEB_FETCH_AUTH_HEADERS_CACHE_KEY = "web_fetch_auth_headers"
+WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+
 
 @dataclass(frozen=True)
 class FieldGroup:
@@ -600,3 +603,39 @@ class WebFetchAuthHeader(models.Model):
 
     def __str__(self) -> str:
         return f"{self.domain} → {self.header_name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        super().save(*args, **kwargs)
+        type(self).invalidate_cache()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        result = super().delete(*args, **kwargs)
+        type(self).invalidate_cache()
+        return result
+
+    @classmethod
+    def get_cached(cls) -> dict[str, dict[str, Any]]:
+        """
+        Return all rows grouped by domain, with values wrapped in
+        :class:`pydantic.SecretStr`. Rows whose value cannot be decrypted
+        are silently skipped (the descriptor logs the failure).
+        """
+        from pydantic import SecretStr
+
+        cached = cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+        if cached is not None:
+            return cached
+
+        out: dict[str, dict[str, SecretStr]] = {}
+        for row in cls.objects.all():
+            value = row.header_value
+            if value is None:
+                continue
+            out.setdefault(row.domain, {})[row.header_name] = SecretStr(value)
+
+        cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, out, WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT)
+        return out
+
+    @classmethod
+    def invalidate_cache(cls) -> None:
+        cache.delete(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
