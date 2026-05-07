@@ -1,0 +1,38 @@
+{% load i18n %}
+<div data-row class="grid grid-cols-12 gap-3 items-start">
+    {% if row.instance.pk %}{{ row.id }}{% endif %}
+
+    <div class="col-span-4">
+        {{ row.domain }}
+        {% if row.errors.domain %}
+            <p class="mt-1 text-xs text-red-300">{{ row.errors.domain.0 }}</p>
+        {% endif %}
+    </div>
+
+    <div class="col-span-3">
+        {{ row.header_name }}
+        {% if row.errors.header_name %}
+            <p class="mt-1 text-xs text-red-300">{{ row.errors.header_name.0 }}</p>
+        {% endif %}
+    </div>
+
+    <div class="col-span-4">
+        {{ row.header_value }}
+        {% if row.fields.header_value.secret_hint %}
+            <p class="mt-1 text-xs text-gray-400">{% trans "Stored:" %} <code>{{ row.fields.header_value.secret_hint }}</code></p>
+        {% endif %}
+        {% if row.errors.header_value %}
+            <p class="mt-1 text-xs text-red-300">{{ row.errors.header_value.0 }}</p>
+        {% endif %}
+    </div>
+
+    <div class="col-span-1 flex items-center justify-end pt-1">
+        <span class="hidden">{{ row.DELETE }}</span>
+        <button type="button"
+                class="text-gray-500 hover:text-red-300 text-lg leading-none px-2"
+                @click="removeRow($el.closest('[data-row]'))"
+                title="{% trans 'Remove' %}">
+            ×
+        </button>
+    </div>
+</div>

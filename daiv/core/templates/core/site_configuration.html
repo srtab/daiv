@@ -85,6 +85,9 @@
                     {% endwith %}
                     {% endif %}
                 {% endfor %}
+                {% if group.key == "web_fetch" %}
+                    {% include "core/_web_fetch_auth_headers_section.html" %}
+                {% endif %}
             </div>
         </section>
         {% endwith %}
