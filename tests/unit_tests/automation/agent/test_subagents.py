@@ -225,21 +225,14 @@ class TestExploreSubagent:
         assert result["description"]
         assert "runnable" in result
 
-    def test_read_only_guard_raises_when_write_tools_missing(self, tmp_path, monkeypatch):
-        """Regression: if upstream renames ``write_file``/``edit_file``, the read-only filter
-        would silently match nothing and the explore subagent would regain write capability —
-        a security contract. ``_build_read_only_filesystem_middleware`` must fail loud instead.
-        """
-        from deepagents.backends.filesystem import FilesystemBackend
+    def test_read_only_permissions_deny_all_writes(self):
+        """Locks the explore subagent's read-only contract: relaxing this constant would
+        silently grant write capability the explore subagent must never have."""
+        from deepagents.middleware.filesystem import FilesystemPermission
 
-        from automation.agent.subagents import _build_read_only_filesystem_middleware
+        from automation.agent.subagents import READ_ONLY_PERMISSIONS
 
-        # Pretend upstream renamed ``write_file`` so it is no longer in the produced tool list.
-        monkeypatch.setattr("automation.agent.subagents.WRITE_TOOL_NAMES", frozenset({"unmapped_write_tool"}))
-
-        backend = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
-        with pytest.raises(RuntimeError, match=r"no longer exposes expected write tools"):
-            _build_read_only_filesystem_middleware(backend)
+        assert [FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")] == READ_ONLY_PERMISSIONS
 
 
 def _make_subagent_md(*, name: str, description: str, model: str | None = None, body: str = "You are a custom agent."):

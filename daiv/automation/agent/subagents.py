@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 from deepagents.middleware import SummarizationMiddleware
-from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.filesystem import FilesystemMiddleware, FilesystemPermission
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.summarization import compute_summarization_defaults
@@ -13,11 +13,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
 
 from automation.agent import BaseAgent
-from automation.agent.middlewares.file_system import (
-    CUSTOM_TOOL_DESCRIPTIONS,
-    FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE,
-    WRITE_TOOL_NAMES,
-)
+from automation.agent.middlewares.file_system import CUSTOM_TOOL_DESCRIPTIONS, FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
@@ -164,20 +160,12 @@ Complete the user's search request efficiently and report your findings clearly.
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 
 
-def _build_read_only_filesystem_middleware(backend: BackendProtocol) -> FilesystemMiddleware:
-    """Build a FilesystemMiddleware with write_file/edit_file stripped from its tool list."""
-    fs_mw = FilesystemMiddleware(backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS)
-    original_names = {tool.name for tool in fs_mw.tools}
-    # Read-only is a security contract; if upstream renames the write tools, the filter would
-    # silently match nothing and the explore subagent would regain write capability. Fail loud.
-    missing = WRITE_TOOL_NAMES - original_names
-    if missing:
-        raise RuntimeError(
-            f"Upstream FilesystemMiddleware no longer exposes expected write tools: {sorted(missing)}; "
-            f"got tools: {sorted(original_names)}"
-        )
-    fs_mw.tools = [tool for tool in fs_mw.tools if tool.name not in WRITE_TOOL_NAMES]
-    return fs_mw
+# Deny rule that makes every filesystem write operation fail for the explore subagent.
+# Enforced inside the deepagents filesystem tools against the validated path, so renaming
+# tools upstream cannot silently restore write capability.
+READ_ONLY_PERMISSIONS: list[FilesystemPermission] = [
+    FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")
+]
 
 
 def create_explore_subagent(backend: BackendProtocol, **kwargs) -> CompiledSubAgent:
@@ -192,7 +180,9 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> CompiledSubAg
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
-        _build_read_only_filesystem_middleware(backend),
+        FilesystemMiddleware(
+            backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS, _permissions=READ_ONLY_PERMISSIONS
+        ),
         SummarizationMiddleware(
             model=model,
             backend=backend,
