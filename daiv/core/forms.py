@@ -407,8 +407,9 @@ class WebFetchAuthHeaderForm(forms.ModelForm):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["domain"].widget.attrs.update({"placeholder": "example.com"})
-        self.fields["header_name"].widget.attrs.update({"placeholder": "X-API-Key"})
+        self.fields["domain"].widget.attrs.update({"placeholder": "example.com", "aria-label": _("Domain")})
+        self.fields["header_name"].widget.attrs.update({"placeholder": "X-API-Key", "aria-label": _("Header name")})
+        self.fields["header_value"].widget.attrs.update({"aria-label": _("Header value")})
         hint = self.instance.get_secret_hint() if self.instance and self.instance.pk else None
         self.fields["header_value"].secret_hint = hint  # type: ignore[attr-defined]
 

@@ -31,6 +31,13 @@
             {% if web_fetch_auth_headers_formset.non_form_errors %}
                 <p class="mb-3 text-xs text-red-300">{{ web_fetch_auth_headers_formset.non_form_errors.0 }}</p>
             {% endif %}
+            <div x-show="total > 0"
+                 class="grid grid-cols-12 gap-3 mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+                <div class="col-span-4">{% trans "Domain" %}</div>
+                <div class="col-span-3">{% trans "Header name" %}</div>
+                <div class="col-span-4">{% trans "Header value" %}</div>
+                <div class="col-span-1"></div>
+            </div>
             <div x-ref="rows" class="space-y-3">
                 {% for row in web_fetch_auth_headers_formset %}
                     {% include "core/web_fetch_auth_header_row.html" with row=row %}
