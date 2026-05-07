@@ -1,8 +1,12 @@
 {% extends "base_app.html" %}
-{% load configuration_tags icon_tags %}
+{% load configuration_tags icon_tags static %}
 
 {% block title %}Configuration — DAIV{% endblock %}
 {% block container_width %}max-w-none{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="{% static 'core/js/web-fetch-auth-headers-formset.js' %}"></script>
+{% endblock %}
 
 {% block app_content %}
 <div class="animate-fade-up">
