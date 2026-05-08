@@ -62,7 +62,6 @@ def test_runtime_ctx_forwarding_properties_raise_when_repoless():
         _ = ctx.git_platform
 
 
-@pytest.mark.asyncio
 async def test_set_runtime_ctx_repoless_yields_empty_repos():
     async with set_runtime_ctx(repo_id=None, scope=Scope.GLOBAL) as ctx:
         assert ctx.has_repo is False
