@@ -119,7 +119,9 @@ class Activity(models.Model):
     )
 
     # Context fields
-    repo_id = models.CharField(_("repository"), max_length=255)
+    repo_id = models.CharField(  # noqa: DJ001 — nullable for repoless runs.
+        _("repository"), max_length=255, null=True, blank=True, db_index=True
+    )
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
     use_max = models.BooleanField(_("use max model"), default=False)
