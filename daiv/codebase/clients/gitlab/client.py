@@ -157,6 +157,20 @@ class GitLabClient(RepoClient):
                 break
         return repos
 
+    def is_branch_protected(self, repo_id: str, branch: str) -> bool:
+        """
+        Resolve protection via ``GET /projects/:id/repository/branches/:branch``; the
+        ``protected`` flag covers both exact-name and wildcard rules. Fails open on any
+        API error (404, auth, rate limit, transport): the caller treats this as a best-effort
+        pre-check, and the subsequent ``git push`` remains the source of truth.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        try:
+            return bool(project.branches.get(branch).protected)
+        except GitlabError:
+            logger.warning("Failed to check protection for %s@%s; assuming unprotected", repo_id, branch, exc_info=True)
+            return False
+
     def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
         """
         Return up to ``limit`` branch names, optionally filtered by server-side substring ``search``.

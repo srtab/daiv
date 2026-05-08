@@ -8,6 +8,8 @@ from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
 
+from asgiref.sync import sync_to_async
+
 from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
@@ -69,6 +71,18 @@ class GitChangePublisher(ChangePublisher):
             logger.info("No changes to publish.")
             return None
 
+        fallback_from_mr: MergeRequest | None = None
+        if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
+            self.ctx.repository.slug, merge_request.source_branch
+        ):
+            logger.warning(
+                "Source branch '%s' of MR !%s is protected; opening a new MR with a fresh branch instead.",
+                merge_request.source_branch,
+                merge_request.merge_request_id,
+            )
+            fallback_from_mr = merge_request
+            merge_request = None
+
         # Compute full diff metadata when creating a new merge request or updating a draft merge request
         # to ensure we have the most up-to-date information.
         pr_metadata_diff = (
@@ -105,6 +119,8 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.merge_request_id,
                 merge_request.draft,
             )
+            if fallback_from_mr is not None:
+                self._notify_protected_branch_fallback(fallback_from_mr, merge_request)
             self._suggest_context_file(merge_request)
         elif merge_request.draft and as_draft is False:
             merge_request = self.client.update_merge_request(
@@ -205,6 +221,35 @@ class GitChangePublisher(ChangePublisher):
                 },
             ),
         )
+
+    def _notify_protected_branch_fallback(
+        self, original_merge_request: MergeRequest, new_merge_request: MergeRequest
+    ) -> None:
+        """
+        Leave a comment on the original MR explaining that the changes were published
+        to a new MR because the original's source branch is protected on the remote.
+        """
+        try:
+            self.client.create_merge_request_comment(
+                self.ctx.repository.slug,
+                original_merge_request.merge_request_id,
+                render_to_string(
+                    "automation/protected_branch_fallback.txt",
+                    {
+                        "bot_name": BOT_NAME,
+                        "new_merge_request_url": new_merge_request.web_url,
+                        "new_merge_request_id": new_merge_request.merge_request_id,
+                        "source_branch": original_merge_request.source_branch,
+                        "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+                    },
+                ),
+            )
+        except Exception:
+            logger.warning(
+                "Failed to post protected-branch fallback notice on MR !%s",
+                original_merge_request.merge_request_id,
+                exc_info=True,
+            )
 
     def _suggest_context_file(self, merge_request: MergeRequest) -> None:
         if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:

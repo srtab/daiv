@@ -393,6 +393,30 @@ class TestGitHubClient:
         assert result.labels == ["enhancement"]
         mock_repo.get_pulls.assert_called_once_with(state="open", base="main", head="feat-x")
 
+    def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
+        mock_repo = Mock()
+        mock_repo.get_branch.return_value = Mock(protected=True)
+        github_client.client.get_repo.return_value = mock_repo
+
+        assert github_client.is_branch_protected("owner/repo", "main") is True
+        mock_repo.get_branch.assert_called_once_with("main")
+
+    def test_is_branch_protected_returns_false_when_branch_unprotected(self, github_client):
+        mock_repo = Mock()
+        mock_repo.get_branch.return_value = Mock(protected=False)
+        github_client.client.get_repo.return_value = mock_repo
+
+        assert github_client.is_branch_protected("owner/repo", "feature") is False
+
+    def test_is_branch_protected_returns_false_on_api_error(self, github_client):
+        """Fails open: treats any GitHub error (404, auth, rate limit, transport) as unprotected."""
+        mock_repo = Mock()
+        github_client.client.get_repo.return_value = mock_repo
+
+        for status in (404, 401, 500):
+            mock_repo.get_branch.side_effect = GithubException(status, "error", None)
+            assert github_client.is_branch_protected("owner/repo", "missing") is False
+
     def test_get_merge_request_by_branches_returns_none_when_empty(self, github_client):
         """No open PR matching the branch pair → ``None``."""
         mock_repo = Mock()
