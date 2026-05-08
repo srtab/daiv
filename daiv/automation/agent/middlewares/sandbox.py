@@ -548,9 +548,9 @@ class SandboxMiddleware(AgentMiddleware):
         file_path = args["file_path"]
         content = args["content"]
 
-        # Refuse pre-dispatch: `git add -A` silently drops gitignored paths, so a successful
-        # write would never reach the MR. Skip the disk write/unlink round-trip and the
-        # syncer lock, and let upstream raise its own error if path resolution fails.
+        # `git add -A` silently drops gitignored paths, so a successful write would
+        # never reach the MR. Refuse pre-dispatch; on path-resolution failure, fall
+        # through and let upstream produce its own error (matches `_mirror_edit`).
         try:
             prevalidated_target = syncer.resolve_target(file_path)
         except OSError, ValueError:
@@ -562,8 +562,10 @@ class SandboxMiddleware(AgentMiddleware):
                     content=(
                         f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
                         f"would silently drop it from the commit, so the change would not "
-                        f"appear in the merge request. Either pick a path that is not ignored, "
-                        f"or use `edit_file` to remove the matching pattern from `.gitignore` first."
+                        f"appear in the merge request. Pick a path that is not ignored, or "
+                        f"run `git check-ignore -v <path>` via bash to find the matching rule "
+                        f"(it may live in a parent `.gitignore`, `.git/info/exclude`, or the "
+                        f"user's global ignore file) before changing it."
                     ),
                     tool_call_id=request.tool_call["id"],
                     name=request.tool_call["name"],

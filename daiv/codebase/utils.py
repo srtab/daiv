@@ -239,12 +239,23 @@ class GitManager:
 
     def is_path_ignored(self, path: str | Path) -> bool:
         """
-        `git add -A` and `git ls-files --others --exclude-standard` honour `.gitignore`,
-        so a match means the file would be silently dropped from the eventual commit.
-        Fail-open: a broken `git check-ignore` returns False so writes are not blocked
-        by a malfunctioning plumbing call.
+        Return True iff `path` is an untracked file that matches an active ignore
+        rule (`.gitignore`, `.git/info/exclude`, or `core.excludesFile`). Tracked
+        files are always reported as not ignored — `git check-ignore`'s default
+        behavior — since `git add -A` updates them regardless of `.gitignore`.
+
+        Fail-open: real `check-ignore` errors (exit != 0/1) are logged and treated
+        as not-ignored so a malfunctioning plumbing call cannot block legitimate
+        writes. Loses safety in the rare broken-repo case but preserves it in the
+        common case.
         """
-        return bool(self.repo.git.check_ignore(str(path), with_exceptions=False))
+        try:
+            return bool(self.repo.git.check_ignore(str(path)).strip())
+        except GitCommandError as e:
+            if e.status == 1:  # documented "no match"
+                return False
+            logger.exception("git check-ignore failed for %s; treating as not ignored", path)
+            return False
 
     def commit_and_push_changes(
         self,

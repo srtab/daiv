@@ -210,6 +210,21 @@ def test_git_manager_is_path_ignored_returns_false_when_no_gitignore(tmp_path: P
     assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is False
 
 
+def test_git_manager_is_path_ignored_returns_false_for_tracked_file_matching_rule(tmp_path: Path) -> None:
+    """Tracked files are updated by `git add -A` regardless of `.gitignore`, and
+    `git check-ignore` reflects that by reporting them as not ignored. Locked in
+    so a future refactor (e.g. switching to manual fnmatch) doesn't reintroduce
+    a false positive that would block edits to legitimately-tracked files."""
+    repo = _init_repo(tmp_path)
+    repo_dir = _repo_path(repo)
+    (repo_dir / ".gitignore").write_text(".python-version\n")
+    (repo_dir / ".python-version").write_text("3.11\n")
+    repo.git.add("-f", ".python-version", ".gitignore")
+    repo.index.commit("track ignored file")
+
+    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is False
+
+
 def test_git_manager_apply_patch_skips_empty_patch(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)

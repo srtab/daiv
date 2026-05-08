@@ -675,6 +675,36 @@ class TestAwrapToolCall:
         result = await middleware.awrap_tool_call(request, handler)
         assert result is sentinel
 
+    async def test_write_file_dispatches_when_resolve_target_fails(self, tmp_path: Path):
+        """Pre-dispatch path-resolution failure must fall through to upstream, not
+        synthesize a refusal — upstream owns the canonical "invalid path" error."""
+        from langchain_core.messages import ToolMessage
+
+        from automation.agent.middlewares.file_system import SandboxSyncer
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        repo = Repo.init(repo_dir)
+
+        backend = Mock()
+        backend._resolve_path = Mock(side_effect=ValueError("traversal"))
+
+        runtime = Mock()
+        runtime.context = Mock(gitrepo=repo)
+        runtime.state = {"session_id": "sess_1"}
+
+        middleware = _make_middleware()
+        middleware._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+
+        request = self._request("write_file", {"file_path": "/repo/foo", "content": "x"}, runtime=runtime)
+        sentinel = ToolMessage(content="upstream error", tool_call_id="call_1", name="write_file", status="error")
+        handler = AsyncMock(return_value=sentinel)
+
+        result = await middleware.awrap_tool_call(request, handler)
+
+        handler.assert_called_once()
+        assert result is sentinel
+
     async def test_write_file_refused_when_path_is_gitignored(self, tmp_path: Path):
         """write_file on a `.gitignore`-matching path must be refused before the upstream
         handler runs — `git add -A` would silently drop the file, so the agent would
