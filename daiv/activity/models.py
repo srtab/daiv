@@ -197,7 +197,7 @@ class Activity(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
+        return f"{self.get_trigger_type_display()} on {self.repo_id or '(repoless)'} ({self.status})"
 
     @property
     def effective_notify_on(self) -> NotifyOn:
