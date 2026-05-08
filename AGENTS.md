@@ -40,6 +40,8 @@ make makemessages && make compilemessages
 
 ## Invariants / footguns
 
+**Import paths** — `pythonpath = "daiv"` in pytest config; imports are `from automation.agent.graph import ...` (no `daiv.` prefix inside tests).
+
 **Tool state updates** — tools cannot mutate `runtime.state` directly; return a `Command`:
 ```python
 from langgraph.types import Command
@@ -54,11 +56,11 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 - `AdminRequiredMixin` enforces `user.is_admin`; `user.is_last_active_admin()` guards deletion.
 - `APIKey.objects.create_key(user, name, expires_at)` is **async** — use `async_to_sync` from sync contexts.
 
-**Dependency management** — pin to exact versions (`==`), never edit `pyproject.toml` by hand.
+**Dependency management** — pin to exact versions (`==`), never edit `pyproject.toml` by hand. `parable` is git-pinned (not on PyPI); do not install it independently.
 
 **Repository config** — `.daiv.yml` per repo cached 1 hour (`codebase/repo_config.py`). Invalidate via `RepositoryConfig.invalidate_cache(repo_id)`.
 
-**Bot labels** — `daiv` triggers agent, `daiv-max` uses max model, `daiv-auto` enables auto-addressing.
+**Bot labels** — `daiv` triggers agent, `daiv-max` uses max model, `daiv-auto` enables auto-addressing. Constants live in `daiv/core/constants.py`; do not hardcode the strings.
 
 **Per-repo agent memory** — agent reads `.agents/AGENTS.md`; custom skills from `.agents/skills/`; subagents from `.agents/subagents/`.
 
@@ -74,6 +76,8 @@ uv run --all-extras python scripts/dump_schemas.py \
     > /path/to/daiv/daiv/core/sandbox/schemas.dump.json
 ```
 
+**`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
+
 ## Where changes usually go
 
 | Change type | Start here |
@@ -84,5 +88,6 @@ uv run --all-extras python scripts/dump_schemas.py \
 | Auth / user model | `daiv/accounts/models.py`, `daiv/accounts/views.py` |
 | Git platform client | `daiv/codebase/clients/` |
 | MCP tool | `daiv/mcp_server/server.py` |
-| Shared settings | `daiv/daiv/settings/components/common.py` |
+| Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`) |
 | New management command | `daiv/<app>/management/commands/` |
+| LLM model list / provider | `daiv/automation/agent/base.py`, `daiv/automation/agent/constants.py` |
