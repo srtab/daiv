@@ -192,6 +192,24 @@ def test_git_manager_apply_patch_applies_valid_diff(tmp_path: Path) -> None:
     assert file_path.read_text() == "hello\nworld\n"
 
 
+def test_git_manager_is_path_ignored_matches_gitignore_rule(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    repo_dir = _repo_path(repo)
+    (repo_dir / ".gitignore").write_text(".python-version\n")
+
+    manager = GitManager(repo)
+
+    assert manager.is_path_ignored(repo_dir / ".python-version") is True
+    assert manager.is_path_ignored(repo_dir / "README.md") is False
+
+
+def test_git_manager_is_path_ignored_returns_false_when_no_gitignore(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    repo_dir = _repo_path(repo)
+
+    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is False
+
+
 def test_git_manager_apply_patch_skips_empty_patch(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)

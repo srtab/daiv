@@ -237,6 +237,15 @@ class GitManager:
         # to ensure newly created files are detected reliably.
         return bool(self.repo.git.status("--porcelain").strip())
 
+    def is_path_ignored(self, path: str | Path) -> bool:
+        """
+        `git add -A` and `git ls-files --others --exclude-standard` honour `.gitignore`,
+        so a match means the file would be silently dropped from the eventual commit.
+        Fail-open: a broken `git check-ignore` returns False so writes are not blocked
+        by a malfunctioning plumbing call.
+        """
+        return bool(self.repo.git.check_ignore(str(path), with_exceptions=False))
+
     def commit_and_push_changes(
         self,
         commit_message: str,

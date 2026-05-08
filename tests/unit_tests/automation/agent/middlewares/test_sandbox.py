@@ -674,3 +674,41 @@ class TestAwrapToolCall:
 
         result = await middleware.awrap_tool_call(request, handler)
         assert result is sentinel
+
+    async def test_write_file_refused_when_path_is_gitignored(self, tmp_path: Path):
+        """write_file on a `.gitignore`-matching path must be refused before the upstream
+        handler runs — `git add -A` would silently drop the file, so the agent would
+        report success while the change never reached the merge request."""
+        from langchain_core.messages import ToolMessage
+
+        from automation.agent.middlewares.file_system import SandboxSyncer
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        repo = Repo.init(repo_dir)
+        (repo_dir / ".gitignore").write_text(".python-version\n")
+
+        target = repo_dir / ".python-version"
+
+        backend = Mock()
+        backend._resolve_path = Mock(return_value=str(target))
+
+        runtime = Mock()
+        runtime.context = Mock(gitrepo=repo)
+        runtime.state = {"session_id": "sess_1"}
+
+        middleware = _make_middleware()
+        middleware._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+
+        request = self._request(
+            "write_file", {"file_path": "/repo/.python-version", "content": "3.11\n"}, runtime=runtime
+        )
+        handler = AsyncMock()
+
+        result = await middleware.awrap_tool_call(request, handler)
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert ".gitignore" in result.content
+        assert not target.exists()
+        handler.assert_not_called()
