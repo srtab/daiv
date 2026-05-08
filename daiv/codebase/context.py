@@ -1,12 +1,13 @@
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from git import Repo  # noqa: TC002
 
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
+from codebase.exceptions import SingleRepoRequiredError
 from codebase.repo_config import RepositoryConfig
 
 if TYPE_CHECKING:
@@ -14,40 +15,64 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class RuntimeCtx:
-    """
-    Context to be used across the application layers.
-    It needs to be set as early as possible on the request lifecycle or task execution.
+class RepoHandle:
+    """A single repository's bindings within a RuntimeCtx.
 
-    With this context, we ensure that application layers that need the repository files can access them without doing
-    API calls by accessing the defined `repo_dir` directory, which is a temporary directory with the repository files.
-
-    The context is reset at the end of the request lifecycle or task execution.
+    A RuntimeCtx holds 0..N of these. Repository-coupled middleware and tools
+    reach repository state through ``RuntimeCtx.repo`` (single-handle convenience
+    accessor) or ``RuntimeCtx.repos`` (the canonical collection).
     """
 
+    repo_id: str
     git_platform: GitPlatform
-    """The Git platform"""
-
     repository: Repository
-    """The repository object"""
-
     gitrepo: Repo
-    """The Git repository object"""
-
     config: RepositoryConfig
-    """The repository configuration"""
 
+
+@dataclass(frozen=True)
+class RuntimeCtx:
+    """Per-run context. Holds 0..N repository handles plus shared agent-level state.
+
+    - ``repos == []`` is repoless mode (web/MCP/sandbox-only).
+    - ``len(repos) == 1`` is the dominant single-repo mode (today's behavior).
+    - ``len(repos) >= 2`` is reserved for future multi-repo support.
+
+    Backward-compatible forwarding properties (``repository``, ``gitrepo``,
+    ``git_platform``) delegate to ``self.repo`` so legacy call sites work
+    unchanged in single-repo mode and raise :class:`SingleRepoRequiredError`
+    otherwise (so a tool selected in error surfaces a clear failure rather
+    than corrupting state).
+    """
+
+    bot_username: str
+    repos: list[RepoHandle] = field(default_factory=list)
     scope: Scope | None = None
-    """The scope of the context. If None, not running in a specific scope."""
-
     issue: Issue | None = None
-    """The issue object if the context is scoped to an issue, None otherwise"""
-
     merge_request: MergeRequest | None = None
-    """The merge request object if the context is scoped to a merge request, None otherwise"""
+    config: RepositoryConfig = field(default_factory=RepositoryConfig)
 
-    bot_username: str | None = None
-    """The bot username defined on the repository client"""
+    @property
+    def has_repo(self) -> bool:
+        return bool(self.repos)
+
+    @property
+    def repo(self) -> RepoHandle:
+        if len(self.repos) != 1:
+            raise SingleRepoRequiredError(actual=len(self.repos))
+        return self.repos[0]
+
+    @property
+    def repository(self) -> Repository:
+        return self.repo.repository
+
+    @property
+    def gitrepo(self) -> Repo:
+        return self.repo.gitrepo
+
+    @property
+    def git_platform(self) -> GitPlatform:
+        return self.repo.git_platform
 
 
 runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runtime_ctx", default=None)
@@ -82,22 +107,22 @@ async def set_runtime_ctx(
     repo_client = RepoClient.create_instance(**kwargs)
 
     repository = repo_client.get_repository(repo_id)
-
     config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, offline=offline)
 
     if ref is None:
         ref = cast("str", config.default_branch)
 
     with repo_client.load_repo(repository, sha=ref) as repo:
+        handle = RepoHandle(
+            repo_id=repo_id, git_platform=repo_client.git_platform, repository=repository, gitrepo=repo, config=config
+        )
         ctx = RuntimeCtx(
-            git_platform=repo_client.git_platform,
-            repository=repository,
-            gitrepo=repo,
-            config=config,
+            bot_username=repo_client.current_user.username,
+            repos=[handle],
             scope=scope,
             issue=issue,
             merge_request=merge_request,
-            bot_username=repo_client.current_user.username,
+            config=config,
         )
         token = runtime_ctx.set(ctx)
         try:
