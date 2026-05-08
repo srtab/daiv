@@ -35,8 +35,8 @@
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if thread %}{
            thread_id: "{{ thread.thread_id|escapejs }}",
-           repo_id: "{{ thread.repo_id|escapejs }}",
-           ref: "{{ thread.ref|escapejs }}",
+           repo_id: "{{ thread.repo_id|default:''|escapejs }}",
+           ref: "{{ thread.ref|default:''|escapejs }}",
            merge_request: null
          }{% else %}null{% endif %}
        })'
