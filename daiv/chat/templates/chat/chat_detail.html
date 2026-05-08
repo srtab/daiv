@@ -56,7 +56,11 @@
 
       {# Responsive summary strip shown below 1100px #}
       <div class="chat-summary" x-show="turns.length > 0 || thread">
-        <span x-show="thread"><span x-text="thread ? thread.repo_id : ''"></span> <span class="chat-summary__sep">·</span> <span x-text="thread ? thread.ref : ''" style="color:#93c5fd;"></span></span>
+        <span x-show="thread">
+          <span x-show="thread?.repo_id" x-text="thread?.repo_id"></span>
+          <span x-show="thread?.repo_id && thread?.ref" class="chat-summary__sep">·</span>
+          <span x-show="thread?.ref" x-text="thread?.ref" style="color:#93c5fd;"></span>
+        </span>
         <span class="chat-summary__sep">·</span>
         <span x-text="runStatus.label"></span>
         <template x-if="latestTodos.length">

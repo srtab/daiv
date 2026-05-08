@@ -18,14 +18,15 @@
     the hero unmounts and `thread` becomes truthy, so the chip takes over here.
     {% endcomment %}
     <div class="chat-composer__meta" x-show="thread" x-cloak>
-      <span class="repo-chip">
-        <span class="repo-chip__btn">
+      <span class="repo-chip" x-show="thread?.repo_id || thread?.ref">
+        <span class="repo-chip__btn" x-show="thread?.repo_id">
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M4 6h16M4 12h16M4 18h10"/>
           </svg>
           <span x-text="thread?.repo_id"></span>
         </span>
         <span class="repo-chip__btn"
+              x-show="thread?.ref"
               :class="thread?.merge_request ? 'repo-chip__btn--accent' : ''">
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M6 3v12a3 3 0 003 3h9m-3-3l3 3-3 3"/>

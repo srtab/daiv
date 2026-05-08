@@ -40,7 +40,11 @@ class GeneratedTitle(BaseModel):
 
 @task()
 def generate_title_task(
-    entity_type: Literal["chat_thread", "activity"], pk: str, prompt: str, repo_id: str, ref: str = ""
+    entity_type: Literal["chat_thread", "activity"],
+    pk: str,
+    prompt: str,
+    repo_id: str | None = None,
+    ref: str | None = None,
 ) -> None:
     """Overwrite a ChatThread/Activity title with an LLM-generated one.
 
@@ -83,8 +87,8 @@ def generate_title_task(
         )
         return
 
-    ref = ref.strip()
-    user_text = f"Repository: {repo_id}\n"
+    ref = (ref or "").strip()
+    user_text = f"Repository: {repo_id}\n" if repo_id else ""
     if _ref_is_informative(ref):
         user_text += f"Branch: {ref}\n"
     user_text += f"Task: {prompt[:500]}"
