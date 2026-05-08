@@ -568,6 +568,7 @@ class TestProcessCallbackThreadId:
 
         assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
         assert mock_activity.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["ref"] == "feat"
 
     async def test_note_callback_on_issue_passes_thread_id(self, monkeypatch_dependencies):
         from unittest.mock import AsyncMock, patch

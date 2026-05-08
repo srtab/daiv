@@ -381,7 +381,9 @@ class TestProcessCallbackThreadId:
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
+            callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
             await callback.process_callback()
 
         assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
         assert mock_activity.call_args.kwargs["thread_id"] == expected
+        assert mock_activity.call_args.kwargs["ref"] == "feat/x"
