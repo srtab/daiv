@@ -80,7 +80,7 @@ runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runt
 
 @asynccontextmanager
 async def set_runtime_ctx(
-    repo_id: str,
+    repo_id: str | None,
     *,
     scope: Scope,
     ref: str | None = None,
@@ -89,11 +89,14 @@ async def set_runtime_ctx(
     offline: bool = False,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
-    """
-    Set the runtime context and load repository files to a temporary directory.
+    """Build the per-run RuntimeCtx.
+
+    When ``repo_id`` is ``None``, yields a repoless context (``repos=[]``)
+    backed by ``RepositoryConfig()`` defaults. The resume guard delegates to
+    the caller's ``Activity`` row check (see ``run_job_task``).
 
     Args:
-        repo_id: The repository identifier
+        repo_id: The repository identifier, or ``None`` for a repoless context.
         scope: The scope of the context.
         ref: The reference branch or tag. If None, the default branch will be used.
         issue: The issue object if the context is scoped to an issue, None otherwise
@@ -104,8 +107,24 @@ async def set_runtime_ctx(
     Yields:
         RuntimeCtx: The runtime context
     """
-    repo_client = RepoClient.create_instance(**kwargs)
+    if repo_id is None:
+        repo_client = RepoClient.create_instance(**kwargs)
+        ctx = RuntimeCtx(
+            bot_username=repo_client.current_user.username,
+            repos=[],
+            scope=scope,
+            issue=issue,
+            merge_request=merge_request,
+            config=RepositoryConfig(),
+        )
+        token = runtime_ctx.set(ctx)
+        try:
+            yield ctx
+        finally:
+            runtime_ctx.reset(token)
+        return
 
+    repo_client = RepoClient.create_instance(**kwargs)
     repository = repo_client.get_repository(repo_id)
     config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, offline=offline)
 

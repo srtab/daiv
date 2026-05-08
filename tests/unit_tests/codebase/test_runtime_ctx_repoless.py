@@ -1,6 +1,7 @@
 import pytest
 
-from codebase.context import RepoHandle, RuntimeCtx
+from codebase.base import Scope
+from codebase.context import RepoHandle, RuntimeCtx, set_runtime_ctx
 from codebase.exceptions import SingleRepoRequiredError
 from codebase.repo_config import RepositoryConfig
 
@@ -59,3 +60,14 @@ def test_runtime_ctx_forwarding_properties_raise_when_repoless():
         _ = ctx.gitrepo
     with pytest.raises(SingleRepoRequiredError):
         _ = ctx.git_platform
+
+
+@pytest.mark.asyncio
+async def test_set_runtime_ctx_repoless_yields_empty_repos():
+    async with set_runtime_ctx(repo_id=None, scope=Scope.GLOBAL) as ctx:
+        assert ctx.has_repo is False
+        assert ctx.repos == []
+        assert ctx.scope == Scope.GLOBAL
+        assert ctx.config.context_file_name == RepositoryConfig().context_file_name
+        assert isinstance(ctx.bot_username, str)
+        assert ctx.bot_username  # non-empty even when repoless
