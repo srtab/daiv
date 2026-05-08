@@ -176,3 +176,13 @@ class TestAsubmitBatchRunsRepoless:
         assert activity.repo_id is None
         assert activity.ref == ""
         assert activity.thread_id  # non-empty UUID assigned
+
+    async def test_asubmit_batch_runs_repoless_enqueue_failure_surfaces_in_failed(self):
+        with patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = AsyncMock(side_effect=RuntimeError("queue down"))
+            result = await asubmit_batch_runs(user=None, prompt="hi", repos=[], trigger_type=TriggerType.MCP_JOB)
+        assert result.activities == []
+        assert len(result.failed) == 1
+        failure = result.failed[0]
+        assert failure.repo_id is None
+        assert "queue down" in failure.error

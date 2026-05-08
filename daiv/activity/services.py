@@ -33,7 +33,7 @@ class RepoTarget:
 
 @dataclass(frozen=True)
 class BatchSubmitFailure:
-    repo_id: str
+    repo_id: str | None
     ref: str
     error: str
 
@@ -181,13 +181,12 @@ async def asubmit_batch_runs(
     failure) lands in ``result.failed`` while siblings continue. Callers can use this to
     distinguish "submitted" from "orphaned" and recover accordingly.
     """
-    _validate(repos)
-    batch_id = uuid.uuid4()
-
     if not repos:
         # Repoless single run: synthesize one entry with empty repo_id/ref so
         # the existing fan-out structure produces exactly one Activity.
         repos = [RepoTarget(repo_id="", ref="")]
+    _validate(repos)
+    batch_id = uuid.uuid4()
 
     schedule_run_base = 0
     if trigger_type == TriggerType.SCHEDULE and scheduled_job is not None:
@@ -204,7 +203,7 @@ async def asubmit_batch_runs(
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
+            return BatchSubmitFailure(repo_id=repo_id_for_task, ref=target.ref, error=f"{type(err).__name__}: {err}")
 
         activity_title = ""
         if trigger_type == TriggerType.SCHEDULE and scheduled_job is not None:
@@ -232,7 +231,7 @@ async def asubmit_batch_runs(
                 target.repo_id,
                 task.id,
             )
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error="ActivityCreationFailed")
+            return BatchSubmitFailure(repo_id=repo_id_for_task, ref=target.ref, error="ActivityCreationFailed")
 
         if trigger_type in _PROMPT_DRIVEN and prompt and not is_repoless:
             try:
@@ -257,7 +256,11 @@ async def asubmit_batch_runs(
         if isinstance(outcome, BaseException):
             logger.error("submit_batch_runs: unexpected exception for repo_id=%s", target.repo_id, exc_info=outcome)
             failed.append(
-                BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(outcome).__name__}: {outcome}")
+                BatchSubmitFailure(
+                    repo_id=None if target.repo_id == "" else target.repo_id,
+                    ref=target.ref,
+                    error=f"{type(outcome).__name__}: {outcome}",
+                )
             )
         elif isinstance(outcome, BatchSubmitFailure):
             failed.append(outcome)
