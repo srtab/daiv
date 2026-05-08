@@ -50,7 +50,10 @@ class BaseManager:
             )
 
             if published_mr:
-                await agent.aupdate_state(config=config, values={"merge_request": published_mr})
+                update_values: dict[str, Any] = {"merge_request": published_mr}
+                if publisher.protected_branch_fallback_source:
+                    update_values["protected_branch_fallback_source"] = publisher.protected_branch_fallback_source
+                await agent.aupdate_state(config=config, values=update_values)
                 return True
         except Exception:
             logger.exception("Recovery failed after agent error for %s %s", entity_label, entity_id)
@@ -59,12 +62,18 @@ class BaseManager:
 
     @staticmethod
     async def _build_agent_result(
-        agent: CompiledAgent, config: RunnableConfig, *, response: str, usage: dict[str, Any] | None = None
+        agent: CompiledAgent,
+        config: RunnableConfig,
+        *,
+        response: str,
+        usage: dict[str, Any] | None = None,
+        snapshot: Any = None,
     ) -> AgentResult:
         """
         Build a standardized :class:`AgentResult` from the agent's persisted state.
 
         ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
-        We read it from the persisted checkpoint instead.
+        We read it from the persisted checkpoint instead. Pass ``snapshot`` to
+        reuse a pre-fetched state and skip the extra Redis read.
         """
-        return await build_agent_result(agent, config, response=response, usage=usage)
+        return await build_agent_result(agent, config, response=response, usage=usage, snapshot=snapshot)

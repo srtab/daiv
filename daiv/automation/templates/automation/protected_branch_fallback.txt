@@ -1,5 +1,7 @@
-#### :lock: Source branch `{{ source_branch }}` is protected
+---
 
-I couldn't push the requested changes to this merge request because its source branch (`{{ source_branch }}`) is protected on the remote.
+#### 🔒 Source branch `{{ source_branch }}` is protected
+
+I couldn't push the requested changes to this {% if is_gitlab %}merge request{% else %}pull request{% endif %} because its source branch (`{{ source_branch }}`) is protected on the remote.
 
 I've opened a new {% if is_gitlab %}merge request{% else %}pull request{% endif %} with the changes instead: {{ new_merge_request_url }}{% if is_gitlab %} (!{{ new_merge_request_id }}){% else %} (#{{ new_merge_request_id }}){% endif %}.

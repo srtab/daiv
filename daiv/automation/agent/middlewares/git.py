@@ -81,6 +81,14 @@ class GitState(AgentState):
     Whether the agent produced code changes that were published to the repository.
     """
 
+    protected_branch_fallback_source: Annotated[str | None, PrivateStateAttr]
+    """
+    Source branch of the original MR when the publisher fell back to a fresh MR
+    because that branch is protected on the remote. Consumed by managers so the
+    notice can be appended to the agent's reply on the original MR rather than
+    posted as a separate comment.
+    """
+
 
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     """
@@ -147,7 +155,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, merge_request.source_branch, e)
                 merge_request = None
 
-        return {"merge_request": merge_request, "code_changes": False}
+        return {"merge_request": merge_request, "code_changes": False, "protected_branch_fallback_source": None}
 
     @staticmethod
     async def _alookup_open_mr(context: RuntimeCtx) -> MergeRequest | None:
@@ -210,6 +218,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 # If an issue resulted in a merge request, we send it to LangSmith for tracking.
                 rt.metadata["merge_request_id"] = merge_request.merge_request_id
 
-            return {"merge_request": merge_request, "code_changes": True}
+            return {
+                "merge_request": merge_request,
+                "code_changes": True,
+                "protected_branch_fallback_source": publisher.protected_branch_fallback_source,
+            }
 
         return None

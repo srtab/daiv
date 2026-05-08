@@ -53,14 +53,22 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
 
 
 async def build_agent_result(
-    agent: CompiledAgent, config: RunnableConfig, *, response: str, usage: dict[str, Any] | None = None
+    agent: CompiledAgent,
+    config: RunnableConfig,
+    *,
+    response: str,
+    usage: dict[str, Any] | None = None,
+    snapshot: Any = None,
 ) -> AgentResult:
     """Build a standardized :class:`AgentResult` from the agent's persisted state.
 
     ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
-    We read it from the persisted checkpoint instead.
+    We read it from the persisted checkpoint instead — pass a pre-fetched
+    ``snapshot`` to avoid a redundant Redis round-trip when the caller already
+    read the state for another purpose.
     """
-    snapshot = await agent.aget_state(config=config)
+    if snapshot is None:
+        snapshot = await agent.aget_state(config=config)
     mr = snapshot.values.get("merge_request")
     return AgentResult(
         response=response,
