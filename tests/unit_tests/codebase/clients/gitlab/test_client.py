@@ -394,6 +394,33 @@ class TestGitLabClient:
         )
         serialize.assert_called_once_with("group/repo", mock_mr)
 
+    def test_is_branch_protected_returns_true_when_branch_protected(self, gitlab_client):
+        mock_project = Mock()
+        mock_branch = Mock(protected=True)
+        mock_project.branches.get.return_value = mock_branch
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        assert gitlab_client.is_branch_protected("group/repo", "dev") is True
+        mock_project.branches.get.assert_called_once_with("dev")
+
+    def test_is_branch_protected_returns_false_when_branch_unprotected(self, gitlab_client):
+        mock_project = Mock()
+        mock_project.branches.get.return_value = Mock(protected=False)
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        assert gitlab_client.is_branch_protected("group/repo", "feature") is False
+
+    def test_is_branch_protected_returns_false_on_api_error(self, gitlab_client):
+        """Fails open: treats any GitLab error (404, auth, rate limit, transport) as unprotected."""
+        from gitlab.exceptions import GitlabAuthenticationError
+
+        mock_project = Mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        for error in (GitlabGetError("404", response_code=404), GitlabAuthenticationError("401")):
+            mock_project.branches.get.side_effect = error
+            assert gitlab_client.is_branch_protected("group/repo", "missing") is False
+
     def test_get_merge_request_by_branches_returns_none_when_empty(self, gitlab_client):
         """Empty list → ``None`` (not an exception)."""
         mock_project = Mock()

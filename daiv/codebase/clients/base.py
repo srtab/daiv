@@ -61,6 +61,21 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def is_branch_protected(self, repo_id: str, branch: str) -> bool:
+        """
+        Return whether ``branch`` is protected on the remote (covers both exact-name
+        and wildcard protection rules — the platform branch resource resolves them).
+
+        Args:
+            repo_id: The repository ID.
+            branch: The branch name to check.
+
+        Returns:
+            ``True`` if the branch exists and is protected, ``False`` otherwise.
+        """
+        pass
+
+    @abc.abstractmethod
     def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
         """
         Return up to ``limit`` branch names for ``repo_id``.
