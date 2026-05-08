@@ -48,7 +48,9 @@ class TestGitMiddleware:
             result = await middleware.abefore_agent({}, runtime)
 
         lookup.assert_awaited_once_with(runtime.context)
-        assert result == {"merge_request": existing_mr, "code_changes": False}
+        # `protected_branch_fallback_source` is reset to None so a stale signal from
+        # a prior checkpointed turn cannot bleed into this run's reply rendering.
+        assert result == {"merge_request": existing_mr, "code_changes": False, "protected_branch_fallback_source": None}
 
     async def test_abefore_agent_skips_lookup_when_state_has_mr(self):
         middleware = GitMiddleware()

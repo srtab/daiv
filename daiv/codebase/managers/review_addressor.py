@@ -299,46 +299,108 @@ class CommentsAddressorManager(BaseManager):
                     entity_label="merge request",
                     entity_id=self.merge_request.merge_request_id,
                 )
-                self._add_unable_to_address_review_note(draft_published=draft_published)
+                # _recover_draft may have updated state with the recovered MR, so
+                # re-read here rather than reusing a pre-recovery snapshot.
+                fallback_footer = self._render_protected_branch_footer(
+                    await self._safe_get_state(daiv_agent, agent_config)
+                )
+                self._add_unable_to_address_review_note(
+                    draft_published=draft_published, fallback_footer=fallback_footer
+                )
                 raise
             else:
                 response_text = ""
+                # Read the snapshot once so the fallback footer and AgentResult share
+                # the same checkpoint read instead of round-tripping Redis twice.
+                snapshot = await self._safe_get_state(daiv_agent, agent_config)
+                fallback_footer = self._render_protected_branch_footer(snapshot)
                 if (
                     result
                     and "messages" in result
                     and result["messages"]
                     and (response_text := extract_text_content(result["messages"][-1].content).strip())
                 ):
-                    self._leave_comment(response_text)
+                    self._leave_comment(self._append_footer(response_text, fallback_footer))
                 else:
                     logger.warning(
                         "Agent returned empty response for merge request %d (result keys: %s)",
                         self.merge_request.merge_request_id,
                         list(result.keys()) if result else None,
                     )
-                    self._add_unable_to_address_review_note()
+                    self._add_unable_to_address_review_note(fallback_footer=fallback_footer)
 
                 return await self._build_agent_result(
-                    daiv_agent, agent_config, response=response_text, usage=build_usage_summary(usage_handler).to_dict()
+                    daiv_agent,
+                    agent_config,
+                    response=response_text,
+                    usage=build_usage_summary(usage_handler).to_dict(),
+                    snapshot=snapshot,
                 )
 
-    def _add_unable_to_address_review_note(self, *, draft_published: bool = False):
+    async def _safe_get_state(self, agent, config):
+        """Read the agent's persisted state, swallowing errors.
+
+        Footer/result rendering is cosmetic — a checkpoint read failure must never
+        tear down the reply path.
+        """
+        try:
+            return await agent.aget_state(config=config)
+        except Exception:
+            logger.warning(
+                "Failed to read agent state for merge request %d", self.merge_request.merge_request_id, exc_info=True
+            )
+            return None
+
+    def _render_protected_branch_footer(self, snapshot) -> str | None:
+        """
+        Render the protected-branch fallback footer when the publisher swapped to a
+        fresh MR during this run, so the notice can be bundled into the agent's
+        reply instead of posted as a separate comment on the original MR.
+        """
+        if snapshot is None:
+            return None
+
+        source_branch = snapshot.values.get("protected_branch_fallback_source")
+        new_mr = snapshot.values.get("merge_request")
+        if not source_branch or new_mr is None:
+            return None
+
+        return render_to_string(
+            "automation/protected_branch_fallback.txt",
+            {
+                "source_branch": source_branch,
+                "new_merge_request_url": new_mr.web_url,
+                "new_merge_request_id": new_mr.merge_request_id,
+                "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+            },
+        )
+
+    @staticmethod
+    def _append_footer(body: str, footer: str | None) -> str:
+        if not footer:
+            return body
+        return f"{body.rstrip()}\n\n{footer.lstrip()}"
+
+    def _add_unable_to_address_review_note(self, *, draft_published: bool = False, fallback_footer: str | None = None):
         """
         Add a note to the merge request to inform the user that the review could not be addressed.
 
         Args:
             draft_published: Whether the draft merge request was published to the repository.
+            fallback_footer: Pre-rendered protected-branch fallback footer to bundle into
+                the note when the publisher swapped to a fresh MR.
         """
+        body = render_to_string(
+            "codebase/unable_address_review.txt",
+            {
+                "bot_name": BOT_NAME,
+                "bot_username": self.ctx.bot_username,
+                "draft_published": draft_published,
+                "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+            },
+        )
         self._leave_comment(
-            render_to_string(
-                "codebase/unable_address_review.txt",
-                {
-                    "bot_name": BOT_NAME,
-                    "bot_username": self.ctx.bot_username,
-                    "draft_published": draft_published,
-                    "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
-                },
-            ),
+            self._append_footer(body, fallback_footer),
             # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
             reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
         )

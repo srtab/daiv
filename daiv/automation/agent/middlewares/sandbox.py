@@ -8,7 +8,7 @@ import os
 import stat
 import tarfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, NotRequired
+from typing import TYPE_CHECKING, Annotated, NotRequired, cast
 
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse, ToolCallRequest
@@ -547,6 +547,30 @@ class SandboxMiddleware(AgentMiddleware):
         args = request.tool_call["args"]
         file_path = args["file_path"]
         content = args["content"]
+
+        # `git add -A` silently drops gitignored paths, so a successful write would
+        # never reach the MR. Refuse pre-dispatch; on path-resolution failure, fall
+        # through and let upstream produce its own error (matches `_mirror_edit`).
+        try:
+            prevalidated_target = syncer.resolve_target(file_path)
+        except OSError, ValueError:
+            prevalidated_target = None
+        if prevalidated_target is not None:
+            git_manager = GitManager(cast("RuntimeCtx", request.runtime.context).gitrepo)
+            if await asyncio.to_thread(git_manager.is_path_ignored, prevalidated_target):
+                return ToolMessage(
+                    content=(
+                        f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
+                        f"would silently drop it from the commit, so the change would not "
+                        f"appear in the merge request. Pick a path that is not ignored, or "
+                        f"run `git check-ignore -v <path>` via bash to find the matching rule "
+                        f"(it may live in a parent `.gitignore`, `.git/info/exclude`, or the "
+                        f"user's global ignore file) before changing it."
+                    ),
+                    tool_call_id=request.tool_call["id"],
+                    name=request.tool_call["name"],
+                    status="error",
+                )
 
         async with syncer.lock:
             result = await handler(request)

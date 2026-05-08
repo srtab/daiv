@@ -24,6 +24,9 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
 
+pytestmark = pytest.mark.usefixtures("bypass_gitignore_check")
+
+
 @pytest.fixture
 def working_repo(tmp_path) -> Path:
     """Test layout: tmp_path/myrepo/."""

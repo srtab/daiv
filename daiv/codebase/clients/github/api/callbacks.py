@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from activity.models import TriggerType
 from activity.services import acreate_activity
+from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 
 from accounts.utils import resolve_user
@@ -210,11 +211,22 @@ class IssueCommentCallback(GitHubCallback):
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
             )
+            # GitHub's issue_comment payload omits head.ref, so fetch the PR. If that
+            # fails the activity is still useful without a branch — don't drop it.
+            source_branch = ""
+            try:
+                pr = await sync_to_async(self._client.get_merge_request)(self.repository.full_name, self.issue.number)
+                source_branch = pr.source_branch
+            except Exception:
+                logger.exception(
+                    "Failed to resolve source branch for PR comment %s#%s", self.repository.full_name, self.issue.number
+                )
             try:
                 await acreate_activity(
                     trigger_type=TriggerType.MR_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.repository.full_name,
+                    ref=source_branch,
                     merge_request_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
                     use_max=self.issue.has_max_label(),

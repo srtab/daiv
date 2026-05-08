@@ -241,6 +241,7 @@ class NoteCallback(BaseCallback):
                     trigger_type=TriggerType.MR_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.project.path_with_namespace,
+                    ref=self.merge_request.source_branch,
                     merge_request_iid=self.merge_request.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
                     use_max=self.merge_request.has_max_label(),
