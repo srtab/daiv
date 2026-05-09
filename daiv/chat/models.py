@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import models
@@ -9,11 +11,15 @@ from django.utils.translation import gettext_lazy as _
 from automation.titling.services import TitlerService
 from automation.titling.tasks import generate_title_task
 from chat.managers import ChatThreadManager
+from core.models import TokenUsageRecord
+
+if TYPE_CHECKING:
+    from automation.agent.usage_tracking import UsageSummary
 
 logger = logging.getLogger("daiv.chat")
 
 
-class ChatThread(models.Model):
+class ChatThread(TokenUsageRecord):
     """Metadata row for a chat conversation. The ``thread_id`` is the LangGraph
     checkpoint key — shared with any ``activity.Activity`` that produced the run we're
     continuing.
@@ -30,6 +36,19 @@ class ChatThread(models.Model):
     active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # noqa: DJ001
     created_at = models.DateTimeField(auto_now_add=True)
     last_active_at = models.DateTimeField(auto_now=True)
+
+    # Override mixin fields with wider types appropriate for cumulative storage.
+    input_tokens = models.PositiveBigIntegerField(_("input tokens"), null=True, blank=True)
+    output_tokens = models.PositiveBigIntegerField(_("output tokens"), null=True, blank=True)
+    total_tokens = models.PositiveBigIntegerField(_("total tokens"), null=True, blank=True)
+    cost_usd = models.DecimalField(_("cost (USD)"), max_digits=12, decimal_places=6, null=True, blank=True)
+
+    # Chat-only bookkeeping
+    cache_read_tokens = models.PositiveBigIntegerField(_("cache read tokens"), default=0)
+    cache_write_tokens = models.PositiveBigIntegerField(_("cache write tokens"), default=0)
+    last_input_tokens = models.PositiveIntegerField(_("last input tokens"), default=0)
+    last_model_name = models.CharField(_("last model name"), max_length=128, blank=True, default="")
+    cost_priced = models.BooleanField(_("cost priced"), default=True)
 
     objects = ChatThreadManager()
 
@@ -74,3 +93,79 @@ class ChatThread(models.Model):
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue title task for chat thread %s", thread.thread_id)
         return thread, created
+
+    def apply_usage_delta(
+        self, summary: UsageSummary, last_model_name: str | None, last_input_tokens: int
+    ) -> list[str]:
+        """Fold a per-run UsageSummary into this thread's cumulative totals.
+
+        Returns the list of field names that changed (suitable for ``save(update_fields=...)``).
+        Does **not** save. Returns ``[]`` for an empty summary.
+        """
+        from chat.usage import cache_token_totals
+
+        if summary.total_tokens == 0:
+            return []
+
+        changed: list[str] = []
+
+        # Token totals (coalesce-on-NULL because the inherited mixin fields are nullable).
+        self.input_tokens = (self.input_tokens or 0) + summary.input_tokens
+        self.output_tokens = (self.output_tokens or 0) + summary.output_tokens
+        self.total_tokens = (self.total_tokens or 0) + summary.total_tokens
+        changed.extend(["input_tokens", "output_tokens", "total_tokens"])
+
+        # Cache totals derived from per-model input_token_details.
+        cr, cw = cache_token_totals(summary.by_model or {})
+        if cr:
+            self.cache_read_tokens += cr
+            changed.append("cache_read_tokens")
+        if cw:
+            self.cache_write_tokens += cw
+            changed.append("cache_write_tokens")
+
+        # Most recent LLM call (replace, not increment).
+        if last_model_name:
+            self.last_model_name = last_model_name
+            changed.append("last_model_name")
+        if last_input_tokens:
+            self.last_input_tokens = last_input_tokens
+            changed.append("last_input_tokens")
+
+        # Cost: sticky-null once any unpriced delta lands.
+        if summary.cost_usd is None or not self.cost_priced:
+            if self.cost_priced:
+                self.cost_priced = False
+                changed.append("cost_priced")
+            if self.cost_usd is not None:
+                self.cost_usd = None
+                changed.append("cost_usd")
+        else:
+            self.cost_usd = (self.cost_usd or Decimal("0")) + Decimal(summary.cost_usd)
+            changed.append("cost_usd")
+
+        # Deep-merge usage_by_model.
+        merged = dict(self.usage_by_model or {})
+        for model, entry in (summary.by_model or {}).items():
+            existing = dict(merged.get(model) or {})
+            for key in ("input_tokens", "output_tokens", "total_tokens"):
+                existing[key] = int(existing.get(key) or 0) + int(entry.get(key) or 0)
+            for detail_key in ("input_token_details", "output_token_details"):
+                if detail_key in entry:
+                    existing[detail_key] = dict(entry[detail_key])
+            new_cost = entry.get("cost_usd")
+            if "cost_usd" not in existing:
+                # First observation — adopt the new value as-is (priced or not).
+                existing["cost_usd"] = new_cost
+            else:
+                old_cost = existing["cost_usd"]
+                if old_cost is None or new_cost is None:
+                    # Sticky null: once an unpriced delta lands, this model's cost is unknown.
+                    existing["cost_usd"] = None
+                else:
+                    existing["cost_usd"] = str(Decimal(old_cost) + Decimal(new_cost))
+            merged[model] = existing
+        self.usage_by_model = merged
+        changed.append("usage_by_model")
+
+        return changed
