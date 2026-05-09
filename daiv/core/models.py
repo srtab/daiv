@@ -7,11 +7,15 @@ import contextlib
 import fnmatch
 import logging
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+
+if TYPE_CHECKING:
+    from automation.agent.usage_tracking import UsageSummary
 
 logger = logging.getLogger("daiv.core")
 
@@ -702,3 +706,58 @@ class WebFetchAuthHeader(models.Model):
     @classmethod
     def invalidate_cache(cls) -> None:
         cache.delete(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+
+
+class TokenUsageRecord(models.Model):
+    """Abstract base for models that store token usage and cost from a UsageSummary.
+
+    Two usage modes:
+
+    - **Snapshot** (``apply_usage_snapshot``): set-once. Used by per-run rows
+      (``Activity``) where columns are populated when the run completes.
+    - **Accumulating**: subclass-specific. Long-lived rows (``ChatThread``) need
+      additional bookkeeping (e.g. ``cost_priced``) and re-declare the integer /
+      decimal fields with wider types appropriate for cumulative storage.
+    """
+
+    input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
+    output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
+    total_tokens = models.PositiveIntegerField(_("total tokens"), null=True, blank=True)
+    cost_usd = models.DecimalField(_("cost (USD)"), max_digits=10, decimal_places=6, null=True, blank=True)
+    usage_by_model = models.JSONField(_("usage by model"), null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+    def apply_usage_snapshot(self, summary: UsageSummary) -> list[str]:
+        """Set columns from a ``UsageSummary`` only when they are still ``None``.
+
+        Returns the list of field names that changed (suitable for ``save(update_fields=...)``).
+        Idempotent on already-populated rows.
+        """
+        changed: list[str] = []
+        if self.input_tokens is None and summary.input_tokens is not None:
+            self.input_tokens = summary.input_tokens
+            changed.append("input_tokens")
+        if self.output_tokens is None and summary.output_tokens is not None:
+            self.output_tokens = summary.output_tokens
+            changed.append("output_tokens")
+        if self.total_tokens is None and summary.total_tokens is not None:
+            self.total_tokens = summary.total_tokens
+            changed.append("total_tokens")
+        if self.cost_usd is None and summary.cost_usd is not None:
+            try:
+                self.cost_usd = Decimal(summary.cost_usd)
+            except InvalidOperation, TypeError, ValueError:
+                logger.warning(
+                    "Invalid cost_usd value %r for %s(pk=%r)",
+                    summary.cost_usd,
+                    type(self).__name__,
+                    getattr(self, "pk", None),
+                )
+            else:
+                changed.append("cost_usd")
+        if self.usage_by_model is None and summary.by_model:
+            self.usage_by_model = summary.by_model
+            changed.append("usage_by_model")
+        return changed
