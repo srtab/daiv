@@ -102,7 +102,9 @@ class ChatRunStreamer:
                 open_checkpointer() as checkpointer,
                 set_runtime_ctx(repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref) as runtime_ctx,
             ):
-                agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
+                agent = await create_daiv_agent(
+                    ctx=runtime_ctx, thread_id=self.thread_id, checkpointer=checkpointer, store=InMemoryStore()
+                )
                 langsmith_config = build_langsmith_config(
                     runtime_ctx,
                     trigger="chat",

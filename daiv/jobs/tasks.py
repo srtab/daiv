@@ -65,7 +65,9 @@ async def run_job_task(
                 extra_metadata={"ref": ref},
                 configurable={"thread_id": thread_id},
             )
-            daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
+            daiv_agent = await create_daiv_agent(
+                ctx=runtime_ctx, thread_id=thread_id, checkpointer=checkpointer, **agent_kwargs
+            )
             with track_usage_metadata() as usage_handler:
                 result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
     except Exception:

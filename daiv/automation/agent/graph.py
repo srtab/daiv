@@ -177,6 +177,7 @@ async def create_daiv_agent(
     thinking_level: ThinkingLevel | None | type[_Unset] = _Unset,
     *,
     ctx: RuntimeCtx,
+    thread_id: str | None = None,
     auto_commit_changes: bool = True,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
@@ -195,6 +196,8 @@ async def create_daiv_agent(
         model_names: The model names to use for the agent.
         thinking_level: The thinking level to use for the agent.
         ctx: The runtime context.
+        thread_id: The thread identifier for the current run. Used to isolate ephemeral
+            repoless working directories so concurrent runs do not collide.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
@@ -222,7 +225,7 @@ async def create_daiv_agent(
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
-    agent_path = resolve_agent_path(ctx)
+    agent_path = resolve_agent_path(ctx, thread_id=thread_id)
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     subagents = [
