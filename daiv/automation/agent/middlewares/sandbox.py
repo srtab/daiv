@@ -429,12 +429,20 @@ class SandboxMiddleware(AgentMiddleware):
                 )
             )
             try:
+                # Skills are materialized by SkillsMiddleware (which runs first) under
+                # ``self._working_dir.parent / "skills"``, so they are available in repoless
+                # runs too. The repo archive is only built when a checkout exists.
+                skills_dir = self._working_dir.parent / Path(GLOBAL_SKILLS_PATH).name
                 if runtime.context.has_repo:
                     working_dir = Path(runtime.context.gitrepo.working_dir)
                     repo_archive, skills_archive = await asyncio.gather(
                         asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                        asyncio.to_thread(_make_skills_archive, working_dir.parent / Path(GLOBAL_SKILLS_PATH).name),
+                        asyncio.to_thread(_make_skills_archive, skills_dir),
                     )
+                else:
+                    repo_archive = None
+                    skills_archive = await asyncio.to_thread(_make_skills_archive, skills_dir)
+                if repo_archive is not None or skills_archive is not None:
                     await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:
                 try:

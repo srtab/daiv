@@ -138,10 +138,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         # We need to always copy builtin and custom global skills before calling the super method to make them available
         # in the filesystem not just to be captured and registered in "skills_metadata" on first run, but also to be
         # available in the filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error
-        # will be raised.
-        builtin_skills, custom_global_skills = await self._copy_global_skills(
-            agent_path=Path(runtime.context.gitrepo.working_dir)
-        )
+        # will be raised. This runs in repoless runs too — skills don't depend on a checked-out repo.
+        builtin_skills, custom_global_skills = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
@@ -179,10 +177,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return skills_update
 
-    async def _copy_global_skills(self, agent_path: Path) -> tuple[list[str], list[str]]:
+    async def _copy_global_skills(self) -> tuple[list[str], list[str]]:
         """
         Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
-        sibling to the repo working tree.
+        sibling to the agent's working directory.
 
         Custom global skills override builtins with the same name (later writes in
         ``files_to_upload`` win).

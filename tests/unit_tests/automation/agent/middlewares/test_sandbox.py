@@ -520,7 +520,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
-            middleware = _make_middleware(close_session=True)
+            middleware = SandboxMiddleware(backend=Mock(), working_dir=repo_dir, close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_skills"}
@@ -528,6 +528,79 @@ class TestSandboxMiddleware:
         _args, kwargs = seed_session_mock.call_args
         assert isinstance(kwargs.get("repo_archive"), (bytes, bytearray))
         assert isinstance(kwargs.get("skills_archive"), (bytes, bytearray))
+
+    async def test_abefore_agent_repoless_seeds_only_skills_archive(self, tmp_path: Path):
+        """Repoless runs (``has_repo=False``) skip the repo archive but still seed the skills
+        archive when the on-disk skills directory is populated, so /skills is available in
+        the sandbox even without a checked-out repo."""
+        agent_path = tmp_path / "repo"
+        agent_path.mkdir(parents=True)
+
+        skills_dir = tmp_path / "skills"
+        (skills_dir / "skill-one").mkdir(parents=True)
+        (skills_dir / "skill-one" / "SKILL.md").write_text("hi")
+
+        runtime = Mock()
+        runtime.context = Mock()
+        runtime.context.has_repo = False
+        # Any access to gitrepo in the repoless path is a bug.
+        type(runtime.context).gitrepo = property(
+            lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
+        )
+        runtime.context.config = _make_sandbox_config_mock()
+
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_repoless"),
+            ),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ) as seed_session_mock,
+        ):
+            middleware = SandboxMiddleware(backend=Mock(), working_dir=agent_path, close_session=True)
+            update = await middleware.abefore_agent({}, runtime)
+
+        assert update == {"session_id": "sess_repoless"}
+        seed_session_mock.assert_awaited_once()
+        _args, kwargs = seed_session_mock.call_args
+        assert kwargs.get("repo_archive") is None
+        assert isinstance(kwargs.get("skills_archive"), (bytes, bytearray))
+
+    async def test_abefore_agent_repoless_skips_seed_when_no_skills(self, tmp_path: Path):
+        """Repoless runs with no skills dir on disk skip the seed call entirely — both archives
+        are None and the sandbox API rejects empty seeds, so we must not even hit it."""
+        agent_path = tmp_path / "repo"
+        agent_path.mkdir(parents=True)
+
+        runtime = Mock()
+        runtime.context = Mock()
+        runtime.context.has_repo = False
+        type(runtime.context).gitrepo = property(
+            lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
+        )
+        runtime.context.config = _make_sandbox_config_mock()
+
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_no_seed"),
+            ),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ) as seed_session_mock,
+        ):
+            middleware = SandboxMiddleware(backend=Mock(), working_dir=agent_path, close_session=True)
+            update = await middleware.abefore_agent({}, runtime)
+
+        assert update == {"session_id": "sess_no_seed"}
+        seed_session_mock.assert_not_awaited()
 
     def test_make_skills_archive_returns_none_when_dir_missing(self, tmp_path: Path):
         from automation.agent.middlewares.sandbox import _make_skills_archive
