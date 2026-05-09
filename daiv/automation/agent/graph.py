@@ -1,4 +1,5 @@
 import logging
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -36,7 +37,12 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
+from automation.agent.prompts import (
+    DAIV_REPOLESS_SYSTEM_PROMPT,
+    DAIV_SYSTEM_PROMPT,
+    REPO_RELATIVE_SYSTEM_REMINDER,
+    WRITE_TODOS_SYSTEM_PROMPT,
+)
 from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent, load_custom_subagents
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
@@ -69,6 +75,29 @@ ALWAYS_LOADED_TOOLS = frozenset({
 })
 
 
+_REPOLESS_AGENT_PATH_ROOT = tempfile.gettempdir() + "/daiv"  # noqa: S108
+
+
+def resolve_agent_path(ctx: RuntimeCtx, thread_id: str | None = None) -> Path:
+    """Return the on-disk working directory the agent's filesystem tools point at.
+
+    For repo-bound runs this is the gitpython checkout. For repoless runs this is
+    an ephemeral directory under ``_REPOLESS_AGENT_PATH_ROOT`` keyed by
+    ``thread_id`` (so concurrent runs don't collide). The directory is created on
+    demand; teardown is intentionally not done here — the sandbox container holds
+    the only durable copy of any files the agent writes, and the host-side
+    directory is just a placeholder used by ``SandboxMiddleware`` to compute the
+    sandbox-relative path. ``FilesystemBackend(virtual_mode=True)`` keeps actual
+    file content in memory; this on-disk path is never written to.
+    """
+    if ctx.has_repo:
+        return Path(ctx.gitrepo.working_dir)
+    key = thread_id or "ephemeral"
+    p = Path(_REPOLESS_AGENT_PATH_ROOT) / key / "repo"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 class _Unset:
     """Sentinel to distinguish 'not provided' from ``None`` in function defaults."""
 
@@ -89,29 +118,33 @@ Applies to ALL user-visible text:
 
 @dynamic_prompt
 async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
-    """
-    Dynamic prompt for the DAIV system.
-
-    Args:
-        request (ModelRequest): The request to the model.
-
-    Returns:
-        str: The dynamic prompt for the DAIV system.
-    """
+    """Pick the repo-bound or repoless system prompt depending on the runtime ctx."""
     context = cast("RuntimeCtx", request.runtime.context)
-    agent_path = Path(context.gitrepo.working_dir)
+    bash_tool_enabled = BASH_TOOL_NAME in [tool.name for tool in request.tools]
 
-    daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
-        current_date=timezone.now().strftime("%d %B, %Y"),
-        bot_name=BOT_NAME,
-        bot_username=context.bot_username,
-        repository_url=context.repository.html_url,
-        gitlab_platform=context.git_platform == GitPlatform.GITLAB,
-        github_platform=context.git_platform == GitPlatform.GITHUB,
-        bash_tool_enabled=BASH_TOOL_NAME in [tool.name for tool in request.tools],
-        working_directory=f"/{agent_path.name}/",
-        current_branch=get_repo_ref(context.gitrepo),
-    )
+    if context.has_repo:
+        agent_path = Path(context.gitrepo.working_dir)
+        daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
+            current_date=timezone.now().strftime("%d %B, %Y"),
+            bot_name=BOT_NAME,
+            bot_username=context.bot_username,
+            repository_url=context.repository.html_url,
+            gitlab_platform=context.git_platform == GitPlatform.GITLAB,
+            github_platform=context.git_platform == GitPlatform.GITHUB,
+            bash_tool_enabled=bash_tool_enabled,
+            working_directory=f"/{agent_path.name}/",
+            current_branch=get_repo_ref(context.gitrepo),
+        )
+        prompt_body = cast("str", daiv_system_prompt.content).strip()
+    else:
+        agent_path = resolve_agent_path(context)
+        repoless_prompt = await DAIV_REPOLESS_SYSTEM_PROMPT.aformat(
+            current_date=timezone.now().strftime("%d %B, %Y"),
+            bot_name=BOT_NAME,
+            bot_username=context.bot_username,
+            working_directory=f"/{agent_path.name}/",
+        )
+        prompt_body = cast("str", repoless_prompt.content).strip()
 
     # The harness profile sets ``base_system_prompt=""`` to suppress upstream's
     # BASE_AGENT_PROMPT, but model-level profiles (e.g. anthropic:claude-opus-4-7)
@@ -120,14 +153,16 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     inherited = (request.system_prompt or "").strip()
     inherited_system_prompt = f"{inherited}\n\n" if inherited else ""
 
-    return (
-        OUTPUT_INVARIANTS_SYSTEM_PROMPT
-        + "\n\n"
-        + cast("str", daiv_system_prompt.content).strip()
-        + "\n\n"
-        + inherited_system_prompt
-        + REPO_RELATIVE_SYSTEM_REMINDER
-    )
+    if context.has_repo:
+        return (
+            OUTPUT_INVARIANTS_SYSTEM_PROMPT
+            + "\n\n"
+            + prompt_body
+            + "\n\n"
+            + inherited_system_prompt
+            + REPO_RELATIVE_SYSTEM_REMINDER
+        )
+    return prompt_body + "\n\n" + inherited_system_prompt
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
@@ -187,7 +222,7 @@ async def create_daiv_agent(
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
-    agent_path = Path(ctx.gitrepo.working_dir)
+    agent_path = resolve_agent_path(ctx)
     backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     subagents = [
@@ -203,27 +238,28 @@ async def create_daiv_agent(
         create_explore_subagent(backend),
     ]
 
-    custom_subagents = await load_custom_subagents(
-        model=model,
-        backend=backend,
-        runtime=ctx,
-        sources=[f"/{agent_path.name}/{source}" for source in SUBAGENTS_SOURCES],
-        sandbox_enabled=_sandbox_enabled,
-        web_search_enabled=_web_search_enabled,
-        web_fetch_enabled=_web_fetch_enabled,
-        fallback_models=fallback_models,
-    )
-    subagents.extend(custom_subagents)
+    if ctx.has_repo:
+        custom_subagents = await load_custom_subagents(
+            model=model,
+            backend=backend,
+            runtime=ctx,
+            sources=[f"/{agent_path.name}/{source}" for source in SUBAGENTS_SOURCES],
+            sandbox_enabled=_sandbox_enabled,
+            web_search_enabled=_web_search_enabled,
+            web_fetch_enabled=_web_fetch_enabled,
+            fallback_models=fallback_models,
+        )
+        subagents.extend(custom_subagents)
 
     mcp_tools = await MCPToolkit.get_tools()
 
+    skills_sources: list[str] = [GLOBAL_SKILLS_PATH]
+    if ctx.has_repo:
+        skills_sources.extend(f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES)
+
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
-        SkillsMiddleware(
-            backend=backend,
-            sources=[GLOBAL_SKILLS_PATH, *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
-            subagents=subagents,
-        ),
+        SkillsMiddleware(backend=backend, sources=skills_sources, subagents=subagents),
         *([SandboxMiddleware(backend=backend, working_dir=agent_path)] if _sandbox_enabled else []),
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
@@ -243,13 +279,24 @@ async def create_daiv_agent(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        GitMiddleware(auto_commit_changes=auto_commit_changes),
-        GitPlatformMiddleware(git_platform=ctx.git_platform),
-        dynamic_daiv_system_prompt,
-        *(middleware or []),
     ]
 
+    if ctx.has_repo:
+        user_middleware.append(GitMiddleware(auto_commit_changes=auto_commit_changes))
+        user_middleware.append(GitPlatformMiddleware(git_platform=ctx.git_platform))
+
+    user_middleware.append(dynamic_daiv_system_prompt)
+    if middleware:
+        user_middleware.extend(middleware)
+
     initial_tools = [] if deferred_settings.ENABLED else mcp_tools
+
+    memory_files: list[str] = []
+    if ctx.has_repo:
+        memory_files = [
+            f"/{agent_path.name}/{ctx.config.context_file_name}",
+            f"/{agent_path.name}/{AGENTS_MEMORY_PATH}",
+        ]
 
     deep_agent = create_deep_agent(
         model=model,
@@ -257,7 +304,7 @@ async def create_daiv_agent(
         system_prompt=None,
         middleware=user_middleware,
         subagents=subagents,
-        memory=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
+        memory=memory_files,
         backend=backend,
         interrupt_on=interrupt_on,
         context_schema=RuntimeCtx,
