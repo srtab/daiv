@@ -78,8 +78,8 @@ class ChatRunStreamer:
     releasing the per-thread run slot.
     """
 
-    repo_id: str
-    ref: str
+    repo_id: str | None
+    ref: str | None
     thread_id: str
     run_id: str
     input_data: RunAgentInput

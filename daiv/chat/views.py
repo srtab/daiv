@@ -67,7 +67,7 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             ctx.update({"turns": [], "expired": False, "active_run_id": "", "merge_request": None})
             return ctx
         messages_history, expired, merge_request = async_to_sync(_ahydrate)(thread.thread_id)
-        if merge_request is None:
+        if merge_request is None and thread.repo_id and thread.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(thread.repo_id, thread.ref)
         ctx["turns"] = build_turns(messages_history)
         ctx["expired"] = expired

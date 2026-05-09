@@ -1,4 +1,4 @@
-from django.http import Http404, HttpRequest, StreamingHttpResponse
+from django.http import HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
 from ag_ui.encoder import EventEncoder
@@ -37,8 +37,8 @@ async def thread_status(request: HttpRequest, thread_id: str):
     throttle=[JobsRateThrottle()],
     openapi_extra={
         "parameters": [
-            {"in": "header", "name": HEADER_REPO_ID, "schema": {"type": "string"}, "required": True},
-            {"in": "header", "name": HEADER_REF, "schema": {"type": "string"}, "required": True},
+            {"in": "header", "name": HEADER_REPO_ID, "schema": {"type": "string"}, "required": False},
+            {"in": "header", "name": HEADER_REF, "schema": {"type": "string"}, "required": False},
         ]
     },
 )
@@ -48,10 +48,11 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     ``UPDATE`` on ``active_run_id`` atomically claims the per-thread run slot —
     parallel tabs resolve to a single winner, the loser gets 409.
     """
-    repo_id = request.headers.get(HEADER_REPO_ID)
-    ref = request.headers.get(HEADER_REF)
-    if not repo_id or not ref:
-        raise Http404("Repository ID or reference not found")
+    repo_id = request.headers.get(HEADER_REPO_ID) or None
+    ref = request.headers.get(HEADER_REF) or None
+    # Both must be present together or both absent. Mixed = caller bug; reject.
+    if (repo_id is None) != (ref is None):
+        raise HttpError(400, "X-Repo-ID and X-Ref must be provided together (or both omitted for repoless runs).")
 
     user = request.auth  # ty: ignore[unresolved-attribute]
     thread_id = input_data.thread_id
