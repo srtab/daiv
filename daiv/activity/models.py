@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -12,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from notifications.choices import NotifyOn
 
 from automation.agent.results import parse_agent_result
+from core.models import TokenUsageRecord
 
 logger = logging.getLogger("daiv.activity")
 
@@ -59,7 +59,7 @@ class ActivityManager(models.Manager["Activity"]):
         return self.filter(batch_id=batch_id)
 
 
-class Activity(models.Model):
+class Activity(TokenUsageRecord):
     """Unified record of every agent execution, regardless of trigger source.
 
     Denormalized fields (status, started_at, finished_at, result_summary,
@@ -156,12 +156,7 @@ class Activity(models.Model):
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
 
-    # Denormalized usage / cost (survives DBTaskResult pruning)
-    input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
-    output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
-    total_tokens = models.PositiveIntegerField(_("total tokens"), null=True, blank=True)
-    cost_usd = models.DecimalField(_("cost (USD)"), max_digits=10, decimal_places=6, null=True, blank=True)
-    usage_by_model = models.JSONField(_("usage by model"), null=True, blank=True)
+    # Denormalized usage / cost (survives DBTaskResult pruning) — inherited from TokenUsageRecord.
 
     # Denormalized timing
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
@@ -286,26 +281,17 @@ class Activity(models.Model):
                 self.merge_request_web_url = parsed["merge_request_web_url"]
                 changed.append("merge_request_web_url")
 
-            if (usage := parsed["usage"]) and self.input_tokens is None:
-                if usage.get("input_tokens") is not None:
-                    self.input_tokens = usage["input_tokens"]
-                    changed.append("input_tokens")
-                if usage.get("output_tokens") is not None:
-                    self.output_tokens = usage["output_tokens"]
-                    changed.append("output_tokens")
-                if usage.get("total_tokens") is not None:
-                    self.total_tokens = usage["total_tokens"]
-                    changed.append("total_tokens")
-                if usage.get("cost_usd") is not None:
-                    try:
-                        self.cost_usd = Decimal(usage["cost_usd"])
-                    except Exception:
-                        logger.warning("Invalid cost_usd value %r for activity %s", usage["cost_usd"], self.pk)
-                    else:
-                        changed.append("cost_usd")
-                if usage.get("by_model") is not None:
-                    self.usage_by_model = usage["by_model"]
-                    changed.append("usage_by_model")
+            if usage := parsed["usage"]:
+                from automation.agent.usage_tracking import UsageSummary
+
+                summary = UsageSummary(
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                    total_tokens=usage.get("total_tokens", 0),
+                    cost_usd=usage.get("cost_usd"),
+                    by_model=usage.get("by_model") or {},
+                )
+                changed.extend(self.apply_usage_snapshot(summary))
 
         if tr.status == ActivityStatus.FAILED and tr.exception_class_path and not self.error_message:
             self.error_message = tr.exception_class_path
