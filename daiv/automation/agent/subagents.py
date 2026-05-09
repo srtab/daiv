@@ -54,8 +54,15 @@ def _build_general_purpose_middleware(
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
 ) -> list:
-    """
-    Build the middleware stack for a general-purpose subagent.
+    """Build the middleware stack for a general-purpose subagent.
+
+    When ``runtime`` is repoless (``runtime.has_repo is False``):
+      * ``GitPlatformMiddleware`` is omitted (no MR/PR-shaped tools).
+      * ``SandboxMiddleware`` uses an ephemeral host-side ``working_dir`` placeholder
+        instead of ``runtime.gitrepo.working_dir``. The placeholder is only used by
+        ``SandboxSyncer`` for path arithmetic; the actual sandbox container is
+        allocated per run by the parent ``SandboxMiddleware`` (this subagent uses
+        ``close_session=False`` so it shares the parent's session).
     """
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
@@ -65,7 +72,6 @@ def _build_general_purpose_middleware(
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS),
-        GitPlatformMiddleware(git_platform=runtime.git_platform),
         SummarizationMiddleware(
             model=model,
             backend=backend,
@@ -79,6 +85,11 @@ def _build_general_purpose_middleware(
         PatchToolCallsMiddleware(),
     ]
 
+    if runtime.has_repo:
+        # Insert GitPlatformMiddleware between FilesystemMiddleware and SummarizationMiddleware
+        # to preserve the existing middleware order in repo-bound mode.
+        middleware.insert(2, GitPlatformMiddleware(git_platform=runtime.git_platform))
+
     if web_search_enabled:
         middleware.append(WebSearchMiddleware())
 
@@ -86,9 +97,12 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if sandbox_enabled:
-        middleware.append(
-            SandboxMiddleware(backend=backend, working_dir=Path(runtime.gitrepo.working_dir), close_session=False)
-        )
+        if runtime.has_repo:
+            sub_working_dir = Path(runtime.gitrepo.working_dir)
+        else:
+            sub_working_dir = Path("/tmp/daiv/ephemeral/repo")  # noqa: S108
+            sub_working_dir.mkdir(parents=True, exist_ok=True)
+        middleware.append(SandboxMiddleware(backend=backend, working_dir=sub_working_dir, close_session=False))
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
