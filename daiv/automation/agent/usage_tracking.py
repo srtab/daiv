@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from genai_prices import Usage, calc_price
 from genai_prices.types import TieredPrices
@@ -185,10 +185,13 @@ _usage_metadata_var: ContextVar[CostAwareUsageMetadataCallbackHandler | None] = 
 register_configure_hook(_usage_metadata_var, inheritable=True)
 
 
+_HandlerT = TypeVar("_HandlerT", bound=CostAwareUsageMetadataCallbackHandler)
+
+
 @contextmanager
-def track_usage_metadata(
-    *, handler_class: type[CostAwareUsageMetadataCallbackHandler] = CostAwareUsageMetadataCallbackHandler
-) -> Iterator[CostAwareUsageMetadataCallbackHandler]:
+def track_usage_metadata[HandlerT: CostAwareUsageMetadataCallbackHandler](
+    *, handler_class: type[_HandlerT] = CostAwareUsageMetadataCallbackHandler
+) -> Iterator[_HandlerT]:
     """Activate a usage-metadata callback handler for the enclosed block.
 
     The handler is auto-propagated to every nested ``Runnable`` invocation (including
