@@ -88,7 +88,7 @@ dev = [
   "python-dotenv==1.2.2",
   "ruff==0.15.12",
   "ty==0.0.34",
-  "types-pyyaml==6.0.12.20260408",
+  "types-pyyaml==6.0.12.20260508",
   "watchdog==6.0.0",
 ]
 docs = [
