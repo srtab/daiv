@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ from django.utils import timezone
 import pytest
 
 from accounts.models import User
+from automation.agent.usage_tracking import UsageSummary
 from chat.api.threads import STALE_RUN_MINUTES, ChatThreadService, _extract_first_user_message
 from chat.models import ChatThread
 
@@ -182,4 +184,53 @@ async def test_heartbeat_only_bumps_when_caller_holds_slot():
     await ChatThreadService.heartbeat("t-hb", "r-current")
     refreshed = await ChatThread.objects.aget(thread_id="t-hb")
     assert (timezone.now() - refreshed.last_active_at).total_seconds() < 5
+    await user.adelete()
+
+
+def _summary() -> UsageSummary:
+    return UsageSummary(
+        input_tokens=100,
+        output_tokens=50,
+        total_tokens=150,
+        cost_usd="0.001234",
+        by_model={"m": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150, "cost_usd": "0.001234"}},
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_apply_usage_delta_to_thread_persists_changes():
+    user = await User.objects.acreate_user(username="u-apply", email="apply@x.com", password="x")  # noqa: S106
+    thread = await ChatThread.objects.acreate(thread_id="t-apply", user=user, repo_id="a/b", ref="main")
+
+    refreshed = await ChatThreadService.apply_usage_delta_to_thread(
+        thread.thread_id, _summary(), "anthropic/claude-sonnet-4.6", 100
+    )
+
+    assert refreshed is not None
+    assert refreshed.input_tokens == 100
+    assert refreshed.output_tokens == 50
+    assert refreshed.total_tokens == 150
+    assert refreshed.cost_usd == Decimal("0.001234")
+    assert refreshed.last_model_name == "anthropic/claude-sonnet-4.6"
+    assert refreshed.last_input_tokens == 100
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_apply_usage_delta_to_thread_returns_none_when_thread_missing():
+    refreshed = await ChatThreadService.apply_usage_delta_to_thread("does-not-exist", _summary(), "m", 1)
+    assert refreshed is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_apply_usage_delta_to_thread_no_save_for_empty_summary():
+    user = await User.objects.acreate_user(username="u-empty", email="empty@x.com", password="x")  # noqa: S106
+    thread = await ChatThread.objects.acreate(thread_id="t-empty-usage", user=user, repo_id="a/b", ref="main")
+    empty = UsageSummary()
+
+    refreshed = await ChatThreadService.apply_usage_delta_to_thread(thread.thread_id, empty, None, 0)
+
+    assert refreshed is not None
+    assert refreshed.input_tokens in (None, 0)
+    assert refreshed.last_model_name == ""
     await user.adelete()
