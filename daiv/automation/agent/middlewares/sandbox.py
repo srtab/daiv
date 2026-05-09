@@ -377,7 +377,7 @@ class SandboxMiddleware(AgentMiddleware):
                     "The bash tool may be unavailable for this run."
                 )
 
-            if response.patch:
+            if response.patch and runtime.context.has_repo:
                 try:
                     GitManager(runtime.context.gitrepo).apply_patch(response.patch)
                 except Exception:
@@ -429,12 +429,18 @@ class SandboxMiddleware(AgentMiddleware):
                 )
             )
             try:
-                working_dir = Path(runtime.context.gitrepo.working_dir)
-                repo_archive, skills_archive = await asyncio.gather(
-                    asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                    asyncio.to_thread(_make_skills_archive, working_dir.parent / Path(GLOBAL_SKILLS_PATH).name),
-                )
-                await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
+                if runtime.context.has_repo:
+                    working_dir = Path(runtime.context.gitrepo.working_dir)
+                    repo_archive, skills_archive = await asyncio.gather(
+                        asyncio.to_thread(_make_repo_archive, str(working_dir)),
+                        asyncio.to_thread(_make_skills_archive, working_dir.parent / Path(GLOBAL_SKILLS_PATH).name),
+                    )
+                    await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
+                else:
+                    # Repoless: no on-disk repo or skills to seed; the sandbox container
+                    # starts with an empty workspace by default. (seed_session raises if
+                    # both archives are None, so we skip the call entirely here.)
+                    pass
             except Exception:
                 try:
                     await client.close_session(session_id)
