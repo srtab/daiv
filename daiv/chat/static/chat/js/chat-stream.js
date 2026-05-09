@@ -734,7 +734,16 @@
           }
         }
       } else if (type === AGUI.CUSTOM && evt.name === "daiv.usage_summary") {
-        this.usage_summary = evt.value;
+        // Skip the assignment when the payload is byte-identical so Alpine
+        // doesn't re-run every x-text binding for an event that carries no
+        // new information. JSON.stringify gives us a cheap structural compare
+        // that adapts automatically when new fields land on the wire.
+        const next = evt.value;
+        const nextSerialized = JSON.stringify(next);
+        if (this._lastUsageSerialized !== nextSerialized) {
+          this._lastUsageSerialized = nextSerialized;
+          this.usage_summary = next;
+        }
       } else {
         // Cheap visibility for unrecognised AG-UI events so future upstream
         // additions don't vanish silently from the chat UI.

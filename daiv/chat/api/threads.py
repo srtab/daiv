@@ -123,7 +123,24 @@ class ChatThreadService:
         between run and apply). Plain async read-modify-write — the per-thread
         ``active_run_id`` slot is the lock; no ``select_for_update`` needed.
         """
-        thread = await ChatThread.objects.filter(thread_id=thread_id).afirst()
+        thread = (
+            await ChatThread.objects
+            .filter(thread_id=thread_id)
+            .only(
+                "thread_id",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "cost_usd",
+                "cost_priced",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "last_model_name",
+                "last_input_tokens",
+                "usage_by_model",
+            )
+            .afirst()
+        )
         if thread is None:
             return None
         changed = thread.apply_usage_delta(summary, last_model_name, last_input_tokens)

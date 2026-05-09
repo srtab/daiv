@@ -15,6 +15,7 @@ from accounts.mixins import BreadcrumbMixin
 from chat.models import ChatThread
 from chat.repo_state import aget_existing_mr_payload, mr_to_payload
 from chat.turns import build_turns
+from chat.usage import build_thread_usage_payload
 from core.checkpointer import open_checkpointer
 
 
@@ -61,24 +62,11 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         return super().get_object(queryset)
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        from chat.usage import get_context_window
-
         ctx = super().get_context_data(**kwargs)
         thread = ctx.setdefault("thread", None)
         if thread is None:
             ctx.update({"turns": [], "expired": False, "active_run_id": "", "merge_request": None})
-            ctx["usage_summary"] = {
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "total_tokens": 0,
-                "cache_read_tokens": 0,
-                "cache_write_tokens": 0,
-                "cost_usd": None,
-                "by_model": {},
-                "last_model_name": None,
-                "last_input_tokens": 0,
-                "context_window": None,
-            }
+            ctx["usage_summary"] = build_thread_usage_payload(None)
             return ctx
         messages_history, expired, merge_request = async_to_sync(_ahydrate)(thread.thread_id)
         if merge_request is None:
@@ -87,18 +75,7 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["expired"] = expired
         ctx["active_run_id"] = thread.active_run_id
         ctx["merge_request"] = merge_request
-        ctx["usage_summary"] = {
-            "input_tokens": thread.input_tokens or 0,
-            "output_tokens": thread.output_tokens or 0,
-            "total_tokens": thread.total_tokens or 0,
-            "cache_read_tokens": thread.cache_read_tokens,
-            "cache_write_tokens": thread.cache_write_tokens,
-            "cost_usd": str(thread.cost_usd) if thread.cost_priced and thread.cost_usd is not None else None,
-            "by_model": thread.usage_by_model or {},
-            "last_model_name": thread.last_model_name or None,
-            "last_input_tokens": thread.last_input_tokens,
-            "context_window": get_context_window(thread.last_model_name or None),
-        }
+        ctx["usage_summary"] = build_thread_usage_payload(thread)
         return ctx
 
     def get_breadcrumbs(self):

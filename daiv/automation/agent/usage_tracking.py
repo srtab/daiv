@@ -185,6 +185,9 @@ _usage_metadata_var: ContextVar[CostAwareUsageMetadataCallbackHandler | None] = 
 register_configure_hook(_usage_metadata_var, inheritable=True)
 
 
+# Legacy ``TypeVar`` is used in the signature alongside the PEP-695 generic
+# parameter list because ty rejects ``type[HandlerT] = SomeBound`` as a
+# parameter default. Both names point at the same upper bound.
 _HandlerT = TypeVar("_HandlerT", bound=CostAwareUsageMetadataCallbackHandler)
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -109,13 +109,11 @@ class ChatThread(TokenUsageRecord):
 
         changed: list[str] = []
 
-        # Token totals (coalesce-on-NULL because the inherited mixin fields are nullable).
         self.input_tokens = (self.input_tokens or 0) + summary.input_tokens
         self.output_tokens = (self.output_tokens or 0) + summary.output_tokens
         self.total_tokens = (self.total_tokens or 0) + summary.total_tokens
         changed.extend(["input_tokens", "output_tokens", "total_tokens"])
 
-        # Cache totals derived from per-model input_token_details.
         cr, cw = cache_token_totals(summary.by_model or {})
         if cr:
             self.cache_read_tokens += cr
@@ -124,7 +122,6 @@ class ChatThread(TokenUsageRecord):
             self.cache_write_tokens += cw
             changed.append("cache_write_tokens")
 
-        # Most recent LLM call (replace, not increment).
         if last_model_name:
             self.last_model_name = last_model_name
             changed.append("last_model_name")
@@ -132,7 +129,9 @@ class ChatThread(TokenUsageRecord):
             self.last_input_tokens = last_input_tokens
             changed.append("last_input_tokens")
 
-        # Cost: sticky-null once any unpriced delta lands.
+        # Sticky-null cost: once any unpriced delta lands, the cumulative cost is
+        # unknown for the rest of the thread's lifetime. Re-priced deltas can't
+        # restore confidence in earlier missing data.
         if summary.cost_usd is None or not self.cost_priced:
             if self.cost_priced:
                 self.cost_priced = False
@@ -141,31 +140,57 @@ class ChatThread(TokenUsageRecord):
                 self.cost_usd = None
                 changed.append("cost_usd")
         else:
-            self.cost_usd = (self.cost_usd or Decimal("0")) + Decimal(summary.cost_usd)
-            changed.append("cost_usd")
-
-        # Deep-merge usage_by_model.
-        merged = dict(self.usage_by_model or {})
-        for model, entry in (summary.by_model or {}).items():
-            existing = dict(merged.get(model) or {})
-            for key in ("input_tokens", "output_tokens", "total_tokens"):
-                existing[key] = int(existing.get(key) or 0) + int(entry.get(key) or 0)
-            for detail_key in ("input_token_details", "output_token_details"):
-                if detail_key in entry:
-                    existing[detail_key] = dict(entry[detail_key])
-            new_cost = entry.get("cost_usd")
-            if "cost_usd" not in existing:
-                # First observation — adopt the new value as-is (priced or not).
-                existing["cost_usd"] = new_cost
+            try:
+                delta_cost = Decimal(summary.cost_usd)
+            except InvalidOperation, TypeError, ValueError:
+                logger.error(
+                    "Invalid cost_usd %r from UsageSummary for ChatThread(thread_id=%r) "
+                    "model=%r total_tokens=%d; degrading thread to unpriced",
+                    summary.cost_usd,
+                    self.thread_id,
+                    last_model_name,
+                    summary.total_tokens,
+                )
+                if self.cost_priced:
+                    self.cost_priced = False
+                    changed.append("cost_priced")
+                if self.cost_usd is not None:
+                    self.cost_usd = None
+                    changed.append("cost_usd")
             else:
-                old_cost = existing["cost_usd"]
-                if old_cost is None or new_cost is None:
-                    # Sticky null: once an unpriced delta lands, this model's cost is unknown.
+                self.cost_usd = (self.cost_usd or Decimal("0")) + delta_cost
+                changed.append("cost_usd")
+
+        if summary.by_model:
+            merged = dict(self.usage_by_model or {})
+            for model, entry in summary.by_model.items():
+                existing = dict(merged.get(model) or {})
+                for key in ("input_tokens", "output_tokens", "total_tokens"):
+                    existing[key] = int(existing.get(key) or 0) + int(entry.get(key) or 0)
+                for detail_key in ("input_token_details", "output_token_details"):
+                    if detail_key in entry:
+                        existing[detail_key] = dict(entry[detail_key])
+                new_cost = entry.get("cost_usd")
+                if "cost_usd" not in existing:
+                    existing["cost_usd"] = new_cost
+                elif existing["cost_usd"] is None or new_cost is None:
+                    # Sticky null per model — same rationale as the cumulative case above.
                     existing["cost_usd"] = None
                 else:
-                    existing["cost_usd"] = str(Decimal(old_cost) + Decimal(new_cost))
-            merged[model] = existing
-        self.usage_by_model = merged
-        changed.append("usage_by_model")
+                    try:
+                        existing["cost_usd"] = str(Decimal(existing["cost_usd"]) + Decimal(new_cost))
+                    except InvalidOperation, TypeError, ValueError:
+                        logger.warning(
+                            "Invalid per-model cost for ChatThread(thread_id=%r) model=%r "
+                            "old=%r new=%r; sticky-null this model's cost",
+                            self.thread_id,
+                            model,
+                            existing["cost_usd"],
+                            new_cost,
+                        )
+                        existing["cost_usd"] = None
+                merged[model] = existing
+            self.usage_by_model = merged
+            changed.append("usage_by_model")
 
         return changed

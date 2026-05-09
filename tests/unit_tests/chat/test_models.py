@@ -134,6 +134,65 @@ def test_apply_usage_delta_deep_merges_usage_by_model():
     assert Decimal(entry["cost_usd"]) == Decimal("0.003")
 
 
+def test_apply_usage_delta_malformed_cost_degrades_to_unpriced(caplog):
+    t = _make_thread()
+    t.apply_usage_delta(_summary(cost_usd="0.10"), "m", 1)
+    assert t.cost_usd == Decimal("0.10")
+
+    with caplog.at_level("ERROR", logger="daiv.chat"):
+        changed = t.apply_usage_delta(_summary(cost_usd="not-a-number"), "m", 1)
+
+    assert t.cost_priced is False
+    assert t.cost_usd is None
+    assert "cost_priced" in changed
+    assert "cost_usd" in changed
+    assert any("Invalid cost_usd" in r.message for r in caplog.records)
+
+
+def test_apply_usage_delta_malformed_cost_typeerror_branch(caplog):
+    """Decimal(object()) raises TypeError — covered by the same except clause."""
+    t = _make_thread()
+    summary = UsageSummary(
+        input_tokens=10,
+        output_tokens=5,
+        total_tokens=15,
+        cost_usd=object(),  # not a number, not a string
+        by_model={},
+    )
+    with caplog.at_level("ERROR", logger="daiv.chat"):
+        t.apply_usage_delta(summary, "m", 1)
+    assert t.cost_priced is False
+    assert t.cost_usd is None
+
+
+def test_apply_usage_delta_per_model_malformed_cost_logs_and_nulls(caplog):
+    t = _make_thread()
+    t.usage_by_model = {"m": {"cost_usd": "0.10"}}
+    by_model = {"m": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2, "cost_usd": "garbage"}}
+    summary = UsageSummary(input_tokens=1, output_tokens=1, total_tokens=2, cost_usd="0.10", by_model=by_model)
+
+    with caplog.at_level("WARNING", logger="daiv.chat"):
+        t.apply_usage_delta(summary, "m", 1)
+
+    assert t.usage_by_model["m"]["cost_usd"] is None
+    assert any("Invalid per-model cost" in r.message for r in caplog.records)
+
+
+def test_apply_usage_delta_skips_usage_by_model_write_when_empty():
+    """Non-zero token totals with empty by_model must not touch usage_by_model."""
+    t = _make_thread()
+    t.usage_by_model = None  # untouched by the call
+    summary = UsageSummary(input_tokens=10, output_tokens=5, total_tokens=15, cost_usd="0.001", by_model={})
+
+    changed = t.apply_usage_delta(summary, "m", 10)
+
+    assert "usage_by_model" not in changed
+    assert t.usage_by_model is None
+    # Token totals still accumulated.
+    assert t.input_tokens == 10
+    assert "input_tokens" in changed
+
+
 def test_apply_usage_delta_increments_cache_columns():
     t = _make_thread()
     by_model = {

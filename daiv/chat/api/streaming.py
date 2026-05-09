@@ -16,7 +16,7 @@ from automation.agent.usage_tracking import (
     track_usage_metadata,
 )
 from automation.agent.utils import build_langsmith_config
-from chat.usage import get_context_window
+from chat.usage import USAGE_SUMMARY_EVENT_NAME, build_thread_usage_payload
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
@@ -139,7 +139,6 @@ class ChatRunStreamer:
                                 logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
                     clean_run = True
 
-                    # Apply usage delta + emit cumulative totals before the finally cleanup runs.
                     # Wrapped: a usage failure must not retroactively turn a clean run into RUN_ERROR.
                     try:
                         summary = build_usage_summary(usage_handler)
@@ -148,24 +147,12 @@ class ChatRunStreamer:
                                 self.thread_id, summary, usage_handler.last_model_name, usage_handler.last_input_tokens
                             )
                             if thread is not None:
-                                payload = {
-                                    "input_tokens": thread.input_tokens or 0,
-                                    "output_tokens": thread.output_tokens or 0,
-                                    "total_tokens": thread.total_tokens or 0,
-                                    "cache_read_tokens": thread.cache_read_tokens,
-                                    "cache_write_tokens": thread.cache_write_tokens,
-                                    "cost_usd": (
-                                        str(thread.cost_usd)
-                                        if thread.cost_priced and thread.cost_usd is not None
-                                        else None
-                                    ),
-                                    "by_model": thread.usage_by_model or {},
-                                    "last_model_name": thread.last_model_name or None,
-                                    "last_input_tokens": thread.last_input_tokens,
-                                    "context_window": get_context_window(thread.last_model_name or None),
-                                }
                                 yield self.encoder.encode(
-                                    CustomEvent(type=EventType.CUSTOM, name="daiv.usage_summary", value=payload)
+                                    CustomEvent(
+                                        type=EventType.CUSTOM,
+                                        name=USAGE_SUMMARY_EVENT_NAME,
+                                        value=build_thread_usage_payload(thread),
+                                    )
                                 )
                     except Exception:
                         logger.exception("chat: usage delta apply / emit failed for thread_id=%s", self.thread_id)

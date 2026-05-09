@@ -156,8 +156,6 @@ class Activity(TokenUsageRecord):
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
 
-    # Denormalized usage / cost (survives DBTaskResult pruning) — inherited from TokenUsageRecord.
-
     # Denormalized timing
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
