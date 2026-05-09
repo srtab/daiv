@@ -1,8 +1,7 @@
-import contextlib
 import fnmatch
 import logging
 import re
-import tempfile
+import subprocess  # noqa: S404
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -376,34 +375,40 @@ class GitManager:
         Args:
             patch: The patch to apply.
         """
-        if not patch or not patch.strip():
-            return
+        apply_patch_to_dir(patch, Path(self.repo.working_dir))
 
-        if not patch.endswith("\n"):
-            patch += "\n"
 
-        diff_bytes = patch.encode("utf-8", "surrogateescape")
-        diff_args = ["--whitespace=nowarn"]
+def apply_patch_to_dir(patch: str, working_dir: Path) -> None:
+    """Apply a unified diff to ``working_dir`` using ``git apply``.
 
-        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp:
-            tmp.write(diff_bytes)
-            tmp.flush()
-            tmp_path = tmp.name
+    ``git apply`` does not require a ``.git`` directory and is transactional within a
+    single invocation, so one subprocess call covers both repo-bound and repoless
+    callers. The ``"No valid patches in input"`` stderr line is git's signal for an
+    empty or no-op patch and is treated as success.
+    """
+    if not patch or not patch.strip():
+        return
 
-        try:
-            try:
-                self.repo.git.apply(*diff_args, "--check", tmp_path)
-            except GitCommandError as e:
-                # Check if the error is about empty/invalid patches
-                if "No valid patches in input" in str(e):
-                    # Empty or invalid patch - this is not an error, just skip it
-                    return
-                raise RuntimeError("git apply failed. The patch is not valid.") from e
+    if not patch.endswith("\n"):
+        patch += "\n"
 
-            self.repo.git.apply(*diff_args, tmp_path)
-        finally:
-            with contextlib.suppress(OSError):
-                Path(tmp_path).unlink()
+    result = subprocess.run(  # noqa: S603
+        ["git", "apply", "--whitespace=nowarn", "-"],  # noqa: S607
+        cwd=working_dir,
+        input=patch.encode("utf-8", "surrogateescape"),
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return
+
+    stderr = result.stderr.decode("utf-8", "replace").strip()
+    stdout = result.stdout.decode("utf-8", "replace").strip()
+    if "No valid patches in input" in stderr:
+        logger.debug("apply_patch_to_dir: empty/no-op patch, skipping (cwd=%s, stderr=%r)", working_dir, stderr)
+        return
+    detail = stderr or stdout or "<no diagnostic output>"
+    raise RuntimeError(f"git apply failed (rc={result.returncode}, cwd={working_dir}): {detail}")
 
 
 class GitPushPermissionError(RuntimeError):

@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from git import GitCommandError, Repo
 
-from codebase.utils import GitManager, GitPushPermissionError
+from codebase.utils import GitManager, GitPushPermissionError, apply_patch_to_dir
 
 
 def _configure_repo_identity(repo: Repo) -> None:
@@ -258,3 +258,61 @@ def test_git_manager_apply_patch_skips_empty_patch(tmp_path: Path) -> None:
     GitManager(repo).apply_patch("")
 
     assert file_path.read_text() == "hello\n"
+
+
+def test_apply_patch_to_dir_works_without_git_repo(tmp_path: Path) -> None:
+    """Repoless agent runs use ``apply_patch_to_dir`` directly against the on-disk working
+    directory backing ``FilesystemBackend``; ``git apply`` does not require a ``.git``
+    folder, so the patch must apply cleanly even when ``tmp_path`` is just a plain dir."""
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("hello\n")
+
+    diff = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1,2 @@\n hello\n+world\n"
+
+    apply_patch_to_dir(diff, tmp_path)
+
+    assert file_path.read_text() == "hello\nworld\n"
+    assert not (tmp_path / ".git").exists()
+
+
+def test_apply_patch_to_dir_skips_empty_patch(tmp_path: Path) -> None:
+    apply_patch_to_dir("", tmp_path)
+    apply_patch_to_dir("   \n", tmp_path)
+
+
+def test_apply_patch_to_dir_skips_non_patch_input_via_git_sentinel(tmp_path: Path) -> None:
+    """Non-whitespace text that ``git apply`` rejects with "No valid patches in input"
+    must be treated as a no-op, not a failure — covers the stderr-sentinel branch
+    that the up-front strip() short-circuit doesn't reach."""
+    apply_patch_to_dir("this is not a patch\n", tmp_path)
+
+
+def test_apply_patch_to_dir_creates_new_file_in_non_repo_dir(tmp_path: Path) -> None:
+    """``git apply`` over stdin must create new files in a plain working directory
+    (no ``.git/``), since the bash tool relies on this to mirror sandbox-side file
+    creations back to the agent's local FilesystemBackend in repoless runs."""
+    new_file_diff = (
+        "diff --git a/new.txt b/new.txt\n"
+        "new file mode 100644\n"
+        "index 0000000..3b18e51\n"
+        "--- /dev/null\n"
+        "+++ b/new.txt\n"
+        "@@ -0,0 +1 @@\n"
+        "+hello world\n"
+    )
+
+    apply_patch_to_dir(new_file_diff, tmp_path)
+
+    assert (tmp_path / "new.txt").read_text() == "hello world\n"
+    assert not (tmp_path / ".git").exists()
+
+
+def test_apply_patch_to_dir_raises_runtime_error_on_invalid_patch(tmp_path: Path) -> None:
+    """Malformed patches must surface as ``RuntimeError`` so the bash tool can return its
+    fail-loud "Failed to persist the changes" message instead of silently dropping bytes."""
+    bogus_diff = (
+        "diff --git a/missing.txt b/missing.txt\n--- a/missing.txt\n+++ b/missing.txt\n@@ -1 +1 @@\n-was here\n+gone\n"
+    )
+
+    with pytest.raises(RuntimeError, match="git apply"):
+        apply_patch_to_dir(bogus_diff, tmp_path)

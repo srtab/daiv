@@ -28,7 +28,7 @@ from automation.agent.middlewares.file_system import (
     format_sync_error,
 )
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, IgnoreCheck, files_changed_from_patch
+from codebase.utils import GitManager, IgnoreCheck, apply_patch_to_dir, files_changed_from_patch
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -377,11 +377,16 @@ class SandboxMiddleware(AgentMiddleware):
                     "The bash tool may be unavailable for this run."
                 )
 
-            if response.patch and runtime.context.has_repo:
+            if response.patch:
                 try:
-                    GitManager(runtime.context.gitrepo).apply_patch(response.patch)
+                    apply_patch_to_dir(response.patch, self._working_dir)
                 except Exception:
-                    logger.exception("[%s] Error applying patch to the repository.", BASH_TOOL_NAME)
+                    logger.exception(
+                        "[%s] Error applying patch (session=%s, working_dir=%s).",
+                        BASH_TOOL_NAME,
+                        runtime.state.get("session_id"),
+                        self._working_dir,
+                    )
                     return "error: Failed to persist the changes. The bash tool is not working properly."
 
             return json.dumps({
@@ -429,9 +434,6 @@ class SandboxMiddleware(AgentMiddleware):
                 )
             )
             try:
-                # Skills are materialized by SkillsMiddleware (which runs first) under
-                # ``self._working_dir.parent / "skills"``, so they are available in repoless
-                # runs too. The repo archive is only built when a checkout exists.
                 skills_dir = self._working_dir.parent / Path(GLOBAL_SKILLS_PATH).name
                 if runtime.context.has_repo:
                     working_dir = Path(runtime.context.gitrepo.working_dir)
@@ -444,6 +446,12 @@ class SandboxMiddleware(AgentMiddleware):
                     skills_archive = await asyncio.to_thread(_make_skills_archive, skills_dir)
                 if repo_archive is not None or skills_archive is not None:
                     await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
+                else:
+                    logger.debug(
+                        "Skipping seed_session for %s: no repo archive and no skills archive (skills_dir=%s)",
+                        session_id,
+                        skills_dir,
+                    )
             except Exception:
                 try:
                     await client.close_session(session_id)

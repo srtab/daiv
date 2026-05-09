@@ -98,7 +98,9 @@ class TestBashTool:
         runtime = _make_bash_runtime(repo)
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
-        bash_tool = _bash_tool_with_fake_client(client)
+        middleware = SandboxMiddleware(backend=Mock(), working_dir=repo_dir, close_session=True)
+        middleware._client = client
+        bash_tool = middleware.tools[0]
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
@@ -110,6 +112,84 @@ class TestBashTool:
         # The patch just edits hello.txt — nothing added/deleted/renamed.
         assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
         client.run_commands.assert_awaited_once()
+
+    async def test_bash_tool_repoless_applies_patch_to_working_dir(self, tmp_path: Path):
+        """Repoless runs have no gitrepo to commit through, but the on-disk working
+        directory still backs the agent's FilesystemBackend; the patch returned by the
+        sandbox bash call must be applied so subsequent read_file/ls/grep see the
+        files the bash command created or changed."""
+        from langchain.tools import ToolRuntime
+
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+
+        working_dir = tmp_path / "repo"
+        working_dir.mkdir(parents=True)
+        file_path = working_dir / "hello.txt"
+        file_path.write_text("old\n")
+
+        patch_text = "diff --git a/hello.txt b/hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"
+
+        response = RunCommandsResponse(results=[], patch=base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"))
+
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=response)
+
+        middleware = SandboxMiddleware(backend=Mock(), working_dir=working_dir, close_session=True)
+        middleware._client = client
+        bash_tool = middleware.tools[0]
+
+        ctx = Mock(config=_make_sandbox_config_mock())
+        ctx.has_repo = False
+        # Any access to gitrepo in the repoless path is a bug.
+        type(ctx).gitrepo = property(
+            lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
+        )
+        runtime = ToolRuntime(
+            state={"session_id": "sess_1"},
+            context=ctx,
+            config={},
+            stream_writer=Mock(),
+            tool_call_id="call_1",
+            store=None,
+        )
+
+        output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
+
+        assert file_path.read_text() == "new\n"
+        import json as _json
+
+        payload = _json.loads(output)
+        assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
+        client.run_commands.assert_awaited_once()
+
+    async def test_bash_tool_returns_error_when_apply_patch_raises(self, tmp_path: Path):
+        """If ``apply_patch_to_dir`` raises (e.g. malformed sandbox patch), the bash tool
+        must surface a "Failed to persist" error string instead of returning the JSON
+        success payload — otherwise the agent's local filesystem silently desyncs from
+        the sandbox while bash claims success."""
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        repo = Repo.init(repo_dir)
+
+        # Non-empty patch so the response.patch branch is taken.
+        response = RunCommandsResponse(
+            results=[], patch=base64.b64encode(b"diff --git a/x b/x\nbogus\n").decode("utf-8")
+        )
+
+        runtime = _make_bash_runtime(repo)
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=response)
+        middleware = SandboxMiddleware(backend=Mock(), working_dir=repo_dir, close_session=True)
+        middleware._client = client
+        bash_tool = middleware.tools[0]
+
+        with patch(
+            "automation.agent.middlewares.sandbox.apply_patch_to_dir",
+            side_effect=RuntimeError("simulated apply failure"),
+        ):
+            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
+
+        assert output.startswith("error: Failed to persist")
 
     async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
         import httpx

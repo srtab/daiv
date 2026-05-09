@@ -135,10 +135,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # We need to always copy builtin and custom global skills before calling the super method to make them available
-        # in the filesystem not just to be captured and registered in "skills_metadata" on first run, but also to be
-        # available in the filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error
-        # will be raised. This runs in repoless runs too — skills don't depend on a checked-out repo.
+        # Materialize before super() so the `skill` tool can resolve files on disk,
+        # not just metadata; otherwise the agent gets a not_found at invocation time.
         builtin_skills, custom_global_skills = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
