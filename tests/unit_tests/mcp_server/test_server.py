@@ -164,10 +164,25 @@ async def test_submit_job_all_fail():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_empty_batch_returns_error_json():
-    result = await submit_job(repos=[], prompt="p")
+async def test_submit_job_empty_repos_creates_repoless_run():
+    fake_activity = MagicMock()
+    fake_activity.task_result_id = "repoless-task-uuid"
+    fake_result = MagicMock()
+    fake_result.batch_id = "repoless-batch-uuid"
+    fake_result.activities = [fake_activity]
+    fake_result.failed = []
+
+    with (
+        patch("mcp_server.server.get_current_user", AsyncMock(return_value=None)),
+        patch("mcp_server.server.asubmit_batch_runs", AsyncMock(return_value=fake_result)),
+    ):
+        result = await submit_job(repos=[], prompt="p")
+
     data = json.loads(result)
-    assert "error" in data
+    assert "batch_id" in data
+    assert len(data["jobs"]) == 1
+    assert data["jobs"][0]["repo_id"] is None
+    assert data["jobs"][0]["ref"] is None
 
 
 @pytest.mark.django_db(transaction=True)

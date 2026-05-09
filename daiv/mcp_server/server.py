@@ -42,6 +42,11 @@ The response includes `merge_request_url` when one was created or updated.
 Use `list_repositories` to discover available repositories by name or topic. \
 If the user already knows the `repo_id`, skip discovery and call `submit_job` directly.
 
+You can also call `submit_job` with `repos: []` to run the agent without any repository \
+attached — useful for research, MCP-tool orchestration, or assembling a report from \
+web/MCP sources. Repoless runs have no git, MR/PR, or per-repo configuration; the agent \
+works against an empty ephemeral sandbox.
+
 Write specific prompts describing the intended change: include file paths, function names, \
 or error messages. Vague requests produce poor results.
 
@@ -75,9 +80,6 @@ class RepoSubmitSpec(BaseModel):
 
 @mcp.tool()
 async def submit_job(
-    repos: Annotated[
-        list[RepoSubmitSpec], Field(min_length=1, max_length=20, description="1-20 repositories to run against.")
-    ],
     prompt: Annotated[
         str,
         Field(
@@ -90,6 +92,14 @@ async def submit_job(
             )
         ),
     ],
+    repos: Annotated[
+        list[RepoSubmitSpec],
+        Field(
+            min_length=0,
+            max_length=20,
+            description="0-20 repositories. Empty list = repoless run (no git context, web/MCP/sandbox-only).",
+        ),
+    ] = None,
     use_max: Annotated[
         bool, Field(description="Use the max model configuration (more capable model with thinking set to high).")
     ] = False,
@@ -117,10 +127,12 @@ async def submit_job(
     independently; poll with ``get_job_status`` per job_id or pass ``wait=true``.
     """
     # FastMCP validates only at the protocol layer; direct calls bypass it.
-    if not repos:
-        return json.dumps({"error": "At least one repository is required."})
+    if repos is None:
+        repos = []
     if len(repos) > MAX_REPOS_PER_BATCH:
         return json.dumps({"error": f"At most {MAX_REPOS_PER_BATCH} repositories allowed per submission."})
+    if not prompt:
+        return json.dumps({"error": "prompt is required."})
 
     specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
 
@@ -142,16 +154,23 @@ async def submit_job(
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
     # non-failed one with the next activity in result.activities (same order as input).
-    failed_keys = {(f.repo_id, f.ref) for f in result.failed}
-    activities_iter = iter(result.activities)
-    jobs: list[dict] = []
-    job_ids: list[str] = []
-    for spec in specs:
-        if (spec.repo_id, spec.ref or "") in failed_keys:
-            continue
-        activity = next(activities_iter)
-        jobs.append({"job_id": str(activity.task_result_id), "repo_id": spec.repo_id, "ref": spec.ref})
-        job_ids.append(str(activity.task_result_id))
+    if not specs:
+        # Repoless: result.activities holds exactly the synthetic single repoless activity.
+        jobs: list[dict] = [
+            {"job_id": str(activity.task_result_id), "repo_id": None, "ref": None} for activity in result.activities
+        ]
+        job_ids: list[str] = [str(activity.task_result_id) for activity in result.activities]
+    else:
+        failed_keys = {(f.repo_id, f.ref) for f in result.failed}
+        activities_iter = iter(result.activities)
+        jobs = []
+        job_ids = []
+        for spec in specs:
+            if (spec.repo_id, spec.ref or "") in failed_keys:
+                continue
+            activity = next(activities_iter)
+            jobs.append({"job_id": str(activity.task_result_id), "repo_id": spec.repo_id, "ref": spec.ref})
+            job_ids.append(str(activity.task_result_id))
 
     failed_out = [{"repo_id": f.repo_id, "ref": f.ref, "error": f.error} for f in result.failed]
 
