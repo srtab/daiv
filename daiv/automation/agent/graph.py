@@ -162,7 +162,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
             + inherited_system_prompt
             + REPO_RELATIVE_SYSTEM_REMINDER
         )
-    return prompt_body + "\n\n" + inherited_system_prompt
+    return prompt_body + "\n\n" + FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE + "\n\n" + inherited_system_prompt
 
 
 def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
