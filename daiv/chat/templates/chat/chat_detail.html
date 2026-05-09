@@ -27,6 +27,7 @@
 {% block app_content %}
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
+  {{ usage_summary|json_script:"chat-initial-usage" }}
 
   <div x-data='chat({
          endpoint: "/api/chat/completions",
