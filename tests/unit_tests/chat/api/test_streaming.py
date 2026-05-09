@@ -253,3 +253,138 @@ def test_streamer_post_init_rejects_run_id_mismatch():
             input_data=SimpleNamespace(thread_id="t", run_id="r-2"),
             encoder=EventEncoder(accept="text/event-stream"),
         )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_streamer_emits_usage_summary_custom_event_after_clean_run():
+    """A clean run with non-zero token usage must emit a daiv.usage_summary
+    CustomEvent carrying cumulative thread totals before the finally cleanup runs.
+    """
+    from automation.agent.usage_tracking import UsageSummary
+
+    benign_snap = StateSnapshotEvent(
+        type=EventType.STATE_SNAPSHOT,
+        raw_event={"metadata": {"langgraph_checkpoint_ns": ""}},
+        snapshot={"messages": []},
+    )
+    summary = UsageSummary(
+        input_tokens=100,
+        output_tokens=50,
+        total_tokens=150,
+        cost_usd="0.001234",
+        by_model={"m": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150, "cost_usd": "0.001234"}},
+    )
+    fake_thread = SimpleNamespace(
+        input_tokens=100,
+        output_tokens=50,
+        total_tokens=150,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        cost_usd="0.001234",
+        cost_priced=True,
+        usage_by_model={"m": {"input_tokens": 100}},
+        last_model_name="m",
+        last_input_tokens=100,
+    )
+
+    async def _apply(*_args, **_kwargs):
+        return fake_thread
+
+    handler = MagicMock()
+    handler.last_model_name = "m"
+    handler.last_input_tokens = 100
+
+    def _mock_track_usage_metadata(*, handler_class):
+        ctx = MagicMock()
+        ctx.__enter__ = lambda _self: handler
+        ctx.__exit__ = lambda *_args: None
+        return ctx
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([benign_snap])),
+        patch("chat.api.streaming.ChatThreadService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.ChatThreadService.release_run", new=AsyncMock()),
+        patch("chat.api.streaming.ChatThreadService.heartbeat", new=AsyncMock()),
+        patch("chat.api.streaming.track_usage_metadata", _mock_track_usage_metadata),
+        patch("chat.api.streaming.build_usage_summary", return_value=summary),
+        patch("chat.api.streaming.ChatThreadService.apply_usage_delta_to_thread", side_effect=_apply),
+    ):
+        events = [e async for e in _streamer().events()]
+
+    # Decode the encoded SSE event payloads to find the CustomEvent.
+    custom_event_count = sum(1 for raw in events if "daiv.usage_summary" in raw)
+    assert custom_event_count == 1, f"expected exactly one daiv.usage_summary event, got {custom_event_count}"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_streamer_skips_custom_event_when_no_llm_activity():
+    """A run with zero LLM calls (empty UsageSummary) should not emit a CustomEvent."""
+    from automation.agent.usage_tracking import UsageSummary
+
+    handler = MagicMock()
+    handler.last_model_name = None
+    handler.last_input_tokens = 0
+
+    def _mock_track_usage_metadata(*, handler_class):
+        ctx = MagicMock()
+        ctx.__enter__ = lambda _self: handler
+        ctx.__exit__ = lambda *_args: None
+        return ctx
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.ChatThreadService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.ChatThreadService.release_run", new=AsyncMock()),
+        patch("chat.api.streaming.ChatThreadService.heartbeat", new=AsyncMock()),
+        patch("chat.api.streaming.track_usage_metadata", _mock_track_usage_metadata),
+        patch("chat.api.streaming.build_usage_summary", return_value=UsageSummary()),
+        patch("chat.api.streaming.ChatThreadService.apply_usage_delta_to_thread", new=AsyncMock()),
+    ):
+        events = [e async for e in _streamer().events()]
+
+    assert not any("daiv.usage_summary" in raw for raw in events)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_streamer_logs_and_continues_when_apply_fails(caplog):
+    """Apply failures must not retroactively turn a clean run into RUN_ERROR."""
+    from automation.agent.usage_tracking import UsageSummary
+
+    handler = MagicMock()
+    handler.last_model_name = "m"
+    handler.last_input_tokens = 100
+    summary = UsageSummary(input_tokens=10, output_tokens=5, total_tokens=15, cost_usd=None, by_model={})
+
+    def _mock_track_usage_metadata(*, handler_class):
+        ctx = MagicMock()
+        ctx.__enter__ = lambda _self: handler
+        ctx.__exit__ = lambda *_args: None
+        return ctx
+
+    async def _apply_boom(*_args, **_kwargs):
+        raise RuntimeError("db is sad")
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.ChatThreadService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.ChatThreadService.release_run", new=AsyncMock()),
+        patch("chat.api.streaming.ChatThreadService.heartbeat", new=AsyncMock()),
+        patch("chat.api.streaming.track_usage_metadata", _mock_track_usage_metadata),
+        patch("chat.api.streaming.build_usage_summary", return_value=summary),
+        patch("chat.api.streaming.ChatThreadService.apply_usage_delta_to_thread", side_effect=_apply_boom),
+        caplog.at_level("ERROR", logger="daiv.chat"),
+    ):
+        events = [e async for e in _streamer().events()]
+
+    # No RUN_ERROR was yielded — clean run survives an apply failure.
+    assert not any("run_failed" in raw for raw in events)
+    assert any("usage delta apply" in r.message for r in caplog.records)

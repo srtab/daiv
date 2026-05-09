@@ -5,12 +5,18 @@ import time
 from dataclasses import dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
-from ag_ui.core.events import EventType, RunErrorEvent
+from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.usage_tracking import (
+    LastCallUsageMetadataCallbackHandler,
+    build_usage_summary,
+    track_usage_metadata,
+)
 from automation.agent.utils import build_langsmith_config
+from chat.usage import get_context_window
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
@@ -98,39 +104,71 @@ class ChatRunStreamer:
         clean_run = False
         last_heartbeat = time.monotonic()
         try:
-            async with (
-                open_checkpointer() as checkpointer,
-                set_runtime_ctx(repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref) as runtime_ctx,
-            ):
-                agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
-                langsmith_config = build_langsmith_config(
-                    runtime_ctx,
-                    trigger="chat",
-                    model=site_settings.agent_model_name,
-                    thinking_level=site_settings.agent_thinking_level,
-                )
-                langgraph_agent = RuntimeContextLangGraphAGUIAgent(
-                    name="DAIV",
-                    description="DAIV agent",
-                    graph=agent,
-                    config={"recursion_limit": 500, **langsmith_config},
-                    runtime_context=runtime_ctx,
-                )
-                async for event in SubagentEventFilter().apply(langgraph_agent.run(self.input_data)):
-                    if event.type == EventType.STATE_SNAPSHOT:
-                        snap = getattr(event, "snapshot", None) or {}
-                        if isinstance(snap, dict) and "merge_request" in snap:
-                            last_mr = snap["merge_request"]
-                    yield self.encoder.encode(event)
+            with track_usage_metadata(handler_class=LastCallUsageMetadataCallbackHandler) as usage_handler:
+                async with (
+                    open_checkpointer() as checkpointer,
+                    set_runtime_ctx(repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref) as runtime_ctx,
+                ):
+                    agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
+                    langsmith_config = build_langsmith_config(
+                        runtime_ctx,
+                        trigger="chat",
+                        model=site_settings.agent_model_name,
+                        thinking_level=site_settings.agent_thinking_level,
+                    )
+                    langgraph_agent = RuntimeContextLangGraphAGUIAgent(
+                        name="DAIV",
+                        description="DAIV agent",
+                        graph=agent,
+                        config={"recursion_limit": 500, **langsmith_config},
+                        runtime_context=runtime_ctx,
+                    )
+                    async for event in SubagentEventFilter().apply(langgraph_agent.run(self.input_data)):
+                        if event.type == EventType.STATE_SNAPSHOT:
+                            snap = getattr(event, "snapshot", None) or {}
+                            if isinstance(snap, dict) and "merge_request" in snap:
+                                last_mr = snap["merge_request"]
+                        yield self.encoder.encode(event)
 
-                    now = time.monotonic()
-                    if now - last_heartbeat >= HEARTBEAT_INTERVAL_S:
-                        last_heartbeat = now
-                        try:
-                            await ChatThreadService.heartbeat(self.thread_id, self.run_id)
-                        except Exception:
-                            logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
-                clean_run = True
+                        now = time.monotonic()
+                        if now - last_heartbeat >= HEARTBEAT_INTERVAL_S:
+                            last_heartbeat = now
+                            try:
+                                await ChatThreadService.heartbeat(self.thread_id, self.run_id)
+                            except Exception:
+                                logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
+                    clean_run = True
+
+                    # Apply usage delta + emit cumulative totals before the finally cleanup runs.
+                    # Wrapped: a usage failure must not retroactively turn a clean run into RUN_ERROR.
+                    try:
+                        summary = build_usage_summary(usage_handler)
+                        if summary.total_tokens > 0:
+                            thread = await ChatThreadService.apply_usage_delta_to_thread(
+                                self.thread_id, summary, usage_handler.last_model_name, usage_handler.last_input_tokens
+                            )
+                            if thread is not None:
+                                payload = {
+                                    "input_tokens": thread.input_tokens or 0,
+                                    "output_tokens": thread.output_tokens or 0,
+                                    "total_tokens": thread.total_tokens or 0,
+                                    "cache_read_tokens": thread.cache_read_tokens,
+                                    "cache_write_tokens": thread.cache_write_tokens,
+                                    "cost_usd": (
+                                        str(thread.cost_usd)
+                                        if thread.cost_priced and thread.cost_usd is not None
+                                        else None
+                                    ),
+                                    "by_model": thread.usage_by_model or {},
+                                    "last_model_name": thread.last_model_name or None,
+                                    "last_input_tokens": thread.last_input_tokens,
+                                    "context_window": get_context_window(thread.last_model_name or None),
+                                }
+                                yield self.encoder.encode(
+                                    CustomEvent(type=EventType.CUSTOM, name="daiv.usage_summary", value=payload)
+                                )
+                    except Exception:
+                        logger.exception("chat: usage delta apply / emit failed for thread_id=%s", self.thread_id)
         except Exception:
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
             yield self.encoder.encode(
