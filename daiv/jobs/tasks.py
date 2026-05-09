@@ -23,9 +23,9 @@ async def _check_resume_consistency(thread_id: str, repo_id: str | None) -> None
     vice versa): the agent state carried by the checkpointer assumes one mode or
     the other, and silently switching would corrupt the conversation.
     """
-    prior = await Activity.objects.filter(thread_id=thread_id).order_by("created_at").values("repo_id").afirst()
+    prior = await Activity.objects.filter(thread_id=thread_id).order_by("created_at", "id").values("repo_id").afirst()
     if prior is None:
-        return  # first activity for this thread; nothing to compare against
+        return
 
     prior_repo_id = prior["repo_id"]
     if (prior_repo_id is None) != (repo_id is None):

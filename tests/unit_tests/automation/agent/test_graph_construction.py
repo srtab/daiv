@@ -29,8 +29,8 @@ def test_general_purpose_subagent_passes_backend_and_working_dir_to_sandbox_midd
     assert "SandboxMiddleware(" in src and "backend=backend" in src, (
         "subagents.py must construct SandboxMiddleware with backend and working_dir"
     )
-    assert "working_dir=sub_working_dir" in src, (
-        "subagents.py must pass working_dir to SandboxMiddleware via sub_working_dir"
+    assert "working_dir=resolve_agent_path(" in src, (
+        "subagents.py must derive working_dir from resolve_agent_path so repoless runs are thread-isolated"
     )
     assert "if sandbox_enabled:" in src, "subagents.py must gate SandboxMiddleware on sandbox_enabled"
 
@@ -40,41 +40,56 @@ def test_general_purpose_subagent_passes_backend_and_working_dir_to_sandbox_midd
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_agent_path_repoless_uses_ephemeral_dir(tmp_path, monkeypatch):
+def test_resolve_agent_path_repoless_isolates_per_thread(tmp_path, monkeypatch):
     from automation.agent import graph as graph_mod
     from codebase.context import RuntimeCtx
-    from codebase.repo_config import RepositoryConfig
 
     monkeypatch.setattr(graph_mod, "_REPOLESS_AGENT_PATH_ROOT", str(tmp_path))
-    ctx = RuntimeCtx(bot_username="daiv", repos=[], scope=None, config=RepositoryConfig())
-    p = graph_mod.resolve_agent_path(ctx, thread_id="abc-123")
-    assert str(p).startswith(str(tmp_path))
-    assert p.name == "repo"
-    assert "abc-123" in str(p.parent)
+    ctx = RuntimeCtx(bot_username="daiv")
+    p1 = graph_mod.resolve_agent_path(ctx, thread_id="abc-123")
+    p2 = graph_mod.resolve_agent_path(ctx, thread_id="xyz-456")
+    p1_repeat = graph_mod.resolve_agent_path(ctx, thread_id="abc-123")
+
+    assert str(p1).startswith(str(tmp_path))
+    assert p1.name == "repo"
+    assert p1.parent != p2.parent  # different threads → different parents
+    assert p1 == p1_repeat  # same thread → idempotent
 
 
 def test_resolve_agent_path_repoless_creates_directory(tmp_path, monkeypatch):
     from automation.agent import graph as graph_mod
     from codebase.context import RuntimeCtx
-    from codebase.repo_config import RepositoryConfig
 
     monkeypatch.setattr(graph_mod, "_REPOLESS_AGENT_PATH_ROOT", str(tmp_path))
-    ctx = RuntimeCtx(bot_username="daiv", repos=[], scope=None, config=RepositoryConfig())
+    ctx = RuntimeCtx(bot_username="daiv")
     p = graph_mod.resolve_agent_path(ctx, thread_id="xyz-456")
     assert p.exists()
     assert p.is_dir()
 
 
 def test_resolve_agent_path_repoless_fallback_key(tmp_path, monkeypatch):
-    """When no thread_id is given, falls back to 'ephemeral' as directory key."""
+    """Without a thread_id, falls back to a stable shared key."""
     from automation.agent import graph as graph_mod
     from codebase.context import RuntimeCtx
-    from codebase.repo_config import RepositoryConfig
 
     monkeypatch.setattr(graph_mod, "_REPOLESS_AGENT_PATH_ROOT", str(tmp_path))
-    ctx = RuntimeCtx(bot_username="daiv", repos=[], scope=None, config=RepositoryConfig())
-    p = graph_mod.resolve_agent_path(ctx)
-    assert "ephemeral" in str(p)
+    ctx = RuntimeCtx(bot_username="daiv")
+    p1 = graph_mod.resolve_agent_path(ctx)
+    p2 = graph_mod.resolve_agent_path(ctx)
+    assert p1 == p2
+
+
+def test_resolve_agent_path_repoless_neutralises_path_traversal(tmp_path, monkeypatch):
+    """A caller-controlled thread_id containing traversal sequences must not let
+    mkdir escape the root; resolve_agent_path hashes the value before use."""
+    from automation.agent import graph as graph_mod
+    from codebase.context import RuntimeCtx
+
+    monkeypatch.setattr(graph_mod, "_REPOLESS_AGENT_PATH_ROOT", str(tmp_path))
+    ctx = RuntimeCtx(bot_username="daiv")
+    p = graph_mod.resolve_agent_path(ctx, thread_id="../../../etc/passwd")
+    assert str(p).startswith(str(tmp_path))
+    assert ".." not in p.parent.name
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +104,6 @@ async def test_create_daiv_agent_repoless_skips_git_middleware(monkeypatch, tmp_
     from automation.agent import graph as graph_mod
     from automation.agent.mcp.toolkits import MCPToolkit
     from codebase.context import RuntimeCtx
-    from codebase.repo_config import RepositoryConfig
 
     git_calls: list = []
     git_platform_calls: list = []
@@ -111,7 +125,7 @@ async def test_create_daiv_agent_repoless_skips_git_middleware(monkeypatch, tmp_
 
     monkeypatch.setattr(MCPToolkit, "get_tools", classmethod(_no_op_get_tools))
 
-    ctx = RuntimeCtx(bot_username="daiv", repos=[], scope=None, config=RepositoryConfig())
+    ctx = RuntimeCtx(bot_username="daiv")
     await graph_mod.create_daiv_agent(ctx=ctx, sandbox_enabled=False)
 
     assert git_calls == [], "GitMiddleware must NOT be instantiated in repoless mode"

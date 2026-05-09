@@ -3,6 +3,7 @@ import fnmatch
 import logging
 import re
 import tempfile
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -169,6 +170,16 @@ def files_changed_from_patch(patch: str | None) -> list[dict[str, str]]:
     return files
 
 
+class IgnoreCheck(Enum):
+    """Result of `git check-ignore`. UNKNOWN means the plumbing call failed —
+    callers deciding policy on this should treat it as fail-closed when the
+    consequence of being wrong is silent data loss (e.g. `git add -A` drop)."""
+
+    IGNORED = "ignored"
+    NOT_IGNORED = "not_ignored"
+    UNKNOWN = "unknown"
+
+
 class GitManager:
     """
     Manager for interacting with a Git repository.
@@ -237,25 +248,22 @@ class GitManager:
         # to ensure newly created files are detected reliably.
         return bool(self.repo.git.status("--porcelain").strip())
 
-    def is_path_ignored(self, path: str | Path) -> bool:
-        """
-        Return True iff `path` is an untracked file that matches an active ignore
-        rule (`.gitignore`, `.git/info/exclude`, or `core.excludesFile`). Tracked
-        files are always reported as not ignored — `git check-ignore`'s default
-        behavior — since `git add -A` updates them regardless of `.gitignore`.
+    def is_path_ignored(self, path: str | Path) -> IgnoreCheck:
+        """Tri-state result of `git check-ignore`.
 
-        Fail-open: real `check-ignore` errors (exit != 0/1) are logged and treated
-        as not-ignored so a malfunctioning plumbing call cannot block legitimate
-        writes. Loses safety in the rare broken-repo case but preserves it in the
-        common case.
+        IGNORED — path matches an active rule (untracked + matched).
+        NOT_IGNORED — `check-ignore` exited 1 ("no match") or matched a tracked file.
+        UNKNOWN — `check-ignore` failed for any other reason (corrupt repo, missing
+        binary, permissions); the caller decides whether to refuse or proceed.
         """
         try:
-            return bool(self.repo.git.check_ignore(str(path)).strip())
+            output = self.repo.git.check_ignore(str(path)).strip()
         except GitCommandError as e:
-            if e.status == 1:  # documented "no match"
-                return False
-            logger.exception("git check-ignore failed for %s; treating as not ignored", path)
-            return False
+            if e.status == 1:
+                return IgnoreCheck.NOT_IGNORED
+            logger.exception("git check-ignore failed for %s", path)
+            return IgnoreCheck.UNKNOWN
+        return IgnoreCheck.IGNORED if output else IgnoreCheck.NOT_IGNORED
 
     def commit_and_push_changes(
         self,

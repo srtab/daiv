@@ -25,7 +25,7 @@ class JobSubmitJobItem(Schema):
 
 class JobSubmitFailureItem(Schema):
     repo_id: str
-    ref: str
+    ref: str | None = None
     error: str
 
 

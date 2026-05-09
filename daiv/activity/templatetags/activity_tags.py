@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django import template
 
-from activity.models import TriggerType
+from activity.models import REPOLESS_DISPLAY_LABEL, TriggerType
 
 register = template.Library()
 
@@ -27,7 +27,7 @@ def activity_title(activity) -> str:
         return f"Issue #{activity.issue_iid}" if activity.issue_iid else "Issue"
     if activity.trigger_type == TriggerType.MR_WEBHOOK:
         return f"MR/PR !{activity.merge_request_iid}" if activity.merge_request_iid else "MR/PR"
-    return f"{activity.get_trigger_type_display()} on {activity.repo_id or '(repoless)'}"
+    return f"{activity.get_trigger_type_display()} on {activity.repo_id or REPOLESS_DISPLAY_LABEL}"
 
 
 @register.filter

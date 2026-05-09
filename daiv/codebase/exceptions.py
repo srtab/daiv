@@ -1,10 +1,7 @@
 class SingleRepoRequiredError(RuntimeError):
-    """Raised when ``RuntimeCtx.repo`` is accessed on a context that does not hold
-    exactly one repository handle.
+    """Raised when ``RuntimeCtx.repo`` is accessed without exactly one handle.
 
-    The ``actual`` count distinguishes the repoless case (``0``) from the
-    multi-repo case (``>= 2``). Tools that catch this can render a tailored
-    error to the LLM.
+    ``actual`` distinguishes repoless (``0``) from multi-repo (``>= 2``).
     """
 
     def __init__(self, actual: int) -> None:

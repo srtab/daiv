@@ -50,7 +50,6 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     """
     repo_id = request.headers.get(HEADER_REPO_ID) or None
     ref = request.headers.get(HEADER_REF) or None
-    # Both must be present together or both absent. Mixed = caller bug; reject.
     if (repo_id is None) != (ref is None):
         raise HttpError(400, "X-Repo-ID and X-Ref must be provided together (or both omitted for repoless runs).")
 

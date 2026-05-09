@@ -193,21 +193,25 @@ def test_git_manager_apply_patch_applies_valid_diff(tmp_path: Path) -> None:
 
 
 def test_git_manager_is_path_ignored_matches_gitignore_rule(tmp_path: Path) -> None:
+    from codebase.utils import IgnoreCheck
+
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)
     (repo_dir / ".gitignore").write_text(".python-version\n")
 
     manager = GitManager(repo)
 
-    assert manager.is_path_ignored(repo_dir / ".python-version") is True
-    assert manager.is_path_ignored(repo_dir / "README.md") is False
+    assert manager.is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.IGNORED
+    assert manager.is_path_ignored(repo_dir / "README.md") is IgnoreCheck.NOT_IGNORED
 
 
 def test_git_manager_is_path_ignored_returns_false_when_no_gitignore(tmp_path: Path) -> None:
+    from codebase.utils import IgnoreCheck
+
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)
 
-    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is False
+    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.NOT_IGNORED
 
 
 def test_git_manager_is_path_ignored_returns_false_for_tracked_file_matching_rule(tmp_path: Path) -> None:
@@ -215,6 +219,8 @@ def test_git_manager_is_path_ignored_returns_false_for_tracked_file_matching_rul
     `git check-ignore` reflects that by reporting them as not ignored. Locked in
     so a future refactor (e.g. switching to manual fnmatch) doesn't reintroduce
     a false positive that would block edits to legitimately-tracked files."""
+    from codebase.utils import IgnoreCheck
+
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)
     (repo_dir / ".gitignore").write_text(".python-version\n")
@@ -222,7 +228,25 @@ def test_git_manager_is_path_ignored_returns_false_for_tracked_file_matching_rul
     repo.git.add("-f", ".python-version", ".gitignore")
     repo.index.commit("track ignored file")
 
-    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is False
+    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.NOT_IGNORED
+
+
+def test_git_manager_is_path_ignored_returns_unknown_on_command_error(tmp_path: Path, monkeypatch) -> None:
+    """When `git check-ignore` fails for any reason other than exit-1 ("no match"),
+    the helper must surface UNKNOWN so callers can fail-closed rather than treating
+    a broken plumbing call as "not ignored"."""
+    from unittest.mock import MagicMock
+
+    from git import GitCommandError
+
+    from codebase.utils import IgnoreCheck
+
+    repo = _init_repo(tmp_path)
+    fake_git = MagicMock()
+    fake_git.check_ignore.side_effect = GitCommandError(["git", "check-ignore"], 128, stderr=b"fatal: bad object HEAD")
+    monkeypatch.setattr(repo, "git", fake_git)
+
+    assert GitManager(repo).is_path_ignored("any/path") is IgnoreCheck.UNKNOWN
 
 
 def test_git_manager_apply_patch_skips_empty_patch(tmp_path: Path) -> None:

@@ -28,7 +28,7 @@ from automation.agent.middlewares.file_system import (
     format_sync_error,
 )
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, files_changed_from_patch
+from codebase.utils import GitManager, IgnoreCheck, files_changed_from_patch
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -436,11 +436,6 @@ class SandboxMiddleware(AgentMiddleware):
                         asyncio.to_thread(_make_skills_archive, working_dir.parent / Path(GLOBAL_SKILLS_PATH).name),
                     )
                     await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
-                else:
-                    # Repoless: no on-disk repo or skills to seed; the sandbox container
-                    # starts with an empty workspace by default. (seed_session raises if
-                    # both archives are None, so we skip the call entirely here.)
-                    pass
             except Exception:
                 try:
                     await client.close_session(session_id)
@@ -555,15 +550,17 @@ class SandboxMiddleware(AgentMiddleware):
         content = args["content"]
 
         # `git add -A` silently drops gitignored paths, so a successful write would
-        # never reach the MR. Refuse pre-dispatch; on path-resolution failure, fall
-        # through and let upstream produce its own error (matches `_mirror_edit`).
+        # never reach the MR. Refuse pre-dispatch when bound to a repo; on path-
+        # resolution failure, let upstream produce its own error.
+        ctx = cast("RuntimeCtx", request.runtime.context)
         try:
             prevalidated_target = syncer.resolve_target(file_path)
         except OSError, ValueError:
             prevalidated_target = None
-        if prevalidated_target is not None:
-            git_manager = GitManager(cast("RuntimeCtx", request.runtime.context).gitrepo)
-            if await asyncio.to_thread(git_manager.is_path_ignored, prevalidated_target):
+        if prevalidated_target is not None and ctx.has_repo:
+            git_manager = GitManager(ctx.gitrepo)
+            ignore_result = await asyncio.to_thread(git_manager.is_path_ignored, prevalidated_target)
+            if ignore_result is IgnoreCheck.IGNORED:
                 return ToolMessage(
                     content=(
                         f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
@@ -577,20 +574,35 @@ class SandboxMiddleware(AgentMiddleware):
                     name=request.tool_call["name"],
                     status="error",
                 )
+            if ignore_result is IgnoreCheck.UNKNOWN:
+                # Fail-closed: a broken plumbing call must not let an ignored path slip
+                # through silently and disappear from `git add -A`.
+                return ToolMessage(
+                    content=(
+                        f"Refused: could not determine whether '{file_path}' is gitignored "
+                        f"(`git check-ignore` failed; see server logs). Retry, or run "
+                        f"`git check-ignore -v <path>` via bash to inspect."
+                    ),
+                    tool_call_id=request.tool_call["id"],
+                    name=request.tool_call["name"],
+                    status="error",
+                )
 
         async with syncer.lock:
             result = await handler(request)
             if not _is_text_success(result, WRITE_SUCCESS_PREFIX):
                 return result
 
-            try:
-                target = syncer.resolve_target(file_path)
-            except (OSError, ValueError) as exc:
-                # Upstream succeeded so the file is on disk, but we can't determine where —
-                # surface CRITICAL so the agent knows local state may be desynced.
-                return _replace_tool_message(
-                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=False)
-                )
+            target = prevalidated_target
+            if target is None:
+                try:
+                    target = syncer.resolve_target(file_path)
+                except (OSError, ValueError) as exc:
+                    # Upstream succeeded so the file is on disk, but we can't determine where —
+                    # surface CRITICAL so the agent knows local state may be desynced.
+                    return _replace_tool_message(
+                        result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=False)
+                    )
 
             def _rollback() -> bool:
                 try:

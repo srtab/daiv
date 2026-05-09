@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from git import Repo  # noqa: TC002
@@ -34,23 +34,30 @@ class RepoHandle:
 class RuntimeCtx:
     """Per-run context. Holds 0..N repository handles plus shared agent-level state.
 
-    - ``repos == []`` is repoless mode (web/MCP/sandbox-only).
-    - ``len(repos) == 1`` is the dominant single-repo mode (today's behavior).
-    - ``len(repos) >= 2`` is reserved for future multi-repo support.
+    - ``repos == ()`` is repoless mode (web/MCP/sandbox-only).
+    - ``len(repos) == 1`` is the dominant single-repo mode.
+    - ``len(repos) >= 2`` is rejected at construction; reserved for future multi-repo support.
 
     Backward-compatible forwarding properties (``repository``, ``gitrepo``,
-    ``git_platform``) delegate to ``self.repo`` so legacy call sites work
-    unchanged in single-repo mode and raise :class:`SingleRepoRequiredError`
-    otherwise (so a tool selected in error surfaces a clear failure rather
-    than corrupting state).
+    ``git_platform``, ``config``) delegate to ``self.repo`` so legacy call sites
+    work unchanged in single-repo mode and raise :class:`SingleRepoRequiredError`
+    otherwise.
     """
 
     bot_username: str
-    repos: list[RepoHandle] = field(default_factory=list)
+    repos: tuple[RepoHandle, ...] = ()
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
-    config: RepositoryConfig = field(default_factory=RepositoryConfig)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.repos, tuple):
+            object.__setattr__(self, "repos", tuple(self.repos))
+        if len(self.repos) > 1:
+            raise NotImplementedError(
+                f"Multi-repo runs are not supported yet (got {len(self.repos)} repos). "
+                "Construct one RuntimeCtx per repo."
+            )
 
     @property
     def has_repo(self) -> bool:
@@ -73,6 +80,10 @@ class RuntimeCtx:
     @property
     def git_platform(self) -> GitPlatform:
         return self.repo.git_platform
+
+    @property
+    def config(self) -> RepositoryConfig:
+        return self.repos[0].config if self.repos else RepositoryConfig()
 
 
 runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runtime_ctx", default=None)
@@ -111,11 +122,10 @@ async def set_runtime_ctx(
         repo_client = RepoClient.create_instance(**kwargs)
         ctx = RuntimeCtx(
             bot_username=repo_client.current_user.username,
-            repos=[],
+            repos=(),
             scope=scope,
             issue=issue,
             merge_request=merge_request,
-            config=RepositoryConfig(),
         )
         token = runtime_ctx.set(ctx)
         try:
@@ -137,11 +147,10 @@ async def set_runtime_ctx(
         )
         ctx = RuntimeCtx(
             bot_username=repo_client.current_user.username,
-            repos=[handle],
+            repos=(handle,),
             scope=scope,
             issue=issue,
             merge_request=merge_request,
-            config=config,
         )
         token = runtime_ctx.set(ctx)
         try:

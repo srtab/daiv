@@ -23,7 +23,7 @@ from django_filters.views import FilterView
 from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
 from activity.forms import AgentRunCreateForm
-from activity.models import Activity, ActivityStatus, TriggerType
+from activity.models import REPOLESS_DISPLAY_LABEL, Activity, ActivityStatus, TriggerType
 from activity.services import RepoTarget, submit_batch_runs
 from schedules.models import ScheduledJob
 
@@ -110,7 +110,7 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
     def get_breadcrumbs(self):
         return [
             {"label": "Activity", "url": reverse("activity_list")},
-            {"label": f"Run {str(self.object.pk)[:8]} — {self.object.repo_id or '(repoless)'}", "url": None},
+            {"label": f"Run {str(self.object.pk)[:8]} — {self.object.repo_id or REPOLESS_DISPLAY_LABEL}", "url": None},
         ]
 
 
@@ -139,7 +139,7 @@ class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):
 
         meta_lines = [
             "---",
-            f"repository: {activity.repo_id or '(repoless)'}",
+            f"repository: {activity.repo_id or REPOLESS_DISPLAY_LABEL}",
             f"trigger: {activity.get_trigger_type_display()}",
         ]
         if activity.ref:

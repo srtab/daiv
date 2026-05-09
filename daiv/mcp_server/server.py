@@ -93,11 +93,12 @@ async def submit_job(
         ),
     ],
     repos: Annotated[
-        list[RepoSubmitSpec],
+        list[RepoSubmitSpec] | None,
         Field(
-            min_length=0,
             max_length=20,
-            description="0-20 repositories. Empty list = repoless run (no git context, web/MCP/sandbox-only).",
+            description=(
+                "0-20 repositories. Empty list (or omitted) = repoless run (no git context, web/MCP/sandbox-only)."
+            ),
         ),
     ] = None,
     use_max: Annotated[
@@ -142,7 +143,7 @@ async def submit_job(
     except Exception:
         logger.exception("Failed to resolve current user for MCP submit_job")
 
-    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
+    targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or None) for s in specs]
     result = await asubmit_batch_runs(
         user=mcp_user,
         prompt=prompt,
@@ -166,7 +167,7 @@ async def submit_job(
         jobs = []
         job_ids = []
         for spec in specs:
-            if (spec.repo_id, spec.ref or "") in failed_keys:
+            if (spec.repo_id, spec.ref or None) in failed_keys:
                 continue
             activity = next(activities_iter)
             jobs.append({"job_id": str(activity.task_result_id), "repo_id": spec.repo_id, "ref": spec.ref})

@@ -137,3 +137,55 @@ class TestGitMiddleware:
             pytest.raises(KeyError),
         ):
             await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
+
+    async def test_aafter_agent_returns_protected_branch_fallback_source(self):
+        """The publisher writes the original (protected) source branch onto itself
+        when it has to swap to a fresh MR. ``aafter_agent`` must thread that value
+        through the returned state dict — otherwise the manager-side footer
+        rendering pipeline (`_render_protected_branch_footer`) never fires and the
+        notice silently drops."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        new_mr = MagicMock(source_branch="agent/fresh", merge_request_id=200)
+
+        async def _fake_publish(*, merge_request, skip_ci):
+            # Simulate the publisher recording a fallback during publish.
+            publisher = _fake_publish.publisher  # set by the patch site below
+            publisher.protected_branch_fallback_source = "feature"
+            return new_mr
+
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
+            publisher_instance = MagicMock()
+            publisher_instance.protected_branch_fallback_source = None
+            publisher_cls.return_value = publisher_instance
+
+            async def publish_side_effect(**kwargs):
+                publisher_instance.protected_branch_fallback_source = "feature"
+                return new_mr
+
+            publisher_instance.publish = AsyncMock(side_effect=publish_side_effect)
+
+            result = await middleware.aafter_agent({"merge_request": None}, runtime)
+
+        assert result is not None
+        assert result["merge_request"] is new_mr
+        assert result["code_changes"] is True
+        assert result["protected_branch_fallback_source"] == "feature"
+
+    async def test_aafter_agent_passes_through_none_when_no_fallback(self):
+        """When publish completes without protection fallback, the value stays None
+        so a stale signal from a prior turn doesn't render a phantom footer."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        new_mr = MagicMock(source_branch="agent/normal", merge_request_id=201)
+
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
+            publisher_instance = MagicMock()
+            publisher_instance.protected_branch_fallback_source = None
+            publisher_instance.publish = AsyncMock(return_value=new_mr)
+            publisher_cls.return_value = publisher_instance
+
+            result = await middleware.aafter_agent({"merge_request": None}, runtime)
+
+        assert result is not None
+        assert result["protected_branch_fallback_source"] is None

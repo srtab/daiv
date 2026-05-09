@@ -64,7 +64,7 @@ def _runtime(*, state: dict[str, Any], working_dir: Path) -> SimpleNamespace:
     """A minimal ``ToolRuntime`` shim sufficient for the syncer + upstream tools."""
     return SimpleNamespace(
         state=state,
-        context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(working_dir))),
+        context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(working_dir)), has_repo=True),
         tool_call_id="call_test",
     )
 

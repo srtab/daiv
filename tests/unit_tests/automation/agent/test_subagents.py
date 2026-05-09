@@ -168,7 +168,7 @@ class TestGeneralPurposeMiddleware:
         write = next(t for t in fs_mw.tools if t.name == "write_file")
         runtime = SimpleNamespace(
             state={"session_id": "parent-sid"},
-            context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(repo_dir))),
+            context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(repo_dir)), has_repo=True),
             tool_call_id="call_subagent",
         )
 

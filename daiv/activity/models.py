@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     from accounts.models import User
 
 
+REPOLESS_DISPLAY_LABEL = _("(repoless)")
+
+
 class ActivityStatus(models.TextChoices):
     READY = "READY", _("Pending")
     RUNNING = "RUNNING", _("Running")
@@ -197,7 +200,7 @@ class Activity(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.get_trigger_type_display()} on {self.repo_id or '(repoless)'} ({self.status})"
+        return f"{self.get_trigger_type_display()} on {self.repo_id or REPOLESS_DISPLAY_LABEL} ({self.status})"
 
     @property
     def effective_notify_on(self) -> NotifyOn:

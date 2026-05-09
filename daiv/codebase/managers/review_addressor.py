@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
+from redis.exceptions import RedisError
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
@@ -338,14 +340,10 @@ class CommentsAddressorManager(BaseManager):
                 )
 
     async def _safe_get_state(self, agent, config):
-        """Read the agent's persisted state, swallowing errors.
-
-        Footer/result rendering is cosmetic — a checkpoint read failure must never
-        tear down the reply path.
-        """
+        """Read agent state, returning None on transport/serialization failure."""
         try:
             return await agent.aget_state(config=config)
-        except Exception:
+        except RedisError, OSError, json.JSONDecodeError:
             logger.warning(
                 "Failed to read agent state for merge request %d", self.merge_request.merge_request_id, exc_info=True
             )

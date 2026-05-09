@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import tempfile
 from pathlib import Path
@@ -81,18 +82,20 @@ _REPOLESS_AGENT_PATH_ROOT = tempfile.gettempdir() + "/daiv"  # noqa: S108
 def resolve_agent_path(ctx: RuntimeCtx, thread_id: str | None = None) -> Path:
     """Return the on-disk working directory the agent's filesystem tools point at.
 
-    For repo-bound runs this is the gitpython checkout. For repoless runs this is
-    an ephemeral directory under ``_REPOLESS_AGENT_PATH_ROOT`` keyed by
-    ``thread_id`` (so concurrent runs don't collide). The directory is created on
-    demand; teardown is intentionally not done here — the sandbox container holds
-    the only durable copy of any files the agent writes, and the host-side
-    directory is just a placeholder used by ``SandboxMiddleware`` to compute the
-    sandbox-relative path. ``FilesystemBackend(virtual_mode=True)`` keeps actual
-    file content in memory; this on-disk path is never written to.
+    Repo-bound: the gitpython checkout. Repoless: an ephemeral directory under
+    ``_REPOLESS_AGENT_PATH_ROOT`` keyed by ``thread_id`` so concurrent runs don't
+    collide. ``thread_id`` flows from caller-controlled inputs (chat API), so
+    we hash it before using it as a path segment — a literal value containing
+    ``..`` would otherwise let mkdir escape the root. The hash also normalises
+    arbitrary client identifiers to filesystem-safe form.
+
+    Teardown is intentionally not done here. ``FilesystemBackend(virtual_mode=True)``
+    keeps the agent's tool-side file content in memory; this on-disk path is just
+    a placeholder used by ``SandboxMiddleware`` for path arithmetic.
     """
     if ctx.has_repo:
         return Path(ctx.gitrepo.working_dir)
-    key = thread_id or "ephemeral"
+    key = hashlib.sha256((thread_id or "ephemeral").encode("utf-8")).hexdigest()[:32]
     p = Path(_REPOLESS_AGENT_PATH_ROOT) / key / "repo"
     p.mkdir(parents=True, exist_ok=True)
     return p
@@ -237,6 +240,7 @@ async def create_daiv_agent(
             web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
             fallback_models=fallback_models,
+            thread_id=thread_id,
         ),
         create_explore_subagent(backend),
     ]
@@ -251,6 +255,7 @@ async def create_daiv_agent(
             web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
             fallback_models=fallback_models,
+            thread_id=thread_id,
         )
         subagents.extend(custom_subagents)
 

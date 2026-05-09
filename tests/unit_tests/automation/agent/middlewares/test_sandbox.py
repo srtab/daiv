@@ -724,7 +724,7 @@ class TestAwrapToolCall:
         backend._resolve_path = Mock(return_value=str(target))
 
         runtime = Mock()
-        runtime.context = Mock(gitrepo=repo)
+        runtime.context = Mock(gitrepo=repo, has_repo=True)
         runtime.state = {"session_id": "sess_1"}
 
         middleware = _make_middleware()
@@ -742,3 +742,83 @@ class TestAwrapToolCall:
         assert ".gitignore" in result.content
         assert not target.exists()
         handler.assert_not_called()
+
+    async def test_write_file_refused_when_gitignore_check_unknown(self, tmp_path: Path):
+        """If `git check-ignore` itself fails (corrupt repo, missing binary, permissions),
+        the helper returns ``IgnoreCheck.UNKNOWN`` and the write must be refused — failing
+        open here would silently re-introduce the `git add -A` drop the guard prevents."""
+        from langchain_core.messages import ToolMessage
+
+        from automation.agent.middlewares.file_system import SandboxSyncer
+        from codebase.utils import GitManager, IgnoreCheck
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        repo = Repo.init(repo_dir)
+        target = repo_dir / "foo.py"
+
+        backend = Mock()
+        backend._resolve_path = Mock(return_value=str(target))
+
+        runtime = Mock()
+        runtime.context = Mock(gitrepo=repo, has_repo=True)
+        runtime.state = {"session_id": "sess_1"}
+
+        middleware = _make_middleware()
+        middleware._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+
+        request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x\n"}, runtime=runtime)
+        handler = AsyncMock()
+
+        with patch.object(GitManager, "is_path_ignored", return_value=IgnoreCheck.UNKNOWN):
+            result = await middleware.awrap_tool_call(request, handler)
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "could not determine" in result.content
+        handler.assert_not_called()
+
+    async def test_write_file_repoless_skips_gitignore_check(self, tmp_path: Path):
+        """Repoless runs (``runtime.context.has_repo is False``) have no MR target and no
+        gitrepo; the gitignore precheck must be skipped, not raise ``SingleRepoRequiredError``
+        or block the write."""
+        from langchain_core.messages import ToolMessage
+
+        from automation.agent.middlewares.file_system import SandboxSyncer
+        from codebase.utils import GitManager
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        target = repo_dir / "foo.py"
+        target.write_text("x")
+
+        backend = Mock()
+        backend._resolve_path = Mock(return_value=str(target))
+
+        runtime = Mock()
+        # has_repo=False; gitrepo deliberately raises so any access bypassing the gate fails loudly.
+        type(runtime.context).gitrepo = property(
+            lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
+        )
+        runtime.context.has_repo = False
+        runtime.state = {"session_id": "sess_1"}
+
+        middleware = _make_middleware()
+        syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+        syncer.lock = AsyncMock()
+        syncer.lock.__aenter__ = AsyncMock()
+        syncer.lock.__aexit__ = AsyncMock()
+        syncer.mirror = AsyncMock(return_value=None)
+        middleware._syncer = syncer
+
+        request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x"}, runtime=runtime)
+        ok_message = ToolMessage(content="Successfully wrote", tool_call_id="call_1", name="write_file")
+        handler = AsyncMock(return_value=ok_message)
+
+        # GitManager must not be constructed in repoless mode.
+        with patch.object(GitManager, "__init__", side_effect=AssertionError("GitManager built in repoless run")):
+            result = await middleware.awrap_tool_call(request, handler)
+
+        handler.assert_called_once()
+        assert isinstance(result, ToolMessage)
+        assert result.status != "error"
