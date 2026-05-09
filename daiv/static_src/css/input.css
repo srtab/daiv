@@ -465,6 +465,35 @@ main:has(.chat-shell) {
     }
   }
 
+  .chat-rail__usage {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .chat-rail__usage-cost {
+    font-size: 18px;
+    font-weight: 600;
+    color: #f1f5f9;
+  }
+  .chat-rail__usage-tokens {
+    font-size: 13px;
+    color: #94a3b8;
+  }
+  .chat-rail__usage-tokens .chat-rail__sep {
+    color: #475569;
+    margin: 0 4px;
+  }
+  .chat-rail__usage-meta {
+    font-size: 12px;
+    color: #64748b;
+  }
+  .chat-rail__usage-model {
+    font-size: 11px;
+    color: #475569;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    word-break: break-all;
+  }
+
   /* Transcript */
 
   .chat-transcript {

@@ -66,6 +66,13 @@
         <template x-if="filesTouched.length">
           <span><span class="chat-summary__sep">·</span> <span x-text="`${filesTouched.length} files`"></span></span>
         </template>
+        <template x-if="usage_summary && usage_summary.total_tokens > 0">
+          <span><span class="chat-summary__sep">·</span>
+            <span x-text="formatCost(usage_summary.cost_usd)"></span>
+            <span class="chat-summary__sep">·</span>
+            <span x-text="formatTokens(usage_summary.total_tokens)"></span>
+          </span>
+        </template>
       </div>
 
       <div class="chat-transcript">
