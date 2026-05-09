@@ -150,6 +150,33 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
             self.cost_by_model[model_name] += cost
 
 
+class LastCallUsageMetadataCallbackHandler(CostAwareUsageMetadataCallbackHandler):
+    """Tracks the model and input-token count of the *last* LLM call observed.
+
+    The base handler aggregates by model and discards per-call ordering; chat needs the
+    most recent call's identity for the context-window indicator.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.last_model_name: str | None = None
+        self.last_input_tokens: int = 0
+
+    def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
+        super().on_llm_end(response, **kwargs)
+        try:
+            generation = response.generations[0][0]
+        except IndexError:
+            return
+        message = getattr(generation, "message", None)
+        usage_metadata = getattr(message, "usage_metadata", None) or {}
+        model_name = (getattr(message, "response_metadata", None) or {}).get("model_name")
+        if model_name and usage_metadata.get("input_tokens") is not None:
+            with self._lock:
+                self.last_model_name = model_name
+                self.last_input_tokens = int(usage_metadata["input_tokens"])
+
+
 # Registered once at import time. Upstream ``get_usage_metadata_callback`` creates a new
 # ContextVar and hook registration on every call, leaking into the module-level hook list.
 _usage_metadata_var: ContextVar[CostAwareUsageMetadataCallbackHandler | None] = ContextVar(
@@ -159,14 +186,17 @@ register_configure_hook(_usage_metadata_var, inheritable=True)
 
 
 @contextmanager
-def track_usage_metadata() -> Iterator[CostAwareUsageMetadataCallbackHandler]:
-    """Activate a ``CostAwareUsageMetadataCallbackHandler`` for the enclosed block.
+def track_usage_metadata(
+    *, handler_class: type[CostAwareUsageMetadataCallbackHandler] = CostAwareUsageMetadataCallbackHandler
+) -> Iterator[CostAwareUsageMetadataCallbackHandler]:
+    """Activate a usage-metadata callback handler for the enclosed block.
 
     The handler is auto-propagated to every nested ``Runnable`` invocation (including
     subagents) via the registered ``ContextVar`` hook, so callers don't need to thread
-    callbacks through ``RunnableConfig``.
+    callbacks through ``RunnableConfig``. Pass ``handler_class`` to opt into a richer
+    subclass (e.g. ``LastCallUsageMetadataCallbackHandler``).
     """
-    handler = CostAwareUsageMetadataCallbackHandler()
+    handler = handler_class()
     token = _usage_metadata_var.set(handler)
     try:
         yield handler
