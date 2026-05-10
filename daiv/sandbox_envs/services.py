@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sandbox_envs.models import SandboxEnvironment, Scope
+
+if TYPE_CHECKING:
+    from codebase.context import SandboxRuntime
+    from codebase.repo_config import Sandbox
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -80,4 +85,41 @@ async def get_global_default() -> SandboxEnvOverride | None:
         memory_bytes=(site_settings.sandbox_memory if locked("sandbox_memory") else base.memory_bytes),
         cpus=(site_settings.sandbox_cpu if locked("sandbox_cpu") else base.cpus),
         env_vars=base.env_vars,
+    )
+
+
+def merge_sandbox_runtime(
+    repo_sandbox: Sandbox,
+    repo_fields_set: frozenset[str],
+    per_run: SandboxEnvOverride | None,
+    global_default: SandboxEnvOverride | None,
+) -> SandboxRuntime:
+    """Per-field precedence: per_run > .daiv.yml (explicit key) > global_default.
+
+    A field is taken from per_run only when its value is non-None. A field is
+    taken from .daiv.yml only when the key was literally present in the YAML
+    (so ``base_image: null`` is "explicitly disabled" and beats global).
+    """
+    from codebase.context import SandboxRuntime
+
+    def pick(field: str, runtime_default):
+        if per_run is not None:
+            v = getattr(per_run, field)
+            if v is not None:
+                return v
+        if field in repo_fields_set:
+            return getattr(repo_sandbox, field)
+        if global_default is not None:
+            v = getattr(global_default, field)
+            if v is not None:
+                return v
+        return runtime_default
+
+    return SandboxRuntime(
+        base_image=pick("base_image", None),
+        network_enabled=pick("network_enabled", False),
+        memory_bytes=pick("memory_bytes", None),
+        cpus=pick("cpus", None),
+        env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
+        command_policy=repo_sandbox.command_policy,
     )

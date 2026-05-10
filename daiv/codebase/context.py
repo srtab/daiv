@@ -7,10 +7,31 @@ from git import Repo  # noqa: TC002
 
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
-from codebase.repo_config import RepositoryConfig
+from codebase.repo_config import RepositoryConfig, SandboxCommandPolicy  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+
+@dataclass(frozen=True)
+class SandboxRuntime:
+    """Effective sandbox configuration for the current run.
+
+    Built by ``set_runtime_ctx`` via per-field merge of: per-run env (if any),
+    ``.daiv.yml``'s sandbox section, and the GLOBAL default env. ``command_policy``
+    always comes from ``.daiv.yml``.
+    """
+
+    base_image: str | None
+    network_enabled: bool
+    memory_bytes: int | None
+    cpus: float | None
+    env_vars: dict[str, str]
+    command_policy: SandboxCommandPolicy
+
+    @property
+    def enabled(self) -> bool:
+        return self.base_image is not None
 
 
 @dataclass(frozen=True)
@@ -36,6 +57,9 @@ class RuntimeCtx:
 
     config: RepositoryConfig
     """The repository configuration"""
+
+    sandbox: SandboxRuntime
+    """The effective sandbox configuration for the current run"""
 
     scope: Scope | None = None
     """The scope of the context. If None, not running in a specific scope."""
@@ -89,11 +113,19 @@ async def set_runtime_ctx(
         ref = cast("str", config.default_branch)
 
     with repo_client.load_repo(repository, sha=ref) as repo:
+        from sandbox_envs.services import merge_sandbox_runtime
+
+        # Placeholder until Task 7 wires resolve_sandbox_env + get_global_default.
+        sandbox_placeholder = merge_sandbox_runtime(
+            repo_sandbox=config.sandbox, repo_fields_set=config.sandbox_fields_set, per_run=None, global_default=None
+        )
+
         ctx = RuntimeCtx(
             git_platform=repo_client.git_platform,
             repository=repository,
             gitrepo=repo,
             config=config,
+            sandbox=sandbox_placeholder,
             scope=scope,
             issue=issue,
             merge_request=merge_request,
