@@ -86,46 +86,50 @@ async def set_runtime_ctx(
     issue: Issue | None = None,
     merge_request: MergeRequest | None = None,
     offline: bool = False,
+    sandbox_env_id: str | None = None,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
-    """
-    Set the runtime context and load repository files to a temporary directory.
+    """Set the runtime context and load repository files to a temporary directory.
 
     Args:
         repo_id: The repository identifier
         scope: The scope of the context.
         ref: The reference branch or tag. If None, the default branch will be used.
-        issue: The issue object if the context is scoped to an issue, None otherwise
-        merge_request: The merge request object if the context is scoped to a merge request, None otherwise
+        issue: The issue object if the context is scoped to an issue.
+        merge_request: The merge request object if the context is scoped to a merge request.
         offline: Whether to use the cached configuration or to fetch it from the repository.
+        sandbox_env_id: Optional per-run sandbox environment UUID. When provided, the env
+            is resolved and merged with ``.daiv.yml`` + GLOBAL default to build ``ctx.sandbox``.
         **kwargs: Additional keyword arguments to pass to the repository client.
 
     Yields:
         RuntimeCtx: The runtime context
     """
+    from sandbox_envs.services import get_global_default, merge_sandbox_runtime, resolve_sandbox_env
+
     repo_client = RepoClient.create_instance(**kwargs)
-
     repository = repo_client.get_repository(repo_id)
-
     config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, offline=offline)
 
     if ref is None:
         ref = cast("str", config.default_branch)
 
+    per_run = await resolve_sandbox_env(sandbox_env_id)
+    global_default = await get_global_default()
+    sandbox = merge_sandbox_runtime(
+        repo_sandbox=config.sandbox,
+        repo_fields_set=config.sandbox_fields_set,
+        per_run=per_run,
+        global_default=global_default,
+    )
+
     with repo_client.load_repo(repository, sha=ref) as repo:
-        from sandbox_envs.services import merge_sandbox_runtime
-
-        # Placeholder until Task 7 wires resolve_sandbox_env + get_global_default.
-        sandbox_placeholder = merge_sandbox_runtime(
-            repo_sandbox=config.sandbox, repo_fields_set=config.sandbox_fields_set, per_run=None, global_default=None
-        )
-
         ctx = RuntimeCtx(
             git_platform=repo_client.git_platform,
             repository=repository,
             gitrepo=repo,
             config=config,
-            sandbox=sandbox_placeholder,
+            sandbox=sandbox,
             scope=scope,
             issue=issue,
             merge_request=merge_request,
