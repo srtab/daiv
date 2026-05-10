@@ -82,43 +82,38 @@ class SandboxCommandPolicy(BaseModel):
 
 class Sandbox(BaseModel):
     """
-    Sandbox configuration.
+    Sandbox configuration as declared in ``.daiv.yml``.
+
+    All fields default to ``None``; the runtime resolver in ``sandbox_envs.services``
+    merges this raw view with the per-run env, the GLOBAL default env, and the
+    ``DAIV_SANDBOX_*`` env-locked overlays to build the effective ``SandboxRuntime``.
     """
 
     base_image: str | None = Field(
-        default_factory=lambda: site_settings.sandbox_base_image,
+        default=None,
         examples=["python:3.12-alpine", "node:18-alpine"],
         description=(
-            "The base image for the sandbox to allow agents to execute shell commands. "
-            "Supply a custom image if you need preinstalled tooling."
-            "To disable the sandbox, set this to `null`."
+            "The base image for the sandbox. Omit the key to inherit the global default; "
+            "set to ``null`` explicitly to disable the sandbox for this repository."
         ),
     )
-    network_enabled: bool = Field(
-        default_factory=lambda: site_settings.sandbox_network_enabled,
-        description="Whether to enable the network in the sandbox.",
+    network_enabled: bool | None = Field(
+        default=None, description="Whether to enable the network in the sandbox. Omit to inherit."
     )
     memory_bytes: int | None = Field(
-        default_factory=lambda: site_settings.sandbox_memory,
+        default=None,
         validation_alias=AliasChoices("memory_bytes", "memory"),
-        description="The memory limit for the sandbox (bytes).",
+        description="The memory limit for the sandbox (bytes). Omit to inherit.",
     )
     cpus: float | None = Field(
-        default_factory=lambda: site_settings.sandbox_cpu,
+        default=None,
         validation_alias=AliasChoices("cpus", "cpu"),
-        description="The CPU limit for the sandbox (CPUs).",
+        description="The CPU limit for the sandbox (CPUs). Omit to inherit.",
     )
     command_policy: SandboxCommandPolicy = Field(
         default_factory=SandboxCommandPolicy,
         description="Bash command execution policy for this repository's sandbox sessions.",
     )
-
-    @property
-    def enabled(self) -> bool:
-        """
-        Check if the sandbox is enabled.
-        """
-        return self.base_image is not None
 
 
 class AgentModelConfig(BaseModel):
@@ -241,6 +236,16 @@ class RepositoryConfig(BaseModel):
         if not self.allowed_usernames:
             return True
         return username.lower() in {u.lower() for u in self.allowed_usernames}
+
+    @property
+    def sandbox_fields_set(self) -> frozenset[str]:
+        """Set of ``sandbox.*`` keys that appeared explicitly in ``.daiv.yml``.
+
+        Used by the runtime merge resolver to distinguish "key absent from YAML"
+        (fall through to the global default) from "key present with a value or
+        explicit null" (this is the repo's choice; honor it).
+        """
+        return frozenset(self.sandbox.model_fields_set)
 
     @staticmethod
     def get_config(repo_id: str, *, repository: Repository | None = None, offline: bool = False) -> RepositoryConfig:

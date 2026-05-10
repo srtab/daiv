@@ -227,3 +227,40 @@ class RepositoryConfigTest:
         policy = SandboxCommandPolicy(disallow=("rm -rf", "curl"), allow=("safe-cmd",))
         assert "rm -rf" in policy.disallow
         assert "safe-cmd" in policy.allow
+
+
+def test_sandbox_fields_set_empty_when_section_absent():
+    config = RepositoryConfig.model_validate({})
+    assert config.sandbox_fields_set == frozenset()
+
+
+def test_sandbox_fields_set_tracks_present_keys(monkeypatch):
+    config = RepositoryConfig.model_validate({"sandbox": {"memory_bytes": 8_000_000_000, "base_image": "python:3.12"}})
+    assert config.sandbox_fields_set == frozenset({"memory_bytes", "base_image"})
+    assert config.sandbox.memory_bytes == 8_000_000_000
+    assert config.sandbox.base_image == "python:3.12"
+
+
+def test_sandbox_fields_set_includes_explicit_nulls():
+    config = RepositoryConfig.model_validate({"sandbox": {"base_image": None}})
+    assert "base_image" in config.sandbox_fields_set
+    assert config.sandbox.base_image is None
+
+
+def test_sandbox_unset_fields_default_to_none(monkeypatch):
+    # The old behaviour leaned on site_settings.sandbox_base_image as a factory default.
+    # After the refactor, unset fields are simply None — site_settings no longer
+    # bleeds into the parsed .daiv.yml model.
+    monkeypatch.setattr("core.site_settings.site_settings.sandbox_base_image", "should-not-be-used")
+    config = RepositoryConfig.model_validate({})
+    assert config.sandbox.base_image is None
+    assert config.sandbox.network_enabled is None
+    assert config.sandbox.memory_bytes is None
+    assert config.sandbox.cpus is None
+
+
+def test_sandbox_no_enabled_property():
+    # `Sandbox.enabled` moved to `SandboxRuntime`. Reading it on the raw parsed model
+    # should fail loudly — every existing reader is being updated to read `ctx.sandbox.enabled`.
+    config = RepositoryConfig.model_validate({"sandbox": {"base_image": "python:3.12"}})
+    assert not hasattr(config.sandbox, "enabled")
