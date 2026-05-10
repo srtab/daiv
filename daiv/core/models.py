@@ -98,6 +98,49 @@ class EncryptedFieldDescriptor:
         setattr(obj, self.db_column, encrypt_value(value))
 
 
+class EncryptedJSONFieldDescriptor:
+    """
+    Descriptor that transparently JSON-serializes then Fernet-encrypts on set,
+    and decrypts then JSON-deserializes on get. Storage column convention is
+    ``_<field_name>_encrypted`` (TextField).
+    """
+
+    def __init__(self, field_name: str):
+        self.field_name = field_name
+        self.db_column = f"_{field_name}_encrypted"
+
+    def __set_name__(self, owner: type, name: str):
+        self.attr_name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self  # type: ignore[return-value]
+        raw = getattr(obj, self.db_column, None)
+        if raw is None:
+            return None
+        import json
+
+        from cryptography.fernet import InvalidToken
+
+        from core.encryption import decrypt_value
+
+        try:
+            return json.loads(decrypt_value(raw))
+        except InvalidToken:
+            logger.exception("Failed to decrypt JSON field '%s' (key rotation or corruption).", self.field_name)
+            return None
+
+    def __set__(self, obj, value):
+        if value is None:
+            setattr(obj, self.db_column, None)
+            return
+        import json
+
+        from core.encryption import encrypt_value
+
+        setattr(obj, self.db_column, encrypt_value(json.dumps(value, separators=(",", ":"))))
+
+
 class SiteConfiguration(models.Model):
     """
     Singleton model storing site-wide configuration that can be managed through the UI.
