@@ -64,7 +64,7 @@ class TestCreateDaivAgentDeferredFlag:
 
             ctx = MagicMock()
             ctx.gitrepo.working_dir = "/repo"
-            ctx.config.sandbox.base_image = None
+            ctx.sandbox.enabled = False
             ctx.config.context_file_name = "AGENTS.md"
             ctx.git_platform = MagicMock()
 

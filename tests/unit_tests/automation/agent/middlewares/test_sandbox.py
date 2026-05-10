@@ -29,11 +29,27 @@ def _make_sandbox_config_mock(disallow=(), allow=()):
     return config
 
 
+def _make_sandbox_runtime(disallow=(), allow=()):
+    """Build a ``SandboxRuntime`` matching the legacy ``_make_sandbox_config_mock`` defaults."""
+    from codebase.context import SandboxRuntime
+    from codebase.repo_config import SandboxCommandPolicy
+
+    return SandboxRuntime(
+        base_image="python:3.12",
+        network_enabled=False,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        command_policy=SandboxCommandPolicy(disallow=tuple(disallow), allow=tuple(allow)),
+    )
+
+
 def _make_agent_runtime(*, repo_working_dir: str) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
     runtime.context.gitrepo = Mock(working_dir=repo_working_dir)
     runtime.context.config = _make_sandbox_config_mock()
+    runtime.context.sandbox = _make_sandbox_runtime()
     return runtime
 
 
@@ -43,7 +59,11 @@ def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
 
     runtime = ToolRuntime(
         state={"session_id": "sess_1"},
-        context=Mock(gitrepo=repo, config=_make_sandbox_config_mock(disallow=disallow, allow=allow)),
+        context=Mock(
+            gitrepo=repo,
+            config=_make_sandbox_config_mock(disallow=disallow, allow=allow),
+            sandbox=_make_sandbox_runtime(disallow=disallow, allow=allow),
+        ),
         config={},
         stream_writer=Mock(),
         tool_call_id="call_1",
@@ -603,6 +623,117 @@ class TestSandboxMiddleware:
         assert seen_prompt is not None
         assert seen_prompt.startswith("base prompt")
         assert SANDBOX_SYSTEM_PROMPT in seen_prompt
+
+    async def test_abefore_agent_builds_start_session_from_ctx_sandbox(self, tmp_path: Path):
+        """abefore_agent must build StartSessionRequest from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
+        from codebase.context import SandboxRuntime
+        from codebase.repo_config import SandboxCommandPolicy
+        from core.sandbox.schemas import StartSessionRequest
+
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "README.md").write_text("hello")
+
+        # Build a runtime whose ``ctx.sandbox`` carries the authoritative values,
+        # and whose ``ctx.config.sandbox.*`` would *not* satisfy the assertions
+        # (None base_image would actually trip StartSessionRequest validation).
+        runtime = Mock()
+        runtime.context = Mock()
+        runtime.context.gitrepo = Mock(working_dir=str(repo_dir))
+        runtime.context.config = Mock()
+        runtime.context.config.sandbox = Mock()
+        runtime.context.config.sandbox.base_image = None  # Would fail if read.
+        runtime.context.config.sandbox.network_enabled = None
+        runtime.context.config.sandbox.memory_bytes = None
+        runtime.context.config.sandbox.cpus = None
+        runtime.context.sandbox = SandboxRuntime(
+            base_image="alpine:test",
+            network_enabled=True,
+            memory_bytes=1_234,
+            cpus=2.5,
+            env_vars={"X": "y"},
+            command_policy=SandboxCommandPolicy(),
+        )
+
+        captured: dict = {}
+
+        async def fake_start_session(req: StartSessionRequest) -> str:
+            captured["req"] = req
+            return "sess_ctx"
+
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(side_effect=fake_start_session),
+            ),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ),
+        ):
+            middleware = _make_middleware(close_session=True)
+            update = await middleware.abefore_agent({}, runtime)
+
+        assert update == {"session_id": "sess_ctx"}
+        req = captured["req"]
+        assert isinstance(req, StartSessionRequest)
+        assert req.base_image == "alpine:test"
+        assert req.network_enabled is True
+        assert req.memory_bytes == 1_234
+        assert req.cpus == 2.5
+        assert req.environment == {"X": "y"}
+
+    async def test_check_command_policy_reads_from_ctx_sandbox(self, tmp_path: Path):
+        """_check_command_policy must pull ``command_policy`` from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
+        from langchain.tools import ToolRuntime
+
+        from automation.agent.middlewares.sandbox import _check_command_policy
+        from codebase.context import SandboxRuntime
+        from codebase.repo_config import SandboxCommandPolicy
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir(parents=True)
+        repo = Repo.init(repo_dir)
+
+        # ctx.sandbox is the authoritative source; ctx.config.sandbox would not match.
+        context = Mock(gitrepo=repo)
+        context.config = Mock()
+        context.config.sandbox = Mock()
+        # Make config.sandbox.command_policy look like a default-empty policy to prove
+        # the production code does NOT use it (the assertion below relies on a custom
+        # policy that lives only on ctx.sandbox).
+        context.config.sandbox.command_policy = Mock()
+        context.config.sandbox.command_policy.disallow = ()
+        context.config.sandbox.command_policy.allow = ()
+        context.sandbox = SandboxRuntime(
+            base_image="alpine:test",
+            network_enabled=False,
+            memory_bytes=None,
+            cpus=None,
+            env_vars={},
+            command_policy=SandboxCommandPolicy(disallow=("custom-forbidden",)),
+        )
+
+        runtime = ToolRuntime(
+            state={"session_id": "sess_1"},
+            context=context,
+            config={},
+            stream_writer=Mock(),
+            tool_call_id="call_policy_ctx",
+            store=None,
+        )
+
+        with (
+            patch.object(core_settings, "SANDBOX_COMMAND_POLICY_DISALLOW", ()),
+            patch.object(core_settings, "SANDBOX_COMMAND_POLICY_ALLOW", ()),
+        ):
+            result = _check_command_policy("custom-forbidden --really", runtime)
+
+        assert result is not None
+        assert result.startswith("error:")
+        assert "repo_disallow" in result
 
 
 class TestAwrapToolCall:
