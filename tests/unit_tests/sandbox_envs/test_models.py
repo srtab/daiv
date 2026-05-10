@@ -36,12 +36,16 @@ def test_user_env_name_unique_per_user(db, user, user2):
 
 
 def test_global_env_name_unique(db):
+    # Clear the seeded GLOBAL "Default" from the data migration before asserting uniqueness.
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
     SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="a")
     with transaction.atomic(), pytest.raises(IntegrityError):
         SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="b")
 
 
 def test_only_one_global_default(db):
+    # Clear the seeded GLOBAL default from the data migration so this test owns the row.
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
     SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="A", base_image="a", is_default=True)
     with transaction.atomic(), pytest.raises(IntegrityError):
         SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="B", base_image="b", is_default=True)
