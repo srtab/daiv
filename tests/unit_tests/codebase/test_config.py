@@ -234,11 +234,18 @@ def test_sandbox_fields_set_empty_when_section_absent():
     assert config.sandbox_fields_set == frozenset()
 
 
-def test_sandbox_fields_set_tracks_present_keys(monkeypatch):
+def test_sandbox_fields_set_tracks_present_keys():
     config = RepositoryConfig.model_validate({"sandbox": {"memory_bytes": 8_000_000_000, "base_image": "python:3.12"}})
     assert config.sandbox_fields_set == frozenset({"memory_bytes", "base_image"})
     assert config.sandbox.memory_bytes == 8_000_000_000
     assert config.sandbox.base_image == "python:3.12"
+
+
+def test_sandbox_fields_set_uses_canonical_names_for_aliases():
+    # AliasChoices lets .daiv.yml use either "memory"/"memory_bytes" and "cpu"/"cpus".
+    # The merge resolver keys against canonical names, so model_fields_set must too.
+    config = RepositoryConfig.model_validate({"sandbox": {"memory": 1000, "cpu": 2.0}})
+    assert config.sandbox_fields_set == frozenset({"memory_bytes", "cpus"})
 
 
 def test_sandbox_fields_set_includes_explicit_nulls():

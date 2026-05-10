@@ -419,11 +419,14 @@ class SandboxMiddleware(AgentMiddleware):
                 # so bash calls reuse the pool.
                 return None
 
+            # TODO(sandbox-envs Task 8): read from `runtime.context.sandbox` instead.
+            # `bool(None)` shim coerces the now-nullable `.daiv.yml` field to False until
+            # the merge resolver lands.
             session_id = await client.start_session(
                 StartSessionRequest(
                     base_image=runtime.context.config.sandbox.base_image,
                     extract_patch=True,
-                    network_enabled=runtime.context.config.sandbox.network_enabled,
+                    network_enabled=bool(runtime.context.config.sandbox.network_enabled),
                     memory_bytes=runtime.context.config.sandbox.memory_bytes,
                     cpus=runtime.context.config.sandbox.cpus,
                 )
