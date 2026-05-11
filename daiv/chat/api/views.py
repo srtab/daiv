@@ -15,6 +15,7 @@ from .threads import ChatThreadService
 
 HEADER_REPO_ID = "X-Repo-ID"
 HEADER_REF = "X-Ref"
+HEADER_SANDBOX_ENV = "X-Sandbox-Env"
 
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
 
@@ -39,6 +40,7 @@ async def thread_status(request: HttpRequest, thread_id: str):
         "parameters": [
             {"in": "header", "name": HEADER_REPO_ID, "schema": {"type": "string"}, "required": True},
             {"in": "header", "name": HEADER_REF, "schema": {"type": "string"}, "required": True},
+            {"in": "header", "name": HEADER_SANDBOX_ENV, "schema": {"type": "string"}, "required": False},
         ]
     },
 )
@@ -57,8 +59,16 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
+    from sandbox_envs.services import resolve_env_for_user
+
+    env_header = request.headers.get(HEADER_SANDBOX_ENV)
+    try:
+        env_obj = await resolve_env_for_user(user, env_header)
+    except LookupError as err:
+        raise HttpError(400, str(err)) from err
+
     thread = await ChatThreadService.get_or_create_for_user(
-        user=user, thread_id=thread_id, repo_id=repo_id, ref=ref, input_data=input_data
+        user=user, thread_id=thread_id, repo_id=repo_id, ref=ref, input_data=input_data, sandbox_environment=env_obj
     )
     if thread.user_id != user.id:
         raise HttpError(403, "Thread not found")
@@ -68,6 +78,12 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     encoder = EventEncoder(accept=request.headers.get("accept"))
     streamer = ChatRunStreamer(
-        repo_id=repo_id, ref=ref, thread_id=thread_id, run_id=run_id, input_data=input_data, encoder=encoder
+        repo_id=repo_id,
+        ref=ref,
+        thread_id=thread_id,
+        run_id=run_id,
+        input_data=input_data,
+        encoder=encoder,
+        sandbox_environment_id=(str(thread.sandbox_environment_id) if thread.sandbox_environment_id else None),
     )
     return StreamingHttpResponse(streamer.events(), content_type=encoder.get_content_type())

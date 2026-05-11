@@ -88,6 +88,35 @@ async def get_global_default() -> SandboxEnvOverride | None:
     )
 
 
+def looks_like_uuid(s: str) -> bool:
+    try:
+        UUID(s)
+        return True
+    except TypeError, ValueError:
+        return False
+
+
+async def resolve_env_for_user(user, name_or_id: str | None) -> SandboxEnvironment | None:
+    """Resolve a caller-visible env (USER-owned by ``user`` or any GLOBAL) by UUID or
+    name. Returns ``None`` if ``name_or_id`` is falsy; raises ``LookupError`` if a
+    non-empty value doesn't match any visible env."""
+    if not name_or_id:
+        return None
+
+    from django.db.models import Q
+
+    qs = SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL))
+    if looks_like_uuid(name_or_id):
+        env = await qs.filter(pk=name_or_id).afirst()
+        if env is not None:
+            return env
+    env = await qs.filter(name=name_or_id).afirst()
+    if env is None:
+        valid = [n async for n in qs.values_list("name", flat=True)]
+        raise LookupError(f"unknown environment '{name_or_id}'; valid: {valid}")
+    return env
+
+
 def merge_sandbox_runtime(
     repo_sandbox: Sandbox,
     repo_fields_set: frozenset[str],
