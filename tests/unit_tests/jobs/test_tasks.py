@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager, suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -47,3 +48,30 @@ async def test_run_job_task_rejects_missing_thread_id():
     """
     with pytest.raises(ValueError, match="non-empty thread_id"):
         await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="")
+
+
+async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
+    """run_job_task must forward sandbox_environment_id to set_runtime_ctx as sandbox_env_id."""
+    captured: dict = {}
+
+    @asynccontextmanager
+    async def _fake_set_runtime_ctx(*args, **kwargs):
+        captured.update(kwargs)
+        # Yield a stub RuntimeCtx-ish object enough to navigate the rest of the task.
+        yield MagicMock(config=MagicMock(models=MagicMock(agent=object())))
+
+    # We're not setting up enough scaffolding to complete the agent invoke;
+    # the assertion below is what matters.
+    with (
+        patch("jobs.tasks.set_runtime_ctx", _fake_set_runtime_ctx),
+        patch("jobs.tasks.open_checkpointer"),
+        patch("jobs.tasks.create_daiv_agent", AsyncMock()),
+        patch("jobs.tasks.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": None}),
+        patch("jobs.tasks.build_langsmith_config", return_value={}),
+        patch("jobs.tasks.track_usage_metadata"),
+        patch("jobs.tasks.build_agent_result", AsyncMock(return_value="ok")),
+        suppress(Exception),
+    ):
+        await run_job_task.func(repo_id="r/p", prompt="p", thread_id="t1", sandbox_environment_id="env-uuid")
+
+    assert captured["sandbox_env_id"] == "env-uuid"

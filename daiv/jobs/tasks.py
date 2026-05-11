@@ -16,7 +16,12 @@ logger = logging.getLogger("daiv.jobs")
 
 @task()
 async def run_job_task(
-    repo_id: str, prompt: str, thread_id: str, ref: str | None = None, use_max: bool = False
+    repo_id: str,
+    prompt: str,
+    thread_id: str,
+    ref: str | None = None,
+    use_max: bool = False,
+    sandbox_environment_id: str | None = None,
 ) -> AgentResult:
     """Run the DAIV agent for a submitted job and return a standardized result.
 
@@ -24,17 +29,29 @@ async def run_job_task(
     up-front and persist it on the corresponding ``Activity`` — chat resume is built
     on the assumption that the activity row and the checkpointer share the same key.
     A silent UUID fallback here would break that contract on the resume path.
+
+    ``sandbox_environment_id``, when provided, selects a per-run sandbox environment
+    (merged with ``.daiv.yml`` + the GLOBAL default by ``set_runtime_ctx``).
     """
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
 
-    logger.info("Starting job for repo_id=%s, ref=%s, use_max=%s, thread_id=%s", repo_id, ref, use_max, thread_id)
+    logger.info(
+        "Starting job for repo_id=%s, ref=%s, use_max=%s, thread_id=%s, sandbox_env_id=%s",
+        repo_id,
+        ref,
+        use_max,
+        thread_id,
+        sandbox_environment_id,
+    )
 
     input_data = {"messages": [HumanMessage(content=prompt)]}
 
     try:
         async with (
-            set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx,
+            set_runtime_ctx(
+                repo_id=repo_id, scope=Scope.GLOBAL, ref=ref, sandbox_env_id=sandbox_environment_id
+            ) as runtime_ctx,
             open_checkpointer() as checkpointer,
         ):
             agent_kwargs = get_daiv_agent_kwargs(model_config=runtime_ctx.config.models.agent, use_max=use_max)
