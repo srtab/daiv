@@ -15,6 +15,7 @@ class JobSubmitRequest(Schema):
     prompt: str = Field(min_length=1)
     use_max: bool = False
     notify_on: NotifyOn | None = None
+    environment: str | None = None  # env name or UUID
 
 
 class JobSubmitJobItem(Schema):
