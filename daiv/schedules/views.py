@@ -59,6 +59,7 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
+        kwargs["user"] = self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -81,6 +82,7 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.object.user
+        kwargs["user"] = self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -144,6 +146,9 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 notify_on=None,
                 trigger_type=TriggerType.SCHEDULE,
                 scheduled_job=schedule,
+                sandbox_environment_id=(
+                    str(schedule.sandbox_environment_id) if schedule.sandbox_environment_id else None
+                ),
             )
         except Exception:
             logger.exception("Failed to enqueue run-now for schedule pk=%d (%s)", schedule.pk, schedule.name)

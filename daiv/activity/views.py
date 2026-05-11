@@ -280,8 +280,14 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         ctx["source_activity"] = self._get_source_activity()
         return ctx
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
     def form_valid(self, form):
         repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in form.cleaned_data["repos"]]
+        env = form.cleaned_data.get("sandbox_environment")
         try:
             result = submit_batch_runs(
                 user=self.request.user,
@@ -290,6 +296,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 use_max=form.cleaned_data["use_max"],
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=TriggerType.UI_JOB,
+                sandbox_environment_id=str(env.id) if env else None,
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             # Let Django middleware render these as 4xx instead of swallowing as "submit failed" 200.

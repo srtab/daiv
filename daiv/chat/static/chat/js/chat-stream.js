@@ -489,6 +489,12 @@
       this.streaming = true;
       this.abortCtl = new AbortController();
 
+      // The composer renders a <select name="sandbox_environment"> (Task 17).
+      // Forward its value so the API resolves the requested env per-request; missing
+      // or empty falls through to the GLOBAL default on the server.
+      const envSelect = this.$refs?.sandboxEnv;
+      const envHeaders = envSelect && envSelect.value ? { "X-Sandbox-Env": envSelect.value } : {};
+
       try {
         const resp = await fetch(this.endpoint, {
           method: "POST",
@@ -497,6 +503,7 @@
             "X-Repo-ID": this.thread.repo_id,
             "X-Ref": this.thread.ref,
             "X-CSRFToken": this.csrfToken,
+            ...envHeaders,
           },
           body: JSON.stringify(body),
           credentials: "include",

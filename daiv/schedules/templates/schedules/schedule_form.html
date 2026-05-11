@@ -96,6 +96,19 @@
 
             {% include "notifications/_notify_on_radio.html" with form=form %}
 
+            <div class="mt-6">
+                <label for="id_sandbox_environment" class="block text-[15px] font-medium text-gray-400">
+                    {% trans "Sandbox environment" %}
+                </label>
+                {{ form.sandbox_environment }}
+                {% if form.sandbox_environment.errors %}
+                <p class="mt-1.5 text-sm text-red-400">{{ form.sandbox_environment.errors.0 }}</p>
+                {% endif %}
+                <p class="mt-1.5 text-sm text-gray-500">
+                    {% trans "Leave unset to use the global default." %}
+                </p>
+            </div>
+
             {% include "schedules/_subscriber_picker.html" %}
 
             {% if object %}

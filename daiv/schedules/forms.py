@@ -11,6 +11,8 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
 
     class Meta:
         model = ScheduledJob
+        # ``sandbox_environment`` is declared on ``AgentRunFieldsMixin`` and must be listed
+        # here so ModelForm's save() persists it onto the ScheduledJob instance.
         fields = [
             "name",
             "prompt",
@@ -21,6 +23,7 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
             "use_max",
             "notify_on",
             "subscribers",
+            "sandbox_environment",
         ]
         widgets = {"subscribers": forms.SelectMultiple(attrs={"class": "hidden"})}
 

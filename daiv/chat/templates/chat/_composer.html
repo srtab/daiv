@@ -78,6 +78,21 @@
         <kbd class="chat-composer__kbd">↵</kbd>
         <span>{% trans "to send" %}</span>
       </div>
+      {% if sandbox_envs %}
+      <label class="chat-composer__envpicker">
+        <span class="sr-only">{% trans "Sandbox environment" %}</span>
+        <select name="sandbox_environment"
+                x-ref="sandboxEnv"
+                title="{% trans 'Sandbox environment' %}">
+          <option value="">{% trans "(global default)" %}</option>
+          {% for env in sandbox_envs %}
+          <option value="{{ env.id }}" {% if selected_sandbox_env_id == env.id|stringformat:'s' %}selected{% endif %}>
+            {{ env.get_scope_display }}: {{ env.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
       <div style="display: inline-flex; gap: 8px;">
         <button type="button" x-show="(streaming || resuming)" @click="stop()"
                 class="chat-composer__btn chat-composer__btn--stop">{% trans "Stop" %}</button>
