@@ -21,6 +21,11 @@ SITE_CONFIGURATION_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 WEB_FETCH_AUTH_HEADERS_CACHE_KEY = "web_fetch_auth_headers"
 WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
+PROVIDERS_CACHE_KEY = "providers"
+PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+
+_UNSET = object()
+
 
 @dataclass(frozen=True)
 class FieldGroup:
@@ -44,6 +49,13 @@ class ThinkingLevelChoices(models.TextChoices):
 class WebSearchEngineChoices(models.TextChoices):
     DUCKDUCKGO = "duckduckgo", _("DuckDuckGo")
     TAVILY = "tavily", _("Tavily")
+
+
+class ProviderType(models.TextChoices):
+    OPENAI = "openai", _("OpenAI")
+    ANTHROPIC = "anthropic", _("Anthropic")
+    GOOGLE_GENAI = "google_genai", _("Google Gemini")
+    OPENROUTER = "openrouter", _("OpenRouter")
 
 
 class SingletonManager(models.Manager["SiteConfiguration"]):
@@ -702,3 +714,152 @@ class WebFetchAuthHeader(models.Model):
     @classmethod
     def invalidate_cache(cls) -> None:
         cache.delete(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+
+
+class Provider(models.Model):
+    """
+    Configurable model provider. Each row carries everything needed to call a
+    provider — slug (used as ``slug:model_name`` prefix), wire protocol, base
+    URL, encrypted API key, optional extra headers, and suggested model names.
+
+    Four rows are seeded at migration time with ``is_locked=True`` so their
+    slug and provider_type stay stable (``ModelName`` defaults reference them).
+    """
+
+    slug = models.SlugField(_("slug"), max_length=32, unique=True)
+    display_name = models.CharField(_("display name"), max_length=64)
+    provider_type = models.CharField(_("provider type"), max_length=32, choices=ProviderType.choices)
+    base_url = models.URLField(_("base URL"), blank=True)
+    _api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
+    api_key = EncryptedFieldDescriptor("api_key")
+    extra_headers = models.JSONField(_("extra headers"), default=dict, blank=True)
+    model_suggestions = models.TextField(_("model suggestions"), blank=True, help_text=_("One model name per line."))
+    is_enabled = models.BooleanField(_("enabled"), default=True)
+    is_locked = models.BooleanField(default=False, editable=False)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        verbose_name = _("provider")
+        verbose_name_plural = _("providers")
+        ordering = ("sort_order", "slug")
+
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # ``api_key`` is a descriptor (not a model field), so Django's default
+        # ``__init__`` rejects it as an unknown keyword. Strip it out and set it
+        # after the base initializer so the descriptor encrypts the plaintext.
+        api_key = kwargs.pop("api_key", _UNSET)
+        super().__init__(*args, **kwargs)
+        if api_key is not _UNSET:
+            self.api_key = api_key
+
+    def __str__(self) -> str:
+        return f"{self.display_name} ({self.slug})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.pk and self.is_locked:
+            original = type(self).objects.only("slug", "provider_type").get(pk=self.pk)
+            if original.slug != self.slug or original.provider_type != self.provider_type:
+                raise ValueError(f"Provider {original.slug!r} is locked; slug and provider_type cannot change.")
+        super().save(*args, **kwargs)
+        type(self).invalidate_cache()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        if self.is_locked:
+            raise ValueError(f"Provider {self.slug!r} is locked and cannot be deleted.")
+        result = super().delete(*args, **kwargs)
+        type(self).invalidate_cache()
+        return result
+
+    def get_secret_hint(self) -> str | None:
+        """Return a masked hint for the row's API key, or ``None`` if unset."""
+        value = self.api_key
+        if value is None:
+            return None
+        from core.encryption import mask_secret
+
+        return mask_secret(value)
+
+    @dataclass(frozen=True)
+    class Cached:
+        """Frozen, cache-safe snapshot of a Provider row."""
+
+        slug: str
+        display_name: str
+        provider_type: str
+        base_url: str
+        api_key: Any  # pydantic.SecretStr | None
+        extra_headers: dict
+        model_suggestions_list: tuple[str, ...]
+        is_enabled: bool
+        is_locked: bool
+        sort_order: int
+
+    @classmethod
+    def _build_from_db(cls) -> list[Cached]:
+        from pydantic import SecretStr
+
+        out: list[cls.Cached] = []
+        for row in cls.objects.order_by("sort_order", "slug"):
+            raw_key = row.api_key
+            api_key = SecretStr(raw_key) if raw_key else None
+            suggestions = tuple(line.strip() for line in row.model_suggestions.splitlines() if line.strip())
+            out.append(
+                cls.Cached(
+                    slug=row.slug,
+                    display_name=row.display_name,
+                    provider_type=row.provider_type,
+                    base_url=row.base_url,
+                    api_key=api_key,
+                    extra_headers=dict(row.extra_headers or {}),
+                    model_suggestions_list=suggestions,
+                    is_enabled=row.is_enabled,
+                    is_locked=row.is_locked,
+                    sort_order=row.sort_order,
+                )
+            )
+        return out
+
+    @classmethod
+    def _load_and_cache(cls) -> list[Cached]:
+        from django.db import close_old_connections
+
+        try:
+            close_old_connections()
+            out = cls._build_from_db()
+        except Exception:  # noqa: BLE001
+            logger.exception("Provider rows not available; falling back to empty list")
+            return []
+        finally:
+            with contextlib.suppress(Exception):
+                close_old_connections()
+
+        cache.set(PROVIDERS_CACHE_KEY, out, PROVIDERS_CACHE_TIMEOUT)
+        return out
+
+    @classmethod
+    def get_cached_rows(cls) -> list[Cached]:
+        cached = cache.get(PROVIDERS_CACHE_KEY)
+        if cached is not None:
+            return cached
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return cls._load_and_cache()
+        try:
+            return cls._executor.submit(cls._load_and_cache).result(timeout=5)
+        except concurrent.futures.TimeoutError:
+            logger.error("Provider lookup timed out (5s) in async context; returning empty list")
+            return []
+        except Exception:  # noqa: BLE001
+            logger.exception("Provider async lookup failed; returning empty list")
+            return []
+
+    @classmethod
+    def get_cached_by_slug(cls) -> dict[str, Provider.Cached]:
+        return {row.slug: row for row in cls.get_cached_rows()}
+
+    @classmethod
+    def invalidate_cache(cls) -> None:
+        cache.delete(PROVIDERS_CACHE_KEY)
