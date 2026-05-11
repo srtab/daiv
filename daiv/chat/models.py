@@ -30,6 +30,14 @@ class ChatThread(models.Model):
     active_run_id = models.CharField(max_length=64, null=True, blank=True, default=None)  # noqa: DJ001
     created_at = models.DateTimeField(auto_now_add=True)
     last_active_at = models.DateTimeField(auto_now=True)
+    sandbox_environment = models.ForeignKey(
+        "sandbox_envs.SandboxEnvironment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="chat_threads",
+        verbose_name=_("sandbox environment"),
+    )
 
     objects = ChatThreadManager()
 
