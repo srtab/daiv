@@ -36,6 +36,8 @@ CLAUDE_THINKING_MODELS = (
 
 OPENAI_THINKING_MODELS = ("gpt-5.2", "gpt-5.3-codex", "openai/gpt-5.2", "openai/gpt-5.3-codex")
 
+ANTHROPIC_STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
+
 
 def _anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int) -> tuple[int, int]:
     if thinking_level == ThinkingLevel.MINIMAL:
@@ -75,7 +77,7 @@ def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, m
     if not thinking_level:
         if model_name.startswith("anthropic") and "max_tokens" not in kw:
             kw["max_tokens"] = CLAUDE_MAX_TOKENS
-            kw["model_kwargs"]["extra_headers"]["anthropic-beta"] = "structured-outputs-2025-11-13"
+            kw["model_kwargs"].setdefault("extra_headers", {})["anthropic-beta"] = ANTHROPIC_STRUCTURED_OUTPUTS_BETA
         return
     if model_name.startswith(CLAUDE_THINKING_MODELS):
         max_tokens, budget = _anthropic_thinking_tokens(
@@ -99,9 +101,9 @@ class ResolvedProvider:
 
 
 _BARE_NAME_HEURISTICS = (
-    (("gpt-4", "gpt-5", "o4"), "openai"),
-    (("claude",), "anthropic"),
-    (("gemini",), "google_genai"),
+    (("gpt-4", "gpt-5", "o4"), ProviderType.OPENAI.value),
+    (("claude",), ProviderType.ANTHROPIC.value),
+    (("gemini",), ProviderType.GOOGLE_GENAI.value),
 )
 
 
@@ -202,7 +204,7 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         if row.provider_type == ProviderType.ANTHROPIC:
             kw["model_provider"] = ProviderType.ANTHROPIC.value
             kw["api_key"] = row.api_key.get_secret_value()
-            kw["betas"] = ["structured-outputs-2025-11-13"]
+            kw["betas"] = [ANTHROPIC_STRUCTURED_OUTPUTS_BETA]
             if row.base_url:
                 kw["base_url"] = row.base_url
             _apply_anthropic_thinking(kw, thinking_level, resolved.model_name)

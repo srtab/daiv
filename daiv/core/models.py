@@ -24,8 +24,6 @@ WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 PROVIDERS_CACHE_KEY = "providers"
 PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
-_UNSET = object()
-
 
 @dataclass(frozen=True)
 class FieldGroup:
@@ -723,9 +721,9 @@ class Provider(models.Model):
         # ``api_key`` is a descriptor (not a model field), so Django's default
         # ``__init__`` rejects it as an unknown keyword. Strip it out and set it
         # after the base initializer so the descriptor encrypts the plaintext.
-        api_key = kwargs.pop("api_key", _UNSET)
+        api_key = kwargs.pop("api_key", None)
         super().__init__(*args, **kwargs)
-        if api_key is not _UNSET:
+        if api_key is not None:
             self.api_key = api_key
 
     def __str__(self) -> str:
@@ -764,17 +762,17 @@ class Provider(models.Model):
         provider_type: str
         base_url: str
         api_key: Any  # pydantic.SecretStr | None
-        extra_headers: dict
+        extra_headers: dict[str, str]
         model_suggestions_list: tuple[str, ...]
         is_enabled: bool
         is_locked: bool
         sort_order: int
 
     @classmethod
-    def _build_from_db(cls) -> list[Cached]:
+    def _build_from_db(cls) -> list[Provider.Cached]:
         from pydantic import SecretStr
 
-        out: list[cls.Cached] = []
+        out: list[Provider.Cached] = []
         for row in cls.objects.order_by("sort_order", "slug"):
             raw_key = row.api_key
             api_key = SecretStr(raw_key) if raw_key else None
