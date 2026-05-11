@@ -127,6 +127,7 @@
     draftMessage: "",
     draftRepoId: "",
     draftRef: "",
+    draftRepoless: false,
     streaming: false,
     resuming: !!config.activeRunId,
     abortCtl: null,
@@ -151,8 +152,17 @@
       this.draftRepoId = first?.repo_id || "";
       this.draftRef = first?.ref || "";
       if (this.draftRepoId) {
+        this.draftRepoless = false;
         this.$nextTick(() => this.$refs.prompt?.focus());
       }
+    },
+
+    startRepoless() {
+      this.draftRepoless = true;
+      this.draftRepoId = "";
+      this.draftRef = "";
+      window.dispatchEvent(new CustomEvent("daiv:repo-picker-reset"));
+      this.$nextTick(() => this.$refs.prompt?.focus());
     },
 
     init() {
@@ -419,6 +429,7 @@
     canSend() {
       if (!this.draftMessage.trim()) return false;
       if (this.thread) return true;
+      if (this.draftRepoless) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
 
@@ -434,7 +445,11 @@
 
       if (!this.thread) {
         const threadId = uuid();
-        this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
+        this.thread = {
+          thread_id: threadId,
+          repo_id: this.draftRepoless ? null : this.draftRepoId,
+          ref: this.draftRepoless ? null : this.draftRef,
+        };
         history.replaceState(null, "", `/dashboard/chat/${threadId}/`);
       }
 
@@ -490,14 +505,17 @@
       this.abortCtl = new AbortController();
 
       try {
+        const headers = {
+          "Content-Type": "application/json",
+          "X-CSRFToken": this.csrfToken,
+        };
+        if (this.thread.repo_id && this.thread.ref) {
+          headers["X-Repo-ID"] = this.thread.repo_id;
+          headers["X-Ref"] = this.thread.ref;
+        }
         const resp = await fetch(this.endpoint, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Repo-ID": this.thread.repo_id,
-            "X-Ref": this.thread.ref,
-            "X-CSRFToken": this.csrfToken,
-          },
+          headers,
           body: JSON.stringify(body),
           credentials: "include",
           signal: this.abortCtl.signal,

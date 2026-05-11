@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from git import Repo
 
+from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands
 from core.conf import settings as core_settings
 from core.sandbox.client import DAIVSandboxClient
@@ -57,7 +58,9 @@ def _make_middleware(*, close_session: bool = True) -> SandboxMiddleware:
     write-sync never read these values."""
     from pathlib import Path
 
-    return SandboxMiddleware(backend=Mock(), working_dir=Path("/dummy"), close_session=close_session)
+    return SandboxMiddleware(
+        backend=Mock(), agent_root="/dummy", working_dir=Path("/dummy"), close_session=close_session
+    )
 
 
 def _bash_tool_with_fake_client(client: Mock):
@@ -98,7 +101,12 @@ class TestBashTool:
         runtime = _make_bash_runtime(repo)
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
-        middleware = SandboxMiddleware(backend=Mock(), working_dir=repo_dir, close_session=True)
+        middleware = SandboxMiddleware(
+            backend=Mock(spec=DAIVFilesystemBackend),
+            agent_root=f"/{repo_dir.name}",
+            working_dir=repo_dir,
+            close_session=True,
+        )
         middleware._client = client
         bash_tool = middleware.tools[0]
 
@@ -113,34 +121,35 @@ class TestBashTool:
         assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
         client.run_commands.assert_awaited_once()
 
-    async def test_bash_tool_repoless_applies_patch_to_working_dir(self, tmp_path: Path):
-        """Repoless runs have no gitrepo to commit through, but the on-disk working
-        directory still backs the agent's FilesystemBackend; the patch returned by the
-        sandbox bash call must be applied so subsequent read_file/ls/grep see the
-        files the bash command created or changed."""
+    async def test_bash_tool_repoless_applies_modify_patch_to_store_backend(self, tmp_path: Path):
+        """End-to-end modify: store has pre-edit content; bash returns a modify patch;
+        ``_apply_patch_to_backend`` seeds the staging dir from the store, runs real
+        ``git apply``, and uploads the post-edit bytes back. Invariant pinned: the store
+        must hold source-side bytes for ``git apply`` to match against — a regression
+        that skipped the seed step would surface here as ``git apply`` failing the
+        modify hunk against an empty staging dir."""
         from langchain.tools import ToolRuntime
+        from langgraph.store.memory import InMemoryStore
 
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
         from automation.agent.middlewares.sandbox import SandboxMiddleware
 
-        working_dir = tmp_path / "repo"
-        working_dir.mkdir(parents=True)
-        file_path = working_dir / "hello.txt"
-        file_path.write_text("old\n")
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "test-thread"))
+        await backend.aupload_files([("/repo/hello.txt", b"old\n")])
 
         patch_text = "diff --git a/hello.txt b/hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"
-
         response = RunCommandsResponse(results=[], patch=base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"))
 
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
 
-        middleware = SandboxMiddleware(backend=Mock(), working_dir=working_dir, close_session=True)
+        middleware = SandboxMiddleware(backend=backend, agent_root="/repo", working_dir=None, close_session=True)
         middleware._client = client
         bash_tool = middleware.tools[0]
 
         ctx = Mock(config=_make_sandbox_config_mock())
         ctx.has_repo = False
-        # Any access to gitrepo in the repoless path is a bug.
         type(ctx).gitrepo = property(
             lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
         )
@@ -155,7 +164,10 @@ class TestBashTool:
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
-        assert file_path.read_text() == "new\n"
+        responses = await backend.adownload_files(["/repo/hello.txt"])
+        assert responses[0].error is None
+        assert responses[0].content == b"new\n"
+
         import json as _json
 
         payload = _json.loads(output)
@@ -179,7 +191,12 @@ class TestBashTool:
         runtime = _make_bash_runtime(repo)
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
-        middleware = SandboxMiddleware(backend=Mock(), working_dir=repo_dir, close_session=True)
+        middleware = SandboxMiddleware(
+            backend=Mock(spec=DAIVFilesystemBackend),
+            agent_root=f"/{repo_dir.name}",
+            working_dir=repo_dir,
+            close_session=True,
+        )
         middleware._client = client
         bash_tool = middleware.tools[0]
 
@@ -387,6 +404,411 @@ class TestRunBashCommands:
         dumped = request.model_dump()
         assert "archive" not in dumped
         assert dumped["commands"] == ["echo ok"]
+
+
+class TestApplyPatchToBackend:
+    """Cover ``_apply_patch_to_backend`` branches not reachable through ``bash_tool``."""
+
+    async def test_raises_when_filesystem_backend_has_no_working_dir(self, tmp_path: Path):
+        """Misconfiguring ``SandboxMiddleware(backend=FilesystemBackend(...), working_dir=None)``
+        must fail loudly, not silently no-op or write to an arbitrary directory."""
+        import pytest
+
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        with pytest.raises(ValueError, match="working_dir"):
+            await _apply_patch_to_backend(backend, "any patch", "/repo", working_dir=None)
+
+    async def test_empty_patch_on_store_backend_is_noop(self):
+        """A sandbox bash run that produced no diff (empty/whitespace patch) must not
+        spin up a temp dir, call ``git apply``, or hit ``aupload_files`` — the function
+        should return early."""
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        backend = DAIVStoreBackend(namespace=("daiv-repoless-fs", "test-thread"))
+        backend.aupload_files = Mock(side_effect=AssertionError("should not upload on empty patch"))  # type: ignore[method-assign]
+
+        await _apply_patch_to_backend(backend, "", "/repo", working_dir=None)
+        await _apply_patch_to_backend(backend, "   \n  ", "/repo", working_dir=None)
+
+    async def test_delete_patch_on_store_backend_removes_entry(self):
+        """A bash command that deletes a file (``rm /repo/foo.py``) produces a deletion
+        patch. The walk-the-tempdir approach would silently leave the store entry behind
+        because ``git apply`` removes the file from staging. Verify ``backend.delete``
+        is called for the deleted path."""
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "test-thread"))
+        await backend.aupload_files([("/repo/gone.txt", b"alive\n")])
+
+        patch_text = (
+            "diff --git a/gone.txt b/gone.txt\n"
+            "deleted file mode 100644\n"
+            "--- a/gone.txt\n"
+            "+++ /dev/null\n"
+            "@@ -1 +0,0 @@\n"
+            "-alive\n"
+        )
+        await _apply_patch_to_backend(backend, patch_text, "/repo", working_dir=None)
+
+        item = await store.aget(("daiv-repoless-fs", "test-thread"), "/repo/gone.txt")
+        assert item is None, "delete patch must remove the store entry"
+
+    async def test_rename_patch_on_store_backend_moves_entry(self):
+        """A bash ``mv`` produces a rename patch. The new path must end up in the store
+        with the renamed content, and the source path must be deleted — otherwise the
+        store accumulates orphans every time a file is renamed."""
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "test-thread"))
+        await backend.aupload_files([("/repo/old.txt", b"hi\n")])
+
+        patch_text = "diff --git a/old.txt b/new.txt\nsimilarity index 100%\nrename from old.txt\nrename to new.txt\n"
+        await _apply_patch_to_backend(backend, patch_text, "/repo", working_dir=None)
+
+        old = await store.aget(("daiv-repoless-fs", "test-thread"), "/repo/old.txt")
+        new = await store.aget(("daiv-repoless-fs", "test-thread"), "/repo/new.txt")
+        assert old is None, "rename must delete the source entry"
+        assert new is not None and new.value["content"] == "hi\n"
+
+    async def test_multi_file_patch_pairs_paths_and_contents(self):
+        """One bash command can produce a patch touching multiple files in a single
+        ``ApplyMutationsRequest``-equivalent. Exercises a 3-file add+modify+delete diff
+        and asserts each store entry independently — a regression that mispaired
+        ``upload_paths`` with ``contents`` via the ``zip(...)`` call would surface as
+        swapped bytes here, not as a hard error."""
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "multi-file"))
+        await backend.aupload_files([
+            ("/repo/keep.txt", b"unchanged-source\n"),
+            ("/repo/edit.txt", b"line-1\n"),
+            ("/repo/delete.txt", b"goodbye\n"),
+        ])
+
+        patch_text = (
+            "diff --git a/edit.txt b/edit.txt\n"
+            "--- a/edit.txt\n"
+            "+++ b/edit.txt\n"
+            "@@ -1 +1 @@\n"
+            "-line-1\n"
+            "+line-2\n"
+            "diff --git a/delete.txt b/delete.txt\n"
+            "deleted file mode 100644\n"
+            "--- a/delete.txt\n"
+            "+++ /dev/null\n"
+            "@@ -1 +0,0 @@\n"
+            "-goodbye\n"
+            "diff --git a/new.txt b/new.txt\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/new.txt\n"
+            "@@ -0,0 +1 @@\n"
+            "+freshly-added\n"
+        )
+        await _apply_patch_to_backend(backend, patch_text, "/repo", working_dir=None)
+
+        edited = await store.aget(("daiv-repoless-fs", "multi-file"), "/repo/edit.txt")
+        deleted = await store.aget(("daiv-repoless-fs", "multi-file"), "/repo/delete.txt")
+        added = await store.aget(("daiv-repoless-fs", "multi-file"), "/repo/new.txt")
+        untouched = await store.aget(("daiv-repoless-fs", "multi-file"), "/repo/keep.txt")
+        assert edited is not None and edited.value["content"] == "line-2\n"
+        assert deleted is None
+        assert added is not None and added.value["content"] == "freshly-added\n"
+        # Files not referenced by the patch must not be touched.
+        assert untouched is not None and untouched.value["content"] == "unchanged-source\n"
+
+    async def test_rename_patch_with_content_change_moves_and_modifies(self):
+        """A ``git mv`` followed by an edit produces a rename diff WITH hunks. The new
+        path must hold the post-edit content; the source path must be deleted. This is
+        the failure-prone path the pure-rename test (similarity index 100%) can't catch."""
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "rename-modify"))
+        await backend.aupload_files([("/repo/src.txt", b"hello\n")])
+
+        patch_text = (
+            "diff --git a/src.txt b/dst.txt\n"
+            "similarity index 50%\n"
+            "rename from src.txt\n"
+            "rename to dst.txt\n"
+            "--- a/src.txt\n"
+            "+++ b/dst.txt\n"
+            "@@ -1 +1 @@\n"
+            "-hello\n"
+            "+hello world\n"
+        )
+        await _apply_patch_to_backend(backend, patch_text, "/repo", working_dir=None)
+
+        src = await store.aget(("daiv-repoless-fs", "rename-modify"), "/repo/src.txt")
+        dst = await store.aget(("daiv-repoless-fs", "rename-modify"), "/repo/dst.txt")
+        assert src is None, "rename+modify must still delete the source"
+        assert dst is not None and dst.value["content"] == "hello world\n"
+
+    async def test_add_patch_on_store_backend_creates_entry(self):
+        """A bash command that creates a new file should upload the new entry to the
+        store. No source-side seeding is needed (``--- /dev/null``)."""
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "test-thread"))
+
+        patch_text = (
+            "diff --git a/new.txt b/new.txt\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/new.txt\n"
+            "@@ -0,0 +1 @@\n"
+            "+hello\n"
+        )
+        await _apply_patch_to_backend(backend, patch_text, "/repo", working_dir=None)
+
+        item = await store.aget(("daiv-repoless-fs", "test-thread"), "/repo/new.txt")
+        assert item is not None
+        assert item.value["content"] == "hello\n"
+
+
+class TestBuildStoreArchive:
+    """Direct coverage of ``_build_store_archive`` for branches not reachable through
+    ``abefore_agent`` (which only sees populated/empty stores, never the error paths).
+
+    Uses real ``GlobResult``/``FileDownloadResponse`` dataclasses instead of bare
+    ``Mock(error=...)``: a regression renaming the ``error`` attribute would silently
+    pass with Mocks (any attribute is truthy) but fails loudly against the dataclass.
+    """
+
+    async def test_raises_on_glob_error(self):
+        """``aglob`` returning an error means the store is in a degraded state. Silently
+        returning ``None`` would have ``seed_session`` skip the repo archive — turn N+1's
+        bash would then see an empty workspace while the store has files. Fail loud."""
+        import pytest
+        from deepagents.backends.protocol import GlobResult
+
+        from automation.agent.middlewares.sandbox import _build_store_archive
+
+        backend = Mock()
+        backend.aglob = AsyncMock(return_value=GlobResult(error="store unreachable", matches=None))
+        with pytest.raises(RuntimeError, match="backend glob failed"):
+            await _build_store_archive(backend, "/repo")
+
+    async def test_raises_on_download_error(self):
+        """Glob reported a path, but downloading it errored. Partial seeding is the
+        wrong answer for a workspace mirror — surface the failure so ``abefore_agent``
+        releases the sandbox container instead of seeding it with a half-store."""
+        import pytest
+        from deepagents.backends.protocol import FileDownloadResponse, GlobResult
+
+        from automation.agent.middlewares.sandbox import _build_store_archive
+
+        backend = Mock()
+        backend.aglob = AsyncMock(
+            return_value=GlobResult(error=None, matches=[{"path": "/repo/foo.py", "is_dir": False}])
+        )
+        backend.adownload_files = AsyncMock(
+            return_value=[FileDownloadResponse(path="/repo/foo.py", content=None, error="permission_denied")]
+        )
+        with pytest.raises(RuntimeError, match="backend download failed"):
+            await _build_store_archive(backend, "/repo")
+
+    async def test_returns_none_for_empty_store(self):
+        """Empty store on turn 1: no error, just nothing to seed. Caller's gather still
+        composes a valid (skills-only) seed call."""
+        from deepagents.backends.protocol import GlobResult
+
+        from automation.agent.middlewares.sandbox import _build_store_archive
+
+        backend = Mock()
+        backend.aglob = AsyncMock(return_value=GlobResult(error=None, matches=[]))
+        assert await _build_store_archive(backend, "/repo") is None
+
+
+class TestStageStorePathsToDir:
+    """Direct coverage of ``_stage_store_paths_to_dir``."""
+
+    async def test_empty_paths_list_is_noop(self, tmp_path: Path):
+        """No paths to seed → don't even hit the backend."""
+        from automation.agent.middlewares.sandbox import _stage_store_paths_to_dir
+
+        backend = Mock()
+        backend.adownload_files = AsyncMock(side_effect=AssertionError("must not download on empty paths"))
+        await _stage_store_paths_to_dir(backend, "/repo", [], tmp_path)
+
+    async def test_creates_nested_parent_dirs(self, tmp_path: Path):
+        """A patch can reference paths inside subdirs that don't exist yet in the
+        fresh staging tempdir; the helper must ``mkdir(parents=True)`` so writes
+        succeed instead of failing with FileNotFoundError."""
+        from automation.agent.middlewares.sandbox import _stage_store_paths_to_dir
+
+        backend = Mock()
+        from deepagents.backends.protocol import FileDownloadResponse
+
+        backend.adownload_files = AsyncMock(
+            return_value=[FileDownloadResponse(path="/repo/nested/deep/foo.py", content=b"deep", error=None)]
+        )
+        await _stage_store_paths_to_dir(backend, "/repo", ["nested/deep/foo.py"], tmp_path)
+        assert (tmp_path / "nested" / "deep" / "foo.py").read_bytes() == b"deep"
+
+    async def test_skips_missing_paths_so_git_apply_can_report_them(self, tmp_path: Path):
+        """A genuinely missing source-side file should NOT raise here — let ``git apply``
+        produce its canonical 'No such file or directory' error against the empty staging."""
+        from deepagents.backends.protocol import FILE_NOT_FOUND, FileDownloadResponse
+
+        from automation.agent.middlewares.sandbox import _stage_store_paths_to_dir
+
+        backend = Mock()
+        backend.adownload_files = AsyncMock(
+            return_value=[FileDownloadResponse(path="/repo/ghost.py", content=None, error=FILE_NOT_FOUND)]
+        )
+        await _stage_store_paths_to_dir(backend, "/repo", ["ghost.py"], tmp_path)
+        assert not (tmp_path / "ghost.py").exists()
+
+    async def test_logs_non_file_not_found_errors_before_skipping(self, tmp_path: Path, caplog):
+        """A transient/permission error must be logged before the skip — otherwise a backend
+        hiccup masquerades as a missing-file path bug and operators can't diagnose it."""
+        import logging
+
+        from deepagents.backends.protocol import PERMISSION_DENIED, FileDownloadResponse
+
+        from automation.agent.middlewares.sandbox import _stage_store_paths_to_dir
+
+        backend = Mock()
+        backend.adownload_files = AsyncMock(
+            return_value=[FileDownloadResponse(path="/repo/locked.py", content=None, error=PERMISSION_DENIED)]
+        )
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            await _stage_store_paths_to_dir(backend, "/repo", ["locked.py"], tmp_path)
+
+        assert not (tmp_path / "locked.py").exists()
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("locked.py" in r.getMessage() and PERMISSION_DENIED in r.getMessage() for r in warnings), (
+            f"expected a warning naming the path and error; got {[r.getMessage() for r in warnings]!r}"
+        )
+
+
+class TestApplyPatchToBackendErrorPropagation:
+    """Production-side error surfaces of ``_apply_patch_to_backend`` — direct tests
+    because integration through bash_tool catches and reformats the exception."""
+
+    async def test_raises_when_aupload_files_returns_error(self):
+        """A partial upload failure leaves the store split-brain (some files written,
+        some not). Surface as ``RuntimeError`` so ``bash_tool`` can return the canonical
+        ``error: Failed to persist`` string and the agent knows not to trust the run."""
+        import pytest
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "upload-err"))
+
+        patch_text = (
+            "diff --git a/x.txt b/x.txt\nnew file mode 100644\n--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1 @@\n+content\n"
+        )
+        backend.aupload_files = AsyncMock(return_value=[Mock(error="quota exceeded")])  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="backend upload failed"):
+            await _apply_patch_to_backend(backend, patch_text, "/repo", working_dir=None)
+
+    async def test_raises_when_backend_delete_fails(self):
+        """A failed delete leaves the store with files the sandbox already deleted —
+        subsequent reads return stale content. Same shape as upload errors: raise so
+        the agent doesn't silently see an inconsistent view."""
+        import pytest
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import _apply_patch_to_backend
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "delete-err"))
+        await backend.aupload_files([("/repo/gone.txt", b"alive\n")])
+
+        async def fail_delete(_path):
+            return False
+
+        backend.delete = fail_delete  # type: ignore[method-assign]
+
+        patch_text = (
+            "diff --git a/gone.txt b/gone.txt\n"
+            "deleted file mode 100644\n"
+            "--- a/gone.txt\n"
+            "+++ /dev/null\n"
+            "@@ -1 +0,0 @@\n"
+            "-alive\n"
+        )
+        with pytest.raises(RuntimeError, match="backend delete failed"):
+            await _apply_patch_to_backend(backend, patch_text, "/repo", working_dir=None)
+
+
+class TestBashToolStoreBackendErrorSurface:
+    """End-to-end: a ``RuntimeError`` from the store-branch patch-apply must surface
+    through ``bash_tool`` as the canonical ``error: Failed to persist`` string. The
+    direct ``TestApplyPatchToBackendErrorPropagation`` tests stop at the boundary;
+    a future refactor letting the exception escape ``bash_tool`` would not be caught
+    by those — this test pins the user-facing contract for the repoless path."""
+
+    async def test_store_backend_upload_failure_surfaces_as_persist_error(self, tmp_path: Path):
+        from langchain.tools import ToolRuntime
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "bash-err"))
+        backend.aupload_files = AsyncMock(return_value=[Mock(error="quota exceeded")])  # type: ignore[method-assign]
+
+        patch_text = (
+            "diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+hi\n"
+        )
+        response = RunCommandsResponse(results=[], patch=base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"))
+
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=response)
+
+        middleware = SandboxMiddleware(backend=backend, agent_root="/repo", working_dir=None, close_session=True)
+        middleware._client = client
+        bash_tool = middleware.tools[0]
+
+        ctx = Mock(config=_make_sandbox_config_mock())
+        ctx.has_repo = False
+        type(ctx).gitrepo = property(
+            lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
+        )
+        runtime = ToolRuntime(
+            state={"session_id": "sess_1"},
+            context=ctx,
+            config={},
+            stream_writer=Mock(),
+            tool_call_id="call_1",
+            store=None,
+        )
+
+        output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
+        assert output.startswith("error: Failed to persist")
 
 
 class TestSandboxMiddleware:
@@ -600,7 +1022,9 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
-            middleware = SandboxMiddleware(backend=Mock(), working_dir=repo_dir, close_session=True)
+            middleware = SandboxMiddleware(
+                backend=Mock(), agent_root=f"/{repo_dir.name}", working_dir=repo_dir, close_session=True
+            )
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_skills"}
@@ -609,10 +1033,13 @@ class TestSandboxMiddleware:
         assert isinstance(kwargs.get("repo_archive"), (bytes, bytearray))
         assert isinstance(kwargs.get("skills_archive"), (bytes, bytearray))
 
-    async def test_abefore_agent_repoless_seeds_only_skills_archive(self, tmp_path: Path):
-        """Repoless runs (``has_repo=False``) skip the repo archive but still seed the skills
-        archive when the on-disk skills directory is populated, so /skills is available in
-        the sandbox even without a checked-out repo."""
+    async def test_abefore_agent_repoless_with_empty_store_seeds_only_skills_archive(self, tmp_path: Path):
+        """Turn 1 of a repoless thread: the store has no prior writes, so the repo archive
+        is ``None`` and only the skills archive is seeded into the fresh sandbox container."""
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+
         agent_path = tmp_path / "repo"
         agent_path.mkdir(parents=True)
 
@@ -623,11 +1050,13 @@ class TestSandboxMiddleware:
         runtime = Mock()
         runtime.context = Mock()
         runtime.context.has_repo = False
-        # Any access to gitrepo in the repoless path is a bug.
         type(runtime.context).gitrepo = property(
             lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
         )
         runtime.context.config = _make_sandbox_config_mock()
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "empty-thread"))
 
         open_patch, close_patch = self._patch_client_lifecycle()
         with (
@@ -641,7 +1070,9 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
-            middleware = SandboxMiddleware(backend=Mock(), working_dir=agent_path, close_session=True)
+            middleware = SandboxMiddleware(
+                backend=backend, agent_root=f"/{agent_path.name}", working_dir=agent_path, close_session=True
+            )
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_repoless"}
@@ -650,11 +1081,17 @@ class TestSandboxMiddleware:
         assert kwargs.get("repo_archive") is None
         assert isinstance(kwargs.get("skills_archive"), (bytes, bytearray))
 
-    async def test_abefore_agent_repoless_skips_seed_when_no_skills(self, tmp_path: Path):
-        """Repoless runs with no skills dir on disk skip the seed call entirely — both archives
-        are None and the sandbox API rejects empty seeds, so we must not even hit it."""
-        agent_path = tmp_path / "repo"
-        agent_path.mkdir(parents=True)
+    async def test_abefore_agent_repoless_seeds_store_contents_as_repo_archive(self, tmp_path: Path):
+        """Multi-turn: the store has files from prior turns. ``abefore_agent`` builds a
+        repo archive from the current store state so the freshly-started sandbox container
+        sees those files — without this, ``bash`` on turn 2 can't read what ``write_file``
+        wrote on turn 1."""
+        import io
+        import tarfile
+
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
 
         runtime = Mock()
         runtime.context = Mock()
@@ -663,6 +1100,58 @@ class TestSandboxMiddleware:
             lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
         )
         runtime.context.config = _make_sandbox_config_mock()
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "multi-turn"))
+        await backend.aupload_files([
+            ("/repo/turn1.py", b"print('from turn 1')\n"),
+            ("/repo/nested/note.md", b"persisted across turns\n"),
+        ])
+
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_turn2"),
+            ),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ) as seed_session_mock,
+        ):
+            middleware = SandboxMiddleware(backend=backend, agent_root="/repo", working_dir=None, close_session=True)
+            update = await middleware.abefore_agent({}, runtime)
+
+        assert update == {"session_id": "sess_turn2"}
+        seed_session_mock.assert_awaited_once()
+        _args, kwargs = seed_session_mock.call_args
+        repo_archive = kwargs.get("repo_archive")
+        assert isinstance(repo_archive, (bytes, bytearray)), "store-backed multi-turn must seed a repo archive"
+
+        # Verify bytes (not just names): a zip/ordering regression in _build_store_archive
+        # would silently swap contents but keep names matching.
+        with tarfile.open(fileobj=io.BytesIO(bytes(repo_archive)), mode="r:gz") as tf:
+            members = {m.name: tf.extractfile(m).read() for m in tf.getmembers() if tf.extractfile(m) is not None}
+        assert members == {"turn1.py": b"print('from turn 1')\n", "nested/note.md": b"persisted across turns\n"}
+
+    async def test_abefore_agent_repoless_skips_seed_when_no_skills_or_store(self, tmp_path: Path):
+        """Empty store + no skills available → no archives → ``seed_session`` not called.
+        The sandbox API rejects empty seeds, so we must short-circuit before hitting it."""
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVStoreBackend
+
+        runtime = Mock()
+        runtime.context = Mock()
+        runtime.context.has_repo = False
+        type(runtime.context).gitrepo = property(
+            lambda self: (_ for _ in ()).throw(AssertionError("repoless run accessed gitrepo"))
+        )
+        runtime.context.config = _make_sandbox_config_mock()
+
+        store = InMemoryStore()
+        backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "no-content"))
 
         open_patch, close_patch = self._patch_client_lifecycle()
         with (
@@ -675,8 +1164,9 @@ class TestSandboxMiddleware:
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
+            patch("automation.agent.middlewares.sandbox._make_skills_archive_repoless", return_value=None),
         ):
-            middleware = SandboxMiddleware(backend=Mock(), working_dir=agent_path, close_session=True)
+            middleware = SandboxMiddleware(backend=backend, agent_root="/repo", working_dir=None, close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_no_seed"}
@@ -839,15 +1329,16 @@ class TestAwrapToolCall:
         repo_dir.mkdir()
         repo = Repo.init(repo_dir)
 
-        backend = Mock()
+        backend = Mock(spec=DAIVFilesystemBackend)
         backend._resolve_path = Mock(side_effect=ValueError("traversal"))
 
         runtime = Mock()
-        runtime.context = Mock(gitrepo=repo)
+        runtime.context = Mock(gitrepo=repo, has_repo=True)
         runtime.state = {"session_id": "sess_1"}
 
         middleware = _make_middleware()
-        middleware._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+        middleware._backend = backend
+        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
 
         request = self._request("write_file", {"file_path": "/repo/foo", "content": "x"}, runtime=runtime)
         sentinel = ToolMessage(content="upstream error", tool_call_id="call_1", name="write_file", status="error")
@@ -873,7 +1364,7 @@ class TestAwrapToolCall:
 
         target = repo_dir / ".python-version"
 
-        backend = Mock()
+        backend = Mock(spec=DAIVFilesystemBackend)
         backend._resolve_path = Mock(return_value=str(target))
 
         runtime = Mock()
@@ -881,7 +1372,8 @@ class TestAwrapToolCall:
         runtime.state = {"session_id": "sess_1"}
 
         middleware = _make_middleware()
-        middleware._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+        middleware._backend = backend
+        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
 
         request = self._request(
             "write_file", {"file_path": "/repo/.python-version", "content": "3.11\n"}, runtime=runtime
@@ -910,7 +1402,7 @@ class TestAwrapToolCall:
         repo = Repo.init(repo_dir)
         target = repo_dir / "foo.py"
 
-        backend = Mock()
+        backend = Mock(spec=DAIVFilesystemBackend)
         backend._resolve_path = Mock(return_value=str(target))
 
         runtime = Mock()
@@ -918,7 +1410,8 @@ class TestAwrapToolCall:
         runtime.state = {"session_id": "sess_1"}
 
         middleware = _make_middleware()
-        middleware._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+        middleware._backend = backend
+        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
 
         request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x\n"}, runtime=runtime)
         handler = AsyncMock()
@@ -945,7 +1438,7 @@ class TestAwrapToolCall:
         target = repo_dir / "foo.py"
         target.write_text("x")
 
-        backend = Mock()
+        backend = Mock(spec=DAIVFilesystemBackend)
         backend._resolve_path = Mock(return_value=str(target))
 
         runtime = Mock()
@@ -957,7 +1450,7 @@ class TestAwrapToolCall:
         runtime.state = {"session_id": "sess_1"}
 
         middleware = _make_middleware()
-        syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+        syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
         syncer.lock = AsyncMock()
         syncer.lock.__aenter__ = AsyncMock()
         syncer.lock.__aexit__ = AsyncMock()

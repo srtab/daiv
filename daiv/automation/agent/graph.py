@@ -1,13 +1,10 @@
-import hashlib
 import logging
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from django.utils import timezone
 
 from deepagents import create_deep_agent
-from deepagents.backends.filesystem import FilesystemBackend
 from langchain.agents.middleware import (
     AgentMiddleware,
     InterruptOnConfig,
@@ -29,7 +26,11 @@ from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
-from automation.agent.middlewares.file_system import FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE
+from automation.agent.middlewares.file_system import (
+    FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE,
+    DAIVFilesystemBackend,
+    DAIVStoreBackend,
+)
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
@@ -76,29 +77,33 @@ ALWAYS_LOADED_TOOLS = frozenset({
 })
 
 
-_REPOLESS_AGENT_PATH_ROOT = tempfile.gettempdir() + "/daiv"  # noqa: S108
+REPOLESS_AGENT_VIRTUAL_PATH = Path("/repo")
+_REPOLESS_NS_PREFIX = "daiv-repoless-fs"
 
 
-def resolve_agent_path(ctx: RuntimeCtx, thread_id: str | None = None) -> Path:
-    """Return the on-disk working directory the agent's filesystem tools point at.
+def resolve_agent_path(ctx: RuntimeCtx) -> Path:
+    """Return the working directory the agent's filesystem tools point at.
 
-    Repo-bound: the gitpython checkout. Repoless: an ephemeral directory under
-    ``_REPOLESS_AGENT_PATH_ROOT`` keyed by ``thread_id`` so concurrent runs don't
-    collide. ``thread_id`` flows from caller-controlled inputs (chat API), so
-    we hash it before using it as a path segment — a literal value containing
-    ``..`` would otherwise let mkdir escape the root. The hash also normalises
-    arbitrary client identifiers to filesystem-safe form.
-
-    Teardown is intentionally not done here. ``FilesystemBackend(virtual_mode=True)``
-    keeps the agent's tool-side file content in memory; this on-disk path is just
-    a placeholder used by ``SandboxMiddleware`` for path arithmetic.
+    Repo-bound: the gitpython on-disk checkout. Repoless: a virtual ``/repo`` sentinel
+    that's never touched by ``os.*`` calls — the agent's filesystem operations go
+    through ``StoreBackend`` (LangGraph store), and ``SandboxMiddleware`` does string
+    arithmetic against this prefix to map agent paths to sandbox ``/repo/<rel>``.
     """
     if ctx.has_repo:
         return Path(ctx.gitrepo.working_dir)
-    key = hashlib.sha256((thread_id or "ephemeral").encode("utf-8")).hexdigest()[:32]
-    p = Path(_REPOLESS_AGENT_PATH_ROOT) / key / "repo"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    return REPOLESS_AGENT_VIRTUAL_PATH
+
+
+def _repoless_namespace_factory(thread_id: str | None):
+    """Namespace factory for the repoless ``StoreBackend``.
+
+    Keying by ``thread_id`` keeps concurrent runs isolated AND lets a chat resume
+    in the same thread see files the prior turn wrote. The validator rejects
+    empty strings, so fall back to ``"ephemeral"`` when no thread_id is wired
+    through (manual invocations, evals).
+    """
+    key = thread_id or "ephemeral"
+    return lambda _runtime: (_REPOLESS_NS_PREFIX, key)
 
 
 class _Unset:
@@ -228,8 +233,12 @@ async def create_daiv_agent(
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
-    agent_path = resolve_agent_path(ctx, thread_id=thread_id)
-    backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    agent_path = resolve_agent_path(ctx)
+    if ctx.has_repo:
+        backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    else:
+        backend = DAIVStoreBackend(namespace=_repoless_namespace_factory(thread_id))
+    agent_root = f"/{agent_path.name}"
 
     subagents = [
         create_general_purpose_subagent(
@@ -268,7 +277,15 @@ async def create_daiv_agent(
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         SkillsMiddleware(backend=backend, sources=skills_sources, subagents=subagents),
-        *([SandboxMiddleware(backend=backend, working_dir=agent_path)] if _sandbox_enabled else []),
+        *(
+            [
+                SandboxMiddleware(
+                    backend=backend, agent_root=agent_root, working_dir=agent_path if ctx.has_repo else None
+                )
+            ]
+            if _sandbox_enabled
+            else []
+        ),
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),

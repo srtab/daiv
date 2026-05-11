@@ -137,11 +137,10 @@ class TestGeneralPurposeMiddleware:
         """
         from types import SimpleNamespace
 
-        from deepagents.backends.filesystem import FilesystemBackend
         from langchain_core.messages import ToolMessage
         from langgraph.prebuilt.tool_node import ToolCallRequest
 
-        from automation.agent.middlewares.file_system import SandboxSyncer
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend, SandboxSyncer
         from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
 
         repo_dir = tmp_path / "repo"
@@ -154,7 +153,7 @@ class TestGeneralPurposeMiddleware:
             results=[MutationResult(path="/repo/sub.py", ok=True, error=None)]
         )
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = _build_general_purpose_middleware(
             mock_model, backend, ctx, sandbox_enabled=True, web_search_enabled=False, web_fetch_enabled=False
         )
@@ -163,7 +162,7 @@ class TestGeneralPurposeMiddleware:
         sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
         # Inject fake client + syncer to skip network setup that abefore_agent would otherwise drive.
         sandbox_mw._client = fake_client
-        sandbox_mw._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=fake_client)
+        sandbox_mw._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=fake_client)
 
         write = next(t for t in fs_mw.tools if t.name == "write_file")
         runtime = SimpleNamespace(
@@ -271,7 +270,7 @@ class TestCustomSubagents:
         return ctx
 
     async def test_loads_custom_subagent(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -279,7 +278,7 @@ class TestCustomSubagents:
             _make_subagent_md(name="my-agent", description="Does custom things", body="You do custom things.")
         )
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -290,14 +289,14 @@ class TestCustomSubagents:
         assert "runnable" in result[0]
 
     async def test_loads_multiple_subagents(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
         (subagents_dir / "agent-a.md").write_text(_make_subagent_md(name="agent-a", description="Agent A"))
         (subagents_dir / "agent-b.md").write_text(_make_subagent_md(name="agent-b", description="Agent B"))
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -306,14 +305,14 @@ class TestCustomSubagents:
         assert names == {"agent-a", "agent-b"}
 
     async def test_skips_non_md_files(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
         (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
         (subagents_dir / "readme.txt").write_text("Not a subagent")
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -322,14 +321,14 @@ class TestCustomSubagents:
         assert result[0]["name"] == "my-agent"
 
     async def test_skips_directories(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
         (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
         (subagents_dir / "some-dir").mkdir()
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -338,13 +337,13 @@ class TestCustomSubagents:
         assert result[0]["name"] == "my-agent"
 
     async def test_skips_missing_name(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
         (subagents_dir / "bad.md").write_text("---\ndescription: no name\n---\nBody here.")
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -352,13 +351,13 @@ class TestCustomSubagents:
         assert len(result) == 0
 
     async def test_skips_missing_description(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
         (subagents_dir / "bad.md").write_text("---\nname: bad\n---\nBody here.")
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -366,13 +365,13 @@ class TestCustomSubagents:
         assert len(result) == 0
 
     async def test_skips_empty_body(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
         (subagents_dir / "empty.md").write_text("---\nname: empty\ndescription: empty body\n---\n")
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -380,13 +379,13 @@ class TestCustomSubagents:
         assert len(result) == 0
 
     async def test_skips_no_frontmatter(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
         (subagents_dir / "plain.md").write_text("Just some markdown without frontmatter.")
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -405,7 +404,7 @@ class TestCustomSubagents:
 
     @pytest.mark.parametrize("reserved_name", ["general-purpose", "explore"])
     async def test_skips_builtin_name_collision(self, tmp_path: Path, mock_model, mock_runtime_ctx, reserved_name):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -414,7 +413,7 @@ class TestCustomSubagents:
         )
         (subagents_dir / "custom.md").write_text(_make_subagent_md(name="custom", description="Custom agent"))
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )
@@ -424,7 +423,7 @@ class TestCustomSubagents:
         assert "custom" in names
 
     async def test_skips_invalid_model(self, tmp_path: Path, mock_model, mock_runtime_ctx):
-        from deepagents.backends.filesystem import FilesystemBackend
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
@@ -433,7 +432,7 @@ class TestCustomSubagents:
         )
         (subagents_dir / "good.md").write_text(_make_subagent_md(name="good", description="Good agent"))
 
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
             model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
         )

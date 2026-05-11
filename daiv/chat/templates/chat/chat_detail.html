@@ -78,15 +78,36 @@
             <span class="chat-hero__eyebrow">{% trans "New chat" %}</span>
             <h1 class="chat-hero__title">{% trans "What are we building today?" %}</h1>
             <div class="chat-hero__subtitle-stack">
-              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': draftRepoId }">
+              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': draftRepoId || draftRepoless }">
                 {% trans "Pick a repository to get started." %}
               </p>
-              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': !draftRepoId }">
+              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': !draftRepoId && !draftRepoless }">
                 {% trans "Ready when you are — describe the change, the bug, or what to explore." %}
               </p>
             </div>
-            <div class="chat-hero__picker">
+            <div class="chat-hero__picker" x-show="!draftRepoless" x-cloak>
               {% include "codebase/_repo_picker.html" with max_repos=1 initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
+              <p class="mt-3 text-center text-sm" x-show="!draftRepoId" x-cloak>
+                <a href="#" @click.prevent="startRepoless()"
+                   class="text-gray-400 hover:text-gray-200"><span aria-hidden="true">↳ </span>{% trans "Start without a repo" %}</a>
+                <button type="button"
+                        class="ml-1 cursor-pointer text-gray-500"
+                        aria-label="{% trans 'What works without a repo' %}"
+                        title="{% trans 'Without a repo: skills, sandbox bash, filesystem and web tools work. Codebase browsing, MR diffs and repo-aware file search are unavailable.' %}">ⓘ</button>
+              </p>
+            </div>
+            <div class="mt-4 flex items-center justify-center gap-2"
+                 x-show="draftRepoless" x-cloak>
+              <span class="repo-chip">
+                <span class="repo-chip__btn">
+                  <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"/>
+                  </svg>
+                  <span>{% trans "No repo" %}</span>
+                </span>
+              </span>
+              <a href="#" @click.prevent="draftRepoless = false"
+                 class="text-xs text-gray-500 hover:text-gray-300">{% trans "change" %}</a>
             </div>
           </div>
         </template>

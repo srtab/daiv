@@ -57,7 +57,8 @@ def _build_general_purpose_middleware(
     """Build the middleware stack for a general-purpose subagent.
 
     Repoless runs (``runtime.has_repo is False``) skip ``GitPlatformMiddleware`` and
-    point ``SandboxMiddleware`` at the ephemeral path from ``resolve_agent_path``.
+    point ``SandboxMiddleware`` at the virtual ``/repo`` root from ``resolve_agent_path``;
+    snapshot/rollback go through the ``StoreBackend`` shared with the parent agent.
     ``close_session=False`` lets the subagent reuse the parent agent's sandbox session.
     """
     # Local import to break a circular dependency: graph.py imports this module.
@@ -89,9 +90,13 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if sandbox_enabled:
+        agent_path = resolve_agent_path(runtime)
         middleware.append(
             SandboxMiddleware(
-                backend=backend, working_dir=resolve_agent_path(runtime, thread_id=thread_id), close_session=False
+                backend=backend,
+                agent_root=f"/{agent_path.name}",
+                working_dir=agent_path if runtime.has_repo else None,
+                close_session=False,
             )
         )
 

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import json
 import logging
-import os
-import stat
+import shutil
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired, cast
 
 import httpx
+from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.backends.protocol import FILE_NOT_FOUND
+from deepagents.backends.utils import validate_path
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse, ToolCallRequest
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
@@ -18,7 +22,8 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.constants import GLOBAL_SKILLS_PATH
+from automation.agent.conf import settings as agent_settings
+from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH
 from automation.agent.middlewares.file_system import (
     EDIT_FILE_TOOL,
     EDIT_SUCCESS_PREFIX,
@@ -40,7 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from typing import Any
 
-    from deepagents.backends import BackendProtocol
+    from deepagents.backends.protocol import BackendProtocol
     from langgraph.runtime import Runtime
     from langgraph.types import Command
 
@@ -282,6 +287,200 @@ def _make_skills_archive(skills_dir: Path) -> bytes | None:
     return buf.getvalue()
 
 
+_SKILL_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
+
+
+def _make_skills_archive_repoless() -> bytes | None:
+    """Build the sandbox skills archive without depending on the agent's filesystem backend.
+
+    Repoless runs use ``StoreBackend`` for the agent's tools, so there's no on-disk skills
+    directory to tar. Stage built-in + custom skills (custom overrides built-in by skill name)
+    into a per-call ``TemporaryDirectory`` and reuse ``_make_skills_archive``.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        staging = Path(tmpdir)
+        if BUILTIN_SKILLS_PATH.is_dir():
+            for skill_dir in BUILTIN_SKILLS_PATH.iterdir():
+                if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
+                    continue
+                shutil.copytree(skill_dir, staging / skill_dir.name, ignore=_SKILL_IGNORE)
+        custom = agent_settings.CUSTOM_SKILLS_PATH
+        if custom is not None and custom.is_dir():
+            for skill_dir in custom.iterdir():
+                if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
+                    continue
+                shutil.copytree(skill_dir, staging / skill_dir.name, dirs_exist_ok=True, ignore=_SKILL_IGNORE)
+        return _make_skills_archive(staging)
+
+
+def _agent_root_prefix(agent_root: str) -> str:
+    return agent_root.rstrip("/") + "/"
+
+
+async def _build_store_archive(backend: BackendProtocol, agent_root: str) -> bytes | None:
+    """Tar the store's current contents under ``agent_root`` for sandbox seeding.
+
+    Returns ``None`` only when the store is genuinely empty (glob returns no matches).
+    Raises ``RuntimeError`` on glob or per-file download errors: silent partial seeding
+    would let turn N+1's bash see an incomplete mirror of the store, which the caller
+    can't detect — fail-loud is the only safe option for a workspace-mirror operation.
+    """
+    glob_result = await backend.aglob("**", path=agent_root)
+    if glob_result.error is not None:
+        raise RuntimeError(f"backend glob failed for {agent_root!r}: {glob_result.error}")
+    if not glob_result.matches:
+        return None
+    prefix = _agent_root_prefix(agent_root)
+    paths = [m["path"] for m in glob_result.matches if m["path"].startswith(prefix)]
+    if not paths:
+        return None
+    responses = await backend.adownload_files(paths)
+    errors = [
+        (path, response.error)
+        for path, response in zip(paths, responses, strict=True)
+        if response.error is not None or response.content is None
+    ]
+    if errors:
+        raise RuntimeError(f"backend download failed while building repo archive: {errors}")
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for path, response in zip(paths, responses, strict=True):
+            content = response.content
+            if content is None:
+                # Unreachable given the errors check above, but survives -O and names the
+                # protocol violation (content=None with error=None) loudly if it ever fires.
+                raise RuntimeError(f"backend protocol violation: download for {path!r} returned content=None")
+            info = tarfile.TarInfo(name=path.removeprefix(prefix))
+            info.size = len(content)
+            tf.addfile(info, io.BytesIO(content))
+    return buf.getvalue()
+
+
+async def _stage_store_paths_to_dir(backend: BackendProtocol, agent_root: str, paths: list[str], dest: Path) -> None:
+    """Download repo-relative ``paths`` from the store and write them under ``dest``.
+
+    Genuinely missing files (``FILE_NOT_FOUND``) are skipped silently so ``git apply``
+    can surface its own canonical "No such file or directory" message. Transient/
+    permission errors are logged before skipping — without the log they'd masquerade
+    as "file missing" and the user would chase a phantom path bug instead of a
+    backend hiccup.
+    """
+    if not paths:
+        return
+    prefix = _agent_root_prefix(agent_root)
+    responses = await backend.adownload_files([f"{prefix}{p}" for p in paths])
+
+    async def _write_one(rel: str, content: bytes) -> None:
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(target.write_bytes, content)
+
+    tasks: list = []
+    for rel, response in zip(paths, responses, strict=True):
+        if response.content is None:
+            if response.error is not None and response.error != FILE_NOT_FOUND:
+                logger.warning("skipping source-side seed for %s: %s", rel, response.error)
+            continue
+        tasks.append(_write_one(rel, response.content))
+    if tasks:
+        await asyncio.gather(*tasks)
+
+
+async def _read_backend_bytes(backend: BackendProtocol, virtual_path: str) -> bytes | None:
+    """Return the file's bytes via ``adownload_files``, or ``None`` on absence/error.
+
+    Logs transient/permission errors so a backend hiccup during ``_mirror_edit``'s
+    pre-snapshot can be diagnosed — without a log the snapshot just silently turns into
+    a defer-to-upstream, and a subsequent sandbox-sync failure has no rollback to fire.
+    Missing-file responses (``FILE_NOT_FOUND``) stay silent: that's the expected branch
+    when ``edit_file`` is invoked on a path upstream will reject anyway.
+    """
+    response = (await backend.adownload_files([virtual_path]))[0]
+    if response.error == FILE_NOT_FOUND:
+        return None
+    if response.error is not None:
+        logger.warning("backend read failed for %s: %s", virtual_path, response.error)
+        return None
+    return response.content
+
+
+async def _apply_patch_to_backend(
+    backend: BackendProtocol, patch: str, agent_root: str, working_dir: Path | None
+) -> None:
+    """Apply a sandbox-returned patch to ``backend``.
+
+    Raises ``ValueError`` if a ``FilesystemBackend`` is used without a working_dir.
+    Backend-level failures propagate as ``RuntimeError`` (store upload) or whatever
+    ``apply_patch_to_dir`` raises (malformed patch).
+    """
+    if isinstance(backend, FilesystemBackend):
+        if working_dir is None:
+            raise ValueError("FilesystemBackend requires a working_dir to apply sandbox patches")
+        await asyncio.to_thread(apply_patch_to_dir, patch, working_dir)
+        return
+
+    if not patch or not patch.strip():
+        return
+    changes = files_changed_from_patch(patch)
+    if not changes:
+        return
+
+    # ``git apply`` is strict about source-side content: a modify/delete/rename
+    # hunk references ``--- a/<path>`` and refuses to apply if that file isn't
+    # already in cwd with the pre-mutation bytes. Seed the staging dir from the
+    # store before applying.
+    source_paths = [
+        e["from_path"] if e["op"] == "renamed" else e["path"]
+        for e in changes
+        if e["op"] in ("modified", "deleted", "renamed")
+    ]
+    prefix = _agent_root_prefix(agent_root)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        staging = Path(tmpdir)
+        await _stage_store_paths_to_dir(backend, agent_root, source_paths, staging)
+        await asyncio.to_thread(apply_patch_to_dir, patch, staging)
+
+        # Walk by the patch (not the tempdir): the patch is the single source of
+        # truth about what changed, including deletes/renames the walk would miss.
+        upload_paths: list[str] = []
+        read_tasks: list[Any] = []
+        deletes: list[str] = []
+        for entry in changes:
+            op = entry["op"]
+            path = entry["path"]
+            if op == "deleted":
+                deletes.append(f"{prefix}{path}")
+                continue
+            if op == "renamed":
+                deletes.append(f"{prefix}{entry['from_path']}")
+            target = staging / path
+            if target.exists():
+                upload_paths.append(f"{prefix}{path}")
+                read_tasks.append(asyncio.to_thread(target.read_bytes))
+
+        if read_tasks:
+            contents = await asyncio.gather(*read_tasks)
+            responses = await backend.aupload_files(list(zip(upload_paths, contents, strict=True)))
+            upload_errors = [
+                (path, r.error) for path, r in zip(upload_paths, responses, strict=True) if r.error is not None
+            ]
+            if upload_errors:
+                raise RuntimeError(f"backend upload failed for some files: {upload_errors}")
+        delete_failures: list[str] = []
+        for delete_path in deletes:
+            if not await cast("Any", backend).delete(delete_path):
+                # Per-failure log so each orphaned key is searchable in Sentry even if a
+                # later delete in the same patch succeeds. Aggregated raise still fires below.
+                logger.error("backend delete failed for %s", delete_path)
+                delete_failures.append(delete_path)
+        if delete_failures:
+            # Silent skip would leave the store with files the sandbox already deleted,
+            # and the agent would read stale content. Raise to mirror the upload contract.
+            raise RuntimeError(f"backend delete failed for some files: {delete_failures}")
+
+
 async def _run_bash_commands(
     client: DAIVSandboxClient, commands: list[str], session_id: str
 ) -> RunCommandsResponse | None:
@@ -323,10 +522,13 @@ class SandboxMiddleware(AgentMiddleware):
     bash execution and write mirroring.
 
     Args:
-        backend: Filesystem backend used to resolve ``/repo``-relative paths to on-disk
-            paths. Must be the same instance that backs upstream's ``FilesystemMiddleware``.
-        working_dir: On-disk repo root used to map local paths to sandbox paths
-            (``<working_dir>/<rel>`` → ``/repo/<rel>``).
+        backend: Filesystem backend the agent's tools operate on. Must be the same instance
+            that backs upstream's ``FilesystemMiddleware``.
+        agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/repo``).
+            Used to validate inbound paths and map them to sandbox-side ``/repo/<rel>``.
+        working_dir: On-disk repo root for repo-bound runs. ``None`` for repoless runs,
+            where there is no on-disk working tree and snapshot/rollback go through the
+            backend instead.
         close_session: Whether to close the session after the agent finishes the execution
             loop. Set to ``False`` when used in subagents so the parent agent owns session
             lifecycle.
@@ -337,19 +539,27 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(backend=backend, working_dir="/workspace/repo")],
+            middleware=[SandboxMiddleware(backend=backend, agent_root="/repo", working_dir="/workspace/repo")],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(self, *, backend: BackendProtocol, working_dir: Path | str, close_session: bool = True):
+    def __init__(
+        self,
+        *,
+        backend: BackendProtocol,
+        agent_root: str,
+        working_dir: Path | str | None = None,
+        close_session: bool = True,
+    ):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
 
         self._backend = backend
-        self._working_dir = Path(working_dir)
+        self._agent_root = agent_root
+        self._working_dir = Path(working_dir) if working_dir is not None else None
         self.close_session = close_session
         self._client: DAIVSandboxClient | None = None
         self._syncer: SandboxSyncer | None = None
@@ -378,8 +588,17 @@ class SandboxMiddleware(AgentMiddleware):
                 )
 
             if response.patch:
+                # Serialise the bash→store sync against concurrent write_file/edit_file
+                # mirror calls in the same turn — LangGraph's ToolNode dispatches independent
+                # tool calls in parallel, so a write_file rollback could interleave with our
+                # upload/delete on the same store key. Fallback covers tests that exercise
+                # bash_tool without wiring a syncer.
+                lock_ctx: Any = self._syncer.lock if self._syncer is not None else contextlib.nullcontext()
                 try:
-                    apply_patch_to_dir(response.patch, self._working_dir)
+                    async with lock_ctx:
+                        await _apply_patch_to_backend(
+                            self._backend, response.patch, self._agent_root, self._working_dir
+                        )
                 except Exception:
                     logger.exception(
                         "[%s] Error applying patch (session=%s, working_dir=%s).",
@@ -416,7 +635,7 @@ class SandboxMiddleware(AgentMiddleware):
         client = DAIVSandboxClient()
         await client.open()
         self._client = client
-        self._syncer = SandboxSyncer(backend=self._backend, working_dir=self._working_dir, client=client)
+        self._syncer = SandboxSyncer(backend=self._backend, agent_root=self._agent_root, client=client)
 
         try:
             if not self.close_session and "session_id" in state:
@@ -434,25 +653,28 @@ class SandboxMiddleware(AgentMiddleware):
                 )
             )
             try:
-                skills_dir = self._working_dir.parent / Path(GLOBAL_SKILLS_PATH).name
                 if runtime.context.has_repo:
                     working_dir = Path(runtime.context.gitrepo.working_dir)
+                    skills_dir = working_dir.parent / Path(GLOBAL_SKILLS_PATH).name
                     repo_archive, skills_archive = await asyncio.gather(
                         asyncio.to_thread(_make_repo_archive, str(working_dir)),
                         asyncio.to_thread(_make_skills_archive, skills_dir),
                     )
                 else:
-                    repo_archive = None
-                    skills_archive = await asyncio.to_thread(_make_skills_archive, skills_dir)
+                    repo_archive, skills_archive = await asyncio.gather(
+                        _build_store_archive(self._backend, self._agent_root),
+                        asyncio.to_thread(_make_skills_archive_repoless),
+                    )
                 if repo_archive is not None or skills_archive is not None:
                     await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
                 else:
-                    logger.debug(
-                        "Skipping seed_session for %s: no repo archive and no skills archive (skills_dir=%s)",
-                        session_id,
-                        skills_dir,
-                    )
+                    logger.debug("Skipping seed_session for %s: no repo archive and no skills archive", session_id)
             except Exception:
+                # Build/seed failures otherwise propagate bare through gather → BaseException
+                # handler → LangGraph, with no per-run breadcrumb. Logging here puts the
+                # actual cause (e.g. ``_build_store_archive`` raising on store-glob error)
+                # next to the session id so Sentry can correlate it with the run.
+                logger.exception("Failed to build or seed sandbox session %s", session_id)
                 try:
                     await client.close_session(session_id)
                 except Exception:
@@ -557,87 +779,78 @@ class SandboxMiddleware(AgentMiddleware):
         """Dispatch ``write_file`` and mirror the new file to the sandbox under the syncer lock.
 
         The lock serialises with concurrent writes/edits in the same run so a rollback
-        (unlink) cannot race with a sibling tool's edit on the same path.
+        cannot race with a sibling tool's edit on the same path.
+
+        Rollback calls ``backend.delete`` (subclass method) to undo a just-created file
+        when the sync fails. ``stat_mode`` (subclass method) reads the post-write mode
+        bits so ``PutMutation.mode`` mirrors ``+x`` for executable scripts on the
+        sandbox side. Disk reads real bits; the store returns 0o644.
         """
         assert self._syncer is not None  # guarded by awrap_tool_call
         syncer = self._syncer
         args = request.tool_call["args"]
         file_path = args["file_path"]
         content = args["content"]
+        ctx = cast("RuntimeCtx", request.runtime.context)
+        backend = self._backend
+
+        try:
+            virtual_path = validate_path(file_path)
+        except ValueError:
+            return await handler(request)
 
         # `git add -A` silently drops gitignored paths, so a successful write would
-        # never reach the MR. Refuse pre-dispatch when bound to a repo; on path-
-        # resolution failure, let upstream produce its own error.
-        ctx = cast("RuntimeCtx", request.runtime.context)
-        try:
-            prevalidated_target = syncer.resolve_target(file_path)
-        except OSError, ValueError:
-            prevalidated_target = None
-        if prevalidated_target is not None and ctx.has_repo:
-            git_manager = GitManager(ctx.gitrepo)
-            ignore_result = await asyncio.to_thread(git_manager.is_path_ignored, prevalidated_target)
-            if ignore_result is IgnoreCheck.IGNORED:
-                return ToolMessage(
-                    content=(
-                        f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
-                        f"would silently drop it from the commit, so the change would not "
-                        f"appear in the merge request. Pick a path that is not ignored, or "
-                        f"run `git check-ignore -v <path>` via bash to find the matching rule "
-                        f"(it may live in a parent `.gitignore`, `.git/info/exclude`, or the "
-                        f"user's global ignore file) before changing it."
-                    ),
-                    tool_call_id=request.tool_call["id"],
-                    name=request.tool_call["name"],
-                    status="error",
-                )
-            if ignore_result is IgnoreCheck.UNKNOWN:
-                # Fail-closed: a broken plumbing call must not let an ignored path slip
-                # through silently and disappear from `git add -A`.
-                return ToolMessage(
-                    content=(
-                        f"Refused: could not determine whether '{file_path}' is gitignored "
-                        f"(`git check-ignore` failed; see server logs). Retry, or run "
-                        f"`git check-ignore -v <path>` via bash to inspect."
-                    ),
-                    tool_call_id=request.tool_call["id"],
-                    name=request.tool_call["name"],
-                    status="error",
-                )
+        # never reach the MR. Only repo-bound runs commit, and only disk-backed
+        # backends surface a real Path for ``git check-ignore`` to act on.
+        if ctx.has_repo and isinstance(backend, FilesystemBackend):
+            try:
+                disk_target = Path(cast("Any", backend)._resolve_path(virtual_path))
+            except OSError, ValueError:
+                disk_target = None
+            if disk_target is not None:
+                git_manager = GitManager(ctx.gitrepo)
+                ignore_result = await asyncio.to_thread(git_manager.is_path_ignored, disk_target)
+                if ignore_result is IgnoreCheck.IGNORED:
+                    return ToolMessage(
+                        content=(
+                            f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
+                            f"would silently drop it from the commit, so the change would not "
+                            f"appear in the merge request. Pick a path that is not ignored, or "
+                            f"run `git check-ignore -v <path>` via bash to find the matching rule "
+                            f"(it may live in a parent `.gitignore`, `.git/info/exclude`, or the "
+                            f"user's global ignore file) before changing it."
+                        ),
+                        tool_call_id=request.tool_call["id"],
+                        name=request.tool_call["name"],
+                        status="error",
+                    )
+                if ignore_result is IgnoreCheck.UNKNOWN:
+                    # Fail-closed: a broken plumbing call must not let an ignored path slip
+                    # through silently and disappear from `git add -A`.
+                    return ToolMessage(
+                        content=(
+                            f"Refused: could not determine whether '{file_path}' is gitignored "
+                            f"(`git check-ignore` failed; see server logs). Retry, or run "
+                            f"`git check-ignore -v <path>` via bash to inspect."
+                        ),
+                        tool_call_id=request.tool_call["id"],
+                        name=request.tool_call["name"],
+                        status="error",
+                    )
 
         async with syncer.lock:
             result = await handler(request)
             if not _is_text_success(result, WRITE_SUCCESS_PREFIX):
                 return result
 
-            target = prevalidated_target
-            if target is None:
-                try:
-                    target = syncer.resolve_target(file_path)
-                except (OSError, ValueError) as exc:
-                    # Upstream succeeded so the file is on disk, but we can't determine where —
-                    # surface CRITICAL so the agent knows local state may be desynced.
-                    return _replace_tool_message(
-                        result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=False)
-                    )
+            async def _rollback() -> bool:
+                return await cast("Any", backend).delete(virtual_path)
 
-            def _rollback() -> bool:
-                try:
-                    target.unlink(missing_ok=True)
-                except OSError:
-                    logger.exception("rollback unlink failed for %s", target)
-                    return False
-                return True
-
-            try:
-                mode = stat.S_IMODE(target.stat().st_mode)
-            except OSError as exc:
-                return _replace_tool_message(
-                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=_rollback())
-                )
+            mode = await cast("Any", backend).stat_mode(virtual_path)
 
             error = await syncer.mirror(
                 runtime=request.runtime,
-                resolved_path=target,
+                virtual_path=virtual_path,
                 content_bytes=content.encode(),
                 mode=mode,
                 rollback=_rollback,
@@ -652,46 +865,60 @@ class SandboxMiddleware(AgentMiddleware):
         Snapshots pre-edit bytes + mode outside the lock so rollback can restore them on
         sync failure. The lock then serialises dispatch through mirror so a sibling write
         cannot interleave with our restore.
+
+        Reads use ``backend.adownload_files`` (protocol); rollback uses
+        ``backend.aupload_files`` (protocol). ``stat_mode`` (subclass) provides the
+        outgoing mutation's mode bits so ``+x`` mirrors to the sandbox; the disk
+        write itself preserves mode automatically via POSIX ``O_TRUNC`` overwrite.
         """
         assert self._syncer is not None  # guarded by awrap_tool_call
         syncer = self._syncer
+        backend = self._backend
         args = request.tool_call["args"]
         file_path = args["file_path"]
+
+        try:
+            virtual_path = validate_path(file_path)
+        except ValueError:
+            return await handler(request)
 
         # Snapshot must happen before dispatch so we can rebuild the file on sync failure.
         # If anything fails here (invalid path, missing file), let upstream produce the
         # canonical "not found" error instead of inventing our own.
-        try:
-            target = syncer.resolve_target(file_path)
-            pre_bytes = target.read_bytes()
-            pre_mode = stat.S_IMODE(target.stat().st_mode)
-        except ValueError, OSError:
+        pre_bytes = await _read_backend_bytes(backend, virtual_path)
+        if pre_bytes is None:
             return await handler(request)
+        pre_mode = await cast("Any", backend).stat_mode(virtual_path)
 
         async with syncer.lock:
             result = await handler(request)
             if not _is_text_success(result, EDIT_SUCCESS_PREFIX):
                 return result
 
-            def _rollback() -> bool:
+            async def _rollback() -> bool:
                 try:
-                    target.write_bytes(pre_bytes)
-                    os.chmod(target, pre_mode)  # noqa: PTH101
-                except OSError:
-                    logger.exception("rollback restore failed for %s", target)
+                    responses = await backend.aupload_files([(virtual_path, pre_bytes)])
+                except Exception:
+                    logger.exception("rollback aupload_files failed for %s", virtual_path)
+                    return False
+                if responses[0].error is not None:
+                    logger.error("rollback aupload returned error for %s: %s", virtual_path, responses[0].error)
                     return False
                 return True
 
-            try:
-                post_bytes = target.read_bytes()
-            except OSError as exc:
+            post_bytes = await _read_backend_bytes(backend, virtual_path)
+            if post_bytes is None:
                 return _replace_tool_message(
-                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=_rollback())
+                    result,
+                    format_sync_error(
+                        "failed to prepare sandbox sync: post-edit read returned no content",
+                        rollback_ok=await _rollback(),
+                    ),
                 )
 
             error = await syncer.mirror(
                 runtime=request.runtime,
-                resolved_path=target,
+                virtual_path=virtual_path,
                 content_bytes=post_bytes,
                 mode=pre_mode,
                 rollback=_rollback,

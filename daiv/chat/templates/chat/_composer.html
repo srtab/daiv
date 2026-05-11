@@ -1,6 +1,6 @@
 {% load i18n %}
 <div class="chat-dock"
-     x-show="thread || draftRepoId"
+     x-show="thread || draftRepoId || draftRepoless"
      x-transition.opacity.duration.300ms>
   <form @submit.prevent="submit()"
         class="chat-composer"
@@ -18,6 +18,14 @@
     the hero unmounts and `thread` becomes truthy, so the chip takes over here.
     {% endcomment %}
     <div class="chat-composer__meta" x-show="thread" x-cloak>
+      <span class="repo-chip" x-show="!thread?.repo_id && !thread?.ref">
+        <span class="repo-chip__btn">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/>
+          </svg>
+          <span>{% trans "No repo" %}</span>
+        </span>
+      </span>
       <span class="repo-chip" x-show="thread?.repo_id || thread?.ref">
         <span class="repo-chip__btn" x-show="thread?.repo_id">
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

@@ -8,13 +8,17 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
-from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from automation.agent.middlewares import file_system as fs_module
-from automation.agent.middlewares.file_system import EDIT_SUCCESS_PREFIX, WRITE_SUCCESS_PREFIX
+from automation.agent.middlewares.file_system import (
+    EDIT_SUCCESS_PREFIX,
+    WRITE_SUCCESS_PREFIX,
+    DAIVFilesystemBackend,
+    DAIVStoreBackend,
+)
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
 
@@ -51,12 +55,13 @@ def _sandbox_api_key(monkeypatch):
 @pytest.fixture
 def setup(working_repo, fake_client):
     """Backend + upstream tool map + sandbox middleware with pre-installed client/syncer."""
-    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    backend = DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
     fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
     tools = {tool.name: tool for tool in fs.tools}
-    middleware = SandboxMiddleware(backend=backend, working_dir=working_repo)
+    agent_root = f"/{working_repo.name}"
+    middleware = SandboxMiddleware(backend=backend, agent_root=agent_root, working_dir=working_repo)
     middleware._client = fake_client
-    middleware._syncer = fs_module.SandboxSyncer(backend=backend, working_dir=working_repo, client=fake_client)
+    middleware._syncer = fs_module.SandboxSyncer(backend=backend, agent_root=agent_root, client=fake_client)
     return SimpleNamespace(backend=backend, tools=tools, middleware=middleware, repo=working_repo)
 
 
@@ -182,10 +187,10 @@ async def test_write_file_missing_session_id_rolls_back(setup, fake_client):
 
 
 async def test_write_file_rejects_path_outside_working_dir(working_repo, fake_client, tmp_path):
-    """A write to a path outside working_dir is rolled back; sandbox is never called."""
+    """A write to a path outside the agent root is rolled back; sandbox is never called."""
     outside = tmp_path / "elsewhere"
     outside.mkdir()
-    backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+    backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
     write = next(
         t
         for t in UpstreamFilesystemMiddleware(
@@ -193,9 +198,10 @@ async def test_write_file_rejects_path_outside_working_dir(working_repo, fake_cl
         ).tools
         if t.name == "write_file"
     )
-    middleware = SandboxMiddleware(backend=backend, working_dir=working_repo)
+    agent_root = f"/{working_repo.name}"
+    middleware = SandboxMiddleware(backend=backend, agent_root=agent_root, working_dir=working_repo)
     middleware._client = fake_client
-    middleware._syncer = fs_module.SandboxSyncer(backend=backend, working_dir=working_repo, client=fake_client)
+    middleware._syncer = fs_module.SandboxSyncer(backend=backend, agent_root=agent_root, client=fake_client)
 
     result = await _invoke(
         middleware,
@@ -311,14 +317,12 @@ async def test_edit_file_surfaces_critical_when_rollback_fails(setup, fake_clien
     fake_client.apply_file_mutations.side_effect = RuntimeError("sandbox down")
     runtime = _runtime(state={"session_id": "sid"}, working_dir=setup.repo)
 
-    real_write_bytes = type(target).write_bytes
+    # Rollback restores pre-edit content via ``backend.aupload_files``; raise from inside
+    # it to simulate a disk-level failure during recovery.
+    async def fail_upload(_files):
+        raise OSError("disk gone")
 
-    def fail_write_bytes(self, data, *a, **kw):
-        if str(self).endswith("foo.py"):
-            raise OSError("disk gone")
-        return real_write_bytes(self, data, *a, **kw)
-
-    monkeypatch.setattr(type(target), "write_bytes", fail_write_bytes)
+    monkeypatch.setattr(setup.backend, "aupload_files", fail_upload)
 
     result = await _invoke(
         setup.middleware,
@@ -408,3 +412,119 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     assert edit_result.startswith(EDIT_SUCCESS_PREFIX), (
         f"upstream changed edit success format; update EDIT_SUCCESS_PREFIX: {edit_result!r}"
     )
+
+
+@pytest.fixture
+def store_setup(fake_client):
+    """Same shape as ``setup`` but backed by a ``StoreBackend`` (no on-disk working tree)."""
+    from langgraph.store.memory import InMemoryStore
+
+    store = InMemoryStore()
+    backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "test-thread"))
+    fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
+    tools = {tool.name: tool for tool in fs.tools}
+    middleware = SandboxMiddleware(backend=backend, agent_root="/repo", working_dir=None)
+    middleware._client = fake_client
+    middleware._syncer = fs_module.SandboxSyncer(backend=backend, agent_root="/repo", client=fake_client)
+    return SimpleNamespace(backend=backend, store=store, tools=tools, middleware=middleware)
+
+
+class _RepolessCtx:
+    """Repoless ctx shim — ``has_repo`` False, ``gitrepo`` access raises."""
+
+    has_repo = False
+
+    @property
+    def gitrepo(self):  # pragma: no cover — defense against accidental repo-bound code paths
+        raise AssertionError("repoless test accessed gitrepo")
+
+
+def _repoless_runtime(*, state: dict[str, Any]) -> SimpleNamespace:
+    return SimpleNamespace(state=state, context=_RepolessCtx(), tool_call_id="call_repoless")
+
+
+async def test_repoless_write_file_lands_in_store(store_setup, fake_client):
+    fake_client.apply_file_mutations.return_value = _mirror_ok()
+    runtime = _repoless_runtime(state={"session_id": "sid"})
+
+    result = await _invoke(
+        store_setup.middleware,
+        store_setup.tools["write_file"],
+        {"file_path": "/repo/note.md", "content": "hello\n"},
+        runtime,
+    )
+
+    assert WRITE_SUCCESS_PREFIX in _content(result)
+    item = await store_setup.store.aget(("daiv-repoless-fs", "test-thread"), "/repo/note.md")
+    assert item is not None
+    assert item.value["content"] == "hello\n"
+    fake_client.apply_file_mutations.assert_awaited_once()
+    assert fake_client.apply_file_mutations.call_args.args[1].mutations[0].path == "/repo/note.md"
+
+
+async def test_repoless_write_file_rolls_back_via_store_delete(store_setup, fake_client):
+    """Sandbox sync failure → store.adelete restores the pre-write state (file absent)."""
+    fake_client.apply_file_mutations.side_effect = RuntimeError("network down")
+    runtime = _repoless_runtime(state={"session_id": "sid"})
+
+    result = await _invoke(
+        store_setup.middleware, store_setup.tools["write_file"], {"file_path": "/repo/lost.md", "content": "x"}, runtime
+    )
+
+    text = _content(result)
+    assert text.startswith("Error:"), f"rollback succeeded → expected Error: prefix, got {text!r}"
+    item = await store_setup.store.aget(("daiv-repoless-fs", "test-thread"), "/repo/lost.md")
+    assert item is None, "write rollback must remove the just-created store entry"
+
+
+async def test_repoless_write_file_surfaces_critical_when_store_delete_fails(store_setup, fake_client, monkeypatch):
+    """If both sandbox sync AND ``DAIVStoreBackend.delete`` fail during a repoless write
+    rollback, the agent must see the CRITICAL marker so it doesn't silently proceed against
+    a desynced store/sandbox pair."""
+    fake_client.apply_file_mutations.side_effect = RuntimeError("sandbox down")
+    runtime = _repoless_runtime(state={"session_id": "sid"})
+
+    async def fail_delete(_path):
+        return False
+
+    monkeypatch.setattr(store_setup.backend, "delete", fail_delete)
+
+    result = await _invoke(
+        store_setup.middleware,
+        store_setup.tools["write_file"],
+        {"file_path": "/repo/ghost.md", "content": "x"},
+        runtime,
+    )
+
+    text = _content(result)
+    assert "CRITICAL" in text
+    assert "rollback also failed" in text
+
+
+async def test_repoless_edit_file_rolls_back_via_aupload_files(store_setup, fake_client):
+    """Sandbox sync failure on an edit must restore pre-edit content via the backend."""
+    fake_client.apply_file_mutations.return_value = _mirror_ok()
+    runtime = _repoless_runtime(state={"session_id": "sid"})
+
+    seed = await _invoke(
+        store_setup.middleware,
+        store_setup.tools["write_file"],
+        {"file_path": "/repo/doc.md", "content": "before\n"},
+        runtime,
+    )
+    assert WRITE_SUCCESS_PREFIX in _content(seed)
+
+    fake_client.apply_file_mutations.reset_mock(side_effect=True)
+    fake_client.apply_file_mutations.side_effect = RuntimeError("sandbox down")
+
+    edit = await _invoke(
+        store_setup.middleware,
+        store_setup.tools["edit_file"],
+        {"file_path": "/repo/doc.md", "old_string": "before", "new_string": "after"},
+        runtime,
+    )
+
+    text = _content(edit)
+    assert text.startswith("Error:"), f"rollback succeeded → expected Error: prefix, got {text!r}"
+    item = await store_setup.store.aget(("daiv-repoless-fs", "test-thread"), "/repo/doc.md")
+    assert item is not None and item.value["content"] == "before\n", "edit rollback must restore pre-edit content"

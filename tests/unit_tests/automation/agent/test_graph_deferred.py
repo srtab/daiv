@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 def _common_patches():
     """Patches that disable side effects unrelated to the deferred-tools wiring."""
     return [
-        patch("automation.agent.graph.FilesystemBackend"),
+        patch("automation.agent.graph.DAIVFilesystemBackend"),
         patch("automation.agent.graph.create_general_purpose_subagent"),
         patch("automation.agent.graph.create_explore_subagent"),
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
