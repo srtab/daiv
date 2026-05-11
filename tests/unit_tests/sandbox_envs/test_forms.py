@@ -74,3 +74,38 @@ def test_form_preserves_unchanged_secret_on_edit(db):
     assert form.is_valid(), form.errors
     saved = form.save()
     assert saved.env_vars == [{"name": "TOKEN", "value": "real-secret", "is_secret": True}]
+
+
+@pytest.mark.django_db
+def test_form_refuses_when_existing_secrets_cannot_be_decrypted(db):
+    """If the stored ciphertext is unreadable, the form must fail validation
+    rather than silently persist ``"******"`` (or empty) as the new secret value."""
+    from accounts.models import User
+
+    user = User.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        env_vars=[{"name": "TOKEN", "value": "real-secret", "is_secret": True}],
+    )
+    # Corrupt the ciphertext to simulate key rotation / DB tamper.
+    env._env_vars_encrypted = "not-a-fernet-token"
+    env.save(update_fields=["_env_vars_encrypted"])
+
+    form = SandboxEnvironmentForm(
+        instance=env,
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "env_vars_json": '[{"name": "TOKEN", "value": "", "is_secret": true}]',
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid() is False
+    # Original ciphertext is unchanged.
+    env.refresh_from_db()
+    assert env._env_vars_encrypted == "not-a-fernet-token"

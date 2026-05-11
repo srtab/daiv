@@ -99,3 +99,83 @@ async def test_get_environment_unknown_returns_none():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         result = await get_environment("missing")
     assert result is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_environments_excludes_other_users_envs():
+    """list_environments must not leak other users' USER envs."""
+    from accounts.models import User
+
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    other = await User.objects.acreate_user(username="o", email="o@e.com", password="x")  # noqa: S106
+    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name="mine", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=other, name="theirs", base_image="x")
+
+    from mcp_server.server import list_environments
+
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        envs = await list_environments()
+    names = {env["name"] for env in envs}
+    assert "mine" in names
+    assert "theirs" not in names
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_environment_does_not_leak_other_users_env():
+    """get_environment must return None when the named env belongs to another user."""
+    from accounts.models import User
+
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    other = await User.objects.acreate_user(username="o", email="o@e.com", password="x")  # noqa: S106
+    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=other, name="theirs", base_image="x")
+
+    from mcp_server.server import get_environment
+
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        result = await get_environment("theirs")
+    assert result is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_cannot_resolve_other_users_env():
+    """submit_job's resolve_env_for_user must refuse another user's env name."""
+    from accounts.models import User
+
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    other = await User.objects.acreate_user(username="o", email="o@e.com", password="x")  # noqa: S106
+    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=other, name="theirs", base_image="x")
+    from mcp_server.server import submit_job
+
+    with (
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch("mcp_server.server.asubmit_batch_runs", new=AsyncMock()) as submit,
+    ):
+        result = await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}], environment="theirs")
+    import json
+
+    data = json.loads(result)
+    assert "error" in data
+    assert "theirs" in data["error"]
+    submit.assert_not_awaited()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_auth_failure_returns_error_without_running():
+    """If get_current_user raises, submit_job must fail closed instead of
+    proceeding anonymously (which would degrade scope to GLOBAL-only)."""
+    from mcp_server.server import submit_job
+
+    with (
+        patch("mcp_server.server.get_current_user", new=AsyncMock(side_effect=RuntimeError("token check failed"))),
+        patch("mcp_server.server.asubmit_batch_runs", new=AsyncMock()) as submit,
+    ):
+        result = await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}])
+    import json
+
+    data = json.loads(result)
+    assert "error" in data
+    assert "auth" in data["error"].lower()
+    submit.assert_not_awaited()

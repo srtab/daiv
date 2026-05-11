@@ -90,6 +90,15 @@ def decrypt_value(ciphertext: str) -> str:
     return get_fernet().decrypt(ciphertext.encode()).decode()
 
 
+class DecryptionError(Exception):
+    """Raised when an encrypted column cannot be decrypted (key rotation, corruption).
+
+    Distinct from "value not set" — callers that round-trip through encrypted
+    fields (read-modify-write) must catch this to avoid overwriting still-valid
+    ciphertext with placeholder/empty content.
+    """
+
+
 def mask_secret(value: str, *, visible_prefix: int = 3, visible_suffix: int = 3) -> str:
     """
     Return a masked version of a secret for display purposes.

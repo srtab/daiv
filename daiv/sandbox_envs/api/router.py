@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django Ninja
 
@@ -9,7 +13,19 @@ from chat.api.security import AuthBearer
 from sandbox_envs.api.schemas import EnvCreate, EnvOut, EnvUpdate, EnvVar
 from sandbox_envs.models import SandboxEnvironment, Scope
 
+logger = logging.getLogger("daiv.sandbox_envs")
+
 router = Router(auth=AuthBearer(), tags=["sandbox-envs"])
+
+
+def _validation_error_response(err: ValidationError) -> tuple[int, dict]:
+    """Translate a Django ``ValidationError`` into a Ninja 400 response payload."""
+    payload: dict
+    if hasattr(err, "message_dict"):
+        payload = {"detail": "Validation failed", "errors": err.message_dict}
+    else:
+        payload = {"detail": "; ".join(err.messages) if err.messages else "Validation failed"}
+    return 400, payload
 
 
 def _user_is_admin(user) -> bool:
@@ -22,8 +38,24 @@ def _visible_qs(user):
     )
 
 
+def _read_env_vars(env: SandboxEnvironment) -> list[dict]:
+    """Read env_vars from the encrypted column for read-only display.
+
+    Decryption errors are logged (the descriptor already logs at exception
+    level) and treated as an empty list — display paths must never crash
+    because of a key rotation.
+    """
+    from core.encryption import DecryptionError
+
+    try:
+        return env.env_vars or []
+    except DecryptionError:
+        logger.error("env_vars decryption failed for SandboxEnvironment id=%s; returning empty list", env.id)
+        return []
+
+
 def _mask(env: SandboxEnvironment) -> EnvOut:
-    rows = env.env_vars or []
+    rows = _read_env_vars(env)
     return EnvOut(
         id=str(env.id),
         name=env.name,
@@ -52,6 +84,7 @@ def list_envs(request: HttpRequest):
 def create_env(request: HttpRequest, payload: EnvCreate):
     if payload.scope == "global" and not _user_is_admin(request.auth):
         return 403, {"detail": "Admin required for global environments"}
+    promote_default = bool(payload.is_default and payload.scope == "global")
     env = SandboxEnvironment(
         scope=Scope(payload.scope),
         user=request.auth if payload.scope == "user" else None,
@@ -61,15 +94,24 @@ def create_env(request: HttpRequest, payload: EnvCreate):
         network_enabled=payload.network_enabled,
         memory_bytes=payload.memory_bytes,
         cpus=payload.cpus,
-        is_default=(payload.is_default and payload.scope == "global"),
+        is_default=False,
     )
     env.env_vars = [v.dict() for v in payload.env_vars]
-    env.full_clean()
-    env.save()
+    try:
+        env.full_clean()
+    except ValidationError as err:
+        return _validation_error_response(err)
+    # Atomically: save the new row, then promote it to default if requested.
+    # Going through ``promote_as_default`` guarantees no two GLOBAL envs hold
+    # ``is_default=True`` simultaneously even under racing creates.
+    with transaction.atomic():
+        env.save()
+        if promote_default:
+            env.promote_as_default()
     return 201, _mask(env)
 
 
-@router.patch("/{env_id}", response={200: EnvOut, 403: dict, 404: dict})
+@router.patch("/{env_id}", response={200: EnvOut, 403: dict, 404: dict, 400: dict})
 def update_env(request: HttpRequest, env_id: str, payload: EnvUpdate):
     env = _visible_qs(request.auth).filter(pk=env_id).first()
     if env is None:
@@ -81,8 +123,19 @@ def update_env(request: HttpRequest, env_id: str, payload: EnvUpdate):
         if value is not None:
             setattr(env, field, value)
     if payload.env_vars is not None:
+        from core.encryption import DecryptionError
+
         submitted = [v.dict() for v in payload.env_vars]
-        existing = {r["name"]: r["value"] for r in (env.env_vars or []) if r.get("name")}
+        try:
+            existing_rows = env.env_vars or []
+        except DecryptionError:
+            return 400, {
+                "detail": (
+                    "Existing environment variables could not be decrypted. "
+                    "Re-send all secret values explicitly or restore DAIV_ENCRYPTION_KEY."
+                )
+            }
+        existing = {r["name"]: r["value"] for r in existing_rows if r.get("name")}
         merged: list[dict] = []
         for row in submitted:
             name = row.get("name")
@@ -90,7 +143,10 @@ def update_env(request: HttpRequest, env_id: str, payload: EnvUpdate):
                 row = {**row, "value": existing[name]}
             merged.append(row)
         env.env_vars = merged
-    env.full_clean()
+    try:
+        env.full_clean()
+    except ValidationError as err:
+        return _validation_error_response(err)
     env.save()
     return 200, _mask(env)
 

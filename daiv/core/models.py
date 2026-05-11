@@ -77,17 +77,20 @@ class EncryptedFieldDescriptor:
             return None
         from cryptography.fernet import InvalidToken
 
-        from core.encryption import decrypt_value
+        from core.encryption import DecryptionError, decrypt_value
 
         try:
             return decrypt_value(raw)
-        except InvalidToken:
+        except InvalidToken as err:
             logger.exception(
                 "Failed to decrypt field '%s': invalid token (key rotation or data corruption). "
                 "Re-enter the secret through the configuration UI or check DAIV_ENCRYPTION_KEY.",
                 self.field_name,
             )
-            return None
+            raise DecryptionError(
+                f"Failed to decrypt field '{self.field_name}'. The encryption key may have rotated or the "
+                "stored ciphertext is corrupt. Re-enter the secret or restore DAIV_ENCRYPTION_KEY."
+            ) from err
 
     def __set__(self, obj: SiteConfiguration, value: str | None):
         if value is None or value == "":
@@ -103,6 +106,12 @@ class EncryptedJSONFieldDescriptor:
     Descriptor that transparently JSON-serializes then Fernet-encrypts on set,
     and decrypts then JSON-deserializes on get. Storage column convention is
     ``_<field_name>_encrypted`` (TextField).
+
+    Raises :class:`core.encryption.DecryptionError` on get when the stored
+    ciphertext cannot be decrypted (e.g. key rotation or corruption). This is
+    distinct from "no value stored" (returns ``None``) so callers that
+    round-trip secrets through a read-modify-write cycle don't silently
+    obliterate still-valid ciphertext.
     """
 
     def __init__(self, field_name: str):
@@ -122,13 +131,16 @@ class EncryptedJSONFieldDescriptor:
 
         from cryptography.fernet import InvalidToken
 
-        from core.encryption import decrypt_value
+        from core.encryption import DecryptionError, decrypt_value
 
         try:
             return json.loads(decrypt_value(raw))
-        except InvalidToken:
+        except InvalidToken as err:
             logger.exception("Failed to decrypt JSON field '%s' (key rotation or corruption).", self.field_name)
-            return None
+            raise DecryptionError(
+                f"Failed to decrypt JSON field '{self.field_name}'. The encryption key may have rotated or the "
+                "stored ciphertext is corrupt. Re-enter the value or restore DAIV_ENCRYPTION_KEY."
+            ) from err
 
     def __set__(self, obj, value):
         if value is None:
@@ -500,16 +512,21 @@ class SiteConfiguration(models.Model):
 
     def get_secret_hint(self, field_name: str) -> str | None:
         """
-        Return a masked hint for an encrypted field, or ``None`` if not set.
+        Return a masked hint for an encrypted field, or ``None`` if not set or
+        if the stored ciphertext cannot be decrypted (errors are already logged
+        by the descriptor).
 
         Args:
             field_name: One of the ``ENCRYPTED_FIELDS`` names (e.g. ``"anthropic_api_key"``).
         """
-        value = getattr(self, field_name, None)
+        from core.encryption import DecryptionError, mask_secret
+
+        try:
+            value = getattr(self, field_name, None)
+        except DecryptionError:
+            return None
         if value is None:
             return None
-        from core.encryption import mask_secret
-
         return mask_secret(value)
 
     # Multiple workers so concurrent async callers don't queue behind a single slow
@@ -659,12 +676,16 @@ class WebFetchAuthHeader(models.Model):
         return result
 
     def get_secret_hint(self) -> str | None:
-        """Return a masked hint for the row's header value, or ``None`` if unset."""
-        value = self.header_value
+        """Return a masked hint for the row's header value, or ``None`` if unset
+        or if the stored ciphertext cannot be decrypted."""
+        from core.encryption import DecryptionError, mask_secret
+
+        try:
+            value = self.header_value
+        except DecryptionError:
+            return None
         if value is None:
             return None
-        from core.encryption import mask_secret
-
         return mask_secret(value)
 
     @classmethod
@@ -672,16 +693,18 @@ class WebFetchAuthHeader(models.Model):
         """Read all rows and build the grouped dict. Caller manages DB connections."""
         from pydantic import SecretStr
 
+        from core.encryption import DecryptionError
+
         out: dict[str, dict[str, SecretStr]] = {}
         for row in cls.objects.all():
-            value = row.header_value
+            try:
+                value = row.header_value
+            except DecryptionError:
+                # The descriptor already logs at exception level; log here so
+                # operators can correlate "no auth headers sent" with the row PK.
+                logger.error("WebFetchAuthHeader row pk=%s could not be decrypted; skipping", row.pk)
+                continue
             if value is None:
-                # ``EncryptedFieldDescriptor`` returns None when the column is
-                # NULL or when decryption failed (e.g. after key rotation).
-                # The descriptor already logs decryption errors; we log here
-                # so operators can correlate "no auth headers sent" with
-                # specific row PKs.
-                logger.error("WebFetchAuthHeader row pk=%s has no readable value; skipping", row.pk)
                 continue
             out.setdefault(row.domain, {})[row.header_name] = SecretStr(value)
         return out

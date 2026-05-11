@@ -116,8 +116,24 @@ class SandboxEnvironmentForm(forms.ModelForm):
     def _preserve_unchanged_secrets(instance: SandboxEnvironment, submitted_rows: list[dict]) -> list[dict]:
         """Restore the stored value for any submitted secret row whose value is
         empty (the masked sentinel) or the literal ``"******"`` mask. Matched by
-        env-var name against the instance's currently persisted env_vars."""
-        existing = {r["name"]: r["value"] for r in (instance.env_vars or []) if r.get("name")}
+        env-var name against the instance's currently persisted env_vars.
+
+        Raises a form-level :class:`~django.core.exceptions.ValidationError` if
+        existing ciphertext cannot be decrypted — proceeding would otherwise
+        persist the ``"******"`` mask as the new value, destroying the secret.
+        """
+        from core.encryption import DecryptionError
+
+        try:
+            existing_rows = instance.env_vars or []
+        except DecryptionError as err:
+            raise forms.ValidationError(
+                _(
+                    "Existing environment variables could not be decrypted. Re-enter all secret values "
+                    "before saving, or restore DAIV_ENCRYPTION_KEY."
+                )
+            ) from err
+        existing = {r["name"]: r["value"] for r in existing_rows if r.get("name")}
         out: list[dict] = []
         for row in submitted_rows:
             name = row.get("name")

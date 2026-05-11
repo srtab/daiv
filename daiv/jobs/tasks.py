@@ -30,8 +30,8 @@ async def run_job_task(
     on the assumption that the activity row and the checkpointer share the same key.
     A silent UUID fallback here would break that contract on the resume path.
 
-    ``sandbox_environment_id``, when provided, selects a per-run sandbox environment
-    (merged with ``.daiv.yml`` + the GLOBAL default by ``set_runtime_ctx``).
+    ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``;
+    see that function for the sandbox merge precedence.
     """
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")

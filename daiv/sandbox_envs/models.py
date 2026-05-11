@@ -4,7 +4,7 @@ import re
 import uuid
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
@@ -73,10 +73,7 @@ class SandboxEnvironment(TimeStampedModel):
         ]
 
     def __init__(self, *args, **kwargs) -> None:
-        # ``env_vars`` is a descriptor over the ``_env_vars_encrypted`` column,
-        # not a model field, so Django's ``Model.__init__`` won't accept it as
-        # a kwarg. Pop it out and apply via the descriptor after super-init so
-        # ``Manager.create(env_vars=...)`` works.
+        # Route ``env_vars`` through the descriptor so ``Manager.create(env_vars=...)`` works.
         env_vars_value = kwargs.pop("env_vars", _UNSET)
         super().__init__(*args, **kwargs)
         if env_vars_value is not _UNSET:
@@ -97,10 +94,26 @@ class SandboxEnvironment(TimeStampedModel):
         self._validate_env_vars()
 
     def _validate_env_vars(self) -> None:
+        from core.encryption import DecryptionError
+
         raw = self._env_vars_encrypted or ""
         if len(raw) > ENV_VARS_MAX_ENCRYPTED_SIZE:
             raise ValidationError({"env_vars": _("Environment variables exceed 32 KiB encrypted.")})
-        values = self.env_vars or []
+        try:
+            values = self.env_vars or []
+        except DecryptionError as err:
+            # Existing ciphertext is unreadable. We refuse to validate-then-save so
+            # the row's still-valid ciphertext isn't overwritten with placeholder
+            # content. The user must re-enter all secret values explicitly.
+            # Use NON_FIELD_ERRORS rather than ``env_vars`` since the descriptor
+            # is not a form field — the form's ``_post_clean`` would otherwise
+            # raise ``ValueError`` trying to attach the error to a missing field.
+            raise ValidationError({
+                NON_FIELD_ERRORS: _(
+                    "Existing environment variables could not be decrypted. Re-enter all secret values, "
+                    "or restore DAIV_ENCRYPTION_KEY."
+                )
+            }) from err
         if len(values) > ENV_VARS_MAX_ENTRIES:
             raise ValidationError({"env_vars": _("Too many environment variables (max %d).") % ENV_VARS_MAX_ENTRIES})
         seen: set[str] = set()
@@ -119,12 +132,24 @@ class SandboxEnvironment(TimeStampedModel):
 
         Used by admin flows to swap which GLOBAL env is the default without
         running into the partial unique index ``env_one_global_default``.
+
+        Re-reads the row under ``SELECT ... FOR UPDATE`` to guard against a
+        stale in-memory ``scope`` (e.g. a concurrent admin demoting the env
+        before this call) and runs ``full_clean()`` so model-level invariants
+        are enforced rather than left to the DB CheckConstraint.
         """
-        if self.scope != Scope.GLOBAL:
-            raise ValidationError(_("Only GLOBAL environments can be marked as default."))
         with transaction.atomic():
-            SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).exclude(pk=self.pk).update(
+            try:
+                fresh = SandboxEnvironment.objects.select_for_update().get(pk=self.pk)
+            except SandboxEnvironment.DoesNotExist as err:
+                raise ValidationError(_("Sandbox environment no longer exists.")) from err
+            if fresh.scope != Scope.GLOBAL:
+                raise ValidationError(_("Only GLOBAL environments can be marked as default."))
+            SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).exclude(pk=fresh.pk).update(
                 is_default=False
             )
-            self.is_default = True
-            self.save()
+            fresh.is_default = True
+            fresh.full_clean()
+            fresh.save()
+        self.is_default = True
+        self.scope = fresh.scope

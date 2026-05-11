@@ -15,10 +15,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sandbox_envs")
 
 
+_FIELD_TO_SETTINGS: dict[str, str] = {
+    "base_image": "sandbox_base_image",
+    "network_enabled": "sandbox_network_enabled",
+    "memory_bytes": "sandbox_memory",
+    "cpus": "sandbox_cpu",
+}
+
+
+def get_locked_runtime_fields() -> frozenset[str]:
+    """Return the set of SandboxRuntime field names locked by DAIV_SANDBOX_* env vars.
+
+    Locked fields cannot be overridden by per-run envs or ``.daiv.yml``; only the
+    GLOBAL default (already overlaid with the env-var values in
+    :func:`get_global_default`) is consulted.
+    """
+    from core.site_settings import site_settings
+
+    return frozenset(field for field, setting in _FIELD_TO_SETTINGS.items() if site_settings.is_env_locked(setting))
+
+
 @dataclass(frozen=True)
 class SandboxEnvOverride:
     """A resolved sandbox-env view with secrets decrypted. Internal — only the
-    merge resolver in ``set_runtime_ctx`` should construct or read these."""
+    merge resolver in ``merge_sandbox_runtime`` should construct or read these."""
 
     base_image: str | None
     network_enabled: bool | None
@@ -28,6 +48,15 @@ class SandboxEnvOverride:
 
 
 def _row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
+    from core.encryption import DecryptionError
+
+    try:
+        env_vars_rows = env.env_vars or []
+    except DecryptionError:
+        # Agent run paths must not crash on a key rotation; drop env vars and
+        # keep going. The descriptor already logs at exception level.
+        logger.error("env_vars decryption failed for SandboxEnvironment id=%s; dropping env_vars", env.id)
+        env_vars_rows = []
     return SandboxEnvOverride(
         base_image=env.base_image or None,
         network_enabled=env.network_enabled,
@@ -35,24 +64,30 @@ def _row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
         cpus=float(env.cpus) if isinstance(env.cpus, Decimal) else env.cpus,
         env_vars={
             entry["name"]: entry["value"]
-            for entry in (env.env_vars or [])
+            for entry in env_vars_rows
             if entry.get("name") and entry.get("value") is not None
         },
     )
 
 
 async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
-    """Load the explicit per-run env, or ``None`` if absent / deleted."""
+    """Load the explicit per-run env.
+
+    Returns ``None`` only when no env was requested (``env_id`` is falsy).
+    Raises :class:`LookupError` when a non-empty ``env_id`` cannot be resolved
+    (malformed UUID or no matching row) — distinguishing this from "no env
+    requested" prevents silently masquerading the GLOBAL default as the
+    caller-selected env.
+    """
     if not env_id:
         return None
     try:
         UUID(env_id)
-    except TypeError, ValueError:
-        return None
+    except (TypeError, ValueError) as err:
+        raise LookupError(f"Malformed sandbox environment id '{env_id}'") from err
     env = await SandboxEnvironment.objects.filter(pk=env_id).afirst()
     if env is None:
-        logger.warning("Per-run sandbox env %s not found; falling back to defaults", env_id)
-        return None
+        raise LookupError(f"Sandbox environment '{env_id}' not found")
     return _row_to_override(env)
 
 
@@ -122,22 +157,28 @@ def merge_sandbox_runtime(
     repo_fields_set: frozenset[str],
     per_run: SandboxEnvOverride | None,
     global_default: SandboxEnvOverride | None,
+    locked_fields: frozenset[str] = frozenset(),
 ) -> SandboxRuntime:
     """Per-field precedence: per_run > .daiv.yml (explicit key) > global_default.
 
     A field is taken from per_run only when its value is non-None. A field is
     taken from .daiv.yml only when the key was literally present in the YAML
     (so ``base_image: null`` is "explicitly disabled" and beats global).
+
+    Fields in ``locked_fields`` (DAIV_SANDBOX_* env-locked) skip both per_run
+    and ``.daiv.yml``; only ``global_default`` (already overlaid with the
+    env-var values by :func:`get_global_default`) is consulted.
     """
     from codebase.context import SandboxRuntime
 
     def pick(field: str, runtime_default):
-        if per_run is not None:
-            v = getattr(per_run, field)
-            if v is not None:
-                return v
-        if field in repo_fields_set:
-            return getattr(repo_sandbox, field)
+        if field not in locked_fields:
+            if per_run is not None:
+                v = getattr(per_run, field)
+                if v is not None:
+                    return v
+            if field in repo_fields_set:
+                return getattr(repo_sandbox, field)
         if global_default is not None:
             v = getattr(global_default, field)
             if v is not None:

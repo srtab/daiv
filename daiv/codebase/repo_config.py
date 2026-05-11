@@ -282,6 +282,11 @@ class RepositoryConfig(BaseModel):
             try:
                 config = RepositoryConfig(**yaml.safe_load(StringIO(config_file)))
             except ValidationError, ParserError:
+                logger.exception(
+                    "Failed to parse %s for repository %s; falling back to default configuration",
+                    CONFIGURATION_FILE_NAME,
+                    repo_id,
+                )
                 config = RepositoryConfig()
         else:
             config = RepositoryConfig()

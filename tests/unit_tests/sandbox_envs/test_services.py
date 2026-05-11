@@ -11,14 +11,22 @@ from codebase.repo_config import Sandbox, SandboxCommandPolicy
 @pytest.mark.asyncio
 async def test_resolve_returns_none_for_none_id():
     assert await resolve_sandbox_env(None) is None
+    assert await resolve_sandbox_env("") is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_resolve_returns_none_for_missing():
+async def test_resolve_raises_lookup_error_for_missing():
     import uuid
 
-    assert await resolve_sandbox_env(str(uuid.uuid4())) is None
+    with pytest.raises(LookupError, match="not found"):
+        await resolve_sandbox_env(str(uuid.uuid4()))
+
+
+@pytest.mark.asyncio
+async def test_resolve_raises_lookup_error_for_malformed_uuid():
+    with pytest.raises(LookupError, match="Malformed"):
+        await resolve_sandbox_env("not-a-uuid")
 
 
 @pytest.mark.asyncio
@@ -163,3 +171,44 @@ def test_enabled_iff_base_image_set():
 
     out_enabled = merge_sandbox_runtime(sb, fields, per_run=None, global_default=_override(base_image="python:3.12"))
     assert out_enabled.enabled is True
+
+
+def test_locked_field_ignores_per_run_and_yml():
+    """A field listed in ``locked_fields`` must read only from the global default
+    (which carries the DAIV_SANDBOX_* overlay); per-run and ``.daiv.yml`` are
+    ignored even when they set a non-None value."""
+    sb, fields = _yaml_sandbox(base_image="yml-image", memory_bytes=8_000_000_000)
+    out = merge_sandbox_runtime(
+        sb,
+        fields,
+        per_run=_override(base_image="per-run-image", memory_bytes=4_000_000_000),
+        global_default=_override(base_image="locked-image", memory_bytes=2_000_000_000),
+        locked_fields=frozenset({"base_image"}),
+    )
+    # locked: global wins despite per-run + yml
+    assert out.base_image == "locked-image"
+    # unlocked: per-run still wins
+    assert out.memory_bytes == 4_000_000_000
+
+
+def test_locked_field_without_global_falls_through_to_runtime_default():
+    sb, fields = _yaml_sandbox(network_enabled=True)
+    out = merge_sandbox_runtime(
+        sb,
+        fields,
+        per_run=_override(network_enabled=True),
+        global_default=None,
+        locked_fields=frozenset({"network_enabled"}),
+    )
+    # Locked + no global => runtime default (False) wins; per-run/yml are ignored.
+    assert out.network_enabled is False
+
+
+def test_get_locked_runtime_fields_returns_locked_subset(monkeypatch):
+    from sandbox_envs.services import get_locked_runtime_fields
+
+    monkeypatch.setattr(
+        "core.site_settings.site_settings.is_env_locked", lambda name: name in {"sandbox_base_image", "sandbox_memory"}
+    )
+    locked = get_locked_runtime_fields()
+    assert locked == frozenset({"base_image", "memory_bytes"})

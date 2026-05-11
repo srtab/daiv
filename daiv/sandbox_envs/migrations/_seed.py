@@ -22,9 +22,9 @@ def seed_global_default(SandboxEnvironment) -> None:  # noqa: N803 — historica
         image = site_settings.sandbox_base_image or _FALLBACK_IMAGE
         persisted_kwargs["base_image"] = image
     else:
-        # Field is env-locked → leave row's value blank; runtime overlay supplies it.
-        # But the model requires ``base_image`` to be non-empty for validation, so we
-        # fall back to the placeholder. The overlay still wins at read time.
+        # Model requires non-empty ``base_image``, so we persist a placeholder.
+        # The runtime overlay in ``get_global_default`` still wins at read time
+        # because the field is env-locked.
         persisted_kwargs["base_image"] = _FALLBACK_IMAGE
         logger.info(
             "sandbox_envs seed: base_image is env-locked; row holds placeholder, "

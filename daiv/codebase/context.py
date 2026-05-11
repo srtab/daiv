@@ -17,9 +17,10 @@ if TYPE_CHECKING:
 class SandboxRuntime:
     """Effective sandbox configuration for the current run.
 
-    Built by ``set_runtime_ctx`` via per-field merge of: per-run env (if any),
-    ``.daiv.yml``'s sandbox section, and the GLOBAL default env. ``command_policy``
-    always comes from ``.daiv.yml``.
+    Built by :func:`sandbox_envs.services.merge_sandbox_runtime` (invoked from
+    :func:`set_runtime_ctx`) via per-field merge of: per-run env (if any),
+    ``.daiv.yml``'s sandbox section, and the GLOBAL default env.
+    ``command_policy`` always comes from ``.daiv.yml``.
     """
 
     base_image: str | None
@@ -105,7 +106,12 @@ async def set_runtime_ctx(
     Yields:
         RuntimeCtx: The runtime context
     """
-    from sandbox_envs.services import get_global_default, merge_sandbox_runtime, resolve_sandbox_env
+    from sandbox_envs.services import (
+        get_global_default,
+        get_locked_runtime_fields,
+        merge_sandbox_runtime,
+        resolve_sandbox_env,
+    )
 
     repo_client = RepoClient.create_instance(**kwargs)
     repository = repo_client.get_repository(repo_id)
@@ -121,6 +127,7 @@ async def set_runtime_ctx(
         repo_fields_set=config.sandbox_fields_set,
         per_run=per_run,
         global_default=global_default,
+        locked_fields=get_locked_runtime_fields(),
     )
 
     with repo_client.load_repo(repository, sha=ref) as repo:

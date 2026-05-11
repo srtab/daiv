@@ -43,4 +43,4 @@ class EnvOut(Schema):
     memory_bytes: int | None
     cpus: float | None
     is_default: bool
-    env_vars: list[EnvVar]  # secret values masked
+    env_vars: list[EnvVar]

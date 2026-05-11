@@ -550,8 +550,9 @@ class SandboxMiddleware(AgentMiddleware):
         content = args["content"]
 
         # `git add -A` silently drops gitignored paths, so a successful write would
-        # never reach the MR. Refuse pre-dispatch; on path-resolution failure, fall
-        # through and let upstream produce its own error (matches `_mirror_edit`).
+        # never reach the MR. Refuse pre-dispatch; path-resolution errors here are
+        # non-fatal — let the upstream write produce the error so it stays the
+        # single source of truth.
         try:
             prevalidated_target = syncer.resolve_target(file_path)
         except OSError, ValueError:

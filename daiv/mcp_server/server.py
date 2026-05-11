@@ -137,11 +137,16 @@ async def submit_job(
 
     specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
 
-    mcp_user = None
     try:
         mcp_user = await get_current_user()
     except Exception:
         logger.exception("Failed to resolve current user for MCP submit_job")
+        return json.dumps({
+            "error": (
+                "Authentication failed: unable to resolve the current user. Re-authenticate and "
+                "retry; if this persists, contact your administrator."
+            )
+        })
 
     sandbox_environment_id: str | None = None
     if environment:
@@ -394,6 +399,8 @@ async def get_environment(
     """
     from django.db.models import Q
 
+    from core.encryption import DecryptionError
+
     user = await get_current_user()
     qs = SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL))
     env: SandboxEnvironment | None = None
@@ -403,6 +410,11 @@ async def get_environment(
         env = await qs.filter(name=name_or_id).afirst()
     if env is None:
         return None
+    try:
+        env_vars_rows = env.env_vars or []
+    except DecryptionError:
+        logger.error("env_vars decryption failed for SandboxEnvironment id=%s; returning empty list", env.id)
+        env_vars_rows = []
     return {
         "id": str(env.id),
         "name": env.name,
@@ -419,6 +431,6 @@ async def get_environment(
                 "value": "******" if r.get("is_secret") else r["value"],
                 "is_secret": bool(r.get("is_secret")),
             }
-            for r in (env.env_vars or [])
+            for r in env_vars_rows
         ],
     }

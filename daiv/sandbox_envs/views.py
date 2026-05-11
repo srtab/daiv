@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, HttpResponseForbidden
@@ -12,6 +13,8 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
 
+logger = logging.getLogger("daiv.sandbox_envs")
+
 
 def _encode_env_vars_for_template(env: SandboxEnvironment) -> str:
     """Serialise an env's env_vars list for the template's JS editor.
@@ -19,8 +22,18 @@ def _encode_env_vars_for_template(env: SandboxEnvironment) -> str:
     Secret values are masked (rendered as an empty string) so decrypted secrets
     never reach the page HTML. ``has_existing_value`` is a UI hint so the editor
     can show a "keep existing value" affordance for stored secrets.
+
+    Returns an empty list when decryption fails — the user can re-enter values
+    via the form, and the form's :meth:`_preserve_unchanged_secrets` will block
+    save with a clear error if the underlying ciphertext is still unreadable.
     """
-    rows = env.env_vars or []
+    from core.encryption import DecryptionError
+
+    try:
+        rows = env.env_vars or []
+    except DecryptionError:
+        logger.error("env_vars decryption failed for SandboxEnvironment id=%s; rendering empty editor", env.id)
+        rows = []
     masked = [
         {
             "name": r.get("name", ""),
