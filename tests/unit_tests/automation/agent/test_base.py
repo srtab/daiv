@@ -4,7 +4,7 @@ import pytest
 from langchain.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
-from automation.agent.base import BaseAgent, ModelProvider, ResolvedProvider, parse_model_spec
+from automation.agent.base import BaseAgent, ResolvedProvider, parse_model_spec
 from core.models import Provider, ProviderType, ThinkingLevelChoices
 
 
@@ -72,9 +72,6 @@ class TestParseModelSpec:
 
     def test_parse_bare_o4(self):
         assert parse_model_spec("o4-mini").row.slug == "openai"
-
-    def test_modelprovider_backcompat_alias(self):
-        assert ModelProvider is ProviderType
 
 
 @pytest.mark.django_db

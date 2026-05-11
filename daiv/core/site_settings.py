@@ -83,8 +83,6 @@ def _build_field_defaults() -> dict[str, Any]:
         "web_fetch_cache_ttl_seconds": 900,
         "web_fetch_timeout_seconds": 15,
         "web_fetch_max_content_chars": 50_000,
-        # Providers
-        "openrouter_api_base": "https://openrouter.ai/api/v1",
         # Sandbox
         "sandbox_timeout": 600,
         "sandbox_cpu": None,
@@ -125,10 +123,6 @@ class SiteSettings:
 
     # Env var names that don't follow the ``DAIV_{field.upper()}`` convention.
     ENV_VAR_OVERRIDES: ClassVar[dict[str, str]] = {
-        "anthropic_api_key": "ANTHROPIC_API_KEY",
-        "openai_api_key": "OPENAI_API_KEY",
-        "google_api_key": "GOOGLE_API_KEY",
-        "openrouter_api_key": "OPENROUTER_API_KEY",
         "auth_client_id": "ALLAUTH_CLIENT_ID",
         "auth_client_secret": "ALLAUTH_CLIENT_SECRET",
         "auth_gitlab_url": "ALLAUTH_GITLAB_URL",

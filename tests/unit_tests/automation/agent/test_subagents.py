@@ -226,10 +226,21 @@ class TestGeneralPurposeSubagent:
         assert "runnable" in result
 
 
+@pytest.mark.django_db
 class TestExploreSubagent:
     """Tests for the public ``create_explore_subagent`` factory."""
 
     def test_returns_compiled_subagent(self):
+        from core.models import Provider
+
+        # ``BaseAgent.get_model`` resolves model_name → Provider row → live client; enable
+        # the seed row backing ``ModelName.CLAUDE_HAIKU_4_5`` (openrouter:anthropic/...)
+        # so the call doesn't error during init_chat_model.
+        p = Provider.objects.get(slug="openrouter")
+        p.api_key = "sk-test"
+        p.is_enabled = True
+        p.save()
+
         result = create_explore_subagent(Mock())
 
         assert isinstance(result, dict)

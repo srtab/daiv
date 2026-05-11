@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, ClassVar
 from urllib.parse import urlparse
@@ -491,3 +492,135 @@ def build_web_fetch_auth_header_formset():
     return modelformset_factory(
         WebFetchAuthHeader, form=WebFetchAuthHeaderForm, formset=_WebFetchAuthHeaderFormset, extra=0, can_delete=True
     )
+
+
+PROVIDERS_FORMSET_PREFIX = "providers"
+_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+class ProviderForm(forms.ModelForm):
+    """One row in the providers formset.
+
+    Mirrors :class:`WebFetchAuthHeaderForm` for the secret/secret-hint UX:
+    blank ``api_key`` on an existing instance preserves the stored secret;
+    submitting a new value rotates it.
+    """
+
+    api_key = _SecretFormField(
+        label=_("API key"), required=False, widget=forms.PasswordInput(attrs={"autocomplete": "off"})
+    )
+    extra_headers = forms.CharField(
+        label=_("Extra headers (JSON)"),
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2, "placeholder": '{"X-Foo": "bar"}'}),
+    )
+
+    class Meta:
+        model = Provider
+        fields = (
+            "slug",
+            "display_name",
+            "provider_type",
+            "base_url",
+            "api_key",
+            "extra_headers",
+            "model_suggestions",
+            "is_enabled",
+            "sort_order",
+        )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["api_key"].secret_hint = self.instance.get_secret_hint()  # type: ignore[attr-defined]
+            if self.instance.is_locked:
+                self.fields["slug"].disabled = True
+                self.fields["provider_type"].disabled = True
+        if self.instance and isinstance(self.instance.extra_headers, dict) and self.instance.extra_headers:
+            self.initial.setdefault("extra_headers", json.dumps(self.instance.extra_headers))
+
+    def clean_slug(self) -> str:
+        value = (self.cleaned_data.get("slug") or "").strip()
+        if value == "google":
+            raise forms.ValidationError(_("'google' is a reserved alias."))
+        if not _SLUG_RE.match(value):
+            raise forms.ValidationError(
+                _("Slug must start with a lowercase letter; lowercase letters, digits, '-' and '_'; max 32 chars.")
+            )
+        if self.instance and self.instance.pk and self.instance.is_locked and value != self.instance.slug:
+            raise forms.ValidationError(_("Locked provider; slug cannot be changed."))
+        return value
+
+    def clean_provider_type(self) -> str | None:
+        value = self.cleaned_data.get("provider_type")
+        if self.instance and self.instance.pk and self.instance.is_locked and value != self.instance.provider_type:
+            raise forms.ValidationError(_("Locked provider; provider type cannot be changed."))
+        return value
+
+    def clean_base_url(self) -> str:
+        value = (self.cleaned_data.get("base_url") or "").strip()
+        if not value:
+            return value
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https"):
+            raise forms.ValidationError(_("Base URL must use http or https."))
+        return value
+
+    def clean_extra_headers(self) -> dict:
+        raw = (self.cleaned_data.get("extra_headers") or "").strip()
+        if not raw:
+            return {}
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise forms.ValidationError(_("Invalid JSON: %s") % e) from e
+        if not isinstance(decoded, dict):
+            raise forms.ValidationError(_("Extra headers must be a JSON object."))
+        for name, value in decoded.items():
+            if not isinstance(name, str) or not _HEADER_NAME_RE.match(name):
+                raise forms.ValidationError(_("Invalid header name: %s") % name)
+            if not isinstance(value, str):
+                raise forms.ValidationError(_("Header value for %s must be a string.") % name)
+        return decoded
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        keeping_existing = bool(
+            self.instance and self.instance.pk and self.instance.api_key and not cleaned.get("api_key")
+        )
+        # A disabled row with no key is a legitimate state (the seed rows ship this
+        # way before an admin configures them); only require api_key when the row
+        # is enabled or newly created.
+        is_enabled = cleaned.get("is_enabled", False)
+        if is_enabled and not cleaned.get("api_key") and not keeping_existing:
+            self.add_error("api_key", _("Required when enabled."))
+        return cleaned
+
+    def save(self, commit: bool = True) -> Provider:
+        instance = super().save(commit=False)
+        new_key = self.cleaned_data.get("api_key")
+        if new_key:
+            instance.api_key = new_key
+        if commit:
+            instance.save()
+        return instance
+
+
+class _ProviderFormset(BaseModelFormSet):
+    def clean(self) -> None:
+        super().clean()
+        seen: set[str] = set()
+        for form in self.forms:
+            if not form.cleaned_data or form.cleaned_data.get("DELETE"):
+                continue
+            slug = form.cleaned_data.get("slug")
+            if not slug:
+                continue
+            if slug in seen:
+                raise forms.ValidationError(_("Duplicate slug: %s") % slug)
+            seen.add(slug)
+
+
+def build_provider_formset():
+    """Factory for the Provider model formset."""
+    return modelformset_factory(Provider, form=ProviderForm, formset=_ProviderFormset, extra=0, can_delete=True)

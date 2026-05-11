@@ -19,11 +19,6 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
-# Back-compat re-export for callers that imported ``ModelProvider`` from here.
-# Removed in Task 5 of the configurable-providers refactor.
-ModelProvider = ProviderType
-
-
 CLAUDE_MAX_TOKENS = 16_384
 
 CLAUDE_THINKING_MODELS = (

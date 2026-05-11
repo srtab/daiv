@@ -106,72 +106,70 @@ class TestNullableFields:
 
 class TestEncryptedFields:
     def test_set_and_read_encrypted_field(self, site_config):
-        site_config.anthropic_api_key = "sk-test-12345"
+        site_config.web_search_api_key = "sk-test-12345"
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.anthropic_api_key == "sk-test-12345"
+        assert reloaded.web_search_api_key == "sk-test-12345"
         # The raw DB column should be encrypted
-        assert reloaded._anthropic_api_key_encrypted is not None
-        assert reloaded._anthropic_api_key_encrypted != "sk-test-12345"
+        assert reloaded._web_search_api_key_encrypted is not None
+        assert reloaded._web_search_api_key_encrypted != "sk-test-12345"
 
     def test_clear_encrypted_field(self, site_config):
-        site_config.anthropic_api_key = "sk-test-12345"
+        site_config.web_search_api_key = "sk-test-12345"
         site_config.save()
 
-        site_config.anthropic_api_key = None
+        site_config.web_search_api_key = None
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.anthropic_api_key is None
-        assert reloaded._anthropic_api_key_encrypted is None
+        assert reloaded.web_search_api_key is None
+        assert reloaded._web_search_api_key_encrypted is None
 
     def test_set_empty_string_clears_field(self, site_config):
-        site_config.anthropic_api_key = "sk-test-12345"
+        site_config.web_search_api_key = "sk-test-12345"
         site_config.save()
 
-        site_config.anthropic_api_key = ""
+        site_config.web_search_api_key = ""
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.anthropic_api_key is None
+        assert reloaded.web_search_api_key is None
 
     def test_get_secret_hint(self, site_config):
-        site_config.anthropic_api_key = "sk-test-long-api-key-12345"
+        site_config.web_search_api_key = "sk-test-long-api-key-12345"
         site_config.save()
 
-        hint = site_config.get_secret_hint("anthropic_api_key")
+        hint = site_config.get_secret_hint("web_search_api_key")
         assert hint is not None
         assert "sk-" in hint
         assert "345" in hint
         assert hint != "sk-test-long-api-key-12345"
 
     def test_get_secret_hint_when_not_set(self, site_config):
-        assert site_config.get_secret_hint("anthropic_api_key") is None
+        assert site_config.get_secret_hint("web_search_api_key") is None
 
     def test_all_encrypted_fields_listed(self):
-        assert "anthropic_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
-        assert "openai_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
-        assert "google_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
-        assert "openrouter_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
         assert "web_search_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
         assert "sandbox_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
+        assert "auth_client_secret" in SiteConfiguration.ENCRYPTED_FIELDS
+        assert "rocketchat_auth_token" in SiteConfiguration.ENCRYPTED_FIELDS
 
     def test_corrupted_ciphertext_returns_none(self, site_config):
         """Corrupted data returns None instead of raising."""
-        site_config._anthropic_api_key_encrypted = "not-a-valid-fernet-token"
+        site_config._web_search_api_key_encrypted = "not-a-valid-fernet-token"
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.anthropic_api_key is None
+        assert reloaded.web_search_api_key is None
 
     def test_corrupted_ciphertext_hint_returns_none(self, site_config):
         """get_secret_hint also returns None for corrupted data."""
-        site_config._anthropic_api_key_encrypted = "not-a-valid-fernet-token"
+        site_config._web_search_api_key_encrypted = "not-a-valid-fernet-token"
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.get_secret_hint("anthropic_api_key") is None
+        assert reloaded.get_secret_hint("web_search_api_key") is None
 
 
 class TestModelNameFieldsCompleteness:

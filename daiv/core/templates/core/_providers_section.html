@@ -1,0 +1,83 @@
+{% load i18n %}
+<div class="mt-6">
+    <p class="text-xs text-gray-400">
+        {% trans "Configure one or more model providers. Locked providers' slug and type cannot be changed." %}
+    </p>
+
+    <div class="mt-4">
+        {{ providers_formset.management_form }}
+        {% if providers_formset.non_form_errors %}
+            <p class="mb-3 text-xs text-red-300">{{ providers_formset.non_form_errors.0 }}</p>
+        {% endif %}
+        <div class="space-y-3">
+            {% for row in providers_formset %}
+                <div data-row class="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 {% if not row.instance.is_enabled and row.instance.pk %}opacity-60{% endif %}">
+                    {% if row.instance.pk %}{{ row.id }}{% endif %}
+                    <div class="grid grid-cols-12 gap-3 items-start">
+                        <div class="col-span-2">
+                            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Slug" %}</label>
+                            {% if row.instance.is_locked %}
+                                <p class="font-mono text-sm">{{ row.instance.slug }}</p>
+                                <input type="hidden" name="{{ row.slug.html_name }}" value="{{ row.instance.slug }}">
+                            {% else %}
+                                {{ row.slug }}
+                            {% endif %}
+                            {% if row.errors.slug %}<p class="mt-1 text-xs text-red-300">{{ row.errors.slug.0 }}</p>{% endif %}
+                        </div>
+                        <div class="col-span-3">
+                            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Display name" %}</label>
+                            {{ row.display_name }}
+                            {% if row.errors.display_name %}<p class="mt-1 text-xs text-red-300">{{ row.errors.display_name.0 }}</p>{% endif %}
+                        </div>
+                        <div class="col-span-2">
+                            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Type" %}</label>
+                            {% if row.instance.is_locked %}
+                                <p class="text-sm">{{ row.instance.get_provider_type_display }}</p>
+                                <input type="hidden" name="{{ row.provider_type.html_name }}" value="{{ row.instance.provider_type }}">
+                            {% else %}
+                                {{ row.provider_type }}
+                            {% endif %}
+                            {% if row.errors.provider_type %}<p class="mt-1 text-xs text-red-300">{{ row.errors.provider_type.0 }}</p>{% endif %}
+                        </div>
+                        <div class="col-span-3">
+                            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Base URL" %}</label>
+                            {{ row.base_url }}
+                            {% if row.errors.base_url %}<p class="mt-1 text-xs text-red-300">{{ row.errors.base_url.0 }}</p>{% endif %}
+                        </div>
+                        <div class="col-span-2 flex items-end gap-2 justify-end">
+                            <label class="inline-flex items-center gap-2 text-xs text-gray-300">
+                                {{ row.is_enabled }} {% trans "Enabled" %}
+                            </label>
+                            {% if not row.instance.is_locked %}
+                                <span class="hidden">{{ row.DELETE }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-12 gap-3 items-start mt-3">
+                        <div class="col-span-4">
+                            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "API key" %}</label>
+                            {{ row.api_key }}
+                            {% if row.fields.api_key.secret_hint %}
+                                <p class="mt-1 text-xs text-gray-400">{% trans "Stored:" %} <code>{{ row.fields.api_key.secret_hint }}</code></p>
+                            {% endif %}
+                            {% if row.errors.api_key %}<p class="mt-1 text-xs text-red-300">{{ row.errors.api_key.0 }}</p>{% endif %}
+                        </div>
+                        <div class="col-span-4">
+                            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Extra headers (JSON)" %}</label>
+                            {{ row.extra_headers }}
+                            {% if row.errors.extra_headers %}<p class="mt-1 text-xs text-red-300">{{ row.errors.extra_headers.0 }}</p>{% endif %}
+                        </div>
+                        <div class="col-span-4">
+                            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Model suggestions" %}</label>
+                            {{ row.model_suggestions }}
+                            {% if row.errors.model_suggestions %}<p class="mt-1 text-xs text-red-300">{{ row.errors.model_suggestions.0 }}</p>{% endif %}
+                        </div>
+                    </div>
+                    {% for err in row.non_field_errors %}
+                        <p class="mt-1 text-xs text-red-300">{{ err }}</p>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
