@@ -13,6 +13,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import BaseModel, Field
+from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.services import looks_like_uuid, resolve_env_for_user
 
 from automation.agent.results import parse_agent_result
 from codebase.clients import RepoClient
@@ -110,6 +112,17 @@ async def submit_job(
             )
         ),
     ] = False,
+    environment: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional sandbox environment to use for every job in this batch — pass the env"
+                " name or UUID. Visible scopes are the caller's USER envs plus all GLOBAL envs."
+                " Use ``list_environments`` to discover names. Omit to fall back to repo"
+                " ``.daiv.yml`` and the GLOBAL default."
+            )
+        ),
+    ] = None,
 ) -> str:
     """Submit a batch of agent jobs. Each repository runs as an independent job.
 
@@ -130,6 +143,15 @@ async def submit_job(
     except Exception:
         logger.exception("Failed to resolve current user for MCP submit_job")
 
+    sandbox_environment_id: str | None = None
+    if environment:
+        try:
+            env_row = await resolve_env_for_user(mcp_user, environment)
+        except LookupError as err:
+            return json.dumps({"error": str(err)})
+        if env_row is not None:
+            sandbox_environment_id = str(env_row.id)
+
     targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
     result = await asubmit_batch_runs(
         user=mcp_user,
@@ -138,6 +160,7 @@ async def submit_job(
         use_max=use_max,
         notify_on=notify_on,
         trigger_type=TriggerType.MCP_JOB,
+        sandbox_environment_id=sandbox_environment_id,
     )
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
@@ -332,3 +355,70 @@ async def list_repositories(
             "There are more results available. Ask the user to provide a search term or topic to narrow down."
         )
     return json.dumps(result)
+
+
+@mcp.tool()
+async def list_environments() -> list[dict]:
+    """List sandbox environments visible to the caller — their own USER envs plus all GLOBAL envs.
+
+    Use the returned ``name`` (or ``id``) as the ``environment`` argument to ``submit_job``.
+    Secret env-var values are not included; call ``get_environment`` for full details.
+    """
+    from django.db.models import Q
+
+    user = await get_current_user()
+    qs = SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL)).order_by(
+        "scope", "name"
+    )
+    return [
+        {
+            "id": str(env.id),
+            "name": env.name,
+            "scope": env.scope,
+            "description": env.description,
+            "base_image": env.base_image,
+            "is_default": env.is_default,
+        }
+        async for env in qs
+    ]
+
+
+@mcp.tool()
+async def get_environment(
+    name_or_id: Annotated[str, Field(description="The environment name or UUID to look up.")],
+) -> dict | None:
+    """Look up one sandbox environment by name or UUID. Returns ``None`` if not found
+    in the caller's visible scopes (own USER envs plus all GLOBAL envs).
+
+    Secret env-var values are masked as ``"******"``.
+    """
+    from django.db.models import Q
+
+    user = await get_current_user()
+    qs = SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL))
+    env: SandboxEnvironment | None = None
+    if looks_like_uuid(name_or_id):
+        env = await qs.filter(pk=name_or_id).afirst()
+    if env is None:
+        env = await qs.filter(name=name_or_id).afirst()
+    if env is None:
+        return None
+    return {
+        "id": str(env.id),
+        "name": env.name,
+        "scope": env.scope,
+        "description": env.description,
+        "base_image": env.base_image,
+        "network_enabled": env.network_enabled,
+        "memory_bytes": env.memory_bytes,
+        "cpus": float(env.cpus) if env.cpus is not None else None,
+        "is_default": env.is_default,
+        "env_vars": [
+            {
+                "name": r["name"],
+                "value": "******" if r.get("is_secret") else r["value"],
+                "is_secret": bool(r.get("is_secret")),
+            }
+            for r in (env.env_vars or [])
+        ],
+    }
