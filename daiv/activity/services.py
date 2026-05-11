@@ -148,8 +148,14 @@ async def acreate_activity(
     thread_id: str | None = None,
     title: str = "",
     sandbox_environment: SandboxEnvironment | None = None,
+    sandbox_environment_id: str | None = None,
 ) -> Activity:
     """Async variant of create_activity."""
+    extra: dict = {}
+    if sandbox_environment_id is not None:
+        extra["sandbox_environment_id"] = sandbox_environment_id
+    else:
+        extra["sandbox_environment"] = sandbox_environment
     return await Activity.objects.acreate(
         trigger_type=trigger_type,
         task_result_id=task_result_id,
@@ -167,7 +173,7 @@ async def acreate_activity(
         batch_id=batch_id,
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
-        sandbox_environment=sandbox_environment,
+        **extra,
     )
 
 
@@ -181,6 +187,7 @@ async def asubmit_batch_runs(
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
+    sandbox_environment_id: str | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Activity`` rows.
 
@@ -200,7 +207,12 @@ async def asubmit_batch_runs(
         thread_id = str(uuid.uuid4())
         try:
             task = await run_job_task.aenqueue(
-                repo_id=target.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max, thread_id=thread_id
+                repo_id=target.repo_id,
+                prompt=prompt,
+                ref=ref_for_task,
+                use_max=use_max,
+                thread_id=thread_id,
+                sandbox_environment_id=sandbox_environment_id,
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
@@ -225,6 +237,7 @@ async def asubmit_batch_runs(
                 batch_id=batch_id,
                 thread_id=thread_id,
                 title=activity_title,
+                sandbox_environment_id=sandbox_environment_id,
             )
         except Exception:
             logger.exception(
