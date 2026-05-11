@@ -42,12 +42,7 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from automation.agent.prompts import (
-    DAIV_REPOLESS_SYSTEM_PROMPT,
-    DAIV_SYSTEM_PROMPT,
-    REPO_RELATIVE_SYSTEM_REMINDER,
-    WRITE_TODOS_SYSTEM_PROMPT,
-)
+from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent, load_custom_subagents
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
@@ -149,10 +144,12 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         prompt_body = cast("str", daiv_system_prompt.content).strip()
     else:
         agent_path = resolve_agent_path(context)
-        repoless_prompt = await DAIV_REPOLESS_SYSTEM_PROMPT.aformat(
+        repoless_prompt = await DAIV_SYSTEM_PROMPT.aformat(
             current_date=timezone.now().strftime("%d %B, %Y"),
             bot_name=BOT_NAME,
             bot_username=context.bot_username,
+            repository_url=None,
+            bash_tool_enabled=bash_tool_enabled,
             working_directory=f"/{agent_path.name}/",
         )
         prompt_body = cast("str", repoless_prompt.content).strip()
