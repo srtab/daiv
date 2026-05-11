@@ -76,6 +76,8 @@ uv run --all-extras python scripts/dump_schemas.py \
     > /path/to/daiv/daiv/core/sandbox/schemas.dump.json
 ```
 
+**Sandbox environments** — runtime sandbox config flows through `RuntimeCtx.sandbox`, built by `sandbox_envs.services.merge_sandbox_runtime` from per-run env (if any), `.daiv.yml`, and the GLOBAL default env. Per-field precedence: per-run > `.daiv.yml` (key present in YAML) > global default. `DAIV_SANDBOX_*` env vars remain authoritative; they act as locks on the GLOBAL default env (`get_global_default()` overlays them on every read). The agent middleware never reads `ctx.config.sandbox.*` directly — always go through `ctx.sandbox`.
+
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
 ## Where changes usually go
