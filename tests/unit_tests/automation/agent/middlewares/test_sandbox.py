@@ -643,6 +643,66 @@ class TestBuildStoreArchive:
         backend.aglob = AsyncMock(return_value=GlobResult(error=None, matches=[]))
         assert await _build_store_archive(backend, "/repo") is None
 
+    async def test_with_composite_does_not_glob_skills_mount(self, tmp_path: Path):
+        """The composite's ``aglob`` catch-all would list ``/skills/`` files too and force
+        this caller to post-filter; ``_build_store_archive`` must call ``aglob`` on the
+        underlying repo backend directly so the skills mount is never enumerated.
+        Canary against a regression that reverts to ``backend.aglob`` on the composite.
+        """
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import (
+            DAIVCompositeBackend,
+            DAIVFilesystemBackend,
+            DAIVStoreBackend,
+        )
+        from automation.agent.middlewares.sandbox import _build_store_archive
+
+        skills_root = tmp_path / "skills"
+        skills_root.mkdir()
+        (skills_root / "skill-a").mkdir()
+        (skills_root / "skill-a" / "SKILL.md").write_text("never-in-repo-archive\n")
+
+        store = InMemoryStore()
+        repo_backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("ns", "thread"))
+        await repo_backend.aupload_files([("/repo/turn1.py", b"only this\n")])
+
+        skills_backend = DAIVFilesystemBackend(root_dir=skills_root, virtual_mode=True)
+        composite = DAIVCompositeBackend(default=repo_backend, routes={"/skills/": skills_backend})
+
+        archive = await _build_store_archive(composite, "/repo")
+
+        assert archive is not None
+        with tarfile.open(fileobj=io.BytesIO(bytes(archive)), mode="r:gz") as tf:
+            names = sorted(tf.getnames())
+        assert names == ["turn1.py"], f"composite seed must not pull in skills, got {names!r}"
+
+
+class TestResolveRepoBackend:
+    """Validate the helper that the patch-apply and gitignore-guard dispatches rely on:
+    with composite present, the underlying repo backend is unwrapped (so isinstance
+    dispatch works); without composite, the backend passes through.
+    """
+
+    def test_composite_returns_underlying_default(self, tmp_path: Path):
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend, DAIVFilesystemBackend
+        from automation.agent.middlewares.sandbox import _resolve_repo_backend
+
+        skills = DAIVFilesystemBackend(root_dir=tmp_path / "s", virtual_mode=True)
+        (tmp_path / "s").mkdir()
+        repo = DAIVFilesystemBackend(root_dir=tmp_path / "r", virtual_mode=True)
+        (tmp_path / "r").mkdir()
+        composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
+
+        assert _resolve_repo_backend(composite, "/myrepo") is repo
+
+    def test_bare_backend_passes_through(self, tmp_path: Path):
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.middlewares.sandbox import _resolve_repo_backend
+
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        assert _resolve_repo_backend(backend, "/myrepo") is backend
+
 
 class TestStageStorePathsToDir:
     """Direct coverage of ``_stage_store_paths_to_dir``."""
@@ -1014,6 +1074,7 @@ class TestSandboxMiddleware:
         with (
             open_patch,
             close_patch,
+            patch("automation.agent.middlewares.sandbox.SKILLS_CACHE_PATH", skills_dir),
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_skills"),
@@ -1062,6 +1123,7 @@ class TestSandboxMiddleware:
         with (
             open_patch,
             close_patch,
+            patch("automation.agent.middlewares.sandbox.SKILLS_CACHE_PATH", skills_dir),
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_repoless"),
@@ -1153,10 +1215,14 @@ class TestSandboxMiddleware:
         store = InMemoryStore()
         backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "no-content"))
 
+        empty_skills = tmp_path / "skills-empty"
+        empty_skills.mkdir()
+
         open_patch, close_patch = self._patch_client_lifecycle()
         with (
             open_patch,
             close_patch,
+            patch("automation.agent.middlewares.sandbox.SKILLS_CACHE_PATH", empty_skills),
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_no_seed"),
@@ -1164,7 +1230,6 @@ class TestSandboxMiddleware:
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
-            patch("automation.agent.middlewares.sandbox._make_skills_archive_repoless", return_value=None),
         ):
             middleware = SandboxMiddleware(backend=backend, agent_root="/repo", working_dir=None, close_session=True)
             update = await middleware.abefore_agent({}, runtime)
@@ -1318,6 +1383,40 @@ class TestAwrapToolCall:
         result = await middleware.awrap_tool_call(request, handler)
         assert result is sentinel
 
+    async def test_write_file_refused_outside_agent_root(self, tmp_path: Path):
+        """A write to ``/skills/...`` (or any path outside agent_root) must be refused
+        before dispatch. The skills mount is shared across concurrent agent runs in this
+        process; an errant write here would later trigger a rollback ``backend.delete``
+        that clobbers a file other runs depend on.
+        """
+        from langchain_core.messages import ToolMessage
+
+        from automation.agent.middlewares.file_system import SandboxSyncer
+
+        backend = Mock(spec=DAIVFilesystemBackend)
+        runtime = Mock()
+        runtime.context = Mock(has_repo=True)
+        runtime.state = {"session_id": "sess_1"}
+
+        middleware = _make_middleware()
+        middleware._backend = backend
+        middleware._agent_root = "/myrepo"
+        middleware._syncer = SandboxSyncer(backend=backend, agent_root="/myrepo", client=Mock())
+
+        request = self._request(
+            "write_file", {"file_path": "/skills/some-skill/SKILL.md", "content": "x"}, runtime=runtime
+        )
+        handler = AsyncMock()
+
+        result = await middleware.awrap_tool_call(request, handler)
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "Refused" in result.content
+        assert "/myrepo/" in result.content
+        handler.assert_not_called()
+        backend.delete.assert_not_called()
+
     async def test_write_file_dispatches_when_resolve_target_fails(self, tmp_path: Path):
         """Pre-dispatch path-resolution failure must fall through to upstream, not
         synthesize a refusal — upstream owns the canonical "invalid path" error."""
@@ -1338,9 +1437,10 @@ class TestAwrapToolCall:
 
         middleware = _make_middleware()
         middleware._backend = backend
+        middleware._agent_root = f"/{repo_dir.name}"
         middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
 
-        request = self._request("write_file", {"file_path": "/repo/foo", "content": "x"}, runtime=runtime)
+        request = self._request("write_file", {"file_path": f"/{repo_dir.name}/foo", "content": "x"}, runtime=runtime)
         sentinel = ToolMessage(content="upstream error", tool_call_id="call_1", name="write_file", status="error")
         handler = AsyncMock(return_value=sentinel)
 
@@ -1373,10 +1473,11 @@ class TestAwrapToolCall:
 
         middleware = _make_middleware()
         middleware._backend = backend
+        middleware._agent_root = f"/{repo_dir.name}"
         middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
 
         request = self._request(
-            "write_file", {"file_path": "/repo/.python-version", "content": "3.11\n"}, runtime=runtime
+            "write_file", {"file_path": f"/{repo_dir.name}/.python-version", "content": "3.11\n"}, runtime=runtime
         )
         handler = AsyncMock()
 
@@ -1411,9 +1512,12 @@ class TestAwrapToolCall:
 
         middleware = _make_middleware()
         middleware._backend = backend
+        middleware._agent_root = f"/{repo_dir.name}"
         middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
 
-        request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x\n"}, runtime=runtime)
+        request = self._request(
+            "write_file", {"file_path": f"/{repo_dir.name}/foo.py", "content": "x\n"}, runtime=runtime
+        )
         handler = AsyncMock()
 
         with patch.object(GitManager, "is_path_ignored", return_value=IgnoreCheck.UNKNOWN):
@@ -1450,6 +1554,7 @@ class TestAwrapToolCall:
         runtime.state = {"session_id": "sess_1"}
 
         middleware = _make_middleware()
+        middleware._agent_root = f"/{repo_dir.name}"
         syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
         syncer.lock = AsyncMock()
         syncer.lock.__aenter__ = AsyncMock()
@@ -1457,7 +1562,9 @@ class TestAwrapToolCall:
         syncer.mirror = AsyncMock(return_value=None)
         middleware._syncer = syncer
 
-        request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x"}, runtime=runtime)
+        request = self._request(
+            "write_file", {"file_path": f"/{repo_dir.name}/foo.py", "content": "x"}, runtime=runtime
+        )
         ok_message = ToolMessage(content="Successfully wrote", tool_call_id="call_1", name="write_file")
         handler = AsyncMock(return_value=ok_message)
 

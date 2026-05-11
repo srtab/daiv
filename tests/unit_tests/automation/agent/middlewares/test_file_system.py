@@ -187,7 +187,11 @@ async def test_write_file_missing_session_id_rolls_back(setup, fake_client):
 
 
 async def test_write_file_rejects_path_outside_working_dir(working_repo, fake_client, tmp_path):
-    """A write to a path outside the agent root is rolled back; sandbox is never called."""
+    """A write to a path outside the agent root is refused before dispatch — never
+    written locally, never mirrored to the sandbox. Refusing up-front avoids the rollback
+    branch deleting from a shared mount (e.g. the skills cache) that other concurrent
+    runs depend on.
+    """
     outside = tmp_path / "elsewhere"
     outside.mkdir()
     backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
@@ -212,7 +216,8 @@ async def test_write_file_rejects_path_outside_working_dir(working_repo, fake_cl
 
     assert not (outside / "leak.py").exists()
     fake_client.apply_file_mutations.assert_not_awaited()
-    assert "Error" in _content(result)
+    assert "Refused" in _content(result)
+    assert agent_root in _content(result)
 
 
 async def test_write_file_surfaces_critical_when_rollback_fails(setup, fake_client, monkeypatch):
@@ -499,6 +504,79 @@ async def test_repoless_write_file_surfaces_critical_when_store_delete_fails(sto
     text = _content(result)
     assert "CRITICAL" in text
     assert "rollback also failed" in text
+
+
+class TestDAIVCompositeBackend:
+    """Composite routing must preserve the prefix-stripping invariant for DAIV's two
+    extension methods (``delete``/``stat_mode``) and the dispatch helper
+    (``resolve_backend_for``). Without these, sandbox rollback and the patch-apply
+    branch silently route to the wrong backend.
+    """
+
+    @staticmethod
+    def _make_composite(tmp_path: Path):
+        from langgraph.store.memory import InMemoryStore
+
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend
+
+        skills_root = tmp_path / "skills-mount"
+        skills_root.mkdir()
+        skills = DAIVFilesystemBackend(root_dir=skills_root, virtual_mode=True)
+        store = InMemoryStore()
+        repo = DAIVStoreBackend(store=store, namespace=lambda _rt: ("ns", "tid"))
+        composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
+        return composite, skills, repo, skills_root, store
+
+    async def test_delete_strips_prefix_for_routed_path(self, tmp_path: Path):
+        composite, skills, _repo, skills_root, _store = self._make_composite(tmp_path)
+        (skills_root / "foo.md").write_text("x")
+
+        ok = await composite.delete("/skills/foo.md")
+
+        assert ok is True
+        assert not (skills_root / "foo.md").exists()
+
+    async def test_delete_passes_default_path_unchanged(self, tmp_path: Path):
+        composite, _skills, repo, _root, store = self._make_composite(tmp_path)
+        await repo.aupload_files([("/repo/bar.py", b"x")])
+
+        ok = await composite.delete("/repo/bar.py")
+
+        assert ok is True
+        item = await store.aget(("ns", "tid"), "/repo/bar.py")
+        assert item is None, "store key matches the unstripped default path"
+
+    async def test_stat_mode_routes_to_underlying_backend(self, tmp_path: Path):
+        composite, _skills, _repo, skills_root, _store = self._make_composite(tmp_path)
+        target = skills_root / "exec.sh"
+        target.write_text("#!/bin/sh\n")
+        target.chmod(0o755)
+
+        skills_mode = await composite.stat_mode("/skills/exec.sh")
+        store_mode = await composite.stat_mode("/repo/whatever")
+
+        assert stat.S_IMODE(skills_mode) == 0o755, "FS-routed stat_mode reads real bits"
+        assert store_mode == 0o644, "store stat_mode is the fixed 0o644 fallback"
+
+    async def test_resolve_backend_for_returns_route_target(self, tmp_path: Path):
+        composite, skills, repo, _root, _store = self._make_composite(tmp_path)
+
+        assert composite.resolve_backend_for("/skills/foo") is skills
+        assert composite.resolve_backend_for("/skills/") is skills
+        assert composite.resolve_backend_for("/repo/bar") is repo
+        assert composite.resolve_backend_for("/random/baz") is repo, "unrouted falls through to default"
+
+    async def test_constructor_rejects_backend_missing_daiv_methods(self, tmp_path: Path):
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend
+
+        good = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        plain_state = SimpleNamespace()  # missing delete + stat_mode
+
+        with pytest.raises(TypeError, match="DAIVBackendProtocol"):
+            DAIVCompositeBackend(default=good, routes={"/x/": plain_state})  # type: ignore[arg-type]
+
+        with pytest.raises(TypeError, match="DAIVBackendProtocol"):
+            DAIVCompositeBackend(default=plain_state, routes={})  # type: ignore[arg-type]
 
 
 async def test_repoless_edit_file_rolls_back_via_aupload_files(store_setup, fake_client):

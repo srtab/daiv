@@ -18,6 +18,8 @@ from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import (
     AGENTS_MEMORY_PATH,
     GLOBAL_SKILLS_PATH,
+    GLOBAL_SKILLS_ROUTE,
+    SKILLS_CACHE_PATH,
     SKILLS_SOURCES,
     SUBAGENTS_SOURCES,
     ModelName,
@@ -28,6 +30,7 @@ from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
     FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE,
+    DAIVCompositeBackend,
     DAIVFilesystemBackend,
     DAIVStoreBackend,
 )
@@ -234,11 +237,14 @@ async def create_daiv_agent(
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
     agent_path = resolve_agent_path(ctx)
-    if ctx.has_repo:
-        backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
-    else:
-        backend = DAIVStoreBackend(namespace=_repoless_namespace_factory(thread_id))
     agent_root = f"/{agent_path.name}"
+
+    skills_backend = DAIVFilesystemBackend(root_dir=SKILLS_CACHE_PATH, virtual_mode=True)
+    if ctx.has_repo:
+        repo_backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    else:
+        repo_backend = DAIVStoreBackend(namespace=_repoless_namespace_factory(thread_id))
+    backend = DAIVCompositeBackend(default=repo_backend, routes={GLOBAL_SKILLS_ROUTE: skills_backend})
 
     subagents = [
         create_general_purpose_subagent(

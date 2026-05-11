@@ -11,7 +11,7 @@ from automation.agent.utils import build_langsmith_config, extract_text_content,
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from codebase.exceptions import InvalidThreadResumeError
-from core.checkpointer import open_checkpointer
+from core.checkpointer import open_checkpointer, open_store
 
 logger = logging.getLogger("daiv.jobs")
 
@@ -55,6 +55,7 @@ async def run_job_task(
         async with (
             set_runtime_ctx(repo_id=repo_id, scope=Scope.GLOBAL, ref=ref) as runtime_ctx,
             open_checkpointer() as checkpointer,
+            open_store() as store,
         ):
             agent_kwargs = get_daiv_agent_kwargs(model_config=runtime_ctx.config.models.agent, use_max=use_max)
             config = build_langsmith_config(
@@ -66,7 +67,7 @@ async def run_job_task(
                 configurable={"thread_id": thread_id},
             )
             daiv_agent = await create_daiv_agent(
-                ctx=runtime_ctx, thread_id=thread_id, checkpointer=checkpointer, **agent_kwargs
+                ctx=runtime_ctx, thread_id=thread_id, checkpointer=checkpointer, store=store, **agent_kwargs
             )
             with track_usage_metadata() as usage_handler:
                 result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)

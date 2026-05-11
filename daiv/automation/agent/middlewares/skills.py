@@ -16,7 +16,7 @@ from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -227,8 +227,13 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     source_path = Path(root) / Path(file)
                     if source_path.suffix == ".pyc":
                         continue
-                    dest_path = project_skills_path / source_path.relative_to(source_root)
-                    if not dest_path.exists():
+                    rel = source_path.relative_to(source_root)
+                    # Real existence check on the disk-backed skills cache so per-turn
+                    # uploads become a no-op once the cache is populated. ``dest_path``
+                    # is a virtual path under ``GLOBAL_SKILLS_PATH``, which never exists
+                    # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
+                    dest_path = project_skills_path / rel
+                    if not (SKILLS_CACHE_PATH / rel).exists():
                         try:
                             files_to_upload.append((str(dest_path), source_path.read_bytes()))
                         except OSError:

@@ -75,6 +75,7 @@ async def test_events_captures_merge_request_from_state_snapshot_and_persists_re
 
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.open_store", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snapshot])),
@@ -115,6 +116,7 @@ async def test_events_captures_latest_merge_request_when_multiple_snapshots():
 
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.open_store", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snap_first, snap_last])),
@@ -145,6 +147,7 @@ async def test_events_persists_none_when_no_state_snapshot_carries_merge_request
 
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.open_store", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snapshot_no_mr])),
@@ -188,6 +191,7 @@ async def test_events_skips_persist_ref_when_run_errored():
 
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.open_store", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
@@ -217,6 +221,7 @@ async def test_events_releases_run_even_when_persist_ref_raises():
 
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.open_store", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -14,6 +14,9 @@ from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
 from slash_commands.base import SlashCommand
 from slash_commands.registry import SlashCommandRegistry
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_runtime(
@@ -150,25 +153,17 @@ class TestSkillsMiddleware:
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin"))
         (builtin / "skill-one" / "helpers" / "util.py").write_text("print('one')\n")
 
+        cache_root = tmp_path / "skills"
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
-        existing_skill_md = tmp_path / "skills" / "skill-one" / "SKILL.md"
+        existing_skill_md = cache_root / "skill-one" / "SKILL.md"
         existing_skill_md.parent.mkdir(parents=True, exist_ok=True)
         existing_skill_md.write_text(_make_skill_md(name="skill-one", description="existing"))
 
-        original_exists = Path.exists
-
-        def fake_exists(self: Path) -> bool:
-            # Map virtual `/skills/...` paths used during upload planning to the on-disk mirror.
-            if str(self).startswith("/skills/"):
-                mapped = tmp_path / str(self).lstrip("/")
-                return original_exists(mapped)
-            return original_exists(self)
-
         with (
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("pathlib.Path.exists", new=fake_exists),
+            patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache_root),
         ):
             await middleware._copy_global_skills()
 

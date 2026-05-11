@@ -6,12 +6,14 @@ import logging
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.backends.protocol import BackendProtocol  # noqa: TC002
 from deepagents.backends.store import StoreBackend
 from deepagents.backends.utils import validate_path
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
@@ -218,3 +220,62 @@ class DAIVStoreBackend(StoreBackend):
 
     async def stat_mode(self, virtual_path: str) -> int:  # noqa: ARG002
         return 0o644
+
+
+@runtime_checkable
+class DAIVBackendProtocol(Protocol):
+    """The two methods DAIV's sandbox layer needs on top of ``BackendProtocol``:
+
+    ``delete`` for write/edit rollback, ``stat_mode`` for outgoing ``PutMutation.mode``.
+    Both are implemented by ``DAIVFilesystemBackend`` and ``DAIVStoreBackend``; the
+    composite asserts on this shape so a misconfigured route (e.g. plain ``StateBackend``)
+    fails loudly at construction time instead of with a runtime ``AttributeError`` on
+    first delete. Defined as its own ``Protocol`` rather than extending
+    ``BackendProtocol`` because deepagents' base isn't a typing ``Protocol``.
+    """
+
+    async def delete(self, virtual_path: str) -> bool: ...
+
+    async def stat_mode(self, virtual_path: str) -> int: ...
+
+
+class DAIVCompositeBackend(CompositeBackend):
+    """``CompositeBackend`` with the two DAIV extensions (``delete``/``stat_mode``) and a
+    ``resolve_backend_for`` helper for callers that need to dispatch on the underlying
+    backend type (``isinstance``-style sandbox routing).
+
+    Routing-aware ``delete``/``stat_mode`` strip the route prefix before delegating, so
+    underlying backends see the same key shape they would receive through any other
+    composite-routed call (``aupload_files``, ``adownload_files``, etc.).
+
+    Asserts on construction that every wired backend implements ``DAIVBackendProtocol``;
+    silent ``AttributeError`` on first rollback is worse than a startup crash.
+    """
+
+    def __init__(
+        self, default: BackendProtocol, routes: dict[str, BackendProtocol], *, artifacts_root: str = "/"
+    ) -> None:
+        for label, backend in (("default", default), *routes.items()):
+            if not isinstance(backend, DAIVBackendProtocol):
+                raise TypeError(
+                    f"DAIVCompositeBackend requires every backend to implement "
+                    f"DAIVBackendProtocol (delete + stat_mode); {label!r} does not."
+                )
+        super().__init__(default=default, routes=routes, artifacts_root=artifacts_root)
+
+    async def delete(self, virtual_path: str) -> bool:
+        backend, stripped = self._get_backend_and_key(virtual_path)
+        return await cast("DAIVBackendProtocol", backend).delete(stripped)
+
+    async def stat_mode(self, virtual_path: str) -> int:
+        backend, stripped = self._get_backend_and_key(virtual_path)
+        return await cast("DAIVBackendProtocol", backend).stat_mode(stripped)
+
+    def resolve_backend_for(self, virtual_path: str) -> BackendProtocol:
+        """Return the underlying backend that owns ``virtual_path``.
+
+        Used by sandbox dispatch points that need to choose between disk-apply and
+        store-apply paths based on backend shape, not path semantics.
+        """
+        backend, _ = self._get_backend_and_key(virtual_path)
+        return backend

@@ -5,7 +5,6 @@ import contextlib
 import io
 import json
 import logging
-import shutil
 import tarfile
 import tempfile
 from pathlib import Path
@@ -22,13 +21,13 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH
+from automation.agent.constants import SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import (
     EDIT_FILE_TOOL,
     EDIT_SUCCESS_PREFIX,
     WRITE_SUCCESS_PREFIX,
     WRITE_TOOL_NAMES,
+    DAIVCompositeBackend,
     SandboxSyncer,
     format_sync_error,
 )
@@ -287,34 +286,39 @@ def _make_skills_archive(skills_dir: Path) -> bytes | None:
     return buf.getvalue()
 
 
-_SKILL_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
-
-
-def _make_skills_archive_repoless() -> bytes | None:
-    """Build the sandbox skills archive without depending on the agent's filesystem backend.
-
-    Repoless runs use ``StoreBackend`` for the agent's tools, so there's no on-disk skills
-    directory to tar. Stage built-in + custom skills (custom overrides built-in by skill name)
-    into a per-call ``TemporaryDirectory`` and reuse ``_make_skills_archive``.
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        staging = Path(tmpdir)
-        if BUILTIN_SKILLS_PATH.is_dir():
-            for skill_dir in BUILTIN_SKILLS_PATH.iterdir():
-                if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
-                    continue
-                shutil.copytree(skill_dir, staging / skill_dir.name, ignore=_SKILL_IGNORE)
-        custom = agent_settings.CUSTOM_SKILLS_PATH
-        if custom is not None and custom.is_dir():
-            for skill_dir in custom.iterdir():
-                if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
-                    continue
-                shutil.copytree(skill_dir, staging / skill_dir.name, dirs_exist_ok=True, ignore=_SKILL_IGNORE)
-        return _make_skills_archive(staging)
-
-
 def _agent_root_prefix(agent_root: str) -> str:
     return agent_root.rstrip("/") + "/"
+
+
+def _resolve_repo_backend(backend: BackendProtocol, agent_root: str) -> BackendProtocol:
+    """Return the backend that owns ``agent_root``.
+
+    When ``backend`` is the composite, the top-level type is identical across
+    repo-bound (FS) and repoless (Store) modes — callers that need to dispatch on
+    backend shape (disk-apply vs store-apply, gitignore check) must resolve through
+    the composite first.
+    """
+    if isinstance(backend, DAIVCompositeBackend):
+        return backend.resolve_backend_for(_agent_root_prefix(agent_root))
+    return backend
+
+
+def _refuse_write_outside_agent_root(request: ToolCallRequest, file_path: str, repo_prefix: str) -> ToolMessage:
+    """Reject a write_file/edit_file whose target is not under ``agent_root``.
+
+    Skills (under ``/skills/``) live on a shared host directory in this process; if the
+    write succeeded, the sandbox-sync rollback would then ``backend.delete`` it,
+    clobbering a skill file other concurrent agent runs depend on. Refuse up front.
+    """
+    return ToolMessage(
+        content=(
+            f"Refused: '{file_path}' is outside the working directory '{repo_prefix.rstrip('/')}/'. "
+            f"Filesystem tools may only write under that prefix."
+        ),
+        tool_call_id=request.tool_call["id"],
+        name=request.tool_call["name"],
+        status="error",
+    )
 
 
 async def _build_store_archive(backend: BackendProtocol, agent_root: str) -> bytes | None:
@@ -325,7 +329,10 @@ async def _build_store_archive(backend: BackendProtocol, agent_root: str) -> byt
     would let turn N+1's bash see an incomplete mirror of the store, which the caller
     can't detect — fail-loud is the only safe option for a workspace-mirror operation.
     """
-    glob_result = await backend.aglob("**", path=agent_root)
+    # CompositeBackend.aglob with an unrouted path also globs every routed mount (e.g.
+    # ``/skills/``) and forces this caller to post-filter; bypass it for the listing.
+    # ``adownload_files`` below still routes correctly through the composite.
+    glob_result = await _resolve_repo_backend(backend, agent_root).aglob("**", path=agent_root)
     if glob_result.error is not None:
         raise RuntimeError(f"backend glob failed for {agent_root!r}: {glob_result.error}")
     if not glob_result.matches:
@@ -410,11 +417,14 @@ async def _apply_patch_to_backend(
 ) -> None:
     """Apply a sandbox-returned patch to ``backend``.
 
+    The dispatch picks disk-apply vs store-apply based on the backend that owns
+    ``agent_root`` (resolved through the composite when present).
+
     Raises ``ValueError`` if a ``FilesystemBackend`` is used without a working_dir.
     Backend-level failures propagate as ``RuntimeError`` (store upload) or whatever
     ``apply_patch_to_dir`` raises (malformed patch).
     """
-    if isinstance(backend, FilesystemBackend):
+    if isinstance(_resolve_repo_backend(backend, agent_root), FilesystemBackend):
         if working_dir is None:
             raise ValueError("FilesystemBackend requires a working_dir to apply sandbox patches")
         await asyncio.to_thread(apply_patch_to_dir, patch, working_dir)
@@ -654,16 +664,14 @@ class SandboxMiddleware(AgentMiddleware):
             )
             try:
                 if runtime.context.has_repo:
-                    working_dir = Path(runtime.context.gitrepo.working_dir)
-                    skills_dir = working_dir.parent / Path(GLOBAL_SKILLS_PATH).name
                     repo_archive, skills_archive = await asyncio.gather(
-                        asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                        asyncio.to_thread(_make_skills_archive, skills_dir),
+                        asyncio.to_thread(_make_repo_archive, str(runtime.context.gitrepo.working_dir)),
+                        asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
                     )
                 else:
                     repo_archive, skills_archive = await asyncio.gather(
                         _build_store_archive(self._backend, self._agent_root),
-                        asyncio.to_thread(_make_skills_archive_repoless),
+                        asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
                     )
                 if repo_archive is not None or skills_archive is not None:
                     await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
@@ -799,12 +807,16 @@ class SandboxMiddleware(AgentMiddleware):
         except ValueError:
             return await handler(request)
 
+        repo_prefix = _agent_root_prefix(self._agent_root)
+        if not virtual_path.startswith(repo_prefix):
+            return _refuse_write_outside_agent_root(request, file_path, repo_prefix)
+
         # `git add -A` silently drops gitignored paths, so a successful write would
-        # never reach the MR. Only repo-bound runs commit, and only disk-backed
-        # backends surface a real Path for ``git check-ignore`` to act on.
-        if ctx.has_repo and isinstance(backend, FilesystemBackend):
+        # never reach the MR. Only fires for repo-bound runs on a disk-backed repo.
+        repo_backend = _resolve_repo_backend(backend, self._agent_root)
+        if ctx.has_repo and isinstance(repo_backend, FilesystemBackend):
             try:
-                disk_target = Path(cast("Any", backend)._resolve_path(virtual_path))
+                disk_target = Path(cast("Any", repo_backend)._resolve_path(virtual_path))
             except OSError, ValueError:
                 disk_target = None
             if disk_target is not None:
@@ -881,6 +893,10 @@ class SandboxMiddleware(AgentMiddleware):
             virtual_path = validate_path(file_path)
         except ValueError:
             return await handler(request)
+
+        repo_prefix = _agent_root_prefix(self._agent_root)
+        if not virtual_path.startswith(repo_prefix):
+            return _refuse_write_outside_agent_root(request, file_path, repo_prefix)
 
         # Snapshot must happen before dispatch so we can rebuild the file on sync failure.
         # If anything fails here (invalid path, missing file), let upstream produce the
