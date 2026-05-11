@@ -16,6 +16,7 @@ _PROMPT_DRIVEN = {TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.UI_JOB}
 
 if TYPE_CHECKING:
     from notifications.choices import NotifyOn
+    from sandbox_envs.models import SandboxEnvironment
 
     from accounts.models import User
     from schedules.models import ScheduledJob
@@ -101,6 +102,7 @@ def create_activity(
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
     title: str = "",
+    sandbox_environment: SandboxEnvironment | None = None,
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult.
 
@@ -123,6 +125,7 @@ def create_activity(
         batch_id=batch_id,
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
+        sandbox_environment=sandbox_environment,
     )
 
 
@@ -144,6 +147,7 @@ async def acreate_activity(
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
     title: str = "",
+    sandbox_environment: SandboxEnvironment | None = None,
 ) -> Activity:
     """Async variant of create_activity."""
     return await Activity.objects.acreate(
@@ -163,6 +167,7 @@ async def acreate_activity(
         batch_id=batch_id,
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
+        sandbox_environment=sandbox_environment,
     )
 
 
