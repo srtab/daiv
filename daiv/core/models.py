@@ -330,15 +330,6 @@ class SiteConfiguration(models.Model):
         help_text=_("Rate limit for job submissions per authenticated user (e.g. '20/hour')."),
     )
 
-    # -- Providers --
-    openrouter_api_base = models.CharField(
-        _("OpenRouter API base URL"),
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_("Base URL for the OpenRouter API."),
-    )
-
     # -- Rocket Chat --
     rocketchat_enabled = models.BooleanField(
         _("enable Rocket Chat"), null=True, help_text=_("Offer Rocket Chat as a notification channel for users.")
@@ -359,20 +350,12 @@ class SiteConfiguration(models.Model):
     )
 
     # -- API Keys / Secrets (encrypted at rest) --
-    _anthropic_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
-    _openai_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
-    _google_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
-    _openrouter_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _web_search_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _sandbox_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _auth_client_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
     _rocketchat_auth_token_encrypted = models.TextField(blank=True, null=True, editable=False)
 
     # Descriptors for transparent encrypt/decrypt
-    anthropic_api_key = EncryptedFieldDescriptor("anthropic_api_key")
-    openai_api_key = EncryptedFieldDescriptor("openai_api_key")
-    google_api_key = EncryptedFieldDescriptor("google_api_key")
-    openrouter_api_key = EncryptedFieldDescriptor("openrouter_api_key")
     web_search_api_key = EncryptedFieldDescriptor("web_search_api_key")
     sandbox_api_key = EncryptedFieldDescriptor("sandbox_api_key")
     auth_client_secret = EncryptedFieldDescriptor("auth_client_secret")
@@ -392,10 +375,6 @@ class SiteConfiguration(models.Model):
     )
 
     ENCRYPTED_FIELDS: ClassVar[tuple[str, ...]] = (
-        "anthropic_api_key",
-        "openai_api_key",
-        "google_api_key",
-        "openrouter_api_key",
         "web_search_api_key",
         "sandbox_api_key",
         "auth_client_secret",
@@ -411,12 +390,7 @@ class SiteConfiguration(models.Model):
             icon="diff-to-metadata",
         ),
         FieldGroup(key="titling", title=_("Titling"), match=("titling_*",), icon="chat-bubble"),
-        FieldGroup(
-            key="providers",
-            title=_("Providers"),
-            match=("anthropic_*", "openai_*", "google_*", "openrouter_*"),
-            icon="providers",
-        ),
+        FieldGroup(key="providers", title=_("Providers"), match=(), icon="providers"),
         FieldGroup(
             key="web_search",
             title=_("Web Search"),

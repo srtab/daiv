@@ -17,9 +17,8 @@ def test_provider_save_encrypts_api_key():
 
 @pytest.mark.django_db
 def test_locked_row_blocks_slug_change():
-    p = Provider.objects.create(
-        slug="anthropic", display_name="Anthropic", provider_type=ProviderType.ANTHROPIC, is_locked=True
-    )
+    p = Provider.objects.get(slug="anthropic")
+    assert p.is_locked is True
     p.slug = "renamed"
     with pytest.raises(ValueError, match="locked"):
         p.save()
@@ -27,9 +26,8 @@ def test_locked_row_blocks_slug_change():
 
 @pytest.mark.django_db
 def test_locked_row_blocks_provider_type_change():
-    p = Provider.objects.create(
-        slug="anthropic", display_name="Anthropic", provider_type=ProviderType.ANTHROPIC, is_locked=True
-    )
+    p = Provider.objects.get(slug="anthropic")
+    assert p.is_locked is True
     p.provider_type = ProviderType.OPENAI
     with pytest.raises(ValueError, match="locked"):
         p.save()
@@ -37,9 +35,8 @@ def test_locked_row_blocks_provider_type_change():
 
 @pytest.mark.django_db
 def test_locked_row_allows_toggle_enabled_and_key_edit():
-    p = Provider.objects.create(
-        slug="openai", display_name="OpenAI", provider_type=ProviderType.OPENAI, api_key="k1", is_locked=True
-    )
+    p = Provider.objects.get(slug="openai")
+    assert p.is_locked is True
     p.is_enabled = False
     p.api_key = "k2"
     p.display_name = "OpenAI (Org A)"

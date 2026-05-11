@@ -121,7 +121,6 @@ class SiteConfigurationForm(forms.ModelForm):
             "sandbox_cpu",
             "sandbox_memory",
             "suggest_context_file_enabled",
-            "openrouter_api_base",
             "rocketchat_enabled",
             "rocketchat_url",
             "rocketchat_user_id",
