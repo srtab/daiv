@@ -8,9 +8,8 @@ from django import forms
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.base import ModelProvider, parse_model_spec
-from automation.agent.constants import MODEL_SUGGESTIONS
-from core.models import SiteConfiguration, WebFetchAuthHeader
+from automation.agent.base import parse_model_spec
+from core.models import Provider, SiteConfiguration, WebFetchAuthHeader
 
 
 class _BooleanCheckboxField(forms.BooleanField):
@@ -47,9 +46,9 @@ class _ModelSpecWidget(forms.Widget):
         context = super().get_context(name, value, attrs)
         if value:
             try:
-                provider, model_name = parse_model_spec(value)
-                context["widget"]["provider"] = provider.value
-                context["widget"]["model_name"] = model_name
+                resolved = parse_model_spec(value)
+                context["widget"]["provider"] = resolved.row.slug
+                context["widget"]["model_name"] = resolved.model_name
             except ValueError:
                 context["widget"]["provider"] = ""
                 context["widget"]["model_name"] = value
@@ -57,11 +56,12 @@ class _ModelSpecWidget(forms.Widget):
             context["widget"]["provider"] = ""
             context["widget"]["model_name"] = ""
         context["widget"]["default_provider"] = self.default_provider
+        rows = Provider.get_cached_rows()
         context["widget"]["providers"] = [
             ("", self.default_provider_label),
-            *((p.value, p.value.replace("_", " ").title()) for p in ModelProvider),
+            *[(r.slug, f"{r.display_name}{'' if r.is_enabled else ' (disabled)'}") for r in rows if r.is_enabled],
         ]
-        context["widget"]["model_suggestions"] = MODEL_SUGGESTIONS
+        context["widget"]["model_suggestions"] = {r.slug: list(r.model_suggestions_list) for r in rows if r.is_enabled}
         return context
 
     @property
@@ -236,9 +236,9 @@ class SiteConfigurationForm(forms.ModelForm):
             widget = field_obj.widget
             if isinstance(widget, _ModelSpecWidget):
                 try:
-                    provider, model_name = parse_model_spec(default_str)
-                    widget.default_provider = provider.value
-                    widget.attrs.setdefault("placeholder", model_name)
+                    resolved = parse_model_spec(default_str)
+                    widget.default_provider = resolved.row.slug
+                    widget.attrs.setdefault("placeholder", resolved.model_name)
                 except ValueError:
                     widget.attrs.setdefault("placeholder", default_str)
             elif isinstance(widget, (forms.TextInput, forms.NumberInput)):
@@ -286,24 +286,29 @@ class SiteConfigurationForm(forms.ModelForm):
         return cleaned_data
 
     def _validate_model_api_keys(self, cleaned_data: dict[str, Any]) -> None:
-        """Validate that each chosen model has an API key for its provider."""
-        from automation.agent.base import BaseAgent, ModelProvider
-
+        """Validate that each chosen model resolves to an enabled, keyed Provider row."""
+        rows = Provider.get_cached_by_slug()
         for field_name in SiteConfiguration.MODEL_NAME_FIELDS:
-            model_name = cleaned_data.get(field_name)
-            if not model_name:
+            model_spec = cleaned_data.get(field_name)
+            if not model_spec:
                 continue
             try:
-                provider = BaseAgent.get_model_provider(model_name)
+                resolved = parse_model_spec(model_spec)
             except ValueError:
-                self.add_error(field_name, _("Unsupported model: %(model)s.") % {"model": model_name})
+                self.add_error(field_name, _("Unsupported model: %(m)s.") % {"m": model_spec})
                 continue
-            key_field = ModelProvider.api_key_field_for(provider)
-            if key_field and not self._has_api_key(key_field, cleaned_data):
+            row = rows.get(resolved.row.slug)
+            if row is None:
+                self.add_error(field_name, _("Provider '%(s)s' is not configured.") % {"s": resolved.row.slug})
+                continue
+            if not row.is_enabled:
                 self.add_error(
-                    field_name,
-                    _("No API key for %(provider)s. Set the %(key_label)s below or via environment variable.")
-                    % {"provider": provider.value.replace("_", " ").title(), "key_label": key_field.replace("_", " ")},
+                    field_name, _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": row.slug}
+                )
+                continue
+            if row.api_key is None:
+                self.add_error(
+                    field_name, _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": row.slug}
                 )
 
     def _validate_web_search_api_key(self, cleaned_data: dict[str, Any]) -> None:
