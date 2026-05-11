@@ -104,8 +104,24 @@ class SandboxEnvironmentForm(forms.ModelForm):
         instance: SandboxEnvironment = super().save(commit=False)
         if instance.scope == Scope.USER and self.user is not None:
             instance.user = self.user
+        if instance.pk is not None:
+            env_vars = self._preserve_unchanged_secrets(instance, env_vars)
         instance.env_vars = env_vars
         if commit:
             instance.full_clean()
             instance.save()
         return instance
+
+    @staticmethod
+    def _preserve_unchanged_secrets(instance: SandboxEnvironment, submitted_rows: list[dict]) -> list[dict]:
+        """Restore the stored value for any submitted secret row whose value is
+        empty (the masked sentinel) or the literal ``"******"`` mask. Matched by
+        env-var name against the instance's currently persisted env_vars."""
+        existing = {r["name"]: r["value"] for r in (instance.env_vars or []) if r.get("name")}
+        out: list[dict] = []
+        for row in submitted_rows:
+            name = row.get("name")
+            if row.get("is_secret") and row.get("value") in ("", "******") and name in existing:
+                row = {**row, "value": existing[name]}
+            out.append(row)
+        return out

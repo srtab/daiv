@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect
@@ -9,6 +11,26 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
+
+
+def _encode_env_vars_for_template(env: SandboxEnvironment) -> str:
+    """Serialise an env's env_vars list for the template's JS editor.
+
+    Secret values are masked (rendered as an empty string) so decrypted secrets
+    never reach the page HTML. ``has_existing_value`` is a UI hint so the editor
+    can show a "keep existing value" affordance for stored secrets.
+    """
+    rows = env.env_vars or []
+    masked = [
+        {
+            "name": r.get("name", ""),
+            "value": "" if r.get("is_secret") else r.get("value", ""),
+            "is_secret": bool(r.get("is_secret")),
+            "has_existing_value": bool(r.get("is_secret")),
+        }
+        for r in rows
+    ]
+    return json.dumps(masked)
 
 
 def _user_is_admin(user) -> bool:
@@ -61,6 +83,11 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
         kwargs.update({"user": self.request.user, "is_admin": _user_is_admin(self.request.user)})
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["env_vars_initial"] = "[]"
+        return ctx
+
 
 class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
     template_name = "sandbox_envs/form.html"
@@ -81,6 +108,11 @@ class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
             "is_default_form": (self.object.scope == Scope.GLOBAL and self.object.is_default),
         })
         return kwargs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["env_vars_initial"] = _encode_env_vars_for_template(self.object)
+        return ctx
 
 
 class EnvDeleteView(LoginRequiredMixin, _ScopedEnvMixin, DeleteView):

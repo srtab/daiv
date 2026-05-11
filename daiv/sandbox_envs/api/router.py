@@ -81,7 +81,15 @@ def update_env(request: HttpRequest, env_id: str, payload: EnvUpdate):
         if value is not None:
             setattr(env, field, value)
     if payload.env_vars is not None:
-        env.env_vars = [v.dict() for v in payload.env_vars]
+        submitted = [v.dict() for v in payload.env_vars]
+        existing = {r["name"]: r["value"] for r in (env.env_vars or []) if r.get("name")}
+        merged: list[dict] = []
+        for row in submitted:
+            name = row.get("name")
+            if row.get("is_secret") and row.get("value") in ("", "******") and name in existing:
+                row = {**row, "value": existing[name]}
+            merged.append(row)
+        env.env_vars = merged
     env.full_clean()
     env.save()
     return 200, _mask(env)

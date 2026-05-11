@@ -130,7 +130,7 @@
 
 <script>
 function envVarsEditor() {
-    return { rows: {{ form.instance.env_vars|default:"[]"|safe }} };
+    return { rows: {{ env_vars_initial|safe }} };
 }
 </script>
 {% endblock %}

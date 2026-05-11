@@ -61,3 +61,18 @@ def test_delete_global_default_blocked(client, admin):
     resp = client.post(reverse("sandbox_envs:delete", args=[env.id]))
     assert resp.status_code == 409
     assert SandboxEnvironment.objects.filter(pk=env.id).exists()
+
+
+@pytest.mark.django_db
+def test_edit_template_does_not_leak_secret_values(client, user):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        env_vars=[{"name": "TOKEN", "value": "real-secret", "is_secret": True}],
+    )
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    assert resp.status_code == 200
+    assert b"real-secret" not in resp.content

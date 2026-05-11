@@ -1,6 +1,6 @@
 import pytest
 from sandbox_envs.forms import SandboxEnvironmentForm
-from sandbox_envs.models import Scope
+from sandbox_envs.models import SandboxEnvironment, Scope
 
 
 @pytest.mark.django_db
@@ -46,3 +46,31 @@ def test_form_validates_env_vars_shape():
     )
     assert not form.is_valid()
     assert "env_vars" in form.errors or "env_vars_json" in form.errors or "__all__" in form.errors
+
+
+@pytest.mark.django_db
+def test_form_preserves_unchanged_secret_on_edit(db):
+    from accounts.models import User
+
+    user = User.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        env_vars=[{"name": "TOKEN", "value": "real-secret", "is_secret": True}],
+    )
+    form = SandboxEnvironmentForm(
+        instance=env,
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "env_vars_json": '[{"name": "TOKEN", "value": "", "is_secret": true}]',
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.env_vars == [{"name": "TOKEN", "value": "real-secret", "is_secret": True}]
