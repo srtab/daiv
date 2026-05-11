@@ -45,6 +45,9 @@ def dispatch_scheduled_jobs_cron_task():
                         notify_on=None,
                         trigger_type=TriggerType.SCHEDULE,
                         scheduled_job=schedule,
+                        sandbox_environment_id=(
+                            str(schedule.sandbox_environment_id) if schedule.sandbox_environment_id else None
+                        ),
                     )
                     schedule.last_run_at = now
                     schedule.last_run_batch_id = result.batch_id
