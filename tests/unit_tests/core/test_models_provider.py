@@ -84,3 +84,27 @@ def test_delete_locked_row_raises():
     )
     with pytest.raises(ValueError, match="locked"):
         p.delete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_cached_rows_in_async_context():
+    """Agent dispatch reads providers from async paths; regression must not raise SynchronousOnlyOperation."""
+    from asgiref.sync import sync_to_async
+
+    @sync_to_async
+    def setup():
+        Provider.objects.create(slug="vasync", display_name="V", provider_type=ProviderType.OPENAI, api_key="k")
+        Provider.invalidate_cache()
+
+    await setup()
+    # Calling from inside a running loop must work — exercises the executor hop.
+    rows_async = Provider.get_cached_rows()
+    assert "vasync" in {r.slug for r in rows_async}
+
+
+@pytest.mark.django_db
+def test_cached_provider_type_is_enum():
+    """The cached snapshot exposes provider_type as a ProviderType, not a raw string."""
+    rows = Provider.get_cached_rows()
+    for row in rows:
+        assert isinstance(row.provider_type, ProviderType)

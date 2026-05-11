@@ -40,8 +40,8 @@ def test_seed_disables_rows_without_key(monkeypatch):
 def test_legacy_columns_dropped():
     """SiteConfiguration must no longer carry the encrypted provider key columns or openrouter_api_base."""
     with connection.cursor() as c:
-        c.execute("PRAGMA table_info('core_siteconfiguration')")
-        cols = {row[1] for row in c.fetchall()}
+        description = connection.introspection.get_table_description(c, "core_siteconfiguration")
+    cols = {field.name for field in description}
     assert "_anthropic_api_key_encrypted" not in cols
     assert "_openai_api_key_encrypted" not in cols
     assert "_google_api_key_encrypted" not in cols

@@ -69,6 +69,8 @@ SEED_ROWS = [
 
 
 def seed_providers(apps, schema_editor):
+    import warnings
+
     from cryptography.fernet import InvalidToken
 
     from core.encryption import decrypt_value, encrypt_value
@@ -79,17 +81,29 @@ def seed_providers(apps, schema_editor):
 
     for seed in SEED_ROWS:
         key_plaintext: str | None = None
+        decrypt_failed = False
         if cfg is not None:
             encrypted = getattr(cfg, seed["db_column"], None)
             if encrypted:
                 try:
                     key_plaintext = decrypt_value(encrypted)
                 except InvalidToken:
+                    decrypt_failed = True
                     key_plaintext = None
         if not key_plaintext:
             env_value = os.environ.get(seed["env_var"])
             if env_value:
                 key_plaintext = env_value
+            elif decrypt_failed:
+                # Legacy ciphertext is about to be dropped by this same migration; warn loudly
+                # so the operator notices that a previously-working key is gone — usually a
+                # rotated DAIV_ENCRYPTION_KEY since the data was encrypted.
+                warnings.warn(
+                    f"Could not decrypt legacy {seed['db_column']} for provider "
+                    f"'{seed['slug']}' (DAIV_ENCRYPTION_KEY may have rotated). Set the key "
+                    f"via the configuration UI or {seed['env_var']} to re-enable.",
+                    stacklevel=2,
+                )
 
         base_url = seed["base_url"]
         if seed["slug"] == "openrouter" and cfg is not None and getattr(cfg, "openrouter_api_base", None):

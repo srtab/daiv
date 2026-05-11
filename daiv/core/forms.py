@@ -377,10 +377,6 @@ class SiteConfigurationForm(forms.ModelForm):
     @staticmethod
     def _secret_help_text(name: str) -> str:
         labels: dict[str, str] = {
-            "anthropic_api_key": _("API key for Anthropic models."),
-            "openai_api_key": _("API key for OpenAI models."),
-            "google_api_key": _("API key for Google AI models."),
-            "openrouter_api_key": _("API key for OpenRouter."),
             "web_search_api_key": _("API key for Tavily web search engine."),
             "sandbox_api_key": _("API key for the sandbox service."),
             "auth_client_secret": _("OAuth application client secret for the configured Git platform."),
@@ -611,7 +607,15 @@ class _ProviderFormset(BaseModelFormSet):
         super().clean()
         seen: set[str] = set()
         for form in self.forms:
-            if not form.cleaned_data or form.cleaned_data.get("DELETE"):
+            if not form.cleaned_data:
+                continue
+            if form.cleaned_data.get("DELETE"):
+                # Reject delete on a locked seed row here. ``Provider.delete``
+                # also raises ValueError, but that surfaces as a 500 on the
+                # admin POST; surfacing it as a formset error keeps the
+                # response a normal re-render with a visible message.
+                if form.instance and form.instance.pk and form.instance.is_locked:
+                    raise forms.ValidationError(_("Locked provider '%s' cannot be deleted.") % form.instance.slug)
                 continue
             slug = form.cleaned_data.get("slug")
             if not slug:

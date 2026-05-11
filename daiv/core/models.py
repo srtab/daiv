@@ -7,11 +7,14 @@ import contextlib
 import fnmatch
 import logging
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+
+if TYPE_CHECKING:
+    from pydantic import SecretStr
 
 logger = logging.getLogger("daiv.core")
 
@@ -759,9 +762,9 @@ class Provider(models.Model):
 
         slug: str
         display_name: str
-        provider_type: str
+        provider_type: ProviderType
         base_url: str
-        api_key: Any  # pydantic.SecretStr | None
+        api_key: SecretStr | None
         extra_headers: dict[str, str]
         model_suggestions_list: tuple[str, ...]
         is_enabled: bool
@@ -781,7 +784,7 @@ class Provider(models.Model):
                 cls.Cached(
                     slug=row.slug,
                     display_name=row.display_name,
-                    provider_type=row.provider_type,
+                    provider_type=ProviderType(row.provider_type),
                     base_url=row.base_url,
                     api_key=api_key,
                     extra_headers=dict(row.extra_headers or {}),

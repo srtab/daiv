@@ -236,7 +236,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
 
         if row.extra_headers:
-            kw["model_kwargs"].setdefault("extra_headers", {}).update(row.extra_headers)
+            # User-supplied headers don't override agent-managed ones (HTTP-Referer,
+            # X-Title, anthropic-beta); admins customise via the agent code, not the row.
+            existing = kw["model_kwargs"].setdefault("extra_headers", {})
+            for name, value in row.extra_headers.items():
+                existing.setdefault(name, value)
 
         return kw
 

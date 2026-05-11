@@ -1,6 +1,6 @@
 import pytest
 
-from core.forms import ProviderForm, SiteConfigurationForm
+from core.forms import PROVIDERS_FORMSET_PREFIX, ProviderForm, SiteConfigurationForm, build_provider_formset
 from core.models import Provider, ProviderType, SiteConfiguration
 
 
@@ -144,3 +144,66 @@ def test_site_form_flags_model_with_disabled_provider():
     )
     form.is_valid()
     assert any("disabled" in str(e) for e in form.errors.get("agent_model_name", []))
+
+
+def _formset_data(rows: list[dict]) -> dict:
+    """Build a POST dict for the providers formset from a list of row dicts."""
+    fields: dict[str, str] = {
+        f"{PROVIDERS_FORMSET_PREFIX}-TOTAL_FORMS": str(len(rows)),
+        f"{PROVIDERS_FORMSET_PREFIX}-INITIAL_FORMS": "0",
+        f"{PROVIDERS_FORMSET_PREFIX}-MIN_NUM_FORMS": "0",
+        f"{PROVIDERS_FORMSET_PREFIX}-MAX_NUM_FORMS": "1000",
+    }
+    for idx, row in enumerate(rows):
+        for key, value in row.items():
+            fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-{key}"] = str(value)
+    return fields
+
+
+@pytest.mark.django_db
+def test_formset_rejects_duplicate_slug():
+    row = {
+        "slug": "vllm",
+        "display_name": "vLLM",
+        "provider_type": ProviderType.OPENAI,
+        "base_url": "",
+        "api_key": "sk-x",
+        "extra_headers": "{}",
+        "model_suggestions": "",
+        "is_enabled": "on",
+        "sort_order": "0",
+    }
+    data = _formset_data([row, row])
+    formset = build_provider_formset()(data, queryset=Provider.objects.none(), prefix=PROVIDERS_FORMSET_PREFIX)
+    assert not formset.is_valid()
+    # ``slug`` is unique so Django's modelformset surfaces the duplicate before
+    # the custom check runs; either message is acceptable.
+    errors = str(formset.non_form_errors()) + str([f.errors for f in formset.forms])
+    assert "duplicate" in errors.lower()
+
+
+@pytest.mark.django_db
+def test_formset_rejects_delete_on_locked_row():
+    """A crafted POST that marks a locked seed row for delete must not 500 the request."""
+    locked = Provider.objects.get(slug="anthropic")
+    data = {
+        f"{PROVIDERS_FORMSET_PREFIX}-TOTAL_FORMS": "1",
+        f"{PROVIDERS_FORMSET_PREFIX}-INITIAL_FORMS": "1",
+        f"{PROVIDERS_FORMSET_PREFIX}-MIN_NUM_FORMS": "0",
+        f"{PROVIDERS_FORMSET_PREFIX}-MAX_NUM_FORMS": "1000",
+        f"{PROVIDERS_FORMSET_PREFIX}-0-id": str(locked.pk),
+        f"{PROVIDERS_FORMSET_PREFIX}-0-slug": locked.slug,
+        f"{PROVIDERS_FORMSET_PREFIX}-0-display_name": locked.display_name,
+        f"{PROVIDERS_FORMSET_PREFIX}-0-provider_type": locked.provider_type,
+        f"{PROVIDERS_FORMSET_PREFIX}-0-base_url": locked.base_url,
+        f"{PROVIDERS_FORMSET_PREFIX}-0-extra_headers": "{}",
+        f"{PROVIDERS_FORMSET_PREFIX}-0-model_suggestions": locked.model_suggestions,
+        f"{PROVIDERS_FORMSET_PREFIX}-0-is_enabled": "on",
+        f"{PROVIDERS_FORMSET_PREFIX}-0-sort_order": str(locked.sort_order),
+        f"{PROVIDERS_FORMSET_PREFIX}-0-DELETE": "on",
+    }
+    formset = build_provider_formset()(
+        data, queryset=Provider.objects.filter(pk=locked.pk), prefix=PROVIDERS_FORMSET_PREFIX
+    )
+    assert not formset.is_valid()
+    assert any("Locked provider" in str(e) for e in formset.non_form_errors())

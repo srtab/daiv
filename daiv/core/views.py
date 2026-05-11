@@ -74,9 +74,12 @@ class SiteConfigurationView(AdminRequiredMixin, View):
 
         if form.is_valid() and formset_valid and providers_valid:
             with transaction.atomic():
-                # Save provider rows first so ``SiteConfigurationForm._validate_model_api_keys``
-                # already saw the latest cached state on its own ``is_valid`` pass; the
-                # formset's saves invalidate that cache for any subsequent readers.
+                # Provider rows save first so the cache is invalidated before
+                # ``form.save`` runs — downstream readers within the same request
+                # (e.g. agent dispatch triggered by a hook) see the new state.
+                # Note: ``form.is_valid`` already finished against the pre-save
+                # cache, so enabling a provider and selecting one of its models
+                # in the same POST requires two submissions.
                 providers_formset.save()
                 form.save()
                 if not headers_env_locked:
