@@ -61,6 +61,11 @@ class Notification(TimeStampedModel):
             self.read_at = timezone.now()
             self.save(update_fields=["read_at", "modified"])
 
+    @classmethod
+    def mark_all_read_for(cls, user) -> int:
+        now = timezone.now()
+        return cls.objects.filter(recipient=user, read_at__isnull=True).update(read_at=now, modified=now)
+
 
 class NotificationDelivery(TimeStampedModel):
     """Tracks the delivery of a notification through a specific channel.
