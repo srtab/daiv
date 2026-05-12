@@ -27,7 +27,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     Returns ``{batch_id, jobs, failed}``. Partial failures at enqueue time are reported
     in ``failed``; the rest of the batch still runs.
     """
-    targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or None) for spec in payload.repos]
+    targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
     result = await asubmit_batch_runs(
         user=request.auth,
         prompt=payload.prompt,
@@ -43,7 +43,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     activities_iter = iter(result.activities)
     jobs: list[JobSubmitJobItem] = []
     for spec in payload.repos:
-        if (spec.repo_id, spec.ref or None) in failed_keys:
+        if (spec.repo_id, spec.ref or "") in failed_keys:
             continue
         activity = next(activities_iter)
         jobs.append(JobSubmitJobItem(job_id=str(activity.task_result_id), repo_id=spec.repo_id, ref=spec.ref))

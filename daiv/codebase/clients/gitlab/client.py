@@ -161,13 +161,14 @@ class GitLabClient(RepoClient):
         """
         Resolve protection via ``GET /projects/:id/repository/branches/:branch``; the
         ``protected`` flag covers both exact-name and wildcard rules. Fails open on any
-        API error (404, auth, rate limit, transport): the caller treats this as a best-effort
-        pre-check, and the subsequent ``git push`` remains the source of truth.
+        error from the GitLab call — SDK exceptions and transport-layer failures (TLS,
+        DNS, connection reset) alike: the caller treats this as a best-effort pre-check,
+        and the subsequent ``git push`` remains the source of truth.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         try:
             return bool(project.branches.get(branch).protected)
-        except GitlabError:
+        except Exception:  # noqa: BLE001 — fail open on SDK + transport errors per docstring
             logger.warning("Failed to check protection for %s@%s; assuming unprotected", repo_id, branch, exc_info=True)
             return False
 

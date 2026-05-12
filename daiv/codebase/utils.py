@@ -170,13 +170,21 @@ def files_changed_from_patch(patch: str | None) -> list[dict[str, str]]:
 
 
 class IgnoreCheck(Enum):
-    """Result of `git check-ignore`. UNKNOWN means the plumbing call failed —
-    callers deciding policy on this should treat it as fail-closed when the
-    consequence of being wrong is silent data loss (e.g. `git add -A` drop)."""
+    """Result of `git check-ignore`. ``UNKNOWN`` means the plumbing call failed and
+    callers cannot assume the path is safe — treat as fail-closed for any write
+    where being wrong means silent data loss (e.g. `git add -A` would drop the
+    file from the commit)."""
 
     IGNORED = "ignored"
     NOT_IGNORED = "not_ignored"
     UNKNOWN = "unknown"
+
+    def should_block_write(self) -> bool:
+        """Canonical fail-closed policy for write paths: refuse on ``IGNORED`` and
+        ``UNKNOWN``; allow only on ``NOT_IGNORED``. Centralised so future write
+        callers don't drift on the fail-closed branch.
+        """
+        return self is not IgnoreCheck.NOT_IGNORED
 
 
 class GitManager:

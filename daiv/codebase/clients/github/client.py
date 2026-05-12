@@ -138,14 +138,15 @@ class GitHubClient(RepoClient):
         """
         Resolve protection via ``GET /repos/{owner}/{repo}/branches/{branch}``; the
         ``protected`` flag reflects both classic branch protection and ruleset-based
-        rules. Fails open on any API error (404, auth, rate limit, transport): the caller
-        treats this as a best-effort pre-check, and the subsequent ``git push`` remains
-        the source of truth.
+        rules. Fails open on any error from the GitHub call — SDK exceptions and
+        transport-layer failures (TLS, DNS, connection reset) alike: the caller treats
+        this as a best-effort pre-check, and the subsequent ``git push`` remains the
+        source of truth.
         """
         repo = self.client.get_repo(repo_id, lazy=True)
         try:
             return bool(repo.get_branch(branch).protected)
-        except GithubException:
+        except Exception:  # noqa: BLE001 — fail open on SDK + transport errors per docstring
             logger.warning("Failed to check protection for %s@%s; assuming unprotected", repo_id, branch, exc_info=True)
             return False
 

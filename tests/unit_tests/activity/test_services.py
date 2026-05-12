@@ -1,8 +1,6 @@
-from unittest.mock import AsyncMock, patch
-
 import pytest
 from activity.models import TriggerType
-from activity.services import acreate_activity, asubmit_batch_runs, create_activity, validate_repo_list
+from activity.services import acreate_activity, create_activity, validate_repo_list
 from notifications.choices import NotifyOn
 
 from schedules.models import Frequency, ScheduledJob
@@ -145,44 +143,3 @@ class TestEffectiveNotifyOn:
 
         activity = Activity.objects.create(trigger_type=TriggerType.API_JOB, repo_id="x/y")
         assert activity.effective_notify_on == NotifyOn.NEVER
-
-
-@pytest.mark.django_db(transaction=True)
-class TestAsubmitBatchRunsRepoless:
-    async def test_asubmit_batch_runs_repoless_mints_single_run(self):
-        import uuid as _uuid
-
-        from django_tasks_db.models import DBTaskResult, get_date_max
-
-        task_id = _uuid.uuid4()
-        await DBTaskResult.objects.acreate(
-            id=task_id,
-            status="READY",
-            task_path="jobs.tasks.run_job_task",
-            args_kwargs={"args": [], "kwargs": {}},
-            queue_name="default",
-            backend_name="default",
-            run_after=get_date_max(),
-            return_value={},
-        )
-        fake_task = AsyncMock()
-        fake_task.id = task_id
-        with patch("activity.services.run_job_task") as m_task:
-            m_task.aenqueue = AsyncMock(return_value=fake_task)
-            result = await asubmit_batch_runs(user=None, prompt="hello", repos=[], trigger_type=TriggerType.MCP_JOB)
-        assert len(result.activities) == 1
-        assert result.failed == []
-        activity = result.activities[0]
-        assert activity.repo_id is None
-        assert activity.ref == ""
-        assert activity.thread_id  # non-empty UUID assigned
-
-    async def test_asubmit_batch_runs_repoless_enqueue_failure_surfaces_in_failed(self):
-        with patch("activity.services.run_job_task") as m_task:
-            m_task.aenqueue = AsyncMock(side_effect=RuntimeError("queue down"))
-            result = await asubmit_batch_runs(user=None, prompt="hi", repos=[], trigger_type=TriggerType.MCP_JOB)
-        assert result.activities == []
-        assert len(result.failed) == 1
-        failure = result.failed[0]
-        assert failure.repo_id is None
-        assert "queue down" in failure.error

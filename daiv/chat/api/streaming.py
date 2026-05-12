@@ -7,12 +7,13 @@ from typing import TYPE_CHECKING, Any
 
 from ag_ui.core.events import EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
+from langgraph.store.memory import InMemoryStore
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.utils import build_langsmith_config
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
-from core.checkpointer import open_checkpointer, open_store
+from core.checkpointer import open_checkpointer
 from core.site_settings import site_settings
 
 from .event_filter import SubagentEventFilter
@@ -77,8 +78,8 @@ class ChatRunStreamer:
     releasing the per-thread run slot.
     """
 
-    repo_id: str | None
-    ref: str | None
+    repo_id: str
+    ref: str
     thread_id: str
     run_id: str
     input_data: RunAgentInput
@@ -99,12 +100,9 @@ class ChatRunStreamer:
         try:
             async with (
                 open_checkpointer() as checkpointer,
-                open_store() as store,
                 set_runtime_ctx(repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref) as runtime_ctx,
             ):
-                agent = await create_daiv_agent(
-                    ctx=runtime_ctx, thread_id=self.thread_id, checkpointer=checkpointer, store=store
-                )
+                agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
                 langsmith_config = build_langsmith_config(
                     runtime_ctx,
                     trigger="chat",

@@ -16,11 +16,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class RepoHandle:
-    """A single repository's bindings within a RuntimeCtx.
+    """Bindings for a single repository within a RuntimeCtx.
 
-    A RuntimeCtx holds 0..N of these. Repository-coupled middleware and tools
-    reach repository state through ``RuntimeCtx.repo`` (single-handle convenience
-    accessor) or ``RuntimeCtx.repos`` (the canonical collection).
+    A RuntimeCtx holds exactly one of these today (enforced in
+    :meth:`RuntimeCtx.__post_init__`). The tuple shape on RuntimeCtx is the
+    multi-repo seam; the forwarding properties (``repository``, ``gitrepo``,
+    ``git_platform``, ``config``) make single-handle access read like a flat
+    dataclass.
     """
 
     repo_id: str
@@ -32,16 +34,13 @@ class RepoHandle:
 
 @dataclass(frozen=True)
 class RuntimeCtx:
-    """Per-run context. Holds 0..N repository handles plus shared agent-level state.
+    """Per-run context. Holds a tuple of repository handles plus shared agent-level state.
 
-    - ``repos == ()`` is repoless mode (web/MCP/sandbox-only).
-    - ``len(repos) == 1`` is the dominant single-repo mode.
-    - ``len(repos) >= 2`` is rejected at construction; reserved for future multi-repo support.
-
-    Backward-compatible forwarding properties (``repository``, ``gitrepo``,
-    ``git_platform``, ``config``) delegate to ``self.repo`` so legacy call sites
-    work unchanged in single-repo mode and raise :class:`SingleRepoRequiredError`
-    otherwise.
+    The constructor enforces ``len(repos) == 1`` (raising
+    :class:`SingleRepoRequiredError` otherwise); forwarding properties
+    (``repository``, ``gitrepo``, ``git_platform``, ``config``) delegate to
+    ``self.repo``. The tuple is the multi-repo seam for the future, not a
+    capability today.
     """
 
     bot_username: str
@@ -53,15 +52,8 @@ class RuntimeCtx:
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):
             object.__setattr__(self, "repos", tuple(self.repos))
-        if len(self.repos) > 1:
-            raise NotImplementedError(
-                f"Multi-repo runs are not supported yet (got {len(self.repos)} repos). "
-                "Construct one RuntimeCtx per repo."
-            )
-
-    @property
-    def has_repo(self) -> bool:
-        return bool(self.repos)
+        if len(self.repos) != 1:
+            raise SingleRepoRequiredError(actual=len(self.repos))
 
     @property
     def repo(self) -> RepoHandle:
@@ -83,7 +75,7 @@ class RuntimeCtx:
 
     @property
     def config(self) -> RepositoryConfig:
-        return self.repos[0].config if self.repos else RepositoryConfig()
+        return self.repo.config
 
 
 runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runtime_ctx", default=None)
@@ -91,7 +83,7 @@ runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runt
 
 @asynccontextmanager
 async def set_runtime_ctx(
-    repo_id: str | None,
+    repo_id: str,
     *,
     scope: Scope,
     ref: str | None = None,
@@ -100,14 +92,11 @@ async def set_runtime_ctx(
     offline: bool = False,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
-    """Build the per-run RuntimeCtx.
-
-    When ``repo_id`` is ``None``, yields a repoless context (``repos=[]``)
-    backed by ``RepositoryConfig()`` defaults. The resume guard delegates to
-    the caller's ``Activity`` row check (see ``run_job_task``).
+    """
+    Set the runtime context and load repository files to a temporary directory.
 
     Args:
-        repo_id: The repository identifier, or ``None`` for a repoless context.
+        repo_id: The repository identifier
         scope: The scope of the context.
         ref: The reference branch or tag. If None, the default branch will be used.
         issue: The issue object if the context is scoped to an issue, None otherwise
@@ -118,22 +107,6 @@ async def set_runtime_ctx(
     Yields:
         RuntimeCtx: The runtime context
     """
-    if repo_id is None:
-        repo_client = RepoClient.create_instance(**kwargs)
-        ctx = RuntimeCtx(
-            bot_username=repo_client.current_user.username,
-            repos=(),
-            scope=scope,
-            issue=issue,
-            merge_request=merge_request,
-        )
-        token = runtime_ctx.set(ctx)
-        try:
-            yield ctx
-        finally:
-            runtime_ctx.reset(token)
-        return
-
     repo_client = RepoClient.create_instance(**kwargs)
     repository = repo_client.get_repository(repo_id)
     config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, offline=offline)

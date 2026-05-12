@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import io
 import json
 import logging
 import tarfile
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired, cast
 
 import httpx
-from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.protocol import FILE_NOT_FOUND
 from deepagents.backends.utils import validate_path
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse, ToolCallRequest
@@ -28,11 +25,12 @@ from automation.agent.middlewares.file_system import (
     WRITE_SUCCESS_PREFIX,
     WRITE_TOOL_NAMES,
     DAIVCompositeBackend,
+    DAIVFilesystemBackend,
     SandboxSyncer,
     format_sync_error,
 )
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, IgnoreCheck, apply_patch_to_dir, files_changed_from_patch
+from codebase.utils import GitManager, IgnoreCheck, files_changed_from_patch
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -293,10 +291,9 @@ def _agent_root_prefix(agent_root: str) -> str:
 def _resolve_repo_backend(backend: BackendProtocol, agent_root: str) -> BackendProtocol:
     """Return the backend that owns ``agent_root``.
 
-    When ``backend`` is the composite, the top-level type is identical across
-    repo-bound (FS) and repoless (Store) modes — callers that need to dispatch on
-    backend shape (disk-apply vs store-apply, gitignore check) must resolve through
-    the composite first.
+    Composite-aware so callers that need to dispatch on backend shape (e.g. the
+    gitignore guard, which calls ``DAIVFilesystemBackend._to_path``) see the
+    underlying backend, not the ``DAIVCompositeBackend`` wrapper.
     """
     if isinstance(backend, DAIVCompositeBackend):
         return backend.resolve_backend_for(_agent_root_prefix(agent_root))
@@ -321,79 +318,6 @@ def _refuse_write_outside_agent_root(request: ToolCallRequest, file_path: str, r
     )
 
 
-async def _build_store_archive(backend: BackendProtocol, agent_root: str) -> bytes | None:
-    """Tar the store's current contents under ``agent_root`` for sandbox seeding.
-
-    Returns ``None`` only when the store is genuinely empty (glob returns no matches).
-    Raises ``RuntimeError`` on glob or per-file download errors: silent partial seeding
-    would let turn N+1's bash see an incomplete mirror of the store, which the caller
-    can't detect — fail-loud is the only safe option for a workspace-mirror operation.
-    """
-    # CompositeBackend.aglob with an unrouted path also globs every routed mount (e.g.
-    # ``/skills/``) and forces this caller to post-filter; bypass it for the listing.
-    # ``adownload_files`` below still routes correctly through the composite.
-    glob_result = await _resolve_repo_backend(backend, agent_root).aglob("**", path=agent_root)
-    if glob_result.error is not None:
-        raise RuntimeError(f"backend glob failed for {agent_root!r}: {glob_result.error}")
-    if not glob_result.matches:
-        return None
-    prefix = _agent_root_prefix(agent_root)
-    paths = [m["path"] for m in glob_result.matches if m["path"].startswith(prefix)]
-    if not paths:
-        return None
-    responses = await backend.adownload_files(paths)
-    errors = [
-        (path, response.error)
-        for path, response in zip(paths, responses, strict=True)
-        if response.error is not None or response.content is None
-    ]
-    if errors:
-        raise RuntimeError(f"backend download failed while building repo archive: {errors}")
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-        for path, response in zip(paths, responses, strict=True):
-            content = response.content
-            if content is None:
-                # Unreachable given the errors check above, but survives -O and names the
-                # protocol violation (content=None with error=None) loudly if it ever fires.
-                raise RuntimeError(f"backend protocol violation: download for {path!r} returned content=None")
-            info = tarfile.TarInfo(name=path.removeprefix(prefix))
-            info.size = len(content)
-            tf.addfile(info, io.BytesIO(content))
-    return buf.getvalue()
-
-
-async def _stage_store_paths_to_dir(backend: BackendProtocol, agent_root: str, paths: list[str], dest: Path) -> None:
-    """Download repo-relative ``paths`` from the store and write them under ``dest``.
-
-    Genuinely missing files (``FILE_NOT_FOUND``) are skipped silently so ``git apply``
-    can surface its own canonical "No such file or directory" message. Transient/
-    permission errors are logged before skipping — without the log they'd masquerade
-    as "file missing" and the user would chase a phantom path bug instead of a
-    backend hiccup.
-    """
-    if not paths:
-        return
-    prefix = _agent_root_prefix(agent_root)
-    responses = await backend.adownload_files([f"{prefix}{p}" for p in paths])
-
-    async def _write_one(rel: str, content: bytes) -> None:
-        target = dest / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(target.write_bytes, content)
-
-    tasks: list = []
-    for rel, response in zip(paths, responses, strict=True):
-        if response.content is None:
-            if response.error is not None and response.error != FILE_NOT_FOUND:
-                logger.warning("skipping source-side seed for %s: %s", rel, response.error)
-            continue
-        tasks.append(_write_one(rel, response.content))
-    if tasks:
-        await asyncio.gather(*tasks)
-
-
 async def _read_backend_bytes(backend: BackendProtocol, virtual_path: str) -> bytes | None:
     """Return the file's bytes via ``adownload_files``, or ``None`` on absence/error.
 
@@ -410,85 +334,6 @@ async def _read_backend_bytes(backend: BackendProtocol, virtual_path: str) -> by
         logger.warning("backend read failed for %s: %s", virtual_path, response.error)
         return None
     return response.content
-
-
-async def _apply_patch_to_backend(
-    backend: BackendProtocol, patch: str, agent_root: str, working_dir: Path | None
-) -> None:
-    """Apply a sandbox-returned patch to ``backend``.
-
-    The dispatch picks disk-apply vs store-apply based on the backend that owns
-    ``agent_root`` (resolved through the composite when present).
-
-    Raises ``ValueError`` if a ``FilesystemBackend`` is used without a working_dir.
-    Backend-level failures propagate as ``RuntimeError`` (store upload) or whatever
-    ``apply_patch_to_dir`` raises (malformed patch).
-    """
-    if isinstance(_resolve_repo_backend(backend, agent_root), FilesystemBackend):
-        if working_dir is None:
-            raise ValueError("FilesystemBackend requires a working_dir to apply sandbox patches")
-        await asyncio.to_thread(apply_patch_to_dir, patch, working_dir)
-        return
-
-    if not patch or not patch.strip():
-        return
-    changes = files_changed_from_patch(patch)
-    if not changes:
-        return
-
-    # ``git apply`` is strict about source-side content: a modify/delete/rename
-    # hunk references ``--- a/<path>`` and refuses to apply if that file isn't
-    # already in cwd with the pre-mutation bytes. Seed the staging dir from the
-    # store before applying.
-    source_paths = [
-        e["from_path"] if e["op"] == "renamed" else e["path"]
-        for e in changes
-        if e["op"] in ("modified", "deleted", "renamed")
-    ]
-    prefix = _agent_root_prefix(agent_root)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        staging = Path(tmpdir)
-        await _stage_store_paths_to_dir(backend, agent_root, source_paths, staging)
-        await asyncio.to_thread(apply_patch_to_dir, patch, staging)
-
-        # Walk by the patch (not the tempdir): the patch is the single source of
-        # truth about what changed, including deletes/renames the walk would miss.
-        upload_paths: list[str] = []
-        read_tasks: list[Any] = []
-        deletes: list[str] = []
-        for entry in changes:
-            op = entry["op"]
-            path = entry["path"]
-            if op == "deleted":
-                deletes.append(f"{prefix}{path}")
-                continue
-            if op == "renamed":
-                deletes.append(f"{prefix}{entry['from_path']}")
-            target = staging / path
-            if target.exists():
-                upload_paths.append(f"{prefix}{path}")
-                read_tasks.append(asyncio.to_thread(target.read_bytes))
-
-        if read_tasks:
-            contents = await asyncio.gather(*read_tasks)
-            responses = await backend.aupload_files(list(zip(upload_paths, contents, strict=True)))
-            upload_errors = [
-                (path, r.error) for path, r in zip(upload_paths, responses, strict=True) if r.error is not None
-            ]
-            if upload_errors:
-                raise RuntimeError(f"backend upload failed for some files: {upload_errors}")
-        delete_failures: list[str] = []
-        for delete_path in deletes:
-            if not await cast("Any", backend).delete(delete_path):
-                # Per-failure log so each orphaned key is searchable in Sentry even if a
-                # later delete in the same patch succeeds. Aggregated raise still fires below.
-                logger.error("backend delete failed for %s", delete_path)
-                delete_failures.append(delete_path)
-        if delete_failures:
-            # Silent skip would leave the store with files the sandbox already deleted,
-            # and the agent would read stale content. Raise to mirror the upload contract.
-            raise RuntimeError(f"backend delete failed for some files: {delete_failures}")
 
 
 async def _run_bash_commands(
@@ -536,9 +381,6 @@ class SandboxMiddleware(AgentMiddleware):
             that backs upstream's ``FilesystemMiddleware``.
         agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/repo``).
             Used to validate inbound paths and map them to sandbox-side ``/repo/<rel>``.
-        working_dir: On-disk repo root for repo-bound runs. ``None`` for repoless runs,
-            where there is no on-disk working tree and snapshot/rollback go through the
-            backend instead.
         close_session: Whether to close the session after the agent finishes the execution
             loop. Set to ``False`` when used in subagents so the parent agent owns session
             lifecycle.
@@ -549,27 +391,19 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(backend=backend, agent_root="/repo", working_dir="/workspace/repo")],
+            middleware=[SandboxMiddleware(backend=backend, agent_root="/repo")],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(
-        self,
-        *,
-        backend: BackendProtocol,
-        agent_root: str,
-        working_dir: Path | str | None = None,
-        close_session: bool = True,
-    ):
+    def __init__(self, *, backend: BackendProtocol, agent_root: str, close_session: bool = True):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
 
         self._backend = backend
         self._agent_root = agent_root
-        self._working_dir = Path(working_dir) if working_dir is not None else None
         self.close_session = close_session
         self._client: DAIVSandboxClient | None = None
         self._syncer: SandboxSyncer | None = None
@@ -598,24 +432,10 @@ class SandboxMiddleware(AgentMiddleware):
                 )
 
             if response.patch:
-                # Serialise the bash→store sync against concurrent write_file/edit_file
-                # mirror calls in the same turn — LangGraph's ToolNode dispatches independent
-                # tool calls in parallel, so a write_file rollback could interleave with our
-                # upload/delete on the same store key. Fallback covers tests that exercise
-                # bash_tool without wiring a syncer.
-                lock_ctx: Any = self._syncer.lock if self._syncer is not None else contextlib.nullcontext()
                 try:
-                    async with lock_ctx:
-                        await _apply_patch_to_backend(
-                            self._backend, response.patch, self._agent_root, self._working_dir
-                        )
+                    GitManager(runtime.context.gitrepo).apply_patch(response.patch)
                 except Exception:
-                    logger.exception(
-                        "[%s] Error applying patch (session=%s, working_dir=%s).",
-                        BASH_TOOL_NAME,
-                        runtime.state.get("session_id"),
-                        self._working_dir,
-                    )
+                    logger.exception("[%s] Error applying patch to the repository.", BASH_TOOL_NAME)
                     return "error: Failed to persist the changes. The bash tool is not working properly."
 
             return json.dumps({
@@ -663,25 +483,16 @@ class SandboxMiddleware(AgentMiddleware):
                 )
             )
             try:
-                if runtime.context.has_repo:
-                    repo_archive, skills_archive = await asyncio.gather(
-                        asyncio.to_thread(_make_repo_archive, str(runtime.context.gitrepo.working_dir)),
-                        asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
-                    )
-                else:
-                    repo_archive, skills_archive = await asyncio.gather(
-                        _build_store_archive(self._backend, self._agent_root),
-                        asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
-                    )
-                if repo_archive is not None or skills_archive is not None:
-                    await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
-                else:
-                    logger.debug("Skipping seed_session for %s: no repo archive and no skills archive", session_id)
+                working_dir = Path(runtime.context.gitrepo.working_dir)
+                repo_archive, skills_archive = await asyncio.gather(
+                    asyncio.to_thread(_make_repo_archive, str(working_dir)),
+                    asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
+                )
+                await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:
-                # Build/seed failures otherwise propagate bare through gather → BaseException
-                # handler → LangGraph, with no per-run breadcrumb. Logging here puts the
-                # actual cause (e.g. ``_build_store_archive`` raising on store-glob error)
-                # next to the session id so Sentry can correlate it with the run.
+                # Log the cause keyed to ``session_id`` before unwinding — the outer
+                # ``except BaseException`` re-raises bare, so without this breadcrumb a
+                # build/seed failure shows up only as whatever LangGraph chooses to log.
                 logger.exception("Failed to build or seed sandbox session %s", session_id)
                 try:
                     await client.close_session(session_id)
@@ -792,7 +603,7 @@ class SandboxMiddleware(AgentMiddleware):
         Rollback calls ``backend.delete`` (subclass method) to undo a just-created file
         when the sync fails. ``stat_mode`` (subclass method) reads the post-write mode
         bits so ``PutMutation.mode`` mirrors ``+x`` for executable scripts on the
-        sandbox side. Disk reads real bits; the store returns 0o644.
+        sandbox side.
         """
         assert self._syncer is not None  # guarded by awrap_tool_call
         syncer = self._syncer
@@ -812,43 +623,39 @@ class SandboxMiddleware(AgentMiddleware):
             return _refuse_write_outside_agent_root(request, file_path, repo_prefix)
 
         # `git add -A` silently drops gitignored paths, so a successful write would
-        # never reach the MR. Only fires for repo-bound runs on a disk-backed repo.
+        # never reach the MR. Fail-closed: any unexpected error from path resolution
+        # or `git check-ignore` (surfaced as ``IgnoreCheck.UNKNOWN``) refuses the
+        # write, since the alternative is silent data loss.
         repo_backend = _resolve_repo_backend(backend, self._agent_root)
-        if ctx.has_repo and isinstance(repo_backend, FilesystemBackend):
-            try:
-                disk_target = Path(cast("Any", repo_backend)._resolve_path(virtual_path))
-            except OSError, ValueError:
-                disk_target = None
-            if disk_target is not None:
-                git_manager = GitManager(ctx.gitrepo)
-                ignore_result = await asyncio.to_thread(git_manager.is_path_ignored, disk_target)
-                if ignore_result is IgnoreCheck.IGNORED:
-                    return ToolMessage(
-                        content=(
-                            f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
-                            f"would silently drop it from the commit, so the change would not "
-                            f"appear in the merge request. Pick a path that is not ignored, or "
-                            f"run `git check-ignore -v <path>` via bash to find the matching rule "
-                            f"(it may live in a parent `.gitignore`, `.git/info/exclude`, or the "
-                            f"user's global ignore file) before changing it."
-                        ),
-                        tool_call_id=request.tool_call["id"],
-                        name=request.tool_call["name"],
-                        status="error",
-                    )
-                if ignore_result is IgnoreCheck.UNKNOWN:
-                    # Fail-closed: a broken plumbing call must not let an ignored path slip
-                    # through silently and disappear from `git add -A`.
-                    return ToolMessage(
-                        content=(
-                            f"Refused: could not determine whether '{file_path}' is gitignored "
-                            f"(`git check-ignore` failed; see server logs). Retry, or run "
-                            f"`git check-ignore -v <path>` via bash to inspect."
-                        ),
-                        tool_call_id=request.tool_call["id"],
-                        name=request.tool_call["name"],
-                        status="error",
-                    )
+        if isinstance(repo_backend, DAIVFilesystemBackend):
+            disk_target = repo_backend._to_path(virtual_path)
+            git_manager = GitManager(ctx.gitrepo)
+            ignore_result = await asyncio.to_thread(git_manager.is_path_ignored, disk_target)
+            if ignore_result is IgnoreCheck.IGNORED:
+                return ToolMessage(
+                    content=(
+                        f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
+                        f"would silently drop it from the commit, so the change would not "
+                        f"appear in the merge request. Pick a path that is not ignored, or "
+                        f"run `git check-ignore -v <path>` via bash to find the matching rule "
+                        f"(it may live in a parent `.gitignore`, `.git/info/exclude`, or the "
+                        f"user's global ignore file) before changing it."
+                    ),
+                    tool_call_id=request.tool_call["id"],
+                    name=request.tool_call["name"],
+                    status="error",
+                )
+            if ignore_result is IgnoreCheck.UNKNOWN:
+                return ToolMessage(
+                    content=(
+                        f"Refused: could not determine whether '{file_path}' is gitignored "
+                        f"(`git check-ignore` failed; see server logs). Retry, or run "
+                        f"`git check-ignore -v <path>` via bash to inspect."
+                    ),
+                    tool_call_id=request.tool_call["id"],
+                    name=request.tool_call["name"],
+                    status="error",
+                )
 
         async with syncer.lock:
             result = await handler(request)

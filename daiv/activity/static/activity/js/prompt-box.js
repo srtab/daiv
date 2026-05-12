@@ -45,16 +45,6 @@ document.addEventListener("alpine:init", () => {
                 if (e.target === this.$refs.repoSearch) this.repoLoading = false;
                 if (e.target === this.$refs.branchSearch) this.branchLoading = false;
             });
-            // Global reset hook: lets a parent component (e.g. chat going repoless)
-            // clear chip state without reaching into Alpine internals. No echo on
-            // _emitChange — the listener only mutates state, never the public API.
-            this._onReset = () => {
-                this.repos = [];
-                this.editingIndex = null;
-                this._clearConflict();
-                this.popover = null;
-            };
-            window.addEventListener("daiv:repo-picker-reset", this._onReset);
         },
 
         _emitChange() {
@@ -68,7 +58,6 @@ document.addEventListener("alpine:init", () => {
 
         destroy() {
             if (this._conflictTimer) clearTimeout(this._conflictTimer);
-            if (this._onReset) window.removeEventListener("daiv:repo-picker-reset", this._onReset);
         },
 
         get conflictMessage() {

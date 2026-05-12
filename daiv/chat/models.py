@@ -21,12 +21,8 @@ class ChatThread(models.Model):
 
     thread_id = models.CharField(max_length=64, primary_key=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="chat_threads")
-    repo_id = models.CharField(  # noqa: DJ001 — nullable for repoless threads.
-        _("repository"), max_length=255, null=True, blank=True
-    )
-    ref = models.CharField(  # noqa: DJ001 — nullable for repoless threads.
-        _("ref"), max_length=255, null=True, blank=True
-    )
+    repo_id = models.CharField(_("repository"), max_length=255)
+    ref = models.CharField(_("ref"), max_length=255, blank=True, default="")
     title = models.CharField(max_length=120, blank=True, default="")
     # NULL means "free slot"; any non-NULL value is the run_id currently holding
     # the thread. Empty string is forbidden by ``chat_active_run_id_nonempty``
@@ -61,8 +57,8 @@ class ChatThread(models.Model):
             thread_id=activity.thread_id,
             defaults={
                 "user": user,
-                "repo_id": activity.repo_id or None,
-                "ref": activity.ref or None,
+                "repo_id": activity.repo_id,
+                "ref": activity.ref or "",
                 "title": existing_title or TitlerService.heuristic(activity.prompt or ""),
             },
         )
@@ -72,8 +68,8 @@ class ChatThread(models.Model):
                     entity_type="chat_thread",
                     pk=thread.thread_id,
                     prompt=activity.prompt,
-                    repo_id=activity.repo_id or None,
-                    ref=activity.ref or None,
+                    repo_id=activity.repo_id,
+                    ref=activity.ref or "",
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue title task for chat thread %s", thread.thread_id)

@@ -23,7 +23,7 @@ from django_filters.views import FilterView
 from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
 from activity.forms import AgentRunCreateForm
-from activity.models import REPOLESS_DISPLAY_LABEL, Activity, ActivityStatus, TriggerType
+from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import RepoTarget, submit_batch_runs
 from schedules.models import ScheduledJob
 
@@ -110,7 +110,7 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
     def get_breadcrumbs(self):
         return [
             {"label": "Activity", "url": reverse("activity_list")},
-            {"label": f"Run {str(self.object.pk)[:8]} — {self.object.repo_id or REPOLESS_DISPLAY_LABEL}", "url": None},
+            {"label": f"Run {str(self.object.pk)[:8]} — {self.object.repo_id}", "url": None},
         ]
 
 
@@ -137,11 +137,7 @@ class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):
         if not response_text:
             return ""
 
-        meta_lines = [
-            "---",
-            f"repository: {activity.repo_id or REPOLESS_DISPLAY_LABEL}",
-            f"trigger: {activity.get_trigger_type_display()}",
-        ]
+        meta_lines = ["---", f"repository: {activity.repo_id}", f"trigger: {activity.get_trigger_type_display()}"]
         if activity.ref:
             meta_lines.append(f"ref: {activity.ref}")
         meta_lines.append(f"created: {activity.created_at.strftime('%Y-%m-%d %H:%M:%S %Z')}")
@@ -160,7 +156,7 @@ class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):
         return "\n".join(meta_lines) + "\n\n" + response_text
 
     def _build_filename(self, activity: Activity) -> str:
-        repo_slug = slugify((activity.repo_id or "repoless").replace("/", "-")) or "unknown"
+        repo_slug = slugify(activity.repo_id.replace("/", "-")) or "unknown"
         date_str = activity.created_at.strftime("%Y-%m-%d")
         return f"daiv-{repo_slug}-{date_str}.md"
 

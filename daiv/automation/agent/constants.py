@@ -7,9 +7,9 @@ from daiv.settings.components import PROJECT_DIR
 # Path where the builtin skills are stored in the filesystem to be copied to the repository.
 BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 
-# Virtual path under the agent's composite backend where global skills are materialized.
-# Mounted onto an on-disk cache (see ``SKILLS_CACHE_PATH``) by ``DAIVCompositeBackend``,
-# so writes don't round-trip through Redis in repoless mode.
+# Virtual path the composite backend serves global skills from. Mounted onto
+# ``SKILLS_CACHE_PATH`` on disk so per-turn skill uploads are idempotent and writes
+# under ``/skills/`` don't round-trip through the agent's state.
 GLOBAL_SKILLS_PATH = "/skills"
 GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
 

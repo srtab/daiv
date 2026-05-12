@@ -99,18 +99,6 @@ class TestSubmitBatchRunsSync:
         task_thread_ids = [t["thread_id"] for t in tasks_seen]
         assert set(task_thread_ids) == set(activity_thread_ids)
 
-    def test_empty_repos_mints_single_repoless_run(self, member_user):
-        task_id = uuid.uuid4()
-        fake = _task_result_row(task_id)
-        with mock.patch("activity.services.run_job_task") as m_task:
-            m_task.aenqueue = mock.AsyncMock(return_value=fake)
-            result = submit_batch_runs(
-                user=member_user, prompt="p", repos=[], use_max=False, notify_on=None, trigger_type=TriggerType.UI_JOB
-            )
-        assert len(result.activities) == 1
-        assert result.failed == []
-        assert result.activities[0].repo_id is None
-
     def test_oversized_repos_raises_value_error(self, member_user):
         repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(21)]
         with pytest.raises(ValueError):

@@ -42,7 +42,7 @@ def _extract_first_user_message(input_data: RunAgentInput) -> str:
 class ChatThreadService:
     @staticmethod
     async def get_or_create_for_user(
-        *, user: User, thread_id: str, repo_id: str | None, ref: str | None, input_data: RunAgentInput
+        *, user: User, thread_id: str, repo_id: str, ref: str, input_data: RunAgentInput
     ) -> ChatThread:
         """First sight of ``thread_id`` creates the row under ``user``; later calls
         return the existing row regardless of owner. Caller must enforce ownership.
@@ -52,10 +52,10 @@ class ChatThreadService:
             thread_id=thread_id,
             defaults={"user": user, "repo_id": repo_id, "ref": ref, "title": TitlerService.heuristic(first_message)},
         )
-        if created and first_message and repo_id is not None:
+        if created and first_message:
             try:
                 await generate_title_task.aenqueue(
-                    entity_type="chat_thread", pk=thread.thread_id, prompt=first_message, repo_id=repo_id, ref=ref or ""
+                    entity_type="chat_thread", pk=thread.thread_id, prompt=first_message, repo_id=repo_id, ref=ref
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue title task for chat thread %s", thread.thread_id)
@@ -99,7 +99,7 @@ class ChatThreadService:
         )
 
     @staticmethod
-    async def persist_ref(thread_id: str, original_ref: str | None, mr: MergeRequest | dict | None) -> None:
+    async def persist_ref(thread_id: str, original_ref: str, mr: MergeRequest | dict | None) -> None:
         """Sync ``ChatThread.ref`` with the agent's final ``merge_request``.
 
         Accepts both a live ``MergeRequest`` instance and a dict (the snapshot

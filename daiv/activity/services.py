@@ -27,23 +27,14 @@ MAX_REPOS_PER_BATCH = 20
 
 @dataclass(frozen=True)
 class RepoTarget:
-    repo_id: str | None
-    ref: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.repo_id == "":
-            raise ValueError("RepoTarget.repo_id must be a non-empty string or None (repoless).")
-        # Normalize "" to None so the rest of the pipeline has one sentinel for "default branch".
-        if self.ref == "":
-            object.__setattr__(self, "ref", None)
-        if self.repo_id is None and self.ref:
-            raise ValueError("Repoless target cannot specify a ref.")
+    repo_id: str
+    ref: str = ""
 
 
 @dataclass(frozen=True)
 class BatchSubmitFailure:
-    repo_id: str | None
-    ref: str | None
+    repo_id: str
+    ref: str
     error: str
 
 
@@ -86,6 +77,8 @@ def validate_repo_list(raw) -> list[dict]:
 
 
 def _validate(repos: list[RepoTarget]) -> None:
+    if not repos:
+        raise ValueError("repos must contain at least one entry")
     if len(repos) > MAX_REPOS_PER_BATCH:
         raise ValueError(f"repos exceeds the maximum of {MAX_REPOS_PER_BATCH}")
 
@@ -94,7 +87,7 @@ def create_activity(
     *,
     trigger_type: str,
     task_result_id: uuid.UUID | None,
-    repo_id: str | None = None,
+    repo_id: str,
     ref: str = "",
     prompt: str = "",
     use_max: bool = False,
@@ -137,7 +130,7 @@ async def acreate_activity(
     *,
     trigger_type: str,
     task_result_id: uuid.UUID | None,
-    repo_id: str | None = None,
+    repo_id: str,
     ref: str = "",
     prompt: str = "",
     use_max: bool = False,
@@ -190,9 +183,6 @@ async def asubmit_batch_runs(
     failure) lands in ``result.failed`` while siblings continue. Callers can use this to
     distinguish "submitted" from "orphaned" and recover accordingly.
     """
-    if not repos:
-        # Repoless single run: one synthetic target so the fan-out produces exactly one Activity.
-        repos = [RepoTarget(repo_id=None)]
     _validate(repos)
     batch_id = uuid.uuid4()
 
@@ -201,10 +191,11 @@ async def asubmit_batch_runs(
         schedule_run_base = await Activity.objects.filter(scheduled_job=scheduled_job).acount()
 
     async def _submit_one(idx: int, target: RepoTarget) -> Activity | BatchSubmitFailure:
+        ref_for_task = target.ref or None
         thread_id = str(uuid.uuid4())
         try:
             task = await run_job_task.aenqueue(
-                repo_id=target.repo_id, prompt=prompt, ref=target.ref, use_max=use_max, thread_id=thread_id
+                repo_id=target.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max, thread_id=thread_id
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
@@ -219,7 +210,7 @@ async def asubmit_batch_runs(
                 trigger_type=trigger_type,
                 task_result_id=task.id,
                 repo_id=target.repo_id,
-                ref=target.ref or "",
+                ref=target.ref,
                 prompt=prompt,
                 use_max=use_max,
                 scheduled_job=scheduled_job,
@@ -238,14 +229,10 @@ async def asubmit_batch_runs(
             )
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error="ActivityCreationFailed")
 
-        if trigger_type in _PROMPT_DRIVEN and prompt and target.repo_id is not None:
+        if trigger_type in _PROMPT_DRIVEN and prompt:
             try:
                 await generate_title_task.aenqueue(
-                    entity_type="activity",
-                    pk=str(activity.pk),
-                    prompt=prompt,
-                    repo_id=target.repo_id,
-                    ref=target.ref or "",
+                    entity_type="activity", pk=str(activity.pk), prompt=prompt, repo_id=target.repo_id, ref=target.ref
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue title task for activity %s", activity.pk)

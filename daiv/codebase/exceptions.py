@@ -1,22 +1,12 @@
 class SingleRepoRequiredError(RuntimeError):
-    """Raised when ``RuntimeCtx.repo`` is accessed without exactly one handle.
+    """Raised when a ``RuntimeCtx`` is constructed or accessed without exactly one repo handle.
 
-    ``actual`` distinguishes repoless (``0``) from multi-repo (``>= 2``).
+    Today every run is enforced to be single-repo; the error guards the multi-repo seam.
+    ``actual`` is the number of handles supplied — ``0`` means the caller forgot to
+    supply one (likely a misuse), ``>= 2`` means multi-repo, which isn't supported yet.
     """
 
     def __init__(self, actual: int) -> None:
-        super().__init__(f"RuntimeCtx.repo requires exactly one repository handle, got {actual}.")
+        detail = "got 0 (no repository supplied)" if actual == 0 else f"got {actual} (multi-repo not yet supported)"
+        super().__init__(f"RuntimeCtx requires exactly one repository handle, {detail}.")
         self.actual = actual
-
-
-class InvalidThreadResumeError(RuntimeError):
-    """Raised when a job is enqueued with a ``thread_id`` that is already bound to
-    a different repo-binding mode (repoless ↔ repo-bound)."""
-
-    def __init__(self, thread_id: str, expected: str | None, got: str | None) -> None:
-        super().__init__(
-            f"Thread {thread_id!r} was previously bound to repo_id={expected!r}; cannot resume with repo_id={got!r}."
-        )
-        self.thread_id = thread_id
-        self.expected = expected
-        self.got = got

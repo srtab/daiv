@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.protocol import BackendProtocol  # noqa: TC002
-from deepagents.backends.store import StoreBackend
 from deepagents.backends.utils import validate_path
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
@@ -106,8 +105,7 @@ class SandboxSyncer:
     sibling tool call's edit.
 
     ``agent_root`` is the virtual path prefix the agent's filesystem tools see (e.g.
-    ``/repo``). Path mapping is pure string arithmetic, so the syncer works for both
-    disk-backed (``FilesystemBackend``) and store-backed (``StoreBackend``) backends.
+    ``/repo``); the sync mapping is pure string arithmetic against that prefix.
     """
 
     backend: Any
@@ -165,16 +163,13 @@ class SandboxSyncer:
 # ``BackendProtocol`` doesn't expose:
 #
 # - ``delete(path)``: needed for write rollback (drop the just-created file when
-#   sandbox sync fails). Disk uses ``Path.unlink``; the store calls
-#   ``BaseStore.adelete`` directly via ``StoreBackend``'s own ``_get_store``/
-#   ``_get_namespace`` (underscore-prefixed but stable inherited methods).
+#   sandbox sync fails). ``Path.unlink`` under the hood.
 # - ``stat_mode(path)``: needed for the OUTGOING sandbox sync — ``PutMutation.mode``
 #   carries POSIX mode bits so the sandbox replicates ``+x`` on executable scripts.
-#   Disk reads real mode bits; the store has no mode concept and returns 0o644.
 #
-# Adding a new backend = subclass it + provide these two methods (plus an
-# ``isinstance`` branch in ``sandbox._apply_patch_to_backend`` for the patch-apply
-# dispatch and the gitignore guard, which need backend-shape, not just the methods).
+# ``DAIVBackendProtocol`` formalises the surface and ``DAIVCompositeBackend`` asserts
+# every routed backend implements it at construction time, so a new backend is a
+# matter of subclassing the deepagents primitive and supplying these two methods.
 # ---------------------------------------------------------------------------
 
 
@@ -202,36 +197,15 @@ class DAIVFilesystemBackend(FilesystemBackend):
         return stat.S_IMODE(st.st_mode)
 
 
-class DAIVStoreBackend(StoreBackend):
-    """``StoreBackend`` with sandbox-sync hooks. The store has no mode concept;
-    ``stat_mode`` always returns 0o644. ``delete`` calls ``BaseStore.adelete``
-    directly — ``BackendProtocol`` has no public delete.
-    """
-
-    async def delete(self, virtual_path: str) -> bool:
-        try:
-            store = cast("Any", self)._get_store()
-            namespace = cast("Any", self)._get_namespace()
-            await store.adelete(namespace, virtual_path)
-        except Exception:
-            logger.exception("store delete failed for %s", virtual_path)
-            return False
-        return True
-
-    async def stat_mode(self, virtual_path: str) -> int:  # noqa: ARG002
-        return 0o644
-
-
 @runtime_checkable
 class DAIVBackendProtocol(Protocol):
     """The two methods DAIV's sandbox layer needs on top of ``BackendProtocol``:
-
     ``delete`` for write/edit rollback, ``stat_mode`` for outgoing ``PutMutation.mode``.
-    Both are implemented by ``DAIVFilesystemBackend`` and ``DAIVStoreBackend``; the
-    composite asserts on this shape so a misconfigured route (e.g. plain ``StateBackend``)
-    fails loudly at construction time instead of with a runtime ``AttributeError`` on
-    first delete. Defined as its own ``Protocol`` rather than extending
-    ``BackendProtocol`` because deepagents' base isn't a typing ``Protocol``.
+
+    The composite asserts on this shape so a misconfigured route fails loudly at
+    construction time instead of with a runtime ``AttributeError`` on first delete.
+    Defined as its own ``Protocol`` rather than extending ``BackendProtocol`` because
+    deepagents' base isn't a typing ``Protocol``.
     """
 
     async def delete(self, virtual_path: str) -> bool: ...
@@ -242,7 +216,7 @@ class DAIVBackendProtocol(Protocol):
 class DAIVCompositeBackend(CompositeBackend):
     """``CompositeBackend`` with the two DAIV extensions (``delete``/``stat_mode``) and a
     ``resolve_backend_for`` helper for callers that need to dispatch on the underlying
-    backend type (``isinstance``-style sandbox routing).
+    backend type (``isinstance``-style routing — e.g. the gitignore guard).
 
     Routing-aware ``delete``/``stat_mode`` strip the route prefix before delegating, so
     underlying backends see the same key shape they would receive through any other
@@ -259,7 +233,8 @@ class DAIVCompositeBackend(CompositeBackend):
             if not isinstance(backend, DAIVBackendProtocol):
                 raise TypeError(
                     f"DAIVCompositeBackend requires every backend to implement "
-                    f"DAIVBackendProtocol (delete + stat_mode); {label!r} does not."
+                    f"DAIVBackendProtocol (delete + stat_mode); "
+                    f"{label!r} ({type(backend).__name__}) does not."
                 )
         super().__init__(default=default, routes=routes, artifacts_root=artifacts_root)
 
@@ -274,8 +249,8 @@ class DAIVCompositeBackend(CompositeBackend):
     def resolve_backend_for(self, virtual_path: str) -> BackendProtocol:
         """Return the underlying backend that owns ``virtual_path``.
 
-        Used by sandbox dispatch points that need to choose between disk-apply and
-        store-apply paths based on backend shape, not path semantics.
+        Used by callers that need to dispatch on backend shape (e.g. the gitignore
+        guard, which is only meaningful for disk-backed repos).
         """
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend

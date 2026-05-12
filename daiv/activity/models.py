@@ -19,9 +19,6 @@ if TYPE_CHECKING:
     from accounts.models import User
 
 
-REPOLESS_DISPLAY_LABEL = _("(repoless)")
-
-
 class ActivityStatus(models.TextChoices):
     READY = "READY", _("Pending")
     RUNNING = "RUNNING", _("Running")
@@ -122,9 +119,7 @@ class Activity(models.Model):
     )
 
     # Context fields
-    repo_id = models.CharField(  # noqa: DJ001 — nullable for repoless runs.
-        _("repository"), max_length=255, null=True, blank=True, db_index=True
-    )
+    repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
     use_max = models.BooleanField(_("use max model"), default=False)
@@ -200,7 +195,7 @@ class Activity(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.get_trigger_type_display()} on {self.repo_id or REPOLESS_DISPLAY_LABEL} ({self.status})"
+        return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
 
     @property
     def effective_notify_on(self) -> NotifyOn:

@@ -1,5 +1,6 @@
 import logging
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -52,24 +53,21 @@ def _build_general_purpose_middleware(
     web_search_enabled: bool,
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
-    thread_id: str | None = None,
 ) -> list:
-    """Build the middleware stack for a general-purpose subagent.
+    """
+    Build the middleware stack for a general-purpose subagent.
 
-    Repoless runs (``runtime.has_repo is False``) skip ``GitPlatformMiddleware`` and
-    point ``SandboxMiddleware`` at the virtual ``/repo`` root from ``resolve_agent_path``;
-    snapshot/rollback go through the ``StoreBackend`` shared with the parent agent.
     ``close_session=False`` lets the subagent reuse the parent agent's sandbox session.
     """
     # Local import to break a circular dependency: graph.py imports this module.
-    from automation.agent.graph import dynamic_write_todos_system_prompt, resolve_agent_path
+    from automation.agent.graph import dynamic_write_todos_system_prompt
 
     _summarization_defaults = compute_summarization_defaults(model)
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS),
-        *([GitPlatformMiddleware(git_platform=runtime.git_platform)] if runtime.has_repo else []),
+        GitPlatformMiddleware(git_platform=runtime.git_platform),
         SummarizationMiddleware(
             model=model,
             backend=backend,
@@ -90,15 +88,8 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if sandbox_enabled:
-        agent_path = resolve_agent_path(runtime)
-        middleware.append(
-            SandboxMiddleware(
-                backend=backend,
-                agent_root=f"/{agent_path.name}",
-                working_dir=agent_path if runtime.has_repo else None,
-                close_session=False,
-            )
-        )
+        agent_path = Path(runtime.gitrepo.working_dir)
+        middleware.append(SandboxMiddleware(backend=backend, agent_root=f"/{agent_path.name}", close_session=False))
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
@@ -114,7 +105,6 @@ def create_general_purpose_subagent(
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
-    thread_id: str | None = None,
 ) -> CompiledSubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
@@ -124,14 +114,7 @@ def create_general_purpose_subagent(
         tools=[],
         system_prompt=GENERAL_PURPOSE_SYSTEM_PROMPT,
         middleware=_build_general_purpose_middleware(
-            model,
-            backend,
-            runtime,
-            sandbox_enabled,
-            web_search_enabled,
-            web_fetch_enabled,
-            fallback_models,
-            thread_id=thread_id,
+            model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled, fallback_models
         ),
         name=GENERAL_PURPOSE_NAME,
     )
@@ -291,7 +274,6 @@ async def load_custom_subagents(
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
-    thread_id: str | None = None,
 ) -> list[CompiledSubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -367,7 +349,6 @@ async def load_custom_subagents(
                     web_search_enabled,
                     web_fetch_enabled,
                     fallback_models,
-                    thread_id=thread_id,
                 ),
                 name=frontmatter["name"],
             )

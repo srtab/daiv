@@ -24,11 +24,7 @@
             <span class="shrink-0 text-xs text-gray-500">{{ t.last_active_at|timesince }} {% trans "ago" %}</span>
           </div>
           <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {% if t.repo_id %}
             <span class="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-xs text-gray-400">{{ t.repo_id }}</span>
-            {% else %}
-            <span class="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-xs text-gray-400">{% trans "(repoless)" %}</span>
-            {% endif %}
             {% if t.ref %}
             <span class="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 font-mono text-xs text-gray-400">{{ t.ref }}</span>
             {% endif %}

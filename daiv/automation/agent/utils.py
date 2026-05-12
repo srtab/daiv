@@ -264,10 +264,12 @@ def build_langsmith_config(
     Returns:
         A RunnableConfig with standardized metadata and tags.
     """
-    metadata: dict[str, Any] = {"trigger": trigger, "model": model}
-    if ctx.has_repo:
-        metadata["repository"] = ctx.repository.slug
-        metadata["git_platform"] = ctx.git_platform.value
+    metadata: dict[str, Any] = {
+        "repository": ctx.repository.slug,
+        "git_platform": ctx.git_platform.value,
+        "trigger": trigger,
+        "model": model,
+    }
     if ctx.scope is not None:
         metadata["scope"] = ctx.scope
     if thinking_level is not None:
@@ -275,9 +277,7 @@ def build_langsmith_config(
     if extra_metadata:
         metadata.update(extra_metadata)
 
-    tags: list[str] = []
-    if ctx.has_repo:
-        tags.extend([ctx.git_platform.value, ctx.repository.slug])
+    tags: list[str] = [ctx.git_platform.value, ctx.repository.slug]
     if ctx.scope:
         tags.append(ctx.scope)
     if agent_name:

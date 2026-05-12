@@ -13,12 +13,7 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from automation.agent.middlewares import file_system as fs_module
-from automation.agent.middlewares.file_system import (
-    EDIT_SUCCESS_PREFIX,
-    WRITE_SUCCESS_PREFIX,
-    DAIVFilesystemBackend,
-    DAIVStoreBackend,
-)
+from automation.agent.middlewares.file_system import EDIT_SUCCESS_PREFIX, WRITE_SUCCESS_PREFIX, DAIVFilesystemBackend
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
 
@@ -59,7 +54,7 @@ def setup(working_repo, fake_client):
     fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
     tools = {tool.name: tool for tool in fs.tools}
     agent_root = f"/{working_repo.name}"
-    middleware = SandboxMiddleware(backend=backend, agent_root=agent_root, working_dir=working_repo)
+    middleware = SandboxMiddleware(backend=backend, agent_root=agent_root)
     middleware._client = fake_client
     middleware._syncer = fs_module.SandboxSyncer(backend=backend, agent_root=agent_root, client=fake_client)
     return SimpleNamespace(backend=backend, tools=tools, middleware=middleware, repo=working_repo)
@@ -203,7 +198,7 @@ async def test_write_file_rejects_path_outside_working_dir(working_repo, fake_cl
         if t.name == "write_file"
     )
     agent_root = f"/{working_repo.name}"
-    middleware = SandboxMiddleware(backend=backend, agent_root=agent_root, working_dir=working_repo)
+    middleware = SandboxMiddleware(backend=backend, agent_root=agent_root)
     middleware._client = fake_client
     middleware._syncer = fs_module.SandboxSyncer(backend=backend, agent_root=agent_root, client=fake_client)
 
@@ -419,116 +414,41 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     )
 
 
-@pytest.fixture
-def store_setup(fake_client):
-    """Same shape as ``setup`` but backed by a ``StoreBackend`` (no on-disk working tree)."""
-    from langgraph.store.memory import InMemoryStore
-
-    store = InMemoryStore()
-    backend = DAIVStoreBackend(store=store, namespace=lambda _rt: ("daiv-repoless-fs", "test-thread"))
-    fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
-    tools = {tool.name: tool for tool in fs.tools}
-    middleware = SandboxMiddleware(backend=backend, agent_root="/repo", working_dir=None)
-    middleware._client = fake_client
-    middleware._syncer = fs_module.SandboxSyncer(backend=backend, agent_root="/repo", client=fake_client)
-    return SimpleNamespace(backend=backend, store=store, tools=tools, middleware=middleware)
-
-
-class _RepolessCtx:
-    """Repoless ctx shim — ``has_repo`` False, ``gitrepo`` access raises."""
-
-    has_repo = False
-
-    @property
-    def gitrepo(self):  # pragma: no cover — defense against accidental repo-bound code paths
-        raise AssertionError("repoless test accessed gitrepo")
-
-
-def _repoless_runtime(*, state: dict[str, Any]) -> SimpleNamespace:
-    return SimpleNamespace(state=state, context=_RepolessCtx(), tool_call_id="call_repoless")
-
-
-async def test_repoless_write_file_lands_in_store(store_setup, fake_client):
-    fake_client.apply_file_mutations.return_value = _mirror_ok()
-    runtime = _repoless_runtime(state={"session_id": "sid"})
-
-    result = await _invoke(
-        store_setup.middleware,
-        store_setup.tools["write_file"],
-        {"file_path": "/repo/note.md", "content": "hello\n"},
-        runtime,
-    )
-
-    assert WRITE_SUCCESS_PREFIX in _content(result)
-    item = await store_setup.store.aget(("daiv-repoless-fs", "test-thread"), "/repo/note.md")
-    assert item is not None
-    assert item.value["content"] == "hello\n"
-    fake_client.apply_file_mutations.assert_awaited_once()
-    assert fake_client.apply_file_mutations.call_args.args[1].mutations[0].path == "/repo/note.md"
-
-
-async def test_repoless_write_file_rolls_back_via_store_delete(store_setup, fake_client):
-    """Sandbox sync failure → store.adelete restores the pre-write state (file absent)."""
-    fake_client.apply_file_mutations.side_effect = RuntimeError("network down")
-    runtime = _repoless_runtime(state={"session_id": "sid"})
-
-    result = await _invoke(
-        store_setup.middleware, store_setup.tools["write_file"], {"file_path": "/repo/lost.md", "content": "x"}, runtime
-    )
-
-    text = _content(result)
-    assert text.startswith("Error:"), f"rollback succeeded → expected Error: prefix, got {text!r}"
-    item = await store_setup.store.aget(("daiv-repoless-fs", "test-thread"), "/repo/lost.md")
-    assert item is None, "write rollback must remove the just-created store entry"
-
-
-async def test_repoless_write_file_surfaces_critical_when_store_delete_fails(store_setup, fake_client, monkeypatch):
-    """If both sandbox sync AND ``DAIVStoreBackend.delete`` fail during a repoless write
-    rollback, the agent must see the CRITICAL marker so it doesn't silently proceed against
-    a desynced store/sandbox pair."""
-    fake_client.apply_file_mutations.side_effect = RuntimeError("sandbox down")
-    runtime = _repoless_runtime(state={"session_id": "sid"})
-
-    async def fail_delete(_path):
-        return False
-
-    monkeypatch.setattr(store_setup.backend, "delete", fail_delete)
-
-    result = await _invoke(
-        store_setup.middleware,
-        store_setup.tools["write_file"],
-        {"file_path": "/repo/ghost.md", "content": "x"},
-        runtime,
-    )
-
-    text = _content(result)
-    assert "CRITICAL" in text
-    assert "rollback also failed" in text
-
-
 class TestDAIVCompositeBackend:
     """Composite routing must preserve the prefix-stripping invariant for DAIV's two
     extension methods (``delete``/``stat_mode``) and the dispatch helper
-    (``resolve_backend_for``). Without these, sandbox rollback and the patch-apply
-    branch silently route to the wrong backend.
+    (``resolve_backend_for``). Without these, sandbox rollback and the gitignore
+    guard silently route to the wrong backend.
     """
 
     @staticmethod
     def _make_composite(tmp_path: Path):
-        from langgraph.store.memory import InMemoryStore
+        """Compose a repo + skills backend pair the same way ``create_daiv_agent`` does.
 
+        ``DAIVFilesystemBackend(virtual_mode=True)`` interprets virtual paths as
+        ``/<root_dir.name>/<rel>`` and resolves them to ``root_dir.parent/<root_dir.name>/<rel>``,
+        so each backend's ``root_dir`` must literally exist on disk. We layer ``repo-mount``
+        and ``skills-mount`` under ``tmp_path`` and address them via ``/repo-mount/...`` and
+        ``/skills/...`` respectively.
+
+        The skills route uses an unrelated virtual prefix on purpose: the route strips
+        ``/skills/`` before delegating to a backend whose virtual root is ``/skills-mount``,
+        and ``_resolve_path("foo.md")`` happens to land under ``skills-mount`` because
+        ``virtual_mode`` falls back to root-relative for paths without the agent prefix.
+        """
         from automation.agent.middlewares.file_system import DAIVCompositeBackend
 
         skills_root = tmp_path / "skills-mount"
         skills_root.mkdir()
+        repo_root = tmp_path / "repo-mount"
+        repo_root.mkdir()
         skills = DAIVFilesystemBackend(root_dir=skills_root, virtual_mode=True)
-        store = InMemoryStore()
-        repo = DAIVStoreBackend(store=store, namespace=lambda _rt: ("ns", "tid"))
+        repo = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
-        return composite, skills, repo, skills_root, store
+        return composite, skills, repo, skills_root, repo_root
 
     async def test_delete_strips_prefix_for_routed_path(self, tmp_path: Path):
-        composite, skills, _repo, skills_root, _store = self._make_composite(tmp_path)
+        composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
         (skills_root / "foo.md").write_text("x")
 
         ok = await composite.delete("/skills/foo.md")
@@ -537,33 +457,36 @@ class TestDAIVCompositeBackend:
         assert not (skills_root / "foo.md").exists()
 
     async def test_delete_passes_default_path_unchanged(self, tmp_path: Path):
-        composite, _skills, repo, _root, store = self._make_composite(tmp_path)
-        await repo.aupload_files([("/repo/bar.py", b"x")])
+        composite, _skills, _repo, _skills_root, repo_root = self._make_composite(tmp_path)
+        target = repo_root / "bar.py"
+        target.write_text("x")
 
-        ok = await composite.delete("/repo/bar.py")
+        ok = await composite.delete("/repo-mount/bar.py")
 
         assert ok is True
-        item = await store.aget(("ns", "tid"), "/repo/bar.py")
-        assert item is None, "store key matches the unstripped default path"
+        assert not target.exists(), "default-route delete must operate on the unstripped path"
 
     async def test_stat_mode_routes_to_underlying_backend(self, tmp_path: Path):
-        composite, _skills, _repo, skills_root, _store = self._make_composite(tmp_path)
-        target = skills_root / "exec.sh"
-        target.write_text("#!/bin/sh\n")
-        target.chmod(0o755)
+        composite, _skills, _repo, skills_root, repo_root = self._make_composite(tmp_path)
+        skills_target = skills_root / "exec.sh"
+        skills_target.write_text("#!/bin/sh\n")
+        skills_target.chmod(0o755)
+        repo_target = repo_root / "plain.py"
+        repo_target.write_text("x")
+        repo_target.chmod(0o644)
 
         skills_mode = await composite.stat_mode("/skills/exec.sh")
-        store_mode = await composite.stat_mode("/repo/whatever")
+        repo_mode = await composite.stat_mode("/repo-mount/plain.py")
 
-        assert stat.S_IMODE(skills_mode) == 0o755, "FS-routed stat_mode reads real bits"
-        assert store_mode == 0o644, "store stat_mode is the fixed 0o644 fallback"
+        assert stat.S_IMODE(skills_mode) == 0o755, "skills-routed stat_mode reads real bits"
+        assert stat.S_IMODE(repo_mode) == 0o644, "default-routed stat_mode reads real bits"
 
     async def test_resolve_backend_for_returns_route_target(self, tmp_path: Path):
-        composite, skills, repo, _root, _store = self._make_composite(tmp_path)
+        composite, skills, repo, _skills_root, _repo_root = self._make_composite(tmp_path)
 
         assert composite.resolve_backend_for("/skills/foo") is skills
         assert composite.resolve_backend_for("/skills/") is skills
-        assert composite.resolve_backend_for("/repo/bar") is repo
+        assert composite.resolve_backend_for("/repo-mount/bar") is repo
         assert composite.resolve_backend_for("/random/baz") is repo, "unrouted falls through to default"
 
     async def test_constructor_rejects_backend_missing_daiv_methods(self, tmp_path: Path):
@@ -577,32 +500,3 @@ class TestDAIVCompositeBackend:
 
         with pytest.raises(TypeError, match="DAIVBackendProtocol"):
             DAIVCompositeBackend(default=plain_state, routes={})  # type: ignore[arg-type]
-
-
-async def test_repoless_edit_file_rolls_back_via_aupload_files(store_setup, fake_client):
-    """Sandbox sync failure on an edit must restore pre-edit content via the backend."""
-    fake_client.apply_file_mutations.return_value = _mirror_ok()
-    runtime = _repoless_runtime(state={"session_id": "sid"})
-
-    seed = await _invoke(
-        store_setup.middleware,
-        store_setup.tools["write_file"],
-        {"file_path": "/repo/doc.md", "content": "before\n"},
-        runtime,
-    )
-    assert WRITE_SUCCESS_PREFIX in _content(seed)
-
-    fake_client.apply_file_mutations.reset_mock(side_effect=True)
-    fake_client.apply_file_mutations.side_effect = RuntimeError("sandbox down")
-
-    edit = await _invoke(
-        store_setup.middleware,
-        store_setup.tools["edit_file"],
-        {"file_path": "/repo/doc.md", "old_string": "before", "new_string": "after"},
-        runtime,
-    )
-
-    text = _content(edit)
-    assert text.startswith("Error:"), f"rollback succeeded → expected Error: prefix, got {text!r}"
-    item = await store_setup.store.aget(("daiv-repoless-fs", "test-thread"), "/repo/doc.md")
-    assert item is not None and item.value["content"] == "before\n", "edit rollback must restore pre-edit content"

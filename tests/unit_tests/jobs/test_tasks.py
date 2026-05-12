@@ -20,7 +20,6 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
 
     with (
         patch("jobs.tasks.open_checkpointer") as cp_ctx,
-        patch("jobs.tasks.open_store") as store_ctx,
         patch("jobs.tasks.set_runtime_ctx") as rc_ctx,
         patch("jobs.tasks.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent_mock,
         patch(
@@ -33,21 +32,17 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
         patch("jobs.tasks.track_usage_metadata"),
     ):
         sentinel_checkpointer = object()
-        sentinel_store = object()
         cp_ctx.return_value.__aenter__.return_value = sentinel_checkpointer
-        store_ctx.return_value.__aenter__.return_value = sentinel_store
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx
 
         await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", use_max=False, thread_id="t-123")
 
     cp_ctx.assert_called_once()
-    store_ctx.assert_called_once()
     call_kwargs = agent.ainvoke.call_args.kwargs
     assert call_kwargs["config"]["configurable"]["thread_id"] == "t-123"
 
     create_agent_kwargs = create_agent_mock.call_args.kwargs
     assert create_agent_kwargs["checkpointer"] is sentinel_checkpointer
-    assert create_agent_kwargs["store"] is sentinel_store
 
 
 async def test_run_job_task_rejects_missing_thread_id():

@@ -360,7 +360,19 @@ class CommentsAddressorManager(BaseManager):
 
         source_branch = snapshot.values.get("protected_branch_fallback_source")
         new_mr = snapshot.values.get("merge_request")
+        if not source_branch and new_mr is None:
+            return None
         if not source_branch or new_mr is None:
+            # The publisher writes the two fields together; seeing only one set means
+            # the checkpoint was raced/partial. The user gets the reply with no
+            # breadcrumb to the new MR in that case — surface it to the operator.
+            logger.warning(
+                "Partial protected-branch fallback state on MR %d "
+                "(source_branch=%r, merge_request=%r); dropping footer.",
+                self.merge_request.merge_request_id,
+                source_branch,
+                new_mr,
+            )
             return None
 
         return render_to_string(
