@@ -505,6 +505,10 @@ class ProviderForm(forms.ModelForm):
     api_key = _SecretFormField(
         label=_("API key"), required=False, widget=forms.PasswordInput(attrs={"autocomplete": "off"})
     )
+    # Submitted only when the user clicks the per-row "Clear" button, which sets
+    # the adjacent hidden input to "on" before triggering form submission. The
+    # button is type="button" so a stray Enter keypress can't activate it.
+    clear_api_key = forms.BooleanField(required=False)
     extra_headers = forms.CharField(
         label=_("Extra headers (JSON)"),
         required=False,
@@ -581,6 +585,11 @@ class ProviderForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
+        # Clearing implies disabling; skip the "required when enabled" check so
+        # the click doesn't dead-end on a validation error.
+        if cleaned.get("clear_api_key"):
+            cleaned["is_enabled"] = False
+            return cleaned
         keeping_existing = bool(
             self.instance and self.instance.pk and self.instance.api_key and not cleaned.get("api_key")
         )
@@ -594,8 +603,10 @@ class ProviderForm(forms.ModelForm):
 
     def save(self, commit: bool = True) -> Provider:
         instance = super().save(commit=False)
-        new_key = self.cleaned_data.get("api_key")
-        if new_key:
+        if self.cleaned_data.get("clear_api_key"):
+            instance.api_key = None
+            instance.is_enabled = False
+        elif new_key := self.cleaned_data.get("api_key"):
             instance.api_key = new_key
         if commit:
             instance.save()

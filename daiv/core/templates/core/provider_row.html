@@ -1,0 +1,87 @@
+{% load i18n %}
+<div data-row class="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 {% if not row.instance.is_enabled and row.instance.pk %}opacity-60{% endif %}">
+    {% if row.instance.pk %}{{ row.id }}{% endif %}
+    {{ row.sort_order.as_hidden }}
+    <div class="grid grid-cols-12 gap-3 items-start">
+        <div class="col-span-2">
+            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Slug" %}</label>
+            {% if row.instance.is_locked %}
+                <p class="font-mono text-sm">{{ row.instance.slug }}</p>
+                <input type="hidden" name="{{ row.slug.html_name }}" value="{{ row.instance.slug }}">
+            {% else %}
+                {{ row.slug }}
+            {% endif %}
+            {% if row.errors.slug %}<p class="mt-1 text-xs text-red-300">{{ row.errors.slug.0 }}</p>{% endif %}
+        </div>
+        <div class="col-span-3">
+            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Display name" %}</label>
+            {{ row.display_name }}
+            {% if row.errors.display_name %}<p class="mt-1 text-xs text-red-300">{{ row.errors.display_name.0 }}</p>{% endif %}
+        </div>
+        <div class="col-span-2">
+            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Type" %}</label>
+            {% if row.instance.is_locked %}
+                <p class="text-sm">{{ row.instance.get_provider_type_display }}</p>
+                <input type="hidden" name="{{ row.provider_type.html_name }}" value="{{ row.instance.provider_type }}">
+            {% else %}
+                {{ row.provider_type }}
+            {% endif %}
+            {% if row.errors.provider_type %}<p class="mt-1 text-xs text-red-300">{{ row.errors.provider_type.0 }}</p>{% endif %}
+        </div>
+        <div class="col-span-3">
+            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Base URL" %}</label>
+            {{ row.base_url }}
+            {% if row.errors.base_url %}<p class="mt-1 text-xs text-red-300">{{ row.errors.base_url.0 }}</p>{% endif %}
+        </div>
+        <div class="col-span-2 flex items-end gap-2 justify-end">
+            <label class="inline-flex items-center gap-2 text-xs text-gray-300">
+                {{ row.is_enabled }} {% trans "Enabled" %}
+            </label>
+            {% if not row.instance.is_locked %}
+                <span class="hidden">{{ row.DELETE }}</span>
+                <button type="button"
+                        class="inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-400 hover:bg-white/[0.06] hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-red-400/40"
+                        @click="removeRow($el.closest('[data-row]'))"
+                        aria-label="{% trans 'Remove' %}"
+                        title="{% trans 'Remove' %}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+            {% endif %}
+        </div>
+    </div>
+    <div class="grid grid-cols-12 gap-3 items-start mt-3">
+        <div class="col-span-4">
+            <div class="flex items-center justify-between">
+                <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "API key" %}</label>
+                {% if row.fields.api_key.secret_hint %}
+                    <input type="hidden" name="{{ row.clear_api_key.html_name }}" value="">
+                    <button type="button"
+                            @click="$el.previousElementSibling.value = 'on'; $el.form.requestSubmit()"
+                            class="rounded border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[11px] font-medium text-gray-400 transition-colors hover:border-red-800/50 hover:bg-red-950/30 hover:text-red-300">
+                        {% trans "Clear" %}
+                    </button>
+                {% endif %}
+            </div>
+            {{ row.api_key }}
+            {% if row.fields.api_key.secret_hint %}
+                <p class="mt-1 text-xs text-gray-400">{% trans "Stored:" %} <code>{{ row.fields.api_key.secret_hint }}</code></p>
+            {% endif %}
+            {% if row.errors.api_key %}<p class="mt-1 text-xs text-red-300">{{ row.errors.api_key.0 }}</p>{% endif %}
+        </div>
+        <div class="col-span-4">
+            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Extra headers (JSON)" %}</label>
+            {{ row.extra_headers }}
+            {% if row.errors.extra_headers %}<p class="mt-1 text-xs text-red-300">{{ row.errors.extra_headers.0 }}</p>{% endif %}
+        </div>
+        <div class="col-span-4">
+            <label class="text-xs uppercase tracking-wide text-gray-400">{% trans "Model suggestions" %}</label>
+            {{ row.model_suggestions }}
+            {% if row.errors.model_suggestions %}<p class="mt-1 text-xs text-red-300">{{ row.errors.model_suggestions.0 }}</p>{% endif %}
+        </div>
+    </div>
+    {% for err in row.non_field_errors %}
+        <p class="mt-1 text-xs text-red-300">{{ err }}</p>
+    {% endfor %}
+</div>

@@ -193,6 +193,132 @@ class TestPostSave:
         )
         assert response.status_code == 403
 
+    def test_error_banner_renders_when_slug_invalid(self, client, admin_user, url):
+        """Regression: row with invalid slug drops slug from cleaned_data; banner must
+        still render without VariableDoesNotExist."""
+        client.force_login(admin_user)
+        mgmt = _providers_mgmt()
+        new_idx = int(mgmt["providers-TOTAL_FORMS"])
+        mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
+        # Submit a slug that fails clean_slug (starts with digit, not a letter).
+        bad_row = {
+            f"providers-{new_idx}-id": "",
+            f"providers-{new_idx}-slug": "9bad",
+            f"providers-{new_idx}-display_name": "Bad",
+            f"providers-{new_idx}-provider_type": "openrouter",
+            f"providers-{new_idx}-base_url": "",
+            f"providers-{new_idx}-api_key": "sk-x",
+            f"providers-{new_idx}-extra_headers": "{}",
+            f"providers-{new_idx}-model_suggestions": "",
+            f"providers-{new_idx}-sort_order": "0",
+        }
+        response = client.post(url, {**_HEADERS_MGMT, **mgmt, **bad_row})
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Providers could not be saved" in content
+        assert "Slug must start with a lowercase letter" in content
+
+    def test_renders_sort_order_hidden_input(self, client, admin_user, url):
+        """Row template must emit sort_order as a hidden input so the browser submits it.
+
+        Regression: without this, every row fails validation with "sort_order: This field
+        is required." because the field isn't rendered visibly anywhere.
+        """
+        client.force_login(admin_user)
+        response = client.get(url)
+        content = response.content.decode()
+        for idx in range(Provider.objects.count()):
+            assert f'name="providers-{idx}-sort_order"' in content, f"row {idx} missing sort_order input"
+
+    def test_clear_api_key_via_button(self, client, admin_user, url):
+        provider = _enable_seed_provider("anthropic", api_key="sk-existing")
+        client.force_login(admin_user)
+        mgmt = _providers_mgmt()
+        anthropic_idx = next(
+            idx for idx, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == provider.pk
+        )
+        clear_field = {f"providers-{anthropic_idx}-clear_api_key": "on"}
+        response = client.post(url, {**_HEADERS_MGMT, **mgmt, **clear_field})
+        assert response.status_code == 302
+
+        provider.refresh_from_db()
+        assert provider.api_key is None
+        assert provider.is_enabled is False
+
+    def test_add_new_row_preserves_existing_enabled_rows(self, client, admin_user, url):
+        """Regression: adding a new provider row must not reset api_key/is_enabled on existing rows."""
+        openai = _enable_seed_provider("openai", api_key="sk-openai-key")
+        anthropic = _enable_seed_provider("anthropic", api_key="sk-anthropic-key")
+
+        client.force_login(admin_user)
+        mgmt = _providers_mgmt()
+        new_idx = int(mgmt["providers-TOTAL_FORMS"])
+        mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
+        new_row = {
+            f"providers-{new_idx}-id": "",
+            f"providers-{new_idx}-slug": "my-custom",
+            f"providers-{new_idx}-display_name": "My Custom",
+            f"providers-{new_idx}-provider_type": "openrouter",
+            f"providers-{new_idx}-base_url": "https://example.com/v1",
+            f"providers-{new_idx}-api_key": "sk-new-key",
+            f"providers-{new_idx}-extra_headers": "{}",
+            f"providers-{new_idx}-model_suggestions": "",
+            f"providers-{new_idx}-is_enabled": "on",
+            f"providers-{new_idx}-sort_order": "100",
+        }
+        response = client.post(url, {**_HEADERS_MGMT, **mgmt, **new_row})
+        assert response.status_code == 302
+
+        openai.refresh_from_db()
+        anthropic.refresh_from_db()
+        assert openai.api_key == "sk-openai-key"
+        assert openai.is_enabled is True
+        assert anthropic.api_key == "sk-anthropic-key"
+        assert anthropic.is_enabled is True
+
+    def test_clear_api_key_on_locked_row(self, client, admin_user, url):
+        """Locked seed rows can have their api_key cleared — is_locked only guards slug/type/delete."""
+        provider = _enable_seed_provider("openai", api_key="sk-openai-key")
+        assert provider.is_locked is True
+
+        client.force_login(admin_user)
+        mgmt = _providers_mgmt()
+        idx = next(i for i, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == provider.pk)
+        response = client.post(url, {**_HEADERS_MGMT, **mgmt, f"providers-{idx}-clear_api_key": "on"})
+        assert response.status_code == 302
+
+        provider.refresh_from_db()
+        assert provider.api_key is None
+        assert provider.is_enabled is False
+        assert provider.is_locked is True
+
+    def test_add_new_provider_row(self, client, admin_user, url):
+        """A JS-added row (index past the seed count, no id) creates a new Provider."""
+        client.force_login(admin_user)
+        mgmt = _providers_mgmt()
+        new_idx = int(mgmt["providers-TOTAL_FORMS"])
+        mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
+        new_row = {
+            f"providers-{new_idx}-id": "",
+            f"providers-{new_idx}-slug": "custom-router",
+            f"providers-{new_idx}-display_name": "Custom Router",
+            f"providers-{new_idx}-provider_type": "openrouter",
+            f"providers-{new_idx}-base_url": "https://example.test/v1",
+            f"providers-{new_idx}-api_key": "sk-custom",
+            f"providers-{new_idx}-extra_headers": "{}",
+            f"providers-{new_idx}-model_suggestions": "",
+            f"providers-{new_idx}-is_enabled": "on",
+            f"providers-{new_idx}-sort_order": "100",
+        }
+        response = client.post(url, {**_HEADERS_MGMT, **mgmt, **new_row})
+        assert response.status_code == 302
+
+        created = Provider.objects.get(slug="custom-router")
+        assert created.provider_type == "openrouter"
+        assert created.is_locked is False
+        assert created.is_enabled is True
+        assert created.api_key == "sk-custom"
+
 
 class TestModelApiKeyValidation:
     def test_model_without_enabled_provider_rejected(self, db):
