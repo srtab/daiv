@@ -3,13 +3,17 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
+from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.backends.protocol import BackendProtocol  # noqa: TC002
 from deepagents.backends.utils import validate_path
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
@@ -94,45 +98,48 @@ def format_sync_error(reason: str, *, rollback_ok: bool) -> str:
 class SandboxSyncer:
     """Mirrors successful local writes to the sandbox session associated with the agent run.
 
-    Bundles the backend, the working_dir → /repo mapping, the sandbox client (owned and
-    lifecycle-managed by ``SandboxMiddleware``), and a single lock that serialises the
-    upstream-write→sandbox-sync critical section across all concurrent write_file/edit_file
-    calls in one agent run, so rollback can never overwrite a sibling tool call's edit.
+    Bundles the backend, the agent virtual root → ``/repo`` mapping, the sandbox client
+    (owned and lifecycle-managed by ``SandboxMiddleware``), and a single lock that
+    serialises the upstream-write→sandbox-sync critical section across all concurrent
+    write_file/edit_file calls in one agent run, so rollback can never overwrite a
+    sibling tool call's edit.
+
+    ``agent_root`` is the virtual path prefix the agent's filesystem tools see (e.g.
+    ``/repo``); the sync mapping is pure string arithmetic against that prefix.
     """
 
     backend: Any
-    working_dir: Path
+    agent_root: str
     client: DAIVSandboxClient
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    _resolved_working_dir: Path = field(init=False, repr=False)
 
-    def __post_init__(self) -> None:
-        self._resolved_working_dir = self.working_dir.resolve()
+    def sandbox_path(self, virtual_path: str) -> str:
+        """Map agent ``<agent_root>/<rel>`` → sandbox ``/repo/<rel>``.
 
-    def sandbox_path(self, local_path: str | Path) -> str:
-        """Map ``<working_dir>/<rel>`` → ``/repo/<rel>``. Raises ``ValueError`` if outside ``working_dir``."""
-        rel = Path(local_path).resolve().relative_to(self._resolved_working_dir)
-        return str(Path(SANDBOX_PATH_ROOT) / rel)
-
-    def resolve_target(self, file_path: str) -> Path:
-        """Re-run upstream's path validation + backend resolution to obtain the on-disk target."""
-        return Path(self.backend._resolve_path(validate_path(file_path)))
+        Raises ``ValueError`` if ``virtual_path`` is not under ``agent_root``.
+        """
+        prefix = self.agent_root.rstrip("/") + "/"
+        normalized = validate_path(virtual_path, allowed_prefixes=[prefix])
+        rel = normalized[len(prefix) :]
+        return f"{SANDBOX_PATH_ROOT.rstrip('/')}/{rel}"
 
     async def mirror(
-        self, *, runtime, resolved_path: Path | str, content_bytes: bytes, mode: int, rollback: Callable[[], bool]
+        self, *, runtime, virtual_path: str, content_bytes: bytes, mode: int, rollback: Callable[[], Awaitable[bool]]
     ) -> str | None:
         """Mirror a successful local write/edit to the sandbox; rollback on failure.
 
-        Returns an error string for the tool to surface, or ``None`` on success.
+        Returns an error string for the tool to surface, or ``None`` on success. ``rollback``
+        is an async callable returning whether the local-state restore succeeded; awaited
+        only when the sandbox sync fails.
         """
         try:
-            sandbox_path = self.sandbox_path(resolved_path)
+            sandbox_path = self.sandbox_path(virtual_path)
         except ValueError as exc:
-            return format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=rollback())
+            return format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=await rollback())
 
         session_id = runtime.state.get("session_id") if runtime.state else None
         if not session_id:
-            return format_sync_error("sandbox session not started", rollback_ok=rollback())
+            return format_sync_error("sandbox session not started", rollback_ok=await rollback())
 
         request = ApplyMutationsRequest(
             mutations=[PutMutation(path=sandbox_path, content=base64.b64encode(content_bytes), mode=mode)]
@@ -141,9 +148,109 @@ class SandboxSyncer:
             response = await self.client.apply_file_mutations(session_id, request)
         except Exception as exc:
             logger.exception("sandbox apply_file_mutations failed for %s", sandbox_path)
-            return format_sync_error(f"sandbox sync raised: {exc}", rollback_ok=rollback())
+            return format_sync_error(f"sandbox sync raised: {exc}", rollback_ok=await rollback())
 
         result = response.results[0]
         if not result.ok:
-            return format_sync_error(f"failed to sync to sandbox: {result.error}", rollback_ok=rollback())
+            return format_sync_error(f"failed to sync to sandbox: {result.error}", rollback_ok=await rollback())
         return None
+
+
+# ---------------------------------------------------------------------------
+# Backends
+#
+# Thin daiv-side extensions to deepagents' backends. Two methods that
+# ``BackendProtocol`` doesn't expose:
+#
+# - ``delete(path)``: needed for write rollback (drop the just-created file when
+#   sandbox sync fails). ``Path.unlink`` under the hood.
+# - ``stat_mode(path)``: needed for the OUTGOING sandbox sync — ``PutMutation.mode``
+#   carries POSIX mode bits so the sandbox replicates ``+x`` on executable scripts.
+#
+# ``DAIVBackendProtocol`` formalises the surface and ``DAIVCompositeBackend`` asserts
+# every routed backend implements it at construction time, so a new backend is a
+# matter of subclassing the deepagents primitive and supplying these two methods.
+# ---------------------------------------------------------------------------
+
+
+class DAIVFilesystemBackend(FilesystemBackend):
+    """``FilesystemBackend`` with sandbox-sync hooks (``delete`` for rollback,
+    ``stat_mode`` to mirror real POSIX mode bits onto ``PutMutation``)."""
+
+    def _to_path(self, virtual_path: str) -> Path:
+        return Path(self._resolve_path(virtual_path))
+
+    async def delete(self, virtual_path: str) -> bool:
+        try:
+            await asyncio.to_thread(self._to_path(virtual_path).unlink, missing_ok=True)
+        except OSError:
+            logger.exception("disk unlink failed for %s", virtual_path)
+            return False
+        return True
+
+    async def stat_mode(self, virtual_path: str) -> int:
+        try:
+            st = await asyncio.to_thread(self._to_path(virtual_path).stat)
+        except OSError:
+            logger.exception("disk stat failed for %s; mirroring with 0o644 fallback", virtual_path)
+            return 0o644
+        return stat.S_IMODE(st.st_mode)
+
+
+@runtime_checkable
+class DAIVBackendProtocol(Protocol):
+    """The two methods DAIV's sandbox layer needs on top of ``BackendProtocol``:
+    ``delete`` for write/edit rollback, ``stat_mode`` for outgoing ``PutMutation.mode``.
+
+    The composite asserts on this shape so a misconfigured route fails loudly at
+    construction time instead of with a runtime ``AttributeError`` on first delete.
+    Defined as its own ``Protocol`` rather than extending ``BackendProtocol`` because
+    deepagents' base isn't a typing ``Protocol``.
+    """
+
+    async def delete(self, virtual_path: str) -> bool: ...
+
+    async def stat_mode(self, virtual_path: str) -> int: ...
+
+
+class DAIVCompositeBackend(CompositeBackend):
+    """``CompositeBackend`` with the two DAIV extensions (``delete``/``stat_mode``) and a
+    ``resolve_backend_for`` helper for callers that need to dispatch on the underlying
+    backend type (``isinstance``-style routing — e.g. the gitignore guard).
+
+    Routing-aware ``delete``/``stat_mode`` strip the route prefix before delegating, so
+    underlying backends see the same key shape they would receive through any other
+    composite-routed call (``aupload_files``, ``adownload_files``, etc.).
+
+    Asserts on construction that every wired backend implements ``DAIVBackendProtocol``;
+    silent ``AttributeError`` on first rollback is worse than a startup crash.
+    """
+
+    def __init__(
+        self, default: BackendProtocol, routes: dict[str, BackendProtocol], *, artifacts_root: str = "/"
+    ) -> None:
+        for label, backend in (("default", default), *routes.items()):
+            if not isinstance(backend, DAIVBackendProtocol):
+                raise TypeError(
+                    f"DAIVCompositeBackend requires every backend to implement "
+                    f"DAIVBackendProtocol (delete + stat_mode); "
+                    f"{label!r} ({type(backend).__name__}) does not."
+                )
+        super().__init__(default=default, routes=routes, artifacts_root=artifacts_root)
+
+    async def delete(self, virtual_path: str) -> bool:
+        backend, stripped = self._get_backend_and_key(virtual_path)
+        return await cast("DAIVBackendProtocol", backend).delete(stripped)
+
+    async def stat_mode(self, virtual_path: str) -> int:
+        backend, stripped = self._get_backend_and_key(virtual_path)
+        return await cast("DAIVBackendProtocol", backend).stat_mode(stripped)
+
+    def resolve_backend_for(self, virtual_path: str) -> BackendProtocol:
+        """Return the underlying backend that owns ``virtual_path``.
+
+        Used by callers that need to dispatch on backend shape (e.g. the gitignore
+        guard, which is only meaningful for disk-backed repos).
+        """
+        backend, _ = self._get_backend_and_key(virtual_path)
+        return backend

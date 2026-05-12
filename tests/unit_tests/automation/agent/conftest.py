@@ -9,6 +9,6 @@ def bypass_gitignore_check(monkeypatch):
     real repo (e.g. ``test_sandbox.py::test_write_file_refused_when_path_is_gitignored``)
     keep the production check active.
     """
-    from codebase.utils import GitManager
+    from codebase.utils import GitManager, IgnoreCheck
 
-    monkeypatch.setattr(GitManager, "is_path_ignored", lambda self, path: False)
+    monkeypatch.setattr(GitManager, "is_path_ignored", lambda self, path: IgnoreCheck.NOT_IGNORED)

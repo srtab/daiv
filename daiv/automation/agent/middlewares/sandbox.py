@@ -4,13 +4,13 @@ import asyncio
 import io
 import json
 import logging
-import os
-import stat
 import tarfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired, cast
 
 import httpx
+from deepagents.backends.protocol import FILE_NOT_FOUND
+from deepagents.backends.utils import validate_path
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse, ToolCallRequest
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
@@ -18,17 +18,19 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.constants import GLOBAL_SKILLS_PATH
+from automation.agent.constants import SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import (
     EDIT_FILE_TOOL,
     EDIT_SUCCESS_PREFIX,
     WRITE_SUCCESS_PREFIX,
     WRITE_TOOL_NAMES,
+    DAIVCompositeBackend,
+    DAIVFilesystemBackend,
     SandboxSyncer,
     format_sync_error,
 )
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, files_changed_from_patch
+from codebase.utils import GitManager, IgnoreCheck, files_changed_from_patch
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -40,7 +42,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from typing import Any
 
-    from deepagents.backends import BackendProtocol
+    from deepagents.backends.protocol import BackendProtocol
     from langgraph.runtime import Runtime
     from langgraph.types import Command
 
@@ -282,6 +284,58 @@ def _make_skills_archive(skills_dir: Path) -> bytes | None:
     return buf.getvalue()
 
 
+def _agent_root_prefix(agent_root: str) -> str:
+    return agent_root.rstrip("/") + "/"
+
+
+def _resolve_repo_backend(backend: BackendProtocol, agent_root: str) -> BackendProtocol:
+    """Return the backend that owns ``agent_root``.
+
+    Composite-aware so callers that need to dispatch on backend shape (e.g. the
+    gitignore guard, which calls ``DAIVFilesystemBackend._to_path``) see the
+    underlying backend, not the ``DAIVCompositeBackend`` wrapper.
+    """
+    if isinstance(backend, DAIVCompositeBackend):
+        return backend.resolve_backend_for(_agent_root_prefix(agent_root))
+    return backend
+
+
+def _refuse_write_outside_agent_root(request: ToolCallRequest, file_path: str, repo_prefix: str) -> ToolMessage:
+    """Reject a write_file/edit_file whose target is not under ``agent_root``.
+
+    Skills (under ``/skills/``) live on a shared host directory in this process; if the
+    write succeeded, the sandbox-sync rollback would then ``backend.delete`` it,
+    clobbering a skill file other concurrent agent runs depend on. Refuse up front.
+    """
+    return ToolMessage(
+        content=(
+            f"Refused: '{file_path}' is outside the working directory '{repo_prefix.rstrip('/')}/'. "
+            f"Filesystem tools may only write under that prefix."
+        ),
+        tool_call_id=request.tool_call["id"],
+        name=request.tool_call["name"],
+        status="error",
+    )
+
+
+async def _read_backend_bytes(backend: BackendProtocol, virtual_path: str) -> bytes | None:
+    """Return the file's bytes via ``adownload_files``, or ``None`` on absence/error.
+
+    Logs transient/permission errors so a backend hiccup during ``_mirror_edit``'s
+    pre-snapshot can be diagnosed — without a log the snapshot just silently turns into
+    a defer-to-upstream, and a subsequent sandbox-sync failure has no rollback to fire.
+    Missing-file responses (``FILE_NOT_FOUND``) stay silent: that's the expected branch
+    when ``edit_file`` is invoked on a path upstream will reject anyway.
+    """
+    response = (await backend.adownload_files([virtual_path]))[0]
+    if response.error == FILE_NOT_FOUND:
+        return None
+    if response.error is not None:
+        logger.warning("backend read failed for %s: %s", virtual_path, response.error)
+        return None
+    return response.content
+
+
 async def _run_bash_commands(
     client: DAIVSandboxClient, commands: list[str], session_id: str
 ) -> RunCommandsResponse | None:
@@ -323,10 +377,10 @@ class SandboxMiddleware(AgentMiddleware):
     bash execution and write mirroring.
 
     Args:
-        backend: Filesystem backend used to resolve ``/repo``-relative paths to on-disk
-            paths. Must be the same instance that backs upstream's ``FilesystemMiddleware``.
-        working_dir: On-disk repo root used to map local paths to sandbox paths
-            (``<working_dir>/<rel>`` → ``/repo/<rel>``).
+        backend: Filesystem backend the agent's tools operate on. Must be the same instance
+            that backs upstream's ``FilesystemMiddleware``.
+        agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/repo``).
+            Used to validate inbound paths and map them to sandbox-side ``/repo/<rel>``.
         close_session: Whether to close the session after the agent finishes the execution
             loop. Set to ``False`` when used in subagents so the parent agent owns session
             lifecycle.
@@ -337,19 +391,19 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(backend=backend, working_dir="/workspace/repo")],
+            middleware=[SandboxMiddleware(backend=backend, agent_root="/repo")],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(self, *, backend: BackendProtocol, working_dir: Path | str, close_session: bool = True):
+    def __init__(self, *, backend: BackendProtocol, agent_root: str, close_session: bool = True):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
 
         self._backend = backend
-        self._working_dir = Path(working_dir)
+        self._agent_root = agent_root
         self.close_session = close_session
         self._client: DAIVSandboxClient | None = None
         self._syncer: SandboxSyncer | None = None
@@ -411,7 +465,7 @@ class SandboxMiddleware(AgentMiddleware):
         client = DAIVSandboxClient()
         await client.open()
         self._client = client
-        self._syncer = SandboxSyncer(backend=self._backend, working_dir=self._working_dir, client=client)
+        self._syncer = SandboxSyncer(backend=self._backend, agent_root=self._agent_root, client=client)
 
         try:
             if not self.close_session and "session_id" in state:
@@ -432,10 +486,14 @@ class SandboxMiddleware(AgentMiddleware):
                 working_dir = Path(runtime.context.gitrepo.working_dir)
                 repo_archive, skills_archive = await asyncio.gather(
                     asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                    asyncio.to_thread(_make_skills_archive, working_dir.parent / Path(GLOBAL_SKILLS_PATH).name),
+                    asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
                 )
                 await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:
+                # Log the cause keyed to ``session_id`` before unwinding — the outer
+                # ``except BaseException`` re-raises bare, so without this breadcrumb a
+                # build/seed failure shows up only as whatever LangGraph chooses to log.
+                logger.exception("Failed to build or seed sandbox session %s", session_id)
                 try:
                     await client.close_session(session_id)
                 except Exception:
@@ -540,24 +598,40 @@ class SandboxMiddleware(AgentMiddleware):
         """Dispatch ``write_file`` and mirror the new file to the sandbox under the syncer lock.
 
         The lock serialises with concurrent writes/edits in the same run so a rollback
-        (unlink) cannot race with a sibling tool's edit on the same path.
+        cannot race with a sibling tool's edit on the same path.
+
+        Rollback calls ``backend.delete`` (subclass method) to undo a just-created file
+        when the sync fails. ``stat_mode`` (subclass method) reads the post-write mode
+        bits so ``PutMutation.mode`` mirrors ``+x`` for executable scripts on the
+        sandbox side.
         """
         assert self._syncer is not None  # guarded by awrap_tool_call
         syncer = self._syncer
         args = request.tool_call["args"]
         file_path = args["file_path"]
         content = args["content"]
+        ctx = cast("RuntimeCtx", request.runtime.context)
+        backend = self._backend
+
+        try:
+            virtual_path = validate_path(file_path)
+        except ValueError:
+            return await handler(request)
+
+        repo_prefix = _agent_root_prefix(self._agent_root)
+        if not virtual_path.startswith(repo_prefix):
+            return _refuse_write_outside_agent_root(request, file_path, repo_prefix)
 
         # `git add -A` silently drops gitignored paths, so a successful write would
-        # never reach the MR. Refuse pre-dispatch; on path-resolution failure, fall
-        # through and let upstream produce its own error (matches `_mirror_edit`).
-        try:
-            prevalidated_target = syncer.resolve_target(file_path)
-        except OSError, ValueError:
-            prevalidated_target = None
-        if prevalidated_target is not None:
-            git_manager = GitManager(cast("RuntimeCtx", request.runtime.context).gitrepo)
-            if await asyncio.to_thread(git_manager.is_path_ignored, prevalidated_target):
+        # never reach the MR. Fail-closed: any unexpected error from path resolution
+        # or `git check-ignore` (surfaced as ``IgnoreCheck.UNKNOWN``) refuses the
+        # write, since the alternative is silent data loss.
+        repo_backend = _resolve_repo_backend(backend, self._agent_root)
+        if isinstance(repo_backend, DAIVFilesystemBackend):
+            disk_target = repo_backend._to_path(virtual_path)
+            git_manager = GitManager(ctx.gitrepo)
+            ignore_result = await asyncio.to_thread(git_manager.is_path_ignored, disk_target)
+            if ignore_result is IgnoreCheck.IGNORED:
                 return ToolMessage(
                     content=(
                         f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
@@ -571,39 +645,31 @@ class SandboxMiddleware(AgentMiddleware):
                     name=request.tool_call["name"],
                     status="error",
                 )
+            if ignore_result is IgnoreCheck.UNKNOWN:
+                return ToolMessage(
+                    content=(
+                        f"Refused: could not determine whether '{file_path}' is gitignored "
+                        f"(`git check-ignore` failed; see server logs). Retry, or run "
+                        f"`git check-ignore -v <path>` via bash to inspect."
+                    ),
+                    tool_call_id=request.tool_call["id"],
+                    name=request.tool_call["name"],
+                    status="error",
+                )
 
         async with syncer.lock:
             result = await handler(request)
             if not _is_text_success(result, WRITE_SUCCESS_PREFIX):
                 return result
 
-            try:
-                target = syncer.resolve_target(file_path)
-            except (OSError, ValueError) as exc:
-                # Upstream succeeded so the file is on disk, but we can't determine where —
-                # surface CRITICAL so the agent knows local state may be desynced.
-                return _replace_tool_message(
-                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=False)
-                )
+            async def _rollback() -> bool:
+                return await cast("Any", backend).delete(virtual_path)
 
-            def _rollback() -> bool:
-                try:
-                    target.unlink(missing_ok=True)
-                except OSError:
-                    logger.exception("rollback unlink failed for %s", target)
-                    return False
-                return True
-
-            try:
-                mode = stat.S_IMODE(target.stat().st_mode)
-            except OSError as exc:
-                return _replace_tool_message(
-                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=_rollback())
-                )
+            mode = await cast("Any", backend).stat_mode(virtual_path)
 
             error = await syncer.mirror(
                 runtime=request.runtime,
-                resolved_path=target,
+                virtual_path=virtual_path,
                 content_bytes=content.encode(),
                 mode=mode,
                 rollback=_rollback,
@@ -618,46 +684,64 @@ class SandboxMiddleware(AgentMiddleware):
         Snapshots pre-edit bytes + mode outside the lock so rollback can restore them on
         sync failure. The lock then serialises dispatch through mirror so a sibling write
         cannot interleave with our restore.
+
+        Reads use ``backend.adownload_files`` (protocol); rollback uses
+        ``backend.aupload_files`` (protocol). ``stat_mode`` (subclass) provides the
+        outgoing mutation's mode bits so ``+x`` mirrors to the sandbox; the disk
+        write itself preserves mode automatically via POSIX ``O_TRUNC`` overwrite.
         """
         assert self._syncer is not None  # guarded by awrap_tool_call
         syncer = self._syncer
+        backend = self._backend
         args = request.tool_call["args"]
         file_path = args["file_path"]
+
+        try:
+            virtual_path = validate_path(file_path)
+        except ValueError:
+            return await handler(request)
+
+        repo_prefix = _agent_root_prefix(self._agent_root)
+        if not virtual_path.startswith(repo_prefix):
+            return _refuse_write_outside_agent_root(request, file_path, repo_prefix)
 
         # Snapshot must happen before dispatch so we can rebuild the file on sync failure.
         # If anything fails here (invalid path, missing file), let upstream produce the
         # canonical "not found" error instead of inventing our own.
-        try:
-            target = syncer.resolve_target(file_path)
-            pre_bytes = target.read_bytes()
-            pre_mode = stat.S_IMODE(target.stat().st_mode)
-        except ValueError, OSError:
+        pre_bytes = await _read_backend_bytes(backend, virtual_path)
+        if pre_bytes is None:
             return await handler(request)
+        pre_mode = await cast("Any", backend).stat_mode(virtual_path)
 
         async with syncer.lock:
             result = await handler(request)
             if not _is_text_success(result, EDIT_SUCCESS_PREFIX):
                 return result
 
-            def _rollback() -> bool:
+            async def _rollback() -> bool:
                 try:
-                    target.write_bytes(pre_bytes)
-                    os.chmod(target, pre_mode)  # noqa: PTH101
-                except OSError:
-                    logger.exception("rollback restore failed for %s", target)
+                    responses = await backend.aupload_files([(virtual_path, pre_bytes)])
+                except Exception:
+                    logger.exception("rollback aupload_files failed for %s", virtual_path)
+                    return False
+                if responses[0].error is not None:
+                    logger.error("rollback aupload returned error for %s: %s", virtual_path, responses[0].error)
                     return False
                 return True
 
-            try:
-                post_bytes = target.read_bytes()
-            except OSError as exc:
+            post_bytes = await _read_backend_bytes(backend, virtual_path)
+            if post_bytes is None:
                 return _replace_tool_message(
-                    result, format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=_rollback())
+                    result,
+                    format_sync_error(
+                        "failed to prepare sandbox sync: post-edit read returned no content",
+                        rollback_ok=await _rollback(),
+                    ),
                 )
 
             error = await syncer.mirror(
                 runtime=request.runtime,
-                resolved_path=target,
+                virtual_path=virtual_path,
                 content_bytes=post_bytes,
                 mode=pre_mode,
                 rollback=_rollback,

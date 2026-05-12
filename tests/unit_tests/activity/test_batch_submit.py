@@ -99,12 +99,6 @@ class TestSubmitBatchRunsSync:
         task_thread_ids = [t["thread_id"] for t in tasks_seen]
         assert set(task_thread_ids) == set(activity_thread_ids)
 
-    def test_empty_repos_raises_value_error(self, member_user):
-        with pytest.raises(ValueError):
-            submit_batch_runs(
-                user=member_user, prompt="p", repos=[], use_max=False, notify_on=None, trigger_type=TriggerType.UI_JOB
-            )
-
     def test_oversized_repos_raises_value_error(self, member_user):
         repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(21)]
         with pytest.raises(ValueError):

@@ -70,10 +70,15 @@ class TestCaching:
 
     async def test_get_cached_returns_none_on_timeout_in_async_context(self, db):
         """Thread pool timeout in async context returns None gracefully."""
-        import time
+        import concurrent.futures
 
         django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
-        with patch.object(SiteConfiguration, "_fetch_from_cache_or_db", side_effect=lambda: time.sleep(10)):
+
+        class _StuckFuture:
+            def result(self, timeout=None):
+                raise concurrent.futures.TimeoutError
+
+        with patch.object(SiteConfiguration._executor, "submit", return_value=_StuckFuture()):
             result = SiteConfiguration.get_cached()
         assert result is None
 
