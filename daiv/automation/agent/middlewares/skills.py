@@ -16,7 +16,7 @@ from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -135,13 +135,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # We need to always copy builtin and custom global skills before calling the super method to make them available
-        # in the filesystem not just to be captured and registered in "skills_metadata" on first run, but also to be
-        # available in the filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error
-        # will be raised.
-        builtin_skills, custom_global_skills = await self._copy_global_skills(
-            agent_path=Path(runtime.context.gitrepo.working_dir)
-        )
+        # Materialize before super() so the `skill` tool can resolve files on disk,
+        # not just metadata; otherwise the agent gets a not_found at invocation time.
+        builtin_skills, custom_global_skills = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
@@ -179,10 +175,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return skills_update
 
-    async def _copy_global_skills(self, agent_path: Path) -> tuple[list[str], list[str]]:
+    async def _copy_global_skills(self) -> tuple[list[str], list[str]]:
         """
         Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
-        sibling to the repo working tree.
+        sibling to the agent's working directory.
 
         Custom global skills override builtins with the same name (later writes in
         ``files_to_upload`` win).
@@ -231,8 +227,13 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     source_path = Path(root) / Path(file)
                     if source_path.suffix == ".pyc":
                         continue
-                    dest_path = project_skills_path / source_path.relative_to(source_root)
-                    if not dest_path.exists():
+                    rel = source_path.relative_to(source_root)
+                    # Real existence check on the disk-backed skills cache so per-turn
+                    # uploads become a no-op once the cache is populated. ``dest_path``
+                    # is a virtual path under ``GLOBAL_SKILLS_PATH``, which never exists
+                    # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
+                    dest_path = project_skills_path / rel
+                    if not (SKILLS_CACHE_PATH / rel).exists():
                         try:
                             files_to_upload.append((str(dest_path), source_path.read_bytes()))
                         except OSError:

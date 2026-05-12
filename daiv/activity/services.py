@@ -232,11 +232,7 @@ async def asubmit_batch_runs(
         if trigger_type in _PROMPT_DRIVEN and prompt:
             try:
                 await generate_title_task.aenqueue(
-                    entity_type="activity",
-                    pk=str(activity.pk),
-                    prompt=prompt,
-                    repo_id=target.repo_id,
-                    ref=target.ref or "",
+                    entity_type="activity", pk=str(activity.pk), prompt=prompt, repo_id=target.repo_id, ref=target.ref
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue title task for activity %s", activity.pk)

@@ -8,13 +8,12 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
-from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from automation.agent.middlewares import file_system as fs_module
-from automation.agent.middlewares.file_system import EDIT_SUCCESS_PREFIX, WRITE_SUCCESS_PREFIX
+from automation.agent.middlewares.file_system import EDIT_SUCCESS_PREFIX, WRITE_SUCCESS_PREFIX, DAIVFilesystemBackend
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
 
@@ -51,12 +50,13 @@ def _sandbox_api_key(monkeypatch):
 @pytest.fixture
 def setup(working_repo, fake_client):
     """Backend + upstream tool map + sandbox middleware with pre-installed client/syncer."""
-    backend = FilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    backend = DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
     fs = UpstreamFilesystemMiddleware(backend=backend, custom_tool_descriptions=fs_module.CUSTOM_TOOL_DESCRIPTIONS)
     tools = {tool.name: tool for tool in fs.tools}
-    middleware = SandboxMiddleware(backend=backend, working_dir=working_repo)
+    agent_root = f"/{working_repo.name}"
+    middleware = SandboxMiddleware(backend=backend, agent_root=agent_root)
     middleware._client = fake_client
-    middleware._syncer = fs_module.SandboxSyncer(backend=backend, working_dir=working_repo, client=fake_client)
+    middleware._syncer = fs_module.SandboxSyncer(backend=backend, agent_root=agent_root, client=fake_client)
     return SimpleNamespace(backend=backend, tools=tools, middleware=middleware, repo=working_repo)
 
 
@@ -64,7 +64,7 @@ def _runtime(*, state: dict[str, Any], working_dir: Path) -> SimpleNamespace:
     """A minimal ``ToolRuntime`` shim sufficient for the syncer + upstream tools."""
     return SimpleNamespace(
         state=state,
-        context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(working_dir))),
+        context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(working_dir)), has_repo=True),
         tool_call_id="call_test",
     )
 
@@ -182,10 +182,14 @@ async def test_write_file_missing_session_id_rolls_back(setup, fake_client):
 
 
 async def test_write_file_rejects_path_outside_working_dir(working_repo, fake_client, tmp_path):
-    """A write to a path outside working_dir is rolled back; sandbox is never called."""
+    """A write to a path outside the agent root is refused before dispatch — never
+    written locally, never mirrored to the sandbox. Refusing up-front avoids the rollback
+    branch deleting from a shared mount (e.g. the skills cache) that other concurrent
+    runs depend on.
+    """
     outside = tmp_path / "elsewhere"
     outside.mkdir()
-    backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+    backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
     write = next(
         t
         for t in UpstreamFilesystemMiddleware(
@@ -193,9 +197,10 @@ async def test_write_file_rejects_path_outside_working_dir(working_repo, fake_cl
         ).tools
         if t.name == "write_file"
     )
-    middleware = SandboxMiddleware(backend=backend, working_dir=working_repo)
+    agent_root = f"/{working_repo.name}"
+    middleware = SandboxMiddleware(backend=backend, agent_root=agent_root)
     middleware._client = fake_client
-    middleware._syncer = fs_module.SandboxSyncer(backend=backend, working_dir=working_repo, client=fake_client)
+    middleware._syncer = fs_module.SandboxSyncer(backend=backend, agent_root=agent_root, client=fake_client)
 
     result = await _invoke(
         middleware,
@@ -206,7 +211,8 @@ async def test_write_file_rejects_path_outside_working_dir(working_repo, fake_cl
 
     assert not (outside / "leak.py").exists()
     fake_client.apply_file_mutations.assert_not_awaited()
-    assert "Error" in _content(result)
+    assert "Refused" in _content(result)
+    assert agent_root in _content(result)
 
 
 async def test_write_file_surfaces_critical_when_rollback_fails(setup, fake_client, monkeypatch):
@@ -311,14 +317,12 @@ async def test_edit_file_surfaces_critical_when_rollback_fails(setup, fake_clien
     fake_client.apply_file_mutations.side_effect = RuntimeError("sandbox down")
     runtime = _runtime(state={"session_id": "sid"}, working_dir=setup.repo)
 
-    real_write_bytes = type(target).write_bytes
+    # Rollback restores pre-edit content via ``backend.aupload_files``; raise from inside
+    # it to simulate a disk-level failure during recovery.
+    async def fail_upload(_files):
+        raise OSError("disk gone")
 
-    def fail_write_bytes(self, data, *a, **kw):
-        if str(self).endswith("foo.py"):
-            raise OSError("disk gone")
-        return real_write_bytes(self, data, *a, **kw)
-
-    monkeypatch.setattr(type(target), "write_bytes", fail_write_bytes)
+    monkeypatch.setattr(setup.backend, "aupload_files", fail_upload)
 
     result = await _invoke(
         setup.middleware,
@@ -408,3 +412,91 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     assert edit_result.startswith(EDIT_SUCCESS_PREFIX), (
         f"upstream changed edit success format; update EDIT_SUCCESS_PREFIX: {edit_result!r}"
     )
+
+
+class TestDAIVCompositeBackend:
+    """Composite routing must preserve the prefix-stripping invariant for DAIV's two
+    extension methods (``delete``/``stat_mode``) and the dispatch helper
+    (``resolve_backend_for``). Without these, sandbox rollback and the gitignore
+    guard silently route to the wrong backend.
+    """
+
+    @staticmethod
+    def _make_composite(tmp_path: Path):
+        """Compose a repo + skills backend pair the same way ``create_daiv_agent`` does.
+
+        ``DAIVFilesystemBackend(virtual_mode=True)`` interprets virtual paths as
+        ``/<root_dir.name>/<rel>`` and resolves them to ``root_dir.parent/<root_dir.name>/<rel>``,
+        so each backend's ``root_dir`` must literally exist on disk. We layer ``repo-mount``
+        and ``skills-mount`` under ``tmp_path`` and address them via ``/repo-mount/...`` and
+        ``/skills/...`` respectively.
+
+        The skills route uses an unrelated virtual prefix on purpose: the route strips
+        ``/skills/`` before delegating to a backend whose virtual root is ``/skills-mount``,
+        and ``_resolve_path("foo.md")`` happens to land under ``skills-mount`` because
+        ``virtual_mode`` falls back to root-relative for paths without the agent prefix.
+        """
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend
+
+        skills_root = tmp_path / "skills-mount"
+        skills_root.mkdir()
+        repo_root = tmp_path / "repo-mount"
+        repo_root.mkdir()
+        skills = DAIVFilesystemBackend(root_dir=skills_root, virtual_mode=True)
+        repo = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
+        return composite, skills, repo, skills_root, repo_root
+
+    async def test_delete_strips_prefix_for_routed_path(self, tmp_path: Path):
+        composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
+        (skills_root / "foo.md").write_text("x")
+
+        ok = await composite.delete("/skills/foo.md")
+
+        assert ok is True
+        assert not (skills_root / "foo.md").exists()
+
+    async def test_delete_passes_default_path_unchanged(self, tmp_path: Path):
+        composite, _skills, _repo, _skills_root, repo_root = self._make_composite(tmp_path)
+        target = repo_root / "bar.py"
+        target.write_text("x")
+
+        ok = await composite.delete("/repo-mount/bar.py")
+
+        assert ok is True
+        assert not target.exists(), "default-route delete must operate on the unstripped path"
+
+    async def test_stat_mode_routes_to_underlying_backend(self, tmp_path: Path):
+        composite, _skills, _repo, skills_root, repo_root = self._make_composite(tmp_path)
+        skills_target = skills_root / "exec.sh"
+        skills_target.write_text("#!/bin/sh\n")
+        skills_target.chmod(0o755)
+        repo_target = repo_root / "plain.py"
+        repo_target.write_text("x")
+        repo_target.chmod(0o644)
+
+        skills_mode = await composite.stat_mode("/skills/exec.sh")
+        repo_mode = await composite.stat_mode("/repo-mount/plain.py")
+
+        assert stat.S_IMODE(skills_mode) == 0o755, "skills-routed stat_mode reads real bits"
+        assert stat.S_IMODE(repo_mode) == 0o644, "default-routed stat_mode reads real bits"
+
+    async def test_resolve_backend_for_returns_route_target(self, tmp_path: Path):
+        composite, skills, repo, _skills_root, _repo_root = self._make_composite(tmp_path)
+
+        assert composite.resolve_backend_for("/skills/foo") is skills
+        assert composite.resolve_backend_for("/skills/") is skills
+        assert composite.resolve_backend_for("/repo-mount/bar") is repo
+        assert composite.resolve_backend_for("/random/baz") is repo, "unrouted falls through to default"
+
+    async def test_constructor_rejects_backend_missing_daiv_methods(self, tmp_path: Path):
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend
+
+        good = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        plain_state = SimpleNamespace()  # missing delete + stat_mode
+
+        with pytest.raises(TypeError, match="DAIVBackendProtocol"):
+            DAIVCompositeBackend(default=good, routes={"/x/": plain_state})  # type: ignore[arg-type]
+
+        with pytest.raises(TypeError, match="DAIVBackendProtocol"):
+            DAIVCompositeBackend(default=plain_state, routes={})  # type: ignore[arg-type]

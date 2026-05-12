@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -14,6 +14,9 @@ from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
 from slash_commands.base import SlashCommand
 from slash_commands.registry import SlashCommandRegistry
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_runtime(
@@ -113,7 +116,6 @@ class TestSkillsMiddleware:
     async def test_materializes_global_skills_under_skills_dir(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
-        repo_name = "repoX"
         builtin = tmp_path / "builtin_skills"
         (builtin / "skill-one" / "helpers").mkdir(parents=True)
         (builtin / "skill-two").mkdir(parents=True)
@@ -129,7 +131,7 @@ class TestSkillsMiddleware:
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
-            await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            await middleware._copy_global_skills()
 
         skills_root = tmp_path / "skills"
         assert (skills_root / "skill-one" / "SKILL.md").read_text() == _make_skill_md(
@@ -146,33 +148,24 @@ class TestSkillsMiddleware:
     async def test_skips_file_upload_when_dest_exists(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
-        repo_name = "repoX"
         builtin = tmp_path / "builtin_skills"
         (builtin / "skill-one" / "helpers").mkdir(parents=True)
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin"))
         (builtin / "skill-one" / "helpers" / "util.py").write_text("print('one')\n")
 
+        cache_root = tmp_path / "skills"
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
-        existing_skill_md = tmp_path / "skills" / "skill-one" / "SKILL.md"
+        existing_skill_md = cache_root / "skill-one" / "SKILL.md"
         existing_skill_md.parent.mkdir(parents=True, exist_ok=True)
         existing_skill_md.write_text(_make_skill_md(name="skill-one", description="existing"))
 
-        original_exists = Path.exists
-
-        def fake_exists(self: Path) -> bool:
-            # Map virtual `/skills/...` paths used during upload planning to the on-disk mirror.
-            if str(self).startswith("/skills/"):
-                mapped = tmp_path / str(self).lstrip("/")
-                return original_exists(mapped)
-            return original_exists(self)
-
         with (
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("pathlib.Path.exists", new=fake_exists),
+            patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache_root),
         ):
-            await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            await middleware._copy_global_skills()
 
         # SKILL.md must not be overwritten; sibling files are still uploaded.
         assert existing_skill_md.read_text() == _make_skill_md(name="skill-one", description="existing")
@@ -191,7 +184,7 @@ class TestSkillsMiddleware:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             pytest.raises(RuntimeError, match="Failed to upload skill: boom"),
         ):
-            await middleware._copy_global_skills(agent_path=tmp_path / "repoX")
+            await middleware._copy_global_skills()
 
     def test_format_skills_list_marks_builtin_and_global(self):
         middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
@@ -610,7 +603,6 @@ class TestCustomGlobalSkills:
     async def test_custom_global_skill_marked_as_global(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
-        repo_name = "repoX"
         builtin = tmp_path / "builtin_skills"
         builtin.mkdir(parents=True)
 
@@ -627,7 +619,7 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            builtin_names, custom_global_names = await middleware._copy_global_skills()
 
         assert "global-skill" in custom_global_names
         assert "global-skill" not in builtin_names
@@ -670,7 +662,6 @@ class TestCustomGlobalSkills:
     async def test_custom_global_skills_disabled_when_path_is_none(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
-        repo_name = "repoX"
         builtin = tmp_path / "builtin_skills"
         (builtin / "skill-one").mkdir(parents=True)
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
@@ -682,7 +673,7 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", None),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            builtin_names, custom_global_names = await middleware._copy_global_skills()
 
         assert builtin_names == ["skill-one"]
         assert custom_global_names == []
@@ -690,7 +681,6 @@ class TestCustomGlobalSkills:
     async def test_custom_global_skills_skipped_when_path_not_exists(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
-        repo_name = "repoX"
         builtin = tmp_path / "builtin_skills"
         (builtin / "skill-one").mkdir(parents=True)
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
@@ -702,7 +692,7 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", tmp_path / "nonexistent"),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills(agent_path=tmp_path / repo_name)
+            builtin_names, custom_global_names = await middleware._copy_global_skills()
 
         assert builtin_names == ["skill-one"]
         assert custom_global_names == []

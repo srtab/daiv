@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from git import GitCommandError, Repo
 
-from codebase.utils import GitManager, GitPushPermissionError
+from codebase.utils import GitManager, GitPushPermissionError, apply_patch_to_dir
 
 
 def _configure_repo_identity(repo: Repo) -> None:
@@ -193,21 +193,25 @@ def test_git_manager_apply_patch_applies_valid_diff(tmp_path: Path) -> None:
 
 
 def test_git_manager_is_path_ignored_matches_gitignore_rule(tmp_path: Path) -> None:
+    from codebase.utils import IgnoreCheck
+
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)
     (repo_dir / ".gitignore").write_text(".python-version\n")
 
     manager = GitManager(repo)
 
-    assert manager.is_path_ignored(repo_dir / ".python-version") is True
-    assert manager.is_path_ignored(repo_dir / "README.md") is False
+    assert manager.is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.IGNORED
+    assert manager.is_path_ignored(repo_dir / "README.md") is IgnoreCheck.NOT_IGNORED
 
 
 def test_git_manager_is_path_ignored_returns_false_when_no_gitignore(tmp_path: Path) -> None:
+    from codebase.utils import IgnoreCheck
+
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)
 
-    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is False
+    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.NOT_IGNORED
 
 
 def test_git_manager_is_path_ignored_returns_false_for_tracked_file_matching_rule(tmp_path: Path) -> None:
@@ -215,6 +219,8 @@ def test_git_manager_is_path_ignored_returns_false_for_tracked_file_matching_rul
     `git check-ignore` reflects that by reporting them as not ignored. Locked in
     so a future refactor (e.g. switching to manual fnmatch) doesn't reintroduce
     a false positive that would block edits to legitimately-tracked files."""
+    from codebase.utils import IgnoreCheck
+
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)
     (repo_dir / ".gitignore").write_text(".python-version\n")
@@ -222,7 +228,25 @@ def test_git_manager_is_path_ignored_returns_false_for_tracked_file_matching_rul
     repo.git.add("-f", ".python-version", ".gitignore")
     repo.index.commit("track ignored file")
 
-    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is False
+    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.NOT_IGNORED
+
+
+def test_git_manager_is_path_ignored_returns_unknown_on_command_error(tmp_path: Path, monkeypatch) -> None:
+    """When `git check-ignore` fails for any reason other than exit-1 ("no match"),
+    the helper must surface UNKNOWN so callers can fail-closed rather than treating
+    a broken plumbing call as "not ignored"."""
+    from unittest.mock import MagicMock
+
+    from git import GitCommandError
+
+    from codebase.utils import IgnoreCheck
+
+    repo = _init_repo(tmp_path)
+    fake_git = MagicMock()
+    fake_git.check_ignore.side_effect = GitCommandError(["git", "check-ignore"], 128, stderr=b"fatal: bad object HEAD")
+    monkeypatch.setattr(repo, "git", fake_git)
+
+    assert GitManager(repo).is_path_ignored("any/path") is IgnoreCheck.UNKNOWN
 
 
 def test_git_manager_apply_patch_skips_empty_patch(tmp_path: Path) -> None:
@@ -234,3 +258,61 @@ def test_git_manager_apply_patch_skips_empty_patch(tmp_path: Path) -> None:
     GitManager(repo).apply_patch("")
 
     assert file_path.read_text() == "hello\n"
+
+
+def test_apply_patch_to_dir_works_without_git_repo(tmp_path: Path) -> None:
+    """Repoless agent runs use ``apply_patch_to_dir`` directly against the on-disk working
+    directory backing ``FilesystemBackend``; ``git apply`` does not require a ``.git``
+    folder, so the patch must apply cleanly even when ``tmp_path`` is just a plain dir."""
+    file_path = tmp_path / "file.txt"
+    file_path.write_text("hello\n")
+
+    diff = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1,2 @@\n hello\n+world\n"
+
+    apply_patch_to_dir(diff, tmp_path)
+
+    assert file_path.read_text() == "hello\nworld\n"
+    assert not (tmp_path / ".git").exists()
+
+
+def test_apply_patch_to_dir_skips_empty_patch(tmp_path: Path) -> None:
+    apply_patch_to_dir("", tmp_path)
+    apply_patch_to_dir("   \n", tmp_path)
+
+
+def test_apply_patch_to_dir_skips_non_patch_input_via_git_sentinel(tmp_path: Path) -> None:
+    """Non-whitespace text that ``git apply`` rejects with "No valid patches in input"
+    must be treated as a no-op, not a failure — covers the stderr-sentinel branch
+    that the up-front strip() short-circuit doesn't reach."""
+    apply_patch_to_dir("this is not a patch\n", tmp_path)
+
+
+def test_apply_patch_to_dir_creates_new_file_in_non_repo_dir(tmp_path: Path) -> None:
+    """``git apply`` over stdin must create new files in a plain working directory
+    (no ``.git/``), since the bash tool relies on this to mirror sandbox-side file
+    creations back to the agent's local FilesystemBackend in repoless runs."""
+    new_file_diff = (
+        "diff --git a/new.txt b/new.txt\n"
+        "new file mode 100644\n"
+        "index 0000000..3b18e51\n"
+        "--- /dev/null\n"
+        "+++ b/new.txt\n"
+        "@@ -0,0 +1 @@\n"
+        "+hello world\n"
+    )
+
+    apply_patch_to_dir(new_file_diff, tmp_path)
+
+    assert (tmp_path / "new.txt").read_text() == "hello world\n"
+    assert not (tmp_path / ".git").exists()
+
+
+def test_apply_patch_to_dir_raises_runtime_error_on_invalid_patch(tmp_path: Path) -> None:
+    """Malformed patches must surface as ``RuntimeError`` so the bash tool can return its
+    fail-loud "Failed to persist the changes" message instead of silently dropping bytes."""
+    bogus_diff = (
+        "diff --git a/missing.txt b/missing.txt\n--- a/missing.txt\n+++ b/missing.txt\n@@ -1 +1 @@\n-was here\n+gone\n"
+    )
+
+    with pytest.raises(RuntimeError, match="git apply"):
+        apply_patch_to_dir(bogus_diff, tmp_path)

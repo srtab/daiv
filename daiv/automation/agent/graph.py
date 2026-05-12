@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, cast
 from django.utils import timezone
 
 from deepagents import create_deep_agent
-from deepagents.backends.filesystem import FilesystemBackend
 from langchain.agents.middleware import (
     AgentMiddleware,
     InterruptOnConfig,
@@ -19,6 +18,8 @@ from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import (
     AGENTS_MEMORY_PATH,
     GLOBAL_SKILLS_PATH,
+    GLOBAL_SKILLS_ROUTE,
+    SKILLS_CACHE_PATH,
     SKILLS_SOURCES,
     SUBAGENTS_SOURCES,
     ModelName,
@@ -27,7 +28,11 @@ from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
-from automation.agent.middlewares.file_system import FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE
+from automation.agent.middlewares.file_system import (
+    FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE,
+    DAIVCompositeBackend,
+    DAIVFilesystemBackend,
+)
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
@@ -188,7 +193,13 @@ async def create_daiv_agent(
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
     agent_path = Path(ctx.gitrepo.working_dir)
-    backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    agent_root = f"/{agent_path.name}"
+
+    # Composite backend: repo files served from disk; ``/skills/`` served from the
+    # shared ``SKILLS_CACHE_PATH`` so per-turn skill uploads become a no-op once primed.
+    repo_backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    skills_backend = DAIVFilesystemBackend(root_dir=SKILLS_CACHE_PATH, virtual_mode=True)
+    backend = DAIVCompositeBackend(default=repo_backend, routes={GLOBAL_SKILLS_ROUTE: skills_backend})
 
     subagents = [
         create_general_purpose_subagent(
@@ -224,7 +235,7 @@ async def create_daiv_agent(
             sources=[GLOBAL_SKILLS_PATH, *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
             subagents=subagents,
         ),
-        *([SandboxMiddleware(backend=backend, working_dir=agent_path)] if _sandbox_enabled else []),
+        *([SandboxMiddleware(backend=backend, agent_root=agent_root)] if _sandbox_enabled else []),
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.utils import timezone
 
-from deepagents.backends import FilesystemBackend
 from deepagents.graph import create_agent
 from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import ModelFallbackMiddleware, dynamic_prompt
@@ -14,6 +13,7 @@ from langchain_core.runnables import RunnableLambda, RunnableParallel
 
 from automation.agent import BaseAgent
 from automation.agent.constants import AGENTS_MEMORY_PATH, ModelName
+from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from codebase.context import RuntimeCtx
 from core.site_settings import site_settings
@@ -65,7 +65,7 @@ def create_diff_to_metadata_graph(
 
     agent_path = Path(ctx.gitrepo.working_dir)
 
-    backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
 
     model = BaseAgent.get_model(model=model_names[0])
     fallback_models = [BaseAgent.get_model(model=model_name) for model_name in model_names[1:]]
