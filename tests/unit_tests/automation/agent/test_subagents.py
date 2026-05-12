@@ -185,8 +185,10 @@ class TestGeneralPurposeMiddleware:
         )
 
         async def handler(req: ToolCallRequest) -> ToolMessage:
-            text = await req.tool.coroutine(**req.tool_call["args"], runtime=req.runtime)
-            return ToolMessage(content=text, tool_call_id=req.tool_call["id"], name=req.tool.name)
+            result = await req.tool.coroutine(**req.tool_call["args"], runtime=req.runtime)
+            if isinstance(result, ToolMessage):
+                return result
+            return ToolMessage(content=result, tool_call_id=req.tool_call["id"], name=req.tool.name)
 
         result = await sandbox_mw.awrap_tool_call(request, handler)
 
