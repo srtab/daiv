@@ -22,7 +22,7 @@ dependencies = [
   "ag-ui-langgraph==0.0.35",
   "copilotkit==0.1.88",
   "croniter==6.2.2",
-  "ddgs==9.14.1",
+  "ddgs==9.14.2",
   "deepagents==0.5.6",
   "django==6.0.4",
   "django-allauth[socialaccount]==65.16.1",
