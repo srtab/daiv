@@ -5,8 +5,13 @@
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
+<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
+        integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
 <script defer src="{% static 'schedules/js/subscriber-picker.js' %}"></script>
+<script defer src="{% static 'schedules/js/template-gallery.js' %}"></script>
 {% endblock %}
 
 {% block breadcrumb %}
@@ -21,6 +26,19 @@
     </p>
 </div>
 
+        {% if not object and schedule_templates %}
+        <div class="mt-6 flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+            <div>
+                <p class="text-[15px] font-medium text-gray-200">{% translate "Start from a template" %}</p>
+                <p class="text-sm text-gray-500">{% translate "Pick a curated schedule as a starting point. Every field is editable." %}</p>
+            </div>
+            <button type="button"
+                    onclick="window.dispatchEvent(new CustomEvent('open-template-gallery'))"
+                    class="btn-secondary">{% translate "Browse templates" %}</button>
+        </div>
+        {% endif %}
+        {% include "schedules/_template_gallery.html" %}
+
         {% if form.non_field_errors %}
         <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
             {% for error in form.non_field_errors %}
@@ -29,7 +47,10 @@
         </div>
         {% endif %}
 
+        <script>window.__scheduleFormDirty = false;</script>
         <form method="post"
+              @input.capture="window.__scheduleFormDirty = true"
+              @change.capture="window.__scheduleFormDirty = true"
               x-data="{
                   frequency: '{{ form.frequency.value|default:'daily' }}',
                   time: '{{ form.time.value|time:"H:i" }}',
