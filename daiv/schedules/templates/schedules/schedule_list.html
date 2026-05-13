@@ -1,12 +1,13 @@
 {% extends "base_app.html" %}
-{% load i18n static dashboard_tags %}
+{% load dashboard_tags i18n static %}
 
 {% block title %}Scheduled Jobs — DAIV{% endblock %}
+
 {% block container_width %}max-w-screen-2xl{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="{% static 'schedules/js/template-gallery.js' %}"></script>
-{% endblock %}
+{% endblock alpine_plugins %}
 
 {% block app_content %}
 <div class="animate-fade-up flex items-center justify-between">
@@ -53,4 +54,4 @@
         showToast('Cannot resume schedule \u2014 the cron configuration may be invalid. Edit the schedule to fix it.', 'error');
     });
 </script>
-{% endblock %}
+{% endblock app_content %}

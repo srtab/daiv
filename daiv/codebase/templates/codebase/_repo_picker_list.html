@@ -1,6 +1,6 @@
 {% load i18n %}
 {% if error %}
-<ul><li class="px-3 py-2 text-[15px] text-red-400">{% trans "Could not load repositories." %}</li></ul>
+<ul><li class="px-3 py-2 text-[15px] text-red-400">{% translate "Could not load repositories." %}</li></ul>
 {% else %}
 <ul>
 {% for repo in repos %}
@@ -15,7 +15,7 @@
     </button>
   </li>
 {% empty %}
-  <li class="px-3 py-2 text-[15px] text-gray-400">{% trans "No repositories found." %}</li>
+  <li class="px-3 py-2 text-[15px] text-gray-400">{% translate "No repositories found." %}</li>
 {% endfor %}
 </ul>
 {% endif %}

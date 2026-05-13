@@ -2,17 +2,18 @@
 {% load activity_tags static %}
 
 {% block title %}{% activity_title activity %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-screen-2xl{% endblock %}
 
 {% block alpine_plugins %}
 {% if is_in_flight %}
 <script defer src="{% static 'activity/js/activity-stream.js' %}"></script>
 {% endif %}
-{% endblock %}
+{% endblock alpine_plugins %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div {% if is_in_flight %}x-data="activityDetail('{% url "activity_stream" %}', '{{ activity.pk }}', '{{ activity.status }}')"{% endif %}>
@@ -50,4 +51,4 @@
         </aside>
     </div>
 </div>
-{% endblock %}
+{% endblock app_content %}

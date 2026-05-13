@@ -252,7 +252,8 @@ class TestScheduleCreateViewTemplateContext:
 
 @pytest.mark.django_db
 class TestScheduleFormGalleryWiring:
-    """The create form renders the gallery trigger when templates exist."""
+    """The create form promotes the gallery when no templates exist yet,
+    and renders the gallery data whenever templates exist."""
 
     @pytest.fixture
     def tpl(self, admin_user):
@@ -266,18 +267,18 @@ class TestScheduleFormGalleryWiring:
             created_by=admin_user,
         )
 
-    def test_create_renders_trigger_and_gallery_when_templates_exist(self, member_client, tpl):
+    def test_create_renders_gallery_data_when_templates_exist(self, member_client, tpl):
         response = member_client.get(reverse("schedule_create"))
         body = response.content.decode()
         assert "schedule-templates-data" in body
-        assert "Browse templates" in body
+        assert "Browse templates" not in body
         assert "open-template-gallery" in body
 
-    def test_create_omits_trigger_when_no_templates(self, member_client):
+    def test_create_renders_trigger_when_no_templates(self, member_client):
         response = member_client.get(reverse("schedule_create"))
         body = response.content.decode()
         assert "schedule-templates-data" not in body
-        assert "Browse templates" not in body
+        assert "Browse templates" in body
 
     def test_edit_omits_trigger_and_gallery(self, member_client, member_user, tpl):
         schedule = ScheduledJob(

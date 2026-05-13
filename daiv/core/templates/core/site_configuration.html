@@ -2,11 +2,12 @@
 {% load configuration_tags icon_tags static %}
 
 {% block title %}Configuration — DAIV{% endblock %}
+
 {% block container_width %}max-w-none{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="{% static 'core/js/web-fetch-auth-headers-formset.js' %}"></script>
-{% endblock %}
+{% endblock alpine_plugins %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -130,4 +131,4 @@
 
     sections.forEach(section => observer.observe(section));
 </script>
-{% endblock %}
+{% endblock app_content %}

@@ -2,6 +2,7 @@
 {% load i18n static %}
 
 {% block title %}{% if object %}Edit Schedule{% else %}Create Schedule{% endif %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
@@ -12,11 +13,11 @@
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
 <script defer src="{% static 'schedules/js/subscriber-picker.js' %}"></script>
 <script defer src="{% static 'schedules/js/template-gallery.js' %}"></script>
-{% endblock %}
+{% endblock alpine_plugins %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -26,7 +27,7 @@
     </p>
 </div>
 
-        {% if not object and schedule_templates %}
+        {% if not object and not schedule_templates %}
         <div class="mt-6 flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
             <div>
                 <p class="text-[15px] font-medium text-gray-200">{% translate "Start from a template" %}</p>
@@ -149,4 +150,4 @@
                 {% endif %}
             </div>
         </form>
-{% endblock %}
+{% endblock app_content %}
