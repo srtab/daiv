@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
 from typing import TYPE_CHECKING
 
@@ -43,9 +43,19 @@ def _coerce_repos(repos, *, allow_empty: bool) -> list[dict]:
         raise ValidationError({"repos": str(err)}) from err
 
 
-def _validate_frequency_fields(*, frequency: Frequency, cron_expression: str, time: dt_time | None) -> None:
+def _validate_frequency_fields(
+    *,
+    frequency: Frequency,
+    cron_expression: str,
+    time: dt_time | None,
+    run_at: datetime | None = None,
+    require_run_at: bool = False,
+) -> None:
     """Keep ``ScheduledJob`` and ``ScheduleTemplate`` clean-time rules in lockstep so values
     copied via ``ScheduleTemplate.to_schedule_kwargs()`` never produce a job the schedule rejects.
+
+    ``require_run_at`` is set by ``ScheduledJob`` (which must store a date) and unset by
+    ``ScheduleTemplate`` (which is a blueprint).
     """
     if frequency == Frequency.CUSTOM:
         if not cron_expression:
@@ -57,8 +67,16 @@ def _validate_frequency_fields(*, frequency: Frequency, cron_expression: str, ti
                     "minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
                 )
             })
-    if frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not time:
+    if frequency in (Frequency.DAILY, Frequency.WEEKDAYS, Frequency.WEEKLY) and not time:
         raise ValidationError({"time": _("Time is required for this frequency.")})
+    if frequency == Frequency.ONCE:
+        if require_run_at:
+            if run_at is None:
+                raise ValidationError({"run_at": _("Date and time is required for a one-off schedule.")})
+            if run_at <= timezone.now() - timedelta(seconds=60):
+                raise ValidationError({"run_at": _("The scheduled time must be in the future.")})
+    elif run_at is not None:
+        raise ValidationError({"run_at": _("Date and time only applies to one-off schedules.")})
 
 
 class ScheduledJobManager(models.Manager["ScheduledJob"]):
@@ -148,10 +166,18 @@ class ScheduledJob(TimeStampedModel):
     def clean(self) -> None:
         super().clean()
         self.repos = _coerce_repos(self.repos, allow_empty=False)
-        _validate_frequency_fields(frequency=self.frequency, cron_expression=self.cron_expression, time=self.time)
+        _validate_frequency_fields(
+            frequency=self.frequency,
+            cron_expression=self.cron_expression,
+            time=self.time,
+            run_at=self.run_at,
+            require_run_at=True,
+        )
 
     def get_effective_cron(self) -> str:
         """Return the five-field cron expression for this schedule."""
+        if self.frequency == Frequency.ONCE:
+            raise ValueError("ONCE frequency has no cron expression")
         if self.frequency == Frequency.CUSTOM:
             if not self.cron_expression:
                 raise ValueError("Custom frequency requires a cron_expression")
@@ -184,6 +210,12 @@ class ScheduledJob(TimeStampedModel):
         Raises:
             ValueError: If the frequency/cron configuration is invalid.
         """
+        if self.frequency == Frequency.ONCE:
+            if self.run_at is None:
+                raise ValueError("ONCE frequency requires a run_at value")
+            self.next_run_at = self.run_at
+            return
+
         if after is None:
             after = timezone.now()
 
@@ -258,7 +290,9 @@ class ScheduleTemplate(TimeStampedModel):
     def clean(self) -> None:
         super().clean()
         self.repos = _coerce_repos(self.repos, allow_empty=True)
-        _validate_frequency_fields(frequency=self.frequency, cron_expression=self.cron_expression, time=self.time)
+        _validate_frequency_fields(
+            frequency=self.frequency, cron_expression=self.cron_expression, time=self.time, require_run_at=False
+        )
 
     def to_schedule_kwargs(self) -> dict:
         return {f: getattr(self, f) for f in self.SCHEDULE_FIELDS}
