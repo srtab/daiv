@@ -240,6 +240,8 @@ class ScheduledJob(TimeStampedModel):
         if self.frequency == Frequency.ONCE:
             if self.run_at is None:
                 raise ValueError("ONCE frequency requires a run_at value")
+            if self.run_at <= timezone.now() - timedelta(seconds=60):
+                raise ValueError("ONCE schedule run_at is in the past; cannot re-arm (use Duplicate)")
             self.next_run_at = self.run_at
             return
 

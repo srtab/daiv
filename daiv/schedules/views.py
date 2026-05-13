@@ -307,8 +307,10 @@ class ScheduleTemplateUpdateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
 class ScheduleDuplicateView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
     """POST-only redirect to ``schedule_create?from=<pk>``.
 
-    Keeps the prefill behaviour purely server-side and avoids an unauthenticated
-    GET that would let other users probe schedule contents via the create form.
+    Duplication is a write-leaning action triggered from a dropdown button, so POST
+    avoids link prefetchers, browser caching, and accidental GETs from crawlers.
+    Cross-user access is enforced here via ``_ScheduleOwnerMixin`` (returns 404);
+    ``ScheduleCreateView`` re-validates ownership when reading the ``from`` param.
     """
 
     http_method_names = ["post"]
