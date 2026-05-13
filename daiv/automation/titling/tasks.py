@@ -38,6 +38,49 @@ class GeneratedTitle(BaseModel):
     )
 
 
+def _build_structured_llm():
+    """Build the structured LLM chain with fallback. Raises ``RuntimeError`` if no model is configured."""
+
+    def _structured(model_name: str):
+        return (
+            BaseAgent
+            .get_model(model=model_name, max_tokens=60)
+            .with_structured_output(GeneratedTitle)
+            .with_retry(stop_after_attempt=2)
+        )
+
+    return _structured(site_settings.titling_model_name).with_fallbacks([
+        _structured(site_settings.titling_fallback_model_name)
+    ])
+
+
+def _invoke_titler(structured_llm, *, prompt: str, repo_id: str = "", ref: str = "", run_metadata: dict) -> str:
+    """Invoke the titler chain and return the cleaned title string.
+
+    ``repo_id`` and ``ref`` are optional context: omitted for batches that span multiple repos.
+    """
+    ref = ref.strip()
+    user_text = ""
+    if repo_id:
+        user_text += f"Repository: {repo_id}\n"
+    if _ref_is_informative(ref):
+        user_text += f"Branch: {ref}\n"
+    user_text += f"Task: {prompt[:500]}"
+
+    run_name = "Titling"
+    tags = [run_name]
+    if entity_type := run_metadata.get("entity_type"):
+        tags.append(f"entity:{entity_type}")
+    result = cast(
+        "GeneratedTitle",
+        structured_llm.with_config(run_name=run_name, tags=tags, metadata=run_metadata).invoke([
+            SystemMessage(content=_SYSTEM_PROMPT),
+            HumanMessage(content=user_text),
+        ]),
+    )
+    return result.title.strip()
+
+
 @task()
 def generate_title_task(
     entity_type: Literal["chat_thread", "activity"], pk: str, prompt: str, repo_id: str, ref: str = ""
@@ -63,18 +106,8 @@ def generate_title_task(
         logger.warning("generate_title_task: %s with pk=%s not found, skipping", entity_type, pk)
         return
 
-    def _structured(model_name: str):
-        return (
-            BaseAgent
-            .get_model(model=model_name, max_tokens=60)
-            .with_structured_output(GeneratedTitle)
-            .with_retry(stop_after_attempt=2)
-        )
-
     try:
-        structured_llm = _structured(site_settings.titling_model_name).with_fallbacks([
-            _structured(site_settings.titling_fallback_model_name)
-        ])
+        structured_llm = _build_structured_llm()
     except RuntimeError:
         logger.exception(
             "generate_title_task: model not configured for %s pk=%s — feature disabled until API key is set",
@@ -83,21 +116,45 @@ def generate_title_task(
         )
         return
 
-    ref = ref.strip()
-    user_text = f"Repository: {repo_id}\n"
-    if _ref_is_informative(ref):
-        user_text += f"Branch: {ref}\n"
-    user_text += f"Task: {prompt[:500]}"
-
-    run_name = "Titling"
-    result = cast(
-        "GeneratedTitle",
-        structured_llm.with_config(
-            run_name=run_name,
-            tags=[run_name, f"entity:{entity_type}"],
-            metadata={"entity_type": entity_type, "entity_pk": pk, "repo_id": repo_id, "ref": ref},
-        ).invoke([SystemMessage(content=_SYSTEM_PROMPT), HumanMessage(content=user_text)]),
+    title = _invoke_titler(
+        structured_llm,
+        prompt=prompt,
+        repo_id=repo_id,
+        ref=ref,
+        run_metadata={"entity_type": entity_type, "entity_pk": pk, "repo_id": repo_id, "ref": ref},
     )
 
-    entity.title = result.title.strip()
+    entity.title = title
     entity.save(update_fields=["title"])
+
+
+@task()
+def generate_batch_title_task(batch_id: str, prompt: str) -> None:
+    """Generate a single LLM title for an Activity batch and apply it to every untitled member.
+
+    One LLM call per batch instead of one per activity. Repo/ref context is omitted because batch
+    members typically span repos. Only rows with an empty ``title`` are updated, so synchronous
+    titles (e.g. scheduled-run templates) are preserved.
+    """
+    from activity.models import Activity
+
+    try:
+        structured_llm = _build_structured_llm()
+    except RuntimeError:
+        logger.exception(
+            "generate_batch_title_task: model not configured for batch_id=%s — feature disabled until API key is set",
+            batch_id,
+        )
+        return
+
+    title = _invoke_titler(
+        structured_llm, prompt=prompt, run_metadata={"entity_type": "activity_batch", "batch_id": batch_id}
+    )
+
+    updated = Activity.objects.by_batch(batch_id).filter(title="").update(title=title)
+    if updated == 0:
+        logger.warning(
+            "generate_batch_title_task: no rows updated for batch_id=%s (stale batch or all already titled)", batch_id
+        )
+    else:
+        logger.info("generate_batch_title_task: updated %d activities for batch_id=%s", updated, batch_id)

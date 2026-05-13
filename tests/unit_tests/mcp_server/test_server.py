@@ -34,7 +34,7 @@ def _patch_acreate():
     acreate_patch = patch(
         "activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity
     )
-    title_patch = patch("activity.services.generate_title_task")
+    title_patch = patch("activity.services.generate_batch_title_task")
 
     class _Combined:
         def __enter__(self):
