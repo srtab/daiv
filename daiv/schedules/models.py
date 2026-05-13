@@ -116,6 +116,15 @@ class ScheduledJob(TimeStampedModel):
         verbose_name=_("subscribers"),
         help_text=_("Other users CC'd on this schedule's finish notifications."),
     )
+    source_template = models.ForeignKey(
+        "schedules.ScheduleTemplate",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="schedules",
+        verbose_name=_("source template"),
+        help_text=_("Template this schedule was created from. Cleared if the template is later deleted."),
+    )
 
     class Meta:
         verbose_name = _("Scheduled Job")

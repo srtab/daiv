@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import transaction
+from django.db.models import Count
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
@@ -39,8 +40,14 @@ def _subscriber_initial_json(schedule) -> str:
 
 
 def _template_picker_payload() -> list[dict]:
-    """Build the gallery drawer's embedded JSON payload from all templates."""
-    return [t.to_picker_dict() for t in ScheduleTemplate.objects.only(*ScheduleTemplate.PICKER_FIELDS)]
+    """Build the gallery drawer's JSON payload, most-used templates first."""
+    qs = (
+        ScheduleTemplate.objects
+        .only(*ScheduleTemplate.PICKER_FIELDS)
+        .annotate(usage_count=Count("schedules"))
+        .order_by("-usage_count", "name")
+    )
+    return [t.to_picker_dict() for t in qs]
 
 
 class ScheduleListView(_ScheduleOwnerMixin, LoginRequiredMixin, ListView):
@@ -98,6 +105,9 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
 
     def form_valid(self, form):
         form.instance.user = self.request.user
+        tpl = self._get_template()
+        if tpl is not None:
+            form.instance.source_template = tpl
         return super().form_valid(form)
 
 
