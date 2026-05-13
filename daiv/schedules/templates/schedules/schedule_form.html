@@ -55,8 +55,15 @@
               x-data="{
                   frequency: '{{ form.frequency.value|default:'daily' }}',
                   time: '{{ form.time.value|time:"H:i" }}',
-                  get showTime() { return this.frequency !== 'hourly' && this.frequency !== 'custom' },
+                  runAt: '{{ form.run_at.value|date:'Y-m-d\TH:i' }}',
+                  get showTime() { return this.frequency === 'daily' || this.frequency === 'weekdays' || this.frequency === 'weekly' },
                   get showCron() { return this.frequency === 'custom' },
+                  get showRunAt() { return this.frequency === 'once' },
+                  get nowMin() {
+                      const d = new Date(Date.now() + 60 * 1000);
+                      const pad = (n) => String(n).padStart(2, '0');
+                      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                  },
               }"
               class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
             {% csrf_token %}
@@ -110,6 +117,15 @@
                     <input type="time" name="time" id="id_time" x-model="time" class="mt-2 !w-auto">
                     {% if form.time.errors %}
                     <p class="mt-1.5 text-sm text-red-400">{{ form.time.errors.0 }}</p>
+                    {% endif %}
+                </div>
+
+                <!-- Run-at (shown only for Once) -->
+                <div x-show="showRunAt" x-cloak>
+                    <label for="id_run_at" class="block text-[15px] font-medium text-gray-400">Date & time <span class="text-red-400">*</span></label>
+                    <input type="datetime-local" name="run_at" id="id_run_at" x-model="runAt" :min="nowMin" class="mt-2 !w-auto">
+                    {% if form.run_at.errors %}
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.run_at.errors.0 }}</p>
                     {% endif %}
                 </div>
             </div>
