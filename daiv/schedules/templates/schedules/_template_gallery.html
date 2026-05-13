@@ -1,10 +1,7 @@
 {% load i18n %}
 {% if schedule_templates %}
-{% translate "Any repo" as any_repo_label %}
-{% translate "default branch" as default_branch_label %}
-{% translate "Discard your current changes and apply this template?" as discard_confirm_msg %}
 {{ schedule_templates|json_script:"schedule-templates-data" }}
-<div x-data='templateGallery()'
+<div x-data="templateGallery({ confirmMessage: '{% translate "Discard your current changes and apply this template?"|escapejs %}' })"
      @open-template-gallery.window="open = true"
      @keydown.escape.window="if (open) close()"
      x-show="open"
@@ -15,144 +12,64 @@
          class="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
 
     <aside x-show="open"
-               x-transition:enter="transition duration-200 ease-out"
-               x-transition:enter-start="translate-x-full"
-               x-transition:enter-end="translate-x-0"
-               x-transition:leave="transition duration-150 ease-in"
-               x-transition:leave-start="translate-x-0"
-               x-transition:leave-end="translate-x-full"
-               role="dialog" aria-modal="true"
-               class="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l border-white/[0.06] bg-[#0d1117] shadow-2xl">
+           x-transition:enter="transition duration-200 ease-out"
+           x-transition:enter-start="translate-x-full"
+           x-transition:enter-end="translate-x-0"
+           x-transition:leave="transition duration-150 ease-in"
+           x-transition:leave-start="translate-x-0"
+           x-transition:leave-end="translate-x-full"
+           role="dialog" aria-modal="true"
+           class="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l border-white/[0.06] bg-[#0d1117] shadow-2xl">
 
-            <header class="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
-                <div>
-                    <h2 class="text-lg font-semibold text-white">{% translate "Start from template" %}</h2>
-                    <p class="mt-1 text-sm text-gray-400">{% translate "Pick a ready-made schedule. Every field stays editable after." %}</p>
-                </div>
-                <button type="button" @click="close()" aria-label="{% translate 'Close' %}"
-                        class="rounded-lg p-2 text-gray-400 hover:bg-white/[0.06] hover:text-white">
-                    <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
-                </button>
-            </header>
-
-            <div class="px-6 pt-4">
-                <input type="text" x-model="query"
-                       placeholder="{% translate 'Search templates…' %}" autocomplete="off"
-                       class="w-full">
+        <header class="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
+            <div>
+                <h2 class="text-lg font-semibold text-white">{% translate "Start from template" %}</h2>
+                <p class="mt-1 text-sm text-gray-400">{% translate "Pick a ready-made schedule. Every field stays editable after." %}</p>
             </div>
+            <button type="button" @click="close()" aria-label="{% translate 'Close' %}"
+                    class="rounded-lg p-2 text-gray-400 hover:bg-white/[0.06] hover:text-white">
+                <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
+            </button>
+        </header>
 
-            <div class="mt-4 flex-1 space-y-3 overflow-y-auto px-6 pb-6">
-                <template x-for="tpl in filtered" :key="tpl.id">
-                    <article class="rounded-xl border border-white/[0.06] bg-white/[0.02] transition hover:border-white/[0.12]">
-                        <button type="button" @click="toggle(tpl.id)"
-                                class="flex w-full items-start gap-3 px-4 py-3 text-left">
-                            <div class="min-w-0 flex-1">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <span class="font-medium text-white" x-text="tpl.name"></span>
-                                    <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300"
-                                          x-text="tpl.frequency_display"></span>
-                                    <template x-if="tpl.use_max">
-                                        <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">{% translate "max" %}</span>
-                                    </template>
-                                </div>
-                                <p class="mt-1 text-sm text-gray-400 line-clamp-1" x-text="tpl.description"></p>
-                                <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
-                                    <span x-text="tpl.repos_summary"></span>
-                                    <span>·</span>
-                                    <span x-text="tpl.notify_on_display"></span>
-                                </div>
-                            </div>
-                            <svg class="mt-1 h-4 w-4 shrink-0 text-gray-500 transition-transform"
-                                 :class="expanded === tpl.id ? 'rotate-180 text-gray-300' : ''"
-                                 viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
-                            </svg>
-                        </button>
+        <div class="px-6 pt-4">
+            <input type="text" x-model="query"
+                   placeholder="{% translate 'Search templates…' %}" autocomplete="off"
+                   class="w-full">
+        </div>
 
-                        <div x-show="expanded === tpl.id" x-collapse.duration.150ms>
-                            <div class="space-y-4 border-t border-white/[0.06] px-4 py-4">
-                                <p class="whitespace-pre-wrap text-sm text-gray-300" x-text="tpl.description"></p>
-                                <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                    <div class="col-span-2">
-                                        <dt class="text-[11px] uppercase tracking-wide text-gray-500">{% translate "Default repositories" %}</dt>
-                                        <dd class="text-gray-200">
-                                            <template x-if="tpl.repos.length === 0">
-                                                <span class="text-gray-500">{{ any_repo_label }}</span>
-                                            </template>
-                                            <template x-if="tpl.repos.length > 0">
-                                                <ul class="flex flex-wrap gap-1.5">
-                                                    <template x-for="r in tpl.repos" :key="r.repo_id + '@' + r.ref">
-                                                        <li class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-xs">
-                                                            <span x-text="r.repo_id"></span>
-                                                            <span class="text-blue-300" x-text="r.ref || '{{ default_branch_label|escapejs }}'"></span>
-                                                        </li>
-                                                    </template>
-                                                </ul>
-                                            </template>
-                                        </dd>
-                                    </div>
-                                    <div>
-                                        <dt class="text-[11px] uppercase tracking-wide text-gray-500">{% translate "Frequency" %}</dt>
-                                        <dd class="text-gray-200" x-text="tpl.frequency_summary"></dd>
-                                    </div>
-                                    <div>
-                                        <dt class="text-[11px] uppercase tracking-wide text-gray-500">{% translate "Notify" %}</dt>
-                                        <dd class="text-gray-200" x-text="tpl.notify_on_display"></dd>
-                                    </div>
-                                </dl>
-                                <div class="pt-1">
-                                    <a :href="`{% url 'schedule_create' %}?template=${tpl.id}`"
-                                       @click="confirmApply($event)"
-                                       class="btn-primary inline-flex items-center gap-2">
-                                        {% translate "Use this template" %}
-                                        <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
-                                    </a>
-                                </div>
-                            </div>
+        <div class="mt-4 flex-1 space-y-3 overflow-y-auto px-6 pb-6">
+            <template x-for="tpl in filtered" :key="tpl.id">
+                <article class="flex items-start gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition hover:border-white/[0.12]">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-medium text-white" x-text="tpl.name"></span>
+                            <template x-if="tpl.use_max">
+                                <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">{% translate "max" %}</span>
+                            </template>
                         </div>
-                    </article>
-                </template>
+                        <p class="mt-1.5 whitespace-pre-wrap text-sm text-gray-300" x-text="tpl.description"></p>
+                        <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
+                            <span x-text="tpl.frequency_summary"></span>
+                            <span>·</span>
+                            <span x-text="tpl.repos_summary"></span>
+                            <span>·</span>
+                            <span x-text="tpl.notify_on_display"></span>
+                        </div>
+                    </div>
+                    <a :href="`{% url 'schedule_create' %}?template=${tpl.id}`"
+                       @click="confirmApply($event)"
+                       class="btn-secondary inline-flex shrink-0 items-center gap-1 self-center text-sm">
+                        {% translate "Use" %}
+                        <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
+                    </a>
+                </article>
+            </template>
 
-                <p x-show="filtered.length === 0" class="py-10 text-center text-sm text-gray-500">
-                    {% translate "No templates match your search." %}
-                </p>
-            </div>
-        </aside>
+            <p x-show="filtered.length === 0" class="py-10 text-center text-sm text-gray-500">
+                {% translate "No templates match your search." %}
+            </p>
+        </div>
+    </aside>
 </div>
-
-<script>
-    function templateGallery() {
-        return {
-            open: false,
-            query: "",
-            expanded: null,
-            templates: JSON.parse(document.getElementById("schedule-templates-data").textContent),
-            get filtered() {
-                const q = this.query.trim().toLowerCase();
-                if (!q) return this.templates;
-                return this.templates.filter(function (t) {
-                    const repoIds = (t.repos || []).map(function (r) { return r.repo_id; }).join(" ");
-                    return (t.name + " " + t.description + " " + repoIds).toLowerCase().includes(q);
-                });
-            },
-            toggle(id) {
-                this.expanded = this.expanded === id ? null : id;
-            },
-            close() {
-                this.open = false;
-                // Reset query and expansion so the next open starts fresh; a stale
-                // filter would otherwise make the gallery look empty on reopen.
-                this.query = "";
-                this.expanded = null;
-            },
-            confirmApply(ev) {
-                // Modifier-click opens the link in a new tab/window; don't prompt or block.
-                if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1) return;
-                if (window.__scheduleFormDirty && !window.confirm("{{ discard_confirm_msg|escapejs }}")) {
-                    ev.preventDefault();
-                }
-            },
-        };
-    }
-</script>
 {% endif %}

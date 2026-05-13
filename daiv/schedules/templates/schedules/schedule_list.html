@@ -1,11 +1,11 @@
 {% extends "base_app.html" %}
-{% load i18n dashboard_tags %}
+{% load i18n static dashboard_tags %}
 
 {% block title %}Scheduled Jobs — DAIV{% endblock %}
 {% block container_width %}max-w-screen-2xl{% endblock %}
 
 {% block alpine_plugins %}
-<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.15.11/dist/cdn.min.js"></script>
+<script defer src="{% static 'schedules/js/template-gallery.js' %}"></script>
 {% endblock %}
 
 {% block app_content %}
