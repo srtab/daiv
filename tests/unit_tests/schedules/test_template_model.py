@@ -94,6 +94,12 @@ class TestScheduleTemplateFrequencySummary:
         assert tpl.frequency_summary == "Daily"
 
 
+@pytest.mark.django_db
+def test_once_template_frequency_summary_prompts_for_date():
+    tpl = ScheduleTemplate.objects.create(name="oneoff-tpl", prompt="p", frequency=Frequency.ONCE)
+    assert tpl.frequency_summary == "Once (pick a date)"
+
+
 class TestScheduleTemplateReposSummary:
     """`ScheduleTemplate.repos_summary` renders a one-line summary of default repos."""
 

@@ -326,6 +326,8 @@ class ScheduleTemplate(TimeStampedModel):
             return str(_("Every hour"))
         if self.frequency == Frequency.CUSTOM:
             return str(_("Custom: %(cron)s") % {"cron": self.cron_expression})
+        if self.frequency == Frequency.ONCE:
+            return str(_("Once (pick a date)"))
         if self.time is not None:
             return str(_("%(label)s at %(time)s") % {"label": label, "time": self.time.strftime("%H:%M")})
         return str(label)
