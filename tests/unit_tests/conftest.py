@@ -70,18 +70,18 @@ def mock_settings(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def mock_generate_title_task():
-    """Stub ``generate_title_task.aenqueue`` so the ImmediateBackend doesn't fire real LLM calls.
+    """Stub the titling tasks so the ImmediateBackend doesn't fire real LLM calls.
 
     Without this, every test that hits ``submit_batch_runs`` / chat thread creation
     pays for two failed LLM retries plus the fallback model — adding tens of seconds
-    to the suite. Tests that exercise titling itself import ``generate_title_task.func``
+    to the suite. Tests that exercise titling itself import the ``.func`` attribute
     directly, so they bypass this patch.
 
     Patching the module-level binding at each import site (rather than the frozen
     ``Task`` instance) avoids ``patch.object`` teardown issues on slotted dataclasses.
     """
     with (
-        patch("activity.services.generate_title_task") as m1,
+        patch("activity.services.generate_batch_title_task") as m1,
         patch("chat.models.generate_title_task") as m2,
         patch("chat.api.threads.generate_title_task") as m3,
     ):

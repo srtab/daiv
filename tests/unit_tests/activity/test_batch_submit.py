@@ -232,3 +232,95 @@ class TestAsubmitBatchRuns:
 
         assert len(result.activities) == 1
         assert result.activities[0].batch_id == result.batch_id
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBatchTitleEnqueue:
+    """One title task per batch — not one per activity."""
+
+    def test_single_batch_title_task_enqueued_for_n_repos(self, member_user, mock_generate_title_task):
+        async def _aenqueue(**kwargs):
+            return await _atask_result_row(uuid.uuid4())
+
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = _aenqueue
+            repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(4)]
+            result = submit_batch_runs(
+                user=member_user,
+                prompt="add login",
+                repos=repos,
+                use_max=False,
+                notify_on=None,
+                trigger_type=TriggerType.UI_JOB,
+            )
+
+        assert len(result.activities) == 4
+        mock_generate_title_task.aenqueue.assert_awaited_once()
+        call_kwargs = mock_generate_title_task.aenqueue.await_args.kwargs
+        assert call_kwargs["batch_id"] == str(result.batch_id)
+        assert call_kwargs["prompt"] == "add login"
+
+    def test_no_title_task_for_schedule_trigger(self, member_user, mock_generate_title_task):
+        from schedules.models import Frequency, ScheduledJob
+
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="s",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+        )
+        fake = _task_result_row(uuid.uuid4())
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = mock.AsyncMock(return_value=fake)
+            submit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id="x/y", ref="")],
+                use_max=False,
+                notify_on=None,
+                trigger_type=TriggerType.SCHEDULE,
+                scheduled_job=schedule,
+            )
+        mock_generate_title_task.aenqueue.assert_not_called()
+
+    def test_no_title_task_when_no_activities_created(self, member_user, mock_generate_title_task):
+        async def _aenqueue_fails(**kwargs):
+            raise RuntimeError("queue down")
+
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = _aenqueue_fails
+            result = submit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id="o/r", ref="")],
+                use_max=False,
+                notify_on=None,
+                trigger_type=TriggerType.UI_JOB,
+            )
+
+        assert result.activities == []
+        mock_generate_title_task.aenqueue.assert_not_called()
+
+    def test_title_enqueue_failure_does_not_abort_batch(self, member_user, mock_generate_title_task):
+        """Enqueue failures for the (best-effort) title task must not raise to the caller — submission stays green."""
+        mock_generate_title_task.aenqueue = mock.AsyncMock(side_effect=RuntimeError("title queue down"))
+
+        async def _aenqueue(**kwargs):
+            return await _atask_result_row(uuid.uuid4())
+
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = _aenqueue
+            result = submit_batch_runs(
+                user=member_user,
+                prompt="add login",
+                repos=[RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(3)],
+                use_max=False,
+                notify_on=None,
+                trigger_type=TriggerType.UI_JOB,
+            )
+
+        assert len(result.activities) == 3
+        assert result.failed == []
+        mock_generate_title_task.aenqueue.assert_awaited_once()
