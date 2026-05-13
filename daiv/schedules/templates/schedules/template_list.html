@@ -18,27 +18,39 @@
 
 <div class="animate-fade-up mt-8" style="animation-delay: 100ms">
     {% if templates %}
-    <div class="rounded-2xl border border-white/[0.06]">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {% for template in templates %}
-        <div class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0">
-            <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-3">
-                    <span class="text-[15px] font-medium text-white">{{ template.name }}</span>
-                    <span class="rounded-full bg-blue-900/40 px-2.5 py-0.5 text-xs font-medium text-blue-300">{{ template.get_frequency_display }}</span>
+        <div class="relative flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 transition hover:border-white/[0.12]">
+            <div class="flex items-start justify-between gap-3">
+                <span class="min-w-0 break-words text-[15px] font-medium text-white">{{ template.name }}</span>
+                <div class="relative shrink-0" x-data="{ open: false }">
+                    <button type="button" @click="open = !open" aria-label="Template actions"
+                            class="-mr-2 -mt-2 rounded-lg p-2 text-gray-400 transition-all duration-200 hover:bg-white/[0.04] hover:text-white">
+                        <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+                            <circle cx="3" cy="8" r="1.5"/>
+                            <circle cx="8" cy="8" r="1.5"/>
+                            <circle cx="13" cy="8" r="1.5"/>
+                        </svg>
+                    </button>
+                    <div x-show="open" @click.outside="open = false" x-transition x-cloak
+                         class="absolute right-0 z-10 mt-1 w-36 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] py-1 shadow-xl">
+                        <a href="{% url 'schedule_template_update' template.pk %}"
+                           class="flex w-full items-center px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.04] hover:text-white">Edit</a>
+                        <a href="{% url 'schedule_template_delete' template.pk %}"
+                           class="flex w-full items-center px-3 py-2 text-sm text-red-400 hover:bg-white/[0.04]">Delete</a>
+                    </div>
                 </div>
-                {% if template.description %}
-                <p class="mt-1 text-sm text-gray-400">{{ template.description }}</p>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">{{ template.get_frequency_display }}</span>
+                {% if template.use_max %}
+                <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">max</span>
                 {% endif %}
-                <div class="mt-1 flex items-center gap-3 text-sm text-gray-500">
-                    <span>{{ template.repo_id|default:"Any repo" }}</span>
-                </div>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{% url 'schedule_template_update' template.pk %}"
-                   class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 hover:border-white/[0.12] hover:text-white">Edit</a>
-                <a href="{% url 'schedule_template_delete' template.pk %}"
-                   class="rounded-lg border border-red-500/10 bg-red-500/[0.03] px-3 py-1.5 text-sm font-medium text-red-400 hover:border-red-500/20 hover:text-red-300">Delete</a>
-            </div>
+            {% if template.description %}
+            <p class="mt-3 line-clamp-3 text-sm text-gray-400">{{ template.description }}</p>
+            {% endif %}
+            <p class="mt-auto pt-3 text-xs text-gray-500">{{ template.repos_summary }}</p>
         </div>
         {% endfor %}
     </div>

@@ -4,6 +4,11 @@
 {% block title %}{% if object %}Edit Template{% else %}New Template{% endif %} — DAIV{% endblock %}
 {% block container_width %}max-w-3xl{% endblock %}
 
+{% block alpine_plugins %}
+<script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
+<script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+{% endblock %}
+
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
 {% endblock %}
@@ -46,24 +51,12 @@
         {% if form.description.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.description.errors.0 }}</p>{% endif %}
     </div>
 
-    <div class="mt-5">
-        <label for="id_prompt" class="block text-[15px] font-medium text-gray-400">Prompt <span class="text-red-400">*</span></label>
-        <textarea name="prompt" id="id_prompt" rows="4" required class="mt-2">{{ form.prompt.value|default:'' }}</textarea>
-        {% if form.prompt.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.prompt.errors.0 }}</p>{% endif %}
+    <div class="mt-5 -mx-6 [&>div]:!rounded-none">
+        {% include "activity/_agent_run_fields.html" with form=form repos_required=False %}
     </div>
-
-    <div class="mt-5 grid grid-cols-2 gap-4">
-        <div>
-            <label for="id_repo_id" class="block text-[15px] font-medium text-gray-400">Repository</label>
-            <input type="text" name="repo_id" id="id_repo_id" value="{{ form.repo_id.value|default:'' }}" maxlength="255" class="mt-2" placeholder="Leave blank for any">
-            {% if form.repo_id.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.repo_id.errors.0 }}</p>{% endif %}
-        </div>
-        <div>
-            <label for="id_ref" class="block text-[15px] font-medium text-gray-400">Branch / ref</label>
-            <input type="text" name="ref" id="id_ref" value="{{ form.ref.value|default:'' }}" maxlength="255" class="mt-2">
-            {% if form.ref.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.ref.errors.0 }}</p>{% endif %}
-        </div>
-    </div>
+    <p class="mt-2 text-sm text-gray-500">
+        {% trans "Repositories selected here pre-fill the schedule picker. Leave empty to let users choose." %}
+    </p>
 
     <div class="mt-6 grid grid-cols-3 gap-4 border-t border-white/[0.06] pt-6">
         <div class="col-span-2">
@@ -88,14 +81,6 @@
             <input type="time" name="time" id="id_time" x-model="time" class="mt-2 !w-auto">
             {% if form.time.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.time.errors.0 }}</p>{% endif %}
         </div>
-    </div>
-
-    <div class="mt-6 border-t border-white/[0.06] pt-6">
-        <label class="flex cursor-pointer items-center gap-3">
-            <input type="hidden" name="use_max" value="false">
-            <input type="checkbox" name="use_max" value="true" {% if form.use_max.value %}checked{% endif %}>
-            <span class="text-[15px] font-medium text-gray-400">Use max mode</span>
-        </label>
     </div>
 
     {% include "notifications/_notify_on_radio.html" with form=form %}

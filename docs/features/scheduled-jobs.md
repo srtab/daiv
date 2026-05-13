@@ -115,7 +115,7 @@ Scheduled Jobs and the [Jobs API](jobs-api.md) use the same underlying task to e
 
 Admins can curate reusable **schedule templates** so teammates start from a known-good configuration rather than assembling a schedule from scratch.
 
-Templates are managed at **Dashboard → Schedule templates** (admin nav). A template carries the same fields as a schedule (prompt, repository, ref, frequency, time or cron, max mode, notification preference) plus an optional description that helps users pick the right one.
+Templates are managed at **Dashboard → Schedule templates** (admin nav). A template carries the same fields as a schedule (prompt, default repositories, frequency, time or cron, max mode, notification preference) plus an optional description that helps users pick the right one. The repo picker is optional on templates — leave it empty to let users choose at schedule-create time.
 
 When at least one template exists, templates are discoverable in three places:
 
@@ -123,7 +123,7 @@ When at least one template exists, templates are discoverable in three places:
 - The schedule **empty state** gains a **Start from template** call-to-action alongside *Create blank schedule*.
 - The schedule **create form** opens with a **Browse templates** row at the top.
 
-All three open the same right-side gallery drawer. Each card shows the template name, frequency, repository target, and description; expanding a card reveals the full description, branch/ref, frequency detail, and notification preference. Clicking **Use this template** loads the schedule create form with every field pre-filled — you can still edit any of them before saving.
+All three open the same right-side gallery drawer. Each card shows the template name, frequency, default-repos summary, and description; expanding a card reveals the full description, the list of pre-filled repos (with their branches), frequency detail, and notification preference. Clicking **Use this template** loads the schedule create form with every field pre-filled — you can still edit any of them before saving.
 
 If you have unsaved changes in the create form, applying a template from the gallery prompts for confirmation first so you do not lose work.
 

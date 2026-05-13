@@ -165,8 +165,9 @@ Parameters:
            :value="JSON.stringify(repos.map(r => ({ repo_id: r.slug, ref: r.ref || '' })))">
     {% endif %}
 
-    {% if required|default_if_none:True %}
-    {# sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded. #}
+    {% if required != False %}
+    {# sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded.
+       Use `!= False` (not `default_if_none`) so an unset/empty include-var still defaults to "required". #}
     <input type="text" name="__repo_required_guard" required
            aria-hidden="true" tabindex="-1"
            class="sr-only"

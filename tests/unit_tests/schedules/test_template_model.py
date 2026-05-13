@@ -14,7 +14,7 @@ class TestScheduleTemplateClean:
         defaults = {
             "name": "Nightly scan",
             "prompt": "Scan the repo for issues.",
-            "repo_id": "owner/repo",
+            "repos": [{"repo_id": "owner/repo", "ref": ""}],
             "frequency": Frequency.DAILY,
             "time": time(2, 0),
             "notify_on": NotifyOn.NEVER,
@@ -44,9 +44,15 @@ class TestScheduleTemplateClean:
         tpl = self._make(frequency=Frequency.HOURLY, time=None)
         tpl.full_clean()
 
-    def test_repo_id_optional(self):
-        tpl = self._make(repo_id="")
+    def test_repos_optional(self):
+        tpl = self._make(repos=[])
         tpl.full_clean()
+
+    def test_repos_rejects_malformed_shape(self):
+        tpl = self._make(repos=[{"repo_id": ""}])
+        with pytest.raises(ValidationError) as exc:
+            tpl.full_clean()
+        assert "repos" in exc.value.message_dict
 
     def test_valid_daily_template(self):
         tpl = self._make()
@@ -88,6 +94,33 @@ class TestScheduleTemplateFrequencySummary:
         assert tpl.frequency_summary == "Daily"
 
 
+class TestScheduleTemplateReposSummary:
+    """`ScheduleTemplate.repos_summary` renders a one-line summary of default repos."""
+
+    def _make(self, **overrides):
+        defaults = {"name": "Sample", "prompt": "Do work.", "frequency": Frequency.DAILY, "time": time(9, 0)}
+        defaults.update(overrides)
+        return ScheduleTemplate(**defaults)
+
+    def test_empty_falls_back_to_any_repo(self):
+        tpl = self._make(repos=[])
+        assert tpl.repos_summary == "Any repo"
+
+    def test_single_repo_no_ref(self):
+        tpl = self._make(repos=[{"repo_id": "owner/repo", "ref": ""}])
+        assert tpl.repos_summary == "owner/repo"
+
+    def test_single_repo_with_ref(self):
+        tpl = self._make(repos=[{"repo_id": "owner/repo", "ref": "main"}])
+        assert tpl.repos_summary == "owner/repo @ main"
+
+    def test_multiple_repos_truncates_with_counter(self):
+        tpl = self._make(
+            repos=[{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": "dev"}, {"repo_id": "e/f", "ref": ""}]
+        )
+        assert tpl.repos_summary == "a/b +2 more"
+
+
 @pytest.mark.django_db
 class TestScheduleTemplateToPickerDict:
     """`ScheduleTemplate.to_picker_dict` returns the exact shape the gallery consumes."""
@@ -97,8 +130,7 @@ class TestScheduleTemplateToPickerDict:
             "name": "Nightly scan",
             "description": "Audit the codebase.",
             "prompt": "Scan for issues.",
-            "repo_id": "owner/repo",
-            "ref": "main",
+            "repos": [{"repo_id": "owner/repo", "ref": "main"}],
             "frequency": Frequency.DAILY,
             "time": time(2, 0),
             "notify_on": NotifyOn.ALWAYS,
@@ -114,8 +146,8 @@ class TestScheduleTemplateToPickerDict:
             "id",
             "name",
             "description",
-            "repo_id",
-            "ref",
+            "repos",
+            "repos_summary",
             "frequency_display",
             "frequency_summary",
             "notify_on_display",
@@ -127,12 +159,12 @@ class TestScheduleTemplateToPickerDict:
         assert "prompt" not in tpl.to_picker_dict()
 
     def test_values(self):
-        tpl = self._make_tpl(name="Weekly audit", repo_id="", ref="", use_max=False)
+        tpl = self._make_tpl(name="Weekly audit", repos=[], use_max=False)
         row = tpl.to_picker_dict()
         assert row["id"] == tpl.id
         assert row["name"] == "Weekly audit"
-        assert row["repo_id"] == ""
-        assert row["ref"] == ""
+        assert row["repos"] == []
+        assert row["repos_summary"] == "Any repo"
         assert row["use_max"] is False
         assert row["frequency_display"] == "Daily"
         assert row["frequency_summary"] == "Daily at 02:00"

@@ -1,3 +1,4 @@
+import json
 from datetime import time
 
 from django.urls import reverse
@@ -14,7 +15,7 @@ def template(admin_user):
         name="Nightly scan",
         description="Runs a security audit every night.",
         prompt="Scan the repo for vulnerabilities.",
-        repo_id="owner/repo",
+        repos=[{"repo_id": "owner/repo", "ref": ""}],
         frequency=Frequency.DAILY,
         time=time(2, 0),
         notify_on=NotifyOn.ALWAYS,
@@ -50,8 +51,7 @@ class TestTemplateAdminGating:
                 "name": "Weekly audit",
                 "description": "",
                 "prompt": "Audit deps.",
-                "repo_id": "",
-                "ref": "",
+                "repos": "[]",
                 "frequency": Frequency.WEEKLY,
                 "cron_expression": "",
                 "time": "09:00",
@@ -68,8 +68,7 @@ class TestTemplateAdminGating:
                 "name": "T",
                 "description": "",
                 "prompt": "p",
-                "repo_id": "",
-                "ref": "",
+                "repos": "[]",
                 "frequency": Frequency.DAILY,
                 "cron_expression": "",
                 "time": "09:00",
@@ -87,7 +86,7 @@ class TestTemplateDeleteSafety:
             user=member_user,
             name=template.name,
             prompt=template.prompt,
-            repo_id=template.repo_id,
+            repos=template.repos,
             frequency=template.frequency,
             time=template.time,
             notify_on=template.notify_on,
@@ -113,7 +112,11 @@ class TestScheduleCreatePrefill:
         body = response.content.decode()
         assert template.name in body
         assert template.prompt in body
-        assert template.repo_id in body
+        # The repo picker's hidden input must carry the JSON-serialized template repos
+        # so Alpine seeds with the right chips — asserting on the repo_id substring
+        # alone would pass even if the prefill wiring were lost (the id also appears
+        # in the gallery's JSON payload).
+        assert json.dumps(template.repos) in body
 
     def test_picker_hidden_when_no_templates(self, member_client):
         ScheduleTemplate.objects.all().delete()
@@ -126,7 +129,12 @@ class TestScheduleCreatePrefill:
 
     def test_picker_hidden_on_edit(self, member_client, member_user, template):
         schedule = ScheduledJob.objects.create(
-            user=member_user, name="X", prompt="p", repo_id="a/b", frequency=Frequency.DAILY, time=time(9, 0)
+            user=member_user,
+            name="X",
+            prompt="p",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time=time(9, 0),
         )
         response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
         assert "Start from template" not in response.content.decode()
@@ -135,7 +143,7 @@ class TestScheduleCreatePrefill:
         tpl = ScheduleTemplate.objects.create(
             name="Every six hours",
             prompt="Rollup.",
-            repo_id="a/b",
+            repos=[{"repo_id": "a/b", "ref": ""}],
             frequency=Frequency.CUSTOM,
             cron_expression="0 */6 * * *",
             notify_on=NotifyOn.NEVER,
@@ -151,8 +159,7 @@ class TestScheduleCreatePrefill:
             data={
                 "name": "User-chosen name",
                 "prompt": "User-chosen prompt",
-                "repo_id": "user/repo",
-                "ref": "",
+                "repos": json.dumps([{"repo_id": "user/repo", "ref": ""}]),
                 "frequency": Frequency.DAILY,
                 "cron_expression": "",
                 "time": "10:00",
@@ -162,7 +169,7 @@ class TestScheduleCreatePrefill:
         assert response.status_code == 302
         job = ScheduledJob.objects.get(name="User-chosen name")
         assert job.prompt == "User-chosen prompt"
-        assert job.repo_id == "user/repo"
+        assert job.repos == [{"repo_id": "user/repo", "ref": ""}]
 
     def test_malicious_template_param_does_not_leak_into_picker(self, member_client, template):
         response = member_client.get(reverse("schedule_create") + "?template=';alert(1)//")
@@ -179,8 +186,7 @@ class TestScheduleTemplateFormConditionalClean:
                 "name": "Switched",
                 "description": "",
                 "prompt": "p",
-                "repo_id": "",
-                "ref": "",
+                "repos": "[]",
                 "frequency": Frequency.DAILY,
                 "cron_expression": "0 */6 * * *",
                 "time": "09:00",
@@ -198,8 +204,7 @@ class TestScheduleTemplateFormConditionalClean:
                 "name": "Hourly tpl",
                 "description": "",
                 "prompt": "p",
-                "repo_id": "",
-                "ref": "",
+                "repos": "[]",
                 "frequency": Frequency.HOURLY,
                 "cron_expression": "",
                 "time": "09:00",
@@ -221,8 +226,7 @@ class TestScheduleCreateViewTemplateContext:
             name="Weekly audit",
             description="Weekly dependency audit.",
             prompt="Do the thing.",
-            repo_id="owner/repo",
-            ref="main",
+            repos=[{"repo_id": "owner/repo", "ref": "main"}],
             frequency=Frequency.WEEKLY,
             time=time(9, 0),
             notify_on=NotifyOn.ON_SUCCESS,
@@ -237,6 +241,7 @@ class TestScheduleCreateViewTemplateContext:
         assert row["id"] == tpl.id
         assert row["frequency_summary"] == "Weekly at 09:00"
         assert row["use_max"] is True
+        assert row["repos"] == [{"repo_id": "owner/repo", "ref": "main"}]
         assert "prompt" not in row
 
     def test_context_empty_when_no_templates(self, member_client):
@@ -279,7 +284,7 @@ class TestScheduleFormGalleryWiring:
             user=member_user,
             name="Existing",
             prompt="Hi.",
-            repo_id="o/r",
+            repos=[{"repo_id": "o/r", "ref": ""}],
             frequency=Frequency.DAILY,
             time=time(3, 0),
             notify_on=NotifyOn.NEVER,

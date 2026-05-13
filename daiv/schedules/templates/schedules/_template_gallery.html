@@ -57,7 +57,7 @@
                                 </div>
                                 <p class="mt-1 text-sm text-gray-400 line-clamp-1" x-text="tpl.description"></p>
                                 <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
-                                    <span x-text="tpl.repo_id || '{{ any_repo_label|escapejs }}'"></span>
+                                    <span x-text="tpl.repos_summary"></span>
                                     <span>·</span>
                                     <span x-text="tpl.notify_on_display"></span>
                                 </div>
@@ -73,13 +73,23 @@
                             <div class="space-y-4 border-t border-white/[0.06] px-4 py-4">
                                 <p class="whitespace-pre-wrap text-sm text-gray-300" x-text="tpl.description"></p>
                                 <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                                    <div>
-                                        <dt class="text-[11px] uppercase tracking-wide text-gray-500">{% translate "Repository" %}</dt>
-                                        <dd class="text-gray-200" x-text="tpl.repo_id || '{{ any_repo_label|escapejs }}'"></dd>
-                                    </div>
-                                    <div>
-                                        <dt class="text-[11px] uppercase tracking-wide text-gray-500">{% translate "Ref" %}</dt>
-                                        <dd class="text-gray-200" x-text="tpl.ref || '{{ default_branch_label|escapejs }}'"></dd>
+                                    <div class="col-span-2">
+                                        <dt class="text-[11px] uppercase tracking-wide text-gray-500">{% translate "Default repositories" %}</dt>
+                                        <dd class="text-gray-200">
+                                            <template x-if="tpl.repos.length === 0">
+                                                <span class="text-gray-500">{{ any_repo_label }}</span>
+                                            </template>
+                                            <template x-if="tpl.repos.length > 0">
+                                                <ul class="flex flex-wrap gap-1.5">
+                                                    <template x-for="r in tpl.repos" :key="r.repo_id + '@' + r.ref">
+                                                        <li class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-xs">
+                                                            <span x-text="r.repo_id"></span>
+                                                            <span class="text-blue-300" x-text="r.ref || '{{ default_branch_label|escapejs }}'"></span>
+                                                        </li>
+                                                    </template>
+                                                </ul>
+                                            </template>
+                                        </dd>
                                     </div>
                                     <div>
                                         <dt class="text-[11px] uppercase tracking-wide text-gray-500">{% translate "Frequency" %}</dt>
@@ -121,7 +131,8 @@
                 const q = this.query.trim().toLowerCase();
                 if (!q) return this.templates;
                 return this.templates.filter(function (t) {
-                    return (t.name + " " + t.description + " " + (t.repo_id || "")).toLowerCase().includes(q);
+                    const repoIds = (t.repos || []).map(function (r) { return r.repo_id; }).join(" ");
+                    return (t.name + " " + t.description + " " + repoIds).toLowerCase().includes(q);
                 });
             },
             toggle(id) {

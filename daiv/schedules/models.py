@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from datetime import time as dt_time
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from activity.services import validate_repo_list
 from croniter import croniter
 from django_extensions.db.models import TimeStampedModel
 from notifications.choices import NotifyOn
@@ -23,6 +25,39 @@ class Frequency(models.TextChoices):
     WEEKDAYS = "weekdays", _("Weekdays")
     WEEKLY = "weekly", _("Weekly")
     CUSTOM = "custom", _("Custom")
+
+
+def _coerce_repos(repos, *, allow_empty: bool) -> list[dict]:
+    """Validate a ``[{repo_id, ref}, ...]`` list and re-raise as a Django ``ValidationError``.
+
+    With ``allow_empty=True`` an exactly-empty list is accepted; other malformed shapes
+    (``None``, ``{}``, ``"x"``, ...) still flow through ``validate_repo_list`` so callers
+    get a clear error instead of a silent reset to ``[]``.
+    """
+    if repos == [] and allow_empty:
+        return []
+    try:
+        return validate_repo_list(repos)
+    except ValueError as err:
+        raise ValidationError({"repos": str(err)}) from err
+
+
+def _validate_frequency_fields(*, frequency: Frequency, cron_expression: str, time: dt_time | None) -> None:
+    """Keep ``ScheduledJob`` and ``ScheduleTemplate`` clean-time rules in lockstep so values
+    copied via ``ScheduleTemplate.to_schedule_kwargs()`` never produce a job the schedule rejects.
+    """
+    if frequency == Frequency.CUSTOM:
+        if not cron_expression:
+            raise ValidationError({"cron_expression": _("A cron expression is required for Custom frequency.")})
+        if not croniter.is_valid(cron_expression):
+            raise ValidationError({
+                "cron_expression": _(
+                    "Invalid cron expression. Use five space-separated fields: "
+                    "minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
+                )
+            })
+    if frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not time:
+        raise ValidationError({"time": _("Time is required for this frequency.")})
 
 
 class ScheduledJobManager(models.Manager["ScheduledJob"]):
@@ -97,29 +132,10 @@ class ScheduledJob(TimeStampedModel):
     def __str__(self) -> str:
         return self.name
 
-    def _validated_repos(self) -> list[dict]:
-        from activity.services import validate_repo_list
-
-        try:
-            return validate_repo_list(self.repos)
-        except ValueError as err:
-            raise ValidationError({"repos": str(err)}) from err
-
     def clean(self) -> None:
         super().clean()
-        self.repos = self._validated_repos()
-        if self.frequency == Frequency.CUSTOM:
-            if not self.cron_expression:
-                raise ValidationError({"cron_expression": _("A cron expression is required for Custom frequency.")})
-            if not croniter.is_valid(self.cron_expression):
-                raise ValidationError({
-                    "cron_expression": _(
-                        "Invalid cron expression. Use five space-separated fields: "
-                        "minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
-                    )
-                })
-        if self.frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not self.time:
-            raise ValidationError({"time": _("Time is required for this frequency.")})
+        self.repos = _coerce_repos(self.repos, allow_empty=False)
+        _validate_frequency_fields(frequency=self.frequency, cron_expression=self.cron_expression, time=self.time)
 
     def get_effective_cron(self) -> str:
         """Return the five-field cron expression for this schedule."""
@@ -171,17 +187,7 @@ class ScheduleTemplate(TimeStampedModel):
     so editing or deleting a template never affects existing schedules.
     """
 
-    SCHEDULE_FIELDS = (
-        "name",
-        "prompt",
-        "repo_id",
-        "ref",
-        "frequency",
-        "cron_expression",
-        "time",
-        "use_max",
-        "notify_on",
-    )
+    SCHEDULE_FIELDS = ("name", "prompt", "repos", "frequency", "cron_expression", "time", "use_max", "notify_on")
     # Coupled to ``to_picker_dict()``: every field read there must be in this
     # tuple or ``.only(*PICKER_FIELDS)`` queries will trigger a deferred-field
     # fetch per row. ``prompt`` is deliberately excluded.
@@ -189,8 +195,7 @@ class ScheduleTemplate(TimeStampedModel):
         "id",
         "name",
         "description",
-        "repo_id",
-        "ref",
+        "repos",
         "frequency",
         "cron_expression",
         "time",
@@ -201,14 +206,14 @@ class ScheduleTemplate(TimeStampedModel):
     name = models.CharField(_("name"), max_length=200, unique=True)
     description = models.TextField(_("description"), blank=True, default="")
     prompt = models.TextField(_("prompt"), help_text=_("What the agent should do."))
-    repo_id = models.CharField(
-        _("repository"),
-        max_length=255,
+    repos = models.JSONField(
+        _("default repositories"),
         blank=True,
-        default="",
-        help_text=_("Default repository. Leave blank to let users choose."),
+        default=list,
+        help_text=_(
+            "List of {repo_id, ref} entries that pre-fill the schedule's repo picker. Leave empty to let users choose."
+        ),
     )
-    ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     frequency = models.CharField(_("frequency"), max_length=10, choices=Frequency.choices, default=Frequency.DAILY)
     cron_expression = models.CharField(_("cron expression"), max_length=100, blank=True, default="")
     time = models.TimeField(_("time"), null=True, blank=True)
@@ -239,18 +244,8 @@ class ScheduleTemplate(TimeStampedModel):
 
     def clean(self) -> None:
         super().clean()
-        if self.frequency == Frequency.CUSTOM:
-            if not self.cron_expression:
-                raise ValidationError({"cron_expression": _("A cron expression is required for Custom frequency.")})
-            if not croniter.is_valid(self.cron_expression):
-                raise ValidationError({
-                    "cron_expression": _(
-                        "Invalid cron expression. Use five space-separated fields: "
-                        "minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
-                    )
-                })
-        if self.frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not self.time:
-            raise ValidationError({"time": _("Time is required for this frequency.")})
+        self.repos = _coerce_repos(self.repos, allow_empty=True)
+        _validate_frequency_fields(frequency=self.frequency, cron_expression=self.cron_expression, time=self.time)
 
     def to_schedule_kwargs(self) -> dict:
         return {f: getattr(self, f) for f in self.SCHEDULE_FIELDS}
@@ -267,6 +262,20 @@ class ScheduleTemplate(TimeStampedModel):
             return str(_("%(label)s at %(time)s") % {"label": label, "time": self.time.strftime("%H:%M")})
         return str(label)
 
+    @property
+    def repos_summary(self) -> str:
+        """One-line summary of default repos for the picker preview ("Any repo" when empty)."""
+        if not self.repos:
+            return str(_("Any repo"))
+        first = self.repos[0]
+        label = first["repo_id"]
+        if first.get("ref"):
+            label = f"{label} @ {first['ref']}"
+        extra = len(self.repos) - 1
+        if extra:
+            return str(_("%(label)s +%(extra)d more") % {"label": label, "extra": extra})
+        return label
+
     def to_picker_dict(self) -> dict:
         """Serialize into the JSON shape the gallery drawer consumes.
 
@@ -277,8 +286,8 @@ class ScheduleTemplate(TimeStampedModel):
             "id": self.id,
             "name": self.name,
             "description": self.description,
-            "repo_id": self.repo_id,
-            "ref": self.ref,
+            "repos": self.repos,
+            "repos_summary": self.repos_summary,
             "frequency_display": self.get_frequency_display(),
             "frequency_summary": self.frequency_summary,
             "notify_on_display": self.get_notify_on_display(),

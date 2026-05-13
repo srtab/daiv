@@ -9,7 +9,7 @@ import django_extensions.db.fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("schedules", "0008_scheduledjob_subscribers"),
+        ("schedules", "0010_remove_scheduledjob_repo_id_ref_last_run_task_id"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -30,16 +30,17 @@ class Migration(migrations.Migration):
                 ("description", models.TextField(blank=True, default="", verbose_name="description")),
                 ("prompt", models.TextField(help_text="What the agent should do.", verbose_name="prompt")),
                 (
-                    "repo_id",
-                    models.CharField(
+                    "repos",
+                    models.JSONField(
                         blank=True,
-                        default="",
-                        help_text="Default repository. Leave blank to let users choose.",
-                        max_length=255,
-                        verbose_name="repository",
+                        default=list,
+                        help_text=(
+                            "List of {repo_id, ref} entries that pre-fill the schedule's repo picker. "
+                            "Leave empty to let users choose."
+                        ),
+                        verbose_name="default repositories",
                     ),
                 ),
-                ("ref", models.CharField(blank=True, default="", max_length=255, verbose_name="branch / ref")),
                 (
                     "frequency",
                     models.CharField(
