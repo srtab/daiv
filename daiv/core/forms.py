@@ -139,11 +139,18 @@ class SiteConfigurationForm(forms.ModelForm):
         env_locked_fields: set[str] | None = None,
         cleared_secrets: set[str] | None = None,
         field_defaults: dict[str, str] | None = None,
+        in_flight_providers: dict[str, tuple[bool, bool]] | None = None,
         **kwargs: Any,
     ):
         super().__init__(*args, **kwargs)
         self.env_locked_fields = env_locked_fields or set()
         self.cleared_secrets = cleared_secrets or set()
+        # Maps provider slug → (is_enabled, has_key) for the in-flight providers
+        # formset. When set, ``_validate_model_api_keys`` consults this map
+        # first per slug and only falls back to the cached ``Provider`` rows
+        # for slugs not present — so a single POST that enables a provider and
+        # selects one of its models passes validation.
+        self.in_flight_providers = in_flight_providers
 
         self._add_secret_fields()
         self._configure_widgets()
@@ -293,24 +300,44 @@ class SiteConfigurationForm(forms.ModelForm):
             model_spec = cleaned_data.get(field_name)
             if not model_spec:
                 continue
-            try:
-                resolved = parse_model_spec(model_spec)
-            except ValueError:
+            slug = self._resolve_provider_slug(model_spec, rows)
+            if slug is None:
                 self.add_error(field_name, _("Unsupported model: %(m)s.") % {"m": model_spec})
                 continue
-            row = rows.get(resolved.row.slug)
-            if row is None:
-                self.add_error(field_name, _("Provider '%(s)s' is not configured.") % {"s": resolved.row.slug})
+            if self.in_flight_providers is not None and slug in self.in_flight_providers:
+                is_enabled, has_key = self.in_flight_providers[slug]
+            elif (row := rows.get(slug)) is not None:
+                is_enabled, has_key = row.is_enabled, row.api_key is not None
+            else:
+                self.add_error(field_name, _("Provider '%(s)s' is not configured.") % {"s": slug})
                 continue
-            if not row.is_enabled:
+            if not is_enabled:
                 self.add_error(
-                    field_name, _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": row.slug}
+                    field_name, _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": slug}
                 )
                 continue
-            if row.api_key is None:
+            if not has_key:
                 self.add_error(
-                    field_name, _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": row.slug}
+                    field_name, _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": slug}
                 )
+
+    def _resolve_provider_slug(self, model_spec: str, rows: dict) -> str | None:
+        """Return the provider slug for ``model_spec`` or ``None`` if unparseable.
+
+        Falls back to the literal prefix when ``parse_model_spec`` fails because
+        the slug references an in-flight provider not yet in the cached rows.
+        """
+        try:
+            return parse_model_spec(model_spec).row.slug
+        except ValueError:
+            if ":" not in model_spec:
+                return None
+            prefix, model_name = model_spec.split(":", 1)
+            if not model_name.strip() or not prefix:
+                return None
+            if self.in_flight_providers is not None and prefix in self.in_flight_providers:
+                return prefix
+            return None
 
     def _validate_web_search_api_key(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that Tavily has an API key when selected."""
@@ -506,8 +533,9 @@ class ProviderForm(forms.ModelForm):
         label=_("API key"), required=False, widget=forms.PasswordInput(attrs={"autocomplete": "off"})
     )
     # Submitted only when the user clicks the per-row "Clear" button, which sets
-    # the adjacent hidden input to "on" before triggering form submission. The
-    # button is type="button" so a stray Enter keypress can't activate it.
+    # the row's hidden ``providers-N-clear_api_key`` input to "on" before
+    # submitting. The button is type="button" so a stray Enter keypress can't
+    # activate it.
     clear_api_key = forms.BooleanField(required=False)
     extra_headers = forms.CharField(
         label=_("Extra headers (JSON)"),
@@ -586,9 +614,12 @@ class ProviderForm(forms.ModelForm):
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
         # Clearing implies disabling; skip the "required when enabled" check so
-        # the click doesn't dead-end on a validation error.
+        # the click doesn't dead-end on a validation error. Drop any submitted
+        # ``api_key`` too — keeps ``save`` and downstream readers (e.g. the
+        # in-flight providers map) symmetric on "the key is gone."
         if cleaned.get("clear_api_key"):
             cleaned["is_enabled"] = False
+            cleaned["api_key"] = ""
             return cleaned
         keeping_existing = bool(
             self.instance and self.instance.pk and self.instance.api_key and not cleaned.get("api_key")

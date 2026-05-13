@@ -195,8 +195,9 @@ class TestPostSave:
 
     def test_error_banner_renders_when_slug_invalid(self, client, admin_user, url):
         """Regression: row with invalid slug drops slug from cleaned_data; banner must
-        still render without VariableDoesNotExist."""
+        still render without VariableDoesNotExist. Also assert no partial commit."""
         client.force_login(admin_user)
+        seed_count = Provider.objects.count()
         mgmt = _providers_mgmt()
         new_idx = int(mgmt["providers-TOTAL_FORMS"])
         mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
@@ -217,6 +218,7 @@ class TestPostSave:
         content = response.content.decode()
         assert "Providers could not be saved" in content
         assert "Slug must start with a lowercase letter" in content
+        assert Provider.objects.count() == seed_count
 
     def test_renders_sort_order_hidden_input(self, client, admin_user, url):
         """Row template must emit sort_order as a hidden input so the browser submits it.
@@ -228,17 +230,22 @@ class TestPostSave:
         response = client.get(url)
         content = response.content.decode()
         for idx in range(Provider.objects.count()):
-            assert f'name="providers-{idx}-sort_order"' in content, f"row {idx} missing sort_order input"
+            assert f'type="hidden" name="providers-{idx}-sort_order"' in content, (
+                f"row {idx} missing sort_order hidden input"
+            )
 
     def test_clear_api_key_via_button(self, client, admin_user, url):
+        """clear_api_key=on forces api_key=None and is_enabled=False even when the
+        POST also re-sends is_enabled=on for that row — disable wins."""
         provider = _enable_seed_provider("anthropic", api_key="sk-existing")
         client.force_login(admin_user)
         mgmt = _providers_mgmt()
         anthropic_idx = next(
             idx for idx, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == provider.pk
         )
-        clear_field = {f"providers-{anthropic_idx}-clear_api_key": "on"}
-        response = client.post(url, {**_HEADERS_MGMT, **mgmt, **clear_field})
+        # is_enabled=on is already in mgmt (anthropic was enabled); add clear_api_key=on too.
+        assert mgmt[f"providers-{anthropic_idx}-is_enabled"] == "on"
+        response = client.post(url, {**_HEADERS_MGMT, **mgmt, f"providers-{anthropic_idx}-clear_api_key": "on"})
         assert response.status_code == 302
 
         provider.refresh_from_db()
@@ -584,3 +591,173 @@ class TestAuthCredentialValidation:
         )
         assert not form.is_valid()
         assert "auth_client_secret" in form.errors
+
+
+def _row_index(provider: Provider) -> int:
+    return next(i for i, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == provider.pk)
+
+
+class TestInFlightProviderValidation:
+    """End-to-end coverage for the providers-formset → SiteConfigurationForm
+    handoff: model-name validation must see the *intent* of the current POST,
+    not the pre-save DB state."""
+
+    def test_enable_provider_and_select_model_in_same_post(self, client, admin_user, url):
+        """The headline scenario: an admin enables a disabled seed provider and
+        selects one of its models in the same submission — must succeed."""
+        provider = Provider.objects.get(slug="anthropic")
+        provider.is_enabled = False
+        provider.api_key = None
+        provider.save()
+        client.force_login(admin_user)
+
+        mgmt = _providers_mgmt()
+        idx = _row_index(provider)
+        response = client.post(
+            url,
+            {
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                f"providers-{idx}-is_enabled": "on",
+                f"providers-{idx}-api_key": "sk-fresh",
+                **_HEADERS_MGMT,
+                **mgmt,
+            },
+        )
+        assert response.status_code == 302, response.content.decode()[:2000]
+
+        provider.refresh_from_db()
+        assert provider.is_enabled is True
+        assert provider.api_key == "sk-fresh"
+        config = SiteConfiguration.objects.get_instance()
+        assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
+
+    def test_disable_referenced_provider_rejected(self, client, admin_user, url):
+        """Unchecking is_enabled for a provider that's still referenced by a
+        model field must surface a validation error and leave state unchanged."""
+        provider = _enable_seed_provider("anthropic")
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_model_name = "anthropic:claude-sonnet-4-6"
+        config.save()
+        client.force_login(admin_user)
+
+        mgmt = _providers_mgmt()
+        idx = _row_index(provider)
+        # Simulate the user unchecking the Enabled checkbox: the key is omitted from POST.
+        del mgmt[f"providers-{idx}-is_enabled"]
+        response = client.post(
+            url,
+            {
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                **_HEADERS_MGMT,
+                **mgmt,
+            },
+        )
+        assert response.status_code == 200
+        assert "disabled" in response.content.decode()
+        provider.refresh_from_db()
+        assert provider.is_enabled is True
+
+    def test_new_provider_referenced_in_same_post(self, client, admin_user, url):
+        """A JS-added row whose slug is immediately referenced by a model field
+        must validate against the in-flight map, not the cache."""
+        client.force_login(admin_user)
+        mgmt = _providers_mgmt()
+        new_idx = int(mgmt["providers-TOTAL_FORMS"])
+        mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
+        new_row = {
+            f"providers-{new_idx}-id": "",
+            f"providers-{new_idx}-slug": "custom-router",
+            f"providers-{new_idx}-display_name": "Custom",
+            f"providers-{new_idx}-provider_type": "openrouter",
+            f"providers-{new_idx}-base_url": "https://example.test/v1",
+            f"providers-{new_idx}-api_key": "sk-custom",
+            f"providers-{new_idx}-extra_headers": "{}",
+            f"providers-{new_idx}-model_suggestions": "",
+            f"providers-{new_idx}-is_enabled": "on",
+            f"providers-{new_idx}-sort_order": "100",
+        }
+        response = client.post(
+            url,
+            {
+                "agent_model_name_provider": "custom-router",
+                "agent_model_name_model": "my-model",
+                **_HEADERS_MGMT,
+                **mgmt,
+                **new_row,
+            },
+        )
+        assert response.status_code == 302, response.content.decode()[:2000]
+        config = SiteConfiguration.objects.get_instance()
+        assert config.agent_model_name == "custom-router:my-model"
+
+    def test_clear_api_key_with_referenced_model_rejected(self, client, admin_user, url):
+        """Clearing the key on a row whose models are still referenced must fail
+        validation. Nothing should persist."""
+        provider = _enable_seed_provider("anthropic", api_key="sk-existing")
+        client.force_login(admin_user)
+
+        mgmt = _providers_mgmt()
+        idx = _row_index(provider)
+        response = client.post(
+            url,
+            {
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                f"providers-{idx}-clear_api_key": "on",
+                **_HEADERS_MGMT,
+                **mgmt,
+            },
+        )
+        assert response.status_code == 200
+        provider.refresh_from_db()
+        assert provider.api_key == "sk-existing"
+        assert provider.is_enabled is True
+
+    def test_in_flight_used_even_when_other_row_invalid(self, client, admin_user, url):
+        """If the providers formset is invalid only because of an unrelated row,
+        model validation must still see the in-flight state for the row the
+        model field references — not the (pre-save) cached DB state."""
+        provider = Provider.objects.get(slug="anthropic")
+        provider.is_enabled = False
+        provider.api_key = None
+        provider.save()
+        client.force_login(admin_user)
+
+        mgmt = _providers_mgmt()
+        anthropic_idx = _row_index(provider)
+        mgmt[f"providers-{anthropic_idx}-is_enabled"] = "on"
+        # Plus an invalid extra row.
+        new_idx = int(mgmt["providers-TOTAL_FORMS"])
+        mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
+        bad_row = {
+            f"providers-{new_idx}-id": "",
+            f"providers-{new_idx}-slug": "9invalid",
+            f"providers-{new_idx}-display_name": "Bad",
+            f"providers-{new_idx}-provider_type": "openrouter",
+            f"providers-{new_idx}-base_url": "",
+            f"providers-{new_idx}-api_key": "sk-x",
+            f"providers-{new_idx}-extra_headers": "{}",
+            f"providers-{new_idx}-model_suggestions": "",
+            f"providers-{new_idx}-is_enabled": "on",
+            f"providers-{new_idx}-sort_order": "0",
+        }
+        response = client.post(
+            url,
+            {
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                f"providers-{anthropic_idx}-api_key": "sk-fresh",
+                **_HEADERS_MGMT,
+                **mgmt,
+                **bad_row,
+            },
+        )
+        # Form re-rendered because of the invalid extra row, but the agent_model_name
+        # validation must NOT have rejected anthropic as disabled.
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Slug must start with a lowercase letter" in content
+        assert "Provider 'anthropic' is disabled" not in content
+        assert "Provider 'anthropic' has no API key" not in content

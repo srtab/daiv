@@ -58,7 +58,7 @@
                 {% if row.fields.api_key.secret_hint %}
                     <input type="hidden" name="{{ row.clear_api_key.html_name }}" value="">
                     <button type="button"
-                            @click="$el.previousElementSibling.value = 'on'; $el.form.requestSubmit()"
+                            @click="document.getElementsByName('{{ row.clear_api_key.html_name }}')[0].value = 'on'; $el.form.submit()"
                             class="rounded border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[11px] font-medium text-gray-400 transition-colors hover:border-red-800/50 hover:bg-red-950/30 hover:text-red-300">
                         {% trans "Clear" %}
                     </button>
