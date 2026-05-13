@@ -36,4 +36,25 @@
       {% trans "Show all" %} (<span x-text="filesTouched.length"></span>)
     </button>
   </div>
+
+  <div class="chat-rail__block">
+    <div class="chat-rail__label">{% trans "Usage" %}</div>
+    <template x-if="!usage_summary || usage_summary.total_tokens === 0">
+      <div style="color: #64748b;">—</div>
+    </template>
+    <template x-if="usage_summary && usage_summary.total_tokens > 0">
+      <div class="chat-rail__usage">
+        <div class="chat-rail__usage-cost" x-text="formatCost(usage_summary.cost_usd)"></div>
+        <div class="chat-rail__usage-tokens">
+          <span x-text="formatTokens(usage_summary.input_tokens) + ' in'"></span>
+          <span class="chat-rail__sep">·</span>
+          <span x-text="formatTokens(usage_summary.output_tokens) + ' out'"></span>
+        </div>
+        <div class="chat-rail__usage-meta" x-show="contextPct !== null"
+             x-text="contextPct + '% of context'"></div>
+        <div class="chat-rail__usage-model" x-text="usage_summary.last_model_name"
+             x-show="usage_summary.last_model_name"></div>
+      </div>
+    </template>
+  </div>
 </aside>

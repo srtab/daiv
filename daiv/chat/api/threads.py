@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from ag_ui.core import RunAgentInput
 
     from accounts.models import User
+    from automation.agent.usage_tracking import UsageSummary
     from codebase.base import MergeRequest
 
 logger = logging.getLogger("daiv.chat")
@@ -111,3 +112,38 @@ class ChatThreadService:
         new_ref = mr.get("source_branch") if isinstance(mr, dict) else getattr(mr, "source_branch", None)
         if new_ref and new_ref != original_ref:
             await ChatThread.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+
+    @staticmethod
+    async def apply_usage_delta_to_thread(
+        thread_id: str, summary: UsageSummary, last_model_name: str | None, last_input_tokens: int
+    ) -> ChatThread | None:
+        """Fetch the thread, fold the run's UsageSummary into its cumulative totals, save.
+
+        Returns the refreshed row, or ``None`` when the thread no longer exists (deleted
+        between run and apply). Plain async read-modify-write — the per-thread
+        ``active_run_id`` slot is the lock; no ``select_for_update`` needed.
+        """
+        thread = (
+            await ChatThread.objects
+            .filter(thread_id=thread_id)
+            .only(
+                "thread_id",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "cost_usd",
+                "cost_priced",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "last_model_name",
+                "last_input_tokens",
+                "usage_by_model",
+            )
+            .afirst()
+        )
+        if thread is None:
+            return None
+        changed = thread.apply_usage_delta(summary, last_model_name, last_input_tokens)
+        if changed:
+            await thread.asave(update_fields=changed)
+        return thread

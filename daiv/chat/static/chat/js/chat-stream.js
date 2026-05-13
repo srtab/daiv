@@ -15,6 +15,7 @@
     REASONING_MESSAGE_CONTENT: "REASONING_MESSAGE_CONTENT",
     REASONING_END: "REASONING_END",
     STATE_SNAPSHOT: "STATE_SNAPSHOT",
+    CUSTOM: "CUSTOM",
   };
 
   // Normalize a raw GitState.merge_request snapshot (snake_case Pydantic dump)
@@ -53,6 +54,31 @@
     } catch {
       return null;
     }
+  };
+
+  const loadInitialUsage = () => {
+    const el = document.getElementById("chat-initial-usage");
+    if (!el) return null;
+    try {
+      const v = JSON.parse(el.textContent);
+      return v && typeof v === "object" ? v : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const formatTokens = (n) => {
+    const v = Number(n) || 0;
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+    return String(v);
+  };
+
+  const formatCost = (s) => {
+    if (s == null) return "—";
+    const d = Number(s);
+    if (Number.isNaN(d)) return "—";
+    return d < 0.1 ? `$${d.toFixed(4)}` : `$${d.toFixed(2)}`;
   };
 
   // Tools whose args directly name a file the agent *modified*. Read-only tools
@@ -124,6 +150,7 @@
     // proxy after init doesn't always re-render templates.
     thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
     turns: loadInitialTurns(),
+    usage_summary: loadInitialUsage(),
     draftMessage: "",
     draftRepoId: "",
     draftRef: "",
@@ -153,6 +180,15 @@
       if (this.draftRepoId) {
         this.$nextTick(() => this.$refs.prompt?.focus());
       }
+    },
+
+    formatTokens,
+    formatCost,
+
+    get contextPct() {
+      const u = this.usage_summary;
+      if (!u || !u.context_window || !u.last_input_tokens) return null;
+      return Math.round((100 * u.last_input_tokens) / u.context_window);
     },
 
     init() {
@@ -696,6 +732,17 @@
             const mr = normalizeStateMr(raw);
             this._applyRepoState({ merge_request: mr, ref: mr ? mr.source_branch : undefined });
           }
+        }
+      } else if (type === AGUI.CUSTOM && evt.name === "daiv.usage_summary") {
+        // Skip the assignment when the payload is byte-identical so Alpine
+        // doesn't re-run every x-text binding for an event that carries no
+        // new information. JSON.stringify gives us a cheap structural compare
+        // that adapts automatically when new fields land on the wire.
+        const next = evt.value;
+        const nextSerialized = JSON.stringify(next);
+        if (this._lastUsageSerialized !== nextSerialized) {
+          this._lastUsageSerialized = nextSerialized;
+          this.usage_summary = next;
         }
       } else {
         // Cheap visibility for unrecognised AG-UI events so future upstream

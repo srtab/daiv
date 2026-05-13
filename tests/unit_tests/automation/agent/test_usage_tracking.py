@@ -409,3 +409,54 @@ class TestEmptyMetadataWarning:
 
         assert summary.input_tokens == 0
         assert any("callback hook may not have fired" in rec.message for rec in caplog.records)
+
+
+def _make_llm_result(model_name: str, input_tokens: int, output_tokens: int = 1) -> LLMResult:
+    """Build a minimal LLMResult with a single AIMessage carrying usage metadata."""
+    msg = AIMessage(
+        content="",
+        usage_metadata={
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        },
+        response_metadata={"model_name": model_name},
+    )
+    return LLMResult(generations=[[ChatGeneration(message=msg)]])
+
+
+def test_last_call_handler_records_latest_model_and_input_tokens():
+    from automation.agent.usage_tracking import LastCallUsageMetadataCallbackHandler
+
+    handler = LastCallUsageMetadataCallbackHandler()
+    handler.on_llm_end(_make_llm_result("anthropic/claude-sonnet-4.6", input_tokens=100))
+    assert handler.last_model_name == "anthropic/claude-sonnet-4.6"
+    assert handler.last_input_tokens == 100
+
+    handler.on_llm_end(_make_llm_result("openai/gpt-5", input_tokens=2000))
+    assert handler.last_model_name == "openai/gpt-5"
+    assert handler.last_input_tokens == 2000
+
+
+def test_last_call_handler_ignores_calls_without_usable_metadata():
+    from automation.agent.usage_tracking import LastCallUsageMetadataCallbackHandler
+
+    handler = LastCallUsageMetadataCallbackHandler()
+    handler.on_llm_end(LLMResult(generations=[[]]))  # no generation
+    assert handler.last_model_name is None
+    assert handler.last_input_tokens == 0
+
+
+def test_track_usage_metadata_yields_specified_handler_class():
+    from automation.agent.usage_tracking import (
+        CostAwareUsageMetadataCallbackHandler,
+        LastCallUsageMetadataCallbackHandler,
+        track_usage_metadata,
+    )
+
+    with track_usage_metadata() as default_handler:
+        assert isinstance(default_handler, CostAwareUsageMetadataCallbackHandler)
+        assert not isinstance(default_handler, LastCallUsageMetadataCallbackHandler)
+
+    with track_usage_metadata(handler_class=LastCallUsageMetadataCallbackHandler) as last_call_handler:
+        assert isinstance(last_call_handler, LastCallUsageMetadataCallbackHandler)

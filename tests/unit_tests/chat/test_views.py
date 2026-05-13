@@ -1,3 +1,4 @@
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.urls import reverse
@@ -303,3 +304,79 @@ def test_from_activity_creates_thread_and_redirects(member_client, member_user):
     assert resp.status_code == 302
     assert ChatThread.objects.filter(thread_id="t-alive", user=member_user).exists()
     assert resp["Location"] == reverse("chat_detail", kwargs={"thread_id": "t-alive"})
+
+
+@pytest.mark.django_db(transaction=True)
+def test_chat_detail_view_includes_zero_usage_for_empty_thread(member_client, member_user):
+    thread = ChatThread.objects.create(thread_id="t-empty-usage", user=member_user, repo_id="a/b", ref="main")
+    with patch("chat.views.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    assert resp.status_code == 200
+    usage = resp.context["usage_summary"]
+    assert usage["input_tokens"] == 0
+    assert usage["output_tokens"] == 0
+    assert usage["total_tokens"] == 0
+    assert usage["cost_usd"] is None  # cost_priced=True but cost_usd starts None → emits None.
+
+
+@pytest.mark.django_db(transaction=True)
+def test_chat_detail_view_surfaces_persisted_usage(member_client, member_user):
+    thread = ChatThread.objects.create(
+        thread_id="t-pop",
+        user=member_user,
+        repo_id="a/b",
+        ref="main",
+        input_tokens=12345,
+        output_tokens=678,
+        total_tokens=13023,
+        cache_read_tokens=4096,
+        cache_write_tokens=1024,
+        cost_usd=Decimal("0.012345"),
+        cost_priced=True,
+        last_model_name="anthropic/claude-sonnet-4.6",
+        last_input_tokens=2345,
+        usage_by_model={"anthropic/claude-sonnet-4.6": {"input_tokens": 12345}},
+    )
+    with patch("chat.views.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    usage = resp.context["usage_summary"]
+    assert usage["input_tokens"] == 12345
+    assert usage["output_tokens"] == 678
+    assert usage["total_tokens"] == 13023
+    assert usage["cache_read_tokens"] == 4096
+    assert usage["cache_write_tokens"] == 1024
+    assert usage["cost_usd"] == "0.012345"
+    assert usage["last_model_name"] == "anthropic/claude-sonnet-4.6"
+    assert usage["last_input_tokens"] == 2345
+    assert "context_window" in usage  # may be int or None depending on registry
+
+
+@pytest.mark.django_db(transaction=True)
+def test_chat_detail_view_unpriced_thread_emits_null_cost(member_client, member_user):
+    thread = ChatThread.objects.create(
+        thread_id="t-unpriced",
+        user=member_user,
+        repo_id="a/b",
+        ref="main",
+        input_tokens=100,
+        cost_usd=None,
+        cost_priced=False,
+    )
+    with patch("chat.views.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("chat_detail", kwargs={"thread_id": thread.thread_id}))
+
+    assert resp.context["usage_summary"]["cost_usd"] is None

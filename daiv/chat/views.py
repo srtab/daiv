@@ -15,6 +15,7 @@ from accounts.mixins import BreadcrumbMixin
 from chat.models import ChatThread
 from chat.repo_state import aget_existing_mr_payload, mr_to_payload
 from chat.turns import build_turns
+from chat.usage import build_thread_usage_payload
 from core.checkpointer import open_checkpointer
 
 
@@ -65,6 +66,7 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         thread = ctx.setdefault("thread", None)
         if thread is None:
             ctx.update({"turns": [], "expired": False, "active_run_id": "", "merge_request": None})
+            ctx["usage_summary"] = build_thread_usage_payload(None)
             return ctx
         messages_history, expired, merge_request = async_to_sync(_ahydrate)(thread.thread_id)
         if merge_request is None and thread.repo_id and thread.ref:
@@ -73,6 +75,7 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["expired"] = expired
         ctx["active_run_id"] = thread.active_run_id
         ctx["merge_request"] = merge_request
+        ctx["usage_summary"] = build_thread_usage_payload(thread)
         return ctx
 
     def get_breadcrumbs(self):
