@@ -113,6 +113,30 @@ class TestScheduleToggleView:
         assert schedule.is_enabled is False
         assert schedule.next_run_at is None
 
+    def test_resume_fired_one_off_is_rejected(self, member_client, member_user):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        past = timezone.now() - timedelta(hours=1)
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="fired one-off",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=past,
+            is_enabled=False,
+            next_run_at=None,
+            run_count=1,
+            last_run_at=past,
+        )
+        response = member_client.post(reverse("schedule_toggle", args=[schedule.pk]))
+        assert response.status_code == 200
+        assert response.headers.get("HX-Trigger") == "schedule-toggle-error"
+        schedule.refresh_from_db()
+        assert schedule.is_enabled is False
+
 
 @pytest.mark.django_db(transaction=True)
 class TestScheduleRunNowView:

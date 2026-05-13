@@ -19,7 +19,7 @@ from activity.services import RepoTarget, submit_batch_runs
 
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
-from schedules.models import ScheduledJob, ScheduleTemplate
+from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
 
 logger = logging.getLogger("daiv.schedules")
 
@@ -143,6 +143,21 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
             schedule = get_object_or_404(self.get_queryset().select_related("user").select_for_update(), pk=pk)
             schedule.is_enabled = not schedule.is_enabled
             if schedule.is_enabled:
+                is_fired_one_off = schedule.frequency == Frequency.ONCE and schedule.run_count > 0
+                if is_fired_one_off:
+                    logger.info(
+                        "Refusing to re-enable fired one-off schedule pk=%d (%s); use Duplicate instead.",
+                        schedule.pk,
+                        schedule.name,
+                    )
+                    schedule.refresh_from_db()
+                    html = render_to_string(
+                        "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
+                    )
+                    response = HttpResponse(html, content_type="text/html")
+                    response["HX-Reswap"] = "outerHTML"
+                    response["HX-Trigger"] = "schedule-toggle-error"
+                    return response
                 try:
                     schedule.compute_next_run()
                 except ValueError, TypeError:
