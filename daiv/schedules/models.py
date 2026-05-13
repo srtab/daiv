@@ -176,6 +176,11 @@ class ScheduledJob(TimeStampedModel):
         """Return the user-facing fields for the duplicate flow (owner/audit fields excluded)."""
         return {f: getattr(self, f) for f in self.DUPLICABLE_FIELDS}
 
+    @property
+    def is_fired_one_off(self) -> bool:
+        """True once a ONCE schedule has fired — drives the read-only 'Fired' card state."""
+        return self.frequency == Frequency.ONCE and self.run_count > 0
+
     def __str__(self) -> str:
         return self.name
 

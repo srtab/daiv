@@ -2,7 +2,7 @@
 <div id="schedule-{{ schedule.pk }}"
      class="relative flex flex-col rounded-2xl border bg-white/[0.02] p-5 transition
             {% if schedule.is_enabled %}border-white/[0.06] hover:border-white/[0.12]{% else %}border-white/[0.04] hover:border-white/[0.06]{% endif %}">
-    {% if schedule.frequency != 'once' or schedule.run_count == 0 %}
+    {% if not schedule.is_fired_one_off %}
     <a href="{% url 'schedule_update' schedule.pk %}"
        class="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
        aria-label="Edit {{ schedule.name }}"></a>
@@ -23,14 +23,8 @@
         </button>
         <div x-show="open" @click.outside="open = false" x-transition x-cloak
              class="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] py-1 shadow-xl">
-            {% if schedule.frequency == 'once' and schedule.run_count > 0 %}
-            <form method="post" action="{% url 'schedule_duplicate' schedule.pk %}">
-                {% csrf_token %}
-                <button type="submit" class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-300 hover:bg-white/[0.04] hover:text-white">
-                    <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V5a2 2 0 00-2-2H7z"/><path d="M3 7a2 2 0 012-2v10a2 2 0 002 2h6a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
-                    Duplicate
-                </button>
-            </form>
+            {% if schedule.is_fired_one_off %}
+            {% include "schedules/_schedule_duplicate_action.html" %}
             <a href="{% url 'schedule_delete' schedule.pk %}"
                class="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-white/[0.04]">
                 <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
@@ -59,13 +53,7 @@
                     Run now
                 </button>
             </form>
-            <form method="post" action="{% url 'schedule_duplicate' schedule.pk %}">
-                {% csrf_token %}
-                <button type="submit" class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-300 hover:bg-white/[0.04] hover:text-white">
-                    <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V5a2 2 0 00-2-2H7z"/><path d="M3 7a2 2 0 012-2v10a2 2 0 002 2h6a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
-                    Duplicate
-                </button>
-            </form>
+            {% include "schedules/_schedule_duplicate_action.html" %}
             <a href="{% url 'schedule_delete' schedule.pk %}"
                class="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-white/[0.04]">
                 <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
@@ -78,7 +66,7 @@
     <span class="block min-w-0 break-words pr-10 text-[15px] font-medium text-white">{{ schedule.name }}</span>
 
     <div class="mt-2 flex flex-wrap items-center gap-1.5">
-        {% if schedule.frequency == 'once' and schedule.run_count > 0 %}
+        {% if schedule.is_fired_one_off %}
         <span class="inline-flex items-center gap-1 rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-400">
             <span class="h-1.5 w-1.5 rounded-full bg-gray-500"></span>Fired
         </span>

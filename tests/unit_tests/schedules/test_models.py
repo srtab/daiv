@@ -237,3 +237,41 @@ class TestScheduledJobToScheduleKwargs:
             "use_max": True,
             "notify_on": NotifyOn.ALWAYS,
         }
+
+
+@pytest.mark.django_db
+class TestScheduledJobIsFiredOneOff:
+    def test_false_before_fire(self, member_user):
+        job = ScheduledJob(
+            user=member_user,
+            name="o",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=_future(),
+        )
+        assert job.is_fired_one_off is False
+
+    def test_true_after_fire(self, member_user):
+        job = ScheduledJob(
+            user=member_user,
+            name="o",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=_future(),
+            run_count=1,
+        )
+        assert job.is_fired_one_off is True
+
+    def test_false_for_recurring_even_after_runs(self, member_user):
+        job = ScheduledJob(
+            user=member_user,
+            name="d",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+            run_count=42,
+        )
+        assert job.is_fired_one_off is False
