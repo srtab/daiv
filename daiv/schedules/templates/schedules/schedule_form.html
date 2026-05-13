@@ -120,7 +120,6 @@
                     {% endif %}
                 </div>
 
-                <!-- Run-at (shown only for Once) -->
                 <div x-show="showRunAt" x-cloak>
                     <label for="id_run_at" class="block text-[15px] font-medium text-gray-400">Date & time <span class="text-red-400">*</span></label>
                     <input type="datetime-local" name="run_at" id="id_run_at" x-model="runAt" :min="nowMin" class="mt-2 !w-auto">

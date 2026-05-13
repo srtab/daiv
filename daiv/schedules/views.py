@@ -151,6 +151,17 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
 class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
     http_method_names = ["post"]
 
+    def _render_error_response(self, request, schedule) -> HttpResponse:
+        """Render the current schedule row and signal HTMX to roll back the toggle attempt."""
+        schedule.refresh_from_db()
+        html = render_to_string(
+            "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
+        )
+        response = HttpResponse(html, content_type="text/html")
+        response["HX-Reswap"] = "outerHTML"
+        response["HX-Trigger"] = "schedule-toggle-error"
+        return response
+
     def post(self, request, pk):
         with transaction.atomic():
             schedule = get_object_or_404(self.get_queryset().select_related("user").select_for_update(), pk=pk)
@@ -162,14 +173,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                         schedule.pk,
                         schedule.name,
                     )
-                    schedule.refresh_from_db()
-                    html = render_to_string(
-                        "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
-                    )
-                    response = HttpResponse(html, content_type="text/html")
-                    response["HX-Reswap"] = "outerHTML"
-                    response["HX-Trigger"] = "schedule-toggle-error"
-                    return response
+                    return self._render_error_response(request, schedule)
                 try:
                     schedule.compute_next_run()
                 except ValueError, TypeError:
@@ -178,14 +182,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                         schedule.pk,
                         schedule.name,
                     )
-                    schedule.refresh_from_db()
-                    html = render_to_string(
-                        "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
-                    )
-                    response = HttpResponse(html, content_type="text/html")
-                    response["HX-Reswap"] = "outerHTML"
-                    response["HX-Trigger"] = "schedule-toggle-error"
-                    return response
+                    return self._render_error_response(request, schedule)
             else:
                 schedule.next_run_at = None
             schedule.save(update_fields=["is_enabled", "next_run_at", "modified"])

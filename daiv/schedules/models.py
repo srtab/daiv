@@ -28,6 +28,9 @@ class Frequency(models.TextChoices):
     ONCE = "once", _("Once")
 
 
+_USER_FACING_FIELDS = ("name", "prompt", "repos", "frequency", "cron_expression", "time", "use_max", "notify_on")
+
+
 def _coerce_repos(repos, *, allow_empty: bool) -> list[dict]:
     """Validate a ``[{repo_id, ref}, ...]`` list and re-raise as a Django ``ValidationError``.
 
@@ -48,8 +51,8 @@ def _validate_frequency_fields(
     frequency: Frequency,
     cron_expression: str,
     time: dt_time | None,
+    require_run_at: bool,
     run_at: datetime | None = None,
-    require_run_at: bool = False,
 ) -> None:
     """Keep ``ScheduledJob`` and ``ScheduleTemplate`` clean-time rules in lockstep so values
     copied via ``ScheduleTemplate.to_schedule_kwargs()`` never produce a job the schedule rejects.
@@ -160,17 +163,7 @@ class ScheduledJob(TimeStampedModel):
             )
         ]
 
-    DUPLICABLE_FIELDS = (
-        "name",
-        "prompt",
-        "repos",
-        "frequency",
-        "cron_expression",
-        "time",
-        "run_at",
-        "use_max",
-        "notify_on",
-    )
+    DUPLICABLE_FIELDS = (*_USER_FACING_FIELDS, "run_at")
 
     def to_schedule_kwargs(self) -> dict:
         """Return the user-facing fields for the duplicate flow (owner/audit fields excluded)."""
@@ -180,6 +173,19 @@ class ScheduledJob(TimeStampedModel):
     def is_fired_one_off(self) -> bool:
         """True once a ONCE schedule has fired — drives the read-only 'Fired' card state."""
         return self.frequency == Frequency.ONCE and self.run_count > 0
+
+    def advance_after_dispatch(self, after: datetime) -> list[str]:
+        """Transition next-run state after a dispatch, returning the mutated field names.
+
+        ONCE schedules retire (``is_enabled=False``, ``next_run_at=None``) so the dispatcher
+        cannot re-fire them; recurring schedules advance to the next cron tick.
+        """
+        if self.frequency == Frequency.ONCE:
+            self.is_enabled = False
+            self.next_run_at = None
+            return ["is_enabled", "next_run_at"]
+        self.compute_next_run(after=after)
+        return ["next_run_at"]
 
     def __str__(self) -> str:
         return self.name
@@ -253,7 +259,7 @@ class ScheduleTemplate(TimeStampedModel):
     so editing or deleting a template never affects existing schedules.
     """
 
-    SCHEDULE_FIELDS = ("name", "prompt", "repos", "frequency", "cron_expression", "time", "use_max", "notify_on")
+    SCHEDULE_FIELDS = _USER_FACING_FIELDS
     # Coupled to ``to_picker_dict()``: every field read there must be in this
     # tuple or ``.only(*PICKER_FIELDS)`` queries will trigger a deferred-field
     # fetch per row. ``prompt`` is deliberately excluded.
