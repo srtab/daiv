@@ -25,6 +25,7 @@ class Frequency(models.TextChoices):
     WEEKDAYS = "weekdays", _("Weekdays")
     WEEKLY = "weekly", _("Weekly")
     CUSTOM = "custom", _("Custom")
+    ONCE = "once", _("Once")
 
 
 def _coerce_repos(repos, *, allow_empty: bool) -> list[dict]:
@@ -99,6 +100,9 @@ class ScheduledJob(TimeStampedModel):
     )
     time = models.TimeField(
         _("time"), null=True, blank=True, help_text=_("Time of day (used for Daily, Weekdays, and Weekly frequencies).")
+    )
+    run_at = models.DateTimeField(
+        _("run at"), null=True, blank=True, help_text=_("Specific date and time for one-off schedules.")
     )
     use_max = models.BooleanField(
         _("max mode"), default=False, help_text=_("Use the more capable model with thinking set to high.")
