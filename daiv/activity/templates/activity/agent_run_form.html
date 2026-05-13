@@ -2,15 +2,16 @@
 {% load i18n static %}
 
 {% block title %}{% if source_activity %}Retry run{% else %}Start a run{% endif %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
-{% endblock %}
+{% endblock alpine_plugins %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -56,4 +57,4 @@
         </a>
     </div>
 </form>
-{% endblock %}
+{% endblock app_content %}

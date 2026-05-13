@@ -1,8 +1,8 @@
 {% load i18n %}
 <div class="mt-6"
      x-data="subscriberPicker({ initial: {{ subscriber_initial_json|default:'[]' }} })">
-    <label class="block text-[15px] font-medium text-gray-400">{% trans "Subscribers" %}</label>
-    <p class="mt-1 text-sm text-gray-400">{% trans "Other users CC'd on this schedule's finish notifications." %}</p>
+    <label class="block text-[15px] font-medium text-gray-400">{% translate "Subscribers" %}</label>
+    <p class="mt-1 text-sm text-gray-400">{% translate "Other users CC'd on this schedule's finish notifications." %}</p>
 
     <select name="{{ form.subscribers.html_name }}" id="{{ form.subscribers.id_for_label }}" multiple class="hidden">
         <template x-for="u in selected" :key="u.id">
@@ -24,12 +24,12 @@
                 </button>
             </span>
         </template>
-        <p x-show="selected.length === 0" class="text-sm text-gray-500">{% trans "No subscribers yet." %}</p>
+        <p x-show="selected.length === 0" class="text-sm text-gray-500">{% translate "No subscribers yet." %}</p>
     </div>
 
     <div class="relative mt-3">
         <input type="text" :value="query" @input="search($event.target.value)"
-               placeholder="{% trans 'Search users by name, email, or username...' %}"
+               placeholder="{% translate 'Search users by name, email, or username...' %}"
                autocomplete="off" class="w-full">
         <div x-show="results.length > 0 || isLoading" x-cloak
              class="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-white/[0.06] bg-[#0d1117] shadow-lg">
@@ -43,7 +43,7 @@
                         <span x-show="u.name" class="ml-auto text-xs text-gray-500" x-text="u.email"></span>
                     </li>
                 </template>
-                <li x-show="isLoading" class="px-3 py-2 text-sm text-gray-400">{% trans "Searching..." %}</li>
+                <li x-show="isLoading" class="px-3 py-2 text-sm text-gray-400">{% translate "Searching..." %}</li>
             </ul>
         </div>
     </div>

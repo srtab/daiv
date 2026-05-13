@@ -1,8 +1,8 @@
 {% load i18n %}
-<aside class="chat-rail" aria-label="{% trans 'Session context' %}">
+<aside class="chat-rail" aria-label="{% translate 'Session context' %}">
   <div class="chat-rail__block">
     <div class="chat-rail__label">
-      {% trans "Todos" %} <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
+      {% translate "Todos" %} <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
     </div>
     <template x-if="!latestTodos.length">
       <div style="color: #64748b;">—</div>
@@ -16,7 +16,7 @@
   </div>
 
   <div class="chat-rail__block">
-    <div class="chat-rail__label">{% trans "Files changed" %}</div>
+    <div class="chat-rail__label">{% translate "Files changed" %}</div>
     <template x-if="!filesTouched.length">
       <div style="color: #64748b;">—</div>
     </template>
@@ -33,7 +33,7 @@
             style="color: #64748b; padding-top: 6px;"
             x-show="filesTouched.length > filesTouchedLimit"
             @click="filesTouchedLimit = filesTouched.length">
-      {% trans "Show all" %} (<span x-text="filesTouched.length"></span>)
+      {% translate "Show all" %} (<span x-text="filesTouched.length"></span>)
     </button>
   </div>
 </aside>

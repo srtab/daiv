@@ -1,11 +1,12 @@
 {% extends "base_app.html" %}
 
 {% block title %}Schedule Templates — DAIV{% endblock %}
+
 {% block container_width %}max-w-screen-2xl{% endblock %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div class="animate-fade-up flex items-center justify-between">
@@ -54,4 +55,4 @@
     </div>
     {% endif %}
 </div>
-{% endblock %}
+{% endblock app_content %}

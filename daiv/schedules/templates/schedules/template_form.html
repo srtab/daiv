@@ -2,16 +2,17 @@
 {% load i18n static %}
 
 {% block title %}{% if object %}Edit Template{% else %}New Template{% endif %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
-{% endblock %}
+{% endblock alpine_plugins %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -55,7 +56,7 @@
         {% include "activity/_agent_run_fields.html" with form=form repos_required=False %}
     </div>
     <p class="mt-2 text-sm text-gray-500">
-        {% trans "Repositories selected here pre-fill the schedule picker. Leave empty to let users choose." %}
+        {% translate "Repositories selected here pre-fill the schedule picker. Leave empty to let users choose." %}
     </p>
 
     <div class="mt-6 grid grid-cols-3 gap-4">
@@ -95,4 +96,4 @@
         {% endif %}
     </div>
 </form>
-{% endblock %}
+{% endblock app_content %}

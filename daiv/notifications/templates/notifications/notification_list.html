@@ -2,6 +2,7 @@
 {% load dashboard_tags i18n %}
 
 {% block title %}{% translate "Notifications" %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block app_content %}
@@ -40,4 +41,4 @@
     {% if page_obj.has_next %}<a href="?{{ qs }}page={{ page_obj.next_page_number }}">→</a>{% endif %}
   </div>
 {% endif %}
-{% endblock %}
+{% endblock app_content %}

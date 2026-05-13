@@ -74,6 +74,7 @@ urls.source = "https://github.com/srtab/daiv"
 dev = [
   "coverage==7.13.5",
   "datasets==4.8.5",
+  "djade==1.9.0",
   "openevals==0.2.0",
   "prek==0.3.13",
   "pyproject-fmt==2.21.2",

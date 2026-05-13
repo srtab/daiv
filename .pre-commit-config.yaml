@@ -19,3 +19,9 @@ repos:
     rev: v2.20.0
     hooks:
       - id: pyproject-fmt
+
+  - repo: https://github.com/adamchainz/djade-pre-commit
+    rev: "1.9.0"
+    hooks:
+      - id: djade
+        args: [--target-version, "6.0"]

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static icon_tags %}
+{% load icon_tags static %}
 
 {% block title %}DAIV — Open-source async SWE agent for your Git platform{% endblock %}
 
@@ -22,7 +22,7 @@
   }
 }
 </script>
-{% endblock %}
+{% endblock head_extra %}
 
 {% block content %}
 <!-- Navigation -->
@@ -360,4 +360,4 @@
         </div>
     </div>
 </footer>
-{% endblock %}
+{% endblock content %}

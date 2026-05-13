@@ -2,11 +2,12 @@
 {% load icon_tags %}
 
 {% block title %}Delete Template — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -31,4 +32,4 @@
         <a href="{{ cancel_url }}" class="btn-secondary">Cancel</a>
     </form>
 </div>
-{% endblock %}
+{% endblock app_content %}

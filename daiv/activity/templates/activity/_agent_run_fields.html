@@ -1,5 +1,5 @@
 {% load i18n %}
-{% trans "Repository already in the list: __LABEL__." as conflict_message_template %}
+{% translate "Repository already in the list: __LABEL__." as conflict_message_template %}
 
 <div x-data='promptBox({
         initialRepos: {{ form.repos.value|default:"[]" }},
@@ -11,7 +11,7 @@
      })'
      class="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] transition-colors focus-within:border-white/[0.18]">
 
-    <label for="id_prompt" class="sr-only">{% trans "Prompt" %}</label>
+    <label for="id_prompt" class="sr-only">{% translate "Prompt" %}</label>
 
     <textarea name="prompt" id="id_prompt" rows="2" required
               x-ref="prompt"
@@ -19,7 +19,7 @@
               x-init="$nextTick(() => autosize($refs.prompt))"
               @keydown.meta.enter.prevent="$el.form?.requestSubmit()"
               @keydown.ctrl.enter.prevent="$el.form?.requestSubmit()"
-              placeholder="{% trans 'Describe what the agent should do in each run...' %}"
+              placeholder="{% translate 'Describe what the agent should do in each run...' %}"
               class="block w-full resize-none !border-0 !bg-transparent !px-5 !pt-4 !pb-3 !text-[15px] !text-white placeholder-gray-500 focus:!ring-0">{{ form.prompt.value|default:'' }}</textarea>
 
     <div class="border-t border-white/[0.05]"></div>
@@ -29,8 +29,8 @@
         {% include "codebase/_repo_picker.html" with with_x_data=False initial_repos=form.repos.value|default:"[]" max_repos=20 show_conflict_message=False required=repos_required %}
 
         <label class="inline-flex shrink-0 cursor-pointer items-center gap-2 text-[13px] text-gray-400"
-               title="{% trans 'More capable model with thinking set to high.' %}">
-            <span>{% trans "Max" %}</span>
+               title="{% translate 'More capable model with thinking set to high.' %}">
+            <span>{% translate "Max" %}</span>
             <span class="relative inline-block h-[18px] w-[30px] shrink-0 rounded-full bg-white/[0.1] transition-colors"
                   :class="useMax && '!bg-white'">
                 <span class="absolute left-[2px] top-[2px] h-[14px] w-[14px] rounded-full bg-white transition-all"
