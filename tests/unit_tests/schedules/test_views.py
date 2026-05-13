@@ -548,3 +548,63 @@ class TestScheduleListViewGalleryWiring:
         response = member_client.get(reverse("schedule_list"))
         body = response.content.decode()
         assert f"{reverse('schedule_create')}?template=${{tpl.id}}" in body
+
+
+@pytest.mark.django_db
+class TestScheduleDuplicateFlow:
+    def test_create_view_with_from_param_prefills(self, member_client, member_user):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        future = timezone.now() + timedelta(hours=2)
+        source = ScheduledJob.objects.create(
+            user=member_user,
+            name="source",
+            prompt="hello",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=future,
+            use_max=True,
+        )
+        response = member_client.get(reverse("schedule_create") + f"?from={source.pk}")
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "source" in content
+        assert "hello" in content
+
+    def test_create_view_with_unknown_from_pk_falls_back_to_blank(self, member_client):
+        response = member_client.get(reverse("schedule_create") + "?from=999999")
+        assert response.status_code == 200
+
+    def test_create_view_with_from_other_user_returns_404(self, member_user):
+        other = User.objects.create_user(username="other", email="o@t.com", password="x")  # noqa: S106
+        future_job = ScheduledJob.objects.create(
+            user=other,
+            name="theirs",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency="daily",
+            time="09:00",
+        )
+        from django.test import Client
+
+        c = Client()
+        c.force_login(User.objects.create_user(username="me", email="me@t.com", password="x"))  # noqa: S106
+        response = c.get(reverse("schedule_create") + f"?from={future_job.pk}")
+        assert response.status_code == 200
+        # Cross-user duplicate falls back to a blank form (not a 404 redirect — fail-soft)
+        assert "theirs" not in response.content.decode()
+
+    def test_duplicate_view_redirects_to_create_with_from_param(self, member_client, member_user):
+        source = ScheduledJob.objects.create(
+            user=member_user,
+            name="source",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency="daily",
+            time="09:00",
+        )
+        response = member_client.post(reverse("schedule_duplicate", args=[source.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("schedule_create") + f"?from={source.pk}"

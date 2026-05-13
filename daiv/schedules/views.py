@@ -83,6 +83,16 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
             return None
         return ScheduleTemplate.objects.filter(pk=pk_int).first()
 
+    def _get_source_schedule(self) -> ScheduledJob | None:
+        pk = self.request.GET.get("from")
+        if not pk:
+            return None
+        try:
+            pk_int = int(pk)
+        except ValueError:
+            return None
+        return self.get_queryset().filter(pk=pk_int).first()
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
@@ -93,6 +103,9 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         tpl = self._get_template()
         if tpl is not None:
             initial.update(tpl.to_schedule_kwargs())
+        source = self._get_source_schedule()
+        if source is not None:
+            initial.update(source.to_schedule_kwargs())
         return initial
 
     def get_context_data(self, **kwargs):
@@ -293,6 +306,20 @@ class ScheduleTemplateUpdateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
             {"label": "Templates", "url": reverse("schedule_template_list")},
             {"label": f'"{self.object.name}"', "url": None},
         ]
+
+
+class ScheduleDuplicateView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
+    """POST-only redirect to ``schedule_create?from=<pk>``.
+
+    Keeps the prefill behaviour purely server-side and avoids an unauthenticated
+    GET that would let other users probe schedule contents via the create form.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        get_object_or_404(self.get_queryset(), pk=pk)
+        return redirect(f"{reverse('schedule_create')}?from={pk}")
 
 
 class ScheduleTemplateDeleteView(BreadcrumbMixin, AdminRequiredMixin, SuccessMessageMixin, DeleteView):

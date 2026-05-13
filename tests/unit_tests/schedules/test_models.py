@@ -209,3 +209,31 @@ class TestScheduleTemplateOnceValidation:
         from schedules.models import ScheduleTemplate
 
         ScheduleTemplate(name="t", prompt="p", frequency=Frequency.ONCE).full_clean()  # no error
+
+
+@pytest.mark.django_db
+class TestScheduledJobToScheduleKwargs:
+    def test_returns_user_facing_fields(self, member_user):
+        future = _future()
+        job = ScheduledJob.objects.create(
+            user=member_user,
+            name="one-off",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=future,
+            use_max=True,
+            notify_on=NotifyOn.ALWAYS,
+        )
+        kwargs = job.to_schedule_kwargs()
+        assert kwargs == {
+            "name": "one-off",
+            "prompt": "p",
+            "repos": [{"repo_id": "x/y", "ref": ""}],
+            "frequency": Frequency.ONCE,
+            "cron_expression": "",
+            "time": None,
+            "run_at": future,
+            "use_max": True,
+            "notify_on": NotifyOn.ALWAYS,
+        }

@@ -160,6 +160,22 @@ class ScheduledJob(TimeStampedModel):
             )
         ]
 
+    DUPLICABLE_FIELDS = (
+        "name",
+        "prompt",
+        "repos",
+        "frequency",
+        "cron_expression",
+        "time",
+        "run_at",
+        "use_max",
+        "notify_on",
+    )
+
+    def to_schedule_kwargs(self) -> dict:
+        """Return the user-facing fields for the duplicate flow (owner/audit fields excluded)."""
+        return {f: getattr(self, f) for f in self.DUPLICABLE_FIELDS}
+
     def __str__(self) -> str:
         return self.name
 
