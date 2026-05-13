@@ -91,6 +91,14 @@ class SWERepoClient(RepoClient):
         """
         raise NotImplementedError("SWERepoClient does not support listing repositories")
 
+    def is_branch_protected(self, repo_id: str, branch: str) -> bool:
+        """SWE sandbox repos have no remote branch protection."""
+        return False
+
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """List branches is not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support listing branches")
+
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
         Get the content of a file in a repository.
@@ -280,6 +288,12 @@ class SWERepoClient(RepoClient):
         raise NotImplementedError("SWERepoClient does not support bot commit email")
 
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support merge requests")
+
+    def get_merge_request_by_branches(
+        self, repo_id: str, source_branch: str, target_branch: str
+    ) -> MergeRequest | None:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
 

@@ -1,18 +1,17 @@
 import logging
 from typing import TYPE_CHECKING
 
-from django.conf import settings as django_settings
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
-from codebase.base import GitPlatform
+from codebase.base import GitPlatform, Scope
+from codebase.utils import compute_thread_id
+from core.checkpointer import open_checkpointer
 from core.constants import BOT_NAME
-from core.utils import generate_uuid
 
 from .base import BaseManager
 
@@ -33,15 +32,31 @@ class IssueAddressorManager(BaseManager):
     Manages the issue processing and addressing workflow.
     """
 
-    def __init__(self, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx):
+    def __init__(
+        self,
+        *,
+        issue: Issue,
+        mention_comment_id: str | None = None,
+        runtime_ctx: RuntimeCtx,
+        thread_id: str | None = None,
+    ):
         super().__init__(runtime_ctx=runtime_ctx)
         self.issue = issue
-        self.thread_id = generate_uuid(f"{self.ctx.repository.slug}:{self.ctx.scope}/{issue.iid}")
+        if thread_id is None:
+            thread_id = compute_thread_id(repo_slug=self.ctx.repository.slug, scope=Scope.ISSUE, entity_iid=issue.iid)
+        elif not thread_id:
+            raise ValueError(f"thread_id must be non-empty or None, got {thread_id!r}")
+        self.thread_id = thread_id
         self.mention_comment_id = mention_comment_id
 
     @classmethod
     async def address_issue(
-        cls, *, issue: Issue, mention_comment_id: str | None = None, runtime_ctx: RuntimeCtx
+        cls,
+        *,
+        issue: Issue,
+        mention_comment_id: str | None = None,
+        runtime_ctx: RuntimeCtx,
+        thread_id: str | None = None,
     ) -> AgentResult:
         """
         Address the issue.
@@ -54,7 +69,7 @@ class IssueAddressorManager(BaseManager):
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag.
         """
-        manager = cls(issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
+        manager = cls(issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx, thread_id=thread_id)
 
         try:
             return await manager._address_issue()
@@ -90,10 +105,7 @@ class IssueAddressorManager(BaseManager):
                 HumanMessage(name=self.issue.author.username, id=str(self.issue.iid), content=message_content)
             )
 
-        async with AsyncRedisSaver.from_conn_string(
-            django_settings.DJANGO_REDIS_CHECKPOINT_URL,
-            ttl={"default_ttl": django_settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES},
-        ) as checkpointer:
+        async with open_checkpointer() as checkpointer:
             agent_kwargs = get_daiv_agent_kwargs(
                 model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()
             )
@@ -141,10 +153,7 @@ class IssueAddressorManager(BaseManager):
                     self._add_unable_to_address_issue_note()
 
                 return await self._build_agent_result(
-                    daiv_agent,
-                    agent_config,
-                    response=response_text,
-                    usage=build_usage_summary(usage_handler.usage_metadata).to_dict(),
+                    daiv_agent, agent_config, response=response_text, usage=build_usage_summary(usage_handler).to_dict()
                 )
 
     def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):

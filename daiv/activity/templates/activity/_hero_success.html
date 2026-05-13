@@ -12,6 +12,16 @@
                 Open !{{ activity.merge_request_iid|unlocalize }}
             </a>
             {% endif %}
+            {% if activity.thread_id %}
+            <form method="post" action="{% url 'chat_from_activity' activity_id=activity.pk %}">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+                    {% icon "chat-bubble" "h-4 w-4" %}
+                    Continue as chat
+                </button>
+            </form>
+            {% endif %}
             {% if response_text %}
             {% include "activity/_copy_markdown_button.html" with source_id="activity-result-raw" label="Copy" %}
             <a href="{% url 'activity_download_md' activity.pk %}"

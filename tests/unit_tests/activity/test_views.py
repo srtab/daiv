@@ -193,6 +193,19 @@ class TestActivityListView:
         assert activity in response.context["activities"]
         assert response.context["current_status"] == ""
 
+    def test_has_active_filters_false_with_no_params(self, logged_in_client, user):
+        _create_activity(user=user)
+        response = logged_in_client.get(reverse("activity_list"))
+        assert response.context["has_active_filters"] is False
+        assert response.context["current_batch_short"] == ""
+
+    def test_has_active_filters_true_when_only_batch_is_set(self, logged_in_client, user):
+        batch_id = uuid.uuid4()
+        _create_activity(user=user)
+        response = logged_in_client.get(reverse("activity_list"), {"batch": str(batch_id)})
+        assert response.context["has_active_filters"] is True
+        assert response.context["current_batch_short"] == str(batch_id)[:8]
+
 
 @pytest.mark.django_db
 class TestActivityDetailView:
@@ -419,7 +432,7 @@ class TestActivityVisibilityForSubscribers:
             "user": owner,
             "name": "s",
             "prompt": "p",
-            "repo_id": "x/y",
+            "repos": [{"repo_id": "x/y", "ref": ""}],
             "frequency": Frequency.DAILY,
             "time": "12:00",
         }
@@ -429,7 +442,7 @@ class TestActivityVisibilityForSubscribers:
     def _activity(self, schedule, **overrides):
         data = {
             "trigger_type": TriggerType.SCHEDULE,
-            "repo_id": schedule.repo_id,
+            "repo_id": schedule.repos[0]["repo_id"],
             "status": ActivityStatus.SUCCESSFUL,
             "scheduled_job": schedule,
             "user": schedule.user,
@@ -490,7 +503,12 @@ class TestActivityDetailSubscriberContext:
         owner = User.objects.create_user(username="own", email="own@t.com", password="x")  # noqa: S106
         sub = User.objects.create_user(username="sub", email="sub@t.com", password="x")  # noqa: S106
         schedule = ScheduledJob.objects.create(
-            user=owner, name="s", prompt="p", repo_id="x/y", frequency=Frequency.DAILY, time="12:00"
+            user=owner,
+            name="s",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
         )
         schedule.subscribers.add(sub)
         activity = Activity.objects.create(

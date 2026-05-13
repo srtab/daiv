@@ -8,6 +8,8 @@ from urllib.parse import quote, urlencode
 
 from django.template.loader import render_to_string
 
+from asgiref.sync import sync_to_async
+
 from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
@@ -30,11 +32,11 @@ class ChangePublisher:
     """
 
     def __init__(self, ctx: RuntimeCtx):
-        """
-        Initialize the publisher.
-        """
         self.ctx = ctx
         self.client = RepoClient.create_instance()
+        # Set when publish() falls back to a fresh MR because the original's source
+        # branch was protected; consumed by managers to bundle a notice into the reply.
+        self.protected_branch_fallback_source: str | None = None
 
     @abstractmethod
     async def publish(self, **kwargs) -> Any:
@@ -64,10 +66,24 @@ class GitChangePublisher(ChangePublisher):
             The merge request if it was created or updated, otherwise None.
         """
         git_manager = GitManager(self.ctx.gitrepo)
+        self.protected_branch_fallback_source = None
 
         if not git_manager.is_dirty():
             logger.info("No changes to publish.")
             return None
+
+        fallback_from_mr: MergeRequest | None = None
+        if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
+            self.ctx.repository.slug, merge_request.source_branch
+        ):
+            logger.warning(
+                "Source branch '%s' of MR !%s is protected; opening a new MR with a fresh branch instead.",
+                merge_request.source_branch,
+                merge_request.merge_request_id,
+            )
+            fallback_from_mr = merge_request
+            self.protected_branch_fallback_source = merge_request.source_branch
+            merge_request = None
 
         # Compute full diff metadata when creating a new merge request or updating a draft merge request
         # to ensure we have the most up-to-date information.
@@ -98,6 +114,7 @@ class GitChangePublisher(ChangePublisher):
                 changes_metadata["pr_metadata"].title,
                 changes_metadata["pr_metadata"].description,
                 as_draft=as_draft,
+                fallback_from_mr=fallback_from_mr,
             )
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
@@ -162,7 +179,12 @@ class GitChangePublisher(ChangePublisher):
         raise ValueError("Failed to get PR metadata from the diff.")
 
     def _create_merge_request(
-        self, branch_name: str, title: str, description: str, as_draft: bool = False
+        self,
+        branch_name: str,
+        title: str,
+        description: str,
+        as_draft: bool = False,
+        fallback_from_mr: MergeRequest | None = None,
     ) -> MergeRequest:
         """
         Update or create the merge request.
@@ -172,6 +194,9 @@ class GitChangePublisher(ChangePublisher):
             title: The title of the merge request.
             description: The description of the merge request.
             as_draft: Whether to create the merge request as a draft.
+            fallback_from_mr: The original MR whose protected source branch forced this
+                fresh MR. When provided, the description back-links to it so reviewers
+                can trace the relationship.
 
         Returns:
             The merge request.
@@ -202,6 +227,7 @@ class GitChangePublisher(ChangePublisher):
                     "bot_name": BOT_NAME,
                     "bot_username": self.ctx.bot_username,
                     "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+                    "fallback_from_mr": fallback_from_mr,
                 },
             ),
         )

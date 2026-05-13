@@ -1,7 +1,8 @@
-import contextlib
 import fnmatch
+import logging
 import re
-import tempfile
+import subprocess  # noqa: S404
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,14 +10,33 @@ from git import GitCommandError
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from unidiff import PatchSet
 from unidiff.constants import LINE_TYPE_CONTEXT
+from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
 from core.constants import BOT_NAME
+from core.utils import generate_uuid
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from git import Repo
 
-    from codebase.base import Discussion, Note, User
+    from codebase.base import Discussion, Note, Scope, User
+
+
+def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
+    """Deterministic LangGraph checkpoint key for an issue or merge-request conversation.
+
+    Webhook callbacks mint this to set ``Activity.thread_id`` before enqueueing the
+    addressor task; the addressor managers must compute the same value so follow-up
+    events resume the same checkpointer state.
+    """
+    if not repo_slug or scope is None or entity_iid is None or entity_iid == "":
+        raise ValueError(
+            f"compute_thread_id requires non-empty values; "
+            f"got repo_slug={repo_slug!r}, scope={scope!r}, entity_iid={entity_iid!r}"
+        )
+    return generate_uuid(f"{repo_slug}:{scope}/{entity_iid}")
 
 
 def get_repo_ref(repo: Repo) -> str:
@@ -118,6 +138,55 @@ def redact_diff_content(
     return str(patch_set) if not as_patch_set else patch_set
 
 
+def files_changed_from_patch(patch: str | None) -> list[dict[str, str]]:
+    """Derive a ``{path, op[, from_path]}`` list from a unified diff.
+
+    The sandbox reports every workspace mutation regardless of how it happened
+    (bash ``rm``/``mv``, scripts, ``find -delete``, …), which is what lets the
+    chat rail surface them alongside ``edit_file``/``write_file`` tool calls.
+    """
+    if not patch or not patch.strip():
+        return []
+    try:
+        patch_set = PatchSet.from_string(patch)
+    except UnidiffParseError:
+        logger.warning("Failed to parse patch for files_changed", exc_info=True)
+        return []
+
+    files: list[dict[str, str]] = []
+    for patched_file in patch_set:
+        entry: dict[str, str] = {"path": patched_file.path}
+        if patched_file.is_added_file:
+            entry["op"] = "added"
+        elif patched_file.is_removed_file:
+            entry["op"] = "deleted"
+        elif patched_file.is_rename:
+            entry["op"] = "renamed"
+            entry["from_path"] = patched_file.source_file.removeprefix("a/").removeprefix("b/")
+        else:
+            entry["op"] = "modified"
+        files.append(entry)
+    return files
+
+
+class IgnoreCheck(Enum):
+    """Result of `git check-ignore`. ``UNKNOWN`` means the plumbing call failed and
+    callers cannot assume the path is safe — treat as fail-closed for any write
+    where being wrong means silent data loss (e.g. `git add -A` would drop the
+    file from the commit)."""
+
+    IGNORED = "ignored"
+    NOT_IGNORED = "not_ignored"
+    UNKNOWN = "unknown"
+
+    def should_block_write(self) -> bool:
+        """Canonical fail-closed policy for write paths: refuse on ``IGNORED`` and
+        ``UNKNOWN``; allow only on ``NOT_IGNORED``. Centralised so future write
+        callers don't drift on the fail-closed branch.
+        """
+        return self is not IgnoreCheck.NOT_IGNORED
+
+
 class GitManager:
     """
     Manager for interacting with a Git repository.
@@ -185,6 +254,23 @@ class GitManager:
         # Use `git status --porcelain` instead of GitPython caching (`untracked_files`)
         # to ensure newly created files are detected reliably.
         return bool(self.repo.git.status("--porcelain").strip())
+
+    def is_path_ignored(self, path: str | Path) -> IgnoreCheck:
+        """Tri-state result of `git check-ignore`.
+
+        IGNORED — path matches an active rule (untracked + matched).
+        NOT_IGNORED — `check-ignore` exited 1 ("no match") or matched a tracked file.
+        UNKNOWN — `check-ignore` failed for any other reason (corrupt repo, missing
+        binary, permissions); the caller decides whether to refuse or proceed.
+        """
+        try:
+            output = self.repo.git.check_ignore(str(path)).strip()
+        except GitCommandError as e:
+            if e.status == 1:
+                return IgnoreCheck.NOT_IGNORED
+            logger.exception("git check-ignore failed for %s", path)
+            return IgnoreCheck.UNKNOWN
+        return IgnoreCheck.IGNORED if output else IgnoreCheck.NOT_IGNORED
 
     def commit_and_push_changes(
         self,
@@ -297,34 +383,40 @@ class GitManager:
         Args:
             patch: The patch to apply.
         """
-        if not patch or not patch.strip():
-            return
+        apply_patch_to_dir(patch, Path(self.repo.working_dir))
 
-        if not patch.endswith("\n"):
-            patch += "\n"
 
-        diff_bytes = patch.encode("utf-8", "surrogateescape")
-        diff_args = ["--whitespace=nowarn"]
+def apply_patch_to_dir(patch: str, working_dir: Path) -> None:
+    """Apply a unified diff to ``working_dir`` using ``git apply``.
 
-        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp:
-            tmp.write(diff_bytes)
-            tmp.flush()
-            tmp_path = tmp.name
+    ``git apply`` does not require a ``.git`` directory and is transactional within a
+    single invocation, so one subprocess call covers both repo-bound and repoless
+    callers. The ``"No valid patches in input"`` stderr line is git's signal for an
+    empty or no-op patch and is treated as success.
+    """
+    if not patch or not patch.strip():
+        return
 
-        try:
-            try:
-                self.repo.git.apply(*diff_args, "--check", tmp_path)
-            except GitCommandError as e:
-                # Check if the error is about empty/invalid patches
-                if "No valid patches in input" in str(e):
-                    # Empty or invalid patch - this is not an error, just skip it
-                    return
-                raise RuntimeError("git apply failed. The patch is not valid.") from e
+    if not patch.endswith("\n"):
+        patch += "\n"
 
-            self.repo.git.apply(*diff_args, tmp_path)
-        finally:
-            with contextlib.suppress(OSError):
-                Path(tmp_path).unlink()
+    result = subprocess.run(  # noqa: S603
+        ["git", "apply", "--whitespace=nowarn", "-"],  # noqa: S607
+        cwd=working_dir,
+        input=patch.encode("utf-8", "surrogateescape"),
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return
+
+    stderr = result.stderr.decode("utf-8", "replace").strip()
+    stdout = result.stdout.decode("utf-8", "replace").strip()
+    if "No valid patches in input" in stderr:
+        logger.debug("apply_patch_to_dir: empty/no-op patch, skipping (cwd=%s, stderr=%r)", working_dir, stderr)
+        return
+    detail = stderr or stdout or "<no diagnostic output>"
+    raise RuntimeError(f"git apply failed (rc={result.returncode}, cwd={working_dir}): {detail}")
 
 
 class GitPushPermissionError(RuntimeError):

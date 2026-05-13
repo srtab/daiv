@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import json
 import logging
-import textwrap
 from typing import TYPE_CHECKING, Annotated
 
 from django.utils import timezone
@@ -45,13 +45,18 @@ Use this tool to:
  - Access up-to-date information for current events and recent data
  - Access information beyond your knowledge cutoff
 
+Result format:
+  - The tool returns a JSON array of objects with `title`, `link`, and `content` fields.
+  - An empty array (`[]`) means no relevant results were found — broaden the query and retry, or tell the user no results exist.
+  - Tavily may prepend a synthesized summary as the first entry with `title="Suggested answer"` and `link=""`. Treat it as a hint, not a citable source.
+
 IMPORTANT - Use the correct year in search queries:
   - You MUST use this year when searching for recent information, documentation, or current events.
   - Example: If today is {{current_year}}-07-15 and the user asks for "latest React docs", search for "React documentation {{current_year}}", NOT "React documentation {{previous_year}}".
 
 CRITICAL REQUIREMENT - You MUST follow this when using web search:
   - After answering the user's question using web search results, you MUST include a "Sources:" section at the end of your response when the answer primarily derives from search results.
-  - In the Sources section, list all relevant URLs from the search results as markdown hyperlinks: [Title](URL)
+  - In the Sources section, list each relevant entry's `link` as a markdown hyperlink using its `title`: `[<title>](<link>)`. Skip entries with an empty `link` (the "Suggested answer" hint).
   - This is MANDATORY - never skip including sources in your response
   - Example format:
 
@@ -129,19 +134,11 @@ async def web_search_tool(query: Annotated[str, "The search query."]) -> str:
     Tool to search the web and use the results to inform responses.
     """  # noqa: E501
 
-    if not (results := await _get_web_search_results(query)):
-        return "No relevant results found for the given search query."
-
-    return "\n".join([
-        textwrap.dedent(
-            """\
-            <web_search_result title="{title}" link="{link}">
-            {body}
-            </web_search_result>
-            """
-        ).format(title=result["title"], link=result["link"], body=result["content"])
-        for result in results
-    ])
+    results = await _get_web_search_results(query)
+    # `ensure_ascii=False` keeps non-ASCII titles/snippets readable for the model
+    # (and saves tokens vs. \uXXXX escapes). An empty array is a real, valid
+    # outcome the model is told how to handle in the system prompt.
+    return json.dumps(results, ensure_ascii=False)
 
 
 class WebSearchMiddleware(AgentMiddleware):

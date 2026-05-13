@@ -103,7 +103,7 @@ RUN chmod +x entrypoint start-app start-worker start-crontask \
   && ./"tailwindcss-linux-${ARCH}" -i app/static_src/css/input.css -o app/static/css/styles.css --minify \
   && rm "tailwindcss-linux-${ARCH}"
 
-HEALTHCHECK --interval=10s --start-period=30s \
+HEALTHCHECK --interval=10s --start-period=120s --start-interval=5s \
   CMD curl --fail http://127.0.0.1:8000/-/alive/ || exit 1
 
 EXPOSE 8000

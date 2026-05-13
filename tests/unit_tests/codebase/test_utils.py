@@ -1,7 +1,14 @@
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from codebase.base import Discussion, Note, NoteableType, User
-from codebase.utils import discussion_has_daiv_mentions, note_mentions_daiv, notes_to_messages
+from codebase.base import Discussion, Note, NoteableType, Scope, User
+from codebase.utils import (
+    compute_thread_id,
+    discussion_has_daiv_mentions,
+    files_changed_from_patch,
+    note_mentions_daiv,
+    notes_to_messages,
+)
 from core.constants import BOT_NAME
 
 
@@ -254,3 +261,79 @@ class TestDiscussionHasDAIVMentions:
 
         discussion = Discussion(id="discussion_1", notes=notes)
         assert discussion_has_daiv_mentions(discussion, current_user) is True
+
+
+class TestFilesChangedFromPatch:
+    """Patch-parsing covers every op the rail needs to surface for bash edits."""
+
+    def test_empty_or_none_returns_empty_list(self):
+        assert files_changed_from_patch(None) == []
+        assert files_changed_from_patch("") == []
+        assert files_changed_from_patch("   \n") == []
+
+    def test_modified_file(self):
+        patch = (
+            "diff --git a/daiv/foo.py b/daiv/foo.py\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/daiv/foo.py\n"
+            "+++ b/daiv/foo.py\n"
+            "@@ -1 +1 @@\n-old\n+new\n"
+        )
+        assert files_changed_from_patch(patch) == [{"path": "daiv/foo.py", "op": "modified"}]
+
+    def test_added_and_deleted(self):
+        patch = (
+            "diff --git a/new.txt b/new.txt\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/new.txt\n"
+            "@@ -0,0 +1 @@\n+hi\n"
+            "diff --git a/old.txt b/old.txt\n"
+            "deleted file mode 100644\n"
+            "--- a/old.txt\n"
+            "+++ /dev/null\n"
+            "@@ -1 +0,0 @@\n-bye\n"
+        )
+        assert files_changed_from_patch(patch) == [
+            {"path": "new.txt", "op": "added"},
+            {"path": "old.txt", "op": "deleted"},
+        ]
+
+    def test_rename_carries_from_path(self):
+        patch = "diff --git a/src/a.py b/src/b.py\nsimilarity index 100%\nrename from src/a.py\nrename to src/b.py\n"
+        assert files_changed_from_patch(patch) == [{"path": "src/b.py", "op": "renamed", "from_path": "src/a.py"}]
+
+
+class TestComputeThreadId:
+    def test_deterministic(self):
+        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+        b = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+        assert a == b
+
+    def test_scope_distinguishes(self):
+        issue = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+        mr = compute_thread_id(repo_slug="owner/repo", scope=Scope.MERGE_REQUEST, entity_iid=42)
+        assert issue != mr
+
+    def test_entity_iid_distinguishes(self):
+        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+        b = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=43)
+        assert a != b
+
+    def test_repo_slug_distinguishes(self):
+        a = compute_thread_id(repo_slug="owner/repo", scope=Scope.ISSUE, entity_iid=42)
+        b = compute_thread_id(repo_slug="other/repo", scope=Scope.ISSUE, entity_iid=42)
+        assert a != b
+
+    @pytest.mark.parametrize(
+        ("repo_slug", "scope", "entity_iid"),
+        [
+            ("", Scope.ISSUE, 42),
+            ("owner/repo", None, 42),
+            ("owner/repo", Scope.ISSUE, None),
+            ("owner/repo", Scope.ISSUE, ""),
+        ],
+    )
+    def test_rejects_falsy_inputs(self, repo_slug, scope, entity_iid):
+        with pytest.raises(ValueError):
+            compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)

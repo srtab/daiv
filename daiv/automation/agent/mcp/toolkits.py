@@ -16,15 +16,10 @@ logger = logging.getLogger("daiv.tools")
 
 
 def _get_connection_url(conn) -> str:
-    """Extract the URL from a langchain MCP connection object."""
     return getattr(conn, "url", "unknown")
 
 
 class MCPToolkit(BaseToolkit):
-    """
-    Toolkit for using MCP servers.
-    """
-
     @classmethod
     async def get_tools(cls) -> list[BaseTool]:
         from automation.agent.mcp.registry import mcp_registry

@@ -4,6 +4,9 @@
 {% if issue_id %}
 Closes: {{ source_repo_id }}#{{ issue_id|unlocalize }}{% if is_gitlab %}+{% endif %}
 {% endif %}
+{% if fallback_from_mr %}
+> 🔒 Opened because the source branch `{{ fallback_from_mr.source_branch }}` of {{ fallback_from_mr.web_url }}{% if is_gitlab %} (!{{ fallback_from_mr.merge_request_id }}){% else %} (#{{ fallback_from_mr.merge_request_id }}){% endif %} is protected on the remote.
+{% endif %}
 > ⚠️ {{ bot_name }} can make mistakes. Please review the changes and merge the MR if everything looks good.
 
 ---

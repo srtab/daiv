@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added a "Start a run" page at `/dashboard/runs/new/` for launching new agent runs from the UI, and a "Retry" button on terminal non-webhook activities that pre-fills the form with the original prompt, repository, ref, and max-mode flag. UI submissions share the existing API rate-limit budget.
+- Added per-domain auth headers for the `web_fetch` tool to the configuration UI under **Web Fetch → Per-domain auth headers**. Each row pairs a domain (exact match) with an HTTP header name and a header value (encrypted at rest). Replaces the previous env-only `AUTOMATION_WEB_FETCH_AUTH_HEADERS` setting; the new env override is `DAIV_WEB_FETCH_AUTH_HEADERS` (same JSON shape). Operators using the old name must rename it.
+- Added a "Start a run" page at `/dashboard/runs/new/` for launching new agent runs from the UI, and a "Retry" button on terminal non-webhook activities that pre-fills the form with the original prompt, repository, ref, and max-mode flag.
+- Added configurable models for the titling task (chat thread and activity titles). The primary and fallback models can now be set via `DAIV_TITLING_MODEL_NAME` / `DAIV_TITLING_FALLBACK_MODEL_NAME` env vars or the configuration UI under a new **Titling** section. Defaults remain `gpt-5.4-mini` (primary) and `claude-haiku-4.5` (fallback).
 - Added model fallback support to all subagents (general-purpose, explore, and custom). When the primary LLM provider is unavailable, subagents now automatically fall back to an alternate provider, matching the existing behavior of the main agent. Includes a new `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` setting (default: `gpt-5-4-mini`) configurable via the dashboard or environment variable.
 - Added Scheduled Jobs feature that lets users create recurring agent runs from the dashboard. Supports hourly, daily, weekdays, weekly, and custom cron frequencies with timezone-aware scheduling. Includes automatic circuit-breaker that disables a schedule if dispatch repeatedly fails.
 - Added a database-backed configuration interface at `/dashboard/configuration/` (admin-only) that allows managing global settings — agent models, thinking levels, web search/fetch options, sandbox defaults, feature flags, rate limits, and API keys — without redeployment. API keys are encrypted at rest using Fernet. Environment variables still act as hard overrides when explicitly set. Per-repository `.daiv.yml` overrides remain the highest priority.
@@ -30,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added automatic suggestion to add an `AGENTS.md` file when DAIV creates a merge request for a repository that doesn't have one. The suggestion includes a one-click link to create a pre-filled issue. Can be disabled globally via `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED=False` or per-repository by setting `context_file_name: null` in `.daiv.yml`.
 - Added support for custom subagents defined per-repository. Place markdown files in `.agents/subagents/` with YAML frontmatter (`name`, `description`, optional `model`) and a body that becomes the subagent's system prompt. Custom subagents have the same capabilities as the built-in general-purpose subagent.
 - Added support for custom global skills available across all repositories. Mount skill directories to `/home/daiv/data/skills/` (configurable via `DAIV_AGENT_CUSTOM_SKILLS_PATH`). Custom global skills follow the same format as built-in skills and can override them.
+- Added deferred tool loading for the agent, reducing the number of tools visible to the model at startup and loading additional tools on demand based on the task context.
 
 ### Fixed
 
@@ -48,10 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increased Claude max output tokens from 4,096 to 16,384.
 - Renamed several environment variables to use the `DAIV_` prefix consistently: `AUTOMATION_WEB_SEARCH_*` → `DAIV_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` → `DAIV_WEB_FETCH_*`, `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` → `DAIV_SUGGEST_CONTEXT_FILE_ENABLED`, `DIFF_TO_METADATA_*` → `DAIV_DIFF_TO_METADATA_*`, `JOBS_THROTTLE_RATE` → `DAIV_JOBS_THROTTLE_RATE`. Provider API key env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`) are unchanged.
 - Upgraded `deepagents` from 0.4.12 to 0.5.1, adding prompt caching, large message eviction, CRLF normalization, and multimodal file support; migrated from deprecated `als_info` backend method to the new `als` API.
+- Reworked sandbox file sync: `write_file` and `edit_file` now push changes to the sandbox eagerly per tool call, and `bash_tool` no longer tarballs the entire working tree on every invocation. Substantially reduces per-turn cost on long agent runs. **BREAKING**: requires the matching daiv-sandbox release with the new mutation/seed wire protocol.
 
 ### Removed
 
 - Removed GPT-4.1-mini, GPT-4.1, and GPT-5.2 from the model catalog; added GPT-5.4, GPT-5.4-mini, Z-AI GLM-5-turbo, and MiniMax M2-7.
+- **BREAKING:** Removed `sandbox.ephemeral` from `.daiv.yml`. Sandbox sessions are now persistent between bash calls; users who relied on per-turn fresh workspaces must close the session and start a new one.
 - **BREAKING:** Removed the `mcp-proxy` container and its API configuration endpoint. Now MCP servers are configured with isolated per-MCP `supergateway` containers — each built-in MCP server (Sentry, Context7) now runs in its own container. Existing `docker-compose.yml` and stack files must be updated.
 - **BREAKING:** Removed `MCP_PROXY_HOST`, `MCP_PROXY_ADDR`, `MCP_PROXY_AUTH_TOKEN`, and `MCP_CONFIG_API_KEY` settings. MCP server credentials (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) are now configured on the MCP containers directly, not as DAIV application settings
 

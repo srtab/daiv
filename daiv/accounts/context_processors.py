@@ -10,8 +10,8 @@ logger = logging.getLogger("daiv.accounts")
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
-    "runs": {"agent_run_new"},
-    "activity": {"activity_list", "activity_detail", "activity_stream", "activity_download_md"},
+    "activity": {"activity_list", "activity_detail", "activity_stream", "activity_download_md", "agent_run_new"},
+    "chat": {"chat_list", "chat_new", "chat_detail"},
     "schedules": {
         "schedule_list",
         "schedule_create",
@@ -77,7 +77,10 @@ def nav(request) -> dict[str, Any]:
     if user is None or not user.is_authenticated:
         return {}
 
+    from codebase.conf import settings as codebase_settings
+
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
         "nav_active_section": _resolve_active_section(request),
+        "git_platform": codebase_settings.CLIENT.value,
     }

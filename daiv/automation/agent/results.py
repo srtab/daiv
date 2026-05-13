@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
+
+
+# Distinguishes "caller did not supply a snapshot" (fetch one) from "caller supplied
+# ``None``" (state read failed upstream — produce a snapshot-less result without
+# retrying the fetch that already failed).
+NO_SNAPSHOT: Final[Any] = object()
 
 
 class AgentResult(TypedDict):
@@ -53,14 +59,28 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
 
 
 async def build_agent_result(
-    agent: CompiledAgent, config: RunnableConfig, *, response: str, usage: dict[str, Any] | None = None
+    agent: CompiledAgent,
+    config: RunnableConfig,
+    *,
+    response: str,
+    usage: dict[str, Any] | None = None,
+    snapshot: Any = NO_SNAPSHOT,
 ) -> AgentResult:
     """Build a standardized :class:`AgentResult` from the agent's persisted state.
 
     ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
-    We read it from the persisted checkpoint instead.
+    We read it from the persisted checkpoint instead. Callers that have already
+    read the state can pass a pre-fetched ``snapshot`` to avoid a redundant Redis
+    round-trip; passing ``None`` explicitly signals that the read already failed
+    (so we don't silently retry it here and risk drifting from whatever the
+    caller decided based on the same failure).
     """
-    snapshot = await agent.aget_state(config=config)
+    if snapshot is NO_SNAPSHOT:
+        snapshot = await agent.aget_state(config=config)
+    if snapshot is None:
+        return AgentResult(
+            response=response, code_changes=False, merge_request_id=None, merge_request_web_url=None, usage=usage
+        )
     mr = snapshot.values.get("merge_request")
     return AgentResult(
         response=response,

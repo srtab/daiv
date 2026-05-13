@@ -134,6 +134,39 @@ class GitHubClient(RepoClient):
                 repos = repos[:limit]
         return repos
 
+    def is_branch_protected(self, repo_id: str, branch: str) -> bool:
+        """
+        Resolve protection via ``GET /repos/{owner}/{repo}/branches/{branch}``; the
+        ``protected`` flag reflects both classic branch protection and ruleset-based
+        rules. Fails open on any error from the GitHub call — SDK exceptions and
+        transport-layer failures (TLS, DNS, connection reset) alike: the caller treats
+        this as a best-effort pre-check, and the subsequent ``git push`` remains the
+        source of truth.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        try:
+            return bool(repo.get_branch(branch).protected)
+        except Exception:  # noqa: BLE001 — fail open on SDK + transport errors per docstring
+            logger.warning("Failed to check protection for %s@%s; assuming unprotected", repo_id, branch, exc_info=True)
+            return False
+
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """
+        Return up to ``limit`` branch names. GitHub's branches endpoint has no server-side
+        search, so we filter client-side; PyGithub paginates lazily so we don't fetch more
+        pages than needed when ``limit`` is reached.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        needle = search.lower() if search else None
+        names: list[str] = []
+        for branch in repo.get_branches():
+            if needle is not None and needle not in branch.name.lower():
+                continue
+            names.append(branch.name)
+            if len(names) >= limit:
+                break
+        return names
+
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
         Get the content of a file in a repository.
@@ -409,6 +442,39 @@ class GitHubClient(RepoClient):
         if assignee_id and not any(assignee.id == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
+        return MergeRequest(
+            repo_id=repo_id,
+            merge_request_id=pr.number,
+            source_branch=pr.head.ref,
+            target_branch=pr.base.ref,
+            title=pr.title,
+            description=pr.body or "",
+            labels=[label.name for label in pr.labels],
+            web_url=pr.html_url,
+            sha=pr.head.sha,
+            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
+            draft=pr.draft,
+        )
+
+    def get_merge_request_by_branches(
+        self, repo_id: str, source_branch: str, target_branch: str
+    ) -> MergeRequest | None:
+        """
+        Return the open pull request for this source/target branch pair, or ``None``.
+
+        Args:
+            repo_id: The repository ID.
+            source_branch: The source branch.
+            target_branch: The target branch.
+
+        Returns:
+            The pull request if one open PR matches, otherwise ``None``.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        prs = repo.get_pulls(state="open", base=target_branch, head=source_branch)
+        pr = next(iter(prs), None)
+        if pr is None:
+            return None
         return MergeRequest(
             repo_id=repo_id,
             merge_request_id=pr.number,

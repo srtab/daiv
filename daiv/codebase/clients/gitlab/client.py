@@ -124,6 +124,7 @@ class GitLabClient(RepoClient):
         optional_kwargs: dict[str, Any] = {}
         if search:
             optional_kwargs["search"] = search
+            optional_kwargs["search_namespaces"] = True
         if topics:
             optional_kwargs["topic"] = ",".join(topics)
         if limit is not None:
@@ -136,6 +137,8 @@ class GitLabClient(RepoClient):
             simple=True,
             membership=True,
             min_access_level=40,  # 40 is the access level for the maintainer role
+            order_by="last_activity_at",
+            sort="desc",
             **optional_kwargs,
         ):
             repos.append(
@@ -153,6 +156,37 @@ class GitLabClient(RepoClient):
             if limit is not None and len(repos) >= limit:
                 break
         return repos
+
+    def is_branch_protected(self, repo_id: str, branch: str) -> bool:
+        """
+        Resolve protection via ``GET /projects/:id/repository/branches/:branch``; the
+        ``protected`` flag covers both exact-name and wildcard rules. Fails open on any
+        error from the GitLab call — SDK exceptions and transport-layer failures (TLS,
+        DNS, connection reset) alike: the caller treats this as a best-effort pre-check,
+        and the subsequent ``git push`` remains the source of truth.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        try:
+            return bool(project.branches.get(branch).protected)
+        except Exception:  # noqa: BLE001 — fail open on SDK + transport errors per docstring
+            logger.warning("Failed to check protection for %s@%s; assuming unprotected", repo_id, branch, exc_info=True)
+            return False
+
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """
+        Return up to ``limit`` branch names, optionally filtered by server-side substring ``search``.
+        Branches are ordered by commit recency (most recent first).
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        kwargs: dict[str, Any] = {"per_page": min(limit, 100), "sort": "updated_desc"}
+        if search:
+            kwargs["search"] = search
+        names: list[str] = []
+        for branch in project.branches.list(iterator=True, **kwargs):
+            names.append(branch.name)
+            if len(names) >= limit:
+                break
+        return names
 
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         """
@@ -465,6 +499,29 @@ class GitLabClient(RepoClient):
                 merge_request.save()
                 return self._serialize_merge_request(repo_id, merge_request)
             raise e
+
+    def get_merge_request_by_branches(
+        self, repo_id: str, source_branch: str, target_branch: str
+    ) -> MergeRequest | None:
+        """
+        Return the open merge request for this source/target branch pair, or ``None``.
+
+        Args:
+            repo_id: The repository ID.
+            source_branch: The source branch.
+            target_branch: The target branch.
+
+        Returns:
+            The merge request if one open MR matches, otherwise ``None``.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_requests = project.mergerequests.list(
+            source_branch=source_branch, target_branch=target_branch, state="opened", iterator=True
+        )
+        merge_request = next(merge_requests, None)
+        if merge_request is None:
+            return None
+        return self._serialize_merge_request(repo_id, merge_request)
 
     def update_merge_request(
         self,

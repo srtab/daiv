@@ -2,15 +2,22 @@
  * Alpine.js components for real-time activity status updates via SSE.
  *
  * activityStream (list page) — tracks multiple activities in place:
- *   dotClass(id, fallback)    → "status-dot-{variant}" CSS class
- *   statusClass(id, fallback) → "status-badge-{variant}" CSS class
+ *   dotClass(id, fallback)    → object toggling status-dot-{variant} classes
+ *   statusClass(id, fallback) → object toggling status-badge-{variant} classes
  *   statusLabel(id, fallback) → human-readable label
+ *
+ * Object class maps (rather than a single string) are required so Alpine
+ * removes the previously rendered variant class when the status transitions —
+ * otherwise the static server-rendered class lingers alongside the new one
+ * and the later CSS rule wins.
  *
  * activityDetail (detail page) — subscribes to one activity and reloads the
  * page on any state change so server-rendered fields (started_at, finished_at,
  * elapsed counter, duration, timeline dots) reflect the new state.
  */
 document.addEventListener("alpine:init", () => {
+    const VARIANTS = ["success", "failed", "running", "pending"];
+
     function statusVariantFor(status) {
         if (status === "SUCCESSFUL") return "success";
         if (status === "FAILED") return "failed";
@@ -23,6 +30,10 @@ document.addEventListener("alpine:init", () => {
         if (status === "FAILED") return "Failed";
         if (status === "RUNNING") return "Running";
         return "Pending";
+    }
+
+    function variantClassMap(prefix, active) {
+        return Object.fromEntries(VARIANTS.map((v) => [prefix + v, v === active]));
     }
 
     Alpine.data("activityStream", (streamUrl, inFlightIds) => ({
@@ -42,10 +53,10 @@ document.addEventListener("alpine:init", () => {
             source.onerror = () => source.close();
         },
         statusClass(id, fallback) {
-            return "status-badge-" + statusVariantFor(this.updates[id]?.status || fallback);
+            return variantClassMap("status-badge-", statusVariantFor(this.updates[id]?.status || fallback));
         },
         dotClass(id, fallback) {
-            return "status-dot-" + statusVariantFor(this.updates[id]?.status || fallback);
+            return variantClassMap("status-dot-", statusVariantFor(this.updates[id]?.status || fallback));
         },
         statusLabel(id, fallback) {
             const update = this.updates[id];

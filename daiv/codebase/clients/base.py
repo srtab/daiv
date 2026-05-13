@@ -61,6 +61,31 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def is_branch_protected(self, repo_id: str, branch: str) -> bool:
+        """
+        Return whether ``branch`` is protected on the remote (covers both exact-name
+        and wildcard protection rules — the platform branch resource resolves them).
+
+        Args:
+            repo_id: The repository ID.
+            branch: The branch name to check.
+
+        Returns:
+            ``True`` if the branch exists and is protected, ``False`` otherwise.
+        """
+        pass
+
+    @abc.abstractmethod
+    def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
+        """
+        Return up to ``limit`` branch names for ``repo_id``.
+
+        If ``search`` is provided, branches are filtered case-insensitively by substring.
+        Platforms that support server-side search use it; others filter client-side.
+        """
+        pass
+
+    @abc.abstractmethod
     def get_repository_file(self, repo_id: str, file_path: str, ref: str) -> str | None:
         pass
 
@@ -221,6 +246,23 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
+        pass
+
+    @abc.abstractmethod
+    def get_merge_request_by_branches(
+        self, repo_id: str, source_branch: str, target_branch: str
+    ) -> MergeRequest | None:
+        """
+        Return the first open merge request for this source/target branch pair, or ``None``.
+
+        Args:
+            repo_id: The repository ID.
+            source_branch: The source branch.
+            target_branch: The target branch.
+
+        Returns:
+            The first open MR matching the branch pair, or ``None`` if none exist.
+        """
         pass
 
     @abc.abstractmethod

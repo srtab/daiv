@@ -1,0 +1,21 @@
+{% load i18n %}
+{% if error %}
+<ul><li class="px-3 py-2 text-[15px] text-red-400">{% trans "Could not load repositories." %}</li></ul>
+{% else %}
+<ul>
+{% for repo in repos %}
+  <li>
+    <button type="button"
+            class="combobox-option block w-full px-3 py-2 text-left text-[15px] text-gray-300 hover:bg-white/[0.06]"
+            @click="setRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')">
+      <span class="block text-white">{{ repo.slug }}</span>
+      {% if repo.name and repo.name != repo.slug %}
+      <span class="block text-[13px] text-gray-400">{{ repo.name }}</span>
+      {% endif %}
+    </button>
+  </li>
+{% empty %}
+  <li class="px-3 py-2 text-[15px] text-gray-400">{% trans "No repositories found." %}</li>
+{% endfor %}
+</ul>
+{% endif %}

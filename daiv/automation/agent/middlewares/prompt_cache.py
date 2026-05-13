@@ -34,7 +34,7 @@ class AnthropicPromptCachingMiddleware(AnthropicPromptCachingMiddlewareV0):
         ```
     """
 
-    def __init__(self, *args, ttl: Literal["5m", "1h"] = "1h", **kwargs):
+    def __init__(self, *args, ttl: Literal["5m", "1h"] = "5m", **kwargs):
         """
         Initialize the middleware.
         """

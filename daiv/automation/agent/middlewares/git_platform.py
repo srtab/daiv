@@ -36,6 +36,29 @@ logger = logging.getLogger("daiv.tools")
 DEFAULT_MAX_OUTPUT_LINES = 2_000
 DEFAULT_CLI_TIMEOUT = 30
 
+
+def _truncate_cli_output(output: str, *, keep: Literal["head", "tail"]) -> str:
+    """
+    Cap CLI output to ``DEFAULT_MAX_OUTPUT_LINES``, appending a sentinel when
+    truncation occurs so the agent and the chat UI both know the slice is
+    partial. ``keep="tail"`` is for job traces / run logs where the failing
+    tail is the interesting part.
+    """
+    # Cheap line count avoids materializing splitlines on the (common) happy path.
+    if output.count("\n") < DEFAULT_MAX_OUTPUT_LINES:
+        return output
+
+    lines = output.splitlines(keepends=True)
+    if len(lines) <= DEFAULT_MAX_OUTPUT_LINES:
+        return output
+
+    omitted = len(lines) - DEFAULT_MAX_OUTPUT_LINES
+    sentinel = f"... (truncated, {omitted} lines omitted)\n"
+    if keep == "tail":
+        return sentinel + "".join(lines[-DEFAULT_MAX_OUTPUT_LINES:])
+    return "".join(lines[:DEFAULT_MAX_OUTPUT_LINES]) + sentinel
+
+
 GITLAB_REQUESTS_TIMEOUT = 15
 GITLAB_PER_PAGE = "5"
 GITLAB_TOOL_NAME = "gitlab"
@@ -607,9 +630,9 @@ async def gitlab_tool(
     if resource == "project-job" and splitted_subcommand[1] == "trace":
         # TODO: evict the output to the file system if it's too long
         output = clean_job_logs(output, runtime.context.git_platform)
-        return "".join(output.splitlines(keepends=True)[-DEFAULT_MAX_OUTPUT_LINES:])
+        return _truncate_cli_output(output, keep="tail")
 
-    return "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
+    return _truncate_cli_output(output, keep="head")
 
 
 def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str, dict[str, str | float] | None]:
@@ -753,9 +776,9 @@ async def github_tool(
     elif resource == "run" and action == "view" and "--log" in splitted_subcommand:
         # TODO: evict the output to the file system if it's too long
         output = clean_job_logs(output, runtime.context.git_platform)
-        output = "".join(output.splitlines(keepends=True)[-DEFAULT_MAX_OUTPUT_LINES:])
+        output = _truncate_cli_output(output, keep="tail")
     else:
-        output = "".join(output.splitlines(keepends=True)[:DEFAULT_MAX_OUTPUT_LINES])
+        output = _truncate_cli_output(output, keep="head")
 
     # Return Command with state update if token was cached/refreshed
     if state_update:

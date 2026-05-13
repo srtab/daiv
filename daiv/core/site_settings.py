@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import json
 import logging
 from typing import Any, ClassVar
 
@@ -25,6 +26,31 @@ def _get_docker_secret_cached(name: str) -> str | None:
     return value
 
 
+def _parse_auth_headers_json(raw: str) -> dict[str, dict[str, SecretStr]]:
+    """
+    Parse the ``DAIV_WEB_FETCH_AUTH_HEADERS`` env value.
+
+    Returns ``{}`` on missing / malformed / wrong-shape input. Logs an error
+    when the env var is set but unparseable so misconfiguration is visible
+    to operators — auth headers are silently skipped otherwise. Domains are
+    lower-cased to match ``WebFetchAuthHeaderForm.clean_domain``.
+    """
+    from pydantic import TypeAdapter, ValidationError
+
+    if not raw:
+        return {}
+    try:
+        decoded = TypeAdapter(dict[str, dict[str, str]]).validate_json(raw)
+    except json.JSONDecodeError, ValidationError:
+        logger.exception("DAIV_WEB_FETCH_AUTH_HEADERS could not be parsed; ignoring.")
+        return {}
+
+    return {
+        domain.lower(): {name: SecretStr(value) for name, value in headers.items()}
+        for domain, headers in decoded.items()
+    }
+
+
 def _build_field_defaults() -> dict[str, Any]:
     """Build the defaults dict at first access (avoids import-time cross-layer dependency)."""
     from automation.agent.constants import ModelName
@@ -44,6 +70,9 @@ def _build_field_defaults() -> dict[str, Any]:
         # Diff to Metadata
         "diff_to_metadata_model_name": ModelName.GPT_5_4_MINI,
         "diff_to_metadata_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
+        # Titling
+        "titling_model_name": ModelName.GPT_5_4_MINI,
+        "titling_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
         # Web Search
         "web_search_enabled": True,
         "web_search_max_results": 5,
@@ -110,6 +139,20 @@ class SiteSettings:
     def FIELD_DEFAULTS(self) -> dict[str, Any]:  # noqa: N802
         """Effective defaults for every configurable field (lazy-loaded to avoid import-time issues)."""
         return _get_field_defaults()
+
+    @property
+    def web_fetch_auth_headers(self) -> dict[str, dict[str, SecretStr]]:
+        """
+        Per-domain HTTP headers used by ``web_fetch``.
+
+        Priority: env var ``DAIV_WEB_FETCH_AUTH_HEADERS`` (JSON) > DB rows > ``{}``.
+        """
+        from core.models import WebFetchAuthHeader
+
+        raw = _get_docker_secret_cached("DAIV_WEB_FETCH_AUTH_HEADERS")
+        if raw is not None:
+            return _parse_auth_headers_json(raw)
+        return WebFetchAuthHeader.get_cached()
 
     def __getattr__(self, name: str) -> Any:
         from core.models import SiteConfiguration

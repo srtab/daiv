@@ -1,29 +1,38 @@
+import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.utils import timezone
 
-from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.middleware.memory import MemoryMiddleware
-from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.subagents import SubAgentMiddleware
-from deepagents.middleware.summarization import compute_summarization_defaults
-from langchain.agents import create_agent
+from deepagents import create_deep_agent
 from langchain.agents.middleware import (
-    HumanInTheLoopMiddleware,
+    AgentMiddleware,
     InterruptOnConfig,
     ModelFallbackMiddleware,
     ModelRequest,
-    SummarizationMiddleware,
     TodoListMiddleware,
     dynamic_prompt,
 )
 
 from automation.agent.base import BaseAgent, ThinkingLevel
-from automation.agent.constants import AGENTS_MEMORY_PATH, SKILLS_SOURCES, SUBAGENTS_SOURCES, ModelName
+from automation.agent.constants import (
+    AGENTS_MEMORY_PATH,
+    GLOBAL_SKILLS_PATH,
+    GLOBAL_SKILLS_ROUTE,
+    SKILLS_CACHE_PATH,
+    SKILLS_SOURCES,
+    SUBAGENTS_SOURCES,
+    ModelName,
+)
+from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
-from automation.agent.middlewares.file_system import FilesystemMiddleware
+from automation.agent.middlewares.file_system import (
+    FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE,
+    DAIVCompositeBackend,
+    DAIVFilesystemBackend,
+)
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
@@ -47,11 +56,29 @@ if TYPE_CHECKING:
     from langgraph.store.base import BaseStore
 
 
+logger = logging.getLogger("daiv.agent")
+
+
+# Tools always bound to the model; everything else is deferred behind tool_search.
+ALWAYS_LOADED_TOOLS = frozenset({
+    "ls",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "glob",
+    "grep",
+    "bash",
+    "write_todos",
+    "skill",
+    "task",
+})
+
+
 class _Unset:
     """Sentinel to distinguish 'not provided' from ``None`` in function defaults."""
 
 
-OUTPUT_INVARIANTS_SYSTEM_PROMPT = """\
+OUTPUT_INVARIANTS_SYSTEM_PROMPT = f"""\
 <output_invariants>
 Applies to ALL user-visible text:
 
@@ -60,6 +87,8 @@ Applies to ALL user-visible text:
   <example>/repo/daiv/core/utils.py -> daiv/core/utils.py</example>
 - Code reference labels MUST be repo-relative paths (e.g. `daiv/core/utils.py:42`), but hrefs should use platform-native blob URLs with branch refs.
 - Before emitting any user-visible text, check for "/repo/" and rewrite to repo-relative form.
+
+{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}
 </output_invariants>"""  # noqa: E501
 
 
@@ -89,9 +118,12 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         current_branch=get_repo_ref(context.gitrepo),
     )
 
-    inherited_system_prompt = ""
-    if request.system_prompt:
-        inherited_system_prompt = request.system_prompt + "\n\n"
+    # The harness profile sets ``base_system_prompt=""`` to suppress upstream's
+    # BASE_AGENT_PROMPT, but model-level profiles (e.g. anthropic:claude-opus-4-7)
+    # still contribute a ``system_prompt_suffix`` we want to keep. Strip to drop
+    # leading whitespace introduced by an empty base + suffix concat.
+    inherited = (request.system_prompt or "").strip()
+    inherited_system_prompt = f"{inherited}\n\n" if inherited else ""
 
     return (
         OUTPUT_INVARIANTS_SYSTEM_PROMPT
@@ -120,6 +152,7 @@ async def create_daiv_agent(
     store: BaseStore | None = None,
     debug: bool = False,
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
+    middleware: list[AgentMiddleware] | None = None,
     # Flags to override the default settings
     sandbox_enabled: bool | None = None,
     web_fetch_enabled: bool | None = None,
@@ -137,6 +170,7 @@ async def create_daiv_agent(
         store: The store to use for the agent.
         debug: Whether to enable debug mode for the agent.
         interrupt_on: The interrupt on configuration for the agent.
+        middleware: The middleware to use for the agent.
         sandbox_enabled: Whether to enable the sandbox for the agent. If None, fallback to the config default.
         web_fetch_enabled: Whether to enable web fetch for the agent. If None, fallback to the config default.
         web_search_enabled: Whether to enable web search for the agent. If None, fallback to the config default.
@@ -154,15 +188,19 @@ async def create_daiv_agent(
         BaseAgent.get_model(model=model_name, thinking_level=thinking_level) for model_name in model_names[1:]
     ]
 
-    _summarization_defaults = compute_summarization_defaults(model)
     _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.config.sandbox.enabled
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
     agent_path = Path(ctx.gitrepo.working_dir)
-    backend = FilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    agent_root = f"/{agent_path.name}"
 
-    # Create subagents list to be shared between middlewares
+    # Composite backend: repo files served from disk; ``/skills/`` served from the
+    # shared ``SKILLS_CACHE_PATH`` so per-turn skill uploads become a no-op once primed.
+    repo_backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
+    skills_backend = DAIVFilesystemBackend(root_dir=SKILLS_CACHE_PATH, virtual_mode=True)
+    backend = DAIVCompositeBackend(default=repo_backend, routes={GLOBAL_SKILLS_ROUTE: skills_backend})
+
     subagents = [
         create_general_purpose_subagent(
             model,
@@ -176,7 +214,6 @@ async def create_daiv_agent(
         create_explore_subagent(backend),
     ]
 
-    # Load custom subagents from the repository
     custom_subagents = await load_custom_subagents(
         model=model,
         backend=backend,
@@ -189,55 +226,55 @@ async def create_daiv_agent(
     )
     subagents.extend(custom_subagents)
 
-    agent_conditional_middlewares = []
+    mcp_tools = await MCPToolkit.get_tools()
 
-    if _web_search_enabled:
-        agent_conditional_middlewares.append(WebSearchMiddleware())
-    if _web_fetch_enabled:
-        agent_conditional_middlewares.append(WebFetchMiddleware())
-    if _sandbox_enabled:
-        agent_conditional_middlewares.append(SandboxMiddleware())
-    if fallback_models:
-        agent_conditional_middlewares.append(ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:]))
-    if interrupt_on is not None:
-        agent_conditional_middlewares.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
-
-    agent_middleware = [
+    user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
-        MemoryMiddleware(
-            backend=backend,
-            sources=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
-        ),
         SkillsMiddleware(
-            backend=backend, sources=[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES], subagents=subagents
-        ),
-        SubAgentMiddleware(backend=backend, subagents=subagents),
-        *agent_conditional_middlewares,
-        FilesystemMiddleware(backend=backend),
-        GitMiddleware(auto_commit_changes=auto_commit_changes),
-        GitPlatformMiddleware(git_platform=ctx.git_platform),
-        SummarizationMiddleware(
-            model=model,
             backend=backend,
-            trigger=_summarization_defaults["trigger"],
-            keep=_summarization_defaults["keep"],
-            trim_tokens_to_summarize=None,
-            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
+            sources=[GLOBAL_SKILLS_PATH, *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
+            subagents=subagents,
+        ),
+        *([SandboxMiddleware(backend=backend, agent_root=agent_root)] if _sandbox_enabled else []),
+        *([WebSearchMiddleware()] if _web_search_enabled else []),
+        *([WebFetchMiddleware()] if _web_fetch_enabled else []),
+        *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
+        *(
+            [
+                DeferredToolsMiddleware(
+                    always_loaded=ALWAYS_LOADED_TOOLS,
+                    extra_tools=mcp_tools,
+                    top_k_default=deferred_settings.TOP_K_DEFAULT,
+                    top_k_max=deferred_settings.TOP_K_MAX,
+                )
+            ]
+            if deferred_settings.ENABLED
+            else []
         ),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        PatchToolCallsMiddleware(),
+        GitMiddleware(auto_commit_changes=auto_commit_changes),
+        GitPlatformMiddleware(git_platform=ctx.git_platform),
         dynamic_daiv_system_prompt,
+        *(middleware or []),
     ]
 
-    return create_agent(
-        model,
-        tools=await MCPToolkit.get_tools(),
-        middleware=agent_middleware,
+    initial_tools = [] if deferred_settings.ENABLED else mcp_tools
+
+    deep_agent = create_deep_agent(
+        model=model,
+        tools=initial_tools,
+        system_prompt=None,
+        middleware=user_middleware,
+        subagents=subagents,
+        memory=[f"/{agent_path.name}/{ctx.config.context_file_name}", f"/{agent_path.name}/{AGENTS_MEMORY_PATH}"],
+        backend=backend,
+        interrupt_on=interrupt_on,
         context_schema=RuntimeCtx,
         checkpointer=checkpointer,
         store=store,
         debug=debug,
         name="DAIV Agent",
-    ).with_config({"recursion_limit": site_settings.agent_recursion_limit})
+    )
+    return deep_agent.with_config({"recursion_limit": site_settings.agent_recursion_limit})

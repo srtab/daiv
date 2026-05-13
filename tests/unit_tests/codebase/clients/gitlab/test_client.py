@@ -315,3 +315,118 @@ class TestGitLabClient:
         assert len(result) == 2
         assert result[0].lines_added == 0  # failed commit gets zero stats
         assert result[1].lines_added == 5
+
+    def test_list_repositories_orders_by_last_activity_desc(self, gitlab_client):
+        """`list_repositories` passes ``order_by=last_activity_at, sort=desc`` so recent projects surface first."""
+        gitlab_client.client.projects.list.return_value = iter([])
+
+        gitlab_client.list_repositories()
+
+        _, kwargs = gitlab_client.client.projects.list.call_args
+        assert kwargs["order_by"] == "last_activity_at"
+        assert kwargs["sort"] == "desc"
+
+    def test_list_branches_passes_search_and_per_page(self, gitlab_client):
+        """`list_branches` forwards `search` and caps `per_page` at `limit`."""
+        mock_project = Mock()
+        mock_branch = Mock()
+        mock_branch.name = "feat/one"
+        mock_project.branches.list.return_value = iter([mock_branch])
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.list_branches("group/repo", search="feat", limit=10)
+
+        assert result == ["feat/one"]
+        gitlab_client.client.projects.get.assert_called_once_with("group/repo", lazy=True)
+        mock_project.branches.list.assert_called_once_with(
+            iterator=True, per_page=10, sort="updated_desc", search="feat"
+        )
+
+    def test_list_branches_without_search_omits_search_kwarg(self, gitlab_client):
+        """Omitting `search` means no `search=` is passed to GitLab (returns all)."""
+        mock_project = Mock()
+        mock_project.branches.list.return_value = iter([])
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        gitlab_client.list_branches("group/repo")
+
+        mock_project.branches.list.assert_called_once_with(iterator=True, per_page=20, sort="updated_desc")
+
+    def test_list_branches_respects_limit(self, gitlab_client):
+        """Iterator yields more than `limit`; result is truncated to `limit`."""
+        mock_project = Mock()
+        branches = []
+        for name in ("a", "b", "c", "d"):
+            branch = Mock()
+            branch.name = name
+            branches.append(branch)
+        mock_project.branches.list.return_value = iter(branches)
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.list_branches("group/repo", limit=2)
+
+        assert result == ["a", "b"]
+
+    def test_list_branches_caps_per_page_at_100(self, gitlab_client):
+        """GitLab's per_page maximum is 100; values above are clamped."""
+        mock_project = Mock()
+        mock_project.branches.list.return_value = iter([])
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        gitlab_client.list_branches("group/repo", limit=500)
+
+        _, kwargs = mock_project.branches.list.call_args
+        assert kwargs["per_page"] == 100
+
+    def test_get_merge_request_by_branches_returns_first_open_match(self, gitlab_client):
+        """When an open MR exists for the source/target pair, return the serialized MR."""
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_project.mergerequests.list.return_value = iter([mock_mr])
+        gitlab_client.client.projects.get.return_value = mock_project
+        sentinel = Mock(name="serialized")
+        with patch.object(gitlab_client, "_serialize_merge_request", return_value=sentinel) as serialize:
+            result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+
+        assert result is sentinel
+        mock_project.mergerequests.list.assert_called_once_with(
+            source_branch="feat-x", target_branch="main", state="opened", iterator=True
+        )
+        serialize.assert_called_once_with("group/repo", mock_mr)
+
+    def test_is_branch_protected_returns_true_when_branch_protected(self, gitlab_client):
+        mock_project = Mock()
+        mock_branch = Mock(protected=True)
+        mock_project.branches.get.return_value = mock_branch
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        assert gitlab_client.is_branch_protected("group/repo", "dev") is True
+        mock_project.branches.get.assert_called_once_with("dev")
+
+    def test_is_branch_protected_returns_false_when_branch_unprotected(self, gitlab_client):
+        mock_project = Mock()
+        mock_project.branches.get.return_value = Mock(protected=False)
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        assert gitlab_client.is_branch_protected("group/repo", "feature") is False
+
+    def test_is_branch_protected_returns_false_on_api_error(self, gitlab_client):
+        """Fails open: treats any GitLab error (404, auth, rate limit, transport) as unprotected."""
+        from gitlab.exceptions import GitlabAuthenticationError
+
+        mock_project = Mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        for error in (GitlabGetError("404", response_code=404), GitlabAuthenticationError("401")):
+            mock_project.branches.get.side_effect = error
+            assert gitlab_client.is_branch_protected("group/repo", "missing") is False
+
+    def test_get_merge_request_by_branches_returns_none_when_empty(self, gitlab_client):
+        """Empty list → ``None`` (not an exception)."""
+        mock_project = Mock()
+        mock_project.mergerequests.list.return_value = iter([])
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+
+        assert result is None

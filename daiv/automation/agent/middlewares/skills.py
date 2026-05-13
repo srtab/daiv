@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, NotRequired, override
 from deepagents.middleware.skills import SkillMetadata, SkillsState, SkillsStateUpdate
 from deepagents.middleware.skills import SkillsMiddleware as DeepAgentsSkillsMiddleware
 from langchain.agents.middleware import hook_config
-from langchain.agents.middleware.types import ModelRequest, ModelResponse, PrivateStateAttr
+from langchain.agents.middleware.types import PrivateStateAttr
 from langchain.tools import ToolRuntime, tool  # noqa: TC002
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
@@ -16,16 +16,19 @@ from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import AGENTS_SKILLS_PATH, BUILTIN_SKILLS_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
+from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
 from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
 from slash_commands.registry import slash_command_registry
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from deepagents.graph import SubAgent
+    from deepagents.middleware.subagents import CompiledSubAgent
+    from langchain.agents.middleware.types import ToolCallRequest
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
@@ -34,7 +37,6 @@ logger = logging.getLogger("daiv.tools")
 
 SKILL_ARGUMENTS_PLACEHOLDER = "$ARGUMENTS"
 SKILL_MODE_READ_ONLY = "read-only"
-WRITE_TOOL_NAMES = frozenset({"edit_file", "write_file"})
 
 
 class DAIVSkillsState(SkillsState):
@@ -113,7 +115,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     state_schema = DAIVSkillsState
 
-    def __init__(self, *args, subagents: list[SubAgent] | None = None, **kwargs):
+    def __init__(self, *args, subagents: Sequence[SubAgent | CompiledSubAgent] | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
@@ -133,13 +135,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # We need to always copy builtin and custom global skills before calling the super method to make them available
-        # in the filesystem not just to be captured and registered in "skills_metadata" on first run, but also to be
-        # available in the filesystem so that the agent can use them using the `skill` tool, otherwise a not_found error
-        # will be raised.
-        builtin_skills, custom_global_skills = await self._copy_global_skills(
-            agent_path=Path(runtime.context.gitrepo.working_dir)
-        )
+        # Materialize before super() so the `skill` tool can resolve files on disk,
+        # not just metadata; otherwise the agent gets a not_found at invocation time.
+        builtin_skills, custom_global_skills = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
@@ -177,35 +175,26 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return skills_update
 
-    async def _copy_global_skills(self, agent_path: Path) -> tuple[list[str], list[str]]:
+    async def _copy_global_skills(self) -> tuple[list[str], list[str]]:
         """
-        Copy builtin and custom global skills to the project skills directory if they don't exist.
+        Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
+        sibling to the agent's working directory.
 
-        This allows the agent to find built-in and custom global skills and execute scripts bundled with them as if they
-        were project skills, even if the project skills directory is not set up. The copied skills folder includes a
-        .gitignore file to prevent the skills from being committed to the repository.
+        Custom global skills override builtins with the same name (later writes in
+        ``files_to_upload`` win).
 
-        Custom global skills override built-in skills with the same name. Users can override both by creating skills
-        with the same name in the project skills directory and committing them to the repository.
-
-        Args:
-            agent_path: The path to the agent's repository.
-
-        Returns:
-            A tuple of (builtin skill names, custom global skill names).
+        Returns a tuple of (builtin skill names, custom global skill names).
         """
         files_to_upload: list[tuple[str, bytes]] = []
-        project_skills_path = Path(f"/{agent_path.name}/{AGENTS_SKILLS_PATH}")
+        skills_path = Path(GLOBAL_SKILLS_PATH)
 
-        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, project_skills_path, files_to_upload)
+        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
 
         custom_global_skills: list[str] = []
         custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH
         if custom_skills_path is not None and custom_skills_path.is_dir():
             try:
-                custom_global_skills = self._collect_skill_files(
-                    custom_skills_path, project_skills_path, files_to_upload
-                )
+                custom_global_skills = self._collect_skill_files(custom_skills_path, skills_path, files_to_upload)
             except OSError:
                 logger.exception("Failed to read custom global skills from '%s', skipping", custom_skills_path)
         elif custom_skills_path is not None:
@@ -238,15 +227,17 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     source_path = Path(root) / Path(file)
                     if source_path.suffix == ".pyc":
                         continue
-                    dest_path = project_skills_path / source_path.relative_to(source_root)
-                    if not dest_path.exists():
+                    rel = source_path.relative_to(source_root)
+                    # Real existence check on the disk-backed skills cache so per-turn
+                    # uploads become a no-op once the cache is populated. ``dest_path``
+                    # is a virtual path under ``GLOBAL_SKILLS_PATH``, which never exists
+                    # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
+                    dest_path = project_skills_path / rel
+                    if not (SKILLS_CACHE_PATH / rel).exists():
                         try:
                             files_to_upload.append((str(dest_path), source_path.read_bytes()))
                         except OSError:
                             logger.warning("Failed to read skill file '%s', skipping", source_path)
-
-            dest_path = project_skills_path / skill_dir.relative_to(source_root)
-            files_to_upload.append((str(dest_path / ".gitignore"), b"*"))
 
         return skill_names
 
@@ -268,16 +259,29 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return AVAILABLE_SKILLS_TEMPLATE.format(skills_list=skills)
 
     @override
-    async def awrap_model_call(
-        self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
-    ) -> ModelResponse:
-        """Filter write tools when the active skill declares read-only mode."""
-        active_mode = request.state.get("active_skill_mode")
-        if active_mode == SKILL_MODE_READ_ONLY:
-            filtered_tools = [t for t in request.tools if t.name not in WRITE_TOOL_NAMES]
-            modified = self.modify_request(request.override(tools=filtered_tools))
-            return await handler(modified)
-        return await super().awrap_model_call(request, handler)
+    async def awrap_tool_call(
+        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
+    ) -> ToolMessage | Command:
+        """Refuse write-tool execution when the active skill declares read-only mode.
+
+        Enforced at the tool layer rather than by stripping tools from the model request,
+        so the cached prompt prefix (which includes the tool list) stays stable across
+        skill activation and skill exit. Filtering at request-time invalidates the
+        Anthropic prompt cache and forces a full prefix re-create on the next call.
+        """
+        if (
+            request.tool_call["name"] in WRITE_TOOL_NAMES
+            and request.state.get("active_skill_mode") == SKILL_MODE_READ_ONLY
+        ):
+            return ToolMessage(
+                content=(
+                    f"Refused: tool '{request.tool_call['name']}' is unavailable while a read-only skill is active. "
+                    "Read-only skills must not modify files. Wait for the user's follow-up before writing."
+                ),
+                tool_call_id=request.tool_call["id"],
+                status="error",
+            )
+        return await handler(request)
 
     @staticmethod
     def _has_user_followup(messages: list[AnyMessage]) -> bool:
@@ -379,15 +383,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         return parse_slash_command(text_content, bot_username)
 
     def _skill_tool_generator(self) -> BaseTool:
-        """
-        Generate a skill tool.
-
-        Args:
-            backend: The backend to read the skill from.
-
-        Returns:
-            A BaseTool.
-        """
+        """Generate a skill tool."""
 
         async def skill_tool(
             skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],

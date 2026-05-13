@@ -10,6 +10,12 @@ DATABASES_OPTIONS = {
         cast=Choices(["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]),
     ),
     "pool": {"max_size": config("DB_POOL_MAX_SIZE", default=15, cast=int)},
+    # Probe idle connections so middleboxes (e.g. Docker Swarm IPVS, default 15min)
+    # don't silently drop pooled connections, causing a reconnect on the next request.
+    "keepalives": 1,
+    "keepalives_idle": config("DB_KEEPALIVES_IDLE", default=60, cast=int),
+    "keepalives_interval": config("DB_KEEPALIVES_INTERVAL", default=10, cast=int),
+    "keepalives_count": config("DB_KEEPALIVES_COUNT", default=5, cast=int),
 }
 
 DATABASES = {

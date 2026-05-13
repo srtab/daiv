@@ -10,6 +10,7 @@ class ActivityFilter(django_filters.FilterSet):
     trigger = django_filters.ChoiceFilter(field_name="trigger_type", choices=TriggerType.choices)
     repo = django_filters.CharFilter(field_name="repo_id")
     schedule = django_filters.NumberFilter(field_name="scheduled_job_id")
+    batch = django_filters.UUIDFilter(field_name="batch_id")
     date_from = django_filters.DateFilter(field_name="created_at", lookup_expr="date__gte")
     date_to = django_filters.DateFilter(field_name="created_at", lookup_expr="date__lte")
 

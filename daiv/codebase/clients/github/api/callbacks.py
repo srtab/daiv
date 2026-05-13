@@ -4,15 +4,17 @@ from typing import Any, Literal
 
 from activity.models import TriggerType
 from activity.services import acreate_activity
+from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 
 from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
+from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task
-from codebase.utils import note_mentions_daiv
+from codebase.utils import compute_thread_id, note_mentions_daiv
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 
 from .models import Comment, Issue, Label, PullRequest, Repository, User  # noqa: TC001
@@ -94,7 +96,12 @@ class IssueCallback(GitHubCallback):
             logger.warning(
                 "Failed to add reaction to issue %s#%s", self.repository.full_name, self.issue.number, exc_info=True
             )
-        result = await address_issue_task.aenqueue(repo_id=self.repository.full_name, issue_iid=self.issue.number)
+        thread_id = compute_thread_id(
+            repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
+        )
+        result = await address_issue_task.aenqueue(
+            repo_id=self.repository.full_name, issue_iid=self.issue.number, thread_id=thread_id
+        )
         daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
             await acreate_activity(
@@ -105,6 +112,8 @@ class IssueCallback(GitHubCallback):
                 use_max=self.issue.has_max_label(),
                 user=daiv_user,
                 external_username=self.sender.username,
+                title=self.issue.title,
+                thread_id=thread_id,
             )
         except Exception:
             logger.exception("Failed to create activity for issue %s#%s", self.repository.full_name, self.issue.number)
@@ -159,8 +168,14 @@ class IssueCommentCallback(GitHubCallback):
                 )
             except GithubException:
                 logger.warning("Failed to add reaction to issue comment %s", self.comment.id, exc_info=True)
+            thread_id = compute_thread_id(
+                repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
+            )
             result = await address_issue_task.aenqueue(
-                repo_id=self.repository.full_name, issue_iid=self.issue.number, mention_comment_id=str(self.comment.id)
+                repo_id=self.repository.full_name,
+                issue_iid=self.issue.number,
+                mention_comment_id=str(self.comment.id),
+                thread_id=thread_id,
             )
             try:
                 await acreate_activity(
@@ -172,6 +187,8 @@ class IssueCommentCallback(GitHubCallback):
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
+                    title=self.issue.title,
+                    thread_id=thread_id,
                 )
             except Exception:
                 logger.exception(
@@ -185,21 +202,38 @@ class IssueCommentCallback(GitHubCallback):
                 )
             except GithubException:
                 logger.warning("Failed to add reaction to PR comment %s", self.comment.id, exc_info=True)
+            thread_id = compute_thread_id(
+                repo_slug=self.repository.full_name, scope=Scope.MERGE_REQUEST, entity_iid=self.issue.number
+            )
             result = await address_mr_comments_task.aenqueue(
                 repo_id=self.repository.full_name,
                 merge_request_id=self.issue.number,
                 mention_comment_id=str(self.comment.id),
+                thread_id=thread_id,
             )
+            # GitHub's issue_comment payload omits head.ref, so fetch the PR. If that
+            # fails the activity is still useful without a branch — don't drop it.
+            source_branch = ""
+            try:
+                pr = await sync_to_async(self._client.get_merge_request)(self.repository.full_name, self.issue.number)
+                source_branch = pr.source_branch
+            except Exception:
+                logger.exception(
+                    "Failed to resolve source branch for PR comment %s#%s", self.repository.full_name, self.issue.number
+                )
             try:
                 await acreate_activity(
                     trigger_type=TriggerType.MR_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.repository.full_name,
+                    ref=source_branch,
                     merge_request_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
                     use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
+                    title=self.issue.title,
+                    thread_id=thread_id,
                 )
             except Exception:
                 logger.exception(

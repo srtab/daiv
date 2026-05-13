@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
@@ -210,3 +211,56 @@ class TestSyncFromTaskResultUsage:
         assert activity.input_tokens == 3000
         assert activity.cost_usd is None
         assert "cost_usd" not in changed
+
+
+@pytest.mark.django_db
+class TestActivityBatchId:
+    def test_batch_id_persisted(self, member_user):
+        batch = uuid.uuid4()
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user, batch_id=batch
+        )
+        activity.refresh_from_db()
+        assert activity.batch_id == batch
+
+    def test_batch_id_defaults_to_null(self, member_user):
+        activity = Activity.objects.create(trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user)
+        assert activity.batch_id is None
+
+    def test_by_batch_returns_only_matching(self, member_user):
+        b1, b2 = uuid.uuid4(), uuid.uuid4()
+        a = Activity.objects.create(trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user, batch_id=b1)
+        other = Activity.objects.create(trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user, batch_id=b2)
+        qs = Activity.objects.by_batch(b1)
+        assert a in qs
+        assert other not in qs
+
+
+class TestActivityThreadId:
+    def test_duplicate_thread_id_allowed(self, member_user):
+        """The same deterministic thread_id is reused across webhook events on a single MR/issue,
+        so multiple Activity rows must be allowed to share it."""
+        shared = "deadbeef" * 4
+        first = Activity.objects.create(
+            trigger_type=TriggerType.MR_WEBHOOK,
+            repo_id="group/repo",
+            user=member_user,
+            thread_id=shared,
+            mention_comment_id="100",
+        )
+        second = Activity.objects.create(
+            trigger_type=TriggerType.MR_WEBHOOK,
+            repo_id="group/repo",
+            user=member_user,
+            thread_id=shared,
+            mention_comment_id="200",
+        )
+        assert first.pk != second.pk
+        assert first.thread_id == second.thread_id == shared
+
+    def test_empty_string_thread_id_rejected(self, member_user):
+        """The non-empty CheckConstraint still applies after dropping uniqueness."""
+        from django.db.utils import IntegrityError
+
+        with pytest.raises(IntegrityError):
+            Activity.objects.create(trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user, thread_id="")

@@ -1,22 +1,31 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
-from django.conf import settings as django_settings
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+from redis.exceptions import RedisError
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
-from codebase.base import GitPlatform, MergeRequest, Note, NoteDiffPosition, NoteDiffPositionType, NotePositionType
+from codebase.base import (
+    GitPlatform,
+    MergeRequest,
+    Note,
+    NoteDiffPosition,
+    NoteDiffPositionType,
+    NotePositionType,
+    Scope,
+)
+from codebase.utils import compute_thread_id
+from core.checkpointer import open_checkpointer
 from core.constants import BOT_NAME
-from core.utils import generate_uuid
 
 from .base import BaseManager
 
@@ -190,17 +199,35 @@ class CommentsAddressorManager(BaseManager):
     Manages the comments addressing process.
     """
 
-    def __init__(self, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx):
+    def __init__(
+        self,
+        *,
+        merge_request: MergeRequest,
+        mention_comment_id: str,
+        runtime_ctx: RuntimeCtx,
+        thread_id: str | None = None,
+    ):
         super().__init__(runtime_ctx=runtime_ctx)
         self.merge_request = merge_request
         self.mention_comment_id = mention_comment_id
-        self.thread_id = generate_uuid(
-            f"{self.ctx.repository.slug}:{self.ctx.scope}/{self.merge_request.merge_request_id}"
-        )
+        if thread_id is None:
+            thread_id = compute_thread_id(
+                repo_slug=self.ctx.repository.slug,
+                scope=Scope.MERGE_REQUEST,
+                entity_iid=self.merge_request.merge_request_id,
+            )
+        elif not thread_id:
+            raise ValueError(f"thread_id must be non-empty or None, got {thread_id!r}")
+        self.thread_id = thread_id
 
     @classmethod
     async def address_comments(
-        cls, *, merge_request: MergeRequest, mention_comment_id: str, runtime_ctx: RuntimeCtx
+        cls,
+        *,
+        merge_request: MergeRequest,
+        mention_comment_id: str,
+        runtime_ctx: RuntimeCtx,
+        thread_id: str | None = None,
     ) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -213,7 +240,12 @@ class CommentsAddressorManager(BaseManager):
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag.
         """
-        manager = cls(merge_request=merge_request, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx)
+        manager = cls(
+            merge_request=merge_request,
+            mention_comment_id=mention_comment_id,
+            runtime_ctx=runtime_ctx,
+            thread_id=thread_id,
+        )
 
         try:
             return await manager._address_comments()
@@ -229,10 +261,7 @@ class CommentsAddressorManager(BaseManager):
             self.ctx.repository.slug, self.merge_request.merge_request_id, self.mention_comment_id
         )
 
-        async with AsyncRedisSaver.from_conn_string(
-            django_settings.DJANGO_REDIS_CHECKPOINT_URL,
-            ttl={"default_ttl": django_settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES},
-        ) as checkpointer:
+        async with open_checkpointer() as checkpointer:
             agent_kwargs = get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent)
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
@@ -272,49 +301,116 @@ class CommentsAddressorManager(BaseManager):
                     entity_label="merge request",
                     entity_id=self.merge_request.merge_request_id,
                 )
-                self._add_unable_to_address_review_note(draft_published=draft_published)
+                # _recover_draft may have updated state with the recovered MR, so
+                # re-read here rather than reusing a pre-recovery snapshot.
+                fallback_footer = self._render_protected_branch_footer(
+                    await self._safe_get_state(daiv_agent, agent_config)
+                )
+                self._add_unable_to_address_review_note(
+                    draft_published=draft_published, fallback_footer=fallback_footer
+                )
                 raise
             else:
                 response_text = ""
+                # Read the snapshot once so the fallback footer and AgentResult share
+                # the same checkpoint read instead of round-tripping Redis twice.
+                snapshot = await self._safe_get_state(daiv_agent, agent_config)
+                fallback_footer = self._render_protected_branch_footer(snapshot)
                 if (
                     result
                     and "messages" in result
                     and result["messages"]
                     and (response_text := extract_text_content(result["messages"][-1].content).strip())
                 ):
-                    self._leave_comment(response_text)
+                    self._leave_comment(self._append_footer(response_text, fallback_footer))
                 else:
                     logger.warning(
                         "Agent returned empty response for merge request %d (result keys: %s)",
                         self.merge_request.merge_request_id,
                         list(result.keys()) if result else None,
                     )
-                    self._add_unable_to_address_review_note()
+                    self._add_unable_to_address_review_note(fallback_footer=fallback_footer)
 
                 return await self._build_agent_result(
                     daiv_agent,
                     agent_config,
                     response=response_text,
-                    usage=build_usage_summary(usage_handler.usage_metadata).to_dict(),
+                    usage=build_usage_summary(usage_handler).to_dict(),
+                    snapshot=snapshot,
                 )
 
-    def _add_unable_to_address_review_note(self, *, draft_published: bool = False):
+    async def _safe_get_state(self, agent, config):
+        """Read agent state, returning None on transport/serialization failure."""
+        try:
+            return await agent.aget_state(config=config)
+        except RedisError, OSError, json.JSONDecodeError:
+            logger.warning(
+                "Failed to read agent state for merge request %d", self.merge_request.merge_request_id, exc_info=True
+            )
+            return None
+
+    def _render_protected_branch_footer(self, snapshot) -> str | None:
+        """
+        Render the protected-branch fallback footer when the publisher swapped to a
+        fresh MR during this run, so the notice can be bundled into the agent's
+        reply instead of posted as a separate comment on the original MR.
+        """
+        if snapshot is None:
+            return None
+
+        source_branch = snapshot.values.get("protected_branch_fallback_source")
+        new_mr = snapshot.values.get("merge_request")
+        if not source_branch and new_mr is None:
+            return None
+        if not source_branch or new_mr is None:
+            # The publisher writes the two fields together; seeing only one set means
+            # the checkpoint was raced/partial. The user gets the reply with no
+            # breadcrumb to the new MR in that case — surface it to the operator.
+            logger.warning(
+                "Partial protected-branch fallback state on MR %d "
+                "(source_branch=%r, merge_request=%r); dropping footer.",
+                self.merge_request.merge_request_id,
+                source_branch,
+                new_mr,
+            )
+            return None
+
+        return render_to_string(
+            "automation/protected_branch_fallback.txt",
+            {
+                "source_branch": source_branch,
+                "new_merge_request_url": new_mr.web_url,
+                "new_merge_request_id": new_mr.merge_request_id,
+                "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+            },
+        )
+
+    @staticmethod
+    def _append_footer(body: str, footer: str | None) -> str:
+        if not footer:
+            return body
+        return f"{body.rstrip()}\n\n{footer.lstrip()}"
+
+    def _add_unable_to_address_review_note(self, *, draft_published: bool = False, fallback_footer: str | None = None):
         """
         Add a note to the merge request to inform the user that the review could not be addressed.
 
         Args:
             draft_published: Whether the draft merge request was published to the repository.
+            fallback_footer: Pre-rendered protected-branch fallback footer to bundle into
+                the note when the publisher swapped to a fresh MR.
         """
+        body = render_to_string(
+            "codebase/unable_address_review.txt",
+            {
+                "bot_name": BOT_NAME,
+                "bot_username": self.ctx.bot_username,
+                "draft_published": draft_published,
+                "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+            },
+        )
         self._leave_comment(
-            render_to_string(
-                "codebase/unable_address_review.txt",
-                {
-                    "bot_name": BOT_NAME,
-                    "bot_username": self.ctx.bot_username,
-                    "draft_published": draft_published,
-                    "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
-                },
-            ),
+            self._append_footer(body, fallback_footer),
             # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
             reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
         )

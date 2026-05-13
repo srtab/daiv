@@ -4,8 +4,14 @@ from codebase.repo_config import (
     CONFIGURATION_CACHE_KEY_PREFIX,
     CONFIGURATION_CACHE_TIMEOUT,
     RepositoryConfig,
+    Sandbox,
     SandboxCommandPolicy,
 )
+
+
+def test_sandbox_config_has_no_ephemeral_field():
+    """Sandbox.ephemeral was removed alongside the sandbox eager-sync redesign."""
+    assert "ephemeral" not in Sandbox.model_fields
 
 
 class RepositoryConfigTest:

@@ -1,9 +1,28 @@
+import tempfile
 from enum import StrEnum
+from pathlib import Path
 
 from daiv.settings.components import PROJECT_DIR
 
 # Path where the builtin skills are stored in the filesystem to be copied to the repository.
 BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
+
+# Virtual path the composite backend serves global skills from. Mounted onto
+# ``SKILLS_CACHE_PATH`` on disk so per-turn skill uploads are idempotent and writes
+# under ``/skills/`` don't round-trip through the agent's state.
+GLOBAL_SKILLS_PATH = "/skills"
+GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
+
+# On-disk root the composite backend mounts at ``GLOBAL_SKILLS_PATH``. Created at module
+# import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup
+# ImportError on production, or a confusing pytest collection error locally).
+#
+# Recreated only on container image change; stale entries from a prior deploy may
+# survive a container restart on hosts where ``/tmp`` is not a tmpfs, so do not rely on
+# this for runtime invalidation. ``SkillsMiddleware._collect_skill_files`` makes per-run
+# uploads idempotent via an existence check against this path.
+SKILLS_CACHE_PATH = Path(tempfile.gettempdir()) / "daiv-skills"
+SKILLS_CACHE_PATH.mkdir(parents=True, exist_ok=True)
 
 # Path where the skills are stored in repository.
 CURSOR_SKILLS_PATH = ".cursor/skills"

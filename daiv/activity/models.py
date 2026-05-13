@@ -54,6 +54,10 @@ class ActivityManager(models.Manager["Activity"]):
             models.Q(user=user) | models.Q(external_username=user.username) | models.Q(scheduled_job__subscribers=user)
         ).distinct()
 
+    def by_batch(self, batch_id) -> models.QuerySet[Activity]:
+        """Return activities that share a ``batch_id`` (multi-repo submission group)."""
+        return self.filter(batch_id=batch_id)
+
 
 class Activity(models.Model):
     """Unified record of every agent execution, regardless of trigger source.
@@ -83,6 +87,25 @@ class Activity(models.Model):
     )
 
     status = models.CharField(_("status"), max_length=10, choices=ActivityStatus.choices, default=ActivityStatus.READY)
+
+    title = models.CharField(_("title"), max_length=120, blank=True, default="")
+
+    batch_id = models.UUIDField(
+        _("batch ID"),
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=_("Shared identifier for activities from the same submission."),
+    )
+
+    thread_id = models.CharField(  # noqa: DJ001 — nullable for legacy rows.
+        _("thread ID"),
+        max_length=64,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=_("LangGraph checkpoint key. Lets chat resume this run."),
+    )
 
     external_username = models.CharField(
         _("external username"),
@@ -162,6 +185,13 @@ class Activity(models.Model):
                 name="activity_ext_user_created_idx",
                 condition=models.Q(external_username__gt=""),
             ),
+        ]
+        constraints = [
+            # NULL is the unambiguous "no thread" marker; reject "" so legacy queries
+            # filtering ``thread_id__isnull`` don't miss empty-string sentinels.
+            models.CheckConstraint(
+                condition=models.Q(thread_id__isnull=True) | ~models.Q(thread_id=""), name="activity_thread_id_nonempty"
+            )
         ]
 
     def __str__(self) -> str:

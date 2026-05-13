@@ -37,7 +37,11 @@ class ScheduledJobManager(models.Manager["ScheduledJob"]):
 
 
 class ScheduledJob(TimeStampedModel):
-    """A user-defined schedule that runs the DAIV agent on a repository."""
+    """A user-defined schedule that runs the DAIV agent on 1-20 repositories.
+
+    Target repositories are stored in ``repos`` as ``[{"repo_id": str, "ref": str}, ...]``.
+    Each dispatch fans out into one agent run per entry, correlated by ``last_run_batch_id``.
+    """
 
     objects = ScheduledJobManager()
 
@@ -46,13 +50,9 @@ class ScheduledJob(TimeStampedModel):
     )
     name = models.CharField(_("name"), max_length=200)
     prompt = models.TextField(_("prompt"), help_text=_("What the agent should do."))
-    repo_id = models.CharField(_("repository"), max_length=255, help_text=_("Repository identifier, e.g. owner/repo."))
-    ref = models.CharField(
-        _("branch / ref"),
-        max_length=255,
-        blank=True,
-        default="",
-        help_text=_("Git branch or ref. Leave blank for the default branch."),
+    repos = models.JSONField(
+        _("repositories"),
+        help_text=_("List of {repo_id, ref} entries. 1-20 entries. Empty ref means the default branch."),
     )
     frequency = models.CharField(_("frequency"), max_length=10, choices=Frequency.choices, default=Frequency.DAILY)
     cron_expression = models.CharField(
@@ -71,7 +71,7 @@ class ScheduledJob(TimeStampedModel):
     is_enabled = models.BooleanField(_("enabled"), default=True)
     next_run_at = models.DateTimeField(_("next run at"), null=True, blank=True, db_index=True)
     last_run_at = models.DateTimeField(_("last run at"), null=True, blank=True)
-    last_run_task_id = models.UUIDField(_("last run task ID"), null=True, blank=True)
+    last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
     notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
     subscribers = models.ManyToManyField(
@@ -97,8 +97,17 @@ class ScheduledJob(TimeStampedModel):
     def __str__(self) -> str:
         return self.name
 
+    def _validated_repos(self) -> list[dict]:
+        from activity.services import validate_repo_list
+
+        try:
+            return validate_repo_list(self.repos)
+        except ValueError as err:
+            raise ValidationError({"repos": str(err)}) from err
+
     def clean(self) -> None:
         super().clean()
+        self.repos = self._validated_repos()
         if self.frequency == Frequency.CUSTOM:
             if not self.cron_expression:
                 raise ValidationError({"cron_expression": _("A cron expression is required for Custom frequency.")})

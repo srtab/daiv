@@ -315,3 +315,114 @@ class TestGitHubClient:
         result = github_client.get_bot_commit_email()
 
         assert result == "12345+daiv-bot[bot]@users.noreply.github.com"
+
+    def test_list_branches_returns_branch_names(self, github_client):
+        """`list_branches` returns branch names from PyGithub's iterator."""
+        mock_repo = Mock()
+        branches = []
+        for name in ("main", "feat/one", "fix/two"):
+            branch = Mock()
+            branch.name = name
+            branches.append(branch)
+        mock_repo.get_branches.return_value = iter(branches)
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.list_branches("owner/repo")
+
+        assert result == ["main", "feat/one", "fix/two"]
+        github_client.client.get_repo.assert_called_once_with("owner/repo", lazy=True)
+
+    def test_list_branches_filters_client_side_case_insensitively(self, github_client):
+        """Client-side substring filter is case-insensitive and preserves order."""
+        mock_repo = Mock()
+        branches = []
+        for name in ("main", "Feat/One", "fix/two", "feat/three"):
+            branch = Mock()
+            branch.name = name
+            branches.append(branch)
+        mock_repo.get_branches.return_value = iter(branches)
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.list_branches("owner/repo", search="feat")
+
+        assert result == ["Feat/One", "feat/three"]
+
+    def test_list_branches_respects_limit_and_stops_iteration(self, github_client):
+        """Iteration stops once `limit` matches are collected — no full page scan."""
+        branches = []
+        for name in ("a", "b", "c", "d"):
+            branch = Mock()
+            branch.name = name
+            branches.append(branch)
+        mock_repo = Mock()
+        mock_repo.get_branches.return_value = iter(branches)
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.list_branches("owner/repo", limit=2)
+
+        assert result == ["a", "b"]
+
+    def test_get_merge_request_by_branches_returns_first_open_match(self, github_client):
+        """When an open PR exists for the source/target pair, return a serialized MergeRequest."""
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_pr.number = 7
+        mock_pr.head = Mock(ref="feat-x", sha="abc123")
+        mock_pr.base = Mock(ref="main")
+        mock_pr.title = "feat: add x"
+        mock_pr.body = "details"
+        label = Mock()
+        label.name = "enhancement"
+        mock_pr.labels = [label]
+        mock_pr.html_url = "https://github.com/o/r/pull/7"
+        mock_user = Mock(id=1, login="alice")
+        mock_user.name = "Alice"
+        mock_pr.user = mock_user
+        mock_pr.draft = True
+        mock_repo.get_pulls.return_value = iter([mock_pr])
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_merge_request_by_branches("owner/repo", "feat-x", "main")
+
+        assert result is not None
+        assert result.merge_request_id == 7
+        assert result.source_branch == "feat-x"
+        assert result.target_branch == "main"
+        assert result.draft is True
+        assert result.web_url == "https://github.com/o/r/pull/7"
+        assert result.labels == ["enhancement"]
+        mock_repo.get_pulls.assert_called_once_with(state="open", base="main", head="feat-x")
+
+    def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
+        mock_repo = Mock()
+        mock_repo.get_branch.return_value = Mock(protected=True)
+        github_client.client.get_repo.return_value = mock_repo
+
+        assert github_client.is_branch_protected("owner/repo", "main") is True
+        mock_repo.get_branch.assert_called_once_with("main")
+
+    def test_is_branch_protected_returns_false_when_branch_unprotected(self, github_client):
+        mock_repo = Mock()
+        mock_repo.get_branch.return_value = Mock(protected=False)
+        github_client.client.get_repo.return_value = mock_repo
+
+        assert github_client.is_branch_protected("owner/repo", "feature") is False
+
+    def test_is_branch_protected_returns_false_on_api_error(self, github_client):
+        """Fails open: treats any GitHub error (404, auth, rate limit, transport) as unprotected."""
+        mock_repo = Mock()
+        github_client.client.get_repo.return_value = mock_repo
+
+        for status in (404, 401, 500):
+            mock_repo.get_branch.side_effect = GithubException(status, "error", None)
+            assert github_client.is_branch_protected("owner/repo", "missing") is False
+
+    def test_get_merge_request_by_branches_returns_none_when_empty(self, github_client):
+        """No open PR matching the branch pair → ``None``."""
+        mock_repo = Mock()
+        mock_repo.get_pulls.return_value = iter([])
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_merge_request_by_branches("owner/repo", "feat-x", "main")
+
+        assert result is None

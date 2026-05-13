@@ -1,45 +1,52 @@
 {% load i18n %}
+{% trans "Repository already in the list: __LABEL__." as conflict_message_template %}
 
-<div>
-    <label for="id_prompt" class="block text-[15px] font-medium text-gray-400">Prompt <span class="text-red-400">*</span></label>
-    <textarea name="prompt" id="id_prompt" rows="4" required
-              placeholder="Describe what the agent should do in each run...&#10;&#10;e.g., Review open merge requests and leave feedback on code quality."
-              class="mt-2">{{ form.prompt.value|default:'' }}</textarea>
-    {% if form.prompt.errors %}
-    <p class="mt-1.5 text-sm text-red-400">{{ form.prompt.errors.0 }}</p>
-    {% endif %}
-</div>
+<div x-data='promptBox({
+        initialRepos: {{ form.repos.value|default:"[]" }},
+        initialUseMax: {% if form.use_max.value %}true{% else %}false{% endif %},
+        maxRepos: 20,
+        repoPickerUrl: "{% url 'codebase:picker-repositories' %}",
+        branchPickerTemplate: "{% url 'codebase:picker-branches' slug='__SLUG__' %}",
+        conflictMessageTemplate: "{{ conflict_message_template|escapejs }}"
+     })'
+     class="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] transition-colors focus-within:border-white/[0.18]">
 
-<div class="mt-5">
-    <label class="flex cursor-pointer items-center gap-3">
-        <input type="hidden" name="use_max" value="false">
-        <input type="checkbox" name="use_max" value="true" {% if form.use_max.value %}checked{% endif %}>
-        <span class="text-[15px] font-medium text-gray-400">Max mode</span>
-    </label>
-    {% if form.use_max.errors %}
-    <p class="mt-1.5 text-sm text-red-400">{{ form.use_max.errors.0 }}</p>
-    {% endif %}
-    <p class="mt-1.5 text-sm text-gray-400">Use the more capable model with thinking set to high.</p>
-</div>
+    <label for="id_prompt" class="sr-only">{% trans "Prompt" %}</label>
 
-<div class="mt-6 grid grid-cols-3 gap-4 border-t border-white/[0.06] pt-6">
-    <div class="col-span-2" x-data="repoSearch('{{ form.repo_id.value|default:'' }}')">
-        <label class="block text-[15px] font-medium text-gray-400">Repository <span class="text-red-400">*</span></label>
-        <div class="relative mt-2">
-            {% include "codebase/_repo_combobox.html" with combobox_name="repo_id" %}
-        </div>
-        {% if form.repo_id.errors %}
-        <p class="mt-1.5 text-sm text-red-400">{{ form.repo_id.errors.0 }}</p>
-        {% endif %}
-        <p class="mt-1.5 text-sm text-gray-400">Search and select a repository.</p>
+    <textarea name="prompt" id="id_prompt" rows="2" required
+              x-ref="prompt"
+              @input="autosize($el)"
+              x-init="$nextTick(() => autosize($refs.prompt))"
+              @keydown.meta.enter.prevent="$el.form?.requestSubmit()"
+              @keydown.ctrl.enter.prevent="$el.form?.requestSubmit()"
+              placeholder="{% trans 'Describe what the agent should do in each run...' %}"
+              class="block w-full resize-none !border-0 !bg-transparent !px-5 !pt-4 !pb-3 !text-[15px] !text-white placeholder-gray-500 focus:!ring-0">{{ form.prompt.value|default:'' }}</textarea>
+
+    <div class="border-t border-white/[0.05]"></div>
+
+    <div class="flex items-center justify-between gap-3 px-3 py-2">
+
+        {% include "codebase/_repo_picker.html" with with_x_data=False initial_repos=form.repos.value|default:"[]" max_repos=20 show_conflict_message=False required=True %}
+
+        <label class="inline-flex shrink-0 cursor-pointer items-center gap-2 text-[13px] text-gray-400"
+               title="{% trans 'More capable model with thinking set to high.' %}">
+            <span>{% trans "Max" %}</span>
+            <span class="relative inline-block h-[18px] w-[30px] shrink-0 rounded-full bg-white/[0.1] transition-colors"
+                  :class="useMax && '!bg-white'">
+                <span class="absolute left-[2px] top-[2px] h-[14px] w-[14px] rounded-full bg-white transition-all"
+                      :class="useMax && '!left-[14px] !bg-[#030712]'"></span>
+            </span>
+            {# Hidden sentinel pairs with the checkbox so unchecked POSTs as false. #}
+            <input type="hidden" name="use_max" value="false">
+            <input type="checkbox" name="use_max" value="true" x-model="useMax"
+                   {% if form.use_max.value %}checked{% endif %} class="sr-only">
+        </label>
     </div>
 
-    <div>
-        <label for="id_ref" class="block text-[15px] font-medium text-gray-400">Branch / Ref</label>
-        <input type="text" name="ref" id="id_ref" value="{{ form.ref.value|default:'' }}" maxlength="255"
-               placeholder="Default branch" class="mt-2">
-        {% if form.ref.errors %}
-        <p class="mt-1.5 text-sm text-red-400">{{ form.ref.errors.0 }}</p>
-        {% endif %}
-    </div>
+    <ul {% if not form.prompt.errors and not form.repos.errors %}x-show="conflictMessage" x-cloak{% endif %}
+        class="border-t border-white/[0.05] px-4 py-2.5 text-sm text-red-400">
+        {% for err in form.prompt.errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in form.repos.errors %}<li>{{ err }}</li>{% endfor %}
+        <li x-show="conflictMessage" x-cloak x-text="conflictMessage"></li>
+    </ul>
 </div>

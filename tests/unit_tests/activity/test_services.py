@@ -1,9 +1,27 @@
 import pytest
 from activity.models import TriggerType
-from activity.services import acreate_activity, create_activity
+from activity.services import acreate_activity, create_activity, validate_repo_list
 from notifications.choices import NotifyOn
 
 from schedules.models import Frequency, ScheduledJob
+
+
+class TestValidateRepoListDuplicates:
+    def test_duplicate_with_ref_mentions_both_repo_and_ref(self):
+        raw = [{"repo_id": "acme/api", "ref": "main"}, {"repo_id": "acme/api", "ref": "main"}]
+        with pytest.raises(ValueError) as exc:
+            validate_repo_list(raw)
+        msg = str(exc.value)
+        assert "acme/api" in msg
+        assert "main" in msg
+
+    def test_duplicate_without_ref_omits_on_clause(self):
+        raw = [{"repo_id": "acme/api", "ref": ""}, {"repo_id": "acme/api", "ref": ""}]
+        with pytest.raises(ValueError) as exc:
+            validate_repo_list(raw)
+        msg = str(exc.value)
+        assert "acme/api" in msg
+        assert " on " not in msg
 
 
 @pytest.mark.django_db
@@ -31,7 +49,7 @@ class TestCreateActivityNotifyOn:
             user=member_user,
             name="s",
             prompt="p",
-            repo_id="x/y",
+            repos=[{"repo_id": "x/y", "ref": ""}],
             frequency=Frequency.DAILY,
             time="12:00",
             notify_on=NotifyOn.ALWAYS,
@@ -51,7 +69,7 @@ class TestCreateActivityNotifyOn:
             user=member_user,
             name="s",
             prompt="p",
-            repo_id="x/y",
+            repos=[{"repo_id": "x/y", "ref": ""}],
             frequency=Frequency.DAILY,
             time="12:00",
             notify_on=NotifyOn.ALWAYS,
@@ -110,7 +128,7 @@ class TestEffectiveNotifyOn:
             user=member_user,
             name="s",
             prompt="p",
-            repo_id="x/y",
+            repos=[{"repo_id": "x/y", "ref": ""}],
             frequency=Frequency.DAILY,
             time="12:00",
             notify_on=NotifyOn.ON_SUCCESS,

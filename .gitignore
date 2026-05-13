@@ -178,3 +178,4 @@ daiv/static/css/styles.css
 daiv-traces/
 predictions.json
 
+.worktrees/

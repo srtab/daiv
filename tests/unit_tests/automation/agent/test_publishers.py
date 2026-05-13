@@ -38,6 +38,7 @@ def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_f
 
     publisher = GitChangePublisher(ctx)
     publisher.client = Mock()
+    publisher.client.is_branch_protected.return_value = False
     return publisher
 
 
@@ -125,6 +126,49 @@ class TestSuggestContextFile:
         assert "CLAUDE.md" in comment_body
 
 
+class TestCreateMergeRequestDescription:
+    """The new MR description back-links to the original protected MR for traceability."""
+
+    def _make_publisher_with_no_issue(self, *, git_platform: GitPlatform = GitPlatform.GITLAB) -> GitChangePublisher:
+        publisher = _make_publisher(git_platform=git_platform)
+        publisher.ctx.issue = None
+        publisher.ctx.bot_username = "daiv"
+        return publisher
+
+    def test_includes_back_link_when_fallback_provided(self):
+        publisher = self._make_publisher_with_no_issue()
+        original = _make_merge_request(
+            source_branch="dev", merge_request_id=42, web_url="https://gitlab.com/owner/repo/-/merge_requests/42"
+        )
+
+        publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "dev" in description
+        assert "https://gitlab.com/owner/repo/-/merge_requests/42" in description
+        assert "!42" in description
+
+    def test_omits_back_link_when_no_fallback(self):
+        publisher = self._make_publisher_with_no_issue()
+
+        publisher._create_merge_request("feature", "Title", "Body", as_draft=False)
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "is protected on the remote" not in description
+
+    def test_back_link_uses_github_terminology(self):
+        publisher = self._make_publisher_with_no_issue(git_platform=GitPlatform.GITHUB)
+        original = _make_merge_request(
+            source_branch="main", merge_request_id=10, web_url="https://github.com/owner/repo/pull/10"
+        )
+
+        publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
+
+        description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
+        assert "#10" in description
+        assert "!10" not in description
+
+
 class TestBuildIssueCreationUrl:
     def test_gitlab_url_format(self):
         publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
@@ -186,6 +230,82 @@ class TestPublishSuggestsContextFile:
 
             mock_suggest.assert_called_once_with(mr)
             assert result == mr
+
+    async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher):
+        existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
+        new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
+        publisher.client.is_branch_protected.return_value = True
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature-fix", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ) as mock_diff_to_metadata,
+            patch("automation.agent.publishers.GitManager") as mock_git_mgr_cls,
+            patch.object(publisher, "_create_merge_request", return_value=new_mr) as mock_create_mr,
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            mock_git_mgr = mock_git_mgr_cls.return_value
+            mock_git_mgr.is_dirty.return_value = True
+            mock_git_mgr.get_diff.return_value = "diff"
+            mock_git_mgr.commit_and_push_changes.return_value = "feature-fix"
+
+            result = await publisher.publish(merge_request=existing_mr)
+
+            publisher.client.is_branch_protected.assert_called_once_with("owner/repo", "dev")
+            # Pre-check must run before _diff_to_metadata so the fallback path receives a
+            # populated pr_metadata_diff (the new MR needs title/branch/description).
+            assert mock_diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is not None
+            mock_git_mgr.commit_and_push_changes.assert_called_once_with(
+                "commit msg", branch_name="feature-fix", use_branch_if_exists=False, skip_ci=False
+            )
+            # The new MR is created with a back-link to the original protected MR.
+            mock_create_mr.assert_called_once()
+            assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
+            # Fallback source is exposed on the publisher so the manager can bundle a
+            # footer onto the agent's reply instead of posting a separate comment.
+            assert publisher.protected_branch_fallback_source == "dev"
+            # No fallback comment is posted from the publisher itself.
+            publisher.client.create_merge_request_comment.assert_not_called()
+            assert result == new_mr
+
+    async def test_protected_branch_fallback_resets_between_publish_calls(self, publisher):
+        # First call hits the protected branch and sets the attribute; a follow-up
+        # publish on a clean branch must not leave the prior signal behind.
+        existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
+        new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
+        publisher.client.is_branch_protected.return_value = True
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature-fix", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch("automation.agent.publishers.GitManager") as mock_git_mgr_cls,
+            patch.object(publisher, "_create_merge_request", return_value=new_mr),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            mock_git_mgr = mock_git_mgr_cls.return_value
+            mock_git_mgr.is_dirty.return_value = True
+            mock_git_mgr.get_diff.return_value = "diff"
+            mock_git_mgr.commit_and_push_changes.return_value = "feature-fix"
+
+            await publisher.publish(merge_request=existing_mr)
+            assert publisher.protected_branch_fallback_source == "dev"
+
+            # Second call: nothing dirty, so publish short-circuits — but the
+            # signal from the prior call must still clear.
+            mock_git_mgr.is_dirty.return_value = False
+            await publisher.publish(merge_request=None)
+            assert publisher.protected_branch_fallback_source is None
 
     async def test_does_not_suggest_on_existing_mr(self, publisher):
         mr = _make_merge_request()

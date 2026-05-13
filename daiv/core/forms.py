@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import re
 from typing import Any, ClassVar
+from urllib.parse import urlparse
 
 from django import forms
+from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.base import ModelProvider, parse_model_spec
 from automation.agent.constants import MODEL_SUGGESTIONS
-from core.models import SiteConfiguration
+from core.models import SiteConfiguration, WebFetchAuthHeader
 
 
 class _BooleanCheckboxField(forms.BooleanField):
@@ -101,6 +104,8 @@ class SiteConfigurationForm(forms.ModelForm):
             "agent_recursion_limit",
             "diff_to_metadata_model_name",
             "diff_to_metadata_fallback_model_name",
+            "titling_model_name",
+            "titling_fallback_model_name",
             "web_search_enabled",
             "web_search_max_results",
             "web_search_engine",
@@ -377,3 +382,108 @@ class SiteConfigurationForm(forms.ModelForm):
             "rocketchat_auth_token": _("Bot user personal access token (X-Auth-Token)."),
         }
         return labels.get(name, "")
+
+
+WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX = "headers"
+
+_HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9-]+$")
+
+
+class WebFetchAuthHeaderForm(forms.ModelForm):
+    """
+    Form for one row of the web_fetch auth-headers formset.
+
+    The ``header_value`` field is rendered as a password input and reuses
+    the existing secret-field template for masked-hint UX.
+    """
+
+    header_value = _SecretFormField(
+        label=_("header value"), required=False, widget=forms.PasswordInput(attrs={"autocomplete": "off"})
+    )
+
+    class Meta:
+        model = WebFetchAuthHeader
+        fields = ("domain", "header_name", "header_value")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["domain"].widget.attrs.update({"placeholder": "example.com", "aria-label": _("Domain")})
+        self.fields["header_name"].widget.attrs.update({"placeholder": "X-API-Key", "aria-label": _("Header name")})
+        self.fields["header_value"].widget.attrs.update({"aria-label": _("Header value")})
+        hint = self.instance.get_secret_hint() if self.instance and self.instance.pk else None
+        self.fields["header_value"].secret_hint = hint  # type: ignore[attr-defined]
+
+    def has_changed(self) -> bool:
+        if self.empty_permitted and not any(
+            (self[name].value() or "").strip() for name in ("domain", "header_name", "header_value")
+        ):
+            return False
+        return super().has_changed()
+
+    def clean_domain(self) -> str:
+        value = (self.cleaned_data.get("domain") or "").strip().lower()
+        if not value:
+            return value
+        if "://" in value or "/" in value or "?" in value or "#" in value or " " in value:
+            raise forms.ValidationError(_("Enter a host only (e.g. example.com)."))
+        parsed = urlparse(f"https://{value}")
+        if parsed.hostname != value or parsed.port is not None:
+            raise forms.ValidationError(_("Enter a host only (e.g. example.com)."))
+        return value
+
+    def clean_header_name(self) -> str:
+        value = (self.cleaned_data.get("header_name") or "").strip()
+        if value and not _HEADER_NAME_RE.match(value):
+            raise forms.ValidationError(_("Use letters, digits, and hyphens only (e.g. X-API-Key)."))
+        return value
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        keeping_existing_value = bool(self.instance and self.instance.pk and not cleaned.get("header_value"))
+        present = {
+            "domain": bool(cleaned.get("domain")),
+            "header_name": bool(cleaned.get("header_name")),
+            "header_value": bool(cleaned.get("header_value")) or keeping_existing_value,
+        }
+        if any(present.values()) and not all(present.values()):
+            for field, is_present in present.items():
+                if not is_present:
+                    self.add_error(field, _("Required."))
+        return cleaned
+
+    def save(self, commit: bool = True) -> WebFetchAuthHeader:
+        instance = super().save(commit=False)
+        new_value = self.cleaned_data.get("header_value")
+        if new_value:
+            instance.header_value = new_value
+        if commit:
+            instance.save()
+        return instance
+
+
+class _WebFetchAuthHeaderFormset(BaseModelFormSet):
+    def clean(self) -> None:
+        super().clean()
+        seen: set[tuple[str, str]] = set()
+        for form in self.forms:
+            if not form.cleaned_data or form.cleaned_data.get("DELETE"):
+                continue
+            pair = (form.cleaned_data.get("domain", ""), form.cleaned_data.get("header_name", ""))
+            if not pair[0] or not pair[1]:
+                continue
+            if pair in seen:
+                raise forms.ValidationError(
+                    _("Duplicate (domain, header name) pair: %(domain)s / %(header)s.")
+                    % {"domain": pair[0], "header": pair[1]}
+                )
+            seen.add(pair)
+
+
+def build_web_fetch_auth_header_formset():
+    """
+    Factory for the model formset. Wrapped in a function so each request
+    instantiates a fresh class.
+    """
+    return modelformset_factory(
+        WebFetchAuthHeader, form=WebFetchAuthHeaderForm, formset=_WebFetchAuthHeaderFormset, extra=0, can_delete=True
+    )
