@@ -1,10 +1,14 @@
 import json
+from datetime import timedelta
+
+from django.utils import timezone
 
 import pytest
 from notifications.choices import NotifyOn
 
 from accounts.models import User
 from schedules.forms import ScheduledJobCreateForm
+from schedules.models import Frequency
 
 
 def _valid_data(**overrides):
@@ -99,3 +103,51 @@ class TestScheduledJobCreateFormSubscribers:
     def test_accepts_empty_subscribers(self, member_user):
         form = ScheduledJobCreateForm(data=_valid_data(), owner=member_user)
         assert form.is_valid(), form.errors
+
+
+def _once_data(_run_at, **overrides):
+    data = {
+        "name": "one-off",
+        "prompt": "p",
+        "repos": json.dumps([{"repo_id": "x/y", "ref": ""}]),
+        "frequency": Frequency.ONCE,
+        "cron_expression": "",
+        "time": "",
+        "run_at": _run_at.strftime("%Y-%m-%dT%H:%M"),
+        "use_max": False,
+        "notify_on": NotifyOn.NEVER,
+    }
+    data.update(overrides)
+    return data
+
+
+@pytest.mark.django_db
+class TestScheduledJobCreateFormOnce:
+    def test_once_with_future_run_at_is_valid(self, member_user):
+        future = timezone.now() + timedelta(hours=1)
+        form = ScheduledJobCreateForm(data=_once_data(future), owner=member_user)
+        assert form.is_valid(), form.errors
+
+    def test_once_clears_irrelevant_fields(self, member_user):
+        """Switching to ONCE in the UI should not leak stale cron/time values into the model."""
+        future = timezone.now() + timedelta(hours=1)
+        form = ScheduledJobCreateForm(
+            data=_once_data(future, cron_expression="0 9 * * *", time="09:00"), owner=member_user
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["cron_expression"] == ""
+        assert form.cleaned_data["time"] is None
+
+    def test_non_once_clears_run_at(self, member_user):
+        """Switching away from ONCE should not leak a stale run_at."""
+        future = timezone.now() + timedelta(hours=1)
+        data = _valid_data(run_at=future.strftime("%Y-%m-%dT%H:%M"))
+        form = ScheduledJobCreateForm(data=data, owner=member_user)
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data.get("run_at") is None
+
+    def test_once_without_run_at_is_invalid(self, member_user):
+        future = timezone.now() + timedelta(hours=1)
+        form = ScheduledJobCreateForm(data=_once_data(future, run_at=""), owner=member_user)
+        assert not form.is_valid()
+        assert "run_at" in form.errors

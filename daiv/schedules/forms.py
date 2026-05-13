@@ -7,14 +7,16 @@ from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
 
 
 def _clear_irrelevant_frequency_fields(cleaned_data: dict) -> dict:
-    """Drop stale ``cron_expression`` / ``time`` so switching frequency in the UI doesn't
-    round-trip leftover values that the model's ``_validate_frequency_fields`` would reject.
+    """Drop stale ``cron_expression`` / ``time`` / ``run_at`` so switching frequency in the UI
+    doesn't round-trip leftover values that the model's ``_validate_frequency_fields`` would reject.
     """
     frequency = cleaned_data.get("frequency")
     if frequency != Frequency.CUSTOM:
         cleaned_data["cron_expression"] = ""
-    if frequency in (Frequency.HOURLY, Frequency.CUSTOM):
+    if frequency in (Frequency.HOURLY, Frequency.CUSTOM, Frequency.ONCE):
         cleaned_data["time"] = None
+    if frequency != Frequency.ONCE:
+        cleaned_data["run_at"] = None
     return cleaned_data
 
 
@@ -30,6 +32,7 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
             "frequency",
             "cron_expression",
             "time",
+            "run_at",
             "use_max",
             "notify_on",
             "subscribers",
