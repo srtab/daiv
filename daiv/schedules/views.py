@@ -234,6 +234,9 @@ class ScheduleTemplateListView(BreadcrumbMixin, AdminRequiredMixin, ListView):
     paginate_by = 25
     breadcrumbs = [{"label": "Schedules", "url": reverse_lazy("schedule_list")}, {"label": "Templates", "url": None}]
 
+    def get_queryset(self):
+        return ScheduleTemplate.objects.only(*ScheduleTemplate.PICKER_FIELDS)
+
 
 class ScheduleTemplateCreateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMessageMixin, CreateView):
     model = ScheduleTemplate
@@ -274,6 +277,15 @@ class ScheduleTemplateDeleteView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
 
     def get_success_message(self, cleaned_data: dict) -> str:
         return f"Template '{self.object.name}' deleted."
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        next_url = self.request.GET.get("next", "")
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={self.request.get_host()}):
+            context["cancel_url"] = next_url
+        else:
+            context["cancel_url"] = reverse("schedule_template_update", args=[self.object.pk])
+        return context
 
     def get_breadcrumbs(self):
         return [

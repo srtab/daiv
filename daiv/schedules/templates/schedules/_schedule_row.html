@@ -1,75 +1,94 @@
-<div id="schedule-{{ schedule.pk }}" class="flex items-center justify-between border-b border-white/[0.06] px-6 py-4 last:border-b-0">
-    <div class="min-w-0 flex-1 {% if not schedule.is_enabled %}opacity-50{% endif %}">
-        <div class="flex items-center gap-3">
-            <span class="text-[15px] font-medium text-white">{{ schedule.name }}</span>
-            {% if schedule.is_enabled %}
-            <span class="rounded-full bg-emerald-900/40 px-2.5 py-0.5 text-xs font-medium text-emerald-300">Active</span>
-            {% else %}
-            <span class="rounded-full bg-gray-800/60 px-2.5 py-0.5 text-xs font-medium text-gray-400">Paused</span>
-            {% endif %}
-            <span class="rounded-full bg-blue-900/40 px-2.5 py-0.5 text-xs font-medium text-blue-300">{{ schedule.get_frequency_display }}</span>
+{% load icon_tags %}
+<div id="schedule-{{ schedule.pk }}"
+     class="relative flex flex-col rounded-2xl border bg-white/[0.02] p-5 transition
+            {% if schedule.is_enabled %}border-white/[0.06] hover:border-white/[0.12]{% else %}border-white/[0.04] hover:border-white/[0.06]{% endif %}">
+    <a href="{% url 'schedule_update' schedule.pk %}"
+       class="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+       aria-label="Edit {{ schedule.name }}"></a>
+
+    <div class="absolute right-3 top-3 z-10" x-data="{ open: false }">
+        <button type="button" @click="open = !open" aria-label="Schedule actions"
+                class="rounded-lg p-2 text-gray-400 transition-all duration-200 hover:bg-white/[0.04] hover:text-white">
+            <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+                <circle cx="3" cy="8" r="1.5"/>
+                <circle cx="8" cy="8" r="1.5"/>
+                <circle cx="13" cy="8" r="1.5"/>
+            </svg>
+        </button>
+        <div x-show="open" @click.outside="open = false" x-transition x-cloak
+             class="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] py-1 shadow-xl">
+            <button type="button"
+                    hx-post="{% url 'schedule_toggle' schedule.pk %}"
+                    hx-target="#schedule-{{ schedule.pk }}"
+                    hx-swap="outerHTML"
+                    hx-disabled-elt="this"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-300 hover:bg-white/[0.04] hover:text-white">
+                {% if schedule.is_enabled %}
+                <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path d="M5.75 4.5a1.25 1.25 0 011.25 1.25v8.5a1.25 1.25 0 01-2.5 0v-8.5A1.25 1.25 0 015.75 4.5zm8.5 0a1.25 1.25 0 011.25 1.25v8.5a1.25 1.25 0 01-2.5 0v-8.5a1.25 1.25 0 011.25-1.25z"/></svg>
+                Pause
+                {% else %}
+                <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.89a1.5 1.5 0 000-2.54L6.3 2.84z"/></svg>
+                Resume
+                {% endif %}
+            </button>
+            <form method="post" action="{% url 'schedule_run_now' schedule.pk %}">
+                {% csrf_token %}
+                <button type="submit"
+                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-300 hover:bg-white/[0.04] hover:text-white">
+                    {% icon "bolt" "h-4 w-4 shrink-0" %}
+                    Run now
+                </button>
+            </form>
+            <a href="{% url 'schedule_delete' schedule.pk %}"
+               class="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-white/[0.04]">
+                <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                Delete
+            </a>
         </div>
-        <div class="mt-1 flex items-center gap-3 text-sm text-gray-400">
-            {% include "accounts/_avatar.html" with user=schedule.user group=schedule.subscribers.all label="Owner" %}
-            <span>&middot;</span>
-            {% if schedule.repos|length == 1 %}
-            <span>{{ schedule.repos.0.repo_id }}</span>
-            {% else %}
-            <span title="{% for r in schedule.repos %}{{ r.repo_id }}{% if not forloop.last %}, {% endif %}{% endfor %}">{{ schedule.repos|length }} repositories</span>
-            {% endif %}
-            {% if schedule.next_run_at %}
-            <span>&middot;</span>
-            <span>Next run: {{ schedule.next_run_at|date:"M j, H:i" }}</span>
-            {% endif %}
-            {% if schedule.last_run_at %}
-            <span>&middot;</span>
-            <span>Last run: {{ schedule.last_run_at|timesince }} ago</span>
-            {% endif %}
+    </div>
+
+    <span class="block min-w-0 break-words pr-10 text-[15px] font-medium text-white">{{ schedule.name }}</span>
+
+    <div class="mt-2 flex flex-wrap items-center gap-1.5">
+        {% if schedule.is_enabled %}
+        <span class="inline-flex items-center gap-1 rounded-full bg-emerald-900/40 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>Active
+        </span>
+        {% else %}
+        <span class="inline-flex items-center gap-1 rounded-full bg-gray-800/60 px-2 py-0.5 text-[11px] font-medium text-gray-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-gray-500"></span>Paused
+        </span>
+        {% endif %}
+        <span class="rounded-full px-2 py-0.5 text-[11px] font-medium {% if schedule.is_enabled %}bg-blue-900/40 text-blue-300{% else %}bg-gray-800/60 text-gray-400{% endif %}">{{ schedule.get_frequency_display }}</span>
+    </div>
+
+    <div class="mt-3">
+        {% include "accounts/_avatar.html" with user=schedule.user group=schedule.subscribers.all label="Owner" %}
+    </div>
+
+    <p class="mt-3 text-sm text-gray-400">
+        {% if schedule.repos|length == 1 %}
+        {{ schedule.repos.0.repo_id }}
+        {% else %}
+        <span title="{% for r in schedule.repos %}{{ r.repo_id }}{% if not forloop.last %}, {% endif %}{% endfor %}">{{ schedule.repos|length }} repositories</span>
+        {% endif %}
+    </p>
+
+    <div class="mt-auto space-y-1 pt-3 text-xs text-gray-500">
+        {% if schedule.next_run_at %}
+        <p>Next run: {{ schedule.next_run_at|date:"M j, H:i" }}</p>
+        {% endif %}
+        {% if schedule.last_run_at or schedule.run_count %}
+        <p class="flex flex-wrap items-center gap-x-2">
+            {% if schedule.last_run_at %}<span>Last run {{ schedule.last_run_at|timesince }} ago</span>{% endif %}
+            {% if schedule.last_run_at and schedule.run_count %}<span>&middot;</span>{% endif %}
             {% if schedule.run_count %}
-            <span>&middot;</span>
             <a href="{% url 'activity_list' %}?schedule={{ schedule.pk }}"
-               class="underline decoration-gray-600 underline-offset-2 hover:text-gray-300 hover:decoration-gray-400">
+               class="relative z-10 underline decoration-gray-600 underline-offset-2 hover:text-gray-300 hover:decoration-gray-400">
                 {{ schedule.run_count }} run{{ schedule.run_count|pluralize }}
             </a>
             {% endif %}
-        </div>
-    </div>
-    <div class="flex items-center gap-2">
-        <button hx-post="{% url 'schedule_toggle' schedule.pk %}"
-                hx-target="#schedule-{{ schedule.pk }}"
-                hx-swap="outerHTML"
-                hx-disabled-elt="this"
-                class="rounded-lg border px-3 py-1.5 text-sm font-medium transition-all duration-200
-                       {% if schedule.is_enabled %}border-amber-500/10 bg-amber-500/[0.03] text-amber-400 hover:border-amber-500/20 hover:text-amber-300{% else %}border-emerald-500/10 bg-emerald-500/[0.03] text-emerald-400 hover:border-emerald-500/20 hover:text-emerald-300{% endif %}">
-            {% if schedule.is_enabled %}Pause{% else %}Resume{% endif %}
-        </button>
-        <a href="{% url 'schedule_update' schedule.pk %}"
-           class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
-            Edit
-        </a>
-        <div class="relative" x-data="{ open: false }">
-            <button @click="open = !open"
-                    class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-2 py-1.5 text-sm text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
-                <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
-                    <circle cx="8" cy="3" r="1.5"/>
-                    <circle cx="8" cy="8" r="1.5"/>
-                    <circle cx="8" cy="13" r="1.5"/>
-                </svg>
-            </button>
-            <div x-show="open" @click.outside="open = false" x-transition
-                 class="absolute right-0 z-10 mt-1 w-36 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] py-1 shadow-xl">
-                <form method="post" action="{% url 'schedule_run_now' schedule.pk %}">
-                    {% csrf_token %}
-                    <button type="submit"
-                            class="flex w-full items-center px-3 py-2 text-left text-sm text-indigo-400 hover:bg-white/[0.04]">
-                        Run now
-                    </button>
-                </form>
-                <a href="{% url 'schedule_delete' schedule.pk %}"
-                   class="flex w-full items-center px-3 py-2 text-sm text-red-400 hover:bg-white/[0.04]">
-                    Delete
-                </a>
-            </div>
-        </div>
+        </p>
+        {% endif %}
     </div>
 </div>

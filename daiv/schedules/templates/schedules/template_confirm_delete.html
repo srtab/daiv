@@ -28,7 +28,7 @@
     <form method="post" class="mt-6 flex items-center gap-3">
         {% csrf_token %}
         <button type="submit" class="btn-danger">Delete template</button>
-        <a href="{% url 'schedule_template_update' object.pk %}" class="btn-secondary">Cancel</a>
+        <a href="{{ cancel_url }}" class="btn-secondary">Cancel</a>
     </form>
 </div>
 {% endblock %}
