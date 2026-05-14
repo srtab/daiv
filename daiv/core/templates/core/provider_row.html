@@ -5,7 +5,6 @@
    ``is_built_in`` = ``row.instance.pk and row.instance.is_locked``. #}
 {% with is_built_in=row.instance.is_locked is_saved=row.instance.pk has_key=row.fields.api_key.secret_hint open_default=row.errors|yesno:"true,false" %}
 <div data-row
-     data-slug="{{ row.instance.slug|default:'' }}"
      class="provider-row {% if not row.instance.is_enabled and is_saved %}provider-row--disabled{% endif %}"
      :class="{ 'provider-row--open': open }"
      x-data="{ open: {{ open_default }}, advancedOpen: false }">
@@ -26,9 +25,9 @@
         {{ row.instance.slug|default:'—' }}{% if not is_built_in and row.instance.provider_type %} · {{ row.instance.get_provider_type_display }}{% endif %}
       </span>
       {% if has_key %}
-      <span class="status-badge status-badge-key-set" aria-label="{% translate 'API key set' %}">● {% translate 'key set' %}</span>
+      <span class="status-badge status-badge-success" aria-label="{% translate 'API key set' %}">● {% translate 'key set' %}</span>
       {% else %}
-      <span class="status-badge status-badge-no-key" aria-label="{% translate 'API key missing' %}">● {% translate 'no key' %}</span>
+      <span class="status-badge status-badge-failed" aria-label="{% translate 'API key missing' %}">● {% translate 'no key' %}</span>
       {% endif %}
     </button>
 

@@ -1538,14 +1538,6 @@ main:has(.chat-shell) {
     @apply mt-2 space-y-3 border-l-2 border-white/[0.06] pl-3;
   }
 
-  .status-badge-key-set {
-    @apply bg-emerald-900/40 text-emerald-300;
-  }
-
-  .status-badge-no-key {
-    @apply bg-red-900/40 text-red-300;
-  }
-
   .drag-handle {
     @apply cursor-grab text-gray-500 hover:text-gray-300 select-none;
   }

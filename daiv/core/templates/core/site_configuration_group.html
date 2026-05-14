@@ -26,19 +26,14 @@
                 {% if toggle_bf.field.is_env_locked %}
                 {% include "core/_env_lock_badge.html" %}
                 {% endif %}
-                <label class="relative inline-flex cursor-pointer items-center {% if toggle_bf.field.is_env_locked %}opacity-50 pointer-events-none{% endif %}">
+                <label class="toggle-switch {% if toggle_bf.field.is_env_locked %}opacity-50 pointer-events-none{% endif %}">
                     <input type="hidden" name="{{ toggle_bf.name }}" value="">
                     <input type="checkbox" name="{{ toggle_bf.name }}" value="on"
                            {% if toggle_bf.value %}checked{% endif %}
                            {% if toggle_bf.field.is_env_locked %}disabled{% endif %}
                            x-model="enabled"
-                           class="peer sr-only">
-                    <div class="h-5 w-9 rounded-full border border-white/[0.08] bg-white/[0.04] transition-colors duration-200
-                                peer-checked:border-white/[0.15] peer-checked:bg-white/[0.15]
-                                after:absolute after:left-[3px] after:top-[3px] after:h-3.5 after:w-3.5 after:rounded-full
-                                after:bg-gray-400 after:transition-all after:duration-200
-                                peer-checked:after:translate-x-[14px] peer-checked:after:bg-white">
-                    </div>
+                           class="toggle-switch__input">
+                    <span class="toggle-switch__track"></span>
                 </label>
             </div>
             {% endif %}
