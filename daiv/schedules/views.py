@@ -10,7 +10,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -317,7 +317,8 @@ class ScheduleDuplicateView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
 
     def post(self, request, pk):
         get_object_or_404(self.get_queryset(), pk=pk)
-        return redirect(f"{reverse('schedule_create')}?from={int(pk)}")
+        query = urlencode({"from": pk})
+        return redirect(f"{reverse('schedule_create')}?{query}")
 
 
 class ScheduleTemplateDeleteView(BreadcrumbMixin, AdminRequiredMixin, SuccessMessageMixin, DeleteView):
