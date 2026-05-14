@@ -808,3 +808,35 @@ class TestPerGroupSaveIsolation:
         assert Provider.objects.get(pk=first_pk).display_name == "Renamed-In-Test"
         # Cache invalidated by Provider.save signal / formset save
         assert cache.get(PROVIDERS_CACHE_KEY) is None
+
+    def test_enable_provider_then_select_model_on_agent_page(self, client, admin_user, group_url):
+        """Two-step flow: enable a fresh provider on /providers/, then select its model on /agent/."""
+        provider = Provider.objects.get(slug="anthropic")
+        provider.is_enabled = False
+        provider.api_key = None
+        provider.save()
+
+        client.force_login(admin_user)
+
+        # Step 1: enable + key the provider via the providers page
+        mgmt = _providers_mgmt()
+        idx = next(i for i, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == provider.pk)
+        mgmt[f"providers-{idx}-is_enabled"] = "on"
+        mgmt[f"providers-{idx}-api_key"] = "sk-fresh"
+        r1 = client.post(group_url("providers"), mgmt)
+        assert r1.status_code == 302
+
+        # Step 2: select that provider's model on the agent page
+        r2 = client.post(
+            group_url("agent"),
+            {
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                "agent_recursion_limit": 200,
+            },
+        )
+        assert r2.status_code == 302
+
+        config = SiteConfiguration.objects.get_instance()
+        assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
+        assert config.agent_recursion_limit == 200

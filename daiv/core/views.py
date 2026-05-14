@@ -47,7 +47,8 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
     template_name = "core/site_configuration_group.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.group = self._resolve_group(kwargs["group_key"])
+        self.all_groups = SiteConfiguration.get_field_groups()
+        self.group = self._resolve_group(kwargs["group_key"], self.all_groups)
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, group_key):
@@ -125,9 +126,9 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
     # Helpers
     # ------------------------------------------------------------------
 
-    @classmethod
-    def _resolve_group(cls, group_key: str):
-        for group in SiteConfiguration.get_field_groups():
+    @staticmethod
+    def _resolve_group(group_key: str, all_groups):
+        for group in all_groups:
             if group.key == group_key:
                 return group
         raise Http404(f"Unknown configuration group: {group_key!r}")
@@ -147,7 +148,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             headers_env_locked = site_settings.is_env_locked("web_fetch_auth_headers")
             headers_formset = self._build_headers_formset(data=None)
 
-        all_groups = SiteConfiguration.get_field_groups()
+        all_groups = self.all_groups
         return {
             "form": form,
             "active_group": self.group,
