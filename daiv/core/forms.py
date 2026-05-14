@@ -65,7 +65,6 @@ class _ModelSpecWidget(forms.Widget):
             ("", self.default_provider_label),
             *[(r.slug, f"{r.display_name}{'' if r.is_enabled else ' (disabled)'}") for r in rows if r.is_enabled],
         ]
-        context["widget"]["model_suggestions"] = {r.slug: list(r.model_suggestions_list) for r in rows if r.is_enabled}
         return context
 
     @property
@@ -567,7 +566,6 @@ class ProviderForm(forms.ModelForm):
             "base_url",
             "api_key",
             "extra_headers",
-            "model_suggestions",
             "is_enabled",
             "sort_order",
         )

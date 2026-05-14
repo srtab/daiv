@@ -12,7 +12,6 @@ def _data(**overrides):
         "base_url": "https://api.example.com/v1",
         "api_key": "sk-x",
         "extra_headers": "{}",
-        "model_suggestions": "",
         "is_enabled": "on",
         "sort_order": 0,
     }
@@ -169,7 +168,6 @@ def test_formset_rejects_duplicate_slug():
         "base_url": "",
         "api_key": "sk-x",
         "extra_headers": "{}",
-        "model_suggestions": "",
         "is_enabled": "on",
         "sort_order": "0",
     }
@@ -197,7 +195,6 @@ def test_formset_rejects_delete_on_locked_row():
         f"{PROVIDERS_FORMSET_PREFIX}-0-provider_type": locked.provider_type,
         f"{PROVIDERS_FORMSET_PREFIX}-0-base_url": locked.base_url,
         f"{PROVIDERS_FORMSET_PREFIX}-0-extra_headers": "{}",
-        f"{PROVIDERS_FORMSET_PREFIX}-0-model_suggestions": locked.model_suggestions,
         f"{PROVIDERS_FORMSET_PREFIX}-0-is_enabled": "on",
         f"{PROVIDERS_FORMSET_PREFIX}-0-sort_order": str(locked.sort_order),
         f"{PROVIDERS_FORMSET_PREFIX}-0-DELETE": "on",
@@ -207,3 +204,20 @@ def test_formset_rejects_delete_on_locked_row():
     )
     assert not formset.is_valid()
     assert any("Locked provider" in str(e) for e in formset.non_form_errors())
+
+
+@pytest.mark.django_db
+def test_provider_form_no_longer_exposes_model_suggestions():
+    """The model_suggestions textarea was abandoned — form must not render it."""
+    form = ProviderForm()
+    assert "model_suggestions" not in form.fields
+
+
+@pytest.mark.django_db
+def test_model_spec_widget_context_omits_model_suggestions():
+    """The datalist autocomplete was abandoned — widget context must not include suggestions."""
+    from core.forms import _ModelSpecWidget
+
+    widget = _ModelSpecWidget()
+    context = widget.get_context("agent_model_name", "openai:gpt-5.4", attrs={})
+    assert "model_suggestions" not in context["widget"]
