@@ -7,6 +7,12 @@
 
 {% block alpine_plugins %}
 <script defer src="{% static 'core/js/django-formset.js' %}"></script>
+{% if active_group.key == "providers" %}
+<script defer src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"
+        integrity="sha384-HZZ/fukV+9G8gwTNjN7zQDG0Sp7MsZy5DDN6VfY3Be7V9dvQpEpR2jF2HlyFUUjU"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'core/js/provider-reorder.js' %}"></script>
+{% endif %}
 {% endblock alpine_plugins %}
 
 {% block app_content %}

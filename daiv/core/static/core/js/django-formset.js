@@ -10,15 +10,19 @@
  *     <button @click="addRow()">Add</button>
  *   </div>
  *
+ * Pass an optional ``rowsRef`` to target a different x-ref (e.g. ``'customRows'``)
+ * when multiple row containers share the same formset.
+ *
  * Each row's remove button calls `removeRow($el.closest('[data-row]'))`.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("djangoFormset", ({ totalFormsId, initialTotal }) => ({
+    Alpine.data("djangoFormset", ({ totalFormsId, initialTotal, rowsRef }) => ({
         total: initialTotal,
         addRow() {
             const totalInput = document.getElementById(totalFormsId);
+            const target = rowsRef ? this.$refs[rowsRef] : this.$refs.rows;
             const html = this.$refs.rowTemplate.innerHTML.replaceAll("__prefix__", String(this.total));
-            this.$refs.rows.insertAdjacentHTML("beforeend", html);
+            target.insertAdjacentHTML("beforeend", html);
             this.total += 1;
             totalInput.value = String(this.total);
         },
