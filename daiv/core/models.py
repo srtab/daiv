@@ -5,6 +5,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import fnmatch
+import functools
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -534,7 +535,8 @@ class SiteConfiguration(models.Model):
             return None
 
     @classmethod
-    def get_field_groups(cls) -> list[FieldGroup]:
+    @functools.cache
+    def get_field_groups(cls) -> tuple[FieldGroup, ...]:
         """
         Return field groups with their ``fields`` lists resolved from
         model field names and :attr:`ENCRYPTED_FIELDS`.
@@ -573,7 +575,15 @@ class SiteConfiguration(models.Model):
                     category=group_def.category,
                 )
             )
-        return groups
+        return tuple(groups)
+
+    @classmethod
+    def get_group_by_key(cls, key: str) -> FieldGroup:
+        """Return the ``FieldGroup`` with the given ``key``; raise ``KeyError`` if not found."""
+        for group in cls.get_field_groups():
+            if group.key == key:
+                return group
+        raise KeyError(key)
 
     @staticmethod
     def _invalidate_cache() -> None:
