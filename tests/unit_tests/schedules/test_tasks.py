@@ -6,7 +6,7 @@ import pytest
 from activity.models import Activity, TriggerType
 from django_tasks_db.models import DBTaskResult, get_date_max
 
-from schedules.models import ScheduledJob
+from schedules.models import Frequency, ScheduledJob
 from schedules.tasks import dispatch_scheduled_jobs_cron_task
 
 
@@ -153,3 +153,54 @@ def test_dispatch_advances_next_run_on_success(member_user):
     schedule.refresh_from_db()
     assert schedule.next_run_at is not None
     assert schedule.next_run_at > past
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_once_schedule_auto_disables_on_success(member_user):
+    past = datetime.now(tz=UTC) - timedelta(minutes=1)
+    schedule = ScheduledJob.objects.create(
+        user=member_user,
+        name="one-off",
+        prompt="do stuff",
+        repos=[{"repo_id": "acme/repo", "ref": ""}],
+        frequency=Frequency.ONCE,
+        run_at=past,
+        is_enabled=True,
+        next_run_at=past,
+    )
+
+    with patch("activity.services.run_job_task") as mock_task:
+
+        async def _aenqueue(**kwargs):
+            return await _amake_task_result()
+
+        mock_task.aenqueue.side_effect = _aenqueue
+        dispatch_scheduled_jobs_cron_task.func()
+
+    schedule.refresh_from_db()
+    assert schedule.is_enabled is False
+    assert schedule.next_run_at is None
+    assert schedule.run_count == 1
+    assert schedule.run_at == past  # preserved for audit
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_once_schedule_auto_disables_on_failure(member_user):
+    past = datetime.now(tz=UTC) - timedelta(minutes=1)
+    schedule = ScheduledJob.objects.create(
+        user=member_user,
+        name="one-off",
+        prompt="do stuff",
+        repos=[{"repo_id": "acme/repo", "ref": ""}],
+        frequency=Frequency.ONCE,
+        run_at=past,
+        is_enabled=True,
+        next_run_at=past,
+    )
+
+    with patch("activity.services.submit_batch_runs", side_effect=RuntimeError("boom")):
+        dispatch_scheduled_jobs_cron_task.func()
+
+    schedule.refresh_from_db()
+    assert schedule.is_enabled is False
+    assert schedule.next_run_at is None

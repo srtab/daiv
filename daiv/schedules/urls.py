@@ -3,6 +3,7 @@ from django.urls import path
 from schedules.views import (
     ScheduleCreateView,
     ScheduleDeleteView,
+    ScheduleDuplicateView,
     ScheduleListView,
     ScheduleRunNowView,
     ScheduleTemplateCreateView,
@@ -26,4 +27,5 @@ urlpatterns = [
     path("<int:pk>/toggle/", ScheduleToggleView.as_view(), name="schedule_toggle"),
     path("<int:pk>/run/", ScheduleRunNowView.as_view(), name="schedule_run_now"),
     path("<int:pk>/unsubscribe/", ScheduleUnsubscribeView.as_view(), name="schedule_unsubscribe"),
+    path("<int:pk>/duplicate/", ScheduleDuplicateView.as_view(), name="schedule_duplicate"),
 ]

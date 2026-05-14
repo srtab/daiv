@@ -1,0 +1,8 @@
+{% load icon_tags %}
+<form method="post" action="{% url 'schedule_duplicate' schedule.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-300 hover:bg-white/[0.04] hover:text-white">
+        {% icon "clipboard-document" "h-4 w-4 shrink-0" %}
+        Duplicate
+    </button>
+</form>

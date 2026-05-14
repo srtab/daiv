@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
 from typing import TYPE_CHECKING
 
@@ -25,6 +25,10 @@ class Frequency(models.TextChoices):
     WEEKDAYS = "weekdays", _("Weekdays")
     WEEKLY = "weekly", _("Weekly")
     CUSTOM = "custom", _("Custom")
+    ONCE = "once", _("Once")
+
+
+_USER_FACING_FIELDS = ("name", "prompt", "repos", "frequency", "cron_expression", "time", "use_max", "notify_on")
 
 
 def _coerce_repos(repos, *, allow_empty: bool) -> list[dict]:
@@ -42,9 +46,19 @@ def _coerce_repos(repos, *, allow_empty: bool) -> list[dict]:
         raise ValidationError({"repos": str(err)}) from err
 
 
-def _validate_frequency_fields(*, frequency: Frequency, cron_expression: str, time: dt_time | None) -> None:
+def _validate_frequency_fields(
+    *,
+    frequency: Frequency,
+    cron_expression: str,
+    time: dt_time | None,
+    require_run_at: bool,
+    run_at: datetime | None = None,
+) -> None:
     """Keep ``ScheduledJob`` and ``ScheduleTemplate`` clean-time rules in lockstep so values
     copied via ``ScheduleTemplate.to_schedule_kwargs()`` never produce a job the schedule rejects.
+
+    ``require_run_at`` is set by ``ScheduledJob`` (which must store a date) and unset by
+    ``ScheduleTemplate`` (which is a blueprint).
     """
     if frequency == Frequency.CUSTOM:
         if not cron_expression:
@@ -56,8 +70,16 @@ def _validate_frequency_fields(*, frequency: Frequency, cron_expression: str, ti
                     "minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
                 )
             })
-    if frequency not in (Frequency.HOURLY, Frequency.CUSTOM) and not time:
+    if frequency in (Frequency.DAILY, Frequency.WEEKDAYS, Frequency.WEEKLY) and not time:
         raise ValidationError({"time": _("Time is required for this frequency.")})
+    if frequency == Frequency.ONCE:
+        if require_run_at:
+            if run_at is None:
+                raise ValidationError({"run_at": _("Date and time is required for a one-off schedule.")})
+            if run_at <= timezone.now() - timedelta(seconds=60):
+                raise ValidationError({"run_at": _("The scheduled time must be in the future.")})
+    elif run_at is not None:
+        raise ValidationError({"run_at": _("Date and time only applies to one-off schedules.")})
 
 
 class ScheduledJobManager(models.Manager["ScheduledJob"]):
@@ -100,6 +122,9 @@ class ScheduledJob(TimeStampedModel):
     time = models.TimeField(
         _("time"), null=True, blank=True, help_text=_("Time of day (used for Daily, Weekdays, and Weekly frequencies).")
     )
+    run_at = models.DateTimeField(
+        _("run at"), null=True, blank=True, help_text=_("Specific date and time for one-off schedules.")
+    )
     use_max = models.BooleanField(
         _("max mode"), default=False, help_text=_("Use the more capable model with thinking set to high.")
     )
@@ -138,16 +163,48 @@ class ScheduledJob(TimeStampedModel):
             )
         ]
 
+    DUPLICABLE_FIELDS = (*_USER_FACING_FIELDS, "run_at")
+
+    def to_schedule_kwargs(self) -> dict:
+        """Return the user-facing fields for the duplicate flow (owner/audit fields excluded)."""
+        return {f: getattr(self, f) for f in self.DUPLICABLE_FIELDS}
+
+    @property
+    def is_fired_one_off(self) -> bool:
+        """True once a ONCE schedule has fired — drives the read-only 'Fired' card state."""
+        return self.frequency == Frequency.ONCE and self.run_count > 0
+
+    def advance_after_dispatch(self, after: datetime) -> list[str]:
+        """Transition next-run state after a dispatch, returning the mutated field names.
+
+        ONCE schedules retire (``is_enabled=False``, ``next_run_at=None``) so the dispatcher
+        cannot re-fire them; recurring schedules advance to the next cron tick.
+        """
+        if self.frequency == Frequency.ONCE:
+            self.is_enabled = False
+            self.next_run_at = None
+            return ["is_enabled", "next_run_at"]
+        self.compute_next_run(after=after)
+        return ["next_run_at"]
+
     def __str__(self) -> str:
         return self.name
 
     def clean(self) -> None:
         super().clean()
         self.repos = _coerce_repos(self.repos, allow_empty=False)
-        _validate_frequency_fields(frequency=self.frequency, cron_expression=self.cron_expression, time=self.time)
+        _validate_frequency_fields(
+            frequency=self.frequency,
+            cron_expression=self.cron_expression,
+            time=self.time,
+            run_at=self.run_at,
+            require_run_at=True,
+        )
 
     def get_effective_cron(self) -> str:
         """Return the five-field cron expression for this schedule."""
+        if self.frequency == Frequency.ONCE:
+            raise ValueError("ONCE frequency has no cron expression")
         if self.frequency == Frequency.CUSTOM:
             if not self.cron_expression:
                 raise ValueError("Custom frequency requires a cron_expression")
@@ -180,6 +237,14 @@ class ScheduledJob(TimeStampedModel):
         Raises:
             ValueError: If the frequency/cron configuration is invalid.
         """
+        if self.frequency == Frequency.ONCE:
+            if self.run_at is None:
+                raise ValueError("ONCE frequency requires a run_at value")
+            if self.run_at <= timezone.now() - timedelta(seconds=60):
+                raise ValueError("ONCE schedule run_at is in the past; cannot re-arm (use Duplicate)")
+            self.next_run_at = self.run_at
+            return
+
         if after is None:
             after = timezone.now()
 
@@ -196,7 +261,7 @@ class ScheduleTemplate(TimeStampedModel):
     so editing or deleting a template never affects existing schedules.
     """
 
-    SCHEDULE_FIELDS = ("name", "prompt", "repos", "frequency", "cron_expression", "time", "use_max", "notify_on")
+    SCHEDULE_FIELDS = _USER_FACING_FIELDS
     # Coupled to ``to_picker_dict()``: every field read there must be in this
     # tuple or ``.only(*PICKER_FIELDS)`` queries will trigger a deferred-field
     # fetch per row. ``prompt`` is deliberately excluded.
@@ -254,7 +319,9 @@ class ScheduleTemplate(TimeStampedModel):
     def clean(self) -> None:
         super().clean()
         self.repos = _coerce_repos(self.repos, allow_empty=True)
-        _validate_frequency_fields(frequency=self.frequency, cron_expression=self.cron_expression, time=self.time)
+        _validate_frequency_fields(
+            frequency=self.frequency, cron_expression=self.cron_expression, time=self.time, require_run_at=False
+        )
 
     def to_schedule_kwargs(self) -> dict:
         return {f: getattr(self, f) for f in self.SCHEDULE_FIELDS}
@@ -267,6 +334,8 @@ class ScheduleTemplate(TimeStampedModel):
             return str(_("Every hour"))
         if self.frequency == Frequency.CUSTOM:
             return str(_("Custom: %(cron)s") % {"cron": self.cron_expression})
+        if self.frequency == Frequency.ONCE:
+            return str(_("Once (pick a date)"))
         if self.time is not None:
             return str(_("%(label)s at %(time)s") % {"label": label, "time": self.time.strftime("%H:%M")})
         return str(label)

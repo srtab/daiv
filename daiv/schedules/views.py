@@ -10,7 +10,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -83,6 +83,16 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
             return None
         return ScheduleTemplate.objects.filter(pk=pk_int).first()
 
+    def _get_source_schedule(self) -> ScheduledJob | None:
+        pk = self.request.GET.get("from")
+        if not pk:
+            return None
+        try:
+            pk_int = int(pk)
+        except ValueError:
+            return None
+        return self.get_queryset().filter(pk=pk_int).first()
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
@@ -93,6 +103,9 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         tpl = self._get_template()
         if tpl is not None:
             initial.update(tpl.to_schedule_kwargs())
+        source = self._get_source_schedule()
+        if source is not None:
+            initial.update(source.to_schedule_kwargs())
         return initial
 
     def get_context_data(self, **kwargs):
@@ -138,11 +151,29 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
 class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
     http_method_names = ["post"]
 
+    def _render_error_response(self, request, schedule) -> HttpResponse:
+        """Render the current schedule row and signal HTMX to roll back the toggle attempt."""
+        schedule.refresh_from_db()
+        html = render_to_string(
+            "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
+        )
+        response = HttpResponse(html, content_type="text/html")
+        response["HX-Reswap"] = "outerHTML"
+        response["HX-Trigger"] = "schedule-toggle-error"
+        return response
+
     def post(self, request, pk):
         with transaction.atomic():
             schedule = get_object_or_404(self.get_queryset().select_related("user").select_for_update(), pk=pk)
             schedule.is_enabled = not schedule.is_enabled
             if schedule.is_enabled:
+                if schedule.is_fired_one_off:
+                    logger.info(
+                        "Refusing to re-enable fired one-off schedule pk=%d (%s); use Duplicate instead.",
+                        schedule.pk,
+                        schedule.name,
+                    )
+                    return self._render_error_response(request, schedule)
                 try:
                     schedule.compute_next_run()
                 except ValueError, TypeError:
@@ -151,14 +182,7 @@ class ScheduleToggleView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                         schedule.pk,
                         schedule.name,
                     )
-                    schedule.refresh_from_db()
-                    html = render_to_string(
-                        "schedules/_schedule_row.html", {"schedule": schedule, "user": request.user}, request=request
-                    )
-                    response = HttpResponse(html, content_type="text/html")
-                    response["HX-Reswap"] = "outerHTML"
-                    response["HX-Trigger"] = "schedule-toggle-error"
-                    return response
+                    return self._render_error_response(request, schedule)
             else:
                 schedule.next_run_at = None
             schedule.save(update_fields=["is_enabled", "next_run_at", "modified"])
@@ -278,6 +302,23 @@ class ScheduleTemplateUpdateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
             {"label": "Templates", "url": reverse("schedule_template_list")},
             {"label": f'"{self.object.name}"', "url": None},
         ]
+
+
+class ScheduleDuplicateView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
+    """POST-only redirect to ``schedule_create?from=<pk>``.
+
+    Duplication is a write-leaning action triggered from a dropdown button, so POST
+    avoids link prefetchers, browser caching, and accidental GETs from crawlers.
+    Cross-user access is enforced here via ``_ScheduleOwnerMixin`` (returns 404);
+    ``ScheduleCreateView`` re-validates ownership when reading the ``from`` param.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        get_object_or_404(self.get_queryset(), pk=pk)
+        query = urlencode({"from": pk})
+        return redirect(f"{reverse('schedule_create')}?{query}")
 
 
 class ScheduleTemplateDeleteView(BreadcrumbMixin, AdminRequiredMixin, SuccessMessageMixin, DeleteView):
