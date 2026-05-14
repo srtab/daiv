@@ -10,9 +10,6 @@
  *     <button @click="addRow()">Add</button>
  *   </div>
  *
- * Pass an optional ``rowsRef`` to target a different x-ref (e.g. ``'customRows'``)
- * when multiple row containers share the same formset.
- *
  * Each row's remove button calls `removeRow($el.closest('[data-row]'))`.
  */
 document.addEventListener("alpine:init", () => {

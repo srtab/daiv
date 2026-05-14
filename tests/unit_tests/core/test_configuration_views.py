@@ -70,7 +70,6 @@ def _providers_mgmt(seed_count: int = 4) -> dict[str, str]:
         fields[f"providers-{idx}-provider_type"] = p.provider_type
         fields[f"providers-{idx}-base_url"] = p.base_url
         fields[f"providers-{idx}-extra_headers"] = "{}"
-        fields[f"providers-{idx}-model_suggestions"] = p.model_suggestions
         if p.is_enabled:
             fields[f"providers-{idx}-is_enabled"] = "on"
         fields[f"providers-{idx}-sort_order"] = str(p.sort_order)
@@ -201,7 +200,6 @@ class TestPostSave:
             f"providers-{new_idx}-base_url": "",
             f"providers-{new_idx}-api_key": "sk-x",
             f"providers-{new_idx}-extra_headers": "{}",
-            f"providers-{new_idx}-model_suggestions": "",
             f"providers-{new_idx}-sort_order": "0",
         }
         response = client.post(group_url("providers"), {**mgmt, **bad_row})
@@ -260,7 +258,6 @@ class TestPostSave:
             f"providers-{new_idx}-base_url": "https://example.com/v1",
             f"providers-{new_idx}-api_key": "sk-new-key",
             f"providers-{new_idx}-extra_headers": "{}",
-            f"providers-{new_idx}-model_suggestions": "",
             f"providers-{new_idx}-is_enabled": "on",
             f"providers-{new_idx}-sort_order": "100",
         }
@@ -304,7 +301,6 @@ class TestPostSave:
             f"providers-{new_idx}-base_url": "https://example.test/v1",
             f"providers-{new_idx}-api_key": "sk-custom",
             f"providers-{new_idx}-extra_headers": "{}",
-            f"providers-{new_idx}-model_suggestions": "",
             f"providers-{new_idx}-is_enabled": "on",
             f"providers-{new_idx}-sort_order": "100",
         }
@@ -877,6 +873,32 @@ class TestPerGroupSaveIsolation:
         assert config.rocketchat_auth_token == "sk-keep-me"  # noqa: S105
 
 
+def test_split_provider_forms_handles_none():
+    """Non-providers groups pass formset=None and must get back ([], [])."""
+    from core.views import SiteConfigurationGroupView
+
+    assert SiteConfigurationGroupView._split_provider_forms(None) == ([], [])
+
+
+@pytest.mark.django_db
+def test_providers_view_renders_built_in_and_custom_section_headings(client, admin_user):
+    """The split contexts must surface in the rendered HTML as labelled sections."""
+    Provider.objects.create(
+        slug="my-azure",
+        display_name="My Azure Display",
+        provider_type=ProviderType.OPENAI,
+        base_url="https://my.example.com/v1",
+        api_key="sk-x",
+        is_enabled=True,
+    )
+    client.force_login(admin_user)
+    response = client.get(reverse("site_configuration", kwargs={"group_key": "providers"}))
+    content = response.content.decode()
+    assert "Built-in" in content
+    assert "Custom" in content
+    assert "My Azure Display" in content
+
+
 @pytest.mark.django_db
 def test_providers_view_splits_built_in_and_custom_forms(client, admin_user):
     """The providers page context must expose built-in and custom rows separately."""
@@ -906,7 +928,6 @@ def test_providers_view_persists_new_sort_order(client, admin_user):
     formset = response.context["providers_formset"]
     total = formset.total_form_count()
 
-    # Build a POST that swaps anthropic (sort_order=10) and openai (sort_order=20).
     post = {
         "providers-TOTAL_FORMS": str(total),
         "providers-INITIAL_FORMS": str(total),
@@ -928,7 +949,7 @@ def test_providers_view_persists_new_sort_order(client, admin_user):
         })
 
     response = client.post(url, data=post, follow=False)
-    assert response.status_code == 302  # 302 = saved + redirect
+    assert response.status_code == 302
     assert Provider.objects.get(slug="anthropic").sort_order == 999
     assert Provider.objects.get(slug="openai").sort_order == 0
 
@@ -949,7 +970,6 @@ def test_providers_view_creates_custom_provider(client, admin_user):
         "providers-MIN_NUM_FORMS": "0",
         "providers-MAX_NUM_FORMS": "1000",
     }
-    # Re-submit existing rows unchanged
     for idx, form in enumerate(formset.forms):
         inst = form.instance
         post.update({
@@ -962,7 +982,6 @@ def test_providers_view_creates_custom_provider(client, admin_user):
             f"providers-{idx}-is_enabled": "on" if inst.is_enabled else "",
             f"providers-{idx}-sort_order": str(inst.sort_order),
         })
-    # New row
     post.update({
         f"providers-{new_idx}-slug": "my-azure",
         f"providers-{new_idx}-display_name": "My Azure",

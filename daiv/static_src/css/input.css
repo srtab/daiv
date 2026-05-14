@@ -1546,10 +1546,8 @@ main:has(.chat-shell) {
     @apply cursor-grabbing;
   }
 
-  /* iOS-style toggle switch reused on row headers and section toggles.
-     Sibling selectors (.toggle-switch__input:checked + .toggle-switch__track)
-     drive the visual state without needing Tailwind's peer/peer-checked
-     variants — the input must be the immediate previous sibling of the track. */
+  /* The :checked + sibling selector requires the input to be the immediate
+     previous sibling of the .toggle-switch__track element. */
   .toggle-switch {
     @apply relative inline-flex h-5 w-9 cursor-pointer items-center;
   }

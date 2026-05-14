@@ -160,11 +160,6 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
 
     @staticmethod
     def _split_provider_forms(formset) -> tuple[list, list]:
-        """Return ``(built_in_forms, custom_forms)`` split by ``instance.is_locked``.
-
-        Unsaved rows (no ``pk``) are treated as custom — they're newly added
-        "+ Add custom provider" forms.
-        """
         if formset is None:
             return [], []
         built_in: list = []
