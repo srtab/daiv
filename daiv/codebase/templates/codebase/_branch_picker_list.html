@@ -1,6 +1,6 @@
 {% load i18n %}
 {% if error %}
-<ul><li class="px-3 py-2 text-[15px] text-red-400">{% trans "Could not load branches." %}</li></ul>
+<ul><li class="px-3 py-2 text-[15px] text-red-400">{% translate "Could not load branches." %}</li></ul>
 {% else %}
 <ul>
 {% for branch in branches %}
@@ -13,7 +13,7 @@
     </button>
   </li>
 {% empty %}
-  <li class="px-3 py-2 text-[15px] text-gray-400">{% trans "No branches found." %}</li>
+  <li class="px-3 py-2 text-[15px] text-gray-400">{% translate "No branches found." %}</li>
 {% endfor %}
 </ul>
 {% endif %}

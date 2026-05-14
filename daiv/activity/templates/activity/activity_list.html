@@ -2,6 +2,7 @@
 {% load activity_tags dashboard_tags humanize i18n icon_tags l10n static %}
 
 {% block title %}Agent Activity — DAIV{% endblock %}
+
 {% block container_width %}max-w-screen-2xl{% endblock %}
 
 {% block alpine_plugins %}
@@ -10,7 +11,7 @@
         crossorigin="anonymous"></script>
 <script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
 <script defer src="{% static 'activity/js/activity-stream.js' %}"></script>
-{% endblock %}
+{% endblock alpine_plugins %}
 
 {% block app_content %}
 <div x-data="activityStream('{% url "activity_stream" %}', '{{ in_flight_ids }}')">
@@ -98,10 +99,10 @@
 
                 {% if current_batch %}
                 <span class="inline-flex items-center gap-1 rounded-full border border-blue-400/30 bg-blue-500/10 py-1 pl-3 pr-1 text-[13px] font-medium text-blue-300">
-                    <span>{% blocktrans with id=current_batch_short %}Batch {{ id }}{% endblocktrans %}</span>
+                    <span>{% blocktranslate with id=current_batch_short %}Batch {{ id }}{% endblocktranslate %}</span>
                     <a href="?{% querystring_without 'batch' 'page' %}"
-                       aria-label="{% trans 'Clear batch filter' %}"
-                       title="{% trans 'Clear batch filter' %}"
+                       aria-label="{% translate 'Clear batch filter' %}"
+                       title="{% translate 'Clear batch filter' %}"
                        class="inline-flex h-5 w-5 items-center justify-center rounded-full text-blue-300/70 hover:bg-white/[0.05] hover:text-white">×</a>
                 </span>
                 {% endif %}
@@ -178,4 +179,4 @@
             {% endif %}
         </div>
 </div>
-{% endblock %}
+{% endblock app_content %}

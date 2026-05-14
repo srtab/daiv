@@ -1,8 +1,9 @@
 {% load i18n %}
+{% url 'picker_users' as user_picker_url %}
 <div class="mt-6"
      x-data="subscriberPicker({ initial: {{ subscriber_initial_json|default:'[]' }} })">
-    <label class="block text-[15px] font-medium text-gray-400">{% trans "Subscribers" %}</label>
-    <p class="mt-1 text-sm text-gray-400">{% trans "Other users CC'd on this schedule's finish notifications." %}</p>
+    <label class="block text-[15px] font-medium text-gray-400">{% translate "Subscribers" %}</label>
+    <p class="mt-1 text-sm text-gray-400">{% translate "Other users CC'd on this schedule's finish notifications." %}</p>
 
     <select name="{{ form.subscribers.html_name }}" id="{{ form.subscribers.id_for_label }}" multiple class="hidden">
         <template x-for="u in selected" :key="u.id">
@@ -10,41 +11,77 @@
         </template>
     </select>
 
-    <div class="mt-3 flex flex-wrap gap-2">
-        <template x-for="u in selected" :key="u.id">
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-white/[0.08] py-1 pl-1 pr-3 text-sm text-gray-200">
-                <span class="inline-flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[10px] font-semibold text-white"
-                      x-text="(u.name || u.email).charAt(0).toUpperCase()"
-                      :title="u.email"></span>
-                <span x-text="u.name || u.email"></span>
-                <button type="button" @click="remove(u.id)" class="text-gray-400 hover:text-white" aria-label="Remove">
-                    <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/>
-                    </svg>
-                </button>
-            </span>
-        </template>
-        <p x-show="selected.length === 0" class="text-sm text-gray-500">{% trans "No subscribers yet." %}</p>
-    </div>
-
     <div class="relative mt-3">
-        <input type="text" :value="query" @input="search($event.target.value)"
-               placeholder="{% trans 'Search users by name, email, or username...' %}"
-               autocomplete="off" class="w-full">
-        <div x-show="results.length > 0 || isLoading" x-cloak
-             class="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-white/[0.06] bg-[#0d1117] shadow-lg">
-            <ul>
-                <template x-for="u in results" :key="u.id">
-                    <li @click="add(u)"
-                        class="flex cursor-pointer items-center gap-2 px-3 py-2 text-[15px] text-gray-300 hover:bg-white/[0.06] hover:text-white">
-                        <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[11px] font-semibold text-white"
+        <div class="flex flex-wrap items-center gap-1.5">
+            <template x-for="u in selected" :key="u.id">
+                <span class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.05] py-1 pl-1 pr-1 text-[13px] font-medium text-gray-300"
+                      :title="u.email">
+                    <span class="inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5">
+                        <span class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[9px] font-semibold text-white"
                               x-text="(u.name || u.email).charAt(0).toUpperCase()"></span>
-                        <span x-text="u.name || u.email"></span>
-                        <span x-show="u.name" class="ml-auto text-xs text-gray-500" x-text="u.email"></span>
-                    </li>
-                </template>
-                <li x-show="isLoading" class="px-3 py-2 text-sm text-gray-400">{% trans "Searching..." %}</li>
-            </ul>
+                        <span x-text="u.name || u.username"></span>
+                    </span>
+                    <button type="button"
+                            @click="remove(u.id)"
+                            :aria-label="'Remove ' + (u.name || u.username)"
+                            class="rounded-full px-1.5 text-gray-500 hover:text-gray-200">×</button>
+                </span>
+            </template>
+
+            <button type="button"
+                    x-show="selected.length === 0"
+                    @click.stop="openPicker()"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <path d="M16 11a4 4 0 10-8 0 4 4 0 008 0zM4 21a8 8 0 0116 0"/>
+                </svg>
+                <span>{% translate "Add subscriber" %}</span>
+            </button>
+
+            <button type="button"
+                    x-show="selected.length > 0"
+                    @click.stop="openPicker()"
+                    aria-label="{% translate 'Add subscriber' %}"
+                    title="{% translate 'Add subscriber' %}"
+                    class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+            </button>
+        </div>
+
+        <div x-show="popover" x-cloak
+             @click.outside="closePicker()"
+             @keydown.escape.window="closePicker()"
+             class="absolute left-0 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+            {% comment %} `hx-include` pulls in the hidden `exclude` CSV so the backend can filter out already-selected users. HTMX 2.x only sends the triggering input's value on GET by default, so without this the enclosing form's other inputs are *not* sent (which is what we want — the picker stays scoped to `q` and `exclude`). {% endcomment %}
+            <input type="hidden" name="exclude" :value="excludeCsv">
+            <input type="search" name="q" autofocus autocomplete="off"
+                   x-ref="userSearch"
+                   placeholder="{% translate 'Search users by name, email, or username...' %}"
+                   hx-get="{{ user_picker_url }}"
+                   hx-trigger="input changed delay:200ms[this.value.length >= 2], search"
+                   hx-include="previous input[name='exclude']"
+                   hx-sync="this:abort"
+                   hx-target="#user-picker-list"
+                   class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+            <div x-show="loading" class="animate-pulse py-1">
+                <div class="px-3 py-2 space-y-1.5">
+                    <div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div>
+                    <div class="h-3 rounded bg-white/[0.04] w-1/2"></div>
+                </div>
+                <div class="px-3 py-2 space-y-1.5">
+                    <div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div>
+                    <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
+                </div>
+                <div class="px-3 py-2 space-y-1.5">
+                    <div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div>
+                    <div class="h-3 rounded bg-white/[0.04] w-3/5"></div>
+                </div>
+            </div>
+            <div id="user-picker-list" x-ref="userPickerList"
+                 data-error-message="{% translate 'Could not load users.' %}"
+                 x-show="!loading" class="max-h-60 overflow-auto"></div>
         </div>
     </div>
 

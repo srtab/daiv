@@ -2,16 +2,22 @@
 {% load i18n static %}
 
 {% block title %}{% if object %}Edit Schedule{% else %}Create Schedule{% endif %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
+<script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
+        integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
 <script defer src="{% static 'schedules/js/subscriber-picker.js' %}"></script>
-{% endblock %}
+<script defer src="{% static 'schedules/js/template-gallery.js' %}"></script>
+{% endblock alpine_plugins %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -21,6 +27,19 @@
     </p>
 </div>
 
+        {% if not object and not schedule_templates %}
+        <div class="mt-6 flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+            <div>
+                <p class="text-[15px] font-medium text-gray-200">{% translate "Start from a template" %}</p>
+                <p class="text-sm text-gray-500">{% translate "Pick a curated schedule as a starting point. Every field is editable." %}</p>
+            </div>
+            <button type="button"
+                    onclick="window.dispatchEvent(new CustomEvent('open-template-gallery'))"
+                    class="btn-secondary">{% translate "Browse templates" %}</button>
+        </div>
+        {% endif %}
+        {% include "schedules/_template_gallery.html" %}
+
         {% if form.non_field_errors %}
         <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
             {% for error in form.non_field_errors %}
@@ -29,12 +48,22 @@
         </div>
         {% endif %}
 
+        <script>window.__scheduleFormDirty = false;</script>
         <form method="post"
+              @input.capture="window.__scheduleFormDirty = true"
+              @change.capture="window.__scheduleFormDirty = true"
               x-data="{
                   frequency: '{{ form.frequency.value|default:'daily' }}',
                   time: '{{ form.time.value|time:"H:i" }}',
-                  get showTime() { return this.frequency !== 'hourly' && this.frequency !== 'custom' },
+                  runAt: '{{ form.run_at.value|date:'Y-m-d\TH:i' }}',
+                  get showTime() { return this.frequency === 'daily' || this.frequency === 'weekdays' || this.frequency === 'weekly' },
                   get showCron() { return this.frequency === 'custom' },
+                  get showRunAt() { return this.frequency === 'once' },
+                  get nowMin() {
+                      const d = new Date(Date.now() + 60 * 1000);
+                      const pad = (n) => String(n).padStart(2, '0');
+                      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                  },
               }"
               class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
             {% csrf_token %}
@@ -90,6 +119,14 @@
                     <p class="mt-1.5 text-sm text-red-400">{{ form.time.errors.0 }}</p>
                     {% endif %}
                 </div>
+
+                <div x-show="showRunAt" x-cloak>
+                    <label for="id_run_at" class="block text-[15px] font-medium text-gray-400">Date & time <span class="text-red-400">*</span></label>
+                    <input type="datetime-local" name="run_at" id="id_run_at" x-model="runAt" :min="nowMin" class="mt-2 !w-auto">
+                    {% if form.run_at.errors %}
+                    <p class="mt-1.5 text-sm text-red-400">{{ form.run_at.errors.0 }}</p>
+                    {% endif %}
+                </div>
             </div>
 
             <div class="mt-6 border-t border-white/[0.06]"></div>
@@ -128,4 +165,4 @@
                 {% endif %}
             </div>
         </form>
-{% endblock %}
+{% endblock app_content %}

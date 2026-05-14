@@ -1,12 +1,13 @@
 {% extends "base_app.html" %}
-{% load static icon_tags %}
+{% load icon_tags static %}
 
 {% block title %}Delete User — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -38,4 +39,4 @@
         </a>
     </form>
 </div>
-{% endblock %}
+{% endblock app_content %}

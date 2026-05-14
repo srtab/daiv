@@ -1,9 +1,23 @@
 from django import forms
 
-from activity.forms import AgentRunFieldsMixin
+from activity.forms import AgentRunFieldsMixin, RepoListField
 
 from accounts.models import User
-from schedules.models import Frequency, ScheduledJob
+from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
+
+
+def _clear_irrelevant_frequency_fields(cleaned_data: dict) -> dict:
+    """Drop stale ``cron_expression`` / ``time`` / ``run_at`` so switching frequency in the UI
+    doesn't round-trip leftover values that the model's ``_validate_frequency_fields`` would reject.
+    """
+    frequency = cleaned_data.get("frequency")
+    if frequency != Frequency.CUSTOM:
+        cleaned_data["cron_expression"] = ""
+    if frequency in (Frequency.HOURLY, Frequency.CUSTOM, Frequency.ONCE):
+        cleaned_data["time"] = None
+    if frequency != Frequency.ONCE:
+        cleaned_data["run_at"] = None
+    return cleaned_data
 
 
 class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
@@ -18,6 +32,7 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
             "frequency",
             "cron_expression",
             "time",
+            "run_at",
             "use_max",
             "notify_on",
             "subscribers",
@@ -33,18 +48,8 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
             self.fields["subscribers"].queryset = qs
             self.fields["subscribers"].required = False
 
-    def _clean_conditional_fields(self, cleaned_data: dict) -> dict:
-        """Clear fields that are irrelevant for the selected frequency."""
-        frequency = cleaned_data.get("frequency")
-        if frequency != Frequency.CUSTOM:
-            cleaned_data["cron_expression"] = ""
-        if frequency in (Frequency.HOURLY, Frequency.CUSTOM):
-            cleaned_data["time"] = None
-        return cleaned_data
-
     def clean(self):
-        cleaned_data = super().clean()
-        return self._clean_conditional_fields(cleaned_data)
+        return _clear_irrelevant_frequency_fields(super().clean())
 
     def save(self, commit: bool = True) -> ScheduledJob:
         instance = super().save(commit=False)
@@ -61,3 +66,26 @@ class ScheduledJobUpdateForm(ScheduledJobCreateForm):
 
     class Meta(ScheduledJobCreateForm.Meta):
         fields = [*ScheduledJobCreateForm.Meta.fields, "is_enabled"]
+
+
+class ScheduleTemplateForm(forms.ModelForm):
+    """Admin form for creating/editing schedule templates."""
+
+    repos = RepoListField(required=False)
+
+    class Meta:
+        model = ScheduleTemplate
+        fields = [
+            "name",
+            "description",
+            "prompt",
+            "repos",
+            "frequency",
+            "cron_expression",
+            "time",
+            "use_max",
+            "notify_on",
+        ]
+
+    def clean(self):
+        return _clear_irrelevant_frequency_fields(super().clean())

@@ -1,0 +1,99 @@
+{% extends "base_app.html" %}
+{% load i18n static %}
+
+{% block title %}{% if object %}Edit Template{% else %}New Template{% endif %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
+<script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+{% endblock alpine_plugins %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock breadcrumb %}
+
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">{% if object %}Edit template{% else %}New template{% endif %}</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        {% if object %}Update "{{ object.name }}".{% else %}Create a reusable schedule blueprint.{% endif %}
+    </p>
+</div>
+
+{% if form.non_field_errors %}
+<div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
+    {% for error in form.non_field_errors %}
+    <p class="text-[15px] text-red-200">{{ error }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+
+<form method="post"
+      x-data="{
+          frequency: '{{ form.frequency.value|default:'daily' }}',
+          time: '{{ form.time.value|time:'H:i' }}',
+          get showTime() { return this.frequency !== 'hourly' && this.frequency !== 'custom' },
+          get showCron() { return this.frequency === 'custom' }
+      }"
+      class="animate-fade-up mt-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6" style="animation-delay: 100ms">
+    {% csrf_token %}
+
+    <div>
+        <label for="id_name" class="block text-[15px] font-medium text-gray-400">Name <span class="text-red-400">*</span></label>
+        <input type="text" name="name" id="id_name" value="{{ form.name.value|default:'' }}" maxlength="200" required class="mt-2">
+        {% if form.name.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.name.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="mt-5">
+        <label for="id_description" class="block text-[15px] font-medium text-gray-400">Description</label>
+        <textarea name="description" id="id_description" rows="2" class="mt-2" placeholder="Shown in the picker.">{{ form.description.value|default:'' }}</textarea>
+        {% if form.description.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.description.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="mt-5 -mx-6 [&>div]:!rounded-none">
+        {% include "activity/_agent_run_fields.html" with form=form repos_required=False %}
+    </div>
+    <p class="mt-2 text-sm text-gray-500">
+        {% translate "Repositories selected here pre-fill the schedule picker. Leave empty to let users choose." %}
+    </p>
+
+    <div class="mt-6 grid grid-cols-3 gap-4">
+        <div class="col-span-2">
+            <label class="block text-[15px] font-medium text-gray-400">Frequency</label>
+            <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                {% for value, label in form.frequency.field.choices %}
+                <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                       :class="frequency === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                    <input type="radio" name="frequency" value="{{ value }}" x-model="frequency" class="sr-only">
+                    {{ label }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        <div x-show="showCron" x-cloak>
+            <label for="id_cron_expression" class="block text-[15px] font-medium text-gray-400">Cron <span class="text-red-400">*</span></label>
+            <input type="text" name="cron_expression" id="id_cron_expression" value="{{ form.cron_expression.value|default:'' }}" maxlength="100" class="mt-2 font-mono">
+            {% if form.cron_expression.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.cron_expression.errors.0 }}</p>{% endif %}
+        </div>
+        <div x-show="showTime" x-cloak>
+            <label for="id_time" class="block text-[15px] font-medium text-gray-400">Time <span class="text-red-400">*</span></label>
+            <input type="time" name="time" id="id_time" x-model="time" class="mt-2 !w-auto">
+            {% if form.time.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.time.errors.0 }}</p>{% endif %}
+        </div>
+    </div>
+
+    <div class="mt-6 border-t border-white/[0.06]"></div>
+
+    {% include "notifications/_notify_on_radio.html" with form=form %}
+
+    <div class="mt-8 flex items-center gap-3">
+        <button type="submit" class="btn-primary">{% if object %}Save changes{% else %}Create template{% endif %}</button>
+        <a href="{% url 'schedule_template_list' %}" class="btn-secondary">Cancel</a>
+        {% if object %}
+        <a href="{% url 'schedule_template_delete' object.pk %}" class="btn-danger-outline ml-auto">Delete template</a>
+        {% endif %}
+    </div>
+</form>
+{% endblock app_content %}

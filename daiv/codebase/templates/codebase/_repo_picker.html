@@ -1,11 +1,11 @@
 {% load i18n icon_tags %}
 {% url 'codebase:picker-repositories' as repo_picker_url %}
 {% url 'codebase:picker-branches' slug='__SLUG__' as branch_picker_template %}
-{% trans "Choose repository" as choose_repo_label %}
-{% trans "Search repositories..." as search_repos_placeholder %}
-{% trans "Search branches..." as search_branches_placeholder %}
-{% trans "default" as default_branch_label %}
-{% trans "Repository already in the list: __LABEL__." as conflict_message_template %}
+{% translate "Choose repository" as choose_repo_label %}
+{% translate "Search repositories..." as search_repos_placeholder %}
+{% translate "Search branches..." as search_branches_placeholder %}
+{% translate "default" as default_branch_label %}
+{% translate "Repository already in the list: __LABEL__." as conflict_message_template %}
 
 {% comment %}
 Reusable repo + branch picker. Renders the chip list, both popovers, and (optionally)
@@ -86,8 +86,8 @@ Parameters:
         <button type="button"
                 x-show="repos.length > 0 && repos.length < maxRepos"
                 @click.stop="openRepoPicker()"
-                aria-label="{% trans 'Add repository' %}"
-                title="{% trans 'Add repository' %}"
+                aria-label="{% translate 'Add repository' %}"
+                title="{% translate 'Add repository' %}"
                 class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
             <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <path d="M12 5v14M5 12h14"/>
@@ -165,8 +165,9 @@ Parameters:
            :value="JSON.stringify(repos.map(r => ({ repo_id: r.slug, ref: r.ref || '' })))">
     {% endif %}
 
-    {% if required|default_if_none:True %}
-    {# sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded. #}
+    {% if required != False %}
+    {% comment %} sr-only required input: browser blocks submit when empty; name is not a form field so POST value is discarded.
+       Use `!= False` (not `default_if_none`) so an unset/empty include-var still defaults to "required". {% endcomment %}
     <input type="text" name="__repo_required_guard" required
            aria-hidden="true" tabindex="-1"
            class="sr-only"

@@ -20,10 +20,10 @@ classifiers = [
 ]
 dependencies = [
   "ag-ui-langgraph==0.0.35",
-  "copilotkit==0.1.88",
+  "copilotkit==0.1.89",
   "croniter==6.2.2",
   "ddgs==9.14.2",
-  "deepagents==0.5.6",
+  "deepagents==0.5.9",
   "django==6.0.5",
   "django-allauth[socialaccount]==65.16.1",
   "django-crontask==1.2.0",
@@ -44,7 +44,7 @@ dependencies = [
   "langchain-mcp-adapters==0.2.2",
   "langgraph==1.1.10",
   "langgraph-checkpoint-redis==0.4.1",
-  "langsmith[pytest]==0.8.3",
+  "langsmith[pytest]==0.8.4",
   "langsmith-fetch==0.3.1",
   "markdown==3.10.2",
   "markdownify==1.2.2",
@@ -61,7 +61,7 @@ dependencies = [
   "pyyaml==6.0.3",
   "rank-bm25==0.2.2",
   "redis==7.4.0",
-  "sentry-sdk==2.59.0",
+  "sentry-sdk==2.60.0",
   "unidiff==0.7.5",
   "uvicorn[standard]==0.46.0",
   "whitenoise==6.12.0",
@@ -72,8 +72,9 @@ urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "coverage==7.13.5",
+  "coverage==7.14.0",
   "datasets==4.8.5",
+  "djade==1.9.0",
   "openevals==0.2.0",
   "prek==0.3.13",
   "pyproject-fmt==2.21.2",
@@ -87,8 +88,8 @@ dev = [
   "pytest-xdist==3.8.0",
   "python-dotenv==1.2.2",
   "ruff==0.15.12",
-  "ty==0.0.34",
-  "types-pyyaml==6.0.12.20260508",
+  "ty==0.0.35",
+  "types-pyyaml==6.0.12.20260510",
   "watchdog==6.0.0",
 ]
 docs = [

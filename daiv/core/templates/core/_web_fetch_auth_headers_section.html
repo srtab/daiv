@@ -1,13 +1,13 @@
 {% load i18n %}
 <div class="mt-6 border-t border-white/[0.06] pt-5">
     <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-white">{% trans "Per-domain auth headers" %}</h3>
+        <h3 class="text-sm font-semibold text-white">{% translate "Per-domain auth headers" %}</h3>
         {% if web_fetch_auth_headers_env_locked %}
             {% include "core/_env_lock_badge.html" %}
         {% endif %}
     </div>
     <p class="mt-1 text-xs text-gray-400">
-        {% trans "Send custom HTTP headers when web_fetch contacts a domain. Match is exact (no subdomains)." %}
+        {% translate "Send custom HTTP headers when web_fetch contacts a domain. Match is exact (no subdomains)." %}
     </p>
 
     {% if web_fetch_auth_headers_env_locked %}
@@ -21,7 +21,7 @@
                     </div>
                 {% endfor %}
             {% empty %}
-                <p class="text-xs text-gray-500">{% trans "No headers configured via DAIV_WEB_FETCH_AUTH_HEADERS." %}</p>
+                <p class="text-xs text-gray-500">{% translate "No headers configured via DAIV_WEB_FETCH_AUTH_HEADERS." %}</p>
             {% endfor %}
         </div>
     {% else %}
@@ -33,9 +33,9 @@
             {% endif %}
             <div x-show="total > 0"
                  class="grid grid-cols-12 gap-3 mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-                <div class="col-span-4">{% trans "Domain" %}</div>
-                <div class="col-span-3">{% trans "Header name" %}</div>
-                <div class="col-span-4">{% trans "Header value" %}</div>
+                <div class="col-span-4">{% translate "Domain" %}</div>
+                <div class="col-span-3">{% translate "Header name" %}</div>
+                <div class="col-span-4">{% translate "Header value" %}</div>
                 <div class="col-span-1"></div>
             </div>
             <div x-ref="rows" class="space-y-3">
@@ -47,7 +47,7 @@
                 {% include "core/web_fetch_auth_header_row.html" with row=web_fetch_auth_headers_formset.empty_form %}
             </template>
             <button type="button" class="btn-secondary mt-4" @click="addRow()">
-                {% trans "Add header" %}
+                {% translate "Add header" %}
             </button>
         </div>
     {% endif %}

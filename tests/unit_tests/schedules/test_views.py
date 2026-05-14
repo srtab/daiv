@@ -8,9 +8,10 @@ from django.urls import reverse
 import pytest
 from activity.models import Activity, TriggerType
 from django_tasks_db.models import DBTaskResult, get_date_max
+from notifications.choices import NotifyOn
 
 from accounts.models import User
-from schedules.models import ScheduledJob
+from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
 
 
 @pytest.fixture
@@ -111,6 +112,84 @@ class TestScheduleToggleView:
         schedule.refresh_from_db()
         assert schedule.is_enabled is False
         assert schedule.next_run_at is None
+
+    def test_resume_fired_one_off_is_rejected(self, member_client, member_user):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        past = timezone.now() - timedelta(hours=1)
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="fired one-off",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=past,
+            is_enabled=False,
+            next_run_at=None,
+            run_count=1,
+            last_run_at=past,
+        )
+        response = member_client.post(reverse("schedule_toggle", args=[schedule.pk]))
+        assert response.status_code == 200
+        assert response.headers.get("HX-Trigger") == "schedule-toggle-error"
+        schedule.refresh_from_db()
+        assert schedule.is_enabled is False
+
+    def test_resume_stale_one_off_is_rejected(self, member_client, member_user):
+        """A paused-then-stale ONCE (run_count=0, run_at in the past) cannot be re-armed.
+
+        Without this guard the toggle's ``compute_next_run`` would set ``next_run_at = run_at``
+        in the past, causing the dispatcher to fire immediately on the next minute tick.
+        """
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        past = timezone.now() - timedelta(hours=1)
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="stale one-off",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=past,
+            is_enabled=False,
+            next_run_at=None,
+            run_count=0,
+        )
+        response = member_client.post(reverse("schedule_toggle", args=[schedule.pk]))
+        assert response.status_code == 200
+        assert response.headers.get("HX-Trigger") == "schedule-toggle-error"
+        schedule.refresh_from_db()
+        assert schedule.is_enabled is False
+        assert schedule.next_run_at is None
+
+    def test_resume_paused_future_one_off_succeeds(self, member_client, member_user):
+        """A paused ONCE with run_at still in the future is a legitimate resume."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        future = timezone.now() + timedelta(hours=2)
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="paused future one-off",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=future,
+            is_enabled=False,
+            next_run_at=None,
+            run_count=0,
+        )
+        response = member_client.post(reverse("schedule_toggle", args=[schedule.pk]))
+        assert response.status_code == 200
+        assert "HX-Trigger" not in response.headers
+        schedule.refresh_from_db()
+        assert schedule.is_enabled is True
+        assert schedule.next_run_at == future
 
 
 @pytest.mark.django_db(transaction=True)
@@ -348,3 +427,304 @@ class TestScheduleUnsubscribeView:
     def test_nonexistent_schedule_returns_404(self, member_client):
         response = member_client.post(reverse("schedule_unsubscribe", args=[99999]))
         assert response.status_code == 404
+
+
+@pytest.mark.django_db
+class TestScheduleListViewTemplateContext:
+    """The schedule list view exposes the same template payload for the gallery."""
+
+    def test_includes_templates_when_present(self, member_client, admin_user):
+        ScheduleTemplate.objects.create(
+            name="Nightly scan",
+            description="Runs nightly.",
+            prompt="Scan.",
+            frequency=Frequency.HOURLY,
+            notify_on=NotifyOn.NEVER,
+            created_by=admin_user,
+        )
+        response = member_client.get(reverse("schedule_list"))
+        assert response.status_code == 200
+        [row] = response.context["schedule_templates"]
+        assert row["name"] == "Nightly scan"
+        assert row["frequency_summary"] == "Every hour"
+
+    def test_empty_when_no_templates(self, member_client):
+        response = member_client.get(reverse("schedule_list"))
+        assert response.status_code == 200
+        assert response.context["schedule_templates"] == []
+
+    def test_orders_templates_by_usage_count_then_name(self, member_client, member_user, admin_user):
+        popular = ScheduleTemplate.objects.create(
+            name="Popular", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+        )
+        ScheduleTemplate.objects.create(
+            name="Zebra", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+        )
+        ScheduleTemplate.objects.create(
+            name="Alpha", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+        )
+        ScheduledJob.objects.create(
+            user=member_user,
+            name="From popular",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency="hourly",
+            source_template=popular,
+        )
+        response = member_client.get(reverse("schedule_list"))
+        names = [row["name"] for row in response.context["schedule_templates"]]
+        assert names == ["Popular", "Alpha", "Zebra"]
+
+    def test_tied_usage_counts_break_alphabetically(self, member_client, member_user, admin_user):
+        # Locks the secondary ``name`` sort: a refactor to ``order_by("-usage_count")``
+        # alone would silently regress without this assertion.
+        beta = ScheduleTemplate.objects.create(
+            name="Beta", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+        )
+        alpha = ScheduleTemplate.objects.create(
+            name="Alpha", prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+        )
+        for tpl in (alpha, beta):
+            ScheduledJob.objects.create(
+                user=member_user,
+                name=f"From {tpl.name}",
+                prompt="p",
+                repos=[{"repo_id": "x/y", "ref": ""}],
+                frequency="hourly",
+                source_template=tpl,
+            )
+        response = member_client.get(reverse("schedule_list"))
+        names = [row["name"] for row in response.context["schedule_templates"]]
+        assert names == ["Alpha", "Beta"]
+
+    def test_picker_payload_is_single_query(self, member_client, admin_user, django_assert_num_queries):
+        # PICKER_FIELDS must cover every field ``to_picker_dict()`` reads, or ``.only(...)``
+        # triggers a deferred-field SELECT per row. Pins the contract called out at
+        # ``schedules/models.py`` PICKER_FIELDS to catch silent regressions.
+        for name in ("A", "B", "C"):
+            ScheduleTemplate.objects.create(
+                name=name, prompt="p", frequency=Frequency.HOURLY, notify_on=NotifyOn.NEVER, created_by=admin_user
+            )
+        from schedules.views import _template_picker_payload
+
+        with django_assert_num_queries(1):
+            payload = _template_picker_payload()
+        assert len(payload) == 3
+
+
+@pytest.mark.django_db
+class TestScheduleCreateViewSourceTemplate:
+    def _payload(self, **overrides):
+        import json as _json
+
+        base = {
+            "name": "From tpl",
+            "prompt": "p",
+            "repos": _json.dumps([{"repo_id": "x/y", "ref": ""}]),
+            "frequency": "daily",
+            "cron_expression": "",
+            "time": "09:00",
+            "use_max": "false",
+            "notify_on": "never",
+        }
+        base.update(overrides)
+        return base
+
+    def test_source_template_set_when_query_param_present(self, member_client, admin_user):
+        tpl = ScheduleTemplate.objects.create(
+            name="T", prompt="p", frequency=Frequency.DAILY, time=time(9, 0), created_by=admin_user
+        )
+        url = f"{reverse('schedule_create')}?template={tpl.pk}"
+        response = member_client.post(url, data=self._payload())
+        assert response.status_code == 302, response.content.decode()[:400]
+        schedule = ScheduledJob.objects.get(name="From tpl")
+        assert schedule.source_template_id == tpl.pk
+
+    def test_source_template_null_when_no_query_param(self, member_client):
+        response = member_client.post(reverse("schedule_create"), data=self._payload())
+        assert response.status_code == 302, response.content.decode()[:400]
+        schedule = ScheduledJob.objects.get(name="From tpl")
+        assert schedule.source_template_id is None
+
+    def test_source_template_null_when_query_param_invalid(self, member_client):
+        url = f"{reverse('schedule_create')}?template=99999"
+        response = member_client.post(url, data=self._payload())
+        assert response.status_code == 302, response.content.decode()[:400]
+        schedule = ScheduledJob.objects.get(name="From tpl")
+        assert schedule.source_template_id is None
+
+
+@pytest.mark.django_db
+class TestScheduleListViewGalleryWiring:
+    """The schedule list page renders the gallery trigger and empty-state CTA."""
+
+    @pytest.fixture
+    def tpl(self, admin_user):
+        return ScheduleTemplate.objects.create(
+            name="Nightly scan",
+            description="Runs nightly.",
+            prompt="Scan.",
+            frequency=Frequency.DAILY,
+            time=time(2, 0),
+            notify_on=NotifyOn.NEVER,
+            created_by=admin_user,
+        )
+
+    def test_header_button_and_gallery_present_when_templates_exist(self, member_client, tpl):
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert "From template" in body
+        assert "schedule-templates-data" in body
+
+    def test_header_button_absent_when_no_templates(self, member_client):
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert "From template" not in body
+        assert "schedule-templates-data" not in body
+
+    def test_empty_state_shows_template_cta_when_templates_exist(self, member_client, tpl):
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert "No scheduled jobs yet" in body
+        assert "Start from template" in body
+
+    def test_empty_state_without_templates_keeps_only_create_button(self, member_client):
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert "No scheduled jobs yet" in body
+        assert "Start from template" not in body
+
+    def test_gallery_apply_url_matches_prefill_contract(self, member_client, tpl):
+        # Pins the gallery <-> prefill contract: the drawer's "Use this template"
+        # anchor must navigate to the URL that ScheduleCreateView's ?template=<id>
+        # prefill path accepts. Renamed params or routes would break both sides
+        # silently without this assertion.
+        response = member_client.get(reverse("schedule_list"))
+        body = response.content.decode()
+        assert f"{reverse('schedule_create')}?template=${{tpl.id}}" in body
+
+
+@pytest.mark.django_db
+class TestScheduleDuplicateFlow:
+    def test_create_view_with_from_param_prefills(self, member_client, member_user):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        future = timezone.now() + timedelta(hours=2)
+        source = ScheduledJob.objects.create(
+            user=member_user,
+            name="source",
+            prompt="hello",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=future,
+            use_max=True,
+        )
+        response = member_client.get(reverse("schedule_create") + f"?from={source.pk}")
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "source" in content
+        assert "hello" in content
+
+    def test_create_view_with_unknown_from_pk_falls_back_to_blank(self, member_client):
+        response = member_client.get(reverse("schedule_create") + "?from=999999")
+        assert response.status_code == 200
+
+    def test_create_view_from_param_for_other_user_falls_back_to_blank_form(self, member_user):
+        """``?from=<other_user_pk>`` on the create view does NOT 404; it silently degrades.
+
+        The owner-scoped ``_get_source_schedule`` returns ``None`` so the form renders
+        empty, preventing information leaks via the create form. The hard 404 boundary
+        lives on ``ScheduleDuplicateView`` (see sibling test).
+        """
+        from django.test import Client
+
+        other = User.objects.create_user(username="other", email="o@t.com", password="x")  # noqa: S106
+        future_job = ScheduledJob.objects.create(
+            user=other,
+            name="theirs",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency="daily",
+            time="09:00",
+        )
+        c = Client()
+        c.force_login(User.objects.create_user(username="me", email="me@t.com", password="x"))  # noqa: S106
+        response = c.get(reverse("schedule_create") + f"?from={future_job.pk}")
+        assert response.status_code == 200
+        assert "theirs" not in response.content.decode()
+
+    def test_duplicate_view_redirects_to_create_with_from_param(self, member_client, member_user):
+        source = ScheduledJob.objects.create(
+            user=member_user,
+            name="source",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency="daily",
+            time="09:00",
+        )
+        response = member_client.post(reverse("schedule_duplicate", args=[source.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("schedule_create") + f"?from={source.pk}"
+
+    def test_duplicate_view_for_other_user_returns_404(self, member_user):
+        """The actual cross-user security boundary lives on the duplicate POST endpoint."""
+        from django.test import Client
+
+        other = User.objects.create_user(username="other2", email="o2@t.com", password="x")  # noqa: S106
+        source = ScheduledJob.objects.create(
+            user=other,
+            name="theirs",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency="daily",
+            time="09:00",
+        )
+        c = Client()
+        c.force_login(User.objects.create_user(username="me2", email="me2@t.com", password="x"))  # noqa: S106
+        response = c.post(reverse("schedule_duplicate", args=[source.pk]))
+        assert response.status_code == 404
+
+    def test_create_view_from_fired_one_off_carries_stale_run_at_form_rejects(self, member_client, member_user):
+        """Duplicating a fired one-off prefills the past run_at; submission without changing it must fail."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        past = timezone.now() - timedelta(hours=1)
+        fired = ScheduledJob.objects.create(
+            user=member_user,
+            name="fired-source",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=past,
+            is_enabled=False,
+            next_run_at=None,
+            run_count=1,
+            last_run_at=past,
+        )
+
+        # GET prefills the past run_at into the form initial.
+        response = member_client.get(reverse("schedule_create") + f"?from={fired.pk}")
+        assert response.status_code == 200
+        assert response.context["form"].initial["run_at"] == past
+
+        # POST without changing run_at must be rejected by the future-time validator.
+        response = member_client.post(
+            reverse("schedule_create"),
+            data={
+                "name": "duplicate",
+                "prompt": "p",
+                "repos": '[{"repo_id": "x/y", "ref": ""}]',
+                "frequency": Frequency.ONCE,
+                "cron_expression": "",
+                "time": "",
+                "run_at": past.strftime("%Y-%m-%dT%H:%M"),
+                "use_max": False,
+                "notify_on": NotifyOn.NEVER,
+            },
+        )
+        assert response.status_code == 200
+        assert "run_at" in response.context["form"].errors

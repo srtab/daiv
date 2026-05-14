@@ -99,15 +99,16 @@ main:has(.chat-shell) {
   input[type="number"],
   input[type="password"],
   input[type="time"],
+  input[type="datetime-local"],
   input[type="url"],
   textarea {
-    @apply block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2.5
+    @apply block w-full rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-2
            text-[15px] text-white placeholder-gray-500 outline-none transition-all duration-200
            focus:border-white/[0.15] focus:bg-white/[0.05] focus:ring-1 focus:ring-white/[0.08];
   }
 
   select {
-    @apply block w-full rounded-xl border border-white/[0.06] bg-[#0d1117] px-4 py-2.5
+    @apply block w-full rounded-xl border border-white/[0.06] bg-[#0d1117] px-4 py-2
            text-[15px] text-white outline-none transition-all duration-200
            focus:border-white/[0.15] focus:ring-1 focus:ring-white/[0.08];
   }
@@ -117,7 +118,8 @@ main:has(.chat-shell) {
   }
 
   input[type="date"],
-  input[type="time"] {
+  input[type="time"],
+  input[type="datetime-local"] {
     color-scheme: dark;
   }
 

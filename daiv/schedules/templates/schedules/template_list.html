@@ -1,0 +1,58 @@
+{% extends "base_app.html" %}
+
+{% block title %}Schedule Templates — DAIV{% endblock %}
+
+{% block container_width %}max-w-screen-2xl{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock breadcrumb %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">Schedule templates</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">Reusable blueprints that any user can start a schedule from.</p>
+    </div>
+    <a href="{% url 'schedule_template_create' %}" class="btn-primary">New template</a>
+</div>
+
+<div class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    {% if templates %}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {% for template in templates %}
+        <div class="relative flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 transition hover:border-white/[0.12]">
+            <a href="{% url 'schedule_template_update' template.pk %}"
+               class="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+               aria-label="Edit {{ template.name }}"></a>
+            <div class="flex items-start justify-between gap-3">
+                <span class="min-w-0 break-words text-[15px] font-medium text-white">{{ template.name }}</span>
+                <a href="{% url 'schedule_template_delete' template.pk %}?next={% url 'schedule_template_list' %}"
+                   aria-label="Delete {{ template.name }}"
+                   class="relative z-10 -mr-2 -mt-2 shrink-0 rounded-lg p-2 text-gray-500 transition-all duration-200 hover:bg-red-500/10 hover:text-red-400">
+                    <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                    </svg>
+                </a>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">{{ template.get_frequency_display }}</span>
+                {% if template.use_max %}
+                <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">max</span>
+                {% endif %}
+            </div>
+            {% if template.description %}
+            <p class="mt-3 line-clamp-3 text-sm text-gray-400">{{ template.description }}</p>
+            {% endif %}
+            <p class="mt-auto pt-3 text-xs text-gray-500">{{ template.repos_summary }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% include "accounts/_pagination.html" %}
+    {% else %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+        <p class="text-[15px] text-gray-400">No templates yet. Create one to share with your team.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock app_content %}

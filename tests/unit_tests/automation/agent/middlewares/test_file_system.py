@@ -402,15 +402,17 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     write_result = await setup.tools["write_file"].coroutine(
         file_path=f"/{setup.repo.name}/contract.py", content="x", runtime=runtime
     )
-    assert write_result.startswith(WRITE_SUCCESS_PREFIX), (
-        f"upstream changed write success format; update WRITE_SUCCESS_PREFIX: {write_result!r}"
+    write_text = write_result.content if isinstance(write_result, ToolMessage) else write_result
+    assert write_text.startswith(WRITE_SUCCESS_PREFIX), (
+        f"upstream changed write success format; update WRITE_SUCCESS_PREFIX: {write_text!r}"
     )
 
     edit_result = await setup.tools["edit_file"].coroutine(
         file_path=f"/{setup.repo.name}/contract.py", old_string="x", new_string="y", runtime=runtime
     )
-    assert edit_result.startswith(EDIT_SUCCESS_PREFIX), (
-        f"upstream changed edit success format; update EDIT_SUCCESS_PREFIX: {edit_result!r}"
+    edit_text = edit_result.content if isinstance(edit_result, ToolMessage) else edit_result
+    assert edit_text.startswith(EDIT_SUCCESS_PREFIX), (
+        f"upstream changed edit success format; update EDIT_SUCCESS_PREFIX: {edit_text!r}"
     )
 
 
