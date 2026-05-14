@@ -72,7 +72,7 @@ urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "coverage==7.13.5",
+  "coverage==7.14.0",
   "datasets==4.8.5",
   "djade==1.9.0",
   "openevals==0.2.0",
