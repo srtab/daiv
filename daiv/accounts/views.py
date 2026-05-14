@@ -2,7 +2,6 @@ import logging
 from datetime import date, timedelta
 
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
@@ -38,31 +37,36 @@ PICKER_USERS_LIMIT = 10
 PICKER_USERS_MIN_QUERY = 2
 
 
-@login_required
-def picker_users_view(request):
+class UserPickerView(LoginRequiredMixin, TemplateView):
     """HTMX fragment: up to ``PICKER_USERS_LIMIT`` active users matching ``?q=``.
 
     Excludes the requesting user and any ids passed in ``?exclude=`` (CSV).
     """
-    query = request.GET.get("q", "").strip()
-    if len(query) < PICKER_USERS_MIN_QUERY:
-        return render(request, "accounts/_user_picker_list.html", {"users": []})
 
-    exclude_ids: set[int] = {request.user.pk}
-    for part in request.GET.get("exclude", "").split(","):
-        stripped = part.strip()
-        if stripped.isdigit():
-            exclude_ids.add(int(stripped))
+    template_name = "accounts/_user_picker_list.html"
 
-    users = (
-        User.objects
-        .filter(is_active=True)
-        .filter(Q(username__icontains=query) | Q(email__icontains=query) | Q(name__icontains=query))
-        .exclude(pk__in=exclude_ids)
-        .only("pk", "username", "name", "email")
-        .order_by("username")[:PICKER_USERS_LIMIT]
-    )
-    return render(request, "accounts/_user_picker_list.html", {"users": users})
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        query = self.request.GET.get("q", "").strip()
+        if len(query) < PICKER_USERS_MIN_QUERY:
+            context["users"] = []
+            return context
+
+        exclude_ids: set[int] = {self.request.user.pk}
+        for part in self.request.GET.get("exclude", "").split(","):
+            stripped = part.strip()
+            if stripped.isdigit():
+                exclude_ids.add(int(stripped))
+
+        context["users"] = (
+            User.objects
+            .filter(is_active=True)
+            .filter(Q(username__icontains=query) | Q(email__icontains=query) | Q(name__icontains=query))
+            .exclude(pk__in=exclude_ids)
+            .only("pk", "username", "name", "email")
+            .order_by("username")[:PICKER_USERS_LIMIT]
+        )
+        return context
 
 
 PERIOD_CHOICES = [
