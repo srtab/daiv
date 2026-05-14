@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlparse
 
 from django import forms
@@ -11,6 +11,9 @@ from django.utils.translation import gettext_lazy as _
 
 from automation.agent.base import parse_model_spec
 from core.models import Provider, SiteConfiguration, WebFetchAuthHeader
+
+if TYPE_CHECKING:
+    from core.models import FieldGroup
 
 
 class _BooleanCheckboxField(forms.BooleanField):
@@ -140,6 +143,7 @@ class SiteConfigurationForm(forms.ModelForm):
         cleared_secrets: set[str] | None = None,
         field_defaults: dict[str, str] | None = None,
         in_flight_providers: dict[str, tuple[bool, bool]] | None = None,
+        group: FieldGroup | None = None,
         **kwargs: Any,
     ):
         super().__init__(*args, **kwargs)
@@ -151,6 +155,7 @@ class SiteConfigurationForm(forms.ModelForm):
         # for slugs not present — so a single POST that enables a provider and
         # selects one of its models passes validation.
         self.in_flight_providers = in_flight_providers
+        self.group = group
 
         self._add_secret_fields()
         self._configure_widgets()
@@ -159,6 +164,7 @@ class SiteConfigurationForm(forms.ModelForm):
         self._apply_env_locks()
         self._apply_defaults(field_defaults or {})
         self._hide_inapplicable_auth_fields()
+        self._restrict_to_group()
 
     # ------------------------------------------------------------------
     # Setup helpers
@@ -281,6 +287,15 @@ class SiteConfigurationForm(forms.ModelForm):
                 "auth_gitlab_server_url",
             ):
                 self.fields.pop(name, None)
+
+    def _restrict_to_group(self) -> None:
+        """When ``group`` is set, drop any field not in ``group.fields``."""
+        if self.group is None:
+            return
+        allowed = set(self.group.fields)
+        for name in list(self.fields):
+            if name not in allowed:
+                del self.fields[name]
 
     # ------------------------------------------------------------------
     # Validation

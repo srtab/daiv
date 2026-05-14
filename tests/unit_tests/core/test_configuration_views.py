@@ -761,3 +761,30 @@ class TestInFlightProviderValidation:
         assert "Slug must start with a lowercase letter" in content
         assert "Provider 'anthropic' is disabled" not in content
         assert "Provider 'anthropic' has no API key" not in content
+
+
+class TestSiteConfigurationFormScoping:
+    """When constructed with a ``group=`` kwarg, the form must only expose that group's fields."""
+
+    def test_scoped_to_agent_drops_other_fields(self, db):
+        from core.forms import SiteConfigurationForm
+        from core.models import SiteConfiguration
+
+        agent_group = next(g for g in SiteConfiguration.get_field_groups() if g.key == "agent")
+        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance(), group=agent_group)
+        # Agent fields present
+        assert "agent_model_name" in form.fields
+        assert "agent_recursion_limit" in form.fields
+        # Non-agent fields removed
+        assert "sandbox_timeout" not in form.fields
+        assert "web_fetch_enabled" not in form.fields
+        assert "rocketchat_enabled" not in form.fields
+
+    def test_unscoped_keeps_all_fields(self, db):
+        from core.forms import SiteConfigurationForm
+        from core.models import SiteConfiguration
+
+        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance())
+        # Spot-check: at least one field from each top-level group is present
+        for name in ("agent_model_name", "sandbox_timeout", "web_fetch_enabled"):
+            assert name in form.fields
