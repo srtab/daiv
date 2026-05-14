@@ -895,3 +895,87 @@ def test_providers_view_splits_built_in_and_custom_forms(client, admin_user):
     custom_slugs = [f.instance.slug for f in response.context["custom_provider_forms"]]
     assert set(built_in_slugs) == {"anthropic", "openai", "google_genai", "openrouter"}
     assert custom_slugs == ["my-azure"]
+
+
+@pytest.mark.django_db
+def test_providers_view_persists_new_sort_order(client, admin_user):
+    """Submitting the formset with new sort_order values reorders rows."""
+    client.force_login(admin_user)
+    url = reverse("site_configuration", kwargs={"group_key": "providers"})
+    response = client.get(url)
+    formset = response.context["providers_formset"]
+    total = formset.total_form_count()
+
+    # Build a POST that swaps anthropic (sort_order=10) and openai (sort_order=20).
+    post = {
+        "providers-TOTAL_FORMS": str(total),
+        "providers-INITIAL_FORMS": str(total),
+        "providers-MIN_NUM_FORMS": "0",
+        "providers-MAX_NUM_FORMS": "1000",
+    }
+    for idx, form in enumerate(formset.forms):
+        inst = form.instance
+        new_order = {"anthropic": 999, "openai": 0}.get(inst.slug, inst.sort_order)
+        post.update({
+            f"providers-{idx}-id": str(inst.pk),
+            f"providers-{idx}-slug": inst.slug,
+            f"providers-{idx}-display_name": inst.display_name,
+            f"providers-{idx}-provider_type": inst.provider_type,
+            f"providers-{idx}-base_url": inst.base_url,
+            f"providers-{idx}-extra_headers": "{}",
+            f"providers-{idx}-is_enabled": "on" if inst.is_enabled else "",
+            f"providers-{idx}-sort_order": str(new_order),
+        })
+
+    response = client.post(url, data=post, follow=False)
+    assert response.status_code == 302  # 302 = saved + redirect
+    assert Provider.objects.get(slug="anthropic").sort_order == 999
+    assert Provider.objects.get(slug="openai").sort_order == 0
+
+
+@pytest.mark.django_db
+def test_providers_view_creates_custom_provider(client, admin_user):
+    """A formset POST with an extra row creates a new (unlocked) custom provider."""
+    client.force_login(admin_user)
+    url = reverse("site_configuration", kwargs={"group_key": "providers"})
+    response = client.get(url)
+    formset = response.context["providers_formset"]
+    total = formset.total_form_count()
+    new_idx = total
+
+    post = {
+        "providers-TOTAL_FORMS": str(total + 1),
+        "providers-INITIAL_FORMS": str(total),
+        "providers-MIN_NUM_FORMS": "0",
+        "providers-MAX_NUM_FORMS": "1000",
+    }
+    # Re-submit existing rows unchanged
+    for idx, form in enumerate(formset.forms):
+        inst = form.instance
+        post.update({
+            f"providers-{idx}-id": str(inst.pk),
+            f"providers-{idx}-slug": inst.slug,
+            f"providers-{idx}-display_name": inst.display_name,
+            f"providers-{idx}-provider_type": inst.provider_type,
+            f"providers-{idx}-base_url": inst.base_url,
+            f"providers-{idx}-extra_headers": "{}",
+            f"providers-{idx}-is_enabled": "on" if inst.is_enabled else "",
+            f"providers-{idx}-sort_order": str(inst.sort_order),
+        })
+    # New row
+    post.update({
+        f"providers-{new_idx}-slug": "my-azure",
+        f"providers-{new_idx}-display_name": "My Azure",
+        f"providers-{new_idx}-provider_type": "openai",
+        f"providers-{new_idx}-base_url": "https://my.example.com/v1",
+        f"providers-{new_idx}-api_key": "sk-new",
+        f"providers-{new_idx}-extra_headers": "{}",
+        f"providers-{new_idx}-is_enabled": "on",
+        f"providers-{new_idx}-sort_order": "1000",
+    })
+
+    response = client.post(url, data=post, follow=False)
+    assert response.status_code == 302
+    created = Provider.objects.get(slug="my-azure")
+    assert created.is_locked is False
+    assert created.api_key == "sk-new"
