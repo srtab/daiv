@@ -224,3 +224,34 @@ class TestGetFieldGroups:
         assert "providers" in keys
         assert "sandbox" in keys
         assert "jobs" in keys
+
+
+class TestFieldGroupsCategories:
+    def test_each_group_has_a_category(self):
+        for group in SiteConfiguration.FIELD_GROUPS:
+            assert group.category, f"Group {group.key!r} is missing a category"
+
+    def test_known_categorisation(self):
+        by_key = {g.key: g.category for g in SiteConfiguration.FIELD_GROUPS}
+        assert by_key["agent"] == "AI tasks"
+        assert by_key["diff_to_metadata"] == "AI tasks"
+        assert by_key["titling"] == "AI tasks"
+        assert by_key["providers"] == "Models"
+        assert by_key["web_search"] == "Agent tools"
+        assert by_key["web_fetch"] == "Agent tools"
+        assert by_key["sandbox"] == "Runtime"
+        assert by_key["jobs"] == "Runtime"
+        assert by_key["rocketchat"] == "Integrations"
+        assert by_key["authentication"] == "Integrations"
+
+    def test_groups_are_ordered_by_category_then_existing_order(self):
+        # Category headers in the rail are emitted by walking FIELD_GROUPS in
+        # declaration order and watching for category transitions. Groups
+        # sharing a category must therefore be contiguous.
+        seen: list[str] = []
+        for group in SiteConfiguration.FIELD_GROUPS:
+            if not seen or seen[-1] != group.category:
+                seen.append(group.category)
+        # No category appears more than once → all groups in the same category
+        # are contiguous.
+        assert len(seen) == len(set(seen)), f"Non-contiguous categories: {seen}"

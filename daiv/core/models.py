@@ -38,6 +38,7 @@ class FieldGroup:
     icon: str = ""
     fields: tuple[str, ...] = ()
     toggle_field: str = ""
+    category: str = ""
 
 
 class ThinkingLevelChoices(models.TextChoices):
@@ -383,21 +384,29 @@ class SiteConfiguration(models.Model):
     )
 
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
-        FieldGroup(key="agent", title=_("Agent"), match=("agent_*", "suggest_context_file_enabled"), icon="agent"),
+        FieldGroup(
+            key="agent",
+            title=_("Agent"),
+            match=("agent_*", "suggest_context_file_enabled"),
+            icon="agent",
+            category="AI tasks",
+        ),
         FieldGroup(
             key="diff_to_metadata",
             title=_("Commit & PR Writer"),
             match=("diff_to_metadata_*",),
             icon="diff-to-metadata",
+            category="AI tasks",
         ),
-        FieldGroup(key="titling", title=_("Titling"), match=("titling_*",), icon="chat-bubble"),
-        FieldGroup(key="providers", title=_("Providers"), match=(), icon="providers"),
+        FieldGroup(key="titling", title=_("Titling"), match=("titling_*",), icon="chat-bubble", category="AI tasks"),
+        FieldGroup(key="providers", title=_("Providers"), match=(), icon="providers", category="Models"),
         FieldGroup(
             key="web_search",
             title=_("Web Search"),
             match=("web_search_*",),
             icon="web-search",
             toggle_field="web_search_enabled",
+            category="Agent tools",
         ),
         FieldGroup(
             key="web_fetch",
@@ -405,15 +414,17 @@ class SiteConfiguration(models.Model):
             match=("web_fetch_*",),
             icon="web-fetch",
             toggle_field="web_fetch_enabled",
+            category="Agent tools",
         ),
-        FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox"),
-        FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs"),
+        FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox", category="Runtime"),
+        FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs", category="Runtime"),
         FieldGroup(
             key="rocketchat",
             title=_("Rocket Chat"),
             match=("rocketchat_*",),
             icon="rocketchat",
             toggle_field="rocketchat_enabled",
+            category="Integrations",
         ),
         FieldGroup(
             key="authentication",
@@ -421,6 +432,7 @@ class SiteConfiguration(models.Model):
             match=("auth_*",),
             icon="lock-closed",
             toggle_field="auth_login_enabled",
+            category="Integrations",
         ),
     )
 
@@ -558,6 +570,7 @@ class SiteConfiguration(models.Model):
                     icon=group_def.icon,
                     fields=tuple(group_fields),
                     toggle_field=group_def.toggle_field,
+                    category=group_def.category,
                 )
             )
         return groups
