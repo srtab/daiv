@@ -2,7 +2,7 @@ import logging
 
 from django.contrib import messages
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.views import View
 
@@ -57,7 +57,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         form = SiteConfigurationForm(
             instance=instance, env_locked_fields=env_locked, field_defaults=field_defaults, group=self.group
         )
-        return render(request, self.template_name, self._build_context(form, data=None))
+        return render(request, self.template_name, self._build_context(form))
 
     def post(self, request, group_key):
         instance = SiteConfiguration.objects.get_instance()
@@ -118,7 +118,6 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
                 providers_formset=providers_formset,
                 headers_formset=headers_formset,
                 headers_env_locked=headers_env_locked,
-                data=request.POST,
             ),
         )
 
@@ -131,8 +130,6 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         for group in SiteConfiguration.get_field_groups():
             if group.key == group_key:
                 return group
-        from django.http import Http404
-
         raise Http404(f"Unknown configuration group: {group_key!r}")
 
     def _build_context(
@@ -142,9 +139,8 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         providers_formset=None,
         headers_formset=None,
         headers_env_locked: bool = False,
-        data=None,
     ) -> dict:
-        # Build the per-page formset(s) for GET (data is None) when relevant.
+        # Build the per-page formset(s) for GET when relevant.
         if self.group.key == "providers" and providers_formset is None:
             providers_formset = self._build_providers_formset(data=None)
         if self.group.key == "web_fetch" and headers_formset is None:
