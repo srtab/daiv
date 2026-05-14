@@ -317,7 +317,7 @@ class ScheduleDuplicateView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
 
     def post(self, request, pk):
         get_object_or_404(self.get_queryset(), pk=pk)
-        return redirect(f"{reverse('schedule_create')}?from={pk}")
+        return redirect(f"{reverse('schedule_create')}?from={int(pk)}")
 
 
 class ScheduleTemplateDeleteView(BreadcrumbMixin, AdminRequiredMixin, SuccessMessageMixin, DeleteView):
