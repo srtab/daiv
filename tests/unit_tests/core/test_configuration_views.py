@@ -5,7 +5,7 @@ from django.urls import reverse
 import pytest
 
 from accounts.models import Role, User
-from core.models import Provider, SiteConfiguration
+from core.models import Provider, ProviderType, SiteConfiguration
 
 
 def _enable_seed_provider(slug: str, api_key: str = "sk-test") -> Provider:
@@ -875,3 +875,23 @@ class TestPerGroupSaveIsolation:
 
         config.refresh_from_db()
         assert config.rocketchat_auth_token == "sk-keep-me"  # noqa: S105
+
+
+@pytest.mark.django_db
+def test_providers_view_splits_built_in_and_custom_forms(client, admin_user):
+    """The providers page context must expose built-in and custom rows separately."""
+    Provider.objects.create(
+        slug="my-azure",
+        display_name="My Azure",
+        provider_type=ProviderType.OPENAI,
+        base_url="https://my.example.com/v1",
+        api_key="sk-x",
+        is_enabled=True,
+    )
+    client.force_login(admin_user)
+    response = client.get(reverse("site_configuration", kwargs={"group_key": "providers"}))
+    assert response.status_code == 200
+    built_in_slugs = [f.instance.slug for f in response.context["built_in_provider_forms"]]
+    custom_slugs = [f.instance.slug for f in response.context["custom_provider_forms"]]
+    assert set(built_in_slugs) == {"anthropic", "openai", "google_genai", "openrouter"}
+    assert custom_slugs == ["my-azure"]

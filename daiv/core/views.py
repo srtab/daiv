@@ -145,15 +145,36 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
     def _build_context(
         self, form: SiteConfigurationForm, providers_formset, headers_formset, headers_env_locked: bool
     ) -> dict:
+        built_in_provider_forms, custom_provider_forms = self._split_provider_forms(providers_formset)
         return {
             "form": form,
             "active_group": self.group,
             "all_groups": SiteConfiguration.get_field_groups(),
             "providers_formset": providers_formset,
+            "built_in_provider_forms": built_in_provider_forms,
+            "custom_provider_forms": custom_provider_forms,
             "web_fetch_auth_headers_formset": headers_formset,
             "web_fetch_auth_headers_env_locked": headers_env_locked,
             "web_fetch_auth_headers_env_value": (site_settings.web_fetch_auth_headers if headers_env_locked else None),
         }
+
+    @staticmethod
+    def _split_provider_forms(formset) -> tuple[list, list]:
+        """Return ``(built_in_forms, custom_forms)`` split by ``instance.is_locked``.
+
+        Unsaved rows (no ``pk``) are treated as custom — they're newly added
+        "+ Add custom provider" forms.
+        """
+        if formset is None:
+            return [], []
+        built_in: list = []
+        custom: list = []
+        for form in formset.forms:
+            if form.instance and form.instance.pk and form.instance.is_locked:
+                built_in.append(form)
+            else:
+                custom.append(form)
+        return built_in, custom
 
     @staticmethod
     def _build_headers_formset(*, data):
