@@ -54,14 +54,14 @@
              @click.outside="closePicker()"
              @keydown.escape.window="closePicker()"
              class="absolute left-0 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
-            {% comment %} `hx-params` below restricts the picker request to just `q` and `exclude`, so the enclosing schedule form's other inputs aren't serialized on every keystroke. {% endcomment %}
+            {% comment %} `hx-include` pulls in the hidden `exclude` CSV so the backend can filter out already-selected users. HTMX 2.x only sends the triggering input's value on GET by default, so without this the enclosing form's other inputs are *not* sent (which is what we want — the picker stays scoped to `q` and `exclude`). {% endcomment %}
             <input type="hidden" name="exclude" :value="excludeCsv">
-            <input type="search" name="q" autofocus
+            <input type="search" name="q" autofocus autocomplete="off"
                    x-ref="userSearch"
                    placeholder="{% translate 'Search users by name, email, or username...' %}"
                    hx-get="{{ user_picker_url }}"
                    hx-trigger="input changed delay:200ms[this.value.length >= 2], search"
-                   hx-params="q,exclude"
+                   hx-include="previous input[name='exclude']"
                    hx-sync="this:abort"
                    hx-target="#user-picker-list"
                    class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
