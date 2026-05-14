@@ -15,7 +15,7 @@ from core.forms import (
     build_provider_formset,
     build_web_fetch_auth_header_formset,
 )
-from core.models import Provider, SiteConfiguration, WebFetchAuthHeader
+from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
 from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.core")
@@ -48,14 +48,13 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
 
     template_name = "core/site_configuration_group.html"
 
-    def dispatch(self, request, *args, **kwargs):
-        try:
-            self.group = SiteConfiguration.get_group_by_key(kwargs["group_key"])
-        except KeyError as exc:
-            raise Http404(f"Unknown configuration group: {kwargs['group_key']!r}") from exc
-        return super().dispatch(request, *args, **kwargs)
+    # Resolved by the GET/POST handlers from the URL kwarg ``group_key``. Declared at
+    # class level so the type is visible to readers and tools without inferring it
+    # from the assignment site.
+    group: FieldGroup
 
     def get(self, request, group_key):
+        self.group = self._resolve_group(group_key)
         instance = SiteConfiguration.objects.get_instance()
         field_defaults = site_settings.get_defaults()
         providers_formset, headers_formset, headers_env_locked = self._build_per_group_formsets(data=None)
@@ -72,6 +71,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         )
 
     def post(self, request, group_key):
+        self.group = self._resolve_group(group_key)
         instance = SiteConfiguration.objects.get_instance()
         field_defaults = site_settings.get_defaults()
         cleared_secrets = {
@@ -120,6 +120,14 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_group(group_key: str) -> FieldGroup:
+        """Return the active ``FieldGroup`` or raise ``Http404`` for unknown keys."""
+        try:
+            return SiteConfiguration.get_group_by_key(group_key)
+        except KeyError as exc:
+            raise Http404(f"Unknown configuration group: {group_key!r}") from exc
 
     def _build_per_group_formsets(self, *, data) -> tuple[Any, Any, bool]:
         """Build the extra formsets the active group needs.

@@ -35,11 +35,11 @@ class FieldGroup:
 
     key: str
     title: str
+    category: str
     match: tuple[str, ...] = ()
     icon: str = ""
     fields: tuple[str, ...] = ()
     toggle_field: str = ""
-    category: str = ""
 
 
 class ThinkingLevelChoices(models.TextChoices):

@@ -840,3 +840,38 @@ class TestPerGroupSaveIsolation:
         config = SiteConfiguration.objects.get_instance()
         assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
         assert config.agent_recursion_limit == 200
+
+    def test_env_locked_secret_not_overwritten_via_post(self, client, admin_user, group_url, monkeypatch):
+        """An env-locked encrypted field POSTed via its group page is ignored — the env value wins."""
+        config = SiteConfiguration.objects.get_instance()
+        config.sandbox_api_key = "sk-db-original"
+        config.save()
+
+        monkeypatch.setenv("DAIV_SANDBOX_API_KEY", "sk-from-env")
+        client.force_login(admin_user)
+        response = client.post(group_url("sandbox"), {"sandbox_api_key": "sk-attempted-overwrite"})
+        assert response.status_code == 302
+
+        config.refresh_from_db()
+        assert config.sandbox_api_key == "sk-db-original"
+
+    def test_cross_group_clear_secret_is_scoped_to_active_group(self, client, admin_user, group_url):
+        """``clear_<secret>`` only takes effect when ``<secret>`` belongs to the active group."""
+        config = SiteConfiguration.objects.get_instance()
+        config.rocketchat_auth_token = "sk-keep-me"  # noqa: S105
+        config.save()
+
+        _enable_seed_provider("anthropic")
+        client.force_login(admin_user)
+        response = client.post(
+            group_url("agent"),
+            {
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                "clear_rocketchat_auth_token": "on",
+            },
+        )
+        assert response.status_code == 302
+
+        config.refresh_from_db()
+        assert config.rocketchat_auth_token == "sk-keep-me"  # noqa: S105
