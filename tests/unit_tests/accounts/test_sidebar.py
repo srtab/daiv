@@ -101,5 +101,5 @@ class TestNavActiveState:
     def test_admin_only_sections_resolve_for_admin(self, admin):
         users_response = _client(admin).get(reverse("user_list"))
         assert users_response.context["nav_active_section"] == "users"
-        config_response = _client(admin).get(reverse("site_configuration"))
+        config_response = _client(admin).get(reverse("site_configuration", kwargs={"group_key": "agent"}))
         assert config_response.context["nav_active_section"] == "configuration"

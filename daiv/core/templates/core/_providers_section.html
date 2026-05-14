@@ -1,12 +1,12 @@
 {% load i18n %}
 <div class="mt-6">
     <p class="text-xs text-gray-400">
-        {% trans "Configure one or more model providers. Locked providers' slug and type cannot be changed." %}
+        {% translate "Configure one or more model providers. Locked providers' slug and type cannot be changed." %}
     </p>
 
     {% if providers_formset.total_error_count %}
     <div class="mt-3 rounded-lg border border-red-800/50 bg-red-950/30 p-3">
-        <p class="text-sm font-medium text-red-200">{% trans "Providers could not be saved — please fix the errors below:" %}</p>
+        <p class="text-sm font-medium text-red-200">{% translate "Providers could not be saved — please fix the errors below:" %}</p>
         <ul class="mt-1.5 list-disc pl-5 text-xs text-red-200/90 space-y-0.5">
             {% for err in providers_formset.non_form_errors %}
                 <li>{{ err }}</li>
@@ -37,7 +37,7 @@
             {% include "core/provider_row.html" with row=providers_formset.empty_form %}
         </template>
         <button type="button" class="btn-secondary mt-4" @click="addRow()">
-            {% trans "Add provider" %}
+            {% translate "Add provider" %}
         </button>
     </div>
 </div>

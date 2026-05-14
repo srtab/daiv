@@ -29,46 +29,64 @@ class HealthCheckView(View):
         return HttpResponse("OK", content_type="text/plain")
 
 
-class SiteConfigurationView(AdminRequiredMixin, View):
-    """
-    Admin-only view for managing site-wide configuration.
-    """
-
-    template_name = "core/site_configuration.html"
+class SiteConfigurationIndexView(AdminRequiredMixin, View):
+    """Redirect admins to the first configuration group (agent)."""
 
     def get(self, request):
+        return redirect("site_configuration", group_key="agent")
+
+
+class SiteConfigurationGroupView(AdminRequiredMixin, View):
+    """
+    Admin-only view for managing one ``FieldGroup`` of the site-wide configuration.
+
+    The active group is determined by the URL kwarg ``group_key``. Unknown keys
+    raise ``Http404``. Saves are scoped to the group's fields only.
+    """
+
+    template_name = "core/site_configuration_group.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.group = self._resolve_group(kwargs["group_key"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, group_key):
         instance = SiteConfiguration.objects.get_instance()
         env_locked = self._get_env_locked_fields()
         field_defaults = site_settings.get_defaults()
-        form = SiteConfigurationForm(instance=instance, env_locked_fields=env_locked, field_defaults=field_defaults)
-        headers_env_locked = site_settings.is_env_locked("web_fetch_auth_headers")
-        formset = self._build_headers_formset(data=None)
-        providers_formset = self._build_providers_formset(data=None)
-        return render(
-            request, self.template_name, self._build_context(form, formset, providers_formset, headers_env_locked)
+        form = SiteConfigurationForm(
+            instance=instance, env_locked_fields=env_locked, field_defaults=field_defaults, group=self.group
         )
+        return render(request, self.template_name, self._build_context(form, data=None))
 
-    def post(self, request):
+    def post(self, request, group_key):
         instance = SiteConfiguration.objects.get_instance()
         env_locked = self._get_env_locked_fields()
         field_defaults = site_settings.get_defaults()
 
         cleared_secrets = {
-            field_name for field_name in SiteConfiguration.ENCRYPTED_FIELDS if request.POST.get(f"clear_{field_name}")
+            field_name
+            for field_name in SiteConfiguration.ENCRYPTED_FIELDS
+            if field_name in self.group.fields and request.POST.get(f"clear_{field_name}")
         }
 
-        # When env-locked, ignore submitted formset data and skip its save.
-        headers_env_locked = site_settings.is_env_locked("web_fetch_auth_headers")
-        formset = self._build_headers_formset(data=None if headers_env_locked else request.POST)
-        providers_formset = self._build_providers_formset(data=request.POST)
-        formset_valid = headers_env_locked or formset.is_valid()
-        providers_valid = providers_formset.is_valid()
-        # Always build the in-flight map (even when the providers formset is invalid)
-        # so model-name validation reflects the user's *intent* rather than stale DB
-        # state. The map only sees rows that passed field-level cleaning; invalid
-        # rows are silently skipped, which is fine because save is gated on
-        # ``providers_valid`` below.
-        in_flight_providers = self._collect_in_flight_providers(providers_formset)
+        providers_formset = None
+        headers_formset = None
+        headers_env_locked = False
+        in_flight_providers: dict[str, tuple[bool, bool]] | None = None
+
+        if self.group.key == "providers":
+            providers_formset = self._build_providers_formset(data=request.POST)
+            # Validate first so cleaned_data is available for in-flight map construction.
+            # (cleaned_data only exists after is_valid(); invalid rows are silently skipped
+            # by _collect_in_flight_providers, so we can call it even when formset is invalid.)
+            providers_valid = providers_formset.is_valid()
+            in_flight_providers = self._collect_in_flight_providers(providers_formset)
+        else:
+            providers_valid = True
+            if self.group.key == "web_fetch":
+                headers_env_locked = site_settings.is_env_locked("web_fetch_auth_headers")
+                headers_formset = self._build_headers_formset(data=None if headers_env_locked else request.POST)
 
         form = SiteConfigurationForm(
             request.POST,
@@ -77,23 +95,72 @@ class SiteConfigurationView(AdminRequiredMixin, View):
             cleared_secrets=cleared_secrets,
             field_defaults=field_defaults,
             in_flight_providers=in_flight_providers,
+            group=self.group,
         )
 
-        if form.is_valid() and formset_valid and providers_valid:
+        headers_valid = headers_formset is None or headers_env_locked or headers_formset.is_valid()
+
+        if form.is_valid() and providers_valid and headers_valid:
             with transaction.atomic():
-                # Providers save first so cache invalidation runs before downstream
-                # readers within the same request (e.g. agent dispatch via a hook)
-                # see the new state.
-                providers_formset.save()
+                if providers_formset is not None:
+                    providers_formset.save()
                 form.save()
-                if not headers_env_locked:
-                    formset.save()
+                if headers_formset is not None and not headers_env_locked:
+                    headers_formset.save()
             messages.success(request, "Configuration saved.")
-            return redirect("site_configuration")
+            return redirect("site_configuration", group_key=group_key)
 
         return render(
-            request, self.template_name, self._build_context(form, formset, providers_formset, headers_env_locked)
+            request,
+            self.template_name,
+            self._build_context(
+                form,
+                providers_formset=providers_formset,
+                headers_formset=headers_formset,
+                headers_env_locked=headers_env_locked,
+                data=request.POST,
+            ),
         )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _resolve_group(cls, group_key: str):
+        for group in SiteConfiguration.get_field_groups():
+            if group.key == group_key:
+                return group
+        from django.http import Http404
+
+        raise Http404(f"Unknown configuration group: {group_key!r}")
+
+    def _build_context(
+        self,
+        form: SiteConfigurationForm,
+        *,
+        providers_formset=None,
+        headers_formset=None,
+        headers_env_locked: bool = False,
+        data=None,
+    ) -> dict:
+        # Build the per-page formset(s) for GET (data is None) when relevant.
+        if self.group.key == "providers" and providers_formset is None:
+            providers_formset = self._build_providers_formset(data=None)
+        if self.group.key == "web_fetch" and headers_formset is None:
+            headers_env_locked = site_settings.is_env_locked("web_fetch_auth_headers")
+            headers_formset = self._build_headers_formset(data=None)
+
+        all_groups = SiteConfiguration.get_field_groups()
+        return {
+            "form": form,
+            "active_group": self.group,
+            "all_groups": all_groups,
+            "providers_formset": providers_formset,
+            "web_fetch_auth_headers_formset": headers_formset,
+            "web_fetch_auth_headers_env_locked": headers_env_locked,
+            "web_fetch_auth_headers_env_value": (site_settings.web_fetch_auth_headers if headers_env_locked else None),
+        }
 
     @staticmethod
     def _build_headers_formset(*, data):
@@ -109,11 +176,10 @@ class SiteConfigurationView(AdminRequiredMixin, View):
     def _collect_in_flight_providers(formset) -> dict[str, tuple[bool, bool]]:
         """Build a slug → (is_enabled, has_key) map from the providers formset.
 
-        ``has_key`` precedence per row: ``clear_api_key`` forces ``False``;
-        otherwise a newly submitted ``api_key`` forces ``True``; otherwise it
-        falls back to whether the saved instance already has a stored key.
-        Rows marked ``DELETE`` or missing a slug (e.g. JS-inserted but empty)
-        are skipped.
+        Identical to the original helper from ``SiteConfigurationView``: rows
+        marked ``DELETE`` or missing a slug are skipped; ``clear_api_key`` forces
+        ``has_key=False``; otherwise a newly submitted ``api_key`` forces
+        ``True``; otherwise falls back to the saved instance.
         """
         state: dict[str, tuple[bool, bool]] = {}
         for form in formset.forms:
@@ -133,25 +199,10 @@ class SiteConfigurationView(AdminRequiredMixin, View):
             state[slug] = (is_enabled, has_key)
         return state
 
-    @staticmethod
-    def _get_env_locked_fields() -> set[str]:
-        """Collect field names locked by environment variables."""
-        locked = set()
-        for group in SiteConfiguration.get_field_groups():
-            for field_name in group.fields:
-                if site_settings.is_env_locked(field_name):
-                    locked.add(field_name)
-        return locked
+    def _get_env_locked_fields(self) -> set[str]:
+        """Env-locked fields among *this group's* fields only.
 
-    @staticmethod
-    def _build_context(form: SiteConfigurationForm, formset, providers_formset, headers_env_locked: bool) -> dict:
-        all_groups = SiteConfiguration.get_field_groups()
-        groups = [g for g in all_groups if g.key == "providers" or any(f in form.fields for f in g.fields)]
-        return {
-            "form": form,
-            "field_groups": groups,
-            "web_fetch_auth_headers_formset": formset,
-            "providers_formset": providers_formset,
-            "web_fetch_auth_headers_env_locked": headers_env_locked,
-            "web_fetch_auth_headers_env_value": site_settings.web_fetch_auth_headers if headers_env_locked else None,
-        }
+        Limiting the scan to the active group avoids touching unrelated
+        env vars on every request.
+        """
+        return {name for name in self.group.fields if site_settings.is_env_locked(name)}

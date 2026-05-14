@@ -4,9 +4,8 @@ from django.urls import reverse
 
 import pytest
 
-from core.forms import PROVIDERS_FORMSET_PREFIX
 from core.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
-from core.models import Provider, WebFetchAuthHeader
+from core.models import WebFetchAuthHeader
 
 
 def _management(total: int, initial: int = 0) -> dict[str, str]:
@@ -18,32 +17,11 @@ def _management(total: int, initial: int = 0) -> dict[str, str]:
     }
 
 
-def _providers_mgmt() -> dict[str, str]:
-    fields: dict[str, str] = {
-        f"{PROVIDERS_FORMSET_PREFIX}-TOTAL_FORMS": "4",
-        f"{PROVIDERS_FORMSET_PREFIX}-INITIAL_FORMS": "4",
-        f"{PROVIDERS_FORMSET_PREFIX}-MIN_NUM_FORMS": "0",
-        f"{PROVIDERS_FORMSET_PREFIX}-MAX_NUM_FORMS": "1000",
-    }
-    for idx, p in enumerate(Provider.objects.order_by("sort_order", "slug")):
-        fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-id"] = str(p.pk)
-        fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-slug"] = p.slug
-        fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-display_name"] = p.display_name
-        fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-provider_type"] = p.provider_type
-        fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-base_url"] = p.base_url
-        fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-extra_headers"] = "{}"
-        fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-model_suggestions"] = p.model_suggestions
-        if p.is_enabled:
-            fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-is_enabled"] = "on"
-        fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-sort_order"] = str(p.sort_order)
-    return fields
-
-
 @pytest.mark.django_db
 class TestSiteConfigurationViewWithAuthHeaders:
     def test_get_renders_formset(self, admin_client, make_auth_header):
         make_auth_header("context7.com", "X-API-Key", "sk-abc")
-        response = admin_client.get(reverse("site_configuration"))
+        response = admin_client.get(reverse("site_configuration", kwargs={"group_key": "web_fetch"}))
         assert response.status_code == 200
         body = response.content.decode()
         assert "context7.com" in body
@@ -58,9 +36,8 @@ class TestSiteConfigurationViewWithAuthHeaders:
             f"{PREFIX}-0-domain": "context7.com",
             f"{PREFIX}-0-header_name": "X-API-Key",
             f"{PREFIX}-0-header_value": "sk-abc",
-            **_providers_mgmt(),
         }
-        response = admin_client.post(reverse("site_configuration"), data=data)
+        response = admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
         assert response.status_code == 302
         assert WebFetchAuthHeader.objects.filter(domain="context7.com", header_name="X-API-Key").exists()
 
@@ -73,21 +50,20 @@ class TestSiteConfigurationViewWithAuthHeaders:
             f"{PREFIX}-0-header_name": "X-API-Key",
             f"{PREFIX}-0-header_value": "",
             f"{PREFIX}-0-DELETE": "on",
-            **_providers_mgmt(),
         }
-        admin_client.post(reverse("site_configuration"), data=data)
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
         assert not WebFetchAuthHeader.objects.filter(pk=row.pk).exists()
 
-    def test_save_is_atomic_when_main_form_invalid(self, admin_client):
+    def test_save_is_atomic_when_headers_formset_invalid(self, admin_client):
+        """When the headers formset has an invalid row, nothing is saved."""
+        # A row with a domain but no header_name is invalid (header_name is required).
         data = {
-            "agent_recursion_limit": "not-a-number",
             **_management(total=1),
             f"{PREFIX}-0-domain": "context7.com",
-            f"{PREFIX}-0-header_name": "X-API-Key",
+            f"{PREFIX}-0-header_name": "",  # required field missing → formset invalid
             f"{PREFIX}-0-header_value": "sk-abc",
-            **_providers_mgmt(),
         }
-        admin_client.post(reverse("site_configuration"), data=data)
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
         assert not WebFetchAuthHeader.objects.exists()
 
     def test_env_locked_ignores_submitted_formset(self, admin_client, make_auth_header, monkeypatch):
@@ -114,7 +90,7 @@ class TestSiteConfigurationViewWithAuthHeaders:
             f"{PREFIX}-1-header_name": "X-New",
             f"{PREFIX}-1-header_value": "smuggled",
         }
-        admin_client.post(reverse("site_configuration"), data=data)
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
 
         assert WebFetchAuthHeader.objects.filter(pk=existing.pk).exists()
         assert not WebFetchAuthHeader.objects.filter(domain="evil.example.com").exists()

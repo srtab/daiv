@@ -38,18 +38,21 @@ def member_user(db):
 
 @pytest.fixture
 def url():
-    return reverse("site_configuration")
+    # Default landing URL for the agent group (used by tests that don't care which group).
+    return reverse("site_configuration", kwargs={"group_key": "agent"})
 
 
-# Management form data for the empty web_fetch auth-headers formset that the
-# view always renders. Existing POSTs need to include this so the formset
-# validates as empty.
-_HEADERS_MGMT = {
-    "headers-TOTAL_FORMS": "0",
-    "headers-INITIAL_FORMS": "0",
-    "headers-MIN_NUM_FORMS": "0",
-    "headers-MAX_NUM_FORMS": "1000",
-}
+@pytest.fixture
+def group_url():
+    def _build(group_key: str) -> str:
+        return reverse("site_configuration", kwargs={"group_key": group_key})
+
+    return _build
+
+
+@pytest.fixture
+def index_url():
+    return reverse("site_configuration_index")
 
 
 def _providers_mgmt(seed_count: int = 4) -> dict[str, str]:
@@ -98,23 +101,18 @@ class TestGetContent:
         assert b"Agent" in response.content
         assert b"Save configuration" in response.content
 
-    def test_renders_field_groups(self, client, admin_user, url):
+    def test_renders_agent_placeholders(self, client, admin_user, url):
         client.force_login(admin_user)
         response = client.get(url)
         content = response.content.decode()
-        assert "Web Search" in content
-        assert "Web Fetch" in content
-        assert "Sandbox" in content
-        assert "Providers" in content
-        assert "Jobs" in content
-
-    def test_renders_default_placeholders(self, client, admin_user, url):
-        client.force_login(admin_user)
-        response = client.get(url)
-        content = response.content.decode()
-        assert 'placeholder="500"' in content
-        assert 'placeholder="20/hour"' in content
+        assert 'placeholder="500"' in content  # agent_recursion_limit default
         assert "Default (" in content
+
+    def test_renders_jobs_placeholder(self, client, admin_user, group_url):
+        client.force_login(admin_user)
+        response = client.get(group_url("jobs"))
+        content = response.content.decode()
+        assert 'placeholder="20/hour"' in content
 
 
 class TestBooleanCheckboxField:
@@ -138,18 +136,16 @@ class TestBooleanCheckboxField:
 
 
 class TestPostSave:
-    def test_save_plain_settings(self, client, admin_user, url):
+    def test_save_plain_settings(self, client, admin_user, group_url):
         _enable_seed_provider("anthropic")
 
         client.force_login(admin_user)
         response = client.post(
-            url,
+            group_url("agent"),
             {
                 "agent_model_name_provider": "anthropic",
                 "agent_model_name_model": "claude-sonnet-4-6",
                 "agent_recursion_limit": 100,
-                **_HEADERS_MGMT,
-                **_providers_mgmt(),
             },
         )
         assert response.status_code == 302
@@ -158,15 +154,15 @@ class TestPostSave:
         assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
         assert config.agent_recursion_limit == 100
 
-    def test_save_boolean_checked(self, client, admin_user, url):
+    def test_save_boolean_checked(self, client, admin_user, group_url):
         client.force_login(admin_user)
-        response = client.post(url, {"web_search_enabled": "on", **_HEADERS_MGMT, **_providers_mgmt()})
+        response = client.post(group_url("web_search"), {"web_search_enabled": "on"})
         assert response.status_code == 302
 
         config = SiteConfiguration.objects.get_instance()
         assert config.web_search_enabled is True
 
-    def test_save_boolean_unchecked(self, client, admin_user, url):
+    def test_save_boolean_unchecked(self, client, admin_user, group_url):
         """Unchecked checkbox should save False, not None."""
         config = SiteConfiguration.objects.get_instance()
         config.web_search_enabled = True
@@ -174,26 +170,21 @@ class TestPostSave:
 
         client.force_login(admin_user)
         # POST without web_search_enabled = checkbox unchecked
-        response = client.post(url, {**_HEADERS_MGMT, **_providers_mgmt()})
+        response = client.post(group_url("web_search"), {})
         assert response.status_code == 302
 
         config.refresh_from_db()
         assert config.web_search_enabled is False
 
-    def test_member_cannot_post(self, client, member_user, url):
+    def test_member_cannot_post(self, client, member_user, group_url):
         client.force_login(member_user)
         response = client.post(
-            url,
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                **_HEADERS_MGMT,
-                **_providers_mgmt(),
-            },
+            group_url("agent"),
+            {"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
         )
         assert response.status_code == 403
 
-    def test_error_banner_renders_when_slug_invalid(self, client, admin_user, url):
+    def test_error_banner_renders_when_slug_invalid(self, client, admin_user, group_url):
         """Regression: row with invalid slug drops slug from cleaned_data; banner must
         still render without VariableDoesNotExist. Also assert no partial commit."""
         client.force_login(admin_user)
@@ -213,28 +204,28 @@ class TestPostSave:
             f"providers-{new_idx}-model_suggestions": "",
             f"providers-{new_idx}-sort_order": "0",
         }
-        response = client.post(url, {**_HEADERS_MGMT, **mgmt, **bad_row})
+        response = client.post(group_url("providers"), {**mgmt, **bad_row})
         assert response.status_code == 200
         content = response.content.decode()
         assert "Providers could not be saved" in content
         assert "Slug must start with a lowercase letter" in content
         assert Provider.objects.count() == seed_count
 
-    def test_renders_sort_order_hidden_input(self, client, admin_user, url):
+    def test_renders_sort_order_hidden_input(self, client, admin_user, group_url):
         """Row template must emit sort_order as a hidden input so the browser submits it.
 
         Regression: without this, every row fails validation with "sort_order: This field
         is required." because the field isn't rendered visibly anywhere.
         """
         client.force_login(admin_user)
-        response = client.get(url)
+        response = client.get(group_url("providers"))
         content = response.content.decode()
         for idx in range(Provider.objects.count()):
             assert f'type="hidden" name="providers-{idx}-sort_order"' in content, (
                 f"row {idx} missing sort_order hidden input"
             )
 
-    def test_clear_api_key_via_button(self, client, admin_user, url):
+    def test_clear_api_key_via_button(self, client, admin_user, group_url):
         """clear_api_key=on forces api_key=None and is_enabled=False even when the
         POST also re-sends is_enabled=on for that row — disable wins."""
         provider = _enable_seed_provider("anthropic", api_key="sk-existing")
@@ -245,14 +236,14 @@ class TestPostSave:
         )
         # is_enabled=on is already in mgmt (anthropic was enabled); add clear_api_key=on too.
         assert mgmt[f"providers-{anthropic_idx}-is_enabled"] == "on"
-        response = client.post(url, {**_HEADERS_MGMT, **mgmt, f"providers-{anthropic_idx}-clear_api_key": "on"})
+        response = client.post(group_url("providers"), {**mgmt, f"providers-{anthropic_idx}-clear_api_key": "on"})
         assert response.status_code == 302
 
         provider.refresh_from_db()
         assert provider.api_key is None
         assert provider.is_enabled is False
 
-    def test_add_new_row_preserves_existing_enabled_rows(self, client, admin_user, url):
+    def test_add_new_row_preserves_existing_enabled_rows(self, client, admin_user, group_url):
         """Regression: adding a new provider row must not reset api_key/is_enabled on existing rows."""
         openai = _enable_seed_provider("openai", api_key="sk-openai-key")
         anthropic = _enable_seed_provider("anthropic", api_key="sk-anthropic-key")
@@ -273,7 +264,7 @@ class TestPostSave:
             f"providers-{new_idx}-is_enabled": "on",
             f"providers-{new_idx}-sort_order": "100",
         }
-        response = client.post(url, {**_HEADERS_MGMT, **mgmt, **new_row})
+        response = client.post(group_url("providers"), {**mgmt, **new_row})
         assert response.status_code == 302
 
         openai.refresh_from_db()
@@ -283,7 +274,7 @@ class TestPostSave:
         assert anthropic.api_key == "sk-anthropic-key"
         assert anthropic.is_enabled is True
 
-    def test_clear_api_key_on_locked_row(self, client, admin_user, url):
+    def test_clear_api_key_on_locked_row(self, client, admin_user, group_url):
         """Locked seed rows can have their api_key cleared — is_locked only guards slug/type/delete."""
         provider = _enable_seed_provider("openai", api_key="sk-openai-key")
         assert provider.is_locked is True
@@ -291,7 +282,7 @@ class TestPostSave:
         client.force_login(admin_user)
         mgmt = _providers_mgmt()
         idx = next(i for i, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == provider.pk)
-        response = client.post(url, {**_HEADERS_MGMT, **mgmt, f"providers-{idx}-clear_api_key": "on"})
+        response = client.post(group_url("providers"), {**mgmt, f"providers-{idx}-clear_api_key": "on"})
         assert response.status_code == 302
 
         provider.refresh_from_db()
@@ -299,7 +290,7 @@ class TestPostSave:
         assert provider.is_enabled is False
         assert provider.is_locked is True
 
-    def test_add_new_provider_row(self, client, admin_user, url):
+    def test_add_new_provider_row(self, client, admin_user, group_url):
         """A JS-added row (index past the seed count, no id) creates a new Provider."""
         client.force_login(admin_user)
         mgmt = _providers_mgmt()
@@ -317,7 +308,7 @@ class TestPostSave:
             f"providers-{new_idx}-is_enabled": "on",
             f"providers-{new_idx}-sort_order": "100",
         }
-        response = client.post(url, {**_HEADERS_MGMT, **mgmt, **new_row})
+        response = client.post(group_url("providers"), {**mgmt, **new_row})
         assert response.status_code == 302
 
         created = Provider.objects.get(slug="custom-router")
@@ -447,7 +438,7 @@ class TestWebSearchApiKeyValidation:
 class TestClearSecretViaHttp:
     """clear_secret POST key convention exercised through HTTP client."""
 
-    def test_clear_secret_via_post(self, client, admin_user, url, db, monkeypatch):
+    def test_clear_secret_via_post(self, client, admin_user, group_url, db, monkeypatch):
         monkeypatch.delenv("DAIV_WEB_SEARCH_API_KEY", raising=False)
 
         config = SiteConfiguration.objects.get_instance()
@@ -455,7 +446,7 @@ class TestClearSecretViaHttp:
         config.save()
 
         client.force_login(admin_user)
-        response = client.post(url, {"clear_web_search_api_key": "1", **_HEADERS_MGMT, **_providers_mgmt()})
+        response = client.post(group_url("web_search"), {"clear_web_search_api_key": "1"})
         assert response.status_code == 302
 
         config.refresh_from_db()
@@ -593,174 +584,73 @@ class TestAuthCredentialValidation:
         assert "auth_client_secret" in form.errors
 
 
-def _row_index(provider: Provider) -> int:
-    return next(i for i, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == provider.pk)
-
-
 class TestInFlightProviderValidation:
-    """End-to-end coverage for the providers-formset → SiteConfigurationForm
-    handoff: model-name validation must see the *intent* of the current POST,
-    not the pre-save DB state."""
+    """Coverage for the in-flight provider map: model-name validation must see
+    the *intent* of the current POST, not the pre-save DB state.
 
-    def test_enable_provider_and_select_model_in_same_post(self, client, admin_user, url):
-        """The headline scenario: an admin enables a disabled seed provider and
-        selects one of its models in the same submission — must succeed."""
+    With the per-group split, these scenarios are validated at the form level
+    (SiteConfigurationForm accepts ``in_flight_providers`` directly).
+    """
+
+    def test_enabled_provider_with_key_accepted_via_in_flight(self, db):
+        """Passing an in-flight map that marks a provider enabled+keyed lets the
+        model-name field pass even when the DB row is disabled."""
+        from core.forms import SiteConfigurationForm
+
         provider = Provider.objects.get(slug="anthropic")
         provider.is_enabled = False
         provider.api_key = None
         provider.save()
-        client.force_login(admin_user)
 
-        mgmt = _providers_mgmt()
-        idx = _row_index(provider)
-        response = client.post(
-            url,
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                f"providers-{idx}-is_enabled": "on",
-                f"providers-{idx}-api_key": "sk-fresh",
-                **_HEADERS_MGMT,
-                **mgmt,
-            },
-        )
-        assert response.status_code == 302, response.content.decode()[:2000]
-
-        provider.refresh_from_db()
-        assert provider.is_enabled is True
-        assert provider.api_key == "sk-fresh"
         config = SiteConfiguration.objects.get_instance()
-        assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
+        form = SiteConfigurationForm(
+            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
+            instance=config,
+            in_flight_providers={"anthropic": (True, True)},
+        )
+        assert form.is_valid(), f"Form errors: {form.errors}"
 
-    def test_disable_referenced_provider_rejected(self, client, admin_user, url):
-        """Unchecking is_enabled for a provider that's still referenced by a
-        model field must surface a validation error and leave state unchanged."""
-        provider = _enable_seed_provider("anthropic")
+    def test_in_flight_disabled_provider_rejected(self, db):
+        """An in-flight map that marks a provider disabled must still reject it."""
+        from core.forms import SiteConfigurationForm
+
+        _enable_seed_provider("anthropic")
         config = SiteConfiguration.objects.get_instance()
-        config.agent_model_name = "anthropic:claude-sonnet-4-6"
-        config.save()
-        client.force_login(admin_user)
-
-        mgmt = _providers_mgmt()
-        idx = _row_index(provider)
-        # Simulate the user unchecking the Enabled checkbox: the key is omitted from POST.
-        del mgmt[f"providers-{idx}-is_enabled"]
-        response = client.post(
-            url,
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                **_HEADERS_MGMT,
-                **mgmt,
-            },
+        form = SiteConfigurationForm(
+            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
+            instance=config,
+            in_flight_providers={"anthropic": (False, True)},
         )
-        assert response.status_code == 200
-        assert "disabled" in response.content.decode()
-        provider.refresh_from_db()
-        assert provider.is_enabled is True
+        assert not form.is_valid()
+        assert "agent_model_name" in form.errors
+        assert "disabled" in str(form.errors["agent_model_name"][0])
 
-    def test_new_provider_referenced_in_same_post(self, client, admin_user, url):
-        """A JS-added row whose slug is immediately referenced by a model field
-        must validate against the in-flight map, not the cache."""
-        client.force_login(admin_user)
-        mgmt = _providers_mgmt()
-        new_idx = int(mgmt["providers-TOTAL_FORMS"])
-        mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
-        new_row = {
-            f"providers-{new_idx}-id": "",
-            f"providers-{new_idx}-slug": "custom-router",
-            f"providers-{new_idx}-display_name": "Custom",
-            f"providers-{new_idx}-provider_type": "openrouter",
-            f"providers-{new_idx}-base_url": "https://example.test/v1",
-            f"providers-{new_idx}-api_key": "sk-custom",
-            f"providers-{new_idx}-extra_headers": "{}",
-            f"providers-{new_idx}-model_suggestions": "",
-            f"providers-{new_idx}-is_enabled": "on",
-            f"providers-{new_idx}-sort_order": "100",
-        }
-        response = client.post(
-            url,
-            {
-                "agent_model_name_provider": "custom-router",
-                "agent_model_name_model": "my-model",
-                **_HEADERS_MGMT,
-                **mgmt,
-                **new_row,
-            },
-        )
-        assert response.status_code == 302, response.content.decode()[:2000]
+    def test_in_flight_clear_api_key_rejected(self, db):
+        """An in-flight map with has_key=False (clear_api_key) must reject the model."""
+        from core.forms import SiteConfigurationForm
+
+        _enable_seed_provider("anthropic", api_key="sk-existing")
         config = SiteConfiguration.objects.get_instance()
-        assert config.agent_model_name == "custom-router:my-model"
-
-    def test_clear_api_key_with_referenced_model_rejected(self, client, admin_user, url):
-        """Clearing the key on a row whose models are still referenced must fail
-        validation. Nothing should persist."""
-        provider = _enable_seed_provider("anthropic", api_key="sk-existing")
-        client.force_login(admin_user)
-
-        mgmt = _providers_mgmt()
-        idx = _row_index(provider)
-        response = client.post(
-            url,
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                f"providers-{idx}-clear_api_key": "on",
-                **_HEADERS_MGMT,
-                **mgmt,
-            },
+        form = SiteConfigurationForm(
+            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
+            instance=config,
+            in_flight_providers={"anthropic": (True, False)},
         )
-        assert response.status_code == 200
-        provider.refresh_from_db()
-        assert provider.api_key == "sk-existing"
-        assert provider.is_enabled is True
+        assert not form.is_valid()
+        assert "agent_model_name" in form.errors
 
-    def test_in_flight_used_even_when_other_row_invalid(self, client, admin_user, url):
-        """If the providers formset is invalid only because of an unrelated row,
-        model validation must still see the in-flight state for the row the
-        model field references — not the (pre-save) cached DB state."""
-        provider = Provider.objects.get(slug="anthropic")
-        provider.is_enabled = False
-        provider.api_key = None
-        provider.save()
-        client.force_login(admin_user)
+    def test_in_flight_new_provider_accepted(self, db):
+        """A slug that doesn't exist in the DB yet but appears in in_flight_providers
+        must be accepted."""
+        from core.forms import SiteConfigurationForm
 
-        mgmt = _providers_mgmt()
-        anthropic_idx = _row_index(provider)
-        mgmt[f"providers-{anthropic_idx}-is_enabled"] = "on"
-        # Plus an invalid extra row.
-        new_idx = int(mgmt["providers-TOTAL_FORMS"])
-        mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
-        bad_row = {
-            f"providers-{new_idx}-id": "",
-            f"providers-{new_idx}-slug": "9invalid",
-            f"providers-{new_idx}-display_name": "Bad",
-            f"providers-{new_idx}-provider_type": "openrouter",
-            f"providers-{new_idx}-base_url": "",
-            f"providers-{new_idx}-api_key": "sk-x",
-            f"providers-{new_idx}-extra_headers": "{}",
-            f"providers-{new_idx}-model_suggestions": "",
-            f"providers-{new_idx}-is_enabled": "on",
-            f"providers-{new_idx}-sort_order": "0",
-        }
-        response = client.post(
-            url,
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                f"providers-{anthropic_idx}-api_key": "sk-fresh",
-                **_HEADERS_MGMT,
-                **mgmt,
-                **bad_row,
-            },
+        config = SiteConfiguration.objects.get_instance()
+        form = SiteConfigurationForm(
+            data={"agent_model_name_provider": "custom-router", "agent_model_name_model": "my-model"},
+            instance=config,
+            in_flight_providers={"custom-router": (True, True)},
         )
-        # Form re-rendered because of the invalid extra row, but the agent_model_name
-        # validation must NOT have rejected anthropic as disabled.
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "Slug must start with a lowercase letter" in content
-        assert "Provider 'anthropic' is disabled" not in content
-        assert "Provider 'anthropic' has no API key" not in content
+        assert form.is_valid(), f"Form errors: {form.errors}"
 
 
 class TestSiteConfigurationFormScoping:
@@ -788,3 +678,133 @@ class TestSiteConfigurationFormScoping:
         # Spot-check: at least one field from each top-level group is present
         for name in ("agent_model_name", "sandbox_timeout", "web_fetch_enabled"):
             assert name in form.fields
+
+
+class TestRoutingAndAccess:
+    def test_index_redirects_to_first_group(self, client, admin_user, index_url, group_url):
+        client.force_login(admin_user)
+        response = client.get(index_url)
+        assert response.status_code == 302
+        assert response.url == group_url("agent")
+
+    def test_unknown_group_key_returns_404(self, client, admin_user, group_url):
+        client.force_login(admin_user)
+        response = client.get(group_url("does-not-exist"))
+        assert response.status_code == 404
+
+    def test_member_blocked_on_subpage(self, client, member_user, group_url):
+        client.force_login(member_user)
+        response = client.get(group_url("agent"))
+        assert response.status_code == 403
+
+    def test_member_blocked_on_index(self, client, member_user, index_url):
+        client.force_login(member_user)
+        response = client.get(index_url)
+        assert response.status_code == 403
+
+
+class TestPerGroupContent:
+    def test_agent_page_renders_agent_fields_only(self, client, admin_user, group_url):
+        client.force_login(admin_user)
+        response = client.get(group_url("agent"))
+        content = response.content.decode()
+        assert "Agent" in content
+        # Field labels from other groups must not appear
+        assert "id_sandbox_timeout" not in content
+        assert "id_web_fetch_enabled" not in content
+        assert "id_rocketchat_url" not in content
+
+    def test_sandbox_page_renders_sandbox_fields_only(self, client, admin_user, group_url):
+        client.force_login(admin_user)
+        response = client.get(group_url("sandbox"))
+        content = response.content.decode()
+        assert "id_sandbox_timeout" in content
+        assert "id_agent_model_name" not in content
+
+    def test_rail_shows_all_groups_with_active_marked(self, client, admin_user, group_url):
+        client.force_login(admin_user)
+        response = client.get(group_url("agent"))
+        content = response.content.decode()
+        # Every group title appears in the rail (& is HTML-escaped to &amp; in templates)
+        for title in (
+            "Agent",
+            "Commit &amp; PR Writer",
+            "Titling",
+            "Providers",
+            "Web Search",
+            "Web Fetch",
+            "Sandbox",
+            "Jobs",
+            "Rocket Chat",
+            "Authentication",
+        ):
+            assert title in content, f"Rail missing {title!r}"
+        # Category headers appear
+        for category in ("AI TASKS", "MODELS", "AGENT TOOLS", "RUNTIME", "INTEGRATIONS"):
+            assert category in content.upper(), f"Rail missing category {category!r}"
+
+
+class TestPerGroupSaveIsolation:
+    def test_post_agent_does_not_clobber_sandbox(self, client, admin_user, group_url):
+        # Arrange: set a non-default sandbox_timeout via the model directly
+        config = SiteConfiguration.objects.get_instance()
+        config.sandbox_timeout = 1234
+        config.save()
+
+        _enable_seed_provider("anthropic")
+        client.force_login(admin_user)
+        response = client.post(
+            group_url("agent"),
+            {
+                "agent_model_name_provider": "anthropic",
+                "agent_model_name_model": "claude-sonnet-4-6",
+                "agent_recursion_limit": 250,
+            },
+        )
+        assert response.status_code == 302
+
+        config.refresh_from_db()
+        # Agent field updated
+        assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
+        assert config.agent_recursion_limit == 250
+        # Sandbox field untouched
+        assert config.sandbox_timeout == 1234
+
+    def test_post_invalid_agent_re_renders_and_persists_nothing(self, client, admin_user, group_url):
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_recursion_limit = 500
+        config.save()
+
+        client.force_login(admin_user)
+        response = client.post(
+            group_url("agent"),
+            {"agent_recursion_limit": "-7"},  # PositiveIntegerField rejects negatives
+        )
+        assert response.status_code == 200
+
+        config.refresh_from_db()
+        assert config.agent_recursion_limit == 500  # unchanged
+
+    def test_post_providers_saves_through_formset_and_invalidates_cache(self, client, admin_user, group_url):
+        from django.core.cache import cache
+
+        from core.models import PROVIDERS_CACHE_KEY
+
+        # Warm the cache so we can verify it gets invalidated
+        Provider.get_cached_rows()
+        assert cache.get(PROVIDERS_CACHE_KEY) is not None
+
+        client.force_login(admin_user)
+        mgmt = _providers_mgmt()
+        # Toggle the first row's display_name to force a save
+        first_pk = Provider.objects.order_by("sort_order", "slug").first().pk
+        idx = next(i for i, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == first_pk)
+        mgmt[f"providers-{idx}-display_name"] = "Renamed-In-Test"
+
+        response = client.post(group_url("providers"), mgmt)
+        assert response.status_code == 302
+
+        Provider.objects.get(pk=first_pk)  # exists
+        assert Provider.objects.get(pk=first_pk).display_name == "Renamed-In-Test"
+        # Cache invalidated by Provider.save signal / formset save
+        assert cache.get(PROVIDERS_CACHE_KEY) is None
