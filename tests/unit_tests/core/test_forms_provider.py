@@ -207,15 +207,24 @@ def test_formset_rejects_delete_on_locked_row():
 
 
 @pytest.mark.django_db
+def test_form_rejects_slug_rename_on_saved_custom_row():
+    """Slug is immutable after creation on any saved row, locked or not."""
+    p = Provider.objects.create(slug="my-custom", display_name="My", provider_type=ProviderType.OPENAI, api_key="k")
+    form = ProviderForm(data=_data(slug="renamed", provider_type=ProviderType.OPENAI, api_key=""), instance=p)
+    assert not form.is_valid()
+    assert "slug" in form.errors
+
+
+@pytest.mark.django_db
 def test_provider_form_no_longer_exposes_model_suggestions():
-    """The model_suggestions textarea was abandoned — form must not render it."""
+    """ProviderForm must not expose model_suggestions."""
     form = ProviderForm()
     assert "model_suggestions" not in form.fields
 
 
 @pytest.mark.django_db
 def test_model_spec_widget_context_omits_model_suggestions():
-    """The datalist autocomplete was abandoned — widget context must not include suggestions."""
+    """_ModelSpecWidget context must not include model_suggestions."""
     from core.forms import _ModelSpecWidget
 
     widget = _ModelSpecWidget()

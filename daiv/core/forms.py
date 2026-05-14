@@ -59,7 +59,6 @@ class _ModelSpecWidget(forms.Widget):
         else:
             context["widget"]["provider"] = ""
             context["widget"]["model_name"] = ""
-        context["widget"]["default_provider"] = self.default_provider
         rows = Provider.get_cached_rows()
         context["widget"]["providers"] = [
             ("", self.default_provider_label),
@@ -588,8 +587,8 @@ class ProviderForm(forms.ModelForm):
             raise forms.ValidationError(
                 _("Slug must start with a lowercase letter; lowercase letters, digits, '-' and '_'; max 32 chars.")
             )
-        if self.instance and self.instance.pk and self.instance.is_locked and value != self.instance.slug:
-            raise forms.ValidationError(_("Locked provider; slug cannot be changed."))
+        if self.instance and self.instance.pk and value != self.instance.slug:
+            raise forms.ValidationError(_("Slug is immutable after creation; delete and re-add to change."))
         return value
 
     def clean_provider_type(self) -> str | None:
