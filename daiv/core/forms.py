@@ -141,19 +141,12 @@ class SiteConfigurationForm(forms.ModelForm):
         env_locked_fields: set[str] | None = None,
         cleared_secrets: set[str] | None = None,
         field_defaults: dict[str, str] | None = None,
-        in_flight_providers: dict[str, tuple[bool, bool]] | None = None,
         group: FieldGroup | None = None,
         **kwargs: Any,
     ):
         super().__init__(*args, **kwargs)
         self.env_locked_fields = env_locked_fields or set()
         self.cleared_secrets = cleared_secrets or set()
-        # Maps provider slug → (is_enabled, has_key) for the in-flight providers
-        # formset. When set, ``_validate_model_api_keys`` consults this map
-        # first per slug and only falls back to the cached ``Provider`` rows
-        # for slugs not present — so a single POST that enables a provider and
-        # selects one of its models passes validation.
-        self.in_flight_providers = in_flight_providers
         self.group = group
 
         self._add_secret_fields()
@@ -314,44 +307,24 @@ class SiteConfigurationForm(forms.ModelForm):
             model_spec = cleaned_data.get(field_name)
             if not model_spec:
                 continue
-            slug = self._resolve_provider_slug(model_spec, rows)
-            if slug is None:
+            try:
+                slug = parse_model_spec(model_spec).row.slug
+            except ValueError:
                 self.add_error(field_name, _("Unsupported model: %(m)s.") % {"m": model_spec})
                 continue
-            if self.in_flight_providers is not None and slug in self.in_flight_providers:
-                is_enabled, has_key = self.in_flight_providers[slug]
-            elif (row := rows.get(slug)) is not None:
-                is_enabled, has_key = row.is_enabled, row.api_key is not None
-            else:
+            row = rows.get(slug)
+            if row is None:
                 self.add_error(field_name, _("Provider '%(s)s' is not configured.") % {"s": slug})
                 continue
-            if not is_enabled:
+            if not row.is_enabled:
                 self.add_error(
                     field_name, _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": slug}
                 )
                 continue
-            if not has_key:
+            if row.api_key is None:
                 self.add_error(
                     field_name, _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": slug}
                 )
-
-    def _resolve_provider_slug(self, model_spec: str, rows: dict) -> str | None:
-        """Return the provider slug for ``model_spec`` or ``None`` if unparseable.
-
-        Falls back to the literal prefix when ``parse_model_spec`` fails because
-        the slug references an in-flight provider not yet in the cached rows.
-        """
-        try:
-            return parse_model_spec(model_spec).row.slug
-        except ValueError:
-            if ":" not in model_spec:
-                return None
-            prefix, model_name = model_spec.split(":", 1)
-            if not model_name.strip() or not prefix:
-                return None
-            if self.in_flight_providers is not None and prefix in self.in_flight_providers:
-                return prefix
-            return None
 
     def _validate_web_search_api_key(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that Tavily has an API key when selected."""

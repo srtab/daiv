@@ -82,13 +82,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         }
 
         providers_formset, headers_formset, headers_env_locked = self._build_per_group_formsets(data=request.POST)
-
-        # cleaned_data is only populated after is_valid(); invalid rows are silently skipped
-        # by _collect_in_flight_providers, so calling it even when the formset is invalid is fine.
         providers_valid = providers_formset is None or providers_formset.is_valid()
-        in_flight_providers = (
-            self._collect_in_flight_providers(providers_formset) if providers_formset is not None else None
-        )
 
         form = SiteConfigurationForm(
             request.POST,
@@ -96,7 +90,6 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             env_locked_fields=self._get_env_locked_fields(),
             cleared_secrets=cleared_secrets,
             field_defaults=field_defaults,
-            in_flight_providers=in_flight_providers,
             group=self.group,
         )
 
@@ -201,32 +194,6 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
                 continue
             out.extend(f"{slug}: {w}" for w in warnings if w)
         return out
-
-    @staticmethod
-    def _collect_in_flight_providers(formset) -> dict[str, tuple[bool, bool]]:
-        """Build a slug → (is_enabled, has_key) map from the providers formset.
-
-        Rows marked ``DELETE`` or missing a slug are skipped. For ``has_key``:
-        ``clear_api_key`` forces ``False``; a newly submitted ``api_key`` forces
-        ``True``; otherwise falls back to whether the saved instance has a stored key.
-        """
-        state: dict[str, tuple[bool, bool]] = {}
-        for form in formset.forms:
-            cleaned = form.cleaned_data
-            if not cleaned or cleaned.get("DELETE"):
-                continue
-            slug = cleaned.get("slug")
-            if not slug:
-                continue
-            is_enabled = bool(cleaned.get("is_enabled"))
-            if cleaned.get("clear_api_key"):
-                has_key = False
-            elif cleaned.get("api_key"):
-                has_key = True
-            else:
-                has_key = bool(form.instance and form.instance.pk and form.instance.api_key)
-            state[slug] = (is_enabled, has_key)
-        return state
 
     def _get_env_locked_fields(self) -> set[str]:
         """Return field names in the active group that are locked by an environment variable."""
