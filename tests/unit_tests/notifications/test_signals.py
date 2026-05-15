@@ -139,6 +139,7 @@ class TestOnActivityFinished:
         assert n.context["is_successful"] is True
         assert n.context["status_label"] == ActivityStatus.SUCCESSFUL.label
         assert n.context["trigger_name"] == schedule.name
+        assert n.context["trigger_owner"] == member_user.username
         assert n.context["trigger_label"]
         assert n.context["repo_id"] == "acme/app"
         assert "duration_seconds" in n.context
@@ -288,6 +289,56 @@ class TestFanoutToSubscribers:
         assert Notification.objects.filter(recipient=member_user).count() == 1
         assert Notification.objects.filter(recipient=sub1).count() == 0
         assert Notification.objects.filter(recipient=sub2).count() == 1
+
+    def test_same_named_schedules_from_different_owners_are_distinguishable_to_subscriber(self, member_user):
+        """A subscriber on two schedules sharing a name must be able to tell them apart
+        from the notification alone (subject + body), without clicking through."""
+        owner_a = self._make_user("alice")
+        owner_b = self._make_user("bob")
+        sub = self._make_user("subscriber")
+
+        sched_a = ScheduledJob.objects.create(
+            user=owner_a,
+            name="nightly-sync",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+            notify_on=NotifyOn.ALWAYS,
+        )
+        sched_b = ScheduledJob.objects.create(
+            user=owner_b,
+            name="nightly-sync",
+            prompt="p",
+            repos=[{"repo_id": "x/y", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+            notify_on=NotifyOn.ALWAYS,
+        )
+        sched_a.subscribers.add(sub)
+        sched_b.subscribers.add(sub)
+
+        for sched in (sched_a, sched_b):
+            activity = Activity.objects.create(
+                trigger_type=TriggerType.SCHEDULE,
+                user=sched.user,
+                repo_id="x/y",
+                status=ActivityStatus.SUCCESSFUL,
+                scheduled_job=sched,
+            )
+            activity_finished.send(sender=Activity, activity=activity)
+
+        notifs = list(Notification.objects.filter(recipient=sub).order_by("created"))
+        assert len(notifs) == 2
+
+        # Subjects must differ — the owner is the disambiguator since the name is shared.
+        assert notifs[0].subject != notifs[1].subject
+        assert "alice" in notifs[0].subject
+        assert "bob" in notifs[1].subject
+        assert "alice" in notifs[0].body
+        assert "bob" in notifs[1].body
+        assert notifs[0].context["trigger_owner"] == "alice"
+        assert notifs[1].context["trigger_owner"] == "bob"
 
 
 @pytest.mark.django_db
