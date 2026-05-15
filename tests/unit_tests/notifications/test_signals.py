@@ -139,6 +139,7 @@ class TestOnActivityFinished:
         assert n.context["is_successful"] is True
         assert n.context["status_label"] == ActivityStatus.SUCCESSFUL.label
         assert n.context["trigger_name"] == schedule.name
+        assert n.context["trigger_owner"] == str(member_user)
         assert n.context["trigger_label"]
         assert n.context["repo_id"] == "acme/app"
         assert "duration_seconds" in n.context
@@ -289,6 +290,45 @@ class TestFanoutToSubscribers:
         assert Notification.objects.filter(recipient=sub1).count() == 0
         assert Notification.objects.filter(recipient=sub2).count() == 1
 
+    @pytest.mark.parametrize("status", [ActivityStatus.SUCCESSFUL, ActivityStatus.FAILED])
+    def test_same_named_schedules_from_different_owners_are_distinguishable_to_subscriber(self, member_user, status):
+        owner_a = self._make_user("alice")
+        owner_b = self._make_user("bob")
+        sub = self._make_user("subscriber")
+
+        def _make_schedule(owner):
+            return ScheduledJob.objects.create(
+                user=owner,
+                name="nightly-sync",
+                prompt="p",
+                repos=[{"repo_id": "x/y", "ref": ""}],
+                frequency=Frequency.DAILY,
+                time="12:00",
+                notify_on=NotifyOn.ALWAYS,
+            )
+
+        sched_a = _make_schedule(owner_a)
+        sched_b = _make_schedule(owner_b)
+        sched_a.subscribers.add(sub)
+        sched_b.subscribers.add(sub)
+
+        for sched in (sched_a, sched_b):
+            activity = Activity.objects.create(
+                trigger_type=TriggerType.SCHEDULE, user=sched.user, repo_id="x/y", status=status, scheduled_job=sched
+            )
+            activity_finished.send(sender=Activity, activity=activity)
+
+        notifs = list(Notification.objects.filter(recipient=sub).order_by("created"))
+        assert len(notifs) == 2
+
+        assert notifs[0].subject != notifs[1].subject
+        assert "alice" in notifs[0].subject
+        assert "bob" in notifs[1].subject
+        assert "alice" in notifs[0].body
+        assert "bob" in notifs[1].body
+        assert notifs[0].context["trigger_owner"] == "alice"
+        assert notifs[1].context["trigger_owner"] == "bob"
+
 
 @pytest.mark.django_db
 class TestJobActivityNotifications:
@@ -376,6 +416,7 @@ class TestJobActivityNotifications:
         n = Notification.objects.get(recipient=member_user, event_type="job.finished")
         assert "acme/app" in n.subject
         assert "failed" in n.subject.lower()
+        assert "Your" not in n.body
         assert n.context["trigger_label"]
         assert n.context["repo_id"] == "acme/app"
 
@@ -568,7 +609,9 @@ class TestBatchRollup:
         sub_rollup = Notification.objects.get(recipient=sub, event_type="job_batch.finished")
         assert schedule.name in owner_rollup.subject
         assert schedule.name in sub_rollup.subject
+        assert str(member_user) in sub_rollup.subject
         assert owner_rollup.context["trigger_name"] == schedule.name
+        assert sub_rollup.context["trigger_owner"] == str(member_user)
 
     def test_user_none_does_not_emit_rollup(self):
         bid = uuid.uuid4()
