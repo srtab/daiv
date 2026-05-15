@@ -82,10 +82,13 @@ class TestCaching:
             result = SiteConfiguration.get_cached()
         assert result is None
 
-    def test_save_invalidates_cache(self, site_config):
+    def test_save_invalidates_cache(self, site_config, django_capture_on_commit_callbacks):
+        # Invalidation is deferred via transaction.on_commit; execute=True fires
+        # callbacks at the boundary so the assertion sees the real cache.delete.
         with patch("core.models.cache") as mock_cache:
-            site_config.agent_model_name = "test-model"
-            site_config.save()
+            with django_capture_on_commit_callbacks(execute=True):
+                site_config.agent_model_name = "test-model"
+                site_config.save()
             mock_cache.delete.assert_called_once_with("site_configuration")
 
 

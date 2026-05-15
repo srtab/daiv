@@ -777,7 +777,9 @@ class TestPerGroupSaveIsolation:
         config.refresh_from_db()
         assert config.agent_recursion_limit == 500  # unchanged
 
-    def test_post_providers_saves_through_formset_and_invalidates_cache(self, client, admin_user, group_url):
+    def test_post_providers_saves_through_formset_and_invalidates_cache(
+        self, client, admin_user, group_url, django_capture_on_commit_callbacks
+    ):
         from django.core.cache import cache
 
         from core.models import PROVIDERS_CACHE_KEY
@@ -793,7 +795,10 @@ class TestPerGroupSaveIsolation:
         idx = next(i for i, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == first_pk)
         mgmt[f"providers-{idx}-display_name"] = "Renamed-In-Test"
 
-        response = client.post(group_url("providers"), mgmt)
+        # transaction.on_commit defers invalidation to commit; execute=True fires
+        # callbacks at the boundary, just like a real request commit would.
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(group_url("providers"), mgmt)
         assert response.status_code == 302
 
         Provider.objects.get(pk=first_pk)  # exists
@@ -801,7 +806,9 @@ class TestPerGroupSaveIsolation:
         # Cache invalidated by Provider.save signal / formset save
         assert cache.get(PROVIDERS_CACHE_KEY) is None
 
-    def test_enable_provider_then_select_model_on_agent_page(self, client, admin_user, group_url):
+    def test_enable_provider_then_select_model_on_agent_page(
+        self, client, admin_user, group_url, django_capture_on_commit_callbacks
+    ):
         """Two-step flow: enable a fresh provider on /providers/, then select its model on /agent/."""
         provider = Provider.objects.get(slug="anthropic")
         provider.is_enabled = False
@@ -815,7 +822,8 @@ class TestPerGroupSaveIsolation:
         idx = next(i for i, p in enumerate(Provider.objects.order_by("sort_order", "slug")) if p.pk == provider.pk)
         mgmt[f"providers-{idx}-is_enabled"] = "on"
         mgmt[f"providers-{idx}-api_key"] = "sk-fresh"
-        r1 = client.post(group_url("providers"), mgmt)
+        with django_capture_on_commit_callbacks(execute=True):
+            r1 = client.post(group_url("providers"), mgmt)
         assert r1.status_code == 302
 
         # Step 2: select that provider's model on the agent page
