@@ -181,6 +181,24 @@ def test_formset_rejects_duplicate_slug():
 
 
 @pytest.mark.django_db
+def test_formset_ignores_unsaved_row_removed_from_dom():
+    """Phantom form for a DOM-removed empty row must not raise required-field errors."""
+    empty_row = {
+        "slug": "",
+        "display_name": "",
+        "provider_type": "",
+        "base_url": "",
+        "api_key": "",
+        "extra_headers": "",
+        "is_enabled": "",
+        "sort_order": "0",
+    }
+    data = _formset_data([{}, empty_row])
+    formset = build_provider_formset()(data, queryset=Provider.objects.none(), prefix=PROVIDERS_FORMSET_PREFIX)
+    assert formset.is_valid(), [f.errors for f in formset.forms]
+
+
+@pytest.mark.django_db
 def test_formset_rejects_delete_on_locked_row():
     """A crafted POST that marks a locked seed row for delete must not 500 the request."""
     locked = Provider.objects.get(slug="anthropic")

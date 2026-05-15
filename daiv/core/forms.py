@@ -579,6 +579,15 @@ class ProviderForm(forms.ModelForm):
         if self.instance and isinstance(self.instance.extra_headers, dict) and self.instance.extra_headers:
             self.initial.setdefault("extra_headers", json.dumps(self.instance.extra_headers))
 
+    def has_changed(self) -> bool:
+        # ``is_enabled`` default and ``sort_order`` initial would otherwise flip has_changed on empty rows.
+        if self.empty_permitted and not any(
+            (self[name].value() or "").strip()
+            for name in ("slug", "display_name", "provider_type", "base_url", "api_key", "extra_headers")
+        ):
+            return False
+        return super().has_changed()
+
     def clean_slug(self) -> str:
         value = (self.cleaned_data.get("slug") or "").strip()
         if value == "google":
