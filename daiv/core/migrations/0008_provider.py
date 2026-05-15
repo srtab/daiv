@@ -85,6 +85,10 @@ def seed_providers(apps, schema_editor):
         if seed["slug"] == "openrouter" and cfg is not None and getattr(cfg, "openrouter_api_base", None):
             base_url = cfg.openrouter_api_base
 
+        # Real OpenAI fully supports the Responses API, so the locked ``openai`` seed
+        # row keeps the pre-flag behavior. Other providers (Anthropic/Google/OpenRouter)
+        # ignore this flag, and custom rows default to ``False`` because most
+        # OpenAI-compatible servers only implement ``/v1/chat/completions``.
         Provider.objects.update_or_create(
             slug=seed["slug"],
             defaults={
@@ -94,6 +98,8 @@ def seed_providers(apps, schema_editor):
                 "_api_key_encrypted": encrypt_value(key_plaintext) if key_plaintext else None,
                 "extra_headers": {},
                 "is_enabled": bool(key_plaintext),
+                "use_responses_api": seed["slug"] == "openai",
+                "verify_ssl": True,
                 "is_locked": True,
                 "sort_order": seed["sort_order"],
             },
@@ -132,6 +138,30 @@ class Migration(migrations.Migration):
                 ("_api_key_encrypted", models.TextField(blank=True, editable=False, null=True)),
                 ("extra_headers", models.JSONField(blank=True, default=dict, verbose_name="extra headers")),
                 ("is_enabled", models.BooleanField(default=True, verbose_name="enabled")),
+                (
+                    "use_responses_api",
+                    models.BooleanField(
+                        default=False,
+                        help_text=(
+                            "Only honored for OpenAI-typed providers. Enable for servers that expose"
+                            " /v1/responses (real OpenAI, some hosted gateways). Disable for"
+                            " /v1/chat/completions-only servers (vLLM, llama.cpp, most LiteLLM setups)."
+                        ),
+                        verbose_name="use Responses API",
+                    ),
+                ),
+                (
+                    "verify_ssl",
+                    models.BooleanField(
+                        default=True,
+                        help_text=(
+                            "Disable only for self-hosted endpoints behind an internal/self-signed CA."
+                            " Skipping verification exposes the connection to MITM attacks; prefer mounting"
+                            " the internal CA into the daiv containers when possible."
+                        ),
+                        verbose_name="verify TLS certificates",
+                    ),
+                ),
                 ("is_locked", models.BooleanField(default=False, editable=False)),
                 ("sort_order", models.PositiveSmallIntegerField(default=0)),
             ],
