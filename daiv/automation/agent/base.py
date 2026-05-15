@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar
@@ -11,6 +12,8 @@ from langgraph.graph.state import CompiledStateGraph
 from core.constants import BOT_NAME
 from core.models import Provider, ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
+
+logger = logging.getLogger("daiv.automation")
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -100,6 +103,47 @@ class ResolvedProvider:
     model_name: str
 
 
+# langchain-anthropic and langchain-google-genai don't expose ``http_client`` /
+# ``http_async_client`` as model fields, so ``verify_ssl=False`` can't reach the
+# underlying SDK there. Both fall back to the warn-and-skip branch.
+_HTTPX_CLIENT_PROVIDER_TYPES = frozenset({ProviderType.OPENAI, ProviderType.OPENROUTER})
+
+
+def _close_insecure_http_clients(kw: dict) -> None:
+    """Close httpx clients attached by :func:`_apply_insecure_http_clients` when the
+    downstream :func:`init_chat_model` call fails — prevents ``ResourceWarning`` and
+    connection-pool retention under retry loops. The async client is closed
+    best-effort: if no event loop is available we drop the reference and rely on GC."""
+    import asyncio
+
+    sync_client = kw.pop("http_client", None)
+    async_client = kw.pop("http_async_client", None)
+    if sync_client is not None:
+        sync_client.close()
+    if async_client is not None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            loop.create_task(async_client.aclose())
+
+
+def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
+    if row.provider_type not in _HTTPX_CLIENT_PROVIDER_TYPES:
+        logger.warning(
+            "Provider %r: verify_ssl=False ignored for provider_type %s (SDK has no"
+            " http_client hook); mount the CA into the container.",
+            row.slug,
+            row.provider_type,
+        )
+        return
+    import httpx
+
+    kw["http_client"] = httpx.Client(verify=False)  # noqa: S501  # admin-opted-in via Provider.verify_ssl
+    kw["http_async_client"] = httpx.AsyncClient(verify=False)  # noqa: S501
+
+
 _BARE_NAME_HEURISTICS = (
     (("gpt-4", "gpt-5", "o4"), ProviderType.OPENAI.value),
     (("claude",), ProviderType.ANTHROPIC.value),
@@ -185,7 +229,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         """
         resolved = parse_model_spec(model)
         model_kwargs = BaseAgent.get_model_kwargs(resolved=resolved, thinking_level=thinking_level, **kwargs)
-        return init_chat_model(**model_kwargs)
+        try:
+            return init_chat_model(**model_kwargs)
+        except Exception:
+            _close_insecure_http_clients(model_kwargs)
+            raise
 
     @staticmethod
     def get_model_kwargs(*, resolved: ResolvedProvider, thinking_level: ThinkingLevel | None = None, **kwargs) -> dict:
@@ -212,7 +260,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif row.provider_type == ProviderType.OPENAI:
             kw["model_provider"] = ProviderType.OPENAI.value
             kw["api_key"] = row.api_key.get_secret_value()
-            kw["use_responses_api"] = True
+            if row.use_responses_api:
+                kw["use_responses_api"] = True
             if row.base_url:
                 kw["openai_api_base"] = row.base_url
             _apply_openai_reasoning(kw, thinking_level, resolved.model_name)
@@ -220,8 +269,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         elif row.provider_type == ProviderType.OPENROUTER:
             # OpenRouter is OpenAI-compatible over the wire.
             kw["model_provider"] = ProviderType.OPENAI.value
+            kw["api_key"] = row.api_key.get_secret_value()
             kw["openai_api_base"] = row.base_url or "https://openrouter.ai/api/v1"
-            kw["openai_api_key"] = row.api_key.get_secret_value()
             kw["model_kwargs"]["extra_headers"] = {"HTTP-Referer": "https://srtab.github.io/daiv", "X-Title": BOT_NAME}
             _apply_openrouter_thinking(kw, thinking_level, resolved.model_name)
 
@@ -234,6 +283,9 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
 
         else:
             raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
+
+        if not row.verify_ssl:
+            _apply_insecure_http_clients(kw, row)
 
         if row.extra_headers:
             # User-supplied headers don't override agent-managed ones (HTTP-Referer,

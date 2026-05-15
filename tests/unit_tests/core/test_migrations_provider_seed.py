@@ -37,6 +37,17 @@ def test_seed_disables_rows_without_key(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_seed_openai_row_enables_responses_api():
+    """Real OpenAI fully implements ``/v1/responses``; the locked seed row should
+    keep the pre-flag behavior. Other seeded rows opt out by default."""
+    from core.models import Provider
+
+    assert Provider.objects.get(slug="openai").use_responses_api is True
+    for slug in ("anthropic", "google_genai", "openrouter"):
+        assert Provider.objects.get(slug=slug).use_responses_api is False
+
+
+@pytest.mark.django_db
 def test_legacy_columns_dropped():
     """SiteConfiguration must no longer carry the encrypted provider key columns or openrouter_api_base."""
     with connection.cursor() as c:

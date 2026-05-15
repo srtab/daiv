@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.db import transaction
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext_lazy as _
 from django.views import View
 
 from accounts.mixins import AdminRequiredMixin
@@ -109,6 +110,9 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
                 if headers_formset is not None and not headers_env_locked:
                     headers_formset.save()
             messages.success(request, "Configuration saved.")
+            if providers_formset is not None:
+                for warning in self._collect_provider_warnings(providers_formset):
+                    messages.warning(request, warning)
             return redirect("site_configuration", group_key=group_key)
 
         return render(
@@ -180,6 +184,23 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
     @staticmethod
     def _build_providers_formset(*, data):
         return build_provider_formset()(data, queryset=Provider.objects.all(), prefix=PROVIDERS_FORMSET_PREFIX)
+
+    @staticmethod
+    def _collect_provider_warnings(formset) -> list[str]:
+        out: list[str] = []
+        for form in formset.forms:
+            if not form.cleaned_data or form.cleaned_data.get("DELETE"):
+                continue
+            slug = form.cleaned_data.get("slug") or _("(new)")
+            try:
+                warnings = (form.base_url_version_warning, form.verify_ssl_warning)
+            except Exception:
+                # Warning collection must never 500 a successful save; the row is
+                # already committed and the admin needs the success banner.
+                logger.exception("Failed to collect provider warnings for %s", slug)
+                continue
+            out.extend(f"{slug}: {w}" for w in warnings if w)
+        return out
 
     @staticmethod
     def _collect_in_flight_providers(formset) -> dict[str, tuple[bool, bool]]:

@@ -732,6 +732,24 @@ class Provider(models.Model):
     api_key = EncryptedFieldDescriptor("api_key")
     extra_headers = models.JSONField(_("extra headers"), default=dict, blank=True)
     is_enabled = models.BooleanField(_("enabled"), default=True)
+    use_responses_api = models.BooleanField(
+        _("use Responses API"),
+        default=False,
+        help_text=_(
+            "Only honored for OpenAI-typed providers. Enable for servers that expose"
+            " /v1/responses (real OpenAI, some hosted gateways). Disable for"
+            " /v1/chat/completions-only servers (vLLM, llama.cpp, most LiteLLM setups)."
+        ),
+    )
+    verify_ssl = models.BooleanField(
+        _("verify TLS certificates"),
+        default=True,
+        help_text=_(
+            "Disable only for self-hosted endpoints behind an internal/self-signed CA."
+            " Skipping verification exposes the connection to MITM attacks; prefer mounting"
+            " the internal CA into the daiv containers when possible."
+        ),
+    )
     is_locked = models.BooleanField(default=False, editable=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
 
@@ -778,6 +796,10 @@ class Provider(models.Model):
 
         return mask_secret(value)
 
+    @property
+    def is_openai(self) -> bool:
+        return self.provider_type == ProviderType.OPENAI
+
     @dataclass(frozen=True)
     class Cached:
         """Frozen, cache-safe snapshot of a Provider row."""
@@ -789,6 +811,8 @@ class Provider(models.Model):
         api_key: SecretStr | None
         extra_headers: dict[str, str]
         is_enabled: bool
+        use_responses_api: bool
+        verify_ssl: bool
         is_locked: bool
         sort_order: int
 
@@ -809,6 +833,8 @@ class Provider(models.Model):
                     api_key=api_key,
                     extra_headers=dict(row.extra_headers or {}),
                     is_enabled=row.is_enabled,
+                    use_responses_api=row.use_responses_api,
+                    verify_ssl=row.verify_ssl,
                     is_locked=row.is_locked,
                     sort_order=row.sort_order,
                 )

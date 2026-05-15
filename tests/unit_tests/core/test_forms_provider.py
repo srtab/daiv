@@ -231,3 +231,114 @@ def test_form_rejects_slug_rename_on_saved_custom_row():
     form = ProviderForm(data=_data(slug="renamed", provider_type=ProviderType.OPENAI, api_key=""), instance=p)
     assert not form.is_valid()
     assert "slug" in form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "base_url", ["https://qwen.ai.eurotux.pt", "https://api.example.com/", "https://api.example.com/openai"]
+)
+def test_form_warns_on_openai_base_url_missing_version_segment(base_url):
+    form = ProviderForm(data=_data(base_url=base_url, provider_type=ProviderType.OPENAI))
+    assert form.is_valid(), form.errors
+    assert form.base_url_version_warning is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://api.example.com/v1",
+        "https://api.example.com/v1/",
+        "https://api.example.com/v2beta/openai",
+        "https://api.example.com/v1beta1",
+        "https://api.example.com/v10",
+        "https://api.example.com/V1/",  # case-insensitive — admins typing /V1 should not trip a false-positive
+    ],
+)
+def test_form_no_warning_when_base_url_has_version_segment(base_url):
+    form = ProviderForm(data=_data(base_url=base_url, provider_type=ProviderType.OPENAI))
+    assert form.is_valid(), form.errors
+    assert form.base_url_version_warning is None
+
+
+@pytest.mark.django_db
+def test_form_no_warning_for_non_openai_type():
+    """Anthropic/Google/OpenRouter rows aren't subject to the OpenAI path-append quirk."""
+    form = ProviderForm(data=_data(base_url="https://api.example.com", provider_type=ProviderType.ANTHROPIC))
+    assert form.is_valid(), form.errors
+    assert form.base_url_version_warning is None
+
+
+@pytest.mark.django_db
+def test_form_no_warning_when_base_url_empty():
+    form = ProviderForm(data=_data(base_url="", provider_type=ProviderType.OPENAI, is_enabled=""))
+    assert form.is_valid(), form.errors
+    assert form.base_url_version_warning is None
+
+
+@pytest.mark.django_db
+def test_form_persists_use_responses_api_flag():
+    form = ProviderForm(data=_data(use_responses_api="on"))
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    saved.refresh_from_db()
+    assert saved.use_responses_api is True
+
+
+@pytest.mark.django_db
+def test_form_persists_verify_ssl_disabled():
+    """Unchecking the box stores ``verify_ssl=False`` (admin opted out of TLS verification)."""
+    form = ProviderForm(data=_data())  # _data omits verify_ssl → unchecked
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    saved.refresh_from_db()
+    assert saved.verify_ssl is False
+
+
+@pytest.mark.django_db
+def test_form_persists_verify_ssl_enabled():
+    form = ProviderForm(data=_data(verify_ssl="on"))
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    saved.refresh_from_db()
+    assert saved.verify_ssl is True
+
+
+@pytest.mark.django_db
+def test_form_verify_ssl_initial_is_true_on_new_row():
+    """The form's checkbox renders checked by default — admins must opt out, not in."""
+    form = ProviderForm()
+    assert form.fields["verify_ssl"].initial is True
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("ptype", [ProviderType.GOOGLE_GENAI, ProviderType.ANTHROPIC])
+def test_form_warns_when_verify_ssl_disabled_on_unsupported_type(ptype):
+    """Toggling verify_ssl=False on Google/Anthropic is a silent no-op at the SDK layer;
+    the form surfaces this so the admin doesn't think they've opted out when they haven't."""
+    form = ProviderForm(data=_data(provider_type=ptype, base_url=""))
+    assert form.is_valid(), form.errors
+    assert form.verify_ssl_warning is not None
+
+
+@pytest.mark.django_db
+def test_form_no_verify_ssl_warning_on_supported_type():
+    """OpenAI / OpenRouter rows do thread the http_client through, so no warning."""
+    form = ProviderForm(data=_data(provider_type=ProviderType.OPENAI))
+    assert form.is_valid(), form.errors
+    assert form.verify_ssl_warning is None
+
+
+@pytest.mark.django_db
+def test_form_no_verify_ssl_warning_when_enabled():
+    form = ProviderForm(data=_data(provider_type=ProviderType.GOOGLE_GENAI, base_url="", verify_ssl="on"))
+    assert form.is_valid(), form.errors
+    assert form.verify_ssl_warning is None
+
+
+@pytest.mark.django_db
+def test_unbound_form_warnings_are_none():
+    """Regression: ``_collect_provider_warnings`` must never raise on an empty/unbound form."""
+    form = ProviderForm()
+    assert form.base_url_version_warning is None
+    assert form.verify_ssl_warning is None

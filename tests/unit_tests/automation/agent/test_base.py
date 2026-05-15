@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 import pytest
@@ -6,6 +7,9 @@ from langchain_core.runnables import Runnable
 
 from automation.agent.base import BaseAgent, ResolvedProvider, parse_model_spec
 from core.models import Provider, ProviderType, ThinkingLevelChoices
+
+if TYPE_CHECKING:
+    import httpx
 
 
 class ConcreteAgent(BaseAgent):
@@ -108,7 +112,9 @@ class TestGetModelKwargs:
         assert kw["base_url"] == "https://proxy.example.com"
         assert kw["model"] == "claude-haiku-4-5"
 
-    def test_openai_compatible_with_custom_base_url(self):
+    def test_openai_compatible_with_custom_base_url_defaults_to_chat_completions(self):
+        """Custom OpenAI-compatible rows default to ``use_responses_api=False`` because
+        most ``/v1/chat/completions``-only servers reject ``/v1/responses``."""
         Provider.objects.create(
             slug="vllm",
             display_name="vLLM",
@@ -122,7 +128,107 @@ class TestGetModelKwargs:
         assert kw["api_key"] == "sk-v"
         assert kw["openai_api_base"] == "http://localhost:8000/v1"
         assert kw["model_kwargs"]["extra_headers"] == {"X-Trace": "yes"}
+        assert "use_responses_api" not in kw
+
+    def test_openai_compatible_opted_into_responses_api(self):
+        Provider.objects.create(
+            slug="bedrock",
+            display_name="Bedrock",
+            provider_type=ProviderType.OPENAI,
+            api_key="sk-b",
+            base_url="https://bedrock.example.com/v1",
+            use_responses_api=True,
+        )
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("bedrock:gpt-5.4"))
         assert kw["use_responses_api"] is True
+
+    def test_seed_openai_row_keeps_responses_api(self):
+        """Migration enables Responses API for the locked ``openai`` seed row."""
+        self._enable_seed("openai", "sk-o")
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("openai:gpt-5.4"))
+        assert kw["use_responses_api"] is True
+
+    def test_verify_ssl_disabled_injects_insecure_http_clients(self):
+        import httpx
+
+        Provider.objects.create(
+            slug="selfsigned",
+            display_name="Self-signed",
+            provider_type=ProviderType.OPENAI,
+            api_key="sk-s",
+            base_url="https://internal.example.test/v1",
+            verify_ssl=False,
+        )
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("selfsigned:gpt-5.4"))
+        assert isinstance(kw["http_client"], httpx.Client)
+        assert isinstance(kw["http_async_client"], httpx.AsyncClient)
+
+    def test_verify_ssl_enabled_omits_http_clients(self):
+        Provider.objects.create(
+            slug="secure",
+            display_name="Secure",
+            provider_type=ProviderType.OPENAI,
+            api_key="sk-x",
+            base_url="https://api.example.com/v1",
+        )
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("secure:gpt-5.4"))
+        assert "http_client" not in kw
+        assert "http_async_client" not in kw
+
+    def test_verify_ssl_disabled_on_openrouter_injects_insecure_http_clients(self):
+        """OpenRouter routes through ChatOpenAI, which accepts ``http_client``."""
+        import httpx
+
+        Provider.objects.create(
+            slug="or_insec", display_name="OR", provider_type=ProviderType.OPENROUTER, api_key="sk-or", verify_ssl=False
+        )
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("or_insec:z-ai/glm-5"))
+        assert isinstance(kw["http_client"], httpx.Client)
+        assert isinstance(kw["http_async_client"], httpx.AsyncClient)
+
+    @pytest.mark.parametrize("ptype", [ProviderType.GOOGLE_GENAI, ProviderType.ANTHROPIC])
+    def test_verify_ssl_disabled_on_unsupported_type_logs_and_skips(self, caplog, ptype):
+        """langchain-anthropic and langchain-google-genai don't expose ``http_client`` —
+        toggling verify_ssl=False there is a silent no-op without the warn path."""
+        Provider.objects.create(
+            slug=f"skip_{ptype.value}", display_name="S", provider_type=ptype, api_key="sk-x", verify_ssl=False
+        )
+        model_name = "claude-haiku-4-5" if ptype == ProviderType.ANTHROPIC else "gemini-2.5-pro"
+        with caplog.at_level("WARNING", logger="daiv.automation"):
+            kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(f"skip_{ptype.value}:{model_name}"))
+        assert "http_client" not in kw
+        assert any("SDK has no http_client hook" in rec.message for rec in caplog.records)
+
+    def test_insecure_http_clients_closed_when_init_chat_model_fails(self):
+        """Construction failures must not leak httpx pools."""
+
+        Provider.objects.create(
+            slug="badmodel",
+            display_name="Bad",
+            provider_type=ProviderType.OPENAI,
+            api_key="sk-x",
+            base_url="https://x.example/v1",
+            verify_ssl=False,
+        )
+        sync_holder: list[httpx.Client] = []
+        orig_init = sync_holder.append  # placeholder; reassigned via patch below
+
+        with patch("automation.agent.base.init_chat_model") as mock_init:
+            # Capture the clients before raising so we can assert they were closed.
+            def capture_and_raise(**kwargs):
+                sync_holder.append(kwargs["http_client"])
+                sync_holder.append(kwargs["http_async_client"])
+                raise RuntimeError("simulated wrapper construction failure")
+
+            mock_init.side_effect = capture_and_raise
+
+            with pytest.raises(RuntimeError, match="simulated"):
+                BaseAgent.get_model(model="badmodel:gpt-5.4")
+
+        assert len(sync_holder) == 2
+        sync_client, _async_client = sync_holder
+        assert sync_client.is_closed
+        del orig_init
 
     def test_openrouter_anthropic_thinking(self):
         self._enable_seed("openrouter", "sk-or")
@@ -131,6 +237,8 @@ class TestGetModelKwargs:
             thinking_level=ThinkingLevelChoices.MEDIUM,
         )
         assert kw["openai_api_base"] == "https://openrouter.ai/api/v1"
+        assert kw["api_key"] == "sk-or"
+        assert "openai_api_key" not in kw
         assert kw["model_kwargs"]["extra_headers"]["HTTP-Referer"]
         assert kw["temperature"] == 1
         assert "max_tokens" in kw

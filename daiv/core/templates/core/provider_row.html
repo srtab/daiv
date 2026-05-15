@@ -61,6 +61,7 @@
         </label>
         {{ row.base_url }}
         {% if row.errors.base_url %}<p class="mt-1 text-xs text-red-300">{{ row.errors.base_url.0 }}</p>{% endif %}
+        {% if row.base_url_version_warning %}<p class="mt-1 text-xs text-yellow-300">{{ row.base_url_version_warning }}</p>{% endif %}
         <p class="mt-1 text-[11px] text-gray-500">{% translate "Empty = SDK default. Useful for Azure / proxies." %}</p>
       </div>
 
@@ -79,6 +80,7 @@
           {{ row.extra_headers }}
           {% if row.errors.extra_headers %}<p class="mt-1 text-xs text-red-300">{{ row.errors.extra_headers.0 }}</p>{% endif %}
         </div>
+        {% include "core/provider_row/_advanced_flags.html" with row=row %}
       </div>
 
     {% else %}
@@ -111,6 +113,7 @@
         <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.base_url.html_name }}">{% translate "Base URL" %}</label>
         {{ row.base_url }}
         {% if row.errors.base_url %}<p class="mt-1 text-xs text-red-300">{{ row.errors.base_url.0 }}</p>{% endif %}
+        {% if row.base_url_version_warning %}<p class="mt-1 text-xs text-yellow-300">{{ row.base_url_version_warning }}</p>{% endif %}
       </div>
 
       {% include "core/provider_row/_api_key.html" with row=row %}
@@ -125,6 +128,7 @@
           {{ row.extra_headers }}
           {% if row.errors.extra_headers %}<p class="mt-1 text-xs text-red-300">{{ row.errors.extra_headers.0 }}</p>{% endif %}
         </div>
+        {% include "core/provider_row/_advanced_flags.html" with row=row %}
       </div>
     {% endif %}
 

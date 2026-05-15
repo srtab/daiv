@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlparse
 
@@ -10,7 +11,7 @@ from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.base import parse_model_spec
-from core.models import Provider, SiteConfiguration, WebFetchAuthHeader
+from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
 
 if TYPE_CHECKING:
     from core.models import FieldGroup
@@ -532,6 +533,12 @@ def build_web_fetch_auth_header_formset():
 
 PROVIDERS_FORMSET_PREFIX = "providers"
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+# Matches a leading version segment on the URL path (``/v1``, ``/v2beta``, etc.).
+# When the base_url's path doesn't start with one, openai-python appends paths
+# verbatim and the request hits the wrong route — see
+# ``ProviderForm.base_url_version_warning``. Case-insensitive so admins typing
+# ``/V1`` don't trip a false-positive.
+_VERSION_SEGMENT_RE = re.compile(r"^/v\d+[A-Za-z0-9._-]*(/|$)", re.IGNORECASE)
 
 
 class ProviderForm(forms.ModelForm):
@@ -555,6 +562,10 @@ class ProviderForm(forms.ModelForm):
         required=False,
         widget=forms.Textarea(attrs={"rows": 2, "placeholder": '{"X-Foo": "bar"}'}),
     )
+    use_responses_api = _BooleanCheckboxField(label=_("Use Responses API"), required=False)
+    # Model default is True (verification on); mirror that as the form initial so a
+    # brand-new row in the UI starts secure unless the admin explicitly opts out.
+    verify_ssl = _BooleanCheckboxField(label=_("Verify TLS certificates"), required=False, initial=True)
 
     class Meta:
         model = Provider
@@ -566,6 +577,8 @@ class ProviderForm(forms.ModelForm):
             "api_key",
             "extra_headers",
             "is_enabled",
+            "use_responses_api",
+            "verify_ssl",
             "sort_order",
         )
 
@@ -614,6 +627,35 @@ class ProviderForm(forms.ModelForm):
         if parsed.scheme not in ("http", "https"):
             raise forms.ValidationError(_("Base URL must use http or https."))
         return value
+
+    @cached_property
+    def base_url_version_warning(self) -> str | None:
+        if self["provider_type"].value() != ProviderType.OPENAI.value:
+            return None
+        base_url = (self["base_url"].value() or "").strip()
+        if not base_url or _VERSION_SEGMENT_RE.match(urlparse(base_url).path):
+            return None
+        return _(
+            "Base URL looks like it is missing a version segment (e.g. '/v1'). The OpenAI"
+            " SDK appends paths verbatim, so requests may hit the wrong route."
+        )
+
+    @cached_property
+    def verify_ssl_warning(self) -> str | None:
+        # langchain-anthropic / -google-genai don't expose ``http_client`` as a field, so
+        # an admin who toggles verify_ssl=False on those types still gets full TLS
+        # verification — warn so the silent override is visible at save time.
+        from automation.agent.base import _HTTPX_CLIENT_PROVIDER_TYPES
+
+        if self["verify_ssl"].value():
+            return None
+        provider_type = self["provider_type"].value()
+        if not provider_type or ProviderType(provider_type) in _HTTPX_CLIENT_PROVIDER_TYPES:
+            return None
+        return _(
+            "verify_ssl=False has no effect for this provider type — the SDK doesn't"
+            " accept a custom HTTP client. Mount the CA into the daiv containers instead."
+        )
 
     def clean_extra_headers(self) -> dict:
         raw = (self.cleaned_data.get("extra_headers") or "").strip()

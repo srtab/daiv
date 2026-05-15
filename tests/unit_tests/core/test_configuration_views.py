@@ -313,6 +313,71 @@ class TestPostSave:
         assert created.is_enabled is True
         assert created.api_key == "sk-custom"
 
+    def test_save_warns_when_openai_base_url_missing_version_segment(self, client, admin_user, group_url):
+        """An OpenAI-typed row with a bare-host base_url saves successfully but the
+        admin gets a non-blocking warning that the SDK won't add ``/v1`` for them."""
+        client.force_login(admin_user)
+        mgmt = _providers_mgmt()
+        new_idx = int(mgmt["providers-TOTAL_FORMS"])
+        mgmt["providers-TOTAL_FORMS"] = str(new_idx + 1)
+        new_row = {
+            f"providers-{new_idx}-id": "",
+            f"providers-{new_idx}-slug": "qwen-test",
+            f"providers-{new_idx}-display_name": "Qwen Test",
+            f"providers-{new_idx}-provider_type": "openai",
+            f"providers-{new_idx}-base_url": "https://qwen.example.com",
+            f"providers-{new_idx}-api_key": "sk-x",
+            f"providers-{new_idx}-extra_headers": "{}",
+            f"providers-{new_idx}-is_enabled": "on",
+            f"providers-{new_idx}-sort_order": "100",
+        }
+        response = client.post(group_url("providers"), {**mgmt, **new_row}, follow=True)
+        assert response.status_code == 200
+        rendered = response.content.decode()
+        assert "missing a version segment" in rendered
+        assert Provider.objects.filter(slug="qwen-test").exists()
+
+    def test_collect_provider_warnings_skips_deleted_and_empty_rows(self, db):
+        """Rows marked for delete or with empty cleaned_data must not produce warnings."""
+        from core.forms import PROVIDERS_FORMSET_PREFIX, build_provider_formset
+        from core.views import SiteConfigurationGroupView
+
+        existing = Provider.objects.create(
+            slug="will-delete",
+            display_name="Doomed",
+            provider_type=ProviderType.OPENAI,
+            api_key="sk-x",
+            base_url="https://api.example.com",  # would warn if not for DELETE
+        )
+        data = {
+            f"{PROVIDERS_FORMSET_PREFIX}-TOTAL_FORMS": "2",
+            f"{PROVIDERS_FORMSET_PREFIX}-INITIAL_FORMS": "1",
+            f"{PROVIDERS_FORMSET_PREFIX}-MIN_NUM_FORMS": "0",
+            f"{PROVIDERS_FORMSET_PREFIX}-MAX_NUM_FORMS": "1000",
+            f"{PROVIDERS_FORMSET_PREFIX}-0-id": str(existing.pk),
+            f"{PROVIDERS_FORMSET_PREFIX}-0-slug": existing.slug,
+            f"{PROVIDERS_FORMSET_PREFIX}-0-display_name": existing.display_name,
+            f"{PROVIDERS_FORMSET_PREFIX}-0-provider_type": existing.provider_type,
+            f"{PROVIDERS_FORMSET_PREFIX}-0-base_url": existing.base_url,
+            f"{PROVIDERS_FORMSET_PREFIX}-0-extra_headers": "{}",
+            f"{PROVIDERS_FORMSET_PREFIX}-0-is_enabled": "on",
+            f"{PROVIDERS_FORMSET_PREFIX}-0-sort_order": "0",
+            f"{PROVIDERS_FORMSET_PREFIX}-0-DELETE": "on",
+            # Phantom empty row (DOM-removed): every field blank.
+            f"{PROVIDERS_FORMSET_PREFIX}-1-slug": "",
+            f"{PROVIDERS_FORMSET_PREFIX}-1-display_name": "",
+            f"{PROVIDERS_FORMSET_PREFIX}-1-provider_type": "",
+            f"{PROVIDERS_FORMSET_PREFIX}-1-base_url": "",
+            f"{PROVIDERS_FORMSET_PREFIX}-1-extra_headers": "",
+            f"{PROVIDERS_FORMSET_PREFIX}-1-is_enabled": "",
+            f"{PROVIDERS_FORMSET_PREFIX}-1-sort_order": "0",
+        }
+        formset = build_provider_formset()(
+            data, queryset=Provider.objects.filter(pk=existing.pk), prefix=PROVIDERS_FORMSET_PREFIX
+        )
+        assert formset.is_valid(), [f.errors for f in formset.forms]
+        assert SiteConfigurationGroupView._collect_provider_warnings(formset) == []
+
 
 class TestModelApiKeyValidation:
     def test_model_without_enabled_provider_rejected(self, db):

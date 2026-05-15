@@ -108,3 +108,28 @@ def test_cached_provider_type_is_enum():
     rows = Provider.get_cached_rows()
     for row in rows:
         assert isinstance(row.provider_type, ProviderType)
+
+
+@pytest.mark.django_db
+def test_cached_carries_use_responses_api():
+    Provider.objects.create(
+        slug="resp", display_name="Resp", provider_type=ProviderType.OPENAI, api_key="k", use_responses_api=True
+    )
+    row = next(r for r in Provider.get_cached_rows() if r.slug == "resp")
+    assert row.use_responses_api is True
+
+
+@pytest.mark.django_db
+def test_cached_carries_verify_ssl_default_true():
+    Provider.objects.create(slug="vrf", display_name="V", provider_type=ProviderType.OPENAI, api_key="k")
+    row = next(r for r in Provider.get_cached_rows() if r.slug == "vrf")
+    assert row.verify_ssl is True
+
+
+@pytest.mark.django_db
+def test_cached_carries_verify_ssl_disabled():
+    Provider.objects.create(
+        slug="insec", display_name="Insec", provider_type=ProviderType.OPENAI, api_key="k", verify_ssl=False
+    )
+    row = next(r for r in Provider.get_cached_rows() if r.slug == "insec")
+    assert row.verify_ssl is False
