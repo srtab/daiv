@@ -60,39 +60,22 @@ def _resolve_recipients(activity: Activity) -> dict[int, object]:
     return {}
 
 
-def _owner_display(user) -> str:
-    """Compact label for a schedule's owner — disambiguates schedules with shared names.
-
-    Prefers human-readable names over emails to keep subjects short. ``username`` is the
-    ``AbstractUser``-guaranteed floor, so this returns a non-empty string for real users.
-    """
-    if user is None:
-        return ""
-    return user.get_full_name() or user.name or user.username or user.email or ""
-
-
 def _render_payload(activity: Activity) -> tuple[str, str, dict]:
     is_schedule = _is_schedule(activity)
     ok = activity.status == ActivityStatus.SUCCESSFUL
     repo = activity.repo_id
-    owner = _owner_display(activity.scheduled_job.user) if is_schedule else ""
+    name = activity.scheduled_job.name if is_schedule else ""
+    # Owner disambiguates schedules that share a name across users.
+    owner = str(activity.scheduled_job.user) if is_schedule else ""
 
     if is_schedule:
-        name = activity.scheduled_job.name
+        params = {"name": name, "owner": owner, "repo": repo}
         if ok:
-            subject = _("'%(name)s' succeeded on %(repo)s — %(owner)s") % {"name": name, "repo": repo, "owner": owner}
-            body = _("Scheduled run '%(name)s' by %(owner)s finished on %(repo)s.") % {
-                "name": name,
-                "owner": owner,
-                "repo": repo,
-            }
+            subject = _("'%(name)s' succeeded on %(repo)s — %(owner)s") % params
+            body = _("Scheduled run '%(name)s' by %(owner)s finished on %(repo)s.") % params
         else:
-            subject = _("'%(name)s' failed on %(repo)s — %(owner)s") % {"name": name, "repo": repo, "owner": owner}
-            body = _("Scheduled run '%(name)s' by %(owner)s failed on %(repo)s.") % {
-                "name": name,
-                "owner": owner,
-                "repo": repo,
-            }
+            subject = _("'%(name)s' failed on %(repo)s — %(owner)s") % params
+            body = _("Scheduled run '%(name)s' by %(owner)s failed on %(repo)s.") % params
     else:
         if ok:
             subject = _("Agent run on %(repo)s succeeded") % {"repo": repo}
@@ -106,7 +89,7 @@ def _render_payload(activity: Activity) -> tuple[str, str, dict]:
         "status_label": activity.get_status_display(),
         "is_successful": ok,
         "trigger_label": activity.get_trigger_type_display(),
-        "trigger_name": activity.scheduled_job.name if is_schedule else "",
+        "trigger_name": name,
         "trigger_owner": owner,
         "repo_id": repo,
         "duration_seconds": activity.duration,
@@ -251,46 +234,20 @@ def _render_batch_payload(
     is_schedule = _is_schedule(activity)
     ok = failed == 0
     repo_ids = sorted({repo for repo, _start, _end in rows if repo})
-    owner = _owner_display(activity.scheduled_job.user) if is_schedule else ""
+    name = activity.scheduled_job.name if is_schedule else ""
+    owner = str(activity.scheduled_job.user) if is_schedule else ""
 
     if is_schedule:
-        name = activity.scheduled_job.name
+        params = {"name": name, "owner": owner, "total": total, "ok": successful, "failed": failed}
         if ok:
-            subject = _("'%(name)s' batch succeeded (%(total)d runs) — %(owner)s") % {
-                "name": name,
-                "total": total,
-                "owner": owner,
-            }
-            body = _("All %(total)d runs of '%(name)s' by %(owner)s finished successfully.") % {
-                "total": total,
-                "name": name,
-                "owner": owner,
-            }
+            subject = _("'%(name)s' batch succeeded (%(total)d runs) — %(owner)s") % params
+            body = _("All %(total)d runs of '%(name)s' by %(owner)s finished successfully.") % params
         elif successful == 0:
-            subject = _("'%(name)s' batch failed (%(total)d runs) — %(owner)s") % {
-                "name": name,
-                "total": total,
-                "owner": owner,
-            }
-            body = _("All %(total)d runs of '%(name)s' by %(owner)s failed.") % {
-                "total": total,
-                "name": name,
-                "owner": owner,
-            }
+            subject = _("'%(name)s' batch failed (%(total)d runs) — %(owner)s") % params
+            body = _("All %(total)d runs of '%(name)s' by %(owner)s failed.") % params
         else:
-            subject = _("'%(name)s' batch: %(ok)d/%(total)d succeeded — %(owner)s") % {
-                "name": name,
-                "ok": successful,
-                "total": total,
-                "owner": owner,
-            }
-            body = _("%(ok)d of %(total)d runs of '%(name)s' by %(owner)s succeeded; %(failed)d failed.") % {
-                "ok": successful,
-                "total": total,
-                "name": name,
-                "owner": owner,
-                "failed": failed,
-            }
+            subject = _("'%(name)s' batch: %(ok)d/%(total)d succeeded — %(owner)s") % params
+            body = _("%(ok)d of %(total)d runs of '%(name)s' by %(owner)s succeeded; %(failed)d failed.") % params
     else:
         repo_summary = _summarize_repos(repo_ids)
         if ok:
@@ -313,7 +270,7 @@ def _render_batch_payload(
         "status_label": str(ActivityStatus(agg_status).label),
         "is_successful": ok,
         "trigger_label": str(activity.get_trigger_type_display()),
-        "trigger_name": activity.scheduled_job.name if is_schedule else "",
+        "trigger_name": name,
         "trigger_owner": owner,
         "repo_id": repo_ids[0] if len(repo_ids) == 1 else "",
         "repo_ids": repo_ids,
