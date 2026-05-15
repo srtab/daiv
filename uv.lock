@@ -560,7 +560,7 @@ requires-dist = [
     { name = "ag-ui-langgraph", specifier = "==0.0.35" },
     { name = "copilotkit", specifier = "==0.1.89" },
     { name = "croniter", specifier = "==6.2.2" },
-    { name = "ddgs", specifier = "==9.14.2" },
+    { name = "ddgs", specifier = "==9.14.3" },
     { name = "deepagents", specifier = "==0.5.9" },
     { name = "django", specifier = "==6.0.5" },
     { name = "django-allauth", extras = ["socialaccount"], specifier = "==65.16.1" },
@@ -675,16 +675,16 @@ wheels = [
 
 [[package]]
 name = "ddgs"
-version = "9.14.2"
+version = "9.14.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "lxml" },
     { name = "primp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/31/4b8ad86fd97fba7cff52d9d7c59a002ddf9ef0ba8fa4d70b925190471c33/ddgs-9.14.2.tar.gz", hash = "sha256:a9e6ad5bd7357707163d1cf03dbbcc9413a5820738ba5176efe36955b32aab38", size = 57205, upload-time = "2026-05-03T19:45:30.229Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/49/dd55549e0d3659fe335ed842a85ddc9cb1e6b4afdeeda6a2a59a381d989b/ddgs-9.14.3.tar.gz", hash = "sha256:2bc5dceb092f330585277a8f3fc50f488828f55e09793ae85975e01b3141879c", size = 57647, upload-time = "2026-05-14T21:22:18.258Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/e6/5d258f7bfb418a5d33c3a77fba327efd8bd6c5d834d06f07b4f229033c33/ddgs-9.14.2-py3-none-any.whl", hash = "sha256:47f5002ebe72d0e7d342d9ce9c0cd9d1125fa7b9ee38dc47069449f4a8382d37", size = 67058, upload-time = "2026-05-03T19:45:28.693Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/db/717efa01e0412c80b68798ff0e980003884adb33749d7e0c3135b9e172c2/ddgs-9.14.3-py3-none-any.whl", hash = "sha256:670f464512b5bcaa5182d2ab0cea688f23df58d7338083d68f6f37747434f53b", size = 68142, upload-time = "2026-05-14T21:22:16.872Z" },
 ]
 
 [[package]]
