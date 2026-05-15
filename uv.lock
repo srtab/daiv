@@ -572,7 +572,7 @@ requires-dist = [
     { name = "django-split-settings", specifier = "==1.3.2" },
     { name = "django-tasks", specifier = "==0.12.0" },
     { name = "django-tasks-db", specifier = "==0.12.0" },
-    { name = "genai-prices", specifier = "==0.0.59" },
+    { name = "genai-prices", specifier = "==0.0.60" },
     { name = "get-docker-secret", specifier = "==2.0.0" },
     { name = "gitpython", specifier = "==3.1.50" },
     { name = "httpx", specifier = "==0.28.1" },
@@ -1016,15 +1016,15 @@ http = [
 
 [[package]]
 name = "genai-prices"
-version = "0.0.59"
+version = "0.0.60"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/c8/b61a028b8d8ee286ffab3f9b9f1c9229087184e7d543cea4e349e11375b0/genai_prices-0.0.59.tar.gz", hash = "sha256:3e1c7dcd9b38163589c8cf4a9bcfd286c52ea57a3becdc062a2cbaa8295b08c4", size = 67406, upload-time = "2026-05-07T12:08:40.475Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/20/b6/25fd5c4be9067bc720982a6f572b607033af3aa561c3103b784e0eaa3a92/genai_prices-0.0.60.tar.gz", hash = "sha256:0209ba196a724e59c0d68f98567638148c16ebf5d6170c4d709e37d8ffc98d68", size = 67793, upload-time = "2026-05-15T17:40:26.997Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/f9/4693c127f9fab0a8d39c47c198e378ecafcb043463e6dd73df205eacbc13/genai_prices-0.0.59-py3-none-any.whl", hash = "sha256:88fd8818e6807374e5a5c03f293b574ade5f18a3060622080cdd94a03cf43115", size = 70509, upload-time = "2026-05-07T12:08:39.075Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/b9/73b151d5cb6068581d5f618f8f15ccebaf48b7143b2e2e2d1e29ccc1ac8b/genai_prices-0.0.60-py3-none-any.whl", hash = "sha256:096a5c31963687e99d752789382b9e8e71c0a56f9569b9760fd0de402f8b084a", size = 70886, upload-time = "2026-05-15T17:40:28.337Z" },
 ]
 
 [[package]]
