@@ -718,7 +718,7 @@ class Provider(models.Model):
     """
     Configurable model provider. Each row carries everything needed to call a
     provider — slug (used as ``slug:model_name`` prefix), wire protocol, base
-    URL, encrypted API key, optional extra headers, and suggested model names.
+    URL, encrypted API key, and optional extra headers.
 
     Four rows are seeded at migration time with ``is_locked=True`` so their
     slug and provider_type stay stable (``ModelName`` defaults reference them).
@@ -731,7 +731,6 @@ class Provider(models.Model):
     _api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     api_key = EncryptedFieldDescriptor("api_key")
     extra_headers = models.JSONField(_("extra headers"), default=dict, blank=True)
-    model_suggestions = models.TextField(_("model suggestions"), blank=True, help_text=_("One model name per line."))
     is_enabled = models.BooleanField(_("enabled"), default=True)
     is_locked = models.BooleanField(default=False, editable=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
@@ -789,7 +788,6 @@ class Provider(models.Model):
         base_url: str
         api_key: SecretStr | None
         extra_headers: dict[str, str]
-        model_suggestions_list: tuple[str, ...]
         is_enabled: bool
         is_locked: bool
         sort_order: int
@@ -802,7 +800,6 @@ class Provider(models.Model):
         for row in cls.objects.order_by("sort_order", "slug"):
             raw_key = row.api_key
             api_key = SecretStr(raw_key) if raw_key else None
-            suggestions = tuple(line.strip() for line in row.model_suggestions.splitlines() if line.strip())
             out.append(
                 cls.Cached(
                     slug=row.slug,
@@ -811,7 +808,6 @@ class Provider(models.Model):
                     base_url=row.base_url,
                     api_key=api_key,
                     extra_headers=dict(row.extra_headers or {}),
-                    model_suggestions_list=suggestions,
                     is_enabled=row.is_enabled,
                     is_locked=row.is_locked,
                     sort_order=row.sort_order,

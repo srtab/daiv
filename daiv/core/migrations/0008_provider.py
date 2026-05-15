@@ -13,13 +13,6 @@ SEED_ROWS = [
         "sort_order": 10,
         "env_var": "ANTHROPIC_API_KEY",
         "db_column": "_anthropic_api_key_encrypted",
-        "suggestions": [
-            "claude-opus-4-6",
-            "claude-opus-4-5",
-            "claude-sonnet-4-6",
-            "claude-sonnet-4-5",
-            "claude-haiku-4-5",
-        ],
     },
     {
         "slug": "openai",
@@ -29,7 +22,6 @@ SEED_ROWS = [
         "sort_order": 20,
         "env_var": "OPENAI_API_KEY",
         "db_column": "_openai_api_key_encrypted",
-        "suggestions": ["gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini"],
     },
     {
         "slug": "google_genai",
@@ -39,7 +31,6 @@ SEED_ROWS = [
         "sort_order": 30,
         "env_var": "GOOGLE_API_KEY",
         "db_column": "_google_api_key_encrypted",
-        "suggestions": ["gemini-2.5-flash", "gemini-2.5-pro"],
     },
     {
         "slug": "openrouter",
@@ -49,21 +40,6 @@ SEED_ROWS = [
         "sort_order": 40,
         "env_var": "OPENROUTER_API_KEY",
         "db_column": "_openrouter_api_key_encrypted",
-        "suggestions": [
-            "anthropic/claude-opus-4.6",
-            "anthropic/claude-opus-4.5",
-            "anthropic/claude-sonnet-4.6",
-            "anthropic/claude-sonnet-4.5",
-            "anthropic/claude-haiku-4.5",
-            "openai/gpt-5.3-codex",
-            "openai/gpt-5.4",
-            "openai/gpt-5.4-mini",
-            "z-ai/glm-5",
-            "z-ai/glm-5-turbo",
-            "minimax/minimax-m2.5",
-            "minimax/minimax-m2.7",
-            "moonshotai/kimi-k2.5",
-        ],
     },
 ]
 
@@ -117,7 +93,6 @@ def seed_providers(apps, schema_editor):
                 "base_url": base_url,
                 "_api_key_encrypted": encrypt_value(key_plaintext) if key_plaintext else None,
                 "extra_headers": {},
-                "model_suggestions": "\n".join(seed["suggestions"]),
                 "is_enabled": bool(key_plaintext),
                 "is_locked": True,
                 "sort_order": seed["sort_order"],
@@ -156,12 +131,6 @@ class Migration(migrations.Migration):
                 ("base_url", models.URLField(blank=True, verbose_name="base URL")),
                 ("_api_key_encrypted", models.TextField(blank=True, editable=False, null=True)),
                 ("extra_headers", models.JSONField(blank=True, default=dict, verbose_name="extra headers")),
-                (
-                    "model_suggestions",
-                    models.TextField(
-                        blank=True, help_text="One model name per line.", verbose_name="model suggestions"
-                    ),
-                ),
                 ("is_enabled", models.BooleanField(default=True, verbose_name="enabled")),
                 ("is_locked", models.BooleanField(default=False, editable=False)),
                 ("sort_order", models.PositiveSmallIntegerField(default=0)),

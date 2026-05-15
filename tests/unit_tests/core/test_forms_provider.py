@@ -231,20 +231,3 @@ def test_form_rejects_slug_rename_on_saved_custom_row():
     form = ProviderForm(data=_data(slug="renamed", provider_type=ProviderType.OPENAI, api_key=""), instance=p)
     assert not form.is_valid()
     assert "slug" in form.errors
-
-
-@pytest.mark.django_db
-def test_provider_form_no_longer_exposes_model_suggestions():
-    """ProviderForm must not expose model_suggestions."""
-    form = ProviderForm()
-    assert "model_suggestions" not in form.fields
-
-
-@pytest.mark.django_db
-def test_model_spec_widget_context_omits_model_suggestions():
-    """_ModelSpecWidget context must not include model_suggestions."""
-    from core.forms import _ModelSpecWidget
-
-    widget = _ModelSpecWidget()
-    context = widget.get_context("agent_model_name", "openai:gpt-5.4", attrs={})
-    assert "model_suggestions" not in context["widget"]
