@@ -23,7 +23,7 @@
 
   <div class="mt-4"
        x-data="djangoFormset({ totalFormsId: '{{ providers_formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ providers_formset.total_form_count }}, rowsRef: 'customRows' })"
-       x-init="providerReorder($refs.builtInRows, $refs.customRows)">
+       x-init="$providerReorder($refs.builtInRows, $refs.customRows)">
     {{ providers_formset.management_form }}
 
     <div class="provider-section">
