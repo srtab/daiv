@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.core.cache import cache
 from django.test import Client
 
 import pytest
@@ -13,6 +14,20 @@ from accounts.models import User as AccountUser
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
+from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
+
+
+@pytest.fixture(autouse=True)
+def _clear_model_caches():
+    # Provider/WebFetchAuthHeader/SiteConfiguration invalidate via
+    # transaction.on_commit; @pytest.mark.django_db tests roll back without
+    # committing, so the LocMem cache would otherwise leak state between tests.
+    keys = (PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+    for key in keys:
+        cache.delete(key)
+    yield
+    for key in keys:
+        cache.delete(key)
 
 
 @pytest.fixture

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
-from django.db import models
+from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
 if TYPE_CHECKING:
@@ -449,7 +449,7 @@ class SiteConfiguration(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         self.pk = 1
         super().save(*args, **kwargs)
-        self._invalidate_cache()
+        transaction.on_commit(self._invalidate_cache)
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         # Prevent deletion of the singleton
@@ -618,11 +618,11 @@ class WebFetchAuthHeader(models.Model):
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)
-        type(self).invalidate_cache()
+        transaction.on_commit(type(self).invalidate_cache)
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         result = super().delete(*args, **kwargs)
-        type(self).invalidate_cache()
+        transaction.on_commit(type(self).invalidate_cache)
         return result
 
     def get_secret_hint(self) -> str | None:
@@ -778,13 +778,15 @@ class Provider(models.Model):
             if original.slug != self.slug or original.provider_type != self.provider_type:
                 raise ValueError(f"Provider {original.slug!r} is locked; slug and provider_type cannot change.")
         super().save(*args, **kwargs)
-        type(self).invalidate_cache()
+        # Defer invalidation to commit so concurrent readers can't repopulate the
+        # cache with pre-commit data and mask the new row for the 5-min TTL.
+        transaction.on_commit(type(self).invalidate_cache)
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         if self.is_locked:
             raise ValueError(f"Provider {self.slug!r} is locked and cannot be deleted.")
         result = super().delete(*args, **kwargs)
-        type(self).invalidate_cache()
+        transaction.on_commit(type(self).invalidate_cache)
         return result
 
     def get_secret_hint(self) -> str | None:

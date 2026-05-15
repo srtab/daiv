@@ -1,7 +1,12 @@
+from unittest.mock import patch
+
+from django.core.cache import cache
+from django.db import transaction
+
 import pytest
 from pydantic import SecretStr
 
-from core.models import Provider, ProviderType
+from core.models import PROVIDERS_CACHE_KEY, Provider, ProviderType
 
 
 @pytest.mark.django_db
@@ -59,21 +64,59 @@ def test_get_cached_returns_secretstr():
 
 
 @pytest.mark.django_db
-def test_save_invalidates_cache():
-    Provider.objects.create(slug="a", display_name="A", provider_type=ProviderType.OPENAI, api_key="k")
+def test_save_invalidates_cache(django_capture_on_commit_callbacks):
+    # Invalidation is deferred via transaction.on_commit so concurrent readers
+    # can't repopulate the cache with pre-commit data; execute=True runs the
+    # callback at the boundary just like a real commit would.
+    with django_capture_on_commit_callbacks(execute=True):
+        Provider.objects.create(slug="a", display_name="A", provider_type=ProviderType.OPENAI, api_key="k")
     slugs_before = {r.slug for r in Provider.get_cached_rows()}
     assert "a" in slugs_before
-    Provider.objects.create(slug="b", display_name="B", provider_type=ProviderType.OPENAI, api_key="k")
+    with django_capture_on_commit_callbacks(execute=True):
+        Provider.objects.create(slug="b", display_name="B", provider_type=ProviderType.OPENAI, api_key="k")
     slugs_after = {r.slug for r in Provider.get_cached_rows()}
     assert "a" in slugs_after
     assert "b" in slugs_after
 
 
+@pytest.mark.django_db(transaction=True)
+def test_save_defers_cache_invalidation_until_commit():
+    """
+    Inside an atomic block, cache.delete must NOT fire until after commit; otherwise
+    a concurrent reader on another connection re-caches pre-commit data and masks
+    the change for up to PROVIDERS_CACHE_TIMEOUT.
+    """
+    Provider.objects.create(slug="defer", display_name="D", provider_type=ProviderType.OPENAI, api_key="k")
+    cache.set(PROVIDERS_CACHE_KEY, "warm-marker", 300)
+
+    delete_in_atomic: list[bool] = []
+    original_delete = cache.delete
+
+    def tracking_delete(key, *a, **kw):
+        if key == PROVIDERS_CACHE_KEY:
+            delete_in_atomic.append(transaction.get_connection().in_atomic_block)
+        return original_delete(key, *a, **kw)
+
+    with patch.object(cache, "delete", side_effect=tracking_delete), transaction.atomic():
+        p = Provider.objects.get(slug="defer")
+        p.verify_ssl = False
+        p.save()
+        # Still inside the atomic block: nothing should have invalidated yet.
+        assert delete_in_atomic == []
+        assert cache.get(PROVIDERS_CACHE_KEY) == "warm-marker"
+
+    # After commit: invalidation runs exactly once, and the connection is no longer in_atomic.
+    assert delete_in_atomic == [False]
+    assert cache.get(PROVIDERS_CACHE_KEY) is None
+
+
 @pytest.mark.django_db
-def test_delete_invalidates_cache():
-    p = Provider.objects.create(slug="zdelme", display_name="A", provider_type=ProviderType.OPENAI, api_key="k")
+def test_delete_invalidates_cache(django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=True):
+        p = Provider.objects.create(slug="zdelme", display_name="A", provider_type=ProviderType.OPENAI, api_key="k")
     assert "zdelme" in {r.slug for r in Provider.get_cached_rows()}
-    p.delete()
+    with django_capture_on_commit_callbacks(execute=True):
+        p.delete()
     assert "zdelme" not in {r.slug for r in Provider.get_cached_rows()}
 
 
