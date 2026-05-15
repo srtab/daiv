@@ -5,13 +5,17 @@ import asyncio
 import concurrent.futures
 import contextlib
 import fnmatch
+import functools
 import logging
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+
+if TYPE_CHECKING:
+    from pydantic import SecretStr
 
 logger = logging.getLogger("daiv.core")
 
@@ -21,6 +25,9 @@ SITE_CONFIGURATION_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 WEB_FETCH_AUTH_HEADERS_CACHE_KEY = "web_fetch_auth_headers"
 WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
+PROVIDERS_CACHE_KEY = "providers"
+PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+
 
 @dataclass(frozen=True)
 class FieldGroup:
@@ -28,6 +35,7 @@ class FieldGroup:
 
     key: str
     title: str
+    category: str
     match: tuple[str, ...] = ()
     icon: str = ""
     fields: tuple[str, ...] = ()
@@ -44,6 +52,13 @@ class ThinkingLevelChoices(models.TextChoices):
 class WebSearchEngineChoices(models.TextChoices):
     DUCKDUCKGO = "duckduckgo", _("DuckDuckGo")
     TAVILY = "tavily", _("Tavily")
+
+
+class ProviderType(models.TextChoices):
+    OPENAI = "openai", _("OpenAI")
+    ANTHROPIC = "anthropic", _("Anthropic")
+    GOOGLE_GENAI = "google_genai", _("Google Gemini")
+    OPENROUTER = "openrouter", _("OpenRouter")
 
 
 class SingletonManager(models.Manager["SiteConfiguration"]):
@@ -318,15 +333,6 @@ class SiteConfiguration(models.Model):
         help_text=_("Rate limit for job submissions per authenticated user (e.g. '20/hour')."),
     )
 
-    # -- Providers --
-    openrouter_api_base = models.CharField(
-        _("OpenRouter API base URL"),
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_("Base URL for the OpenRouter API."),
-    )
-
     # -- Rocket Chat --
     rocketchat_enabled = models.BooleanField(
         _("enable Rocket Chat"), null=True, help_text=_("Offer Rocket Chat as a notification channel for users.")
@@ -347,20 +353,12 @@ class SiteConfiguration(models.Model):
     )
 
     # -- API Keys / Secrets (encrypted at rest) --
-    _anthropic_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
-    _openai_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
-    _google_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
-    _openrouter_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _web_search_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _sandbox_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _auth_client_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
     _rocketchat_auth_token_encrypted = models.TextField(blank=True, null=True, editable=False)
 
     # Descriptors for transparent encrypt/decrypt
-    anthropic_api_key = EncryptedFieldDescriptor("anthropic_api_key")
-    openai_api_key = EncryptedFieldDescriptor("openai_api_key")
-    google_api_key = EncryptedFieldDescriptor("google_api_key")
-    openrouter_api_key = EncryptedFieldDescriptor("openrouter_api_key")
     web_search_api_key = EncryptedFieldDescriptor("web_search_api_key")
     sandbox_api_key = EncryptedFieldDescriptor("sandbox_api_key")
     auth_client_secret = EncryptedFieldDescriptor("auth_client_secret")
@@ -380,10 +378,6 @@ class SiteConfiguration(models.Model):
     )
 
     ENCRYPTED_FIELDS: ClassVar[tuple[str, ...]] = (
-        "anthropic_api_key",
-        "openai_api_key",
-        "google_api_key",
-        "openrouter_api_key",
         "web_search_api_key",
         "sandbox_api_key",
         "auth_client_secret",
@@ -391,26 +385,29 @@ class SiteConfiguration(models.Model):
     )
 
     FIELD_GROUPS: ClassVar[tuple[FieldGroup, ...]] = (
-        FieldGroup(key="agent", title=_("Agent"), match=("agent_*", "suggest_context_file_enabled"), icon="agent"),
+        FieldGroup(
+            key="agent",
+            title=_("Agent"),
+            match=("agent_*", "suggest_context_file_enabled"),
+            icon="agent",
+            category="AI tasks",
+        ),
         FieldGroup(
             key="diff_to_metadata",
             title=_("Commit & PR Writer"),
             match=("diff_to_metadata_*",),
             icon="diff-to-metadata",
+            category="AI tasks",
         ),
-        FieldGroup(key="titling", title=_("Titling"), match=("titling_*",), icon="chat-bubble"),
-        FieldGroup(
-            key="providers",
-            title=_("Providers"),
-            match=("anthropic_*", "openai_*", "google_*", "openrouter_*"),
-            icon="providers",
-        ),
+        FieldGroup(key="titling", title=_("Titling"), match=("titling_*",), icon="chat-bubble", category="AI tasks"),
+        FieldGroup(key="providers", title=_("Providers"), match=(), icon="providers", category="Models"),
         FieldGroup(
             key="web_search",
             title=_("Web Search"),
             match=("web_search_*",),
             icon="web-search",
             toggle_field="web_search_enabled",
+            category="Agent tools",
         ),
         FieldGroup(
             key="web_fetch",
@@ -418,15 +415,17 @@ class SiteConfiguration(models.Model):
             match=("web_fetch_*",),
             icon="web-fetch",
             toggle_field="web_fetch_enabled",
+            category="Agent tools",
         ),
-        FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox"),
-        FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs"),
+        FieldGroup(key="sandbox", title=_("Sandbox"), match=("sandbox_*",), icon="sandbox", category="Runtime"),
+        FieldGroup(key="jobs", title=_("Jobs"), match=("jobs_*",), icon="jobs", category="Runtime"),
         FieldGroup(
             key="rocketchat",
             title=_("Rocket Chat"),
             match=("rocketchat_*",),
             icon="rocketchat",
             toggle_field="rocketchat_enabled",
+            category="Integrations",
         ),
         FieldGroup(
             key="authentication",
@@ -434,6 +433,7 @@ class SiteConfiguration(models.Model):
             match=("auth_*",),
             icon="lock-closed",
             toggle_field="auth_login_enabled",
+            category="Integrations",
         ),
     )
 
@@ -535,7 +535,8 @@ class SiteConfiguration(models.Model):
             return None
 
     @classmethod
-    def get_field_groups(cls) -> list[FieldGroup]:
+    @functools.cache
+    def get_field_groups(cls) -> tuple[FieldGroup, ...]:
         """
         Return field groups with their ``fields`` lists resolved from
         model field names and :attr:`ENCRYPTED_FIELDS`.
@@ -571,9 +572,18 @@ class SiteConfiguration(models.Model):
                     icon=group_def.icon,
                     fields=tuple(group_fields),
                     toggle_field=group_def.toggle_field,
+                    category=group_def.category,
                 )
             )
-        return groups
+        return tuple(groups)
+
+    @classmethod
+    def get_group_by_key(cls, key: str) -> FieldGroup:
+        """Return the ``FieldGroup`` with the given ``key``; raise ``KeyError`` if not found."""
+        for group in cls.get_field_groups():
+            if group.key == key:
+                return group
+        raise KeyError(key)
 
     @staticmethod
     def _invalidate_cache() -> None:
@@ -702,3 +712,174 @@ class WebFetchAuthHeader(models.Model):
     @classmethod
     def invalidate_cache(cls) -> None:
         cache.delete(WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+
+
+class Provider(models.Model):
+    """
+    Configurable model provider. Each row carries everything needed to call a
+    provider — slug (used as ``slug:model_name`` prefix), wire protocol, base
+    URL, encrypted API key, and optional extra headers.
+
+    Four rows are seeded at migration time with ``is_locked=True`` so their
+    slug and provider_type stay stable (``ModelName`` defaults reference them).
+    """
+
+    slug = models.SlugField(_("slug"), max_length=32, unique=True)
+    display_name = models.CharField(_("display name"), max_length=64)
+    provider_type = models.CharField(_("provider type"), max_length=32, choices=ProviderType.choices)
+    base_url = models.URLField(_("base URL"), blank=True)
+    _api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
+    api_key = EncryptedFieldDescriptor("api_key")
+    extra_headers = models.JSONField(_("extra headers"), default=dict, blank=True)
+    is_enabled = models.BooleanField(_("enabled"), default=True)
+    use_responses_api = models.BooleanField(
+        _("use Responses API"),
+        default=False,
+        help_text=_(
+            "Only honored for OpenAI-typed providers. Enable for servers that expose"
+            " /v1/responses (real OpenAI, some hosted gateways). Disable for"
+            " /v1/chat/completions-only servers (vLLM, llama.cpp, most LiteLLM setups)."
+        ),
+    )
+    verify_ssl = models.BooleanField(
+        _("verify TLS certificates"),
+        default=True,
+        help_text=_(
+            "Disable only for self-hosted endpoints behind an internal/self-signed CA."
+            " Skipping verification exposes the connection to MITM attacks; prefer mounting"
+            " the internal CA into the daiv containers when possible."
+        ),
+    )
+    is_locked = models.BooleanField(default=False, editable=False)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        verbose_name = _("provider")
+        verbose_name_plural = _("providers")
+        ordering = ("sort_order", "slug")
+
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # ``api_key`` is a descriptor (not a model field), so Django's default
+        # ``__init__`` rejects it as an unknown keyword. Strip it out and set it
+        # after the base initializer so the descriptor encrypts the plaintext.
+        api_key = kwargs.pop("api_key", None)
+        super().__init__(*args, **kwargs)
+        if api_key is not None:
+            self.api_key = api_key
+
+    def __str__(self) -> str:
+        return f"{self.display_name} ({self.slug})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.pk and self.is_locked:
+            original = type(self).objects.only("slug", "provider_type").get(pk=self.pk)
+            if original.slug != self.slug or original.provider_type != self.provider_type:
+                raise ValueError(f"Provider {original.slug!r} is locked; slug and provider_type cannot change.")
+        super().save(*args, **kwargs)
+        type(self).invalidate_cache()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        if self.is_locked:
+            raise ValueError(f"Provider {self.slug!r} is locked and cannot be deleted.")
+        result = super().delete(*args, **kwargs)
+        type(self).invalidate_cache()
+        return result
+
+    def get_secret_hint(self) -> str | None:
+        """Return a masked hint for the row's API key, or ``None`` if unset."""
+        value = self.api_key
+        if value is None:
+            return None
+        from core.encryption import mask_secret
+
+        return mask_secret(value)
+
+    @property
+    def is_openai(self) -> bool:
+        return self.provider_type == ProviderType.OPENAI
+
+    @dataclass(frozen=True)
+    class Cached:
+        """Frozen, cache-safe snapshot of a Provider row."""
+
+        slug: str
+        display_name: str
+        provider_type: ProviderType
+        base_url: str
+        api_key: SecretStr | None
+        extra_headers: dict[str, str]
+        is_enabled: bool
+        use_responses_api: bool
+        verify_ssl: bool
+        is_locked: bool
+        sort_order: int
+
+    @classmethod
+    def _build_from_db(cls) -> list[Provider.Cached]:
+        from pydantic import SecretStr
+
+        out: list[Provider.Cached] = []
+        for row in cls.objects.order_by("sort_order", "slug"):
+            raw_key = row.api_key
+            api_key = SecretStr(raw_key) if raw_key else None
+            out.append(
+                cls.Cached(
+                    slug=row.slug,
+                    display_name=row.display_name,
+                    provider_type=ProviderType(row.provider_type),
+                    base_url=row.base_url,
+                    api_key=api_key,
+                    extra_headers=dict(row.extra_headers or {}),
+                    is_enabled=row.is_enabled,
+                    use_responses_api=row.use_responses_api,
+                    verify_ssl=row.verify_ssl,
+                    is_locked=row.is_locked,
+                    sort_order=row.sort_order,
+                )
+            )
+        return out
+
+    @classmethod
+    def _load_and_cache(cls) -> list[Cached]:
+        from django.db import close_old_connections
+
+        try:
+            close_old_connections()
+            out = cls._build_from_db()
+        except Exception:  # noqa: BLE001
+            logger.exception("Provider rows not available; falling back to empty list")
+            return []
+        finally:
+            with contextlib.suppress(Exception):
+                close_old_connections()
+
+        cache.set(PROVIDERS_CACHE_KEY, out, PROVIDERS_CACHE_TIMEOUT)
+        return out
+
+    @classmethod
+    def get_cached_rows(cls) -> list[Cached]:
+        cached = cache.get(PROVIDERS_CACHE_KEY)
+        if cached is not None:
+            return cached
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return cls._load_and_cache()
+        try:
+            return cls._executor.submit(cls._load_and_cache).result(timeout=5)
+        except concurrent.futures.TimeoutError:
+            logger.error("Provider lookup timed out (5s) in async context; returning empty list")
+            return []
+        except Exception:  # noqa: BLE001
+            logger.exception("Provider async lookup failed; returning empty list")
+            return []
+
+    @classmethod
+    def get_cached_by_slug(cls) -> dict[str, Provider.Cached]:
+        return {row.slug: row for row in cls.get_cached_rows()}
+
+    @classmethod
+    def invalidate_cache(cls) -> None:
+        cache.delete(PROVIDERS_CACHE_KEY)

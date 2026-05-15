@@ -29,7 +29,7 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "channels": {"user_channels"},
     "api_keys": {"api_keys", "api_key_create", "api_key_revoke"},
     "users": {"user_list", "user_create", "user_update", "user_delete"},
-    "configuration": {"site_configuration"},
+    "configuration": {"site_configuration", "site_configuration_index"},
 }
 
 

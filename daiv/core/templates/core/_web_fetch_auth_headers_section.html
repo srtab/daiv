@@ -26,7 +26,7 @@
         </div>
     {% else %}
         <div class="mt-4"
-             x-data="webFetchAuthHeadersFormset({ totalFormsId: '{{ web_fetch_auth_headers_formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ web_fetch_auth_headers_formset.total_form_count }} })">
+             x-data="djangoFormset({ totalFormsId: '{{ web_fetch_auth_headers_formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ web_fetch_auth_headers_formset.total_form_count }} })">
             {{ web_fetch_auth_headers_formset.management_form }}
             {% if web_fetch_auth_headers_formset.non_form_errors %}
                 <p class="mb-3 text-xs text-red-300">{{ web_fetch_auth_headers_formset.non_form_errors.0 }}</p>

@@ -1,134 +1,46 @@
 {% extends "base_app.html" %}
-{% load configuration_tags icon_tags static %}
+{% load icon_tags static %}
 
 {% block title %}Configuration — DAIV{% endblock %}
 
-{% block container_width %}max-w-none{% endblock %}
+{% block container_width %}max-w-6xl{% endblock %}
 
 {% block alpine_plugins %}
-<script defer src="{% static 'core/js/web-fetch-auth-headers-formset.js' %}"></script>
+<script defer src="{% static 'core/js/django-formset.js' %}"></script>
+{% if active_group.key == "providers" %}
+<script defer src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"
+        integrity="sha384-HZZ/fukV+9G8gwTNjN7zQDG0Sp7MsZy5DDN6VfY3Be7V9dvQpEpR2jF2HlyFUUjU"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'core/js/provider-reorder.js' %}"></script>
+{% endif %}
 {% endblock alpine_plugins %}
 
 {% block app_content %}
 <div class="animate-fade-up">
     <h1 class="text-2xl font-bold tracking-tight">Configuration</h1>
-    <p class="mt-1.5 text-[15px] font-light text-gray-400">Manage global settings. Per-repository overrides via <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-sm">.daiv.yml</code>.</p>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        Manage global settings. Per-repository overrides via
+        <code class="rounded bg-white/[0.06] px-1.5 py-0.5 text-sm">.daiv.yml</code>.
+    </p>
 </div>
 
-{% if form.non_field_errors %}
-<div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" style="animation-delay: 50ms">
-    {% for error in form.non_field_errors %}
-    <p class="text-[15px] text-red-200">{{ error }}</p>
-    {% endfor %}
-</div>
-{% endif %}
-
-<form method="post" autocomplete="off">
-    {% csrf_token %}
-
-    <!-- Section jumper (horizontal tab strip) -->
-    <nav class="animate-fade-up sticky top-0 z-10 -mx-4 mt-6 flex flex-wrap items-center gap-1 border-b border-white/[0.06] bg-[#030712]/70 px-4 py-2 backdrop-blur-sm sm:-mx-6 sm:px-6" style="animation-delay: 100ms">
-        {% for group in field_groups %}
-        <a href="#{{ group.key }}"
-           class="group flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:text-gray-300">
-            {% icon group.icon "h-3.5 w-3.5 text-gray-500 transition-colors group-hover:text-gray-400" %}
+<div class="animate-fade-up mt-8 grid gap-8 lg:grid-cols-[200px_minmax(0,1fr)] lg:items-start" style="animation-delay: 100ms">
+    <aside class="flex flex-col" aria-label="Configuration sections">
+        {% regroup all_groups by category as grouped %}
+        {% for category in grouped %}
+        <div class="{% if not forloop.first %}mt-5 {% endif %}mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+            {{ category.grouper }}
+        </div>
+        {% for group in category.list %}
+        <a href="{% url 'site_configuration' group_key=group.key %}"
+           class="rounded-md px-3 py-1.5 text-[13.5px] transition-colors
+                  {% if group.key == active_group.key %}bg-white/[0.06] text-white{% else %}text-gray-400 hover:text-gray-200 hover:bg-white/[0.03]{% endif %}">
             {{ group.title }}
         </a>
         {% endfor %}
-    </nav>
-
-    <!-- Configuration panels -->
-    <div class="animate-fade-up mt-8 space-y-8" style="animation-delay: 150ms">
-        {% for group in field_groups %}
-        {% with toggle_bf=form|get_field:group.toggle_field %}
-        <section id="{{ group.key }}" class="scroll-mt-20 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6"
-                 {% if toggle_bf %}x-data="{ enabled: {{ toggle_bf.value|default:'false'|lower }} }"{% endif %}>
-            <!-- Section header -->
-            <div class="flex items-center gap-2.5 {% if not toggle_bf %}pb-5{% endif %}">
-                <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
-                    {% icon group.icon "h-3.5 w-3.5 text-gray-400" %}
-                </div>
-                <h2 class="text-base font-semibold text-white">{{ group.title }}</h2>
-                {% if toggle_bf %}
-                <div class="ml-auto flex items-center gap-2.5">
-                    {% if toggle_bf.field.is_env_locked %}
-                    {% include "core/_env_lock_badge.html" %}
-                    {% endif %}
-                    <label class="relative inline-flex cursor-pointer items-center {% if toggle_bf.field.is_env_locked %}opacity-50 pointer-events-none{% endif %}">
-                        <input type="hidden" name="{{ toggle_bf.name }}" value="">
-                        <input type="checkbox" name="{{ toggle_bf.name }}" value="on"
-                               {% if toggle_bf.value %}checked{% endif %}
-                               {% if toggle_bf.field.is_env_locked %}disabled{% endif %}
-                               x-model="enabled"
-                               class="peer sr-only">
-                        <div class="h-5 w-9 rounded-full border border-white/[0.08] bg-white/[0.04] transition-colors duration-200
-                                    peer-checked:border-white/[0.15] peer-checked:bg-white/[0.15]
-                                    after:absolute after:left-[3px] after:top-[3px] after:h-3.5 after:w-3.5 after:rounded-full
-                                    after:bg-gray-400 after:transition-all after:duration-200
-                                    peer-checked:after:translate-x-[14px] peer-checked:after:bg-white">
-                        </div>
-                    </label>
-                </div>
-                {% endif %}
-            </div>
-
-            <!-- Fields -->
-            <div {% if toggle_bf %}x-show="enabled" x-cloak
-                 x-transition:enter="transition-all duration-200 ease-out"
-                 x-transition:enter-start="opacity-0 -translate-y-2"
-                 x-transition:enter-end="opacity-100 translate-y-0"
-                 x-transition:leave="transition-all duration-150 ease-in"
-                 x-transition:leave-start="opacity-100 translate-y-0"
-                 x-transition:leave-end="opacity-0 -translate-y-2"
-                 {% endif %}class="space-y-5 {% if toggle_bf %}pt-5{% endif %}">
-                {% for field_name in group.fields %}
-                    {% if field_name != group.toggle_field %}
-                    {% with bf=form|get_field:field_name %}
-                    {% if bf %}
-                    {% include bf.field.template_name with field=bf %}
-                    {% endif %}
-                    {% endwith %}
-                    {% endif %}
-                {% endfor %}
-                {% if group.key == "web_fetch" %}
-                    {% include "core/_web_fetch_auth_headers_section.html" %}
-                {% endif %}
-            </div>
-        </section>
-        {% endwith %}
         {% endfor %}
+    </aside>
 
-        <!-- Actions -->
-        <div class="flex items-center gap-3 pb-8">
-            <button type="submit" class="btn-primary">
-                Save configuration
-            </button>
-            <a href="{% url 'dashboard' %}" class="btn-secondary">
-                Cancel
-            </a>
-        </div>
-    </div>
-</form>
-
-<script type="module">
-    // Highlight active nav item on scroll
-    const sections = document.querySelectorAll('section[id]');
-    const navLinks = document.querySelectorAll('nav a[href^="#"]');
-
-    const observer = new IntersectionObserver(entries => {
-        for (const entry of entries) {
-            if (entry.isIntersecting) {
-                const id = entry.target.id;
-                navLinks.forEach(link => {
-                    const isActive = link.getAttribute('href') === `#${id}`;
-                    link.classList.toggle('bg-white/[0.06]', isActive);
-                    link.classList.toggle('text-white', isActive);
-                    link.classList.toggle('text-gray-400', !isActive);
-                });
-            }
-        }
-    }, { rootMargin: '-20% 0px -70% 0px' });
-
-    sections.forEach(section => observer.observe(section));
-</script>
+    {% block group_content %}{% endblock %}
+</div>
 {% endblock app_content %}

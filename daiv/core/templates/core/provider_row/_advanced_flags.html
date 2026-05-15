@@ -1,0 +1,17 @@
+{% load i18n %}
+{% if row.instance.is_openai %}
+<div>
+  <label class="flex items-center gap-2 text-[13px] text-gray-300">
+    {{ row.use_responses_api }}
+    <span>{% translate "Use Responses API" %}</span>
+  </label>
+  <p class="mt-1 text-[11px] text-gray-500">{% translate "OpenAI-typed providers only. Enable for servers exposing /v1/responses; disable for /v1/chat/completions-only servers." %}</p>
+</div>
+{% endif %}
+<div>
+  <label class="flex items-center gap-2 text-[13px] text-gray-300">
+    {{ row.verify_ssl }}
+    <span>{% translate "Verify TLS certificates" %}</span>
+  </label>
+  <p class="mt-1 text-[11px] text-gray-500">{% translate "Disable only for self-hosted endpoints behind an internal/self-signed CA. Insecure — prefer mounting the CA into the daiv containers." %}</p>
+</div>

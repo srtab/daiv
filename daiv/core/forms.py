@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import json
 import re
-from typing import Any, ClassVar
+from functools import cached_property
+from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import urlparse
 
 from django import forms
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.base import ModelProvider, parse_model_spec
-from automation.agent.constants import MODEL_SUGGESTIONS
-from core.models import SiteConfiguration, WebFetchAuthHeader
+from automation.agent.base import parse_model_spec
+from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+
+if TYPE_CHECKING:
+    from core.models import FieldGroup
 
 
 class _BooleanCheckboxField(forms.BooleanField):
@@ -47,21 +51,20 @@ class _ModelSpecWidget(forms.Widget):
         context = super().get_context(name, value, attrs)
         if value:
             try:
-                provider, model_name = parse_model_spec(value)
-                context["widget"]["provider"] = provider.value
-                context["widget"]["model_name"] = model_name
+                resolved = parse_model_spec(value)
+                context["widget"]["provider"] = resolved.row.slug
+                context["widget"]["model_name"] = resolved.model_name
             except ValueError:
                 context["widget"]["provider"] = ""
                 context["widget"]["model_name"] = value
         else:
             context["widget"]["provider"] = ""
             context["widget"]["model_name"] = ""
-        context["widget"]["default_provider"] = self.default_provider
+        rows = Provider.get_cached_rows()
         context["widget"]["providers"] = [
             ("", self.default_provider_label),
-            *((p.value, p.value.replace("_", " ").title()) for p in ModelProvider),
+            *[(r.slug, f"{r.display_name}{'' if r.is_enabled else ' (disabled)'}") for r in rows if r.is_enabled],
         ]
-        context["widget"]["model_suggestions"] = MODEL_SUGGESTIONS
         return context
 
     @property
@@ -121,7 +124,6 @@ class SiteConfigurationForm(forms.ModelForm):
             "sandbox_cpu",
             "sandbox_memory",
             "suggest_context_file_enabled",
-            "openrouter_api_base",
             "rocketchat_enabled",
             "rocketchat_url",
             "rocketchat_user_id",
@@ -139,11 +141,13 @@ class SiteConfigurationForm(forms.ModelForm):
         env_locked_fields: set[str] | None = None,
         cleared_secrets: set[str] | None = None,
         field_defaults: dict[str, str] | None = None,
+        group: FieldGroup | None = None,
         **kwargs: Any,
     ):
         super().__init__(*args, **kwargs)
         self.env_locked_fields = env_locked_fields or set()
         self.cleared_secrets = cleared_secrets or set()
+        self.group = group
 
         self._add_secret_fields()
         self._configure_widgets()
@@ -152,6 +156,7 @@ class SiteConfigurationForm(forms.ModelForm):
         self._apply_env_locks()
         self._apply_defaults(field_defaults or {})
         self._hide_inapplicable_auth_fields()
+        self._restrict_to_group()
 
     # ------------------------------------------------------------------
     # Setup helpers
@@ -237,9 +242,9 @@ class SiteConfigurationForm(forms.ModelForm):
             widget = field_obj.widget
             if isinstance(widget, _ModelSpecWidget):
                 try:
-                    provider, model_name = parse_model_spec(default_str)
-                    widget.default_provider = provider.value
-                    widget.attrs.setdefault("placeholder", model_name)
+                    resolved = parse_model_spec(default_str)
+                    widget.default_provider = resolved.row.slug
+                    widget.attrs.setdefault("placeholder", resolved.model_name)
                 except ValueError:
                     widget.attrs.setdefault("placeholder", default_str)
             elif isinstance(widget, (forms.TextInput, forms.NumberInput)):
@@ -275,6 +280,15 @@ class SiteConfigurationForm(forms.ModelForm):
             ):
                 self.fields.pop(name, None)
 
+    def _restrict_to_group(self) -> None:
+        """When ``group`` is set, drop any field not in ``group.fields``."""
+        if self.group is None:
+            return
+        allowed = set(self.group.fields)
+        for name in list(self.fields):
+            if name not in allowed:
+                del self.fields[name]
+
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
@@ -287,24 +301,29 @@ class SiteConfigurationForm(forms.ModelForm):
         return cleaned_data
 
     def _validate_model_api_keys(self, cleaned_data: dict[str, Any]) -> None:
-        """Validate that each chosen model has an API key for its provider."""
-        from automation.agent.base import BaseAgent, ModelProvider
-
+        """Validate that each chosen model resolves to an enabled, keyed Provider row."""
+        rows = Provider.get_cached_by_slug()
         for field_name in SiteConfiguration.MODEL_NAME_FIELDS:
-            model_name = cleaned_data.get(field_name)
-            if not model_name:
+            model_spec = cleaned_data.get(field_name)
+            if not model_spec:
                 continue
             try:
-                provider = BaseAgent.get_model_provider(model_name)
+                slug = parse_model_spec(model_spec).row.slug
             except ValueError:
-                self.add_error(field_name, _("Unsupported model: %(model)s.") % {"model": model_name})
+                self.add_error(field_name, _("Unsupported model: %(m)s.") % {"m": model_spec})
                 continue
-            key_field = ModelProvider.api_key_field_for(provider)
-            if key_field and not self._has_api_key(key_field, cleaned_data):
+            row = rows.get(slug)
+            if row is None:
+                self.add_error(field_name, _("Provider '%(s)s' is not configured.") % {"s": slug})
+                continue
+            if not row.is_enabled:
                 self.add_error(
-                    field_name,
-                    _("No API key for %(provider)s. Set the %(key_label)s below or via environment variable.")
-                    % {"provider": provider.value.replace("_", " ").title(), "key_label": key_field.replace("_", " ")},
+                    field_name, _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": slug}
+                )
+                continue
+            if row.api_key is None:
+                self.add_error(
+                    field_name, _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": slug}
                 )
 
     def _validate_web_search_api_key(self, cleaned_data: dict[str, Any]) -> None:
@@ -372,10 +391,6 @@ class SiteConfigurationForm(forms.ModelForm):
     @staticmethod
     def _secret_help_text(name: str) -> str:
         labels: dict[str, str] = {
-            "anthropic_api_key": _("API key for Anthropic models."),
-            "openai_api_key": _("API key for OpenAI models."),
-            "google_api_key": _("API key for Google AI models."),
-            "openrouter_api_key": _("API key for OpenRouter."),
             "web_search_api_key": _("API key for Tavily web search engine."),
             "sandbox_api_key": _("API key for the sandbox service."),
             "auth_client_secret": _("OAuth application client secret for the configured Git platform."),
@@ -487,3 +502,207 @@ def build_web_fetch_auth_header_formset():
     return modelformset_factory(
         WebFetchAuthHeader, form=WebFetchAuthHeaderForm, formset=_WebFetchAuthHeaderFormset, extra=0, can_delete=True
     )
+
+
+PROVIDERS_FORMSET_PREFIX = "providers"
+_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+# Matches a leading version segment on the URL path (``/v1``, ``/v2beta``, etc.).
+# When the base_url's path doesn't start with one, openai-python appends paths
+# verbatim and the request hits the wrong route — see
+# ``ProviderForm.base_url_version_warning``. Case-insensitive so admins typing
+# ``/V1`` don't trip a false-positive.
+_VERSION_SEGMENT_RE = re.compile(r"^/v\d+[A-Za-z0-9._-]*(/|$)", re.IGNORECASE)
+
+
+class ProviderForm(forms.ModelForm):
+    """One row in the providers formset.
+
+    Mirrors :class:`WebFetchAuthHeaderForm` for the secret/secret-hint UX:
+    blank ``api_key`` on an existing instance preserves the stored secret;
+    submitting a new value rotates it.
+    """
+
+    api_key = _SecretFormField(
+        label=_("API key"), required=False, widget=forms.PasswordInput(attrs={"autocomplete": "off"})
+    )
+    # Submitted only when the user clicks the per-row "Clear" button, which sets
+    # the row's hidden ``providers-N-clear_api_key`` input to "on" before
+    # submitting. The button is type="button" so a stray Enter keypress can't
+    # activate it.
+    clear_api_key = forms.BooleanField(required=False)
+    extra_headers = forms.CharField(
+        label=_("Extra headers (JSON)"),
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2, "placeholder": '{"X-Foo": "bar"}'}),
+    )
+    use_responses_api = _BooleanCheckboxField(label=_("Use Responses API"), required=False)
+    # Model default is True (verification on); mirror that as the form initial so a
+    # brand-new row in the UI starts secure unless the admin explicitly opts out.
+    verify_ssl = _BooleanCheckboxField(label=_("Verify TLS certificates"), required=False, initial=True)
+
+    class Meta:
+        model = Provider
+        fields = (
+            "slug",
+            "display_name",
+            "provider_type",
+            "base_url",
+            "api_key",
+            "extra_headers",
+            "is_enabled",
+            "use_responses_api",
+            "verify_ssl",
+            "sort_order",
+        )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["api_key"].secret_hint = self.instance.get_secret_hint()  # type: ignore[attr-defined]
+            if self.instance.is_locked:
+                self.fields["slug"].disabled = True
+                self.fields["provider_type"].disabled = True
+        if self.instance and isinstance(self.instance.extra_headers, dict) and self.instance.extra_headers:
+            self.initial.setdefault("extra_headers", json.dumps(self.instance.extra_headers))
+
+    def has_changed(self) -> bool:
+        # ``is_enabled`` default and ``sort_order`` initial would otherwise flip has_changed on empty rows.
+        if self.empty_permitted and not any(
+            (self[name].value() or "").strip()
+            for name in ("slug", "display_name", "provider_type", "base_url", "api_key", "extra_headers")
+        ):
+            return False
+        return super().has_changed()
+
+    def clean_slug(self) -> str:
+        value = (self.cleaned_data.get("slug") or "").strip()
+        if value == "google":
+            raise forms.ValidationError(_("'google' is a reserved alias."))
+        if not _SLUG_RE.match(value):
+            raise forms.ValidationError(
+                _("Slug must start with a lowercase letter; lowercase letters, digits, '-' and '_'; max 32 chars.")
+            )
+        if self.instance and self.instance.pk and value != self.instance.slug:
+            raise forms.ValidationError(_("Slug is immutable after creation; delete and re-add to change."))
+        return value
+
+    def clean_provider_type(self) -> str | None:
+        value = self.cleaned_data.get("provider_type")
+        if self.instance and self.instance.pk and self.instance.is_locked and value != self.instance.provider_type:
+            raise forms.ValidationError(_("Locked provider; provider type cannot be changed."))
+        return value
+
+    def clean_base_url(self) -> str:
+        value = (self.cleaned_data.get("base_url") or "").strip()
+        if not value:
+            return value
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https"):
+            raise forms.ValidationError(_("Base URL must use http or https."))
+        return value
+
+    @cached_property
+    def base_url_version_warning(self) -> str | None:
+        if self["provider_type"].value() != ProviderType.OPENAI.value:
+            return None
+        base_url = (self["base_url"].value() or "").strip()
+        if not base_url or _VERSION_SEGMENT_RE.match(urlparse(base_url).path):
+            return None
+        return _(
+            "Base URL looks like it is missing a version segment (e.g. '/v1'). The OpenAI"
+            " SDK appends paths verbatim, so requests may hit the wrong route."
+        )
+
+    @cached_property
+    def verify_ssl_warning(self) -> str | None:
+        # langchain-anthropic / -google-genai don't expose ``http_client`` as a field, so
+        # an admin who toggles verify_ssl=False on those types still gets full TLS
+        # verification — warn so the silent override is visible at save time.
+        from automation.agent.base import _HTTPX_CLIENT_PROVIDER_TYPES
+
+        if self["verify_ssl"].value():
+            return None
+        provider_type = self["provider_type"].value()
+        if not provider_type or ProviderType(provider_type) in _HTTPX_CLIENT_PROVIDER_TYPES:
+            return None
+        return _(
+            "verify_ssl=False has no effect for this provider type — the SDK doesn't"
+            " accept a custom HTTP client. Mount the CA into the daiv containers instead."
+        )
+
+    def clean_extra_headers(self) -> dict:
+        raw = (self.cleaned_data.get("extra_headers") or "").strip()
+        if not raw:
+            return {}
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise forms.ValidationError(_("Invalid JSON: %s") % e) from e
+        if not isinstance(decoded, dict):
+            raise forms.ValidationError(_("Extra headers must be a JSON object."))
+        for name, value in decoded.items():
+            if not isinstance(name, str) or not _HEADER_NAME_RE.match(name):
+                raise forms.ValidationError(_("Invalid header name: %s") % name)
+            if not isinstance(value, str):
+                raise forms.ValidationError(_("Header value for %s must be a string.") % name)
+        return decoded
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        # Clearing implies disabling; skip the "required when enabled" check so
+        # the click doesn't dead-end on a validation error. Drop any submitted
+        # ``api_key`` too — keeps ``save`` and downstream readers (e.g. the
+        # in-flight providers map) symmetric on "the key is gone."
+        if cleaned.get("clear_api_key"):
+            cleaned["is_enabled"] = False
+            cleaned["api_key"] = ""
+            return cleaned
+        keeping_existing = bool(
+            self.instance and self.instance.pk and self.instance.api_key and not cleaned.get("api_key")
+        )
+        # A disabled row with no key is a legitimate state (the seed rows ship this
+        # way before an admin configures them); only require api_key when the row
+        # is enabled or newly created.
+        is_enabled = cleaned.get("is_enabled", False)
+        if is_enabled and not cleaned.get("api_key") and not keeping_existing:
+            self.add_error("api_key", _("Required when enabled."))
+        return cleaned
+
+    def save(self, commit: bool = True) -> Provider:
+        instance = super().save(commit=False)
+        if self.cleaned_data.get("clear_api_key"):
+            instance.api_key = None
+            instance.is_enabled = False
+        elif new_key := self.cleaned_data.get("api_key"):
+            instance.api_key = new_key
+        if commit:
+            instance.save()
+        return instance
+
+
+class _ProviderFormset(BaseModelFormSet):
+    def clean(self) -> None:
+        super().clean()
+        seen: set[str] = set()
+        for form in self.forms:
+            if not form.cleaned_data:
+                continue
+            if form.cleaned_data.get("DELETE"):
+                # Reject delete on a locked seed row here. ``Provider.delete``
+                # also raises ValueError, but that surfaces as a 500 on the
+                # admin POST; surfacing it as a formset error keeps the
+                # response a normal re-render with a visible message.
+                if form.instance and form.instance.pk and form.instance.is_locked:
+                    raise forms.ValidationError(_("Locked provider '%s' cannot be deleted.") % form.instance.slug)
+                continue
+            slug = form.cleaned_data.get("slug")
+            if not slug:
+                continue
+            if slug in seen:
+                raise forms.ValidationError(_("Duplicate slug: %s") % slug)
+            seen.add(slug)
+
+
+def build_provider_formset():
+    """Factory for the Provider model formset."""
+    return modelformset_factory(Provider, form=ProviderForm, formset=_ProviderFormset, extra=0, can_delete=True)

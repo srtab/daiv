@@ -1,0 +1,140 @@
+{% load i18n %}
+{% with is_built_in=row.instance.is_locked is_saved=row.instance.pk has_key=row.fields.api_key.secret_hint open_default=row.errors|yesno:"true,false" %}
+<div data-row
+     class="provider-row {% if not row.instance.is_enabled and is_saved %}provider-row--disabled{% endif %}"
+     :class="{ 'provider-row--open': open }"
+     x-data="{ open: {{ open_default }}, advancedOpen: false }">
+
+  {% if is_saved %}{{ row.id }}{% endif %}
+  {{ row.sort_order.as_hidden }}
+
+  <div class="provider-row__summary">
+    <span class="drag-handle" aria-label="{% translate 'Reorder' %}" data-drag-handle>⋮⋮</span>
+    <button type="button"
+            class="flex flex-1 items-center gap-3 text-left"
+            :aria-expanded="open"
+            @click="open = !open">
+      <span class="text-gray-400" x-text="open ? '▼' : '▸'"></span>
+      <span class="provider-row__name">{{ row.instance.display_name|default:_("New provider") }}</span>
+      <span class="provider-row__slug">
+        {{ row.instance.slug|default:'—' }}{% if not is_built_in and row.instance.provider_type %} · {{ row.instance.get_provider_type_display }}{% endif %}
+      </span>
+      {% if has_key %}
+      <span class="status-badge status-badge-success" aria-label="{% translate 'API key set' %}">● {% translate 'key set' %}</span>
+      {% else %}
+      <span class="status-badge status-badge-failed" aria-label="{% translate 'API key missing' %}">● {% translate 'no key' %}</span>
+      {% endif %}
+    </button>
+
+    <label class="toggle-switch" aria-label="{% translate 'Enabled' %}">
+      <input type="hidden" name="{{ row.is_enabled.html_name }}" value="">
+      <input type="checkbox" name="{{ row.is_enabled.html_name }}" value="on"
+             {% if row.is_enabled.value %}checked{% endif %}
+             class="toggle-switch__input">
+      <span class="toggle-switch__track"></span>
+    </label>
+
+    {% if not is_built_in %}
+    {% if is_saved %}<span class="hidden">{{ row.DELETE }}</span>{% endif %}
+    <button type="button"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-white/[0.06] hover:text-red-300"
+            @click="removeRow($el.closest('[data-row]'))"
+            aria-label="{% translate 'Remove' %}"
+            title="{% translate 'Remove' %}">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4" aria-hidden="true">
+        <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clip-rule="evenodd" />
+      </svg>
+    </button>
+    {% endif %}
+  </div>
+
+  <div x-show="open" x-cloak class="provider-row__panel">
+    {% if is_built_in %}
+      <input type="hidden" name="{{ row.slug.html_name }}" value="{{ row.instance.slug }}">
+      <input type="hidden" name="{{ row.provider_type.html_name }}" value="{{ row.instance.provider_type }}">
+
+      {% include "core/provider_row/_api_key.html" with row=row %}
+
+      <div>
+        <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.base_url.html_name }}">
+          {% translate "Base URL" %} <span class="text-gray-600 normal-case">({% translate "override" %})</span>
+        </label>
+        {{ row.base_url }}
+        {% if row.errors.base_url %}<p class="mt-1 text-xs text-red-300">{{ row.errors.base_url.0 }}</p>{% endif %}
+        {% if row.base_url_version_warning %}<p class="mt-1 text-xs text-yellow-300">{{ row.base_url_version_warning }}</p>{% endif %}
+        <p class="mt-1 text-[11px] text-gray-500">{% translate "Empty = SDK default. Useful for Azure / proxies." %}</p>
+      </div>
+
+      <button type="button" class="provider-row__advanced-toggle" @click="advancedOpen = !advancedOpen">
+        <span x-text="advancedOpen ? '▾' : '▸'"></span>
+        {% translate "Advanced" %}
+      </button>
+      <div x-show="advancedOpen" x-cloak class="provider-row__advanced">
+        <div>
+          <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.display_name.html_name }}">{% translate "Display name" %}</label>
+          {{ row.display_name }}
+          {% if row.errors.display_name %}<p class="mt-1 text-xs text-red-300">{{ row.errors.display_name.0 }}</p>{% endif %}
+        </div>
+        <div>
+          <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.extra_headers.html_name }}">{% translate "Extra headers (JSON)" %}</label>
+          {{ row.extra_headers }}
+          {% if row.errors.extra_headers %}<p class="mt-1 text-xs text-red-300">{{ row.errors.extra_headers.0 }}</p>{% endif %}
+        </div>
+        {% include "core/provider_row/_advanced_flags.html" with row=row %}
+      </div>
+
+    {% else %}
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.display_name.html_name }}">{% translate "Display name" %}</label>
+          {{ row.display_name }}
+          {% if row.errors.display_name %}<p class="mt-1 text-xs text-red-300">{{ row.errors.display_name.0 }}</p>{% endif %}
+        </div>
+        <div>
+          <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.provider_type.html_name }}">{% translate "Provider type" %}</label>
+          {{ row.provider_type }}
+          {% if row.errors.provider_type %}<p class="mt-1 text-xs text-red-300">{{ row.errors.provider_type.0 }}</p>{% endif %}
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.slug.html_name }}">{% translate "Slug" %}</label>
+        {% if is_saved %}
+          <p class="font-mono text-sm text-gray-300">{{ row.instance.slug }}</p>
+          <input type="hidden" name="{{ row.slug.html_name }}" value="{{ row.instance.slug }}">
+          <p class="mt-1 text-[11px] text-gray-500">{% translate "Slug is set at creation; delete and re-add to change." %}</p>
+        {% else %}
+          {{ row.slug }}
+        {% endif %}
+        {% if row.errors.slug %}<p class="mt-1 text-xs text-red-300">{{ row.errors.slug.0 }}</p>{% endif %}
+      </div>
+
+      <div>
+        <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.base_url.html_name }}">{% translate "Base URL" %}</label>
+        {{ row.base_url }}
+        {% if row.errors.base_url %}<p class="mt-1 text-xs text-red-300">{{ row.errors.base_url.0 }}</p>{% endif %}
+        {% if row.base_url_version_warning %}<p class="mt-1 text-xs text-yellow-300">{{ row.base_url_version_warning }}</p>{% endif %}
+      </div>
+
+      {% include "core/provider_row/_api_key.html" with row=row %}
+
+      <button type="button" class="provider-row__advanced-toggle" @click="advancedOpen = !advancedOpen">
+        <span x-text="advancedOpen ? '▾' : '▸'"></span>
+        {% translate "Advanced" %}
+      </button>
+      <div x-show="advancedOpen" x-cloak class="provider-row__advanced">
+        <div>
+          <label class="block text-[12px] uppercase tracking-wide text-gray-500" for="id_{{ row.extra_headers.html_name }}">{% translate "Extra headers (JSON)" %}</label>
+          {{ row.extra_headers }}
+          {% if row.errors.extra_headers %}<p class="mt-1 text-xs text-red-300">{{ row.errors.extra_headers.0 }}</p>{% endif %}
+        </div>
+        {% include "core/provider_row/_advanced_flags.html" with row=row %}
+      </div>
+    {% endif %}
+
+    {% for err in row.non_field_errors %}
+      <p class="text-xs text-red-300">{{ err }}</p>
+    {% endfor %}
+  </div>
+</div>
+{% endwith %}

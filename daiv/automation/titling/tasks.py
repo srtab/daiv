@@ -42,9 +42,12 @@ def _build_structured_llm():
     """Build the structured LLM chain with fallback. Raises ``RuntimeError`` if no model is configured."""
 
     def _structured(model_name: str):
+        # No ``max_tokens`` cap: reasoning models (GPT-5, Claude thinking) count reasoning
+        # tokens toward the budget, so a tight cap starves the structured-output JSON and
+        # raises LengthFinishReasonError. Title length is bounded by ``GeneratedTitle.title``.
         return (
             BaseAgent
-            .get_model(model=model_name, max_tokens=60)
+            .get_model(model=model_name)
             .with_structured_output(GeneratedTitle)
             .with_retry(stop_after_attempt=2)
         )

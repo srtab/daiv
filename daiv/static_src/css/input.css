@@ -1486,3 +1486,91 @@ main:has(.chat-shell) {
     color: #334155;
   }
 }
+
+/* -- Providers form ------------------------------------------------------- */
+
+@layer components {
+  .provider-section {
+    @apply space-y-1.5;
+  }
+
+  .provider-section__heading {
+    @apply mt-4 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-500;
+  }
+
+  .provider-row {
+    @apply rounded-xl border border-white/[0.06] bg-white/[0.02] transition-colors;
+  }
+
+  .provider-row:hover {
+    @apply border-white/[0.10];
+  }
+
+  .provider-row--open {
+    @apply border-indigo-400/30 bg-indigo-500/[0.04];
+  }
+
+  .provider-row--disabled {
+    @apply opacity-70;
+  }
+
+  .provider-row__summary {
+    @apply flex items-center gap-3 px-3 py-2.5;
+  }
+
+  .provider-row__name {
+    @apply text-[15px] font-medium text-white;
+  }
+
+  .provider-row__slug {
+    @apply font-mono text-[12px] text-gray-500;
+  }
+
+  .provider-row__panel {
+    @apply space-y-4 border-t border-white/[0.06] bg-black/20 px-3 py-3 rounded-b-xl;
+  }
+
+  .provider-row__advanced-toggle {
+    @apply inline-flex items-center gap-1 text-[12px] text-gray-400 hover:text-gray-200;
+  }
+
+  .provider-row__advanced {
+    @apply mt-2 space-y-3 border-l-2 border-white/[0.06] pl-3;
+  }
+
+  .drag-handle {
+    @apply cursor-grab text-gray-500 hover:text-gray-300 select-none;
+  }
+
+  .drag-handle:active {
+    @apply cursor-grabbing;
+  }
+
+  /* The :checked + sibling selector requires the input to be the immediate
+     previous sibling of the .toggle-switch__track element. */
+  .toggle-switch {
+    @apply relative inline-flex h-5 w-9 cursor-pointer items-center;
+  }
+
+  .toggle-switch__input {
+    @apply sr-only;
+  }
+
+  .toggle-switch__track {
+    @apply h-5 w-9 rounded-full border border-white/[0.08] bg-white/[0.04] transition-colors duration-200
+           after:absolute after:left-[3px] after:top-[3px] after:h-3.5 after:w-3.5 after:rounded-full
+           after:bg-gray-400 after:transition-all after:duration-200;
+  }
+
+  .toggle-switch__input:checked + .toggle-switch__track {
+    @apply border-white/[0.15] bg-white/[0.15];
+  }
+
+  .toggle-switch__input:checked + .toggle-switch__track::after {
+    @apply translate-x-[14px] bg-white;
+  }
+
+  .toggle-switch__input:disabled + .toggle-switch__track {
+    @apply opacity-50 cursor-not-allowed;
+  }
+}
