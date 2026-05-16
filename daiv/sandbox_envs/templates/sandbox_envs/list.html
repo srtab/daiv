@@ -3,7 +3,11 @@
 
 {% block title %}{% translate "Sandbox Environments" %} — DAIV{% endblock %}
 
-{% block head_extra %}<script defer src="{% static 'sandbox_envs/js/env-drawer.js' %}"></script>{% endblock %}
+{% block head_extra %}
+<script defer src="{% static 'sandbox_envs/js/env-drawer.js' %}"></script>
+<script defer src="{% static 'sandbox_envs/js/env-vars-editor.js' %}"></script>
+<script defer src="{% static 'sandbox_envs/js/resource-control.js' %}"></script>
+{% endblock head_extra %}
 
 {% block container_width %}max-w-6xl{% endblock %}
 
