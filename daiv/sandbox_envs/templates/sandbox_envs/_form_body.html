@@ -34,7 +34,7 @@
     <div>
         <label class="block text-[15px] font-medium text-gray-400">{% translate "Scope" %}</label>
         <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1"
-             x-data="{ scope: '{{ form.scope.value|default:'user' }}' }">
+             x-data="{ scope: '{{ form.scope.value|default:'user'|escapejs }}' }">
             {% for value, label in form.scope.field.choices %}
             <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                    :class="scope === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
@@ -125,10 +125,10 @@
 
     {# ---- Resources ---- #}
     <div x-data="resourceControl({
-              network: '{{ form.network_choice.value|default:'default' }}',
-              memValue: '{{ form.memory_value.value|default:'' }}',
-              memUnit: '{{ form.memory_unit.value|default:'MiB' }}',
-              cpuValue: '{{ form.cpus.value|default:'' }}',
+              network: '{{ form.network_choice.value|default:'default'|escapejs }}',
+              memValue: '{{ form.memory_value.value|default:''|escapejs }}',
+              memUnit: '{{ form.memory_unit.value|default:'MiB'|escapejs }}',
+              cpuValue: '{{ form.cpus.value|default:''|escapejs }}',
               forceOpen: {% if is_default_form %}true{% else %}false{% endif %},
               hasErrors: {% if form.network_choice.errors or form.memory_value.errors or form.memory_unit.errors or form.cpus.errors %}true{% else %}false{% endif %},
           })">
