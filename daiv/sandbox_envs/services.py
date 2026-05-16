@@ -125,6 +125,47 @@ async def get_global_default() -> SandboxEnvOverride | None:
     )
 
 
+def humanise_global_default() -> dict[str, str | bool]:
+    """Synchronous, template-friendly view of the resolved GLOBAL default.
+
+    Mirrors :func:`get_global_default` but returns display strings — used by
+    the form template's "Use default — currently X" labels. Each ``has_*``
+    flag is true when that field has a resolved value (a row value or an
+    env-lock overlay); when false, the corresponding string is empty and the
+    template should fall back to a generic "Use default" label.
+    """
+    from core.site_settings import site_settings
+
+    row = SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).first()
+    locked = site_settings.is_env_locked
+
+    def _resolve(field: str, lock_setting: str):
+        if locked(lock_setting):
+            return getattr(site_settings, lock_setting, None)
+        return getattr(row, field, None) if row is not None else None
+
+    network = _resolve("network_enabled", "sandbox_network_enabled")
+    memory = _resolve("memory_bytes", "sandbox_memory")
+    cpus = _resolve("cpus", "sandbox_cpu")
+
+    memory_str = ""
+    if memory:
+        memory_str = f"{memory // 2**30} GiB" if memory % 2**30 == 0 else f"{memory // 2**20} MiB"
+
+    return {
+        "network": "enabled" if network else ("disabled" if network is False else ""),
+        "memory": memory_str,
+        "cpus": (
+            (str(int(cpus)) if cpus == int(cpus) else str(Decimal(cpus).normalize()))
+            if isinstance(cpus, Decimal | float | int)
+            else ""
+        ),
+        "has_network": network is not None,
+        "has_memory": bool(memory),
+        "has_cpus": cpus is not None,
+    }
+
+
 def looks_like_uuid(s: str) -> bool:
     try:
         UUID(s)

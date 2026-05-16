@@ -250,3 +250,58 @@ def test_get_locked_runtime_fields_returns_locked_subset(monkeypatch):
     )
     locked = get_locked_runtime_fields()
     assert locked == frozenset({"memory_bytes", "cpus"})
+
+
+@pytest.mark.django_db(transaction=True)
+def test_humanise_global_default_with_full_row(monkeypatch):
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL,
+        name="Default",
+        base_image="python:3.14",
+        network_enabled=True,
+        memory_bytes=2 * 2**30,
+        cpus=Decimal("1.5"),
+        is_default=True,
+    )
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: False)
+    from sandbox_envs.services import humanise_global_default
+
+    summary = humanise_global_default()
+    assert summary == {
+        "network": "enabled",
+        "memory": "2 GiB",
+        "cpus": "1.5",
+        "has_network": True,
+        "has_memory": True,
+        "has_cpus": True,
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+def test_humanise_global_default_empty_returns_none_marks(monkeypatch):
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: False)
+    from sandbox_envs.services import humanise_global_default
+
+    summary = humanise_global_default()
+    assert summary == {
+        "network": "",
+        "memory": "",
+        "cpus": "",
+        "has_network": False,
+        "has_memory": False,
+        "has_cpus": False,
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+def test_humanise_global_default_memory_in_mib_when_not_whole_gib(monkeypatch):
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", memory_bytes=768 * 2**20, is_default=True
+    )
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: False)
+    from sandbox_envs.services import humanise_global_default
+
+    assert humanise_global_default()["memory"] == "768 MiB"
