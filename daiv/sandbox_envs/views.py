@@ -122,6 +122,7 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
         ctx = super().get_context_data(**kwargs)
         ctx["env_vars_initial"] = "[]"
         ctx["in_drawer"] = _is_htmx(self.request)
+        ctx["is_default_form"] = False
         ctx.update(_global_default_summary_context())
         return ctx
 
@@ -177,6 +178,7 @@ class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
         ctx["env_vars_initial"] = _encode_env_vars_for_template(self.object)
         ctx["show_delete"] = True
         ctx["in_drawer"] = _is_htmx(self.request)
+        ctx["is_default_form"] = self.object.scope == Scope.GLOBAL and self.object.is_default
         ctx.update(_global_default_summary_context())
         return ctx
 

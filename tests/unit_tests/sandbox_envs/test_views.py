@@ -294,3 +294,32 @@ def test_edit_htmx_post_invalid_returns_form_body_with_errors(client, user):
     assert "sandbox_envs/_form_body.html" in rendered
     assert "HX-Trigger" not in resp.headers
     assert resp.context["form"].errors
+
+
+@pytest.mark.django_db
+def test_edit_global_default_sets_is_default_form_true(client, admin):
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+    )
+    client.force_login(admin)
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    assert resp.status_code == 200
+    assert resp.context["is_default_form"] is True
+
+
+@pytest.mark.django_db
+def test_edit_non_default_user_env_sets_is_default_form_false(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    assert resp.status_code == 200
+    assert resp.context["is_default_form"] is False
+
+
+@pytest.mark.django_db
+def test_create_context_sets_is_default_form_false(client, user):
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:create"))
+    assert resp.status_code == 200
+    assert resp.context["is_default_form"] is False
