@@ -10,7 +10,7 @@ from asgiref.sync import async_to_sync
 from jobs.tasks import run_job_task
 
 from activity.models import Activity, TriggerType
-from automation.titling.tasks import generate_title_task
+from automation.titling.tasks import generate_batch_title_task
 
 _PROMPT_DRIVEN = {TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.UI_JOB}
 
@@ -247,17 +247,6 @@ async def asubmit_batch_runs(
             )
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error="ActivityCreationFailed")
 
-        if trigger_type in _PROMPT_DRIVEN and prompt:
-            try:
-                await generate_title_task.aenqueue(
-                    entity_type="activity",
-                    pk=str(activity.pk),
-                    prompt=prompt,
-                    repo_id=target.repo_id,
-                    ref=target.ref or "",
-                )
-            except Exception:  # noqa: BLE001
-                logger.exception("Failed to enqueue title task for activity %s", activity.pk)
         return activity
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
@@ -276,6 +265,18 @@ async def asubmit_batch_runs(
             failed.append(outcome)
         else:
             activities.append(outcome)
+
+    if activities and trigger_type in _PROMPT_DRIVEN and prompt:
+        try:
+            await generate_batch_title_task.aenqueue(batch_id=str(batch_id), prompt=prompt)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Failed to enqueue batch title task for batch_id=%s user=%s trigger=%s activities=%d",
+                batch_id,
+                user.pk if user is not None else None,
+                trigger_type,
+                len(activities),
+            )
 
     return BatchSubmitResult(batch_id=batch_id, activities=activities, failed=failed)
 

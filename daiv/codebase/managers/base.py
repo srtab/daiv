@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from langgraph.store.memory import InMemoryStore
 
 from automation.agent.publishers import GitChangePublisher
-from automation.agent.results import AgentResult, build_agent_result
+from automation.agent.results import NO_SNAPSHOT, AgentResult, build_agent_result
 from codebase.clients import RepoClient
 from codebase.utils import GitManager
 
@@ -67,13 +67,14 @@ class BaseManager:
         *,
         response: str,
         usage: dict[str, Any] | None = None,
-        snapshot: Any = None,
+        snapshot: Any = NO_SNAPSHOT,
     ) -> AgentResult:
         """
         Build a standardized :class:`AgentResult` from the agent's persisted state.
 
         ``code_changes`` is a PrivateStateAttr, so it's omitted from ainvoke output.
         We read it from the persisted checkpoint instead. Pass ``snapshot`` to
-        reuse a pre-fetched state and skip the extra Redis read.
+        reuse a pre-fetched state and skip the extra Redis read; pass ``None``
+        explicitly to signal the read already failed (no retry).
         """
         return await build_agent_result(agent, config, response=response, usage=usage, snapshot=snapshot)

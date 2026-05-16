@@ -6,6 +6,8 @@ from django.db import models, transaction
 from crontask import cron
 from django_tasks import task
 
+from schedules.models import ScheduledJob
+
 logger = logging.getLogger("daiv.schedules")
 
 
@@ -21,8 +23,6 @@ def dispatch_scheduled_jobs_cron_task():
     """
     from activity.models import TriggerType
     from activity.services import RepoTarget, submit_batch_runs
-
-    from schedules.models import ScheduledJob
 
     now = datetime.now(tz=UTC)
     dispatched = 0
@@ -52,9 +52,9 @@ def dispatch_scheduled_jobs_cron_task():
                     schedule.last_run_at = now
                     schedule.last_run_batch_id = result.batch_id
                     schedule.run_count = models.F("run_count") + 1
-                    schedule.compute_next_run(after=now)
+                    advance_fields = schedule.advance_after_dispatch(after=now)
                     schedule.save(
-                        update_fields=["last_run_at", "last_run_batch_id", "run_count", "next_run_at", "modified"]
+                        update_fields=["last_run_at", "last_run_batch_id", "run_count", "modified", *advance_fields]
                     )
                 dispatched += 1
                 if result.failed:
@@ -69,8 +69,8 @@ def dispatch_scheduled_jobs_cron_task():
                 failed += 1
                 try:
                     schedule.refresh_from_db(fields=["run_count", "last_run_at", "last_run_batch_id", "next_run_at"])
-                    schedule.compute_next_run(after=now)
-                    schedule.save(update_fields=["next_run_at", "modified"])
+                    advance_fields = schedule.advance_after_dispatch(after=now)
+                    schedule.save(update_fields=["modified", *advance_fields])
                 except Exception:
                     logger.exception(
                         "Failed to advance next_run_at for scheduled job pk=%d (%s); disabling schedule",

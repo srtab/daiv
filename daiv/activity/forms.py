@@ -19,7 +19,13 @@ from activity.services import validate_repo_list
 
 
 class RepoListField(forms.JSONField):
-    """Form field for a JSON-encoded ``[{"repo_id", "ref"}, ...]`` hidden input."""
+    """Form field for a JSON-encoded ``[{"repo_id", "ref"}, ...]`` hidden input.
+
+    With ``required=False`` an *exactly-empty* list bypasses ``validate_repo_list``
+    (which enforces a 1-entry minimum) — used by schedule templates where empty
+    means "let users choose". Other falsy or malformed shapes still fall through
+    to validation so the user sees an explicit error rather than a silent reset.
+    """
 
     widget = forms.HiddenInput
     default_error_messages = {"invalid": _("Malformed repository list.")}
@@ -28,6 +34,8 @@ class RepoListField(forms.JSONField):
         parsed = super().to_python(value)
         if parsed is None:
             return None
+        if parsed == [] and not self.required:
+            return []
         try:
             return validate_repo_list(parsed)
         except ValueError as err:
@@ -35,7 +43,7 @@ class RepoListField(forms.JSONField):
 
     def prepare_value(self, value):
         # Widget value is embedded verbatim into Alpine's initialRepos; empty must serialize as "[]", not "null".
-        if value is None:
+        if value in (None, []):
             return "[]"
         return super().prepare_value(value)
 

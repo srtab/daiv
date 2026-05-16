@@ -33,6 +33,42 @@ def homepage(request):
     return render(request, "accounts/homepage.html")
 
 
+PICKER_USERS_LIMIT = 10
+PICKER_USERS_MIN_QUERY = 2
+
+
+class UserPickerView(LoginRequiredMixin, TemplateView):
+    """HTMX fragment: up to ``PICKER_USERS_LIMIT`` active users matching ``?q=``.
+
+    Excludes the requesting user and any ids passed in ``?exclude=`` (CSV).
+    """
+
+    template_name = "accounts/_user_picker_list.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        query = self.request.GET.get("q", "").strip()
+        if len(query) < PICKER_USERS_MIN_QUERY:
+            context["users"] = []
+            return context
+
+        exclude_ids: set[int] = {self.request.user.pk}
+        for part in self.request.GET.get("exclude", "").split(","):
+            stripped = part.strip()
+            if stripped.isdigit():
+                exclude_ids.add(int(stripped))
+
+        context["users"] = (
+            User.objects
+            .filter(is_active=True)
+            .filter(Q(username__icontains=query) | Q(email__icontains=query) | Q(name__icontains=query))
+            .exclude(pk__in=exclude_ids)
+            .only("pk", "username", "name", "email")
+            .order_by("username")[:PICKER_USERS_LIMIT]
+        )
+        return context
+
+
 PERIOD_CHOICES = [
     ("today", "Today", 0),
     ("7d", "7 days", 7),

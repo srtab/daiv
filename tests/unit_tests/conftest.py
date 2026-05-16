@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.core.cache import cache
 from django.test import Client
 
 import pytest
@@ -13,6 +14,20 @@ from accounts.models import User as AccountUser
 from codebase.base import GitPlatform, MergeRequest, Repository, User
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
+from core.models import PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY
+
+
+@pytest.fixture(autouse=True)
+def _clear_model_caches():
+    # Provider/WebFetchAuthHeader/SiteConfiguration invalidate via
+    # transaction.on_commit; @pytest.mark.django_db tests roll back without
+    # committing, so the LocMem cache would otherwise leak state between tests.
+    keys = (PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+    for key in keys:
+        cache.delete(key)
+    yield
+    for key in keys:
+        cache.delete(key)
 
 
 @pytest.fixture
@@ -66,6 +81,28 @@ def mock_settings(monkeypatch):
         patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
     ):
         yield codebase_settings
+
+
+@pytest.fixture(autouse=True)
+def mock_generate_title_task():
+    """Stub the titling tasks so the ImmediateBackend doesn't fire real LLM calls.
+
+    Without this, every test that hits ``submit_batch_runs`` / chat thread creation
+    pays for two failed LLM retries plus the fallback model — adding tens of seconds
+    to the suite. Tests that exercise titling itself import the ``.func`` attribute
+    directly, so they bypass this patch.
+
+    Patching the module-level binding at each import site (rather than the frozen
+    ``Task`` instance) avoids ``patch.object`` teardown issues on slotted dataclasses.
+    """
+    with (
+        patch("activity.services.generate_batch_title_task") as m1,
+        patch("chat.models.generate_title_task") as m2,
+        patch("chat.api.threads.generate_title_task") as m3,
+    ):
+        for m in (m1, m2, m3):
+            m.aenqueue = AsyncMock(return_value=None)
+        yield m1
 
 
 @pytest.fixture(autouse=True)

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from git import Repo
 
+from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands
 from core.conf import settings as core_settings
 from core.sandbox.client import DAIVSandboxClient
@@ -73,11 +74,9 @@ def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
 
 
 def _make_middleware(*, close_session: bool = True) -> SandboxMiddleware:
-    """Build a SandboxMiddleware with dummy backend/working_dir; tests that don't exercise
-    write-sync never read these values."""
-    from pathlib import Path
-
-    return SandboxMiddleware(backend=Mock(), working_dir=Path("/dummy"), close_session=close_session)
+    """Build a SandboxMiddleware with a dummy backend; tests that don't exercise
+    write-sync never read it."""
+    return SandboxMiddleware(backend=Mock(), agent_root="/dummy", close_session=close_session)
 
 
 def _bash_tool_with_fake_client(client: Mock):
@@ -118,7 +117,11 @@ class TestBashTool:
         runtime = _make_bash_runtime(repo)
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
-        bash_tool = _bash_tool_with_fake_client(client)
+        middleware = SandboxMiddleware(
+            backend=Mock(spec=DAIVFilesystemBackend), agent_root=f"/{repo_dir.name}", close_session=True
+        )
+        middleware._client = client
+        bash_tool = middleware.tools[0]
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
@@ -130,6 +133,37 @@ class TestBashTool:
         # The patch just edits hello.txt — nothing added/deleted/renamed.
         assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
         client.run_commands.assert_awaited_once()
+
+    async def test_bash_tool_returns_error_when_apply_patch_raises(self, tmp_path: Path):
+        """If ``GitManager.apply_patch`` raises (e.g. malformed sandbox patch), the bash tool
+        must surface a "Failed to persist" error string instead of returning the JSON
+        success payload — otherwise the agent's local filesystem silently desyncs from
+        the sandbox while bash claims success."""
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        repo = Repo.init(repo_dir)
+
+        # Non-empty patch so the response.patch branch is taken.
+        response = RunCommandsResponse(
+            results=[], patch=base64.b64encode(b"diff --git a/x b/x\nbogus\n").decode("utf-8")
+        )
+
+        runtime = _make_bash_runtime(repo)
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=response)
+        middleware = SandboxMiddleware(
+            backend=Mock(spec=DAIVFilesystemBackend), agent_root=f"/{repo_dir.name}", close_session=True
+        )
+        middleware._client = client
+        bash_tool = middleware.tools[0]
+
+        with patch(
+            "automation.agent.middlewares.sandbox.GitManager.apply_patch",
+            side_effect=RuntimeError("simulated apply failure"),
+        ):
+            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
+
+        assert output.startswith("error: Failed to persist")
 
     async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
         import httpx
@@ -327,6 +361,32 @@ class TestRunBashCommands:
         dumped = request.model_dump()
         assert "archive" not in dumped
         assert dumped["commands"] == ["echo ok"]
+
+
+class TestResolveRepoBackend:
+    """Validate the helper that the patch-apply and gitignore-guard dispatches rely on:
+    with composite present, the underlying repo backend is unwrapped (so isinstance
+    dispatch works); without composite, the backend passes through.
+    """
+
+    def test_composite_returns_underlying_default(self, tmp_path: Path):
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend, DAIVFilesystemBackend
+        from automation.agent.middlewares.sandbox import _resolve_repo_backend
+
+        skills = DAIVFilesystemBackend(root_dir=tmp_path / "s", virtual_mode=True)
+        (tmp_path / "s").mkdir()
+        repo = DAIVFilesystemBackend(root_dir=tmp_path / "r", virtual_mode=True)
+        (tmp_path / "r").mkdir()
+        composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
+
+        assert _resolve_repo_backend(composite, "/myrepo") is repo
+
+    def test_bare_backend_passes_through(self, tmp_path: Path):
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+        from automation.agent.middlewares.sandbox import _resolve_repo_backend
+
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        assert _resolve_repo_backend(backend, "/myrepo") is backend
 
 
 class TestSandboxMiddleware:
@@ -532,6 +592,7 @@ class TestSandboxMiddleware:
         with (
             open_patch,
             close_patch,
+            patch("automation.agent.middlewares.sandbox.SKILLS_CACHE_PATH", skills_dir),
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_skills"),
@@ -540,7 +601,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
-            middleware = _make_middleware(close_session=True)
+            middleware = SandboxMiddleware(backend=Mock(), agent_root=f"/{repo_dir.name}", close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_skills"}
@@ -806,6 +867,40 @@ class TestAwrapToolCall:
         result = await middleware.awrap_tool_call(request, handler)
         assert result is sentinel
 
+    async def test_write_file_refused_outside_agent_root(self, tmp_path: Path):
+        """A write to ``/skills/...`` (or any path outside agent_root) must be refused
+        before dispatch. The skills mount is shared across concurrent agent runs in this
+        process; an errant write here would later trigger a rollback ``backend.delete``
+        that clobbers a file other runs depend on.
+        """
+        from langchain_core.messages import ToolMessage
+
+        from automation.agent.middlewares.file_system import SandboxSyncer
+
+        backend = Mock(spec=DAIVFilesystemBackend)
+        runtime = Mock()
+        runtime.context = Mock(has_repo=True)
+        runtime.state = {"session_id": "sess_1"}
+
+        middleware = _make_middleware()
+        middleware._backend = backend
+        middleware._agent_root = "/myrepo"
+        middleware._syncer = SandboxSyncer(backend=backend, agent_root="/myrepo", client=Mock())
+
+        request = self._request(
+            "write_file", {"file_path": "/skills/some-skill/SKILL.md", "content": "x"}, runtime=runtime
+        )
+        handler = AsyncMock()
+
+        result = await middleware.awrap_tool_call(request, handler)
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "Refused" in result.content
+        assert "/myrepo/" in result.content
+        handler.assert_not_called()
+        backend.delete.assert_not_called()
+
     async def test_write_file_dispatches_when_resolve_target_fails(self, tmp_path: Path):
         """Pre-dispatch path-resolution failure must fall through to upstream, not
         synthesize a refusal — upstream owns the canonical "invalid path" error."""
@@ -817,17 +912,19 @@ class TestAwrapToolCall:
         repo_dir.mkdir()
         repo = Repo.init(repo_dir)
 
-        backend = Mock()
+        backend = Mock(spec=DAIVFilesystemBackend)
         backend._resolve_path = Mock(side_effect=ValueError("traversal"))
 
         runtime = Mock()
-        runtime.context = Mock(gitrepo=repo)
+        runtime.context = Mock(gitrepo=repo, has_repo=True)
         runtime.state = {"session_id": "sess_1"}
 
         middleware = _make_middleware()
-        middleware._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+        middleware._backend = backend
+        middleware._agent_root = f"/{repo_dir.name}"
+        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
 
-        request = self._request("write_file", {"file_path": "/repo/foo", "content": "x"}, runtime=runtime)
+        request = self._request("write_file", {"file_path": f"/{repo_dir.name}/foo", "content": "x"}, runtime=runtime)
         sentinel = ToolMessage(content="upstream error", tool_call_id="call_1", name="write_file", status="error")
         handler = AsyncMock(return_value=sentinel)
 
@@ -851,18 +948,20 @@ class TestAwrapToolCall:
 
         target = repo_dir / ".python-version"
 
-        backend = Mock()
-        backend._resolve_path = Mock(return_value=str(target))
+        backend = Mock(spec=DAIVFilesystemBackend)
+        backend._to_path = Mock(return_value=target)
 
         runtime = Mock()
-        runtime.context = Mock(gitrepo=repo)
+        runtime.context = Mock(gitrepo=repo, has_repo=True)
         runtime.state = {"session_id": "sess_1"}
 
         middleware = _make_middleware()
-        middleware._syncer = SandboxSyncer(backend=backend, working_dir=repo_dir, client=Mock())
+        middleware._backend = backend
+        middleware._agent_root = f"/{repo_dir.name}"
+        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
 
         request = self._request(
-            "write_file", {"file_path": "/repo/.python-version", "content": "3.11\n"}, runtime=runtime
+            "write_file", {"file_path": f"/{repo_dir.name}/.python-version", "content": "3.11\n"}, runtime=runtime
         )
         handler = AsyncMock()
 
@@ -872,4 +971,43 @@ class TestAwrapToolCall:
         assert result.status == "error"
         assert ".gitignore" in result.content
         assert not target.exists()
+        handler.assert_not_called()
+
+    async def test_write_file_refused_when_gitignore_check_unknown(self, tmp_path: Path):
+        """If `git check-ignore` itself fails (corrupt repo, missing binary, permissions),
+        the helper returns ``IgnoreCheck.UNKNOWN`` and the write must be refused — failing
+        open here would silently re-introduce the `git add -A` drop the guard prevents."""
+        from langchain_core.messages import ToolMessage
+
+        from automation.agent.middlewares.file_system import SandboxSyncer
+        from codebase.utils import GitManager, IgnoreCheck
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        repo = Repo.init(repo_dir)
+        target = repo_dir / "foo.py"
+
+        backend = Mock(spec=DAIVFilesystemBackend)
+        backend._to_path = Mock(return_value=target)
+
+        runtime = Mock()
+        runtime.context = Mock(gitrepo=repo, has_repo=True)
+        runtime.state = {"session_id": "sess_1"}
+
+        middleware = _make_middleware()
+        middleware._backend = backend
+        middleware._agent_root = f"/{repo_dir.name}"
+        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
+
+        request = self._request(
+            "write_file", {"file_path": f"/{repo_dir.name}/foo.py", "content": "x\n"}, runtime=runtime
+        )
+        handler = AsyncMock()
+
+        with patch.object(GitManager, "is_path_ignored", return_value=IgnoreCheck.UNKNOWN):
+            result = await middleware.awrap_tool_call(request, handler)
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "could not determine" in result.content
         handler.assert_not_called()

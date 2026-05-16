@@ -56,6 +56,8 @@ def _build_general_purpose_middleware(
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
+
+    ``close_session=False`` lets the subagent reuse the parent agent's sandbox session.
     """
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
@@ -86,9 +88,8 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if sandbox_enabled:
-        middleware.append(
-            SandboxMiddleware(backend=backend, working_dir=Path(runtime.gitrepo.working_dir), close_session=False)
-        )
+        agent_path = Path(runtime.gitrepo.working_dir)
+        middleware.append(SandboxMiddleware(backend=backend, agent_root=f"/{agent_path.name}", close_session=False))
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))

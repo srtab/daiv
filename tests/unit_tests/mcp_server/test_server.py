@@ -34,7 +34,7 @@ def _patch_acreate():
     acreate_patch = patch(
         "activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity
     )
-    title_patch = patch("activity.services.generate_title_task")
+    title_patch = patch("activity.services.generate_batch_title_task")
 
     class _Combined:
         def __enter__(self):
@@ -164,10 +164,11 @@ async def test_submit_job_all_fail():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_empty_batch_returns_error_json():
+async def test_submit_job_empty_repos_returns_error_json():
     result = await submit_job(repos=[], prompt="p")
     data = json.loads(result)
     assert "error" in data
+    assert "At least one repository" in data["error"]
 
 
 @pytest.mark.django_db(transaction=True)

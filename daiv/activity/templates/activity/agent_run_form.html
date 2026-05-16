@@ -2,15 +2,16 @@
 {% load i18n static %}
 
 {% block title %}{% if source_activity %}Retry run{% else %}Start a run{% endif %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
-{% endblock %}
+{% endblock alpine_plugins %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
-{% endblock %}
+{% endblock breadcrumb %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -49,14 +50,14 @@
 
     <div class="mt-6">
         <label for="id_sandbox_environment" class="block text-[15px] font-medium text-gray-400">
-            {% trans "Sandbox environment" %}
+            {% translate "Sandbox environment" %}
         </label>
         {{ form.sandbox_environment }}
         {% if form.sandbox_environment.errors %}
         <p class="mt-1.5 text-sm text-red-400">{{ form.sandbox_environment.errors.0 }}</p>
         {% endif %}
         <p class="mt-1.5 text-sm text-gray-500">
-            {% trans "Leave unset to use the global default." %}
+            {% translate "Leave unset to use the global default." %}
         </p>
     </div>
 
@@ -69,4 +70,4 @@
         </a>
     </div>
 </form>
-{% endblock %}
+{% endblock app_content %}

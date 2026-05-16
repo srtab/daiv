@@ -7,6 +7,7 @@ from git import Repo  # noqa: TC002
 
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
+from codebase.exceptions import SingleRepoRequiredError
 from codebase.repo_config import RepositoryConfig, SandboxCommandPolicy  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -36,43 +37,69 @@ class SandboxRuntime:
 
 
 @dataclass(frozen=True)
-class RuntimeCtx:
+class RepoHandle:
+    """Bindings for a single repository within a RuntimeCtx.
+
+    A RuntimeCtx holds exactly one of these today (enforced in
+    :meth:`RuntimeCtx.__post_init__`). The tuple shape on RuntimeCtx is the
+    multi-repo seam; the forwarding properties (``repository``, ``gitrepo``,
+    ``git_platform``, ``config``) make single-handle access read like a flat
+    dataclass.
     """
-    Context to be used across the application layers.
-    It needs to be set as early as possible on the request lifecycle or task execution.
 
-    With this context, we ensure that application layers that need the repository files can access them without doing
-    API calls by accessing the defined `repo_dir` directory, which is a temporary directory with the repository files.
-
-    The context is reset at the end of the request lifecycle or task execution.
-    """
-
+    repo_id: str
     git_platform: GitPlatform
-    """The Git platform"""
-
     repository: Repository
-    """The repository object"""
-
     gitrepo: Repo
-    """The Git repository object"""
-
     config: RepositoryConfig
-    """The repository configuration"""
 
-    sandbox: SandboxRuntime
+
+@dataclass(frozen=True)
+class RuntimeCtx:
+    """Per-run context. Holds a tuple of repository handles plus shared agent-level state.
+
+    The constructor enforces ``len(repos) == 1`` (raising
+    :class:`SingleRepoRequiredError` otherwise); forwarding properties
+    (``repository``, ``gitrepo``, ``git_platform``, ``config``) delegate to
+    ``self.repo``. The tuple is the multi-repo seam for the future, not a
+    capability today.
+    """
+
+    bot_username: str
+    repos: tuple[RepoHandle, ...] = ()
+    sandbox: SandboxRuntime | None = None
     """The effective sandbox configuration for the current run"""
-
     scope: Scope | None = None
-    """The scope of the context. If None, not running in a specific scope."""
-
     issue: Issue | None = None
-    """The issue object if the context is scoped to an issue, None otherwise"""
-
     merge_request: MergeRequest | None = None
-    """The merge request object if the context is scoped to a merge request, None otherwise"""
 
-    bot_username: str | None = None
-    """The bot username defined on the repository client"""
+    def __post_init__(self) -> None:
+        if not isinstance(self.repos, tuple):
+            object.__setattr__(self, "repos", tuple(self.repos))
+        if len(self.repos) != 1:
+            raise SingleRepoRequiredError(actual=len(self.repos))
+
+    @property
+    def repo(self) -> RepoHandle:
+        if len(self.repos) != 1:
+            raise SingleRepoRequiredError(actual=len(self.repos))
+        return self.repos[0]
+
+    @property
+    def repository(self) -> Repository:
+        return self.repo.repository
+
+    @property
+    def gitrepo(self) -> Repo:
+        return self.repo.gitrepo
+
+    @property
+    def git_platform(self) -> GitPlatform:
+        return self.repo.git_platform
+
+    @property
+    def config(self) -> RepositoryConfig:
+        return self.repo.config
 
 
 runtime_ctx: ContextVar[RuntimeCtx | None] = ContextVar[RuntimeCtx | None]("runtime_ctx", default=None)
@@ -131,16 +158,16 @@ async def set_runtime_ctx(
     )
 
     with repo_client.load_repo(repository, sha=ref) as repo:
+        handle = RepoHandle(
+            repo_id=repo_id, git_platform=repo_client.git_platform, repository=repository, gitrepo=repo, config=config
+        )
         ctx = RuntimeCtx(
-            git_platform=repo_client.git_platform,
-            repository=repository,
-            gitrepo=repo,
-            config=config,
+            bot_username=repo_client.current_user.username,
+            repos=(handle,),
             sandbox=sandbox,
             scope=scope,
             issue=issue,
             merge_request=merge_request,
-            bot_username=repo_client.current_user.username,
         )
         token = runtime_ctx.set(ctx)
         try:

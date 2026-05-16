@@ -22,7 +22,7 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
     with (
         patch("jobs.tasks.open_checkpointer") as cp_ctx,
         patch("jobs.tasks.set_runtime_ctx") as rc_ctx,
-        patch("jobs.tasks.create_daiv_agent", new=AsyncMock(return_value=agent)),
+        patch("jobs.tasks.create_daiv_agent", new=AsyncMock(return_value=agent)) as create_agent_mock,
         patch(
             "jobs.tasks.get_daiv_agent_kwargs",
             return_value={"model_names": ["claude-4-7-opus"], "thinking_level": "medium"},
@@ -32,7 +32,8 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
         patch("jobs.tasks.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
         patch("jobs.tasks.track_usage_metadata"),
     ):
-        cp_ctx.return_value.__aenter__.return_value = object()
+        sentinel_checkpointer = object()
+        cp_ctx.return_value.__aenter__.return_value = sentinel_checkpointer
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx
 
         await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", use_max=False, thread_id="t-123")
@@ -40,6 +41,9 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
     cp_ctx.assert_called_once()
     call_kwargs = agent.ainvoke.call_args.kwargs
     assert call_kwargs["config"]["configurable"]["thread_id"] == "t-123"
+
+    create_agent_kwargs = create_agent_mock.call_args.kwargs
+    assert create_agent_kwargs["checkpointer"] is sentinel_checkpointer
 
 
 async def test_run_job_task_rejects_missing_thread_id():

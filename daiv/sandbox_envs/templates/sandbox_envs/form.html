@@ -1,16 +1,17 @@
 {% extends "base_app.html" %}
 {% load i18n %}
 
-{% block title %}{% if object %}{% trans "Edit environment" %}{% else %}{% trans "New environment" %}{% endif %} — DAIV{% endblock %}
+{% block title %}{% if object %}{% translate "Edit environment" %}{% else %}{% translate "New environment" %}{% endif %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block app_content %}
 <div class="animate-fade-up">
     <h1 class="text-2xl font-bold tracking-tight">
-        {% if object %}{% trans "Edit environment" %}{% else %}{% trans "New environment" %}{% endif %}
+        {% if object %}{% translate "Edit environment" %}{% else %}{% translate "New environment" %}{% endif %}
     </h1>
     <p class="mt-1.5 text-[15px] font-light text-gray-400">
-        {% trans "Configure a reusable sandbox environment." %}
+        {% translate "Configure a reusable sandbox environment." %}
     </p>
 </div>
 
@@ -30,7 +31,7 @@
 
     <div>
         <label for="{{ form.name.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-            {% trans "Name" %} <span class="text-red-400">*</span>
+            {% translate "Name" %} <span class="text-red-400">*</span>
         </label>
         {{ form.name }}
         {% if form.name.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.name.errors.0 }}</p>{% endif %}
@@ -38,7 +39,7 @@
 
     <div>
         <label for="{{ form.description.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-            {% trans "Description" %}
+            {% translate "Description" %}
         </label>
         {{ form.description }}
         {% if form.description.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.description.errors.0 }}</p>{% endif %}
@@ -49,7 +50,7 @@
     {% else %}
     <div>
         <label for="{{ form.scope.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-            {% trans "Scope" %}
+            {% translate "Scope" %}
         </label>
         {{ form.scope }}
         {% if form.scope.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.scope.errors.0 }}</p>{% endif %}
@@ -58,7 +59,7 @@
 
     <div>
         <label for="{{ form.base_image.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-            {% trans "Base image" %} <span class="text-red-400">*</span>
+            {% translate "Base image" %} <span class="text-red-400">*</span>
         </label>
         {{ form.base_image }}
         {% if form.base_image.help_text %}
@@ -70,7 +71,7 @@
     <div>
         <label class="flex cursor-pointer items-center gap-3">
             {{ form.network_enabled }}
-            <span class="text-[15px] font-medium text-gray-400">{% trans "Network enabled" %}</span>
+            <span class="text-[15px] font-medium text-gray-400">{% translate "Network enabled" %}</span>
         </label>
         {% if form.network_enabled.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.network_enabled.errors.0 }}</p>{% endif %}
     </div>
@@ -78,14 +79,14 @@
     <div class="grid grid-cols-2 gap-4">
         <div>
             <label for="{{ form.memory_bytes.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-                {% trans "Memory (bytes)" %}
+                {% translate "Memory (bytes)" %}
             </label>
             {{ form.memory_bytes }}
             {% if form.memory_bytes.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.memory_bytes.errors.0 }}</p>{% endif %}
         </div>
         <div>
             <label for="{{ form.cpus.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-                {% trans "CPUs" %}
+                {% translate "CPUs" %}
             </label>
             {{ form.cpus }}
             {% if form.cpus.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.cpus.errors.0 }}</p>{% endif %}
@@ -93,23 +94,23 @@
     </div>
 
     <fieldset class="border-t border-white/[0.06] pt-5">
-        <legend class="text-[15px] font-medium text-gray-300">{% trans "Environment variables" %}</legend>
+        <legend class="text-[15px] font-medium text-gray-300">{% translate "Environment variables" %}</legend>
         <template x-for="(row, i) in rows" :key="i">
             <div class="mt-2 flex items-center gap-2">
                 <input x-model="row.name" placeholder="NAME" class="flex-1">
                 <input x-model="row.value" :type="row.is_secret ? 'password' : 'text'" placeholder="value" class="flex-1">
                 <label class="flex items-center gap-1 text-sm text-gray-400">
-                    <input type="checkbox" x-model="row.is_secret"> {% trans "secret" %}
+                    <input type="checkbox" x-model="row.is_secret"> {% translate "secret" %}
                 </label>
                 <button type="button" @click="rows.splice(i, 1)" class="text-sm text-red-300 hover:text-red-200">
-                    {% trans "remove" %}
+                    {% translate "remove" %}
                 </button>
             </div>
         </template>
         <button type="button"
                 @click="rows.push({name:'',value:'',is_secret:false})"
                 class="mt-3 btn-secondary text-sm">
-            {% trans "Add variable" %}
+            {% translate "Add variable" %}
         </button>
         <input type="hidden" name="env_vars_json" :value="JSON.stringify(rows)">
         {% if form.env_vars_json.errors %}
@@ -118,11 +119,11 @@
     </fieldset>
 
     <div class="flex items-center gap-3 border-t border-white/[0.06] pt-5">
-        <button type="submit" class="btn-primary">{% trans "Save" %}</button>
-        <a href="{% url 'sandbox_envs:list' %}" class="btn-secondary">{% trans "Cancel" %}</a>
+        <button type="submit" class="btn-primary">{% translate "Save" %}</button>
+        <a href="{% url 'sandbox_envs:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
         {% if object %}
         <a href="{% url 'sandbox_envs:delete' object.id %}" class="btn-danger-outline ml-auto">
-            {% trans "Delete" %}
+            {% translate "Delete" %}
         </a>
         {% endif %}
     </div>
@@ -133,4 +134,4 @@ function envVarsEditor() {
     return { rows: {{ env_vars_initial|safe }} };
 }
 </script>
-{% endblock %}
+{% endblock app_content %}

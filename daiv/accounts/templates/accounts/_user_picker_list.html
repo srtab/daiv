@@ -1,0 +1,18 @@
+{% load i18n %}
+<ul>
+{% for u in users %}
+  <li>
+    <button type="button"
+            class="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] text-gray-300 hover:bg-white/[0.06]"
+            @click="addUser({ id: {{ u.pk }}, username: '{{ u.username|escapejs }}', name: '{{ u.name|default:''|escapejs }}', email: '{{ u.email|escapejs }}' })">
+      {% include "accounts/_avatar.html" with user=u %}
+      <span class="min-w-0 flex-1 truncate">
+        <span class="block text-white">{{ u.name|default:u.username }}</span>
+        <span class="block text-[12px] text-gray-500">{{ u.email }}</span>
+      </span>
+    </button>
+  </li>
+{% empty %}
+  <li class="px-3 py-2 text-[14px] text-gray-400">{% translate "No users found." %}</li>
+{% endfor %}
+</ul>

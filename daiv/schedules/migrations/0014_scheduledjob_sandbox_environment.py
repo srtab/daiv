@@ -5,10 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("sandbox_envs", "0002_seed_global_default"),
-        ("schedules", "0010_remove_scheduledjob_repo_id_ref_last_run_task_id"),
-    ]
+    dependencies = [("sandbox_envs", "0002_seed_global_default"), ("schedules", "0013_oneoff_schedule")]
 
     operations = [
         migrations.AddField(

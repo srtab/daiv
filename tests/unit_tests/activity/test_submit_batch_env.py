@@ -34,7 +34,7 @@ async def test_submit_batch_passes_sandbox_env_to_task_and_activity():
 
     with (
         mock.patch("activity.services.run_job_task") as m_task,
-        mock.patch("activity.services.generate_title_task") as m_title,
+        mock.patch("activity.services.generate_batch_title_task") as m_title,
     ):
         m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
         m_title.aenqueue = mock.AsyncMock()

@@ -1,0 +1,55 @@
+{% load i18n %}
+<div class="mt-4">
+  <p class="text-[13px] text-gray-400">
+    {% translate "Configure model providers. Reach a model from agent config via the form" %}
+    <code class="font-mono text-gray-300">slug:model_name</code>.
+  </p>
+
+  {% if providers_formset.total_error_count %}
+  <div class="mt-3 rounded-lg border border-red-800/50 bg-red-950/30 p-3">
+    <p class="text-sm font-medium text-red-200">{% translate "Providers could not be saved — please fix the errors below:" %}</p>
+    <ul class="mt-1.5 list-disc pl-5 text-xs text-red-200/90 space-y-0.5">
+      {% for err in providers_formset.non_form_errors %}<li>{{ err }}</li>{% endfor %}
+      {% for row in providers_formset %}
+        {% for field_name, errors in row.errors.items %}
+          {% for err in errors %}
+          <li><span class="font-medium">{{ row.instance.slug|default:row.slug.value|default:_("new row") }}</span> — {{ field_name }}: {{ err }}</li>
+          {% endfor %}
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="mt-4"
+       x-data="djangoFormset({ totalFormsId: '{{ providers_formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ providers_formset.total_form_count }}, rowsRef: 'customRows' })"
+       x-init="$providerReorder($refs.builtInRows, $refs.customRows)">
+    {{ providers_formset.management_form }}
+
+    <div class="provider-section">
+      <div class="provider-section__heading">{% translate "Built-in" %}</div>
+      <div x-ref="builtInRows" class="space-y-1.5">
+        {% for row in built_in_provider_forms %}
+          {% include "core/provider_row.html" with row=row %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="provider-section mt-6">
+      <div class="provider-section__heading">{% translate "Custom" %}</div>
+      <div x-ref="customRows" class="space-y-1.5">
+        {% for row in custom_provider_forms %}
+          {% include "core/provider_row.html" with row=row %}
+        {% endfor %}
+      </div>
+      <template x-ref="rowTemplate">
+        {% include "core/provider_row.html" with row=providers_formset.empty_form %}
+      </template>
+      <button type="button"
+              class="mt-3 w-full rounded-xl border border-dashed border-white/[0.12] bg-transparent px-4 py-2.5 text-[13px] text-gray-400 hover:border-white/[0.20] hover:text-gray-200"
+              @click="addRow()">
+        + {% translate "Add custom provider" %}
+      </button>
+    </div>
+  </div>
+</div>

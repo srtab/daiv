@@ -10,7 +10,7 @@
             class="chat-jump"
             x-show="showJumpToLatest"
             @click="scrollToBottom({force: true})"
-            x-transition.opacity>↓ {% trans "Jump to latest" %}</button>
+            x-transition.opacity>↓ {% translate "Jump to latest" %}</button>
 
     {% comment %}
     Chip is suppressed while the user is still composing their first prompt — the picker's
@@ -51,16 +51,16 @@
               <path d="M6 8.5v7"/>
               <path d="M6 6h7a5 5 0 015 5v4.5"/>
             </svg>
-            <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% trans "MR" %}'"></span>
+            <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% translate "MR" %}'"></span>
             <span x-show="thread.merge_request.draft"
                   class="repo-chip__badge"
-                  x-cloak>{% trans "draft" %}</span>
+                  x-cloak>{% translate "draft" %}</span>
           </span>
         </a>
       </template>
     </div>
 
-    <label for="chat_prompt" class="sr-only">{% trans "Message DAIV" %}</label>
+    <label for="chat_prompt" class="sr-only">{% translate "Message DAIV" %}</label>
     <textarea id="chat_prompt"
               x-ref="prompt"
               x-model="draftMessage"
@@ -69,22 +69,22 @@
               @keydown.ctrl.enter.prevent="submit()"
               rows="2"
               :disabled="(streaming || resuming)"
-              placeholder="{% trans 'Describe the change, the bug, or what to explore…' %}"
+              placeholder="{% translate 'Describe the change, the bug, or what to explore…' %}"
               class="chat-composer__textarea"></textarea>
 
     <div class="chat-composer__actions">
       <div class="chat-composer__hint">
         <kbd class="chat-composer__kbd">⌘</kbd>
         <kbd class="chat-composer__kbd">↵</kbd>
-        <span>{% trans "to send" %}</span>
+        <span>{% translate "to send" %}</span>
       </div>
       {% if sandbox_envs %}
       <label class="chat-composer__envpicker">
-        <span class="sr-only">{% trans "Sandbox environment" %}</span>
+        <span class="sr-only">{% translate "Sandbox environment" %}</span>
         <select name="sandbox_environment"
                 x-ref="sandboxEnv"
-                title="{% trans 'Sandbox environment' %}">
-          <option value="">{% trans "(global default)" %}</option>
+                title="{% translate 'Sandbox environment' %}">
+          <option value="">{% translate "(global default)" %}</option>
           {% for env in sandbox_envs %}
           <option value="{{ env.id }}" {% if selected_sandbox_env_id == env.id|stringformat:'s' %}selected{% endif %}>
             {{ env.get_scope_display }}: {{ env.name }}
@@ -95,10 +95,10 @@
       {% endif %}
       <div style="display: inline-flex; gap: 8px;">
         <button type="button" x-show="(streaming || resuming)" @click="stop()"
-                class="chat-composer__btn chat-composer__btn--stop">{% trans "Stop" %}</button>
+                class="chat-composer__btn chat-composer__btn--stop">{% translate "Stop" %}</button>
         <button type="submit" :disabled="(streaming || resuming) || !canSend()"
                 class="chat-composer__btn chat-composer__btn--send">
-          <span x-text="(streaming || resuming) ? '{% trans 'Sending…' %}' : '{% trans 'Send' %}'"></span>
+          <span x-text="(streaming || resuming) ? '{% translate 'Sending…' %}' : '{% translate 'Send' %}'"></span>
           <svg x-show="!(streaming || resuming)" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
             <path d="M10.22 16.78a.75.75 0 0 1-1.06-1.06l4.47-4.47H4a.75.75 0 0 1 0-1.5h9.63l-4.47-4.47a.75.75 0 1 1 1.06-1.06l5.75 5.75a.75.75 0 0 1 0 1.06l-5.75 5.75Z"/>
           </svg>
@@ -108,6 +108,6 @@
   </form>
 
   <p class="chat-dock__disclaimer">
-    {% trans "DAIV can make mistakes. Verify important information." %}
+    {% translate "DAIV can make mistakes. Verify important information." %}
   </p>
 </div>

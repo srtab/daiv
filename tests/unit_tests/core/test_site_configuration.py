@@ -70,17 +70,25 @@ class TestCaching:
 
     async def test_get_cached_returns_none_on_timeout_in_async_context(self, db):
         """Thread pool timeout in async context returns None gracefully."""
-        import time
+        import concurrent.futures
 
         django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
-        with patch.object(SiteConfiguration, "_fetch_from_cache_or_db", side_effect=lambda: time.sleep(10)):
+
+        class _StuckFuture:
+            def result(self, timeout=None):
+                raise concurrent.futures.TimeoutError
+
+        with patch.object(SiteConfiguration._executor, "submit", return_value=_StuckFuture()):
             result = SiteConfiguration.get_cached()
         assert result is None
 
-    def test_save_invalidates_cache(self, site_config):
+    def test_save_invalidates_cache(self, site_config, django_capture_on_commit_callbacks):
+        # Invalidation is deferred via transaction.on_commit; execute=True fires
+        # callbacks at the boundary so the assertion sees the real cache.delete.
         with patch("core.models.cache") as mock_cache:
-            site_config.agent_model_name = "test-model"
-            site_config.save()
+            with django_capture_on_commit_callbacks(execute=True):
+                site_config.agent_model_name = "test-model"
+                site_config.save()
             mock_cache.delete.assert_called_once_with("site_configuration")
 
 
@@ -106,56 +114,54 @@ class TestNullableFields:
 
 class TestEncryptedFields:
     def test_set_and_read_encrypted_field(self, site_config):
-        site_config.anthropic_api_key = "sk-test-12345"
+        site_config.web_search_api_key = "sk-test-12345"
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.anthropic_api_key == "sk-test-12345"
+        assert reloaded.web_search_api_key == "sk-test-12345"
         # The raw DB column should be encrypted
-        assert reloaded._anthropic_api_key_encrypted is not None
-        assert reloaded._anthropic_api_key_encrypted != "sk-test-12345"
+        assert reloaded._web_search_api_key_encrypted is not None
+        assert reloaded._web_search_api_key_encrypted != "sk-test-12345"
 
     def test_clear_encrypted_field(self, site_config):
-        site_config.anthropic_api_key = "sk-test-12345"
+        site_config.web_search_api_key = "sk-test-12345"
         site_config.save()
 
-        site_config.anthropic_api_key = None
+        site_config.web_search_api_key = None
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.anthropic_api_key is None
-        assert reloaded._anthropic_api_key_encrypted is None
+        assert reloaded.web_search_api_key is None
+        assert reloaded._web_search_api_key_encrypted is None
 
     def test_set_empty_string_clears_field(self, site_config):
-        site_config.anthropic_api_key = "sk-test-12345"
+        site_config.web_search_api_key = "sk-test-12345"
         site_config.save()
 
-        site_config.anthropic_api_key = ""
+        site_config.web_search_api_key = ""
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.anthropic_api_key is None
+        assert reloaded.web_search_api_key is None
 
     def test_get_secret_hint(self, site_config):
-        site_config.anthropic_api_key = "sk-test-long-api-key-12345"
+        site_config.web_search_api_key = "sk-test-long-api-key-12345"
         site_config.save()
 
-        hint = site_config.get_secret_hint("anthropic_api_key")
+        hint = site_config.get_secret_hint("web_search_api_key")
         assert hint is not None
         assert "sk-" in hint
         assert "345" in hint
         assert hint != "sk-test-long-api-key-12345"
 
     def test_get_secret_hint_when_not_set(self, site_config):
-        assert site_config.get_secret_hint("anthropic_api_key") is None
+        assert site_config.get_secret_hint("web_search_api_key") is None
 
     def test_all_encrypted_fields_listed(self):
-        assert "anthropic_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
-        assert "openai_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
-        assert "google_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
-        assert "openrouter_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
         assert "web_search_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
         assert "sandbox_api_key" in SiteConfiguration.ENCRYPTED_FIELDS
+        assert "auth_client_secret" in SiteConfiguration.ENCRYPTED_FIELDS
+        assert "rocketchat_auth_token" in SiteConfiguration.ENCRYPTED_FIELDS
 
     def test_corrupted_ciphertext_raises_decryption_error(self, site_config):
         """Reading a corrupted encrypted field raises DecryptionError so callers
@@ -164,21 +170,21 @@ class TestEncryptedFields:
 
         from core.encryption import DecryptionError
 
-        site_config._anthropic_api_key_encrypted = "not-a-valid-fernet-token"
+        site_config._web_search_api_key_encrypted = "not-a-valid-fernet-token"
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
         with pytest.raises(DecryptionError):
-            _ = reloaded.anthropic_api_key
+            _ = reloaded.web_search_api_key
 
     def test_corrupted_ciphertext_hint_returns_none(self, site_config):
         """get_secret_hint catches DecryptionError and returns None so the UI
         can render a 'no hint available' state instead of crashing."""
-        site_config._anthropic_api_key_encrypted = "not-a-valid-fernet-token"
+        site_config._web_search_api_key_encrypted = "not-a-valid-fernet-token"
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.get_secret_hint("anthropic_api_key") is None
+        assert reloaded.get_secret_hint("web_search_api_key") is None
 
 
 class TestModelNameFieldsCompleteness:
@@ -228,3 +234,34 @@ class TestGetFieldGroups:
         assert "providers" in keys
         assert "sandbox" in keys
         assert "jobs" in keys
+
+
+class TestFieldGroupsCategories:
+    def test_each_group_has_a_category(self):
+        for group in SiteConfiguration.FIELD_GROUPS:
+            assert group.category, f"Group {group.key!r} is missing a category"
+
+    def test_known_categorisation(self):
+        by_key = {g.key: g.category for g in SiteConfiguration.FIELD_GROUPS}
+        assert by_key["agent"] == "AI tasks"
+        assert by_key["diff_to_metadata"] == "AI tasks"
+        assert by_key["titling"] == "AI tasks"
+        assert by_key["providers"] == "Models"
+        assert by_key["web_search"] == "Agent tools"
+        assert by_key["web_fetch"] == "Agent tools"
+        assert by_key["sandbox"] == "Runtime"
+        assert by_key["jobs"] == "Runtime"
+        assert by_key["rocketchat"] == "Integrations"
+        assert by_key["authentication"] == "Integrations"
+
+    def test_groups_are_ordered_by_category_then_existing_order(self):
+        # Category headers in the rail are emitted by walking FIELD_GROUPS in
+        # declaration order and watching for category transitions. Groups
+        # sharing a category must therefore be contiguous.
+        seen: list[str] = []
+        for group in SiteConfiguration.FIELD_GROUPS:
+            if not seen or seen[-1] != group.category:
+                seen.append(group.category)
+        # No category appears more than once → all groups in the same category
+        # are contiguous.
+        assert len(seen) == len(set(seen)), f"Non-contiguous categories: {seen}"

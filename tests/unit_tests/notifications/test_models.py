@@ -35,6 +35,31 @@ class TestNotification:
         n.refresh_from_db()
         assert n.read_at == original
 
+    def test_mark_all_read_for_returns_count_and_preserves_already_read(self, member_user):
+        unread = [
+            Notification.objects.create(recipient=member_user, event_type="e", subject=f"u{i}", body="b", link_url="/")
+            for i in range(3)
+        ]
+        already_read = Notification.objects.create(
+            recipient=member_user, event_type="e", subject="r", body="b", link_url="/"
+        )
+        already_read.mark_as_read()
+        original_read_at = Notification.objects.get(pk=already_read.pk).read_at
+
+        updated = Notification.mark_all_read_for(member_user)
+
+        assert updated == len(unread)
+        assert Notification.objects.filter(recipient=member_user, read_at__isnull=True).count() == 0
+        # Already-read rows must keep their original read_at — the helper must scope to unread only.
+        assert Notification.objects.get(pk=already_read.pk).read_at == original_read_at
+
+    def test_mark_all_read_for_bumps_modified(self, member_user):
+        n = Notification.objects.create(recipient=member_user, event_type="e", subject="s", body="b", link_url="/")
+        original_modified = n.modified
+        Notification.mark_all_read_for(member_user)
+        n.refresh_from_db()
+        assert n.modified > original_modified
+
 
 @pytest.mark.django_db
 class TestNotificationDelivery:

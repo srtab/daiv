@@ -72,20 +72,26 @@ class TestWebFetchAuthHeaderCache:
         assert "bad.com" not in result
         assert "ok.com" in result
 
-    def test_save_invalidates_cache(self, make_auth_header):
-        make_auth_header("a.com", "X", "1")
+    def test_save_invalidates_cache(self, make_auth_header, django_capture_on_commit_callbacks):
+        # Invalidation is deferred via transaction.on_commit; execute=True runs the
+        # callback at the boundary just like a real commit would.
+        with django_capture_on_commit_callbacks(execute=True):
+            make_auth_header("a.com", "X", "1")
         WebFetchAuthHeader.get_cached()  # populate
         assert cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY) is not None
 
-        make_auth_header("b.com", "Y", "2")
+        with django_capture_on_commit_callbacks(execute=True):
+            make_auth_header("b.com", "Y", "2")
         assert cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY) is None
 
-    def test_delete_invalidates_cache(self, make_auth_header):
-        row = make_auth_header("a.com", "X", "1")
+    def test_delete_invalidates_cache(self, make_auth_header, django_capture_on_commit_callbacks):
+        with django_capture_on_commit_callbacks(execute=True):
+            row = make_auth_header("a.com", "X", "1")
         WebFetchAuthHeader.get_cached()
         assert cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY) is not None
 
-        row.delete()
+        with django_capture_on_commit_callbacks(execute=True):
+            row.delete()
         assert cache.get(WEB_FETCH_AUTH_HEADERS_CACHE_KEY) is None
 
 

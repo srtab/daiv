@@ -1,8 +1,8 @@
-import contextlib
 import fnmatch
 import logging
 import re
-import tempfile
+import subprocess  # noqa: S404
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -169,6 +169,24 @@ def files_changed_from_patch(patch: str | None) -> list[dict[str, str]]:
     return files
 
 
+class IgnoreCheck(Enum):
+    """Result of `git check-ignore`. ``UNKNOWN`` means the plumbing call failed and
+    callers cannot assume the path is safe — treat as fail-closed for any write
+    where being wrong means silent data loss (e.g. `git add -A` would drop the
+    file from the commit)."""
+
+    IGNORED = "ignored"
+    NOT_IGNORED = "not_ignored"
+    UNKNOWN = "unknown"
+
+    def should_block_write(self) -> bool:
+        """Canonical fail-closed policy for write paths: refuse on ``IGNORED`` and
+        ``UNKNOWN``; allow only on ``NOT_IGNORED``. Centralised so future write
+        callers don't drift on the fail-closed branch.
+        """
+        return self is not IgnoreCheck.NOT_IGNORED
+
+
 class GitManager:
     """
     Manager for interacting with a Git repository.
@@ -237,25 +255,22 @@ class GitManager:
         # to ensure newly created files are detected reliably.
         return bool(self.repo.git.status("--porcelain").strip())
 
-    def is_path_ignored(self, path: str | Path) -> bool:
-        """
-        Return True iff `path` is an untracked file that matches an active ignore
-        rule (`.gitignore`, `.git/info/exclude`, or `core.excludesFile`). Tracked
-        files are always reported as not ignored — `git check-ignore`'s default
-        behavior — since `git add -A` updates them regardless of `.gitignore`.
+    def is_path_ignored(self, path: str | Path) -> IgnoreCheck:
+        """Tri-state result of `git check-ignore`.
 
-        Fail-open: real `check-ignore` errors (exit != 0/1) are logged and treated
-        as not-ignored so a malfunctioning plumbing call cannot block legitimate
-        writes. Loses safety in the rare broken-repo case but preserves it in the
-        common case.
+        IGNORED — path matches an active rule (untracked + matched).
+        NOT_IGNORED — `check-ignore` exited 1 ("no match") or matched a tracked file.
+        UNKNOWN — `check-ignore` failed for any other reason (corrupt repo, missing
+        binary, permissions); the caller decides whether to refuse or proceed.
         """
         try:
-            return bool(self.repo.git.check_ignore(str(path)).strip())
+            output = self.repo.git.check_ignore(str(path)).strip()
         except GitCommandError as e:
-            if e.status == 1:  # documented "no match"
-                return False
-            logger.exception("git check-ignore failed for %s; treating as not ignored", path)
-            return False
+            if e.status == 1:
+                return IgnoreCheck.NOT_IGNORED
+            logger.exception("git check-ignore failed for %s", path)
+            return IgnoreCheck.UNKNOWN
+        return IgnoreCheck.IGNORED if output else IgnoreCheck.NOT_IGNORED
 
     def commit_and_push_changes(
         self,
@@ -368,34 +383,40 @@ class GitManager:
         Args:
             patch: The patch to apply.
         """
-        if not patch or not patch.strip():
-            return
+        apply_patch_to_dir(patch, Path(self.repo.working_dir))
 
-        if not patch.endswith("\n"):
-            patch += "\n"
 
-        diff_bytes = patch.encode("utf-8", "surrogateescape")
-        diff_args = ["--whitespace=nowarn"]
+def apply_patch_to_dir(patch: str, working_dir: Path) -> None:
+    """Apply a unified diff to ``working_dir`` using ``git apply``.
 
-        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp:
-            tmp.write(diff_bytes)
-            tmp.flush()
-            tmp_path = tmp.name
+    ``git apply`` does not require a ``.git`` directory and is transactional within a
+    single invocation, so one subprocess call covers both repo-bound and repoless
+    callers. The ``"No valid patches in input"`` stderr line is git's signal for an
+    empty or no-op patch and is treated as success.
+    """
+    if not patch or not patch.strip():
+        return
 
-        try:
-            try:
-                self.repo.git.apply(*diff_args, "--check", tmp_path)
-            except GitCommandError as e:
-                # Check if the error is about empty/invalid patches
-                if "No valid patches in input" in str(e):
-                    # Empty or invalid patch - this is not an error, just skip it
-                    return
-                raise RuntimeError("git apply failed. The patch is not valid.") from e
+    if not patch.endswith("\n"):
+        patch += "\n"
 
-            self.repo.git.apply(*diff_args, tmp_path)
-        finally:
-            with contextlib.suppress(OSError):
-                Path(tmp_path).unlink()
+    result = subprocess.run(  # noqa: S603
+        ["git", "apply", "--whitespace=nowarn", "-"],  # noqa: S607
+        cwd=working_dir,
+        input=patch.encode("utf-8", "surrogateescape"),
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return
+
+    stderr = result.stderr.decode("utf-8", "replace").strip()
+    stdout = result.stdout.decode("utf-8", "replace").strip()
+    if "No valid patches in input" in stderr:
+        logger.debug("apply_patch_to_dir: empty/no-op patch, skipping (cwd=%s, stderr=%r)", working_dir, stderr)
+        return
+    detail = stderr or stdout or "<no diagnostic output>"
+    raise RuntimeError(f"git apply failed (rc={result.returncode}, cwd={working_dir}): {detail}")
 
 
 class GitPushPermissionError(RuntimeError):

@@ -49,11 +49,13 @@ lint-check:
 lint-format:
 	uv run --only-group=dev ruff format . --check
 	uv run --only-group=dev pyproject-fmt pyproject.toml --check
+	git ls-files -z -- '*templates/*.html' | xargs -0r uv run --only-group=dev djade --target-version 6.0 --check
 
 lint-fix:
 	uv run --only-group=dev ruff check . --fix
 	uv run --only-group=dev ruff format .
 	uv run --only-group=dev pyproject-fmt pyproject.toml
+	git ls-files -z -- '*templates/*.html' | xargs -0r uv run --only-group=dev djade --target-version 6.0
 
 lint-typing:
 	uv run --only-group=dev ty check daiv

@@ -1,22 +1,23 @@
 {% extends "base_app.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Sandbox Environments" %} — DAIV{% endblock %}
+{% block title %}{% translate "Sandbox Environments" %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-6xl{% endblock %}
 
 {% block app_content %}
 <div class="animate-fade-up flex items-center justify-between">
     <div>
-        <h1 class="text-2xl font-bold tracking-tight">{% trans "Sandbox Environments" %}</h1>
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Sandbox Environments" %}</h1>
         <p class="mt-1.5 text-[15px] font-light text-gray-400">
-            {% trans "Reusable sandbox configurations for agent runs." %}
+            {% translate "Reusable sandbox configurations for agent runs." %}
         </p>
     </div>
-    <a href="{% url 'sandbox_envs:create' %}" class="btn-primary">{% trans "New environment" %}</a>
+    <a href="{% url 'sandbox_envs:create' %}" class="btn-primary">{% translate "New environment" %}</a>
 </div>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 100ms">
-    <h2 class="text-lg font-semibold">{% trans "Global environments" %}</h2>
+    <h2 class="text-lg font-semibold">{% translate "Global environments" %}</h2>
     {% if global_envs %}
     <div class="mt-3 rounded-2xl border border-white/[0.06] divide-y divide-white/[0.06]">
         {% for env in global_envs %}
@@ -26,20 +27,20 @@
                 <span class="text-sm text-gray-400">{{ env.base_image }}</span>
                 {% if env.is_default %}
                 <span class="ml-2 inline-flex items-center rounded-md bg-emerald-950/40 px-2 py-0.5 text-xs text-emerald-300">
-                    {% trans "default" %}
+                    {% translate "default" %}
                 </span>
                 {% endif %}
             </div>
             <div class="flex items-center gap-3">
                 {% if is_admin %}
                 <a href="{% url 'sandbox_envs:edit' env.id %}" class="text-sm text-gray-300 hover:text-white">
-                    {% trans "Edit" %}
+                    {% translate "Edit" %}
                 </a>
                 {% if not env.is_default %}
                 <form method="post" action="{% url 'sandbox_envs:set_default' env.id %}" class="inline">
                     {% csrf_token %}
                     <button type="submit" class="text-sm text-emerald-300 hover:text-emerald-200">
-                        {% trans "Make default" %}
+                        {% translate "Make default" %}
                     </button>
                 </form>
                 {% endif %}
@@ -50,13 +51,13 @@
     </div>
     {% else %}
     <div class="mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
-        <p class="text-[15px] text-gray-400">{% trans "No global environments yet." %}</p>
+        <p class="text-[15px] text-gray-400">{% translate "No global environments yet." %}</p>
     </div>
     {% endif %}
 </section>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 150ms">
-    <h2 class="text-lg font-semibold">{% trans "My environments" %}</h2>
+    <h2 class="text-lg font-semibold">{% translate "My environments" %}</h2>
     {% if user_envs %}
     <div class="mt-3 rounded-2xl border border-white/[0.06] divide-y divide-white/[0.06]">
         {% for env in user_envs %}
@@ -67,12 +68,12 @@
             </div>
             <div class="flex items-center gap-3">
                 <a href="{% url 'sandbox_envs:edit' env.id %}" class="text-sm text-gray-300 hover:text-white">
-                    {% trans "Edit" %}
+                    {% translate "Edit" %}
                 </a>
                 <form method="post" action="{% url 'sandbox_envs:delete' env.id %}" class="inline">
                     {% csrf_token %}
                     <button type="submit" class="text-sm text-red-300 hover:text-red-200">
-                        {% trans "Delete" %}
+                        {% translate "Delete" %}
                     </button>
                 </form>
             </div>
@@ -81,8 +82,8 @@
     </div>
     {% else %}
     <div class="mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
-        <p class="text-[15px] text-gray-400">{% trans "No personal environments yet." %}</p>
+        <p class="text-[15px] text-gray-400">{% translate "No personal environments yet." %}</p>
     </div>
     {% endif %}
 </section>
-{% endblock %}
+{% endblock app_content %}

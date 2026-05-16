@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
-from enum import StrEnum
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, TypeVar
 
 from langchain.chat_models import init_chat_model
@@ -9,8 +10,10 @@ from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
 
 from core.constants import BOT_NAME
+from core.models import Provider, ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
-from core.site_settings import site_settings
+
+logger = logging.getLogger("daiv.automation")
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -36,72 +39,148 @@ CLAUDE_THINKING_MODELS = (
 
 OPENAI_THINKING_MODELS = ("gpt-5.2", "gpt-5.3-codex", "openai/gpt-5.2", "openai/gpt-5.3-codex")
 
-
-class ModelProvider(StrEnum):
-    ANTHROPIC = "anthropic"
-    OPENAI = "openai"
-    GOOGLE_GENAI = "google_genai"
-    OPENROUTER = "openrouter"
-
-    @staticmethod
-    def api_key_field_for(provider: ModelProvider) -> str | None:
-        """Return the SiteConfiguration field name that holds the API key for this provider, or None."""
-        return _PROVIDER_API_KEY_FIELDS.get(provider)
+ANTHROPIC_STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 
 
-# Mapping from provider to the SiteConfiguration field that stores its API key.
-_PROVIDER_API_KEY_FIELDS: dict[ModelProvider, str] = {
-    ModelProvider.ANTHROPIC: "anthropic_api_key",
-    ModelProvider.OPENAI: "openai_api_key",
-    ModelProvider.GOOGLE_GENAI: "google_api_key",
-    ModelProvider.OPENROUTER: "openrouter_api_key",
-}
-
-# Explicit provider prefixes for the ``provider:model_name`` format.
-# ``"google"`` is a user-friendly alias for the canonical ``"google_genai"`` prefix.
-_PROVIDER_PREFIXES: dict[str, ModelProvider] = {p.value: p for p in ModelProvider} | {
-    "google": ModelProvider.GOOGLE_GENAI
-}
+def _anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int) -> tuple[int, int]:
+    if thinking_level == ThinkingLevel.MINIMAL:
+        return max_tokens + 1_024, 1_024
+    if thinking_level == ThinkingLevel.LOW:
+        return max_tokens + 4_096, 4_096
+    if thinking_level == ThinkingLevel.MEDIUM:
+        return max_tokens + 25_600, 25_600
+    if thinking_level == ThinkingLevel.HIGH:
+        return 64_000, 64_000 - max_tokens
+    raise ValueError(f"Unsupported thinking level: {thinking_level}")
 
 
-def parse_model_spec(model_spec: str) -> tuple[ModelProvider, str]:
+def _apply_anthropic_thinking(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
+    if not thinking_level or not model_name.startswith(CLAUDE_THINKING_MODELS):
+        # OTPM rate-limits scale with max_tokens (see Anthropic rate-limit docs); set
+        # a fair default to avoid throttling. Callers can override via kwargs.
+        if "max_tokens" not in kw:
+            kw["max_tokens"] = CLAUDE_MAX_TOKENS
+        return
+    max_tokens, budget = _anthropic_thinking_tokens(
+        thinking_level=thinking_level, max_tokens=kw.get("max_tokens", CLAUDE_MAX_TOKENS)
+    )
+    # Anthropic requires temperature=1 when thinking is enabled.
+    kw["temperature"] = 1
+    kw["max_tokens"] = max_tokens
+    kw["thinking"] = {"type": "enabled", "budget_tokens": budget}
+
+
+def _apply_openai_reasoning(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
+    if thinking_level and model_name.startswith(OPENAI_THINKING_MODELS):
+        kw["temperature"] = 1
+        kw["reasoning_effort"] = thinking_level
+
+
+def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
+    if not thinking_level:
+        if model_name.startswith("anthropic") and "max_tokens" not in kw:
+            kw["max_tokens"] = CLAUDE_MAX_TOKENS
+            kw["model_kwargs"].setdefault("extra_headers", {})["anthropic-beta"] = ANTHROPIC_STRUCTURED_OUTPUTS_BETA
+        return
+    if model_name.startswith(CLAUDE_THINKING_MODELS):
+        max_tokens, budget = _anthropic_thinking_tokens(
+            thinking_level=thinking_level, max_tokens=kw.get("max_tokens", CLAUDE_MAX_TOKENS)
+        )
+        kw["max_tokens"] = max_tokens
+        kw["extra_body"] = {"reasoning": {"max_tokens": budget}}
+        kw["temperature"] = 1
+    else:
+        # ``enabled: true`` is the universal switch on OpenRouter; some providers
+        # (notably z.ai's GLM family) ignore ``effort`` and require the explicit flag.
+        kw["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
+
+
+@dataclass(frozen=True)
+class ResolvedProvider:
+    """Result of resolving a ``slug:model_name`` string against the Provider table."""
+
+    row: Provider.Cached
+    model_name: str
+
+
+# langchain-anthropic and langchain-google-genai don't expose ``http_client`` /
+# ``http_async_client`` as model fields, so ``verify_ssl=False`` can't reach the
+# underlying SDK there. Both fall back to the warn-and-skip branch.
+_HTTPX_CLIENT_PROVIDER_TYPES = frozenset({ProviderType.OPENAI, ProviderType.OPENROUTER})
+
+
+def _close_insecure_http_clients(kw: dict) -> None:
+    """Close httpx clients attached by :func:`_apply_insecure_http_clients` when the
+    downstream :func:`init_chat_model` call fails — prevents ``ResourceWarning`` and
+    connection-pool retention under retry loops. The async client is closed
+    best-effort: if no event loop is available we drop the reference and rely on GC."""
+    import asyncio
+
+    sync_client = kw.pop("http_client", None)
+    async_client = kw.pop("http_async_client", None)
+    if sync_client is not None:
+        sync_client.close()
+    if async_client is not None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            loop.create_task(async_client.aclose())
+
+
+def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
+    if row.provider_type not in _HTTPX_CLIENT_PROVIDER_TYPES:
+        logger.warning(
+            "Provider %r: verify_ssl=False ignored for provider_type %s (SDK has no"
+            " http_client hook); mount the CA into the container.",
+            row.slug,
+            row.provider_type,
+        )
+        return
+    import httpx
+
+    kw["http_client"] = httpx.Client(verify=False)  # noqa: S501  # admin-opted-in via Provider.verify_ssl
+    kw["http_async_client"] = httpx.AsyncClient(verify=False)  # noqa: S501
+
+
+_BARE_NAME_HEURISTICS = (
+    (("gpt-4", "gpt-5", "o4"), ProviderType.OPENAI.value),
+    (("claude",), ProviderType.ANTHROPIC.value),
+    (("gemini",), ProviderType.GOOGLE_GENAI.value),
+)
+
+
+def parse_model_spec(model_spec: str) -> ResolvedProvider:
     """
-    Parse a model specification string into (provider, model_name).
+    Parse ``slug:model_name`` against the current Provider rows.
 
-    Supports explicit prefix (``provider:model_name``) for all providers
-    and bare model names with heuristic provider detection for backward
-    compatibility.
+    Order:
+      1. Explicit ``slug:model`` where ``slug`` matches a Provider row.
+      2. Explicit ``google:model`` alias → ``google_genai`` row.
+      3. Bare ``model`` matched by prefix heuristic.
 
-    Args:
-        model_spec: Model specification, e.g. ``"anthropic:claude-sonnet-4-6"``
-            or ``"openrouter:anthropic/claude-sonnet-4.6"`` or bare ``"claude-sonnet-4-6"``.
-
-    Returns:
-        A tuple of ``(ModelProvider, model_name)`` where ``model_name`` is
-        the provider-local name (prefix stripped when the explicit
-        ``provider:model`` format is used, or the original string for bare
-        model names).
-
-    Raises:
-        ValueError: If the provider cannot be determined or the model name is empty.
+    Raises ``ValueError`` on unknown prefix, empty model name, or missing row.
     """
+    rows_by_slug = Provider.get_cached_by_slug()
+
     if ":" in model_spec:
         prefix, model_name = model_spec.split(":", 1)
-        if prefix in _PROVIDER_PREFIXES:
-            if not model_name.strip():
-                raise ValueError(f"Empty model name in spec '{model_spec}'")
-            return _PROVIDER_PREFIXES[prefix], model_name
+        if not model_name.strip():
+            raise ValueError(f"Empty model name in spec '{model_spec}'")
+        if prefix == "google" and "google_genai" in rows_by_slug:
+            return ResolvedProvider(row=rows_by_slug["google_genai"], model_name=model_name)
+        if prefix in rows_by_slug:
+            return ResolvedProvider(row=rows_by_slug[prefix], model_name=model_name)
         raise ValueError(
             f"Unknown provider prefix '{prefix}' in model spec '{model_spec}'. "
-            f"Valid prefixes: {', '.join(sorted(_PROVIDER_PREFIXES))}"
+            f"Valid prefixes: {', '.join(sorted(rows_by_slug)) or '(no providers configured)'}"
         )
-    # Bare name fallback (backward compat)
-    if any(model_spec.startswith(p) for p in ("gpt-4", "gpt-5", "o4")):
-        return ModelProvider.OPENAI, model_spec
-    elif model_spec.startswith("claude"):
-        return ModelProvider.ANTHROPIC, model_spec
-    elif model_spec.startswith("gemini"):
-        return ModelProvider.GOOGLE_GENAI, model_spec
+
+    for prefixes, target_slug in _BARE_NAME_HEURISTICS:
+        if model_spec.startswith(prefixes) and target_slug in rows_by_slug:
+            return ResolvedProvider(row=rows_by_slug[target_slug], model_name=model_spec)
+
     raise ValueError(f"Unknown/Unsupported provider for model {model_spec}")
 
 
@@ -148,107 +227,74 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         Returns:
             BaseChatModel: The model instance
         """
-        provider, model_name = parse_model_spec(model)
-        model_kwargs = BaseAgent.get_model_kwargs(
-            model=model_name, model_provider=provider, thinking_level=thinking_level, **kwargs
-        )
-        return init_chat_model(**model_kwargs)
+        resolved = parse_model_spec(model)
+        model_kwargs = BaseAgent.get_model_kwargs(resolved=resolved, thinking_level=thinking_level, **kwargs)
+        try:
+            return init_chat_model(**model_kwargs)
+        except Exception:
+            _close_insecure_http_clients(model_kwargs)
+            raise
 
     @staticmethod
-    def get_model_kwargs(
-        *, model_provider: ModelProvider, thinking_level: ThinkingLevel | None = None, **kwargs
-    ) -> dict:
+    def get_model_kwargs(*, resolved: ResolvedProvider, thinking_level: ThinkingLevel | None = None, **kwargs) -> dict:
         """
-        Get the keyword arguments to pass to the model.
-
-        Returns:
-            dict: The keyword arguments
+        Get the keyword arguments to pass to ``init_chat_model`` for the given
+        resolved provider row.
         """
-        _kwargs = {"temperature": 0, "model_kwargs": {}, "model_provider": model_provider, **kwargs}
+        row = resolved.row
+        if not row.is_enabled:
+            raise RuntimeError(f"Provider '{row.slug}' is disabled. Enable it in the configuration.")
+        if row.api_key is None:
+            raise RuntimeError(f"Provider '{row.slug}' has no API key configured.")
 
-        if model_provider == ModelProvider.ANTHROPIC:
-            if site_settings.anthropic_api_key is None:
-                raise RuntimeError("Anthropic API key is not configured. Set ANTHROPIC_API_KEY or use the config UI.")
+        kw: dict = {"temperature": 0, "model_kwargs": {}, "model": resolved.model_name, **kwargs}
 
-            _kwargs["betas"] = ["structured-outputs-2025-11-13"]
-            _kwargs["api_key"] = site_settings.anthropic_api_key.get_secret_value()
+        if row.provider_type == ProviderType.ANTHROPIC:
+            kw["model_provider"] = ProviderType.ANTHROPIC.value
+            kw["api_key"] = row.api_key.get_secret_value()
+            kw["betas"] = [ANTHROPIC_STRUCTURED_OUTPUTS_BETA]
+            if row.base_url:
+                kw["base_url"] = row.base_url
+            _apply_anthropic_thinking(kw, thinking_level, resolved.model_name)
 
-            if thinking_level and _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
-                    thinking_level=thinking_level, max_tokens=kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
-                )
-                # When using thinking the temperature need to be set to 1 for Anthropic models
-                _kwargs["temperature"] = 1
-                _kwargs["max_tokens"] = max_tokens
-                _kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_tokens}
-            elif "max_tokens" not in _kwargs:
-                # As stated in docs: https://docs.anthropic.com/en/api/rate-limits#updated-rate-limits
-                # the OTPM is calculated based on the max_tokens. We need to use a fair value to avoid rate limiting.
-                # If needed, we can increase this value using the configurable field.
-                _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
+        elif row.provider_type == ProviderType.OPENAI:
+            kw["model_provider"] = ProviderType.OPENAI.value
+            kw["api_key"] = row.api_key.get_secret_value()
+            if row.use_responses_api:
+                kw["use_responses_api"] = True
+            if row.base_url:
+                kw["openai_api_base"] = row.base_url
+            _apply_openai_reasoning(kw, thinking_level, resolved.model_name)
 
-        elif model_provider == ModelProvider.OPENAI:
-            if site_settings.openai_api_key is None:
-                raise RuntimeError("OpenAI API key is not configured. Set OPENAI_API_KEY or use the config UI.")
-            _kwargs["api_key"] = site_settings.openai_api_key.get_secret_value()
-            _kwargs["use_responses_api"] = True
-            if thinking_level and _kwargs["model"].startswith(OPENAI_THINKING_MODELS):
-                _kwargs["temperature"] = 1
-                _kwargs["reasoning_effort"] = thinking_level
+        elif row.provider_type == ProviderType.OPENROUTER:
+            # OpenRouter is OpenAI-compatible over the wire.
+            kw["model_provider"] = ProviderType.OPENAI.value
+            kw["api_key"] = row.api_key.get_secret_value()
+            kw["openai_api_base"] = row.base_url or "https://openrouter.ai/api/v1"
+            kw["model_kwargs"]["extra_headers"] = {"HTTP-Referer": "https://srtab.github.io/daiv", "X-Title": BOT_NAME}
+            _apply_openrouter_thinking(kw, thinking_level, resolved.model_name)
 
-        elif model_provider == ModelProvider.OPENROUTER:
-            if site_settings.openrouter_api_key is None:
-                raise RuntimeError("OpenRouter API key is not configured. Set OPENROUTER_API_KEY or use the config UI.")
-            # OpenRouter is OpenAI compatible, so we need to use the OpenAI model provider
-            _kwargs["model_provider"] = ModelProvider.OPENAI
-            _kwargs["model_kwargs"]["extra_headers"] = {
-                "HTTP-Referer": "https://srtab.github.io/daiv",
-                "X-Title": BOT_NAME,
-            }
-            _kwargs["openai_api_base"] = site_settings.openrouter_api_base
-            _kwargs["openai_api_key"] = site_settings.openrouter_api_key.get_secret_value()
+        elif row.provider_type == ProviderType.GOOGLE_GENAI:
+            kw["model_provider"] = ProviderType.GOOGLE_GENAI.value
+            kw["api_key"] = row.api_key.get_secret_value()
+            kw["include_thoughts"] = True
+            if row.base_url:
+                kw["base_url"] = row.base_url
 
-            if thinking_level:
-                if _kwargs["model"].startswith(CLAUDE_THINKING_MODELS):
-                    max_tokens, thinking_tokens = BaseAgent._get_anthropic_thinking_tokens(
-                        thinking_level=thinking_level, max_tokens=_kwargs.get("max_tokens", CLAUDE_MAX_TOKENS)
-                    )
-                    _kwargs["max_tokens"] = max_tokens
-                    _kwargs["extra_body"] = {"reasoning": {"max_tokens": thinking_tokens}}
-                    # When using thinking the temperature need to be set to 1 for Anthropic models
-                    _kwargs["temperature"] = 1
-                else:
-                    # `enabled: true` is the universal switch on OpenRouter; some providers
-                    # (notably z.ai's GLM family) ignore `effort` and require the explicit flag.
-                    _kwargs["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
+        else:
+            raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
 
-            elif _kwargs["model"].startswith("anthropic") and "max_tokens" not in _kwargs:
-                # Avoid rate limiting by setting a fair max_tokens value
-                _kwargs["max_tokens"] = CLAUDE_MAX_TOKENS
-                _kwargs["model_kwargs"]["extra_headers"]["anthropic-beta"] = "structured-outputs-2025-11-13"
+        if not row.verify_ssl:
+            _apply_insecure_http_clients(kw, row)
 
-        elif model_provider == ModelProvider.GOOGLE_GENAI:
-            if site_settings.google_api_key is None:
-                raise RuntimeError("Google API key is not configured. Set GOOGLE_API_KEY or use the config UI.")
-            _kwargs["api_key"] = site_settings.google_api_key.get_secret_value()
-            _kwargs["include_thoughts"] = True
+        if row.extra_headers:
+            # User-supplied headers don't override agent-managed ones (HTTP-Referer,
+            # X-Title, anthropic-beta); admins customise via the agent code, not the row.
+            existing = kw["model_kwargs"].setdefault("extra_headers", {})
+            for name, value in row.extra_headers.items():
+                existing.setdefault(name, value)
 
-        return _kwargs
-
-    @staticmethod
-    def _get_anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int) -> tuple[int, int]:
-        """
-        Get the thinking tokens and max tokens for the model.
-        """
-        if thinking_level == ThinkingLevel.MINIMAL:
-            return max_tokens + 1_024, 1_024
-        elif thinking_level == ThinkingLevel.LOW:
-            return max_tokens + 4_096, 4_096
-        elif thinking_level == ThinkingLevel.MEDIUM:
-            return max_tokens + 25_600, 25_600
-        elif thinking_level == ThinkingLevel.HIGH:
-            return 64_000, 64_000 - max_tokens
-        raise ValueError(f"Unsupported thinking level: {thinking_level}")
+        return kw
 
     async def draw_mermaid_png(self) -> bytes:
         """
@@ -275,14 +321,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         return BaseAgent.get_model(model=model_name).get_num_tokens_from_messages(messages)
 
     @staticmethod
-    def get_model_provider(model_name: str) -> ModelProvider:
+    def get_model_provider(model_name: str) -> ProviderType:
         """
-        Get the model provider.
+        Get the model provider for a model spec.
 
         Args:
             model_name: The model specification string (e.g. ``"anthropic:claude-sonnet-4-6"``).
-
-        Returns:
-            ModelProvider: The model provider
         """
-        return parse_model_spec(model_name)[0]
+        return ProviderType(parse_model_spec(model_name).row.provider_type)

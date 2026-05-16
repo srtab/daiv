@@ -1,13 +1,28 @@
+import tempfile
 from enum import StrEnum
+from pathlib import Path
 
 from daiv.settings.components import PROJECT_DIR
 
 # Path where the builtin skills are stored in the filesystem to be copied to the repository.
 BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 
-# Virtual path (under the FilesystemBackend root, sibling to the repo working tree) where
-# global skills — builtins and custom globals — are materialized at agent start.
+# Virtual path the composite backend serves global skills from. Mounted onto
+# ``SKILLS_CACHE_PATH`` on disk so per-turn skill uploads are idempotent and writes
+# under ``/skills/`` don't round-trip through the agent's state.
 GLOBAL_SKILLS_PATH = "/skills"
+GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
+
+# On-disk root the composite backend mounts at ``GLOBAL_SKILLS_PATH``. Created at module
+# import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup
+# ImportError on production, or a confusing pytest collection error locally).
+#
+# Recreated only on container image change; stale entries from a prior deploy may
+# survive a container restart on hosts where ``/tmp`` is not a tmpfs, so do not rely on
+# this for runtime invalidation. ``SkillsMiddleware._collect_skill_files`` makes per-run
+# uploads idempotent via an existence check against this path.
+SKILLS_CACHE_PATH = Path(tempfile.gettempdir()) / "daiv-skills"
+SKILLS_CACHE_PATH.mkdir(parents=True, exist_ok=True)
 
 # Path where the skills are stored in repository.
 CURSOR_SKILLS_PATH = ".cursor/skills"
@@ -59,26 +74,3 @@ class ModelName(StrEnum):
 
     # MoonshotAI models
     MOONSHOTAI_KIMI_K2_5 = "openrouter:moonshotai/kimi-k2.5"
-
-
-# Per-provider model name suggestions for the configuration UI datalists.
-MODEL_SUGGESTIONS: dict[str, list[str]] = {
-    "openrouter": [
-        "anthropic/claude-opus-4.6",
-        "anthropic/claude-opus-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "anthropic/claude-sonnet-4.5",
-        "anthropic/claude-haiku-4.5",
-        "openai/gpt-5.3-codex",
-        "openai/gpt-5.4",
-        "openai/gpt-5.4-mini",
-        "z-ai/glm-5",
-        "z-ai/glm-5-turbo",
-        "minimax/minimax-m2.5",
-        "minimax/minimax-m2.7",
-        "moonshotai/kimi-k2.5",
-    ],
-    "anthropic": ["claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-4-5"],
-    "openai": ["gpt-5.3-codex", "gpt-5.4", "gpt-5.4-mini"],
-    "google_genai": ["gemini-2.5-flash", "gemini-2.5-pro"],
-}

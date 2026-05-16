@@ -1,5 +1,8 @@
 from django.urls import path
 
-from core.views import SiteConfigurationView
+from core.views import SiteConfigurationGroupView, SiteConfigurationIndexView
 
-urlpatterns = [path("", SiteConfigurationView.as_view(), name="site_configuration")]
+urlpatterns = [
+    path("", SiteConfigurationIndexView.as_view(), name="site_configuration_index"),
+    path("<slug:group_key>/", SiteConfigurationGroupView.as_view(), name="site_configuration"),
+]

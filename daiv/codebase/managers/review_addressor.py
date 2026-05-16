@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
+from redis.exceptions import RedisError
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
@@ -338,14 +340,10 @@ class CommentsAddressorManager(BaseManager):
                 )
 
     async def _safe_get_state(self, agent, config):
-        """Read the agent's persisted state, swallowing errors.
-
-        Footer/result rendering is cosmetic — a checkpoint read failure must never
-        tear down the reply path.
-        """
+        """Read agent state, returning None on transport/serialization failure."""
         try:
             return await agent.aget_state(config=config)
-        except Exception:
+        except RedisError, OSError, json.JSONDecodeError:
             logger.warning(
                 "Failed to read agent state for merge request %d", self.merge_request.merge_request_id, exc_info=True
             )
@@ -362,7 +360,19 @@ class CommentsAddressorManager(BaseManager):
 
         source_branch = snapshot.values.get("protected_branch_fallback_source")
         new_mr = snapshot.values.get("merge_request")
+        if not source_branch and new_mr is None:
+            return None
         if not source_branch or new_mr is None:
+            # The publisher writes the two fields together; seeing only one set means
+            # the checkpoint was raced/partial. The user gets the reply with no
+            # breadcrumb to the new MR in that case — surface it to the operator.
+            logger.warning(
+                "Partial protected-branch fallback state on MR %d "
+                "(source_branch=%r, merge_request=%r); dropping footer.",
+                self.merge_request.merge_request_id,
+                source_branch,
+                new_mr,
+            )
             return None
 
         return render_to_string(

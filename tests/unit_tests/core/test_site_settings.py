@@ -57,11 +57,11 @@ class TestEnvOverride:
             assert ss.sandbox_timeout == 30.5
 
     def test_api_key_env_override_uses_custom_name(self, ss, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-env")
+        monkeypatch.setenv("ALLAUTH_CLIENT_SECRET", "sk-test-env")
         mock_config = MagicMock()
-        mock_config.anthropic_api_key = "sk-from-db"
+        mock_config.auth_client_secret = "sk-from-db"  # noqa: S105
         with patch.object(SiteConfiguration, "get_cached", return_value=mock_config):
-            result = ss.anthropic_api_key
+            result = ss.auth_client_secret
             assert isinstance(result, SecretStr)
             assert result.get_secret_value() == "sk-test-env"
 
@@ -75,8 +75,8 @@ class TestEnvLocked:
         assert ss.is_env_locked("agent_model_name") is False
 
     def test_is_env_locked_api_key_custom_name(self, ss, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "x")
-        assert ss.is_env_locked("openai_api_key") is True
+        monkeypatch.setenv("ALLAUTH_CLIENT_SECRET", "x")
+        assert ss.is_env_locked("auth_client_secret") is True
 
 
 class TestGetEnvVarName:
@@ -84,7 +84,7 @@ class TestGetEnvVarName:
         assert ss.get_env_var_name("agent_model_name") == "DAIV_AGENT_MODEL_NAME"
 
     def test_api_key_override(self, ss):
-        assert ss.get_env_var_name("anthropic_api_key") == "ANTHROPIC_API_KEY"
+        assert ss.get_env_var_name("auth_client_secret") == "ALLAUTH_CLIENT_SECRET"
 
 
 class TestGetDefaults:
@@ -101,26 +101,26 @@ class TestDbUnavailable:
             assert ss.agent_recursion_limit == 500
 
     def test_secret_returns_none_when_db_unavailable(self, ss, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("DAIV_WEB_SEARCH_API_KEY", raising=False)
         with patch.object(SiteConfiguration, "get_cached", return_value=None):
-            assert ss.anthropic_api_key is None
+            assert ss.web_search_api_key is None
 
 
 class TestDockerSecretOverride:
     def test_docker_secret_overrides_db_and_default(self, ss):
         mock_config = MagicMock()
-        mock_config.anthropic_api_key = "sk-from-db"
+        mock_config.auth_client_secret = "sk-from-db"  # noqa: S105
         mock_secret = patch("core.site_settings.get_docker_secret", return_value="sk-from-docker-secret")
         with mock_secret as mock_fn, patch.object(SiteConfiguration, "get_cached", return_value=mock_config):
-            result = ss.anthropic_api_key
+            result = ss.auth_client_secret
             assert isinstance(result, SecretStr)
             assert result.get_secret_value() == "sk-from-docker-secret"
-            mock_fn.assert_called_with("ANTHROPIC_API_KEY", default=None)
+            mock_fn.assert_called_with("ALLAUTH_CLIENT_SECRET", default=None)
 
     def test_docker_secret_locks_field(self, ss):
         with patch("core.site_settings.get_docker_secret", return_value="sk-from-docker-secret") as mock_fn:
-            assert ss.is_env_locked("anthropic_api_key") is True
-            mock_fn.assert_called_with("ANTHROPIC_API_KEY", default=None)
+            assert ss.is_env_locked("auth_client_secret") is True
+            mock_fn.assert_called_with("ALLAUTH_CLIENT_SECRET", default=None)
 
     def test_no_docker_secret_falls_through(self, ss):
         with (

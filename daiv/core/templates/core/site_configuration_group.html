@@ -1,0 +1,74 @@
+{% extends "core/site_configuration.html" %}
+{% load configuration_tags icon_tags %}
+
+{% block group_content %}
+{% if form.non_field_errors %}
+<div class="rounded-2xl border border-red-800/50 bg-red-950/30 p-4">
+    {% for error in form.non_field_errors %}
+    <p class="text-[15px] text-red-200">{{ error }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+
+<form method="post" autocomplete="off">
+    {% csrf_token %}
+
+    {% with toggle_bf=form|get_field:active_group.toggle_field %}
+    <section class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6"
+             {% if toggle_bf %}x-data="{ enabled: {{ toggle_bf.value|default:'false'|lower }} }"{% endif %}>
+        <div class="flex items-center gap-2.5 {% if not toggle_bf %}pb-5{% endif %}">
+            <div class="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04]">
+                {% icon active_group.icon "h-3.5 w-3.5 text-gray-400" %}
+            </div>
+            <h2 class="text-base font-semibold text-white">{{ active_group.title }}</h2>
+            {% if toggle_bf %}
+            <div class="ml-auto flex items-center gap-2.5">
+                {% if toggle_bf.field.is_env_locked %}
+                {% include "core/_env_lock_badge.html" %}
+                {% endif %}
+                <label class="toggle-switch {% if toggle_bf.field.is_env_locked %}opacity-50 pointer-events-none{% endif %}">
+                    <input type="hidden" name="{{ toggle_bf.name }}" value="">
+                    <input type="checkbox" name="{{ toggle_bf.name }}" value="on"
+                           {% if toggle_bf.value %}checked{% endif %}
+                           {% if toggle_bf.field.is_env_locked %}disabled{% endif %}
+                           x-model="enabled"
+                           class="toggle-switch__input">
+                    <span class="toggle-switch__track"></span>
+                </label>
+            </div>
+            {% endif %}
+        </div>
+
+        <div {% if toggle_bf %}x-show="enabled" x-cloak
+             x-transition:enter="transition-all duration-200 ease-out"
+             x-transition:enter-start="opacity-0 -translate-y-2"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             x-transition:leave="transition-all duration-150 ease-in"
+             x-transition:leave-start="opacity-100 translate-y-0"
+             x-transition:leave-end="opacity-0 -translate-y-2"
+             {% endif %}class="space-y-5 {% if toggle_bf %}pt-5{% endif %}">
+            {% for field_name in active_group.fields %}
+                {% if field_name != active_group.toggle_field %}
+                {% with bf=form|get_field:field_name %}
+                {% if bf %}
+                {% include bf.field.template_name with field=bf %}
+                {% endif %}
+                {% endwith %}
+                {% endif %}
+            {% endfor %}
+            {% if active_group.key == "web_fetch" %}
+                {% include "core/_web_fetch_auth_headers_section.html" %}
+            {% endif %}
+            {% if active_group.key == "providers" %}
+                {% include "core/_providers_section.html" %}
+            {% endif %}
+        </div>
+    </section>
+    {% endwith %}
+
+    <div class="mt-6 flex items-center gap-3">
+        <button type="submit" class="btn-primary">Save configuration</button>
+        <a href="{% url 'dashboard' %}" class="btn-secondary">Cancel</a>
+    </div>
+</form>
+{% endblock group_content %}

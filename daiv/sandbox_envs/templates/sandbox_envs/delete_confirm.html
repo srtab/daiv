@@ -1,29 +1,30 @@
 {% extends "base_app.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Delete environment" %} — DAIV{% endblock %}
+{% block title %}{% translate "Delete environment" %} — DAIV{% endblock %}
+
 {% block container_width %}max-w-3xl{% endblock %}
 
 {% block app_content %}
 <div class="animate-fade-up">
-    <h1 class="text-2xl font-bold tracking-tight">{% trans "Delete environment" %}</h1>
-    <p class="mt-1.5 text-[15px] font-light text-gray-400">{% trans "This action cannot be undone." %}</p>
+    <h1 class="text-2xl font-bold tracking-tight">{% translate "Delete environment" %}</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">{% translate "This action cannot be undone." %}</p>
 </div>
 
 <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-6" style="animation-delay: 100ms">
     <p class="text-[15px] font-medium text-red-200">
-        {% blocktrans with name=object.name %}Delete environment "{{ name }}"?{% endblocktrans %}
+        {% blocktranslate with name=object.name %}Delete environment "{{ name }}"?{% endblocktranslate %}
     </p>
     {% if object.scope == "global" and object.is_default %}
     <p class="mt-2 text-sm text-red-300/80">
-        {% trans "This is the current global default. Promote another global environment as default before deleting." %}
+        {% translate "This is the current global default. Promote another global environment as default before deleting." %}
     </p>
     {% endif %}
 
     <form method="post" class="mt-6 flex items-center gap-3">
         {% csrf_token %}
-        <button type="submit" class="btn-danger">{% trans "Delete" %}</button>
-        <a href="{% url 'sandbox_envs:list' %}" class="btn-secondary">{% trans "Cancel" %}</a>
+        <button type="submit" class="btn-danger">{% translate "Delete" %}</button>
+        <a href="{% url 'sandbox_envs:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
     </form>
 </div>
-{% endblock %}
+{% endblock app_content %}

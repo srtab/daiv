@@ -21,7 +21,7 @@ def _management(total: int, initial: int = 0) -> dict[str, str]:
 class TestSiteConfigurationViewWithAuthHeaders:
     def test_get_renders_formset(self, admin_client, make_auth_header):
         make_auth_header("context7.com", "X-API-Key", "sk-abc")
-        response = admin_client.get(reverse("site_configuration"))
+        response = admin_client.get(reverse("site_configuration", kwargs={"group_key": "web_fetch"}))
         assert response.status_code == 200
         body = response.content.decode()
         assert "context7.com" in body
@@ -37,7 +37,7 @@ class TestSiteConfigurationViewWithAuthHeaders:
             f"{PREFIX}-0-header_name": "X-API-Key",
             f"{PREFIX}-0-header_value": "sk-abc",
         }
-        response = admin_client.post(reverse("site_configuration"), data=data)
+        response = admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
         assert response.status_code == 302
         assert WebFetchAuthHeader.objects.filter(domain="context7.com", header_name="X-API-Key").exists()
 
@@ -51,18 +51,19 @@ class TestSiteConfigurationViewWithAuthHeaders:
             f"{PREFIX}-0-header_value": "",
             f"{PREFIX}-0-DELETE": "on",
         }
-        admin_client.post(reverse("site_configuration"), data=data)
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
         assert not WebFetchAuthHeader.objects.filter(pk=row.pk).exists()
 
-    def test_save_is_atomic_when_main_form_invalid(self, admin_client):
+    def test_save_is_atomic_when_headers_formset_invalid(self, admin_client):
+        """When the headers formset has an invalid row, nothing is saved."""
+        # A row with a domain but no header_name is invalid (header_name is required).
         data = {
-            "agent_recursion_limit": "not-a-number",
             **_management(total=1),
             f"{PREFIX}-0-domain": "context7.com",
-            f"{PREFIX}-0-header_name": "X-API-Key",
+            f"{PREFIX}-0-header_name": "",  # required field missing → formset invalid
             f"{PREFIX}-0-header_value": "sk-abc",
         }
-        admin_client.post(reverse("site_configuration"), data=data)
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
         assert not WebFetchAuthHeader.objects.exists()
 
     def test_env_locked_ignores_submitted_formset(self, admin_client, make_auth_header, monkeypatch):
@@ -89,7 +90,7 @@ class TestSiteConfigurationViewWithAuthHeaders:
             f"{PREFIX}-1-header_name": "X-New",
             f"{PREFIX}-1-header_value": "smuggled",
         }
-        admin_client.post(reverse("site_configuration"), data=data)
+        admin_client.post(reverse("site_configuration", kwargs={"group_key": "web_fetch"}), data=data)
 
         assert WebFetchAuthHeader.objects.filter(pk=existing.pk).exists()
         assert not WebFetchAuthHeader.objects.filter(domain="evil.example.com").exists()

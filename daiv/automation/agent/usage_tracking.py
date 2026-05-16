@@ -16,7 +16,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration
 from langchain_core.tracers.context import register_configure_hook
 
-from automation.agent.base import ModelProvider
+from core.models import ProviderType
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -79,8 +79,8 @@ def _calc_model_cost(model_name: str, usage_metadata: Mapping[str, Any]) -> Deci
     # 5-minute writes are 1.25x. genai-prices' single ``cache_write_mtok`` reflects only
     # the 5-minute rate, so add the (1h − 5m) differential for the 1h portion.
     # OpenRouter-routed Anthropic models share the underlying rates and need the same surcharge.
-    is_anthropic = result.provider.id == ModelProvider.ANTHROPIC or model_name.startswith(
-        f"{ModelProvider.ANTHROPIC.value}/"
+    is_anthropic = result.provider.id == ProviderType.ANTHROPIC or model_name.startswith(
+        f"{ProviderType.ANTHROPIC.value}/"
     )
     if ephemeral_1h and is_anthropic:
         input_rate = _resolve_mtok_rate(result.model_price.input_mtok, input_tokens)
