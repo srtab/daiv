@@ -149,7 +149,7 @@ def humanise_global_default() -> dict[str, str | bool]:
     cpus = _resolve("cpus", "sandbox_cpu")
 
     memory_str = ""
-    if memory:
+    if memory is not None:
         memory_str = f"{memory // 2**30} GiB" if memory % 2**30 == 0 else f"{memory // 2**20} MiB"
 
     return {
@@ -161,7 +161,7 @@ def humanise_global_default() -> dict[str, str | bool]:
             else ""
         ),
         "has_network": network is not None,
-        "has_memory": bool(memory),
+        "has_memory": memory is not None,
         "has_cpus": cpus is not None,
     }
 
