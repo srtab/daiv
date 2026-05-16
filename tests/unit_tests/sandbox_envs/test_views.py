@@ -3,7 +3,7 @@ from django.urls import reverse
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
 
-from accounts.models import User
+from accounts.models import Role, User
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def user(db) -> User:
 @pytest.fixture
 def admin(db) -> User:
     SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-    return User.objects.create_user(username="a", email="a@e.com", password="x", is_staff=True)  # noqa: S106
+    return User.objects.create_user(username="a", email="a@e.com", password="x", role=Role.ADMIN)  # noqa: S106
 
 
 @pytest.mark.django_db
@@ -61,6 +61,71 @@ def test_delete_global_default_blocked(client, admin):
     resp = client.post(reverse("sandbox_envs:delete", args=[env.id]))
     assert resp.status_code == 409
     assert SandboxEnvironment.objects.filter(pk=env.id).exists()
+
+
+@pytest.mark.django_db
+def test_set_default_htmx_returns_global_envs_fragment(client, admin):
+    old = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Old", base_image="g", is_default=True)
+    new = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="New", base_image="g")
+    client.force_login(admin)
+
+    resp = client.post(reverse("sandbox_envs:set_default", args=[new.id]), HTTP_HX_REQUEST="true")
+
+    assert resp.status_code == 200
+    assert resp["Content-Type"].startswith("text/html")
+    rendered = [t.name for t in resp.templates]
+    assert "sandbox_envs/_global_envs.html" in rendered
+    assert "base_app.html" not in rendered
+    new.refresh_from_db()
+    old.refresh_from_db()
+    assert new.is_default
+    assert not old.is_default
+
+
+@pytest.mark.django_db
+def test_set_default_rejects_non_admin(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="x")
+    client.force_login(user)
+
+    resp = client.post(reverse("sandbox_envs:set_default", args=[env.id]))
+
+    assert resp.status_code == 403
+    env.refresh_from_db()
+    assert not env.is_default
+
+
+@pytest.mark.django_db
+def test_set_default_rejects_user_scope_env(client, admin):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=admin, name="dev", base_image="x")
+    client.force_login(admin)
+
+    resp = client.post(reverse("sandbox_envs:set_default", args=[env.id]))
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_user_cannot_delete_other_users_env(client, user):
+    other = User.objects.create_user(username="other", email="o@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="dev", base_image="x")
+    client.force_login(user)
+
+    resp = client.post(reverse("sandbox_envs:delete", args=[env.id]))
+
+    assert resp.status_code == 404
+    assert SandboxEnvironment.objects.filter(pk=env.id).exists()
+
+
+@pytest.mark.django_db
+def test_set_default_non_htmx_redirects(client, admin):
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Old", base_image="g", is_default=True)
+    new = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="New", base_image="g")
+    client.force_login(admin)
+
+    resp = client.post(reverse("sandbox_envs:set_default", args=[new.id]))
+
+    assert resp.status_code == 302
+    assert resp["Location"] == reverse("sandbox_envs:list")
 
 
 @pytest.mark.django_db

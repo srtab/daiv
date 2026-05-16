@@ -4,12 +4,15 @@ import json
 import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect
+from django.template.loader import render_to_string
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from accounts.mixins import AdminRequiredMixin
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
 
@@ -46,8 +49,11 @@ def _encode_env_vars_for_template(env: SandboxEnvironment) -> str:
     return json.dumps(masked)
 
 
-def _user_is_admin(user) -> bool:
-    return bool(getattr(user, "is_admin", False)) or bool(getattr(user, "is_staff", False))
+def _global_envs_context(user) -> dict:
+    return {
+        "global_envs": SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).order_by("name"),
+        "is_admin": user.is_admin,
+    }
 
 
 class EnvListView(LoginRequiredMixin, ListView):
@@ -59,26 +65,25 @@ class EnvListView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-        ctx["global_envs"] = SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).order_by("name")
-        ctx["is_admin"] = _user_is_admin(self.request.user)
+        ctx.update(_global_envs_context(self.request.user))
         return ctx
 
 
 class _ScopedEnvMixin:
-    """Restrict access: users see their own USER envs; admins can edit GLOBAL envs.
+    """Object-scoping for `Env(Update|Delete)View`.
 
-    Non-admin access to a GLOBAL env raises ``PermissionError`` (translated to 403
-    by the calling view's ``dispatch``); non-owner access to a USER env raises
-    ``Http404``.
+    Raises ``PermissionError`` (not ``PermissionDenied``) for GLOBAL-as-non-admin
+    so the calling view's ``dispatch`` can translate it to a 403 with a custom
+    message; the standard ``PermissionDenied`` would render Django's generic
+    403 page instead. Non-owner USER access raises ``Http404``.
     """
 
     def get_object(self, queryset=None):
         env_id = self.kwargs["pk"]
         env = get_object_or_404(SandboxEnvironment, pk=env_id)
         user = self.request.user
-        is_admin = _user_is_admin(user)
         if env.scope == Scope.GLOBAL:
-            if not is_admin:
+            if not user.is_admin:
                 raise PermissionError("admin required")
             return env
         if env.user_id != user.id:
@@ -93,7 +98,7 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs.update({"user": self.request.user, "is_admin": _user_is_admin(self.request.user)})
+        kwargs.update({"user": self.request.user, "is_admin": self.request.user.is_admin})
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -117,7 +122,7 @@ class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
         kwargs = super().get_form_kwargs()
         kwargs.update({
             "user": self.request.user,
-            "is_admin": _user_is_admin(self.request.user),
+            "is_admin": self.request.user.is_admin,
             "is_default_form": (self.object.scope == Scope.GLOBAL and self.object.is_default),
         })
         return kwargs
@@ -144,13 +149,24 @@ class EnvDeleteView(LoginRequiredMixin, _ScopedEnvMixin, DeleteView):
         return super().form_valid(form)
 
 
-class EnvSetDefaultView(LoginRequiredMixin, View):
-    """POST-only: mark a GLOBAL env as the new default. Admin-only."""
+class EnvSetDefaultView(AdminRequiredMixin, View):
+    """On HTMX requests, swaps the ``#global-envs`` fragment in place; otherwise
+    redirects to the list (covers no-JS / direct curl flows)."""
+
+    http_method_names = ["post"]
 
     def post(self, request, pk):
-        if not _user_is_admin(request.user):
-            return HttpResponseForbidden("Admin required")
         env = get_object_or_404(SandboxEnvironment, pk=pk, scope=Scope.GLOBAL)
-        # Use the model's atomic helper (Task 3 dropped save() auto-demote).
-        env.promote_as_default()
+        try:
+            env.promote_as_default()
+        except ValidationError as err:
+            # ``promote_as_default`` re-reads under FOR UPDATE; ValidationError here
+            # means a concurrent admin deleted or rescoped the row mid-flight.
+            logger.warning("set-default conflict for env_id=%s: %s", pk, err)
+            return HttpResponse(err.messages[0] if err.messages else "Conflict", status=409)
+        if request.headers.get("HX-Request") == "true":
+            html = render_to_string(
+                "sandbox_envs/_global_envs.html", _global_envs_context(request.user), request=request
+            )
+            return HttpResponse(html, content_type="text/html")
         return redirect("sandbox_envs:list")
