@@ -15,8 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sandbox_envs")
 
 
-_FIELD_TO_SETTINGS: dict[str, str] = {
-    "base_image": "sandbox_base_image",
+FIELD_TO_LOCK_SETTING: dict[str, str] = {
     "network_enabled": "sandbox_network_enabled",
     "memory_bytes": "sandbox_memory",
     "cpus": "sandbox_cpu",
@@ -29,10 +28,15 @@ def get_locked_runtime_fields() -> frozenset[str]:
     Locked fields cannot be overridden by per-run envs or ``.daiv.yml``; only the
     GLOBAL default (already overlaid with the env-var values in
     :func:`get_global_default`) is consulted.
+
+    ``base_image`` is intentionally NOT lockable: per-env base images are the
+    whole point of having multiple sandbox environments. ``DAIV_SANDBOX_BASE_IMAGE``
+    still seeds the GLOBAL Default row at migration time, but the UI value wins
+    thereafter.
     """
     from core.site_settings import site_settings
 
-    return frozenset(field for field, setting in _FIELD_TO_SETTINGS.items() if site_settings.is_env_locked(setting))
+    return frozenset(field for field, setting in FIELD_TO_LOCK_SETTING.items() if site_settings.is_env_locked(setting))
 
 
 @dataclass(frozen=True)
@@ -100,9 +104,7 @@ async def get_global_default() -> SandboxEnvOverride | None:
     row = await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
     locked = site_settings.is_env_locked
 
-    locks_present = any(
-        locked(n) for n in ("sandbox_base_image", "sandbox_network_enabled", "sandbox_cpu", "sandbox_memory")
-    )
+    locks_present = any(locked(n) for n in FIELD_TO_LOCK_SETTING.values())
     if row is None and not locks_present:
         return None
 
@@ -113,7 +115,7 @@ async def get_global_default() -> SandboxEnvOverride | None:
     )
 
     return SandboxEnvOverride(
-        base_image=(site_settings.sandbox_base_image if locked("sandbox_base_image") else base.base_image),
+        base_image=base.base_image,
         network_enabled=(
             bool(site_settings.sandbox_network_enabled) if locked("sandbox_network_enabled") else base.network_enabled
         ),

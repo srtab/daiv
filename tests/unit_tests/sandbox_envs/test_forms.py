@@ -20,13 +20,14 @@ def test_admin_form_allows_global_and_locks_env_locked_fields(monkeypatch):
     from accounts.models import User
 
     user = User.objects.create_user(username="a", email="a@e.com", password="x", is_staff=True)  # noqa: S106
-    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: name == "sandbox_base_image")
-    monkeypatch.setattr("core.site_settings.site_settings.sandbox_base_image", "locked:img")
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: name == "sandbox_memory")
+    monkeypatch.setattr("core.site_settings.site_settings.sandbox_memory", 2_000_000_000)
     form = SandboxEnvironmentForm(user=user, is_admin=True, is_default_form=True)
-    assert form.fields["base_image"].disabled is True
-    assert form.initial.get("base_image") == "locked:img"
-    # cpus/memory_bytes are not locked → editable
-    assert form.fields["memory_bytes"].disabled is False
+    assert form.fields["memory_bytes"].disabled is True
+    assert form.initial.get("memory_bytes") == 2_000_000_000
+    # base_image is no longer lockable → editable.
+    assert form.fields["base_image"].disabled is False
+    assert form.fields["cpus"].disabled is False
 
 
 @pytest.mark.django_db

@@ -86,14 +86,25 @@ async def test_get_global_default_applies_env_lock_overlay(monkeypatch):
     await SandboxEnvironment.objects.acreate(
         scope=Scope.GLOBAL, name="Default", base_image="row-image", memory_bytes=1_000_000_000, is_default=True
     )
-    monkeypatch.setattr(
-        "core.site_settings.site_settings.is_env_locked", lambda name: name in {"sandbox_base_image", "sandbox_memory"}
-    )
-    monkeypatch.setattr("core.site_settings.site_settings.sandbox_base_image", "env-image")
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: name == "sandbox_memory")
     monkeypatch.setattr("core.site_settings.site_settings.sandbox_memory", 9_000_000_000)
     override = await get_global_default()
-    assert override.base_image == "env-image"
     assert override.memory_bytes == 9_000_000_000
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_get_global_default_base_image_is_not_lockable(monkeypatch):
+    """``DAIV_SANDBOX_BASE_IMAGE`` no longer overlays the row at runtime; the UI value wins."""
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.acreate(
+        scope=Scope.GLOBAL, name="Default", base_image="row-image", is_default=True
+    )
+    # Even if the env var is "locked", base_image is not in the lockable set.
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: name == "sandbox_base_image")
+    monkeypatch.setattr("core.site_settings.site_settings.sandbox_base_image", "env-image")
+    override = await get_global_default()
+    assert override.base_image == "row-image"
 
 
 def _yaml_sandbox(**explicit) -> tuple[Sandbox, frozenset[str]]:
@@ -177,18 +188,18 @@ def test_locked_field_ignores_per_run_and_yml():
     """A field listed in ``locked_fields`` must read only from the global default
     (which carries the DAIV_SANDBOX_* overlay); per-run and ``.daiv.yml`` are
     ignored even when they set a non-None value."""
-    sb, fields = _yaml_sandbox(base_image="yml-image", memory_bytes=8_000_000_000)
+    sb, fields = _yaml_sandbox(memory_bytes=8_000_000_000, cpus=4.0)
     out = merge_sandbox_runtime(
         sb,
         fields,
-        per_run=_override(base_image="per-run-image", memory_bytes=4_000_000_000),
-        global_default=_override(base_image="locked-image", memory_bytes=2_000_000_000),
-        locked_fields=frozenset({"base_image"}),
+        per_run=_override(memory_bytes=4_000_000_000, cpus=2.0),
+        global_default=_override(memory_bytes=2_000_000_000, cpus=1.0),
+        locked_fields=frozenset({"memory_bytes"}),
     )
     # locked: global wins despite per-run + yml
-    assert out.base_image == "locked-image"
+    assert out.memory_bytes == 2_000_000_000
     # unlocked: per-run still wins
-    assert out.memory_bytes == 4_000_000_000
+    assert out.cpus == 2.0
 
 
 def test_locked_field_without_global_falls_through_to_runtime_default():
@@ -204,11 +215,38 @@ def test_locked_field_without_global_falls_through_to_runtime_default():
     assert out.network_enabled is False
 
 
+def test_per_run_base_image_wins_when_env_var_says_locked(monkeypatch):
+    """Regression: env-locked ``sandbox_base_image`` must not block per-run / .daiv.yml.
+
+    The whole point of removing ``base_image`` from the lock set is that
+    per-environment images are admin-controlled. Even when the env var is set,
+    ``get_locked_runtime_fields()`` returns an empty set for base_image, so
+    ``merge_sandbox_runtime`` respects per-run and yml overrides.
+    """
+    from sandbox_envs.services import get_locked_runtime_fields
+
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: name == "sandbox_base_image")
+    assert "base_image" not in get_locked_runtime_fields()
+
+    sb, fields = _yaml_sandbox(base_image="yml-image")
+    out = merge_sandbox_runtime(
+        sb,
+        fields,
+        per_run=_override(base_image="per-run-image"),
+        global_default=_override(base_image="row-image"),
+        locked_fields=get_locked_runtime_fields(),
+    )
+    assert out.base_image == "per-run-image"
+
+
 def test_get_locked_runtime_fields_returns_locked_subset(monkeypatch):
     from sandbox_envs.services import get_locked_runtime_fields
 
+    # ``sandbox_base_image`` is set but is no longer in the lockable set —
+    # it must not appear in the returned frozenset.
     monkeypatch.setattr(
-        "core.site_settings.site_settings.is_env_locked", lambda name: name in {"sandbox_base_image", "sandbox_memory"}
+        "core.site_settings.site_settings.is_env_locked",
+        lambda name: name in {"sandbox_base_image", "sandbox_memory", "sandbox_cpu"},
     )
     locked = get_locked_runtime_fields()
-    assert locked == frozenset({"base_image", "memory_bytes"})
+    assert locked == frozenset({"memory_bytes", "cpus"})

@@ -3,6 +3,13 @@
 Importable both from the data migration and from tests. The function is idempotent
 and intentionally leaves env-locked fields unset on the row — those values come
 from the runtime overlay in ``sandbox_envs.services.get_global_default``.
+
+``base_image`` is always persisted on the row (the model requires it). When set,
+``DAIV_SANDBOX_BASE_IMAGE`` provides the initial seed value, but the field is not
+env-locked at runtime: admins can override it via the UI. Note that re-invoking
+this function (e.g. running the data migration a second time) will overwrite a
+UI-edited ``base_image`` via ``update_or_create``; in practice the migration runs
+once per deployment so this is theoretical.
 """
 
 import logging
@@ -17,19 +24,7 @@ def seed_global_default(SandboxEnvironment) -> None:  # noqa: N803 — historica
 
     is_locked = site_settings.is_env_locked
 
-    persisted_kwargs: dict[str, object] = {}
-    if not is_locked("sandbox_base_image"):
-        image = site_settings.sandbox_base_image or _FALLBACK_IMAGE
-        persisted_kwargs["base_image"] = image
-    else:
-        # Model requires non-empty ``base_image``, so we persist a placeholder.
-        # The runtime overlay in ``get_global_default`` still wins at read time
-        # because the field is env-locked.
-        persisted_kwargs["base_image"] = _FALLBACK_IMAGE
-        logger.info(
-            "sandbox_envs seed: base_image is env-locked; row holds placeholder, "
-            "DAIV_SANDBOX_BASE_IMAGE remains authoritative at runtime."
-        )
+    persisted_kwargs: dict[str, object] = {"base_image": site_settings.sandbox_base_image or _FALLBACK_IMAGE}
 
     if not is_locked("sandbox_network_enabled"):
         persisted_kwargs["network_enabled"] = bool(site_settings.sandbox_network_enabled)

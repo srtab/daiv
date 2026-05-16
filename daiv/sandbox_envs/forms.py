@@ -6,13 +6,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from sandbox_envs.models import _ENV_VAR_NAME_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
-
-_ENV_LOCKED_FIELDS_MAP = {
-    "base_image": "sandbox_base_image",
-    "network_enabled": "sandbox_network_enabled",
-    "cpus": "sandbox_cpu",
-    "memory_bytes": "sandbox_memory",
-}
+from sandbox_envs.services import FIELD_TO_LOCK_SETTING
 
 
 class SandboxEnvironmentForm(forms.ModelForm):
@@ -48,7 +42,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
     def _apply_env_locks(self) -> None:
         from core.site_settings import site_settings
 
-        for form_field, settings_name in _ENV_LOCKED_FIELDS_MAP.items():
+        for form_field, settings_name in FIELD_TO_LOCK_SETTING.items():
             if not site_settings.is_env_locked(settings_name):
                 continue
             field = self.fields.get(form_field)
