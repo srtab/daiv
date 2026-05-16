@@ -1,5 +1,8 @@
 {% load i18n %}
-<div x-data="envPasteOverlay()"
+<div x-data="envPasteOverlay({
+        importLabel: '{% translate 'Import' %}',
+        importLabelN: '{% translate 'Import {n} vars' %}',
+     })"
      @open-env-paste.window="onOpen()"
      @keydown.escape.window="if (open) close()"
      x-show="open"
@@ -54,7 +57,7 @@
         <footer class="flex items-center gap-3 border-t border-white/[0.06] px-6 py-4">
             <button type="button" @click="importNow()" :disabled="!parsed.entries.length"
                     class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
-                <span x-text="parsed.entries.length ? 'Import ' + parsed.entries.length + ' vars' : 'Import'"></span>
+                <span x-text="importButtonText"></span>
             </button>
             <button type="button" @click="close()" class="btn-secondary">{% translate "Cancel" %}</button>
         </footer>

@@ -73,7 +73,10 @@
         {% if form.base_image.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.base_image.errors.0 }}</p>{% endif %}
     </div>
 
-    <fieldset x-data="envVarsEditor({{ env_vars_initial|safe }})"
+    <fieldset x-data="envVarsEditor({{ env_vars_initial|safe }}, {
+                  invalidName: '{% translate 'Invalid name'|escapejs %}',
+                  duplicateName: '{% translate 'Duplicate name'|escapejs %}',
+              })"
               @env-paste-apply.window="mergeImport($event.detail.entries, $event.detail.replace)">
         <div class="flex items-center justify-between gap-2">
             <legend class="text-[15px] font-medium text-gray-300">
@@ -94,7 +97,7 @@
                            :class="rowError(i) ? '!border-red-500/60 focus:!ring-red-500/30' : ''">
                     <input x-model="row.value"
                            :type="row.is_secret ? 'password' : 'text'"
-                           :placeholder="row.has_existing_value ? '🔒 keep existing' : 'value'"
+                           :placeholder="row.has_existing_value ? '{% translate '🔒 keep existing'|escapejs %}' : '{% translate 'value'|escapejs %}'"
                            class="flex-1">
                     <label class="toggle-switch" :title="row.is_secret ? '{% translate "Secret" %}' : '{% translate "Plain" %}'">
                         <input type="checkbox" x-model="row.is_secret" class="toggle-switch__input">

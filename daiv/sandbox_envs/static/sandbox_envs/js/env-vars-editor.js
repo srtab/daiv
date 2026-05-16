@@ -33,19 +33,23 @@ function parseDotenv(text) {
     return {entries, invalidLines: invalid};
 }
 
-function envVarsEditorState(initial = []) {
+function envVarsEditorState(initial = [], labels = {}) {
     return {
         rows: Array.isArray(initial) ? initial.map((r) => ({...r})) : [],
+        labels: {
+            invalidName: labels.invalidName || "Invalid name",
+            duplicateName: labels.duplicateName || "Duplicate name",
+        },
 
         rowError(i) {
             const row = this.rows[i];
             if (!row) return "";
             const name = (row.name || "").trim();
             if (!name && !row.value) return "";
-            if (!ENV_VAR_NAME_RE.test(name)) return "Invalid name";
+            if (!ENV_VAR_NAME_RE.test(name)) return this.labels.invalidName;
             for (let j = 0; j < i; j++) {
                 if ((this.rows[j].name || "").trim() === name && (this.rows[j].value || this.rows[j].name)) {
-                    return "Duplicate name";
+                    return this.labels.duplicateName;
                 }
             }
             return "";
@@ -82,11 +86,13 @@ function envVarsEditorState(initial = []) {
 document.addEventListener("alpine:init", () => {
     Alpine.data("envVarsEditor", envVarsEditorState);
 
-    Alpine.data("envPasteOverlay", () => ({
+    Alpine.data("envPasteOverlay", (labels = {}) => ({
         open: false,
         text: "",
         mode: "merge",
         parsed: {entries: [], invalidLines: []},
+        importLabel: labels.importLabel || "Import",
+        importLabelN: labels.importLabelN || "Import {n} vars",
 
         onOpen() {
             this.open = true;
@@ -104,6 +110,11 @@ document.addEventListener("alpine:init", () => {
                 detail: {entries: this.parsed.entries, replace: this.mode === "replace"},
             }));
             this.close();
+        },
+
+        get importButtonText() {
+            if (!this.parsed.entries.length) return this.importLabel;
+            return this.importLabelN.replace("{n}", this.parsed.entries.length);
         },
     }));
 });

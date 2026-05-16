@@ -10,11 +10,15 @@
  * htmx.ajax(); errors are surfaced as an inline banner with a Retry button.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("envDrawer", () => ({
+    Alpine.data("envDrawer", (labels = {}) => ({
         open: false,
         mode: "create",
         url: "",
         error: false,
+        createTitle: labels.createTitle || "New sandbox environment",
+        editTitle: labels.editTitle || "Edit sandbox environment",
+        createSubtitle: labels.createSubtitle || "Create an environment without leaving this page.",
+        editSubtitle: labels.editSubtitle || "Edit without leaving this page.",
 
         init() {
             this.$el.addEventListener("htmx:afterRequest", (e) => {
@@ -48,13 +52,11 @@ document.addEventListener("alpine:init", () => {
         },
 
         get title() {
-            return this.mode === "edit" ? "Edit sandbox environment" : "New sandbox environment";
+            return this.mode === "edit" ? this.editTitle : this.createTitle;
         },
 
         get subtitle() {
-            return this.mode === "edit"
-                ? "Edit without leaving this page."
-                : "Create an environment without leaving this page.";
+            return this.mode === "edit" ? this.editSubtitle : this.createSubtitle;
         },
     }));
 });

@@ -1,5 +1,10 @@
 {% load i18n %}
-<div x-data="envDrawer()"
+<div x-data="envDrawer({
+        createTitle: '{% translate 'New sandbox environment' %}',
+        editTitle: '{% translate 'Edit sandbox environment' %}',
+        createSubtitle: '{% translate 'Create an environment without leaving this page.' %}',
+        editSubtitle: '{% translate 'Edit without leaving this page.' %}',
+     })"
      @open-env-drawer.window="openDrawer($event.detail)"
      @close-env-drawer.window="close()"
      @keydown.escape.window="if (open) close()"
