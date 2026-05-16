@@ -1,5 +1,6 @@
 {% load i18n %}
 <div x-data="envPasteOverlay()"
+     @open-env-paste.window="onOpen()"
      @keydown.escape.window="if (open) close()"
      x-show="open"
      x-cloak

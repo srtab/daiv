@@ -73,7 +73,8 @@
         {% if form.base_image.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.base_image.errors.0 }}</p>{% endif %}
     </div>
 
-    <fieldset x-data="envVarsEditor({{ env_vars_initial|safe }})">
+    <fieldset x-data="envVarsEditor({{ env_vars_initial|safe }})"
+              @env-paste-apply.window="mergeImport($event.detail.entries, $event.detail.replace)">
         <div class="flex items-center justify-between gap-2">
             <legend class="text-[15px] font-medium text-gray-300">
                 {% translate "Environment variables" %} <span class="text-gray-500" x-text="rows.length ? '(' + rows.length + ')' : ''"></span>

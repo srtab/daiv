@@ -37,12 +37,6 @@ function envVarsEditorState(initial = []) {
     return {
         rows: Array.isArray(initial) ? initial.map((r) => ({...r})) : [],
 
-        init() {
-            window.addEventListener("env-paste-apply", (e) => {
-                this.mergeImport(e.detail.entries, e.detail.replace);
-            });
-        },
-
         rowError(i) {
             const row = this.rows[i];
             if (!row) return "";
@@ -94,12 +88,10 @@ document.addEventListener("alpine:init", () => {
         mode: "merge",
         parsed: {entries: [], invalidLines: []},
 
-        init() {
-            window.addEventListener("open-env-paste", () => {
-                this.open = true;
-                this.text = "";
-                this.parsed = {entries: [], invalidLines: []};
-            });
+        onOpen() {
+            this.open = true;
+            this.text = "";
+            this.parsed = {entries: [], invalidLines: []};
         },
 
         onInput() { this.parsed = parseDotenv(this.text); },
