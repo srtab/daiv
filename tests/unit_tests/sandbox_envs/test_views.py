@@ -323,3 +323,46 @@ def test_create_context_sets_is_default_form_false(client, user):
     resp = client.get(reverse("sandbox_envs:create"))
     assert resp.status_code == 200
     assert resp.context["is_default_form"] is False
+
+
+@pytest.mark.django_db
+def test_invalid_create_post_preserves_submitted_env_vars(client, user):
+    client.force_login(user)
+    submitted_json = '[{"name": "API_KEY", "value": "sk-typed", "is_secret": false}]'
+    resp = client.post(
+        reverse("sandbox_envs:create"),
+        data={
+            "name": "",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "network_choice": "default",
+            "memory_value": "",
+            "memory_unit": "MiB",
+            "env_vars_json": submitted_json,
+        },
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 200
+    assert resp.context["env_vars_initial"] == submitted_json
+
+
+@pytest.mark.django_db
+def test_invalid_edit_post_preserves_submitted_env_vars(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    client.force_login(user)
+    submitted_json = '[{"name": "ABC", "value": "v", "is_secret": false}]'
+    resp = client.post(
+        reverse("sandbox_envs:edit", args=[env.id]),
+        data={
+            "name": "",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "network_choice": "default",
+            "memory_value": "",
+            "memory_unit": "MiB",
+            "env_vars_json": submitted_json,
+        },
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 200
+    assert resp.context["env_vars_initial"] == submitted_json
