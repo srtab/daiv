@@ -49,8 +49,8 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.fields.pop("is_default", None)
         if is_default_form:
             self._apply_env_locks()
-        instance = kwargs.get("instance") or self.instance
-        if instance is not None and instance.pk is not None:
+        instance = self.instance
+        if instance.pk is not None:
             self.initial.setdefault("network_choice", _NETWORK_TO_CHOICE[instance.network_enabled])
             if instance.memory_bytes:
                 if instance.memory_bytes % GIB == 0:
@@ -75,7 +75,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             elif form_field == "memory_bytes":
                 self.fields["memory_value"].disabled = True
                 self.fields["memory_unit"].disabled = True
-                if value:
+                if value is not None:
                     if value % GIB == 0:
                         self.initial["memory_value"] = value // GIB
                         self.initial["memory_unit"] = "GiB"
