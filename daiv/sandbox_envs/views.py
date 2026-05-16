@@ -15,6 +15,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from accounts.mixins import AdminRequiredMixin
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.services import humanise_global_default
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -58,6 +59,10 @@ def _global_envs_context(user) -> dict:
         "global_envs": SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).order_by("name"),
         "is_admin": user.is_admin,
     }
+
+
+def _global_default_summary_context() -> dict:
+    return {"global_default_summary": humanise_global_default()}
 
 
 class EnvListView(LoginRequiredMixin, ListView):
@@ -117,6 +122,7 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
         ctx = super().get_context_data(**kwargs)
         ctx["env_vars_initial"] = "[]"
         ctx["in_drawer"] = _is_htmx(self.request)
+        ctx.update(_global_default_summary_context())
         return ctx
 
     def get_template_names(self):
@@ -145,6 +151,8 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
 
 
 class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
+    """HX-Request flips this into a drawer-friendly mode, mirroring `EnvCreateView`."""
+
     template_name = "sandbox_envs/form.html"
     form_class = SandboxEnvironmentForm
     success_url = reverse_lazy("sandbox_envs:list")
@@ -168,7 +176,30 @@ class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
         ctx = super().get_context_data(**kwargs)
         ctx["env_vars_initial"] = _encode_env_vars_for_template(self.object)
         ctx["show_delete"] = True
+        ctx["in_drawer"] = _is_htmx(self.request)
+        ctx.update(_global_default_summary_context())
         return ctx
+
+    def get_template_names(self):
+        return ["sandbox_envs/_form_body.html"] if _is_htmx(self.request) else [self.template_name]
+
+    def form_valid(self, form):
+        if not _is_htmx(self.request):
+            return super().form_valid(form)
+        try:
+            env = form.save()
+        except ValidationError as err:
+            form.add_error(None, err)
+            return self.form_invalid(form)
+        payload = {
+            "env-updated": {
+                "id": str(env.id),
+                "name": env.name,
+                "scope": env.scope,
+                "scope_display": env.get_scope_display(),
+            }
+        }
+        return HttpResponse(status=204, headers={"HX-Trigger": json.dumps(payload)})
 
 
 class EnvDeleteView(LoginRequiredMixin, _ScopedEnvMixin, DeleteView):

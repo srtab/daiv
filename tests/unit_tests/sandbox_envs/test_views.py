@@ -227,3 +227,68 @@ def test_edit_template_does_not_leak_secret_values(client, user):
     resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
     assert resp.status_code == 200
     assert b"real-secret" not in resp.content
+
+
+@pytest.mark.django_db
+def test_create_context_includes_global_default_summary(client, user):
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:create"))
+    assert resp.status_code == 200
+    summary = resp.context["global_default_summary"]
+    assert set(summary.keys()) == {"network", "memory", "cpus", "has_network", "has_memory", "has_cpus"}
+
+
+@pytest.mark.django_db
+def test_edit_htmx_get_returns_form_body_fragment(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
+    assert resp.status_code == 200
+    rendered = [t.name for t in resp.templates]
+    assert "sandbox_envs/_form_body.html" in rendered
+    assert "base_app.html" not in rendered
+
+
+@pytest.mark.django_db
+def test_edit_htmx_post_success_fires_env_updated(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    client.force_login(user)
+    resp = client.post(
+        reverse("sandbox_envs:edit", args=[env.id]),
+        data={
+            "name": "dev-renamed",
+            "description": "",
+            "scope": Scope.USER,
+            "base_image": "alpine:latest",
+            "memory_value": "",
+            "memory_unit": "MiB",
+            "network_choice": "default",
+            "env_vars_json": "[]",
+        },
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 204
+    trigger = json.loads(resp.headers["HX-Trigger"])
+    env.refresh_from_db()
+    assert trigger["env-updated"] == {
+        "id": str(env.id),
+        "name": "dev-renamed",
+        "scope": Scope.USER,
+        "scope_display": env.get_scope_display(),
+    }
+
+
+@pytest.mark.django_db
+def test_edit_htmx_post_invalid_returns_form_body_with_errors(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    client.force_login(user)
+    resp = client.post(
+        reverse("sandbox_envs:edit", args=[env.id]),
+        data={"name": "", "base_image": "", "env_vars_json": "[]"},
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 200
+    rendered = [t.name for t in resp.templates]
+    assert "sandbox_envs/_form_body.html" in rendered
+    assert "HX-Trigger" not in resp.headers
+    assert resp.context["form"].errors
