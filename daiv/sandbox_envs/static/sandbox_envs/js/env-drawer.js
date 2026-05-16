@@ -50,6 +50,12 @@ document.addEventListener("alpine:init", () => {
         get title() {
             return this.mode === "edit" ? "Edit sandbox environment" : "New sandbox environment";
         },
+
+        get subtitle() {
+            return this.mode === "edit"
+                ? "Edit without leaving this page."
+                : "Create an environment without leaving this page.";
+        },
     }));
 });
 

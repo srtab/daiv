@@ -23,8 +23,8 @@
         <header class="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
             <div>
                 <h2 class="text-lg font-semibold text-white" x-text="title">{% translate "New sandbox environment" %}</h2>
-                <p class="mt-1 text-sm text-gray-400">
-                    {% translate "Edit without leaving this page." %}
+                <p class="mt-1 text-sm text-gray-400" x-text="subtitle">
+                    {% translate "Create an environment without leaving this page." %}
                 </p>
             </div>
             <button type="button" @click="close()" aria-label="{% translate 'Close' %}"
