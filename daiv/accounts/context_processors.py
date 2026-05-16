@@ -30,6 +30,13 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "api_keys": {"api_keys", "api_key_create", "api_key_revoke"},
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
+    "sandbox_envs": {
+        "sandbox_envs:list",
+        "sandbox_envs:create",
+        "sandbox_envs:edit",
+        "sandbox_envs:delete",
+        "sandbox_envs:set_default",
+    },
 }
 
 
@@ -37,9 +44,9 @@ def _resolve_active_section(request) -> str:
     match = getattr(request, "resolver_match", None)
     if match is None:
         return ""
-    url_name = match.url_name or ""
+    view_name = match.view_name or ""
     for section_key, names in SECTION_URL_NAMES.items():
-        if url_name in names:
+        if view_name in names:
             return section_key
     return ""
 
