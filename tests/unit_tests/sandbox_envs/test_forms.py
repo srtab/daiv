@@ -210,3 +210,52 @@ def test_form_prefill_memory_in_mib_when_not_whole_gib():
     assert form.initial["memory_value"] == 512
     assert form.initial["memory_unit"] == "MiB"
     assert form.initial["network_choice"] == "default"
+
+
+@pytest.mark.django_db
+def test_form_rejects_custom_memory_mode_without_value():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="m3", email="m3@e.com", password="x")  # noqa: S106
+    form = SandboxEnvironmentForm(
+        data={
+            "name": "dev",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "memory_mode": "custom",
+            "memory_value": "",
+            "memory_unit": "MiB",
+            "network_choice": "default",
+            "cpu_mode": "default",
+            "env_vars_json": "[]",
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert not form.is_valid()
+    assert "memory_value" in form.errors
+
+
+@pytest.mark.django_db
+def test_form_rejects_custom_cpu_mode_without_value():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="c1", email="c1@e.com", password="x")  # noqa: S106
+    form = SandboxEnvironmentForm(
+        data={
+            "name": "dev",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "memory_mode": "default",
+            "memory_value": "",
+            "memory_unit": "MiB",
+            "network_choice": "default",
+            "cpu_mode": "custom",
+            "cpus": "",
+            "env_vars_json": "[]",
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert not form.is_valid()
+    assert "cpus" in form.errors

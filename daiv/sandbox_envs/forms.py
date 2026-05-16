@@ -29,6 +29,12 @@ class SandboxEnvironmentForm(forms.ModelForm):
     network_choice = forms.ChoiceField(
         required=False, choices=[("default", _("Use default")), ("on", _("On")), ("off", _("Off"))], initial="default"
     )
+    memory_mode = forms.ChoiceField(
+        required=False, choices=[("default", "default"), ("custom", "custom")], initial="default"
+    )
+    cpu_mode = forms.ChoiceField(
+        required=False, choices=[("default", "default"), ("custom", "custom")], initial="default"
+    )
 
     class Meta:
         model = SandboxEnvironment
@@ -59,6 +65,8 @@ class SandboxEnvironmentForm(forms.ModelForm):
                 else:
                     self.initial.setdefault("memory_value", instance.memory_bytes // MIB)
                     self.initial.setdefault("memory_unit", "MiB")
+            self.initial.setdefault("memory_mode", "custom" if instance.memory_bytes else "default")
+            self.initial.setdefault("cpu_mode", "custom" if instance.cpus else "default")
 
     def _apply_env_locks(self) -> None:
         from core.site_settings import site_settings
@@ -143,6 +151,10 @@ class SandboxEnvironmentForm(forms.ModelForm):
         mv = cleaned.get("memory_value")
         mu = cleaned.get("memory_unit") or "MiB"
         cleaned["memory_bytes"] = mv * _MEMORY_UNITS[mu] if mv else None
+        if cleaned.get("memory_mode") == "custom" and mv is None:
+            self.add_error("memory_value", _("Enter a memory value or switch back to default."))
+        if cleaned.get("cpu_mode") == "custom" and cleaned.get("cpus") is None:
+            self.add_error("cpus", _("Enter a CPU value or switch back to default."))
         return cleaned
 
     def save(self, commit: bool = True) -> SandboxEnvironment:
