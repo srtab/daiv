@@ -78,8 +78,8 @@
         <kbd class="chat-composer__kbd">↵</kbd>
         <span>{% translate "to send" %}</span>
       </div>
-      {% if sandbox_envs %}
-      <label class="chat-composer__envpicker">
+      <label class="chat-composer__envpicker"
+             @env-created.window="addSandboxEnv($event.detail)">
         <span class="sr-only">{% translate "Sandbox environment" %}</span>
         <select name="sandbox_environment"
                 x-ref="sandboxEnv"
@@ -91,8 +91,16 @@
           </option>
           {% endfor %}
         </select>
+        <button type="button"
+                @click.stop="window.dispatchEvent(new CustomEvent('open-env-create-drawer'))"
+                title="{% translate 'Create new environment' %}"
+                aria-label="{% translate 'Create new environment' %}"
+                class="chat-composer__envpicker-add">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M10 4a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 0110 4z"/>
+          </svg>
+        </button>
       </label>
-      {% endif %}
       <div style="display: inline-flex; gap: 8px;">
         <button type="button" x-show="(streaming || resuming)" @click="stop()"
                 class="chat-composer__btn chat-composer__btn--stop">{% translate "Stop" %}</button>

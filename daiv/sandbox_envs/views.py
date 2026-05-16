@@ -49,6 +49,10 @@ def _encode_env_vars_for_template(env: SandboxEnvironment) -> str:
     return json.dumps(masked)
 
 
+def _is_htmx(request) -> bool:
+    return request.headers.get("HX-Request") == "true"
+
+
 def _global_envs_context(user) -> dict:
     return {
         "global_envs": SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).order_by("name"),
@@ -92,6 +96,14 @@ class _ScopedEnvMixin:
 
 
 class EnvCreateView(LoginRequiredMixin, CreateView):
+    """HX-Request flips this into a drawer-friendly mode:
+
+    GET returns just ``_form_body.html`` (no page chrome); POST on success returns
+    204 + an ``HX-Trigger: env-created`` event carrying the new env's id/scope/name
+    so the host page can append the option and select it without a reload.
+    Validation failures re-render the form body so HTMX can swap it back in place.
+    """
+
     template_name = "sandbox_envs/form.html"
     form_class = SandboxEnvironmentForm
     success_url = reverse_lazy("sandbox_envs:list")
@@ -104,7 +116,32 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["env_vars_initial"] = "[]"
+        ctx["in_drawer"] = _is_htmx(self.request)
         return ctx
+
+    def get_template_names(self):
+        return ["sandbox_envs/_form_body.html"] if _is_htmx(self.request) else [self.template_name]
+
+    def form_valid(self, form):
+        if not _is_htmx(self.request):
+            return super().form_valid(form)
+        try:
+            env = form.save()
+        except ValidationError as err:
+            # ``form.save()`` runs ``instance.full_clean()`` which raises
+            # ``django.core.exceptions.ValidationError`` (not the forms one), so
+            # it never reaches ``form_invalid`` on its own.
+            form.add_error(None, err)
+            return self.form_invalid(form)
+        payload = {
+            "env-created": {
+                "id": str(env.id),
+                "name": env.name,
+                "scope": env.scope,
+                "scope_display": env.get_scope_display(),
+            }
+        }
+        return HttpResponse(status=204, headers={"HX-Trigger": json.dumps(payload)})
 
 
 class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
@@ -130,6 +167,7 @@ class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["env_vars_initial"] = _encode_env_vars_for_template(self.object)
+        ctx["show_delete"] = True
         return ctx
 
 
@@ -164,7 +202,7 @@ class EnvSetDefaultView(AdminRequiredMixin, View):
             # means a concurrent admin deleted or rescoped the row mid-flight.
             logger.warning("set-default conflict for env_id=%s: %s", pk, err)
             return HttpResponse(err.messages[0] if err.messages else "Conflict", status=409)
-        if request.headers.get("HX-Request") == "true":
+        if _is_htmx(request):
             html = render_to_string(
                 "sandbox_envs/_global_envs.html", _global_envs_context(request.user), request=request
             )

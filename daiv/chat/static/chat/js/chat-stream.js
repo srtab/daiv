@@ -155,6 +155,20 @@
       }
     },
 
+    addSandboxEnv(detail) {
+      const select = this.$refs.sandboxEnv;
+      if (!select || !detail?.id) return;
+      if (select.querySelector(`option[value="${CSS.escape(detail.id)}"]`)) {
+        select.value = detail.id;
+        return;
+      }
+      const opt = document.createElement("option");
+      opt.value = detail.id;
+      opt.textContent = `${detail.scope_display}: ${detail.name}`;
+      select.appendChild(opt);
+      select.value = detail.id;
+    },
+
     init() {
       // Seed _filesSeen with any paths already present in hydrated history so
       // the "new row pulse" animation does not fire on initial load.

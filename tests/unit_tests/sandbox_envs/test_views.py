@@ -1,3 +1,5 @@
+import json
+
 from django.urls import reverse
 
 import pytest
@@ -126,6 +128,90 @@ def test_set_default_non_htmx_redirects(client, admin):
 
     assert resp.status_code == 302
     assert resp["Location"] == reverse("sandbox_envs:list")
+
+
+@pytest.mark.django_db
+def test_create_htmx_get_returns_form_body_fragment(client, user):
+    client.force_login(user)
+
+    resp = client.get(reverse("sandbox_envs:create"), HTTP_HX_REQUEST="true")
+
+    assert resp.status_code == 200
+    rendered = [t.name for t in resp.templates]
+    assert "sandbox_envs/_form_body.html" in rendered
+    assert "base_app.html" not in rendered
+    assert b'hx-post="' in resp.content
+
+
+@pytest.mark.django_db
+def test_create_htmx_post_success_fires_env_created(client, user):
+    client.force_login(user)
+
+    resp = client.post(
+        reverse("sandbox_envs:create"),
+        data={
+            "name": "drawer-env",
+            "description": "",
+            "scope": Scope.USER,
+            "base_image": "alpine:latest",
+            "network_enabled": "",
+            "env_vars_json": "[]",
+        },
+        HTTP_HX_REQUEST="true",
+    )
+
+    assert resp.status_code == 204
+    trigger = json.loads(resp.headers["HX-Trigger"])
+    env = SandboxEnvironment.objects.get(name="drawer-env")
+    payload = trigger["env-created"]
+    assert payload == {
+        "id": str(env.id),
+        "name": "drawer-env",
+        "scope": Scope.USER,
+        "scope_display": env.get_scope_display(),
+    }
+    assert env.user == user
+
+
+@pytest.mark.django_db
+def test_create_htmx_post_invalid_returns_form_body_with_errors(client, user):
+    client.force_login(user)
+
+    resp = client.post(
+        reverse("sandbox_envs:create"),
+        data={"name": "", "base_image": "", "env_vars_json": "[]"},
+        HTTP_HX_REQUEST="true",
+    )
+
+    assert resp.status_code == 200
+    rendered = [t.name for t in resp.templates]
+    assert "sandbox_envs/_form_body.html" in rendered
+    assert "base_app.html" not in rendered
+    assert "HX-Trigger" not in resp.headers
+    assert resp.context["form"].errors
+    assert b"text-red-400" in resp.content
+    assert not SandboxEnvironment.objects.filter(scope=Scope.USER, user=user).exists()
+
+
+@pytest.mark.django_db
+def test_edit_page_shows_delete_link(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="x")
+    client.force_login(user)
+
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+
+    assert resp.status_code == 200
+    assert reverse("sandbox_envs:delete", args=[env.id]).encode() in resp.content
+
+
+@pytest.mark.django_db
+def test_create_page_does_not_show_delete_link(client, user):
+    client.force_login(user)
+
+    resp = client.get(reverse("sandbox_envs:create"))
+
+    assert resp.status_code == 200
+    assert b"btn-danger-outline" not in resp.content
 
 
 @pytest.mark.django_db

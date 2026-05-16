@@ -1400,6 +1400,31 @@ main:has(.chat-shell) {
     color: #cbd5e1;
   }
 
+  .chat-composer__envpicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .chat-composer__envpicker-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: #94a3b8;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .chat-composer__envpicker-add:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: #fff;
+  }
+
   .chat-composer__btn {
     display: inline-flex;
     align-items: center;

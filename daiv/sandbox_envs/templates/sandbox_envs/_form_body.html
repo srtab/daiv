@@ -1,0 +1,119 @@
+{% load i18n %}
+{% if form.non_field_errors %}
+<div class="rounded-2xl border border-red-800/50 bg-red-950/30 p-4">
+    {% for error in form.non_field_errors %}
+    <p class="text-[15px] text-red-200">{{ error }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+
+<form {% if in_drawer %}hx-post="{% url 'sandbox_envs:create' %}" hx-target="this" hx-swap="outerHTML"{% else %}method="post"{% endif %}
+      x-data="envVarsEditor({{ env_vars_initial|safe }})"
+      class="space-y-5">
+    {% csrf_token %}
+
+    <div>
+        <label for="{{ form.name.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+            {% translate "Name" %} <span class="text-red-400">*</span>
+        </label>
+        {{ form.name }}
+        {% if form.name.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.name.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+        <label for="{{ form.description.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+            {% translate "Description" %}
+        </label>
+        {{ form.description }}
+        {% if form.description.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.description.errors.0 }}</p>{% endif %}
+    </div>
+
+    {% if form.scope.field.disabled %}
+        {{ form.scope.as_hidden }}
+    {% else %}
+    <div>
+        <label for="{{ form.scope.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+            {% translate "Scope" %}
+        </label>
+        {{ form.scope }}
+        {% if form.scope.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.scope.errors.0 }}</p>{% endif %}
+    </div>
+    {% endif %}
+
+    <div>
+        <label for="{{ form.base_image.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+            {% translate "Base image" %} <span class="text-red-400">*</span>
+        </label>
+        {{ form.base_image }}
+        {% if form.base_image.help_text %}
+        <p class="mt-1.5 text-sm text-gray-400">{{ form.base_image.help_text }}</p>
+        {% endif %}
+        {% if form.base_image.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.base_image.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+        <label class="flex cursor-pointer items-center gap-3">
+            {{ form.network_enabled }}
+            <span class="text-[15px] font-medium text-gray-400">{% translate "Network enabled" %}</span>
+        </label>
+        {% if form.network_enabled.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.network_enabled.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <label for="{{ form.memory_bytes.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+                {% translate "Memory (bytes)" %}
+            </label>
+            {{ form.memory_bytes }}
+            {% if form.memory_bytes.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.memory_bytes.errors.0 }}</p>{% endif %}
+        </div>
+        <div>
+            <label for="{{ form.cpus.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+                {% translate "CPUs" %}
+            </label>
+            {{ form.cpus }}
+            {% if form.cpus.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.cpus.errors.0 }}</p>{% endif %}
+        </div>
+    </div>
+
+    <fieldset class="border-t border-white/[0.06] pt-5">
+        <legend class="text-[15px] font-medium text-gray-300">{% translate "Environment variables" %}</legend>
+        <template x-for="(row, i) in rows" :key="i">
+            <div class="mt-2 flex items-center gap-2">
+                <input x-model="row.name" placeholder="NAME" class="flex-1">
+                <input x-model="row.value" :type="row.is_secret ? 'password' : 'text'" placeholder="value" class="flex-1">
+                <label class="flex items-center gap-1 text-sm text-gray-400">
+                    <input type="checkbox" x-model="row.is_secret"> {% translate "secret" %}
+                </label>
+                <button type="button" @click="rows.splice(i, 1)" class="text-sm text-red-300 hover:text-red-200">
+                    {% translate "remove" %}
+                </button>
+            </div>
+        </template>
+        <button type="button"
+                @click="rows.push({name:'',value:'',is_secret:false})"
+                class="btn-secondary mt-3 text-sm">
+            {% translate "Add variable" %}
+        </button>
+        <input type="hidden" name="env_vars_json" :value="JSON.stringify(rows)">
+        {% if form.env_vars_json.errors %}
+        <p class="mt-1.5 text-sm text-red-400">{{ form.env_vars_json.errors.0 }}</p>
+        {% endif %}
+    </fieldset>
+
+    <div class="flex items-center gap-3 border-t border-white/[0.06] pt-5">
+        <button type="submit" class="btn-primary">{% translate "Save" %}</button>
+        {% if in_drawer %}
+        <button type="button"
+                @click="$dispatch('close-env-create-drawer')"
+                class="btn-secondary">{% translate "Cancel" %}</button>
+        {% else %}
+        <a href="{% url 'sandbox_envs:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
+        {% endif %}
+        {% if show_delete %}
+        <a href="{% url 'sandbox_envs:delete' object.id %}" class="btn-danger-outline ml-auto">
+            {% translate "Delete" %}
+        </a>
+        {% endif %}
+    </div>
+</form>
