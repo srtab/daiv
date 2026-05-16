@@ -5,7 +5,7 @@ import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.http import Http404, HttpResponse, HttpResponseForbidden
+from django.http import Http404, HttpResponse, HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
@@ -132,8 +132,6 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
         return ["sandbox_envs/_form_body.html"] if _is_htmx(self.request) else [self.template_name]
 
     def form_valid(self, form):
-        if not _is_htmx(self.request):
-            return super().form_valid(form)
         try:
             env = form.save()
         except ValidationError as err:
@@ -142,6 +140,8 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
             # it never reaches ``form_invalid`` on its own.
             form.add_error(None, err)
             return self.form_invalid(form)
+        if not _is_htmx(self.request):
+            return HttpResponseRedirect(self.get_success_url())
         payload = {
             "env-created": {
                 "id": str(env.id),
@@ -190,13 +190,13 @@ class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
         return ["sandbox_envs/_form_body.html"] if _is_htmx(self.request) else [self.template_name]
 
     def form_valid(self, form):
-        if not _is_htmx(self.request):
-            return super().form_valid(form)
         try:
             env = form.save()
         except ValidationError as err:
             form.add_error(None, err)
             return self.form_invalid(form)
+        if not _is_htmx(self.request):
+            return HttpResponseRedirect(self.get_success_url())
         payload = {
             "env-updated": {
                 "id": str(env.id),
