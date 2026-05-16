@@ -22,7 +22,7 @@
   <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
   <script defer src="{% static 'sandbox_envs/js/env-vars-editor.js' %}"></script>
-  <script defer src="{% static 'sandbox_envs/js/env-create-drawer.js' %}"></script>
+  <script defer src="{% static 'sandbox_envs/js/env-drawer.js' %}"></script>
 {% endblock alpine_plugins %}
 
 {% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
@@ -179,5 +179,5 @@
     {% include "chat/_rail.html" %}
   </div>
 
-  {% include "sandbox_envs/_create_drawer.html" %}
+  {% include "sandbox_envs/_env_drawer.html" %}
 {% endblock app_content %}

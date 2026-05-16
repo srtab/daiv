@@ -92,7 +92,7 @@
           {% endfor %}
         </select>
         <button type="button"
-                @click.stop="window.dispatchEvent(new CustomEvent('open-env-create-drawer'))"
+                @click.stop="window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode: 'create', url: '{% url 'sandbox_envs:create' %}'}}))"
                 title="{% translate 'Create new environment' %}"
                 aria-label="{% translate 'Create new environment' %}"
                 class="chat-composer__envpicker-add">

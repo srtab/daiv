@@ -105,7 +105,7 @@
         <button type="submit" class="btn-primary">{% translate "Save" %}</button>
         {% if in_drawer %}
         <button type="button"
-                @click="$dispatch('close-env-create-drawer')"
+                @click="$dispatch('close-env-drawer')"
                 class="btn-secondary">{% translate "Cancel" %}</button>
         {% else %}
         <a href="{% url 'sandbox_envs:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
