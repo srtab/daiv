@@ -6,9 +6,42 @@
  */
 const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+function parseDotenv(text) {
+    const entries = [];
+    const invalid = [];
+    const lines = (text || "").split(/\r?\n/);
+    lines.forEach((raw, idx) => {
+        const line = raw.trim();
+        if (!line || line.startsWith("#")) return;
+        const eqIdx = line.indexOf("=");
+        if (eqIdx <= 0) { invalid.push(idx + 1); return; }
+        const name = line.slice(0, eqIdx).trim();
+        let value = line.slice(eqIdx + 1).trim();
+        if (!ENV_VAR_NAME_RE.test(name)) { invalid.push(idx + 1); return; }
+        const single = value.startsWith("'") && value.endsWith("'") && value.length >= 2;
+        const double = value.startsWith('"') && value.endsWith('"') && value.length >= 2;
+        if (single) {
+            value = value.slice(1, -1);
+        } else if (double) {
+            value = value.slice(1, -1)
+                .replace(/\\n/g, "\n")
+                .replace(/\\t/g, "\t")
+                .replace(/\\\\/g, "\\");
+        }
+        entries.push({name, value});
+    });
+    return {entries, invalidLines: invalid};
+}
+
 function envVarsEditorState(initial = []) {
     return {
         rows: Array.isArray(initial) ? initial.map((r) => ({...r})) : [],
+
+        init() {
+            window.addEventListener("env-paste-apply", (e) => {
+                this.mergeImport(e.detail.entries, e.detail.replace);
+            });
+        },
 
         rowError(i) {
             const row = this.rows[i];
@@ -54,6 +87,34 @@ function envVarsEditorState(initial = []) {
 
 document.addEventListener("alpine:init", () => {
     Alpine.data("envVarsEditor", envVarsEditorState);
+
+    Alpine.data("envPasteOverlay", () => ({
+        open: false,
+        text: "",
+        mode: "merge",
+        parsed: {entries: [], invalidLines: []},
+
+        init() {
+            window.addEventListener("open-env-paste", () => {
+                this.open = true;
+                this.text = "";
+                this.parsed = {entries: [], invalidLines: []};
+            });
+        },
+
+        onInput() { this.parsed = parseDotenv(this.text); },
+
+        close() { this.open = false; },
+
+        importNow() {
+            if (!this.parsed.entries.length) return;
+            window.dispatchEvent(new CustomEvent("env-paste-apply", {
+                detail: {entries: this.parsed.entries, replace: this.mode === "replace"},
+            }));
+            this.close();
+        },
+    }));
 });
 
 window.envVarsEditorState = envVarsEditorState;
+window.parseDotenv = parseDotenv;
