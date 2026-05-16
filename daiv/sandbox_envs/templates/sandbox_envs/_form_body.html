@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 {% if form.non_field_errors %}
 <div class="rounded-2xl border border-red-800/50 bg-red-950/30 p-4">
     {% for error in form.non_field_errors %}
@@ -144,21 +144,30 @@
 
             {# Network #}
             <div>
-                <label class="block text-[15px] font-medium text-gray-400">{% translate "Network" %}</label>
+                <label class="block text-[15px] font-medium text-gray-400">
+                    {% translate "Network" %}
+                    {% if form.network_choice.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
+                </label>
                 <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="network === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" name="network_choice" value="default" x-model="network" class="sr-only">
+                           :class="network === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="network_choice" value="default" x-model="network" class="sr-only"
+                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
                         {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_network %} — {{ global_default_summary.network }}{% endif %}{% endif %}
                     </label>
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="network === 'on' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" name="network_choice" value="on" x-model="network" class="sr-only">
+                           :class="network === 'on' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="network_choice" value="on" x-model="network" class="sr-only"
+                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
                         {% translate "On" %}
                     </label>
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="network === 'off' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" name="network_choice" value="off" x-model="network" class="sr-only">
+                           :class="network === 'off' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="network_choice" value="off" x-model="network" class="sr-only"
+                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
                         {% translate "Off" %}
                     </label>
                 </div>
@@ -167,22 +176,29 @@
 
             {# Memory #}
             <div>
-                <label class="block text-[15px] font-medium text-gray-400">{% translate "Memory" %}</label>
+                <label class="block text-[15px] font-medium text-gray-400">
+                    {% translate "Memory" %}
+                    {% if form.memory_value.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
+                </label>
                 <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="memMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" name="memory_mode" value="default" :checked="memMode === 'default'" @change="setMemMode('default')" class="sr-only">
+                           :class="memMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.memory_value.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="memory_mode" value="default" :checked="memMode === 'default'" @change="setMemMode('default')" class="sr-only"
+                               {% if form.memory_value.field.disabled %}disabled{% endif %}>
                         {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_memory %} — {{ global_default_summary.memory }}{% endif %}{% endif %}
                     </label>
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="memMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" name="memory_mode" value="custom" :checked="memMode === 'custom'" @change="setMemMode('custom')" class="sr-only">
+                           :class="memMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.memory_value.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="memory_mode" value="custom" :checked="memMode === 'custom'" @change="setMemMode('custom')" class="sr-only"
+                               {% if form.memory_value.field.disabled %}disabled{% endif %}>
                         {% translate "Custom" %}
                     </label>
                 </div>
                 <div x-show="memMode === 'custom'" x-cloak class="mt-2 flex items-center gap-2">
-                    <input type="number" min="1" x-model="memValue" placeholder="1" class="!w-32">
-                    <select x-model="memUnit" class="!w-28">
+                    <input type="number" min="1" x-model="memValue" placeholder="1" class="!w-32" {% if form.memory_value.field.disabled %}disabled{% endif %}>
+                    <select x-model="memUnit" class="!w-28" {% if form.memory_unit.field.disabled %}disabled{% endif %}>
                         <option value="MiB">MiB</option>
                         <option value="GiB">GiB</option>
                     </select>
@@ -194,21 +210,29 @@
 
             {# CPUs #}
             <div>
-                <label class="block text-[15px] font-medium text-gray-400">{% translate "CPUs" %}</label>
+                <label class="block text-[15px] font-medium text-gray-400">
+                    {% translate "CPUs" %}
+                    {% if form.cpus.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
+                </label>
                 <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="cpuMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" name="cpu_mode" value="default" :checked="cpuMode === 'default'" @change="setCpuMode('default')" class="sr-only">
+                           :class="cpuMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.cpus.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="cpu_mode" value="default" :checked="cpuMode === 'default'" @change="setCpuMode('default')" class="sr-only"
+                               {% if form.cpus.field.disabled %}disabled{% endif %}>
                         {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_cpus %} — {{ global_default_summary.cpus }}{% endif %}{% endif %}
                     </label>
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="cpuMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" name="cpu_mode" value="custom" :checked="cpuMode === 'custom'" @change="setCpuMode('custom')" class="sr-only">
+                           :class="cpuMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.cpus.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="cpu_mode" value="custom" :checked="cpuMode === 'custom'" @change="setCpuMode('custom')" class="sr-only"
+                               {% if form.cpus.field.disabled %}disabled{% endif %}>
                         {% translate "Custom" %}
                     </label>
                 </div>
                 <div x-show="cpuMode === 'custom'" x-cloak class="mt-2">
-                    <input type="number" min="0.25" step="0.25" x-model="cpuValue" placeholder="1.0" class="!w-32">
+                    <input type="number" min="0.25" step="0.25" x-model="cpuValue" placeholder="1.0" class="!w-32"
+                           {% if form.cpus.field.disabled %}disabled{% endif %}>
                 </div>
                 <input type="hidden" name="cpus" :value="cpuHiddenValue">
                 {% if form.cpus.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.cpus.errors.0 }}</p>{% endif %}
