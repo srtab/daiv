@@ -15,7 +15,9 @@
             </div>
             <div class="flex items-center gap-3">
                 {% if is_admin %}
-                <a href="{% url 'sandbox_envs:edit' env.id %}" class="text-sm text-gray-300 hover:text-white">
+                <a href="{% url 'sandbox_envs:edit' env.id %}"
+                   @click.prevent="window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode: 'edit', url: '{% url 'sandbox_envs:edit' env.id %}'}}))"
+                   class="text-sm text-gray-300 hover:text-white">
                     {% translate "Edit" %}
                 </a>
                 {% if not env.is_default %}

@@ -1,7 +1,9 @@
 {% extends "base_app.html" %}
-{% load i18n %}
+{% load i18n static %}
 
 {% block title %}{% translate "Sandbox Environments" %} — DAIV{% endblock %}
+
+{% block head_extra %}<script defer src="{% static 'sandbox_envs/js/env-drawer.js' %}"></script>{% endblock %}
 
 {% block container_width %}max-w-6xl{% endblock %}
 
@@ -13,7 +15,9 @@
             {% translate "Reusable sandbox configurations for agent runs." %}
         </p>
     </div>
-    <a href="{% url 'sandbox_envs:create' %}" class="btn-primary">{% translate "New environment" %}</a>
+    <a href="{% url 'sandbox_envs:create' %}"
+       @click.prevent="window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode: 'create', url: '{% url 'sandbox_envs:create' %}'}}))"
+       class="btn-primary">{% translate "New environment" %}</a>
 </div>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 100ms">
@@ -32,7 +36,9 @@
                 <span class="text-sm text-gray-400">{{ env.base_image }}</span>
             </div>
             <div class="flex items-center gap-3">
-                <a href="{% url 'sandbox_envs:edit' env.id %}" class="text-sm text-gray-300 hover:text-white">
+                <a href="{% url 'sandbox_envs:edit' env.id %}"
+                   @click.prevent="window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode: 'edit', url: '{% url 'sandbox_envs:edit' env.id %}'}}))"
+                   class="text-sm text-gray-300 hover:text-white">
                     {% translate "Edit" %}
                 </a>
                 <a href="{% url 'sandbox_envs:delete' env.id %}" class="text-sm text-red-300 hover:text-red-200">
@@ -48,4 +54,5 @@
     </div>
     {% endif %}
 </section>
+{% include "sandbox_envs/_env_drawer.html" %}
 {% endblock app_content %}
