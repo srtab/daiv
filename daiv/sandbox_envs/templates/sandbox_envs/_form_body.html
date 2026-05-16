@@ -73,7 +73,7 @@
         {% if form.base_image.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.base_image.errors.0 }}</p>{% endif %}
     </div>
 
-    <fieldset x-data="envVarsEditor({{ env_vars_initial|safe }}, {
+    <fieldset x-data="envVarsEditor({{ env_vars_initial }}, {
                   invalidName: '{% translate 'Invalid name'|escapejs %}',
                   duplicateName: '{% translate 'Duplicate name'|escapejs %}',
               })"
@@ -92,7 +92,7 @@
         <template x-for="(row, i) in rows" :key="i">
             <div class="mt-2">
                 <div class="flex items-center gap-2">
-                    <input x-model="row.name" placeholder="NAME"
+                    <input type="text" x-model="row.name" placeholder="NAME"
                            class="flex-1 font-mono"
                            :class="rowError(i) ? '!border-red-500/60 focus:!ring-red-500/30' : ''">
                     <input x-model="row.value"

@@ -39,6 +39,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
     class Meta:
         model = SandboxEnvironment
         fields = ("name", "description", "scope", "base_image", "cpus", "is_default")
+        widgets = {"description": forms.Textarea(attrs={"rows": 2})}
 
     def __init__(self, *args, user=None, is_admin=False, is_default_form=False, **kwargs):
         super().__init__(*args, **kwargs)

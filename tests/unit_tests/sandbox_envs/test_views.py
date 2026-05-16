@@ -347,6 +347,30 @@ def test_invalid_create_post_preserves_submitted_env_vars(client, user):
 
 
 @pytest.mark.django_db
+def test_edit_renders_existing_env_vars_with_escaped_quotes(client, user):
+    """Regression: previously rendered with ``|safe``, so the JSON's literal ``"``
+    closed the ``x-data`` attribute and Alpine got an empty rows list. The escaped
+    form (``&quot;``) is what the browser decodes back to ``"`` *inside* the
+    attribute value, leaving Alpine to parse the JSON correctly."""
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine",
+        env_vars=[{"name": "API_KEY", "value": "plain-value", "is_secret": False}],
+    )
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    # The unescaped JSON ending the attribute early is the bug we're guarding
+    # against — any ``[{"name"`` substring would have closed ``x-data="…"``.
+    assert '[{"name"' not in body
+    assert "&quot;name&quot;" in body
+    assert "&quot;API_KEY&quot;" in body
+
+
+@pytest.mark.django_db
 def test_invalid_edit_post_preserves_submitted_env_vars(client, user):
     env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
