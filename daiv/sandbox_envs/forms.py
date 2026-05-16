@@ -8,6 +8,12 @@ from django.utils.translation import gettext_lazy as _
 from sandbox_envs.models import _ENV_VAR_NAME_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
 from sandbox_envs.services import FIELD_TO_LOCK_SETTING
 
+MIB = 2**20
+GIB = 2**30
+_MEMORY_UNITS = {"MiB": MIB, "GiB": GIB}
+_NETWORK_TO_CHOICE = {None: "default", True: "on", False: "off"}
+_CHOICE_TO_NETWORK = {"default": None, "on": True, "off": False}
+
 
 class SandboxEnvironmentForm(forms.ModelForm):
     """Form for creating/editing a SandboxEnvironment.
@@ -18,10 +24,15 @@ class SandboxEnvironmentForm(forms.ModelForm):
     """
 
     env_vars_json = forms.CharField(required=False, widget=forms.HiddenInput())
+    memory_value = forms.IntegerField(required=False, min_value=1)
+    memory_unit = forms.ChoiceField(required=False, choices=[("MiB", "MiB"), ("GiB", "GiB")], initial="MiB")
+    network_choice = forms.ChoiceField(
+        required=False, choices=[("default", _("Use default")), ("on", _("On")), ("off", _("Off"))], initial="default"
+    )
 
     class Meta:
         model = SandboxEnvironment
-        fields = ("name", "description", "scope", "base_image", "network_enabled", "memory_bytes", "cpus", "is_default")
+        fields = ("name", "description", "scope", "base_image", "cpus", "is_default")
 
     def __init__(self, *args, user=None, is_admin=False, is_default_form=False, **kwargs):
         super().__init__(*args, **kwargs)
@@ -38,6 +49,16 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.fields.pop("is_default", None)
         if is_default_form:
             self._apply_env_locks()
+        instance = kwargs.get("instance") or self.instance
+        if instance is not None and instance.pk is not None:
+            self.initial.setdefault("network_choice", _NETWORK_TO_CHOICE[instance.network_enabled])
+            if instance.memory_bytes:
+                if instance.memory_bytes % GIB == 0:
+                    self.initial.setdefault("memory_value", instance.memory_bytes // GIB)
+                    self.initial.setdefault("memory_unit", "GiB")
+                else:
+                    self.initial.setdefault("memory_value", instance.memory_bytes // MIB)
+                    self.initial.setdefault("memory_unit", "MiB")
 
     def _apply_env_locks(self) -> None:
         from core.site_settings import site_settings
@@ -45,14 +66,37 @@ class SandboxEnvironmentForm(forms.ModelForm):
         for form_field, settings_name in FIELD_TO_LOCK_SETTING.items():
             if not site_settings.is_env_locked(settings_name):
                 continue
-            field = self.fields.get(form_field)
-            if field is None:
-                continue
-            field.disabled = True
             value = getattr(site_settings, settings_name, None)
-            if value is not None:
-                self.initial[form_field] = value
-            field.help_text = _("Set by environment variable; edit DAIV_%s to change.") % settings_name.upper()
+            if form_field == "network_enabled":
+                field = self.fields["network_choice"]
+                field.disabled = True
+                if value is not None:
+                    self.initial["network_choice"] = _NETWORK_TO_CHOICE[bool(value)]
+            elif form_field == "memory_bytes":
+                self.fields["memory_value"].disabled = True
+                self.fields["memory_unit"].disabled = True
+                if value:
+                    if value % GIB == 0:
+                        self.initial["memory_value"] = value // GIB
+                        self.initial["memory_unit"] = "GiB"
+                    else:
+                        self.initial["memory_value"] = value // MIB
+                        self.initial["memory_unit"] = "MiB"
+            else:
+                field = self.fields.get(form_field)
+                if field is None:
+                    continue
+                field.disabled = True
+                if value is not None:
+                    self.initial[form_field] = value
+            help_text = _("Set by environment variable; edit DAIV_%s to change.") % settings_name.upper()
+            if form_field == "network_enabled":
+                self.fields["network_choice"].help_text = help_text
+            elif form_field == "memory_bytes":
+                self.fields["memory_value"].help_text = help_text
+                self.fields["memory_unit"].help_text = help_text
+            else:
+                self.fields[form_field].help_text = help_text
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]
@@ -93,9 +137,19 @@ class SandboxEnvironmentForm(forms.ModelForm):
             })
         return cleaned
 
+    def clean(self):
+        cleaned = super().clean()
+        cleaned["network_enabled"] = _CHOICE_TO_NETWORK[cleaned.get("network_choice") or "default"]
+        mv = cleaned.get("memory_value")
+        mu = cleaned.get("memory_unit") or "MiB"
+        cleaned["memory_bytes"] = mv * _MEMORY_UNITS[mu] if mv else None
+        return cleaned
+
     def save(self, commit: bool = True) -> SandboxEnvironment:
         env_vars = self.cleaned_data.get("env_vars_json") or []
         instance: SandboxEnvironment = super().save(commit=False)
+        instance.network_enabled = self.cleaned_data.get("network_enabled")
+        instance.memory_bytes = self.cleaned_data.get("memory_bytes")
         if instance.scope == Scope.USER and self.user is not None:
             instance.user = self.user
         if instance.pk is not None:
