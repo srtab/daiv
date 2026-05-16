@@ -153,7 +153,7 @@ def humanise_global_default() -> dict[str, str | bool]:
         memory_str = f"{memory // 2**30} GiB" if memory % 2**30 == 0 else f"{memory // 2**20} MiB"
 
     return {
-        "network": "enabled" if network else ("disabled" if network is False else ""),
+        "network": "enabled" if network is True else ("disabled" if network is False else ""),
         "memory": memory_str,
         "cpus": (
             (str(int(cpus)) if cpus == int(cpus) else str(Decimal(cpus).normalize()))

@@ -305,3 +305,31 @@ def test_humanise_global_default_memory_in_mib_when_not_whole_gib(monkeypatch):
     from sandbox_envs.services import humanise_global_default
 
     assert humanise_global_default()["memory"] == "768 MiB"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_humanise_global_default_uses_env_lock_overlay(monkeypatch):
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL,
+        name="Default",
+        base_image="python:3.14",
+        network_enabled=False,
+        memory_bytes=512 * 2**20,
+        cpus=Decimal("0.5"),
+        is_default=True,
+    )
+    monkeypatch.setattr(
+        "core.site_settings.site_settings.is_env_locked",
+        lambda name: name in {"sandbox_network_enabled", "sandbox_memory"},
+    )
+    monkeypatch.setattr("core.site_settings.site_settings.sandbox_network_enabled", True)
+    monkeypatch.setattr("core.site_settings.site_settings.sandbox_memory", 4 * 2**30)
+    from sandbox_envs.services import humanise_global_default
+
+    summary = humanise_global_default()
+    # Locked fields use the env-var values, not the row values.
+    assert summary["network"] == "enabled"
+    assert summary["memory"] == "4 GiB"
+    # Unlocked field still falls back to the row value.
+    assert summary["cpus"] == "0.5"
