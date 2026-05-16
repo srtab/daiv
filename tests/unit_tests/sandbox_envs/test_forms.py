@@ -213,6 +213,49 @@ def test_form_prefill_memory_in_mib_when_not_whole_gib():
 
 
 @pytest.mark.django_db
+def test_admin_form_locks_network_field(monkeypatch):
+    from accounts.models import User
+
+    user = User.objects.create_user(username="al-net", email="al-net@e.com", password="x", is_staff=True)  # noqa: S106
+    monkeypatch.setattr(
+        "core.site_settings.site_settings.is_env_locked", lambda name: name == "sandbox_network_enabled"
+    )
+    monkeypatch.setattr("core.site_settings.site_settings.sandbox_network_enabled", True)
+    form = SandboxEnvironmentForm(user=user, is_admin=True, is_default_form=True)
+    assert form.fields["network_choice"].disabled is True
+    assert form.initial.get("network_choice") == "on"
+    assert "DAIV_SANDBOX_NETWORK_ENABLED" in (form.fields["network_choice"].help_text or "")
+
+
+@pytest.mark.django_db
+def test_admin_form_locks_cpus_field(monkeypatch):
+    from decimal import Decimal
+
+    from accounts.models import User
+
+    user = User.objects.create_user(username="al-cpu", email="al-cpu@e.com", password="x", is_staff=True)  # noqa: S106
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: name == "sandbox_cpu")
+    monkeypatch.setattr("core.site_settings.site_settings.sandbox_cpu", Decimal("2.5"))
+    form = SandboxEnvironmentForm(user=user, is_admin=True, is_default_form=True)
+    assert form.fields["cpus"].disabled is True
+    assert form.initial.get("cpus") == Decimal("2.5")
+
+
+@pytest.mark.django_db
+def test_admin_form_locks_memory_in_whole_gib(monkeypatch):
+    from accounts.models import User
+
+    user = User.objects.create_user(username="al-mem", email="al-mem@e.com", password="x", is_staff=True)  # noqa: S106
+    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: name == "sandbox_memory")
+    monkeypatch.setattr("core.site_settings.site_settings.sandbox_memory", 4 * 2**30)
+    form = SandboxEnvironmentForm(user=user, is_admin=True, is_default_form=True)
+    assert form.fields["memory_value"].disabled is True
+    assert form.fields["memory_unit"].disabled is True
+    assert form.initial["memory_value"] == 4
+    assert form.initial["memory_unit"] == "GiB"
+
+
+@pytest.mark.django_db
 def test_form_rejects_custom_memory_mode_without_value():
     from accounts.models import User
 
