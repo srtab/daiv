@@ -150,12 +150,12 @@
                 <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                            :class="memMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" value="default" :checked="memMode === 'default'" @change="setMemMode('default')" class="sr-only">
+                        <input type="radio" name="memory_mode" value="default" :checked="memMode === 'default'" @change="setMemMode('default')" class="sr-only">
                         {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_memory %} — {{ global_default_summary.memory }}{% endif %}{% endif %}
                     </label>
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                            :class="memMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" value="custom" :checked="memMode === 'custom'" @change="setMemMode('custom')" class="sr-only">
+                        <input type="radio" name="memory_mode" value="custom" :checked="memMode === 'custom'" @change="setMemMode('custom')" class="sr-only">
                         {% translate "Custom" %}
                     </label>
                 </div>
@@ -177,12 +177,12 @@
                 <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                            :class="cpuMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" value="default" :checked="cpuMode === 'default'" @change="setCpuMode('default')" class="sr-only">
+                        <input type="radio" name="cpu_mode" value="default" :checked="cpuMode === 'default'" @change="setCpuMode('default')" class="sr-only">
                         {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_cpus %} — {{ global_default_summary.cpus }}{% endif %}{% endif %}
                     </label>
                     <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                            :class="cpuMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                        <input type="radio" value="custom" :checked="cpuMode === 'custom'" @change="setCpuMode('custom')" class="sr-only">
+                        <input type="radio" name="cpu_mode" value="custom" :checked="cpuMode === 'custom'" @change="setCpuMode('custom')" class="sr-only">
                         {% translate "Custom" %}
                     </label>
                 </div>
