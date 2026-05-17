@@ -34,9 +34,9 @@ def test_composer_context_lists_user_and_global_envs(member_client, member_user)
 
 
 @pytest.mark.django_db
-def test_composer_renders_select_with_options(member_client, member_user):
-    """The composer template renders a ``<select name="sandbox_environment">`` populated from context."""
-    SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="zeta-env", base_image="x")
+def test_composer_renders_env_picker_with_envs(member_client, member_user):
+    """The composer template renders the env-picker partial populated from context."""
+    user_env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="zeta-env", base_image="x")
 
     thread = ChatThread.objects.create(thread_id="t-env", user=member_user, repo_id="a/b", ref="main")
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
@@ -52,5 +52,11 @@ def test_composer_renders_select_with_options(member_client, member_user):
 
     assert resp.status_code == 200
     body = resp.content.decode()
+    # Hidden input for form contract (still present even though chat uses @submit.prevent).
     assert 'name="sandbox_environment"' in body
-    assert "zeta-env" in body
+    # Env-picker partial root present.
+    assert "envPicker(" in body
+    # USER env reached the partial's JSON payload (hyphens are escaped by |escapejs).
+    assert "zeta\\u002Denv" in body
+    # And it's in the context queryset for sanity.
+    assert any(e.id == user_env.id for e in resp.context["sandbox_envs"])
