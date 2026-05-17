@@ -3,7 +3,7 @@
 
 {% block title %}Scheduled Jobs — DAIV{% endblock %}
 
-{% block container_width %}max-w-screen-2xl{% endblock %}
+{% block container_width %}max-w-6xl{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="{% static 'schedules/js/template-gallery.js' %}"></script>
@@ -28,7 +28,7 @@
 <!-- Schedule list -->
 <div class="animate-fade-up mt-8" style="animation-delay: 100ms">
     {% if schedules %}
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {% for schedule in schedules %}
         {% include "schedules/_schedule_row.html" %}
         {% endfor %}
