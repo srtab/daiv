@@ -1,0 +1,113 @@
+{% load env_picker i18n static %}
+{% url 'sandbox_envs:create' as env_create_url %}
+{% translate "Default" as default_label %}
+
+{% comment %}
+Reusable env pill + popover.
+
+Parameters:
+- envs (required)               — iterable of SandboxEnvironment instances visible to the user
+- selected_id (default "")      — UUID string of the currently-selected env; "" means GLOBAL default
+- field_name                    — name of the rendered hidden input; pass an empty string (or omit) to skip
+- on_change_event (default "")  — when set, the component dispatches this window event on selection with {id}
+{% endcomment %}
+
+<div x-data='envPicker({
+        envs: [
+            {% for env in envs %}
+            {
+                "id": "{{ env.id }}",
+                "name": "{{ env.name|escapejs }}",
+                "scope": "{{ env.scope }}",
+                "is_default": {% if env.is_default %}true{% else %}false{% endif %},
+                "summary": "{{ env|humanise_env_summary_for_template|escapejs }}"
+            }{% if not forloop.last %},{% endif %}
+            {% endfor %}
+        ],
+        selectedId: "{{ selected_id|default:''|escapejs }}",
+        onChangeEvent: "{{ on_change_event|default:''|escapejs }}",
+        createUrl: "{{ env_create_url|escapejs }}"
+     })'
+     data-default-label="{{ default_label|escapejs }}"
+     class="relative inline-flex">
+
+    <button type="button"
+            @click.stop="toggle()"
+            :aria-expanded="open"
+            :title="pillLabel.scopeTag ? pillLabel.scopeTag + ' · ' + pillLabel.name : pillLabel.name"
+            class="env-pill">
+        <svg class="env-pill__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            <path d="M3.27 6.96L12 12.01l8.73-5.05"/>
+            <path d="M12 22.08V12"/>
+        </svg>
+        <span class="env-pill__name" x-text="pillLabel.name"></span>
+        <span x-show="pillLabel.scopeTag" x-cloak
+              class="env-pill__scope-tag"
+              :class="'env-pill__scope-tag--' + pillLabel.scopeTag"
+              x-text="pillLabel.scopeTag"></span>
+        <span class="env-pill__caret" aria-hidden="true">▾</span>
+    </button>
+
+    <div x-show="open" x-cloak
+         @click.outside="close()"
+         @keydown.escape.window="close()"
+         @keydown.arrow-down.prevent="moveHighlight(1)"
+         @keydown.arrow-up.prevent="moveHighlight(-1)"
+         @keydown.enter.prevent="selectHighlighted()"
+         class="env-popover">
+
+        <input type="search" x-ref="search" x-model="query"
+               @keydown.arrow-down.prevent="moveHighlight(1)"
+               @keydown.arrow-up.prevent="moveHighlight(-1)"
+               @keydown.enter.prevent="selectHighlighted()"
+               placeholder="{% translate 'Search environments…' %}"
+               class="env-popover__search">
+
+        <div class="env-popover__list">
+            <template x-for="(env, idx) in filtered()" :key="env.id">
+                <button type="button"
+                        @click="select(_isDefaultRow(env) ? '' : env.id)"
+                        @mouseenter="highlightIndex = idx"
+                        :title="_isDefaultRow(env) ? '{% translate "Resolved at runtime; some fields may be overridden by deployment settings." %}' : ''"
+                        class="env-popover__row"
+                        :class="{
+                            'env-popover__row--selected': _isSelected(env),
+                            'env-popover__row--highlighted': highlightIndex === idx,
+                        }">
+                    <svg class="env-popover__check" :class="{ 'invisible': !_isSelected(env) }"
+                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    <div class="env-popover__row-body">
+                        <div class="env-popover__row-head">
+                            <span class="env-popover__row-name" x-text="_isDefaultRow(env) ? '{{ default_label|escapejs }}' : env.name"></span>
+                            <span class="env-popover__scope-tag"
+                                  :class="'env-popover__scope-tag--' + env.scope"
+                                  x-text="env.scope"></span>
+                        </div>
+                        <div class="env-popover__row-subtitle" x-text="env.summary"
+                             x-show="env.summary"></div>
+                    </div>
+                </button>
+            </template>
+            <div x-show="filtered().length === 0" class="env-popover__empty">
+                {% translate "No environments match" %}
+            </div>
+        </div>
+
+        <div class="env-popover__footer">
+            <button type="button" @click="openCreate()" class="env-popover__create">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+                {% translate "New environment" %}
+            </button>
+        </div>
+    </div>
+
+    {% if field_name %}
+    <input type="hidden" name="{{ field_name }}" :value="selectedId">
+    {% endif %}
+</div>

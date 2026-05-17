@@ -1598,4 +1598,67 @@ main:has(.chat-shell) {
   .toggle-switch__input:disabled + .toggle-switch__track {
     @apply opacity-50 cursor-not-allowed;
   }
+
+  .env-pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-medium text-[#e7e8ff];
+    background-color: rgba(120, 120, 200, 0.18);
+    border: 1px solid rgba(120, 120, 200, 0.35);
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .env-pill:hover {
+    background-color: rgba(120, 120, 200, 0.28);
+  }
+  .env-pill:focus-visible {
+    outline: 2px solid rgba(180, 180, 255, 0.5);
+    outline-offset: 2px;
+  }
+  .env-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
+  .env-pill__name { @apply max-w-[18ch] truncate; }
+  .env-pill__scope-tag {
+    @apply text-[10px] uppercase rounded px-1 py-px;
+    letter-spacing: 0.04em;
+  }
+  .env-pill__scope-tag--global { @apply bg-white/[0.1] text-gray-300; }
+  .env-pill__scope-tag--user {
+    background-color: rgba(200, 160, 255, 0.18);
+    color: #d4b7ff;
+  }
+  .env-pill__caret { @apply text-[10px] opacity-50 ml-px; }
+
+  .env-popover {
+    @apply absolute left-0 top-full z-50 mt-2 w-[340px] rounded-xl border p-2 shadow-lg;
+    background: #0d1117;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  .env-popover__search {
+    @apply w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none;
+  }
+  .env-popover__list { @apply mt-1 max-h-[18rem] overflow-y-auto; }
+  .env-popover__row {
+    @apply flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left;
+    cursor: pointer;
+  }
+  .env-popover__row:hover,
+  .env-popover__row--highlighted { background-color: rgba(255, 255, 255, 0.04); }
+  .env-popover__row--selected { background-color: rgba(120, 120, 200, 0.14); }
+  .env-popover__check { @apply h-3.5 w-3.5 mt-1 shrink-0 text-[#b9c2ff]; }
+  .env-popover__row-body { @apply min-w-0 flex-1; }
+  .env-popover__row-head { @apply flex items-center gap-2 min-w-0; }
+  .env-popover__row-name { @apply text-[14px] text-[#e7e8ff] truncate min-w-0 flex-1; }
+  .env-popover__row-subtitle { @apply mt-0.5 text-[12px] text-gray-400 truncate; }
+  .env-popover__scope-tag {
+    @apply text-[10px] uppercase rounded px-1 py-px shrink-0;
+    letter-spacing: 0.04em;
+  }
+  .env-popover__scope-tag--global { @apply bg-white/[0.08] text-gray-300; }
+  .env-popover__scope-tag--user {
+    background-color: rgba(200, 160, 255, 0.12);
+    color: #d4b7ff;
+  }
+  .env-popover__empty { @apply px-3 py-4 text-center text-[13px] text-gray-500; }
+  .env-popover__footer { @apply mt-1 border-t border-white/[0.06] pt-1; }
+  .env-popover__create {
+    @apply flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[#b9c2ff];
+  }
+  .env-popover__create:hover { background-color: rgba(255, 255, 255, 0.04); }
 }
