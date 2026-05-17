@@ -123,6 +123,7 @@
     // from the first render — assigning a *new* key onto an existing reactive
     // proxy after init doesn't always re-render templates.
     thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
+    selectedSandboxEnvId: config.selectedSandboxEnvId || "",
     turns: loadInitialTurns(),
     draftMessage: "",
     draftRepoId: "",
@@ -155,18 +156,8 @@
       }
     },
 
-    addSandboxEnv(detail) {
-      const select = this.$refs.sandboxEnv;
-      if (!select || !detail?.id) return;
-      if (select.querySelector(`option[value="${CSS.escape(detail.id)}"]`)) {
-        select.value = detail.id;
-        return;
-      }
-      const opt = document.createElement("option");
-      opt.value = detail.id;
-      opt.textContent = `${detail.scope_display}: ${detail.name}`;
-      select.appendChild(opt);
-      select.value = detail.id;
+    applySandboxEnvSelection(detail) {
+      this.selectedSandboxEnvId = detail?.id || "";
     },
 
     init() {
@@ -503,11 +494,9 @@
       this.streaming = true;
       this.abortCtl = new AbortController();
 
-      // The composer renders a <select name="sandbox_environment"> (Task 17).
-      // Forward its value so the API resolves the requested env per-request; missing
-      // or empty falls through to the GLOBAL default on the server.
-      const envSelect = this.$refs?.sandboxEnv;
-      const envHeaders = envSelect && envSelect.value ? { "X-Sandbox-Env": envSelect.value } : {};
+      // Forward the picker's selection so the API resolves the requested env per-request;
+      // missing or empty falls through to the GLOBAL default on the server.
+      const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
 
       try {
         const resp = await fetch(this.endpoint, {
