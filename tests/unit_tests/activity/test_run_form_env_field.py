@@ -31,23 +31,26 @@ def _make_task_result(task_id: uuid.UUID) -> mock.Mock:
 
 @pytest.mark.django_db
 def test_form_offers_user_and_global_envs(member_client, member_user):
-    """GET request renders the sandbox_environment field with caller's USER envs + all GLOBAL envs."""
+    """GET request provides caller's USER envs + all GLOBAL envs via sandbox_envs context."""
     # A GLOBAL default is seeded by migration; add an additional non-default global to verify visibility.
-    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="GlobalExtra", base_image="g")
-    SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="my-dev-env", base_image="x")
+    global_extra = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="GlobalExtra", base_image="g")
+    user_env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="my-dev-env", base_image="x")
     # Another user's env should NOT appear.
     from accounts.models import User
 
     other = User.objects.create_user(username="other", email="other@e.com", password="x")  # noqa: S106
-    SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="other-env", base_image="y")
+    other_env = SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="other-env", base_image="y")
 
     resp = member_client.get(reverse("runs:agent_run_new"))
     assert resp.status_code == 200
-    body = resp.content.decode()
-    assert "sandbox_environment" in body
-    assert "GlobalExtra" in body
-    assert "my-dev-env" in body
-    assert "other-env" not in body
+    # The env-picker renders names via escapejs (hyphens become -); check context instead of raw HTML.
+    envs = list(resp.context["sandbox_envs"])
+    env_ids = {e.id for e in envs}
+    assert global_extra.id in env_ids
+    assert user_env.id in env_ids
+    assert other_env.id not in env_ids
+    # The hidden input for form submission must still appear.
+    assert "sandbox_environment" in resp.content.decode()
 
 
 @pytest.mark.django_db

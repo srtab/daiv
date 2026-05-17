@@ -278,6 +278,9 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["source_activity"] = self._get_source_activity()
+        env_field = ctx["form"].fields.get("sandbox_environment")
+        ctx["sandbox_envs"] = list(env_field.queryset) if env_field is not None else []
+        ctx["selected_sandbox_env_id"] = str(ctx["form"]["sandbox_environment"].value() or "")
         return ctx
 
     def get_form_kwargs(self):

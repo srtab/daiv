@@ -61,6 +61,17 @@ def _single_repo_post_data(repo_id="acme/repo", ref=""):
 
 
 @pytest.mark.django_db
+def test_get_provides_sandbox_envs_in_context(member_client):
+    resp = member_client.get(reverse("runs:agent_run_new"))
+    assert resp.status_code == 200
+    assert "sandbox_envs" in resp.context
+    envs = list(resp.context["sandbox_envs"])
+    # GLOBAL Default is seeded by migration — always present.
+    assert any(e.scope == "global" and e.is_default for e in envs)
+    assert resp.context["selected_sandbox_env_id"] == ""
+
+
+@pytest.mark.django_db
 def test_get_blank_renders_empty_form(member_client):
     resp = member_client.get(reverse("runs:agent_run_new"))
     assert resp.status_code == 200
