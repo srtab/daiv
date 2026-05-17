@@ -15,7 +15,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from accounts.mixins import AdminRequiredMixin
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import humanise_global_default
+from sandbox_envs.services import humanise_env_summary, humanise_global_default
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -148,6 +148,8 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
                 "name": env.name,
                 "scope": env.scope,
                 "scope_display": env.get_scope_display(),
+                "is_default": env.is_default,
+                "summary": humanise_env_summary(env),
             }
         }
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps(payload)})
@@ -203,6 +205,8 @@ class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
                 "name": env.name,
                 "scope": env.scope,
                 "scope_display": env.get_scope_display(),
+                "is_default": env.is_default,
+                "summary": humanise_env_summary(env),
             }
         }
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps(payload)})

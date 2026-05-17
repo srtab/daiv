@@ -4,6 +4,7 @@ from django.urls import reverse
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.services import humanise_env_summary
 
 from accounts.models import Role, User
 
@@ -171,6 +172,8 @@ def test_create_htmx_post_success_fires_env_created(client, user):
         "name": "drawer-env",
         "scope": Scope.USER,
         "scope_display": env.get_scope_display(),
+        "is_default": env.is_default,
+        "summary": humanise_env_summary(env),
     }
     assert env.user == user
 
@@ -277,6 +280,8 @@ def test_edit_htmx_post_success_fires_env_updated(client, user):
         "name": "dev-renamed",
         "scope": Scope.USER,
         "scope_display": env.get_scope_display(),
+        "is_default": env.is_default,
+        "summary": humanise_env_summary(env),
     }
 
 

@@ -58,9 +58,9 @@ Parameters:
          class="env-popover">
 
         <input type="search" x-ref="search" x-model="query"
-               @keydown.arrow-down.prevent="moveHighlight(1)"
-               @keydown.arrow-up.prevent="moveHighlight(-1)"
-               @keydown.enter.prevent="selectHighlighted()"
+               @keydown.arrow-down.prevent.stop="moveHighlight(1)"
+               @keydown.arrow-up.prevent.stop="moveHighlight(-1)"
+               @keydown.enter.prevent.stop="selectHighlighted()"
                placeholder="{% translate 'Search environments…' %}"
                class="env-popover__search">
 
