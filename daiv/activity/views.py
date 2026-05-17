@@ -19,6 +19,7 @@ from django.views import View
 from django.views.generic import DetailView, FormView
 
 from django_filters.views import FilterView
+from sandbox_envs.services import env_picker_context
 
 from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
@@ -278,9 +279,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["source_activity"] = self._get_source_activity()
-        env_field = ctx["form"].fields.get("sandbox_environment")
-        ctx["sandbox_envs"] = list(env_field.queryset) if env_field is not None else []
-        ctx["selected_sandbox_env_id"] = str(ctx["form"]["sandbox_environment"].value() or "")
+        ctx.update(env_picker_context(ctx["form"]))
         return ctx
 
     def get_form_kwargs(self):

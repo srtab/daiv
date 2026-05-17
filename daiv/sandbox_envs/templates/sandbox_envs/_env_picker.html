@@ -65,7 +65,7 @@ Parameters:
                class="env-popover__search">
 
         <div class="env-popover__list">
-            <template x-for="(env, idx) in filtered()" :key="env.id">
+            <template x-for="(env, idx) in filteredEnvs" :key="env.id">
                 <button type="button"
                         @click="select(_isDefaultRow(env) ? '' : env.id)"
                         @mouseenter="highlightIndex = idx"
@@ -92,7 +92,7 @@ Parameters:
                     </div>
                 </button>
             </template>
-            <div x-show="filtered().length === 0" class="env-popover__empty">
+            <div x-show="filteredEnvs.length === 0" class="env-popover__empty">
                 {% translate "No environments match" %}
             </div>
         </div>

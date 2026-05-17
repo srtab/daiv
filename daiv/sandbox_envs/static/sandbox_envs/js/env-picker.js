@@ -2,13 +2,14 @@
  * Alpine component: env pill + popover.
  *
  * Constructor args (passed via x-data):
- *   envs:       Array<{id, name, scope, base_image, cpus, memory_bytes, network_enabled, is_default, summary}>
- *   selectedId: string ('' for global default)
- *   onChangeEvent: optional window event name dispatched on selection change with {detail: {id}}
+ *   envs:          Array<{id, name, scope, is_default, summary}> — server-rendered env list.
+ *   selectedId:    string — UUID of the currently selected env; '' means GLOBAL default.
+ *   onChangeEvent: optional window event name dispatched on selection change with {detail: {id}}.
+ *   createUrl:     URL the drawer fetches when "+ New environment" is clicked.
  *
  * Window events:
- *   env-created (received): prepend the new env to the local list and select it
- *   open-env-drawer (sent): opens the create drawer; URL is read from a data attribute
+ *   env-created (received): prepend the new env to the local list and select it.
+ *   open-env-drawer (sent): opens the create drawer with {mode, url} payload.
  */
 document.addEventListener("alpine:init", () => {
     Alpine.data("envPicker", ({envs = [], selectedId = "", onChangeEvent = "", createUrl = ""} = {}) => ({
@@ -19,9 +20,17 @@ document.addEventListener("alpine:init", () => {
         open: false,
         query: "",
         highlightIndex: 0,
+        _envCreatedHandler: null,
 
         init() {
-            window.addEventListener("env-created", (e) => this.onEnvCreated(e.detail));
+            this._envCreatedHandler = (e) => this.onEnvCreated(e.detail);
+            window.addEventListener("env-created", this._envCreatedHandler);
+        },
+
+        destroy() {
+            if (this._envCreatedHandler) {
+                window.removeEventListener("env-created", this._envCreatedHandler);
+            }
         },
 
         toggle() {
@@ -29,7 +38,7 @@ document.addEventListener("alpine:init", () => {
             if (this.open) {
                 this.query = "";
                 this.$nextTick(() => {
-                    this.highlightIndex = Math.max(0, this.filtered().findIndex(e => this._isSelected(e)));
+                    this.highlightIndex = Math.max(0, this.filteredEnvs.findIndex(e => this._isSelected(e)));
                     this.$refs.search?.focus();
                 });
             }
@@ -40,7 +49,12 @@ document.addEventListener("alpine:init", () => {
         },
 
         select(id) {
-            this.selectedId = id || "";
+            const normalised = id || "";
+            if (normalised === this.selectedId) {
+                this.close();
+                return;
+            }
+            this.selectedId = normalised;
             this.close();
             if (this.onChangeEvent) {
                 window.dispatchEvent(new CustomEvent(this.onChangeEvent, {detail: {id: this.selectedId}}));
@@ -62,10 +76,9 @@ document.addEventListener("alpine:init", () => {
             this.select(env.id);
         },
 
-        filtered() {
+        get filteredEnvs() {
             const q = this.query.trim().toLowerCase();
             const matches = q ? this.envs.filter(e => e.name.toLowerCase().includes(q)) : [...this.envs];
-            // Pin the GLOBAL default to the top.
             matches.sort((a, b) => {
                 if (a.is_default && !b.is_default) return -1;
                 if (!a.is_default && b.is_default) return 1;
@@ -76,13 +89,13 @@ document.addEventListener("alpine:init", () => {
         },
 
         moveHighlight(delta) {
-            const n = this.filtered().length;
+            const n = this.filteredEnvs.length;
             if (n === 0) return;
             this.highlightIndex = (this.highlightIndex + delta + n) % n;
         },
 
         selectHighlighted() {
-            const row = this.filtered()[this.highlightIndex];
+            const row = this.filteredEnvs[this.highlightIndex];
             if (row) this.select(this._isDefaultRow(row) ? "" : row.id);
         },
 
@@ -95,13 +108,10 @@ document.addEventListener("alpine:init", () => {
             return env.id === this.selectedId;
         },
 
-        // Computed: what the pill should render.
         get pillLabel() {
-            if (!this.selectedId) return {name: this._defaultLabel(), scopeTag: ""};
-            const env = this.envs.find(e => e.id === this.selectedId);
-            if (!env) return {name: this._defaultLabel(), scopeTag: ""};
-            if (this._isDefaultRow(env)) return {name: this._defaultLabel(), scopeTag: ""};
-            return {name: env.name, scopeTag: env.scope};
+            const env = this.selectedId ? this.envs.find(e => e.id === this.selectedId) : null;
+            if (env && !this._isDefaultRow(env)) return {name: env.name, scopeTag: env.scope};
+            return {name: this._defaultLabel(), scopeTag: ""};
         },
 
         _defaultLabel() {

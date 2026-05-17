@@ -7,10 +7,7 @@
 
 {% block alpine_plugins %}
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
-<script defer src="{% static 'sandbox_envs/js/env-vars-editor.js' %}"></script>
-<script defer src="{% static 'sandbox_envs/js/resource-control.js' %}"></script>
-<script defer src="{% static 'sandbox_envs/js/env-drawer.js' %}"></script>
-<script defer src="{% static 'sandbox_envs/js/env-picker.js' %}"></script>
+{% include "sandbox_envs/_scripts.html" %}
 {% endblock alpine_plugins %}
 
 {% block breadcrumb %}

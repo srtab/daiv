@@ -125,6 +125,15 @@ async def get_global_default() -> SandboxEnvOverride | None:
     )
 
 
+def _fmt_memory(mem: int) -> str:
+    return f"{mem // 2**30} GiB" if mem % 2**30 == 0 else f"{mem // 2**20} MiB"
+
+
+def _fmt_cpus(cpus: Decimal | float | int) -> str:
+    d = cpus if isinstance(cpus, Decimal) else Decimal(cpus)
+    return str(int(d)) if d == d.to_integral_value() else str(d.normalize())
+
+
 def humanise_global_default() -> dict[str, str | bool]:
     """Synchronous, template-friendly view of the resolved GLOBAL default.
 
@@ -148,18 +157,10 @@ def humanise_global_default() -> dict[str, str | bool]:
     memory = _resolve("memory_bytes", "sandbox_memory")
     cpus = _resolve("cpus", "sandbox_cpu")
 
-    memory_str = ""
-    if memory is not None:
-        memory_str = f"{memory // 2**30} GiB" if memory % 2**30 == 0 else f"{memory // 2**20} MiB"
-
     return {
         "network": "enabled" if network is True else ("disabled" if network is False else ""),
-        "memory": memory_str,
-        "cpus": (
-            (str(int(cpus)) if cpus == int(cpus) else str(Decimal(cpus).normalize()))
-            if isinstance(cpus, Decimal | float | int)
-            else ""
-        ),
+        "memory": _fmt_memory(memory) if memory is not None else "",
+        "cpus": _fmt_cpus(cpus) if isinstance(cpus, Decimal | float | int) else "",
         "has_network": network is not None,
         "has_memory": memory is not None,
         "has_cpus": cpus is not None,
@@ -177,11 +178,12 @@ def humanise_env_summary(env: SandboxEnvironment) -> str:
     omitted when its source value is missing. Network is included only when
     explicitly enabled.
     """
+    parts: list[str] = []
+    if env.base_image:
+        parts.append(env.base_image)
+
     if env.scope == Scope.GLOBAL and env.is_default:
         d = humanise_global_default()
-        parts: list[str] = []
-        if env.base_image:
-            parts.append(env.base_image)
         if d["has_cpus"] and d["cpus"]:
             parts.append(f"{d['cpus']} CPU")
         if d["has_memory"] and d["memory"]:
@@ -190,19 +192,23 @@ def humanise_env_summary(env: SandboxEnvironment) -> str:
             parts.append("net")
         return " · ".join(parts)
 
-    parts = []
-    if env.base_image:
-        parts.append(env.base_image)
     if env.cpus is not None:
-        cpus_str = str(int(env.cpus)) if env.cpus == int(env.cpus) else str(env.cpus.normalize())
-        parts.append(f"{cpus_str} CPU")
+        parts.append(f"{_fmt_cpus(env.cpus)} CPU")
     if env.memory_bytes is not None:
-        mem = env.memory_bytes
-        mem_str = f"{mem // 2**30} GiB" if mem % 2**30 == 0 else f"{mem // 2**20} MiB"
-        parts.append(mem_str)
+        parts.append(_fmt_memory(env.memory_bytes))
     if env.network_enabled is True:
         parts.append("net")
     return " · ".join(parts)
+
+
+def env_picker_context(form) -> dict:
+    """Build the `sandbox_envs` / `selected_sandbox_env_id` context for views rendering
+    the env-picker partial. Returns an empty list and empty id when the form has no
+    ``sandbox_environment`` field (defensive against form subclasses that strip it)."""
+    if "sandbox_environment" not in form.fields:
+        return {"sandbox_envs": [], "selected_sandbox_env_id": ""}
+    bound = form["sandbox_environment"]
+    return {"sandbox_envs": list(bound.field.queryset), "selected_sandbox_env_id": str(bound.value() or "")}
 
 
 def looks_like_uuid(s: str) -> bool:
