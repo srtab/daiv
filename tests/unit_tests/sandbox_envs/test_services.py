@@ -2,7 +2,13 @@ from decimal import Decimal
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import SandboxEnvOverride, get_global_default, merge_sandbox_runtime, resolve_sandbox_env
+from sandbox_envs.services import (
+    SandboxEnvOverride,
+    get_global_default,
+    humanise_env_summary,
+    merge_sandbox_runtime,
+    resolve_sandbox_env,
+)
 
 from accounts.models import User
 from codebase.repo_config import Sandbox, SandboxCommandPolicy
@@ -333,3 +339,67 @@ def test_humanise_global_default_uses_env_lock_overlay(monkeypatch):
     assert summary["memory"] == "4 GiB"
     # Unlocked field still falls back to the row value.
     assert summary["cpus"] == "0.5"
+
+
+@pytest.mark.django_db
+class TestHumaniseEnvSummary:
+    def test_user_env_with_all_fields(self):
+        user = User.objects.create(username="u1", email="u1@example.com")
+        env = SandboxEnvironment.objects.create(
+            scope=Scope.USER,
+            user=user,
+            name="rust",
+            base_image="rust:1.83",
+            cpus=Decimal("2"),
+            memory_bytes=4 * 2**30,
+            network_enabled=True,
+        )
+        assert humanise_env_summary(env) == "rust:1.83 · 2 CPU · 4 GiB · net"
+
+    def test_user_env_minimal_falls_back_to_base_image(self):
+        user = User.objects.create(username="u2", email="u2@example.com")
+        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="bare", base_image="alpine:3.20")
+        assert humanise_env_summary(env) == "alpine:3.20"
+
+    def test_user_env_with_no_base_image_returns_empty(self):
+        user = User.objects.create(username="u3", email="u3@example.com")
+        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="x")
+        assert humanise_env_summary(env) == ""
+
+    def test_user_env_fractional_cpu_and_mib(self):
+        user = User.objects.create(username="u4", email="u4@example.com")
+        env = SandboxEnvironment.objects.create(
+            scope=Scope.USER,
+            user=user,
+            name="tiny",
+            base_image="busybox",
+            cpus=Decimal("0.5"),
+            memory_bytes=512 * 2**20,
+        )
+        assert humanise_env_summary(env) == "busybox · 0.5 CPU · 512 MiB"
+
+    def test_user_env_network_disabled_no_suffix(self):
+        user = User.objects.create(username="u5", email="u5@example.com")
+        env = SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=user, name="off", base_image="alpine", network_enabled=False
+        )
+        assert humanise_env_summary(env) == "alpine"
+
+    def test_default_summary_uses_humanise_global_default(self, monkeypatch):
+        from sandbox_envs import services
+
+        monkeypatch.setattr(
+            services,
+            "humanise_global_default",
+            lambda: {
+                "network": "enabled",
+                "memory": "2 GiB",
+                "cpus": "1",
+                "has_network": True,
+                "has_memory": True,
+                "has_cpus": True,
+            },
+        )
+        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).update(base_image="python:3.14-slim")
+        env = SandboxEnvironment.objects.get(scope=Scope.GLOBAL, is_default=True)
+        assert humanise_env_summary(env) == "python:3.14-slim · 1 CPU · 2 GiB · net"

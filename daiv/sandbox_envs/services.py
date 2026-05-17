@@ -166,6 +166,45 @@ def humanise_global_default() -> dict[str, str | bool]:
     }
 
 
+def humanise_env_summary(env: SandboxEnvironment) -> str:
+    """Compact one-line description of an env for the popover row subtitle.
+
+    For the GLOBAL default row this delegates to ``humanise_global_default`` so
+    env-lock overlays (``DAIV_SANDBOX_NETWORK_ENABLED`` etc.) surface here too.
+    For any other env we read the stored row fields directly.
+
+    Format: ``"<base_image> · <N> CPU · <M> GiB · net"`` with each segment
+    omitted when its source value is missing. Network is included only when
+    explicitly enabled.
+    """
+    if env.scope == Scope.GLOBAL and env.is_default:
+        d = humanise_global_default()
+        parts: list[str] = []
+        if env.base_image:
+            parts.append(env.base_image)
+        if d["has_cpus"] and d["cpus"]:
+            parts.append(f"{d['cpus']} CPU")
+        if d["has_memory"] and d["memory"]:
+            parts.append(d["memory"])
+        if d["has_network"] and d["network"] == "enabled":
+            parts.append("net")
+        return " · ".join(parts)
+
+    parts = []
+    if env.base_image:
+        parts.append(env.base_image)
+    if env.cpus is not None:
+        cpus_str = str(int(env.cpus)) if env.cpus == int(env.cpus) else str(env.cpus.normalize())
+        parts.append(f"{cpus_str} CPU")
+    if env.memory_bytes is not None:
+        mem = env.memory_bytes
+        mem_str = f"{mem // 2**30} GiB" if mem % 2**30 == 0 else f"{mem // 2**20} MiB"
+        parts.append(mem_str)
+    if env.network_enabled is True:
+        parts.append("net")
+    return " · ".join(parts)
+
+
 def looks_like_uuid(s: str) -> bool:
     try:
         UUID(s)
