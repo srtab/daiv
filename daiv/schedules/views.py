@@ -115,6 +115,9 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         context["schedule_templates"] = _template_picker_payload()
         tpl = self._get_template()
         context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
+        env_field = context["form"].fields.get("sandbox_environment")
+        context["sandbox_envs"] = list(env_field.queryset) if env_field is not None else []
+        context["selected_sandbox_env_id"] = str(context["form"]["sandbox_environment"].value() or "")
         return context
 
     def form_valid(self, form):
@@ -141,6 +144,9 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
+        env_field = context["form"].fields.get("sandbox_environment")
+        context["sandbox_envs"] = list(env_field.queryset) if env_field is not None else []
+        context["selected_sandbox_env_id"] = str(context["form"]["sandbox_environment"].value() or "")
         return context
 
     def get_breadcrumbs(self):

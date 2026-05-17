@@ -13,6 +13,10 @@
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
 <script defer src="{% static 'schedules/js/subscriber-picker.js' %}"></script>
 <script defer src="{% static 'schedules/js/template-gallery.js' %}"></script>
+<script defer src="{% static 'sandbox_envs/js/env-vars-editor.js' %}"></script>
+<script defer src="{% static 'sandbox_envs/js/resource-control.js' %}"></script>
+<script defer src="{% static 'sandbox_envs/js/env-drawer.js' %}"></script>
+<script defer src="{% static 'sandbox_envs/js/env-picker.js' %}"></script>
 {% endblock alpine_plugins %}
 
 {% block breadcrumb %}
@@ -79,7 +83,7 @@
             </div>
 
             <div class="mt-5 -mx-6 [&>div]:!rounded-none">
-                {% include "activity/_agent_run_fields.html" with form=form %}
+                {% include "activity/_agent_run_fields.html" with form=form with_env_picker=True env_picker_envs=sandbox_envs env_picker_selected_id=selected_sandbox_env_id %}
             </div>
 
             <!-- Frequency + Time/Cron -->
@@ -133,19 +137,6 @@
 
             {% include "notifications/_notify_on_radio.html" with form=form %}
 
-            <div class="mt-6">
-                <label for="id_sandbox_environment" class="block text-[15px] font-medium text-gray-400">
-                    {% translate "Sandbox environment" %}
-                </label>
-                {{ form.sandbox_environment }}
-                {% if form.sandbox_environment.errors %}
-                <p class="mt-1.5 text-sm text-red-400">{{ form.sandbox_environment.errors.0 }}</p>
-                {% endif %}
-                <p class="mt-1.5 text-sm text-gray-500">
-                    {% translate "Leave unset to use the global default." %}
-                </p>
-            </div>
-
             {% include "schedules/_subscriber_picker.html" %}
 
             {% if object %}
@@ -178,4 +169,5 @@
                 {% endif %}
             </div>
         </form>
+{% include "sandbox_envs/_env_drawer.html" %}
 {% endblock app_content %}

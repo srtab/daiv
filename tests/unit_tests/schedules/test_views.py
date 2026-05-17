@@ -728,3 +728,32 @@ class TestScheduleDuplicateFlow:
         )
         assert response.status_code == 200
         assert "run_at" in response.context["form"].errors
+
+
+@pytest.mark.django_db
+class TestScheduleViewsEnvContext:
+    def test_create_view_provides_sandbox_envs(self, member_client):
+        response = member_client.get(reverse("schedule_create"))
+        assert response.status_code == 200
+        assert "sandbox_envs" in response.context
+        envs = list(response.context["sandbox_envs"])
+        assert any(e.scope == "global" and e.is_default for e in envs)
+        assert response.context["selected_sandbox_env_id"] == ""
+
+    def test_update_view_provides_sandbox_envs(self, member_client, member_user):
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="nightly",
+            prompt="ping",
+            repos=[{"repo_id": "r/x", "ref": "main"}],
+            frequency=Frequency.DAILY,
+            time="03:00:00",
+            notify_on="never",
+        )
+
+        response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
+        assert response.status_code == 200
+        assert "sandbox_envs" in response.context
+        envs = list(response.context["sandbox_envs"])
+        assert any(e.scope == "global" and e.is_default for e in envs)
+        assert response.context["selected_sandbox_env_id"] == ""
