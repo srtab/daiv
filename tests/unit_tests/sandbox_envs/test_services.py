@@ -403,3 +403,15 @@ class TestHumaniseEnvSummary:
         SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).update(base_image="python:3.14-slim")
         env = SandboxEnvironment.objects.get(scope=Scope.GLOBAL, is_default=True)
         assert humanise_env_summary(env) == "python:3.14-slim · 1 CPU · 2 GiB · net"
+
+    def test_global_non_default_uses_row_fields(self):
+        env = SandboxEnvironment.objects.create(
+            scope=Scope.GLOBAL,
+            name="staging",
+            base_image="alpine",
+            cpus=Decimal("2"),
+            memory_bytes=2 * 2**30,
+            network_enabled=True,
+            is_default=False,
+        )
+        assert humanise_env_summary(env) == "alpine · 2 CPU · 2 GiB · net"

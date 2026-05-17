@@ -174,8 +174,9 @@ def humanise_env_summary(env: SandboxEnvironment) -> str:
     env-lock overlays (``DAIV_SANDBOX_NETWORK_ENABLED`` etc.) surface here too.
     For any other env we read the stored row fields directly.
 
-    Format: ``"<base_image> · <N> CPU · <M> GiB · net"`` with each segment
-    omitted when its source value is missing. Network is included only when
+    Format: ``"<base_image> · <N> CPU · <memory> · net"`` with each segment
+    omitted when its source value is missing. Memory renders as ``GiB`` for
+    whole-GiB values, ``MiB`` otherwise. Network is included only when
     explicitly enabled.
     """
     parts: list[str] = []
@@ -203,8 +204,8 @@ def humanise_env_summary(env: SandboxEnvironment) -> str:
 
 def env_picker_context(form) -> dict:
     """Build the `sandbox_envs` / `selected_sandbox_env_id` context for views rendering
-    the env-picker partial. Returns an empty list and empty id when the form has no
-    ``sandbox_environment`` field (defensive against form subclasses that strip it)."""
+    the env-picker partial. Empty values when the form has no ``sandbox_environment``
+    field, so the partial degrades to "Default" rather than raising."""
     if "sandbox_environment" not in form.fields:
         return {"sandbox_envs": [], "selected_sandbox_env_id": ""}
     bound = form["sandbox_environment"]

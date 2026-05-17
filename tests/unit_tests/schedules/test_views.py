@@ -757,3 +757,22 @@ class TestScheduleViewsEnvContext:
         envs = list(response.context["sandbox_envs"])
         assert any(e.scope == "global" and e.is_default for e in envs)
         assert response.context["selected_sandbox_env_id"] == ""
+
+    def test_update_view_preselects_saved_env(self, member_client, member_user):
+        from sandbox_envs.models import SandboxEnvironment, Scope
+
+        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="dev", base_image="alpine")
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="nightly",
+            prompt="ping",
+            repos=[{"repo_id": "r/x", "ref": "main"}],
+            frequency=Frequency.DAILY,
+            time="03:00:00",
+            notify_on="never",
+            sandbox_environment=env,
+        )
+
+        response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
+        assert response.status_code == 200
+        assert response.context["selected_sandbox_env_id"] == str(env.id)

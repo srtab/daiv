@@ -8,7 +8,8 @@ Reusable env pill + popover.
 Parameters:
 - envs (required)               — iterable of SandboxEnvironment instances visible to the user
 - selected_id (default "")      — UUID string of the currently-selected env; "" means GLOBAL default
-- field_name                    — name of the rendered hidden input; pass an empty string (or omit) to skip
+- field_name (default "")       — name of the hidden input that mirrors `selectedId` for form POSTs;
+                                  leave empty to use the picker as an event-only source (e.g. chat hero)
 - on_change_event (default "")  — when set, the component dispatches this window event on selection with {id}
 {% endcomment %}
 

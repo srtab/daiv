@@ -8,7 +8,7 @@
  *   createUrl:     URL the drawer fetches when "+ New environment" is clicked.
  *
  * Window events:
- *   env-created (received): prepend the new env to the local list and select it.
+ *   env-created (received): if not already present, prepend the new env; then select it.
  *   open-env-drawer (sent): opens the create drawer with {mode, url} payload.
  */
 document.addEventListener("alpine:init", () => {
@@ -25,6 +25,9 @@ document.addEventListener("alpine:init", () => {
         init() {
             this._envCreatedHandler = (e) => this.onEnvCreated(e.detail);
             window.addEventListener("env-created", this._envCreatedHandler);
+            if (this.selectedId && !this.envs.some(e => e.id === this.selectedId)) {
+                this.select("");
+            }
         },
 
         destroy() {
