@@ -538,6 +538,10 @@ main:has(.chat-shell) {
   }
 
   .chat-hero__picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     margin-top: 18px;
   }
 
