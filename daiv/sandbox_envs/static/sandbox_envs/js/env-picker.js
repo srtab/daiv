@@ -2,19 +2,22 @@
  * Alpine component: env pill + popover.
  *
  * Constructor args (passed via x-data):
- *   envs:          Array<{id, name, scope, is_default, summary}> — server-rendered env list.
- *   selectedId:    string — UUID of the currently selected env; '' means GLOBAL default.
- *   onChangeEvent: optional window event name dispatched on selection change with {detail: {id}}.
- *   createUrl:     URL the drawer fetches when "+ New environment" is clicked.
+ *   envs:            Array<{id, name, scope, is_default, summary}> — server-rendered env list.
+ *   selectedId:      string — UUID of the currently selected env; '' means Auto (resolved at runtime).
+ *   autoResolvedId:  string — UUID of the env that would be used when selectedId is '' (Auto);
+ *                    supplied by the host page when the repo is known.
+ *   onChangeEvent:   optional window event name dispatched on selection change with {detail: {id}}.
+ *   createUrl:       URL the drawer fetches when "+ New environment" is clicked.
  *
  * Window events:
  *   env-created (received): if not already present, prepend the new env; then select it.
  *   open-env-drawer (sent): opens the create drawer with {mode, url} payload.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("envPicker", ({envs = [], selectedId = "", onChangeEvent = "", createUrl = ""} = {}) => ({
+    Alpine.data("envPicker", ({envs = [], selectedId = "", autoResolvedId = "", onChangeEvent = "", createUrl = ""} = {}) => ({
         envs: [...envs],
         selectedId: selectedId || "",
+        autoResolvedId: autoResolvedId || "",
         onChangeEvent,
         createUrl,
         open: false,
@@ -41,7 +44,9 @@ document.addEventListener("alpine:init", () => {
             if (this.open) {
                 this.query = "";
                 this.$nextTick(() => {
-                    this.highlightIndex = Math.max(0, this.filteredEnvs.findIndex(e => this._isSelected(e)));
+                    this.highlightIndex = this._isAutoSelected()
+                        ? -1
+                        : Math.max(0, this.filteredEnvs.findIndex(e => this._isSelected(e)));
                     this.$refs.search?.focus();
                 });
             }
@@ -92,33 +97,59 @@ document.addEventListener("alpine:init", () => {
         },
 
         moveHighlight(delta) {
+            // highlightIndex === -1 means the Auto row is highlighted.
+            // The range is [-1, filteredEnvs.length - 1].
             const n = this.filteredEnvs.length;
-            if (n === 0) return;
-            this.highlightIndex = (this.highlightIndex + delta + n) % n;
+            const min = -1;
+            const max = n - 1;
+            const next = this.highlightIndex + delta;
+            if (next < min) {
+                this.highlightIndex = max;
+            } else if (next > max) {
+                this.highlightIndex = min;
+            } else {
+                this.highlightIndex = next;
+            }
         },
 
         selectHighlighted() {
+            if (this.highlightIndex === -1) {
+                this.select("");
+                return;
+            }
             const row = this.filteredEnvs[this.highlightIndex];
-            if (row) this.select(this._isDefaultRow(row) ? "" : row.id);
+            if (row) this.select(row.id);
         },
 
-        _isDefaultRow(env) {
-            return env.scope === "global" && env.is_default;
+        _isAutoSelected() {
+            return !this.selectedId;
         },
 
         _isSelected(env) {
-            if (this._isDefaultRow(env) && !this.selectedId) return true;
             return env.id === this.selectedId;
         },
 
-        get pillLabel() {
-            const env = this.selectedId ? this.envs.find(e => e.id === this.selectedId) : null;
-            if (env && !this._isDefaultRow(env)) return {name: env.name, scopeTag: env.scope};
-            return {name: this._defaultLabel(), scopeTag: ""};
+        get autoResolvedLabel() {
+            if (!this.autoResolvedId) return "";
+            const env = this.envs.find(e => e.id === this.autoResolvedId);
+            return env ? env.name : "";
         },
 
-        _defaultLabel() {
-            return this.$root.dataset.defaultLabel || "Default";
+        get pillLabel() {
+            if (!this.selectedId) {
+                return {
+                    name: this._autoLabel(),
+                    scopeTag: "auto",
+                    subname: this.autoResolvedLabel || "",
+                };
+            }
+            const env = this.envs.find(e => e.id === this.selectedId);
+            if (env) return {name: env.name, scopeTag: env.scope, subname: ""};
+            return {name: this._autoLabel(), scopeTag: "", subname: ""};
+        },
+
+        _autoLabel() {
+            return "Auto";
         },
     }));
 });

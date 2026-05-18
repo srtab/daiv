@@ -1640,4 +1640,14 @@ main:has(.chat-shell) {
     @apply flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[#b9c2ff];
   }
   .env-popover__create:hover { background-color: rgba(255, 255, 255, 0.04); }
+
+  .env-popover__row--auto {
+    @apply border-b border-white/[0.06];
+  }
+  .env-popover__scope-tag--auto {
+    @apply bg-blue-500/15 text-blue-300;
+  }
+  .env-pill__subname {
+    @apply ml-1 text-gray-400;
+  }
 }

@@ -1,13 +1,14 @@
 {% load env_picker i18n static %}
 {% url 'sandbox_envs:create' as env_create_url %}
-{% translate "Default" as default_label %}
 
 {% comment %}
 Reusable env pill + popover.
 
 Parameters:
 - envs (required)               — iterable of SandboxEnvironment instances visible to the user
-- selected_id (default "")      — UUID string of the currently-selected env; "" means GLOBAL default
+- selected_id (default "")      — UUID string of the currently-selected env; "" means Auto
+- auto_resolved_id (default "") — UUID of the env that would be used when selectedId is "" (Auto);
+                                  supplied by the host page when the repo is known
 - field_name (default "")       — name of the hidden input that mirrors `selectedId` for form POSTs;
                                   leave empty to use the picker as an event-only source (e.g. chat hero)
 - on_change_event (default "")  — when set, the component dispatches this window event on selection with {id}
@@ -26,10 +27,10 @@ Parameters:
             {% endfor %}
         ],
         selectedId: "{{ selected_id|default:''|escapejs }}",
+        autoResolvedId: "{{ auto_resolved_id|default:''|escapejs }}",
         onChangeEvent: "{{ on_change_event|default:''|escapejs }}",
         createUrl: "{{ env_create_url|escapejs }}"
      })'
-     data-default-label="{{ default_label|escapejs }}"
      class="relative inline-flex">
 
     <button type="button"
@@ -43,6 +44,8 @@ Parameters:
             <path d="M12 22.08V12"/>
         </svg>
         <span class="env-pill__name" x-text="pillLabel.name"></span>
+        <span x-show="pillLabel.subname" x-cloak class="env-pill__subname"
+              x-text="'→ ' + pillLabel.subname"></span>
         <span x-show="pillLabel.scopeTag" x-cloak
               class="env-pill__scope-tag"
               :class="'env-pill__scope-tag--' + pillLabel.scopeTag"
@@ -66,11 +69,34 @@ Parameters:
                class="env-popover__search">
 
         <div class="env-popover__list">
+            <button type="button"
+                    @click="select('')"
+                    @mouseenter="highlightIndex = -1"
+                    :title="autoResolvedLabel ? '{% translate "Auto-resolved from the current repo: " %}' + autoResolvedLabel : '{% translate "Resolved at runtime from the selected repo." %}'"
+                    class="env-popover__row env-popover__row--auto"
+                    :class="{
+                        'env-popover__row--selected': _isAutoSelected(),
+                        'env-popover__row--highlighted': highlightIndex === -1,
+                    }">
+                <svg class="env-popover__check" :class="{ 'invisible': !_isAutoSelected() }"
+                     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                <div class="env-popover__row-body">
+                    <div class="env-popover__row-head">
+                        <span class="env-popover__row-name">{% translate "Auto" %}</span>
+                        <span class="env-popover__scope-tag env-popover__scope-tag--auto">{% translate "auto" %}</span>
+                    </div>
+                    <div class="env-popover__row-subtitle" x-show="autoResolvedLabel" x-cloak>
+                        → <span x-text="autoResolvedLabel"></span>
+                    </div>
+                </div>
+            </button>
             <template x-for="(env, idx) in filteredEnvs" :key="env.id">
                 <button type="button"
-                        @click="select(_isDefaultRow(env) ? '' : env.id)"
+                        @click="select(env.id)"
                         @mouseenter="highlightIndex = idx"
-                        :title="_isDefaultRow(env) ? '{% translate "Resolved at runtime; some fields may be overridden by deployment settings." %}' : ''"
                         class="env-popover__row"
                         :class="{
                             'env-popover__row--selected': _isSelected(env),
@@ -83,7 +109,7 @@ Parameters:
                     </svg>
                     <div class="env-popover__row-body">
                         <div class="env-popover__row-head">
-                            <span class="env-popover__row-name" x-text="_isDefaultRow(env) ? '{{ default_label|escapejs }}' : env.name"></span>
+                            <span class="env-popover__row-name" x-text="env.name"></span>
                             <span class="env-popover__scope-tag"
                                   :class="'env-popover__scope-tag--' + env.scope"
                                   x-text="env.scope"></span>
