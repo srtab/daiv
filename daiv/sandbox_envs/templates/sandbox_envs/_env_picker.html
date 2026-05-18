@@ -80,7 +80,19 @@ Parameters:
                 </svg>
                 <div class="env-popover__row-body">
                     <div class="env-popover__row-head">
-                        <span class="env-popover__row-name">{% translate "Auto" %}</span>
+                        <span class="env-popover__row-name !flex-none">{% translate "Auto" %}</span>
+                        <span class="env-popover__info"
+                              title="{% translate 'Auto resolution order: 1) your env whose repo list matches; 2) a shared env whose repo list matches; 3) the shared default.' %}"
+                              aria-label="{% translate 'How Auto picks an environment' %}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4"/>
+                                <path d="M12 8h.01"/>
+                            </svg>
+                        </span>
+                    </div>
+                    <div class="env-popover__row-subtitle">
+                        {% translate "Resolves to a matching env (else global default)" %}
                     </div>
                 </div>
             </button>

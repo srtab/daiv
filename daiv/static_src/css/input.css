@@ -1625,6 +1625,8 @@ main:has(.chat-shell) {
   .env-popover__row-head { @apply flex items-center gap-2 min-w-0; }
   .env-popover__row-name { @apply text-[14px] text-[#e7e8ff] truncate min-w-0 flex-1; }
   .env-popover__row-subtitle { @apply mt-0.5 text-[12px] text-gray-400 truncate; }
+  .env-popover__info { @apply inline-flex shrink-0 text-gray-500 cursor-help; }
+  .env-popover__info svg { @apply h-3.5 w-3.5; }
   .env-popover__scope-tag {
     @apply text-[10px] uppercase rounded px-1 py-px shrink-0;
     letter-spacing: 0.04em;
