@@ -136,9 +136,10 @@ async def set_runtime_ctx(
     """
     from sandbox_envs.services import (
         get_global_default,
-        get_locked_runtime_fields,
         merge_sandbox_runtime,
+        resolve_env_for_run,
         resolve_sandbox_env,
+        row_to_override,
     )
 
     repo_client = RepoClient.create_instance(**kwargs)
@@ -148,15 +149,13 @@ async def set_runtime_ctx(
     if ref is None:
         ref = cast("str", config.default_branch)
 
-    per_run = await resolve_sandbox_env(sandbox_env_id)
+    if sandbox_env_id:
+        per_run = await resolve_sandbox_env(sandbox_env_id)
+    else:
+        auto_env = await resolve_env_for_run(user=None, repo_id=repo_id)
+        per_run = row_to_override(auto_env) if auto_env is not None else None
     global_default = await get_global_default()
-    sandbox = merge_sandbox_runtime(
-        repo_sandbox=config.sandbox,
-        repo_fields_set=config.sandbox_fields_set,
-        per_run=per_run,
-        global_default=global_default,
-        locked_fields=get_locked_runtime_fields(),
-    )
+    sandbox = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
 
     with repo_client.load_repo(repository, sha=ref) as repo:
         handle = RepoHandle(
