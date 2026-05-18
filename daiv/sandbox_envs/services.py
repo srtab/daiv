@@ -15,30 +15,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sandbox_envs")
 
 
-FIELD_TO_LOCK_SETTING: dict[str, str] = {
-    "network_enabled": "sandbox_network_enabled",
-    "memory_bytes": "sandbox_memory",
-    "cpus": "sandbox_cpu",
-}
-
-
-def get_locked_runtime_fields() -> frozenset[str]:
-    """Return the set of SandboxRuntime field names locked by DAIV_SANDBOX_* env vars.
-
-    Locked fields cannot be overridden by per-run envs or ``.daiv.yml``; only the
-    GLOBAL default (already overlaid with the env-var values in
-    :func:`get_global_default`) is consulted.
-
-    ``base_image`` is intentionally NOT lockable: per-env base images are the
-    whole point of having multiple sandbox environments. ``DAIV_SANDBOX_BASE_IMAGE``
-    still seeds the GLOBAL Default row at migration time, but the UI value wins
-    thereafter.
-    """
-    from core.site_settings import site_settings
-
-    return frozenset(field for field, setting in FIELD_TO_LOCK_SETTING.items() if site_settings.is_env_locked(setting))
-
-
 @dataclass(frozen=True)
 class SandboxEnvOverride:
     """A resolved sandbox-env view with secrets decrypted. Internal — only the
@@ -51,7 +27,7 @@ class SandboxEnvOverride:
     env_vars: dict[str, str]
 
 
-def _row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
+def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
     from core.encryption import DecryptionError
 
     try:
@@ -92,37 +68,14 @@ async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
     env = await SandboxEnvironment.objects.filter(pk=env_id).afirst()
     if env is None:
         raise LookupError(f"Sandbox environment '{env_id}' not found")
-    return _row_to_override(env)
+    return row_to_override(env)
 
 
 async def get_global_default() -> SandboxEnvOverride | None:
-    """Resolved GLOBAL default — row values for unlocked fields, env-var overlay
-    for env-locked fields. Returns ``None`` only when nothing is configurable
-    (no row AND no env-locked overlay)."""
-    from core.site_settings import site_settings
-
+    """Resolved GLOBAL default — straight from the row. Returns ``None`` when
+    no GLOBAL default row exists."""
     row = await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
-    locked = site_settings.is_env_locked
-
-    locks_present = any(locked(n) for n in FIELD_TO_LOCK_SETTING.values())
-    if row is None and not locks_present:
-        return None
-
-    base = (
-        _row_to_override(row)
-        if row is not None
-        else SandboxEnvOverride(base_image=None, network_enabled=None, memory_bytes=None, cpus=None, env_vars={})
-    )
-
-    return SandboxEnvOverride(
-        base_image=base.base_image,
-        network_enabled=(
-            bool(site_settings.sandbox_network_enabled) if locked("sandbox_network_enabled") else base.network_enabled
-        ),
-        memory_bytes=(site_settings.sandbox_memory if locked("sandbox_memory") else base.memory_bytes),
-        cpus=(site_settings.sandbox_cpu if locked("sandbox_cpu") else base.cpus),
-        env_vars=base.env_vars,
-    )
+    return row_to_override(row) if row is not None else None
 
 
 def _fmt_memory(mem: int) -> str:
@@ -135,44 +88,24 @@ def _fmt_cpus(cpus: Decimal | float | int) -> str:
 
 
 def humanise_global_default() -> dict[str, str | bool]:
-    """Synchronous, template-friendly view of the resolved GLOBAL default.
-
-    Mirrors :func:`get_global_default` but returns display strings — used by
-    the form template's "Use default — currently X" labels. Each ``has_*``
-    flag is true when that field has a resolved value (a row value or an
-    env-lock overlay); when false, the corresponding string is empty and the
-    template should fall back to a generic "Use default" label.
-    """
-    from core.site_settings import site_settings
-
+    """Synchronous, template-friendly view of the GLOBAL default's row values."""
     row = SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).first()
-    locked = site_settings.is_env_locked
-
-    def _resolve(field: str, lock_setting: str):
-        if locked(lock_setting):
-            return getattr(site_settings, lock_setting, None)
-        return getattr(row, field, None) if row is not None else None
-
-    network = _resolve("network_enabled", "sandbox_network_enabled")
-    memory = _resolve("memory_bytes", "sandbox_memory")
-    cpus = _resolve("cpus", "sandbox_cpu")
-
+    if row is None:
+        return {"network": "", "memory": "", "cpus": "", "has_network": False, "has_memory": False, "has_cpus": False}
     return {
-        "network": "enabled" if network is True else ("disabled" if network is False else ""),
-        "memory": _fmt_memory(memory) if memory is not None else "",
-        "cpus": _fmt_cpus(cpus) if isinstance(cpus, Decimal | float | int) else "",
-        "has_network": network is not None,
-        "has_memory": memory is not None,
-        "has_cpus": cpus is not None,
+        "network": "enabled" if row.network_enabled is True else ("disabled" if row.network_enabled is False else ""),
+        "memory": _fmt_memory(row.memory_bytes) if row.memory_bytes is not None else "",
+        "cpus": _fmt_cpus(row.cpus) if row.cpus is not None else "",
+        "has_network": row.network_enabled is not None,
+        "has_memory": row.memory_bytes is not None,
+        "has_cpus": row.cpus is not None,
     }
 
 
 def humanise_env_summary(env: SandboxEnvironment) -> str:
     """Compact one-line description of an env for the popover row subtitle.
 
-    For the GLOBAL default row this delegates to ``humanise_global_default`` so
-    env-lock overlays (``DAIV_SANDBOX_NETWORK_ENABLED`` etc.) surface here too.
-    For any other env we read the stored row fields directly.
+    Reads the env's row fields directly for every scope.
 
     Format: ``"<base_image> · <N> CPU · <memory> · net"`` with each segment
     omitted when its source value is missing. Memory renders as ``GiB`` for
@@ -182,16 +115,6 @@ def humanise_env_summary(env: SandboxEnvironment) -> str:
     parts: list[str] = []
     if env.base_image:
         parts.append(env.base_image)
-
-    if env.scope == Scope.GLOBAL and env.is_default:
-        d = humanise_global_default()
-        if d["has_cpus"] and d["cpus"]:
-            parts.append(f"{d['cpus']} CPU")
-        if d["has_memory"] and d["memory"]:
-            parts.append(d["memory"])
-        if d["has_network"] and d["network"] == "enabled":
-            parts.append("net")
-        return " · ".join(parts)
 
     if env.cpus is not None:
         parts.append(f"{_fmt_cpus(env.cpus)} CPU")

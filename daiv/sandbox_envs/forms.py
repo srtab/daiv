@@ -6,7 +6,6 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from sandbox_envs.models import _ENV_VAR_NAME_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
-from sandbox_envs.services import FIELD_TO_LOCK_SETTING
 
 MIB = 2**20
 GIB = 2**30
@@ -55,8 +54,6 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.fields["scope"].choices = [(Scope.USER.value, Scope.USER.label)]
             self.fields["scope"].initial = Scope.USER
             self.fields.pop("is_default", None)
-        if is_default_form:
-            self._apply_env_locks()
         instance = self.instance
         if instance.pk is not None:
             self.initial.setdefault("network_choice", _NETWORK_TO_CHOICE[instance.network_enabled])
@@ -69,44 +66,6 @@ class SandboxEnvironmentForm(forms.ModelForm):
                     self.initial.setdefault("memory_unit", "MiB")
             self.initial.setdefault("memory_mode", "custom" if instance.memory_bytes else "default")
             self.initial.setdefault("cpu_mode", "custom" if instance.cpus else "default")
-
-    def _apply_env_locks(self) -> None:
-        from core.site_settings import site_settings
-
-        for form_field, settings_name in FIELD_TO_LOCK_SETTING.items():
-            if not site_settings.is_env_locked(settings_name):
-                continue
-            value = getattr(site_settings, settings_name, None)
-            if form_field == "network_enabled":
-                field = self.fields["network_choice"]
-                field.disabled = True
-                if value is not None:
-                    self.initial["network_choice"] = _NETWORK_TO_CHOICE[bool(value)]
-            elif form_field == "memory_bytes":
-                self.fields["memory_value"].disabled = True
-                self.fields["memory_unit"].disabled = True
-                if value is not None:
-                    if value % GIB == 0:
-                        self.initial["memory_value"] = value // GIB
-                        self.initial["memory_unit"] = "GiB"
-                    else:
-                        self.initial["memory_value"] = value // MIB
-                        self.initial["memory_unit"] = "MiB"
-            else:
-                field = self.fields.get(form_field)
-                if field is None:
-                    continue
-                field.disabled = True
-                if value is not None:
-                    self.initial[form_field] = value
-            help_text = _("Set by environment variable; edit DAIV_%s to change.") % settings_name.upper()
-            if form_field == "network_enabled":
-                self.fields["network_choice"].help_text = help_text
-            elif form_field == "memory_bytes":
-                self.fields["memory_value"].help_text = help_text
-                self.fields["memory_unit"].help_text = help_text
-            else:
-                self.fields[form_field].help_text = help_text
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]

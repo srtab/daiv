@@ -33,7 +33,7 @@ def _make_sandbox_config_mock(disallow=(), allow=()):
 def _make_sandbox_runtime(disallow=(), allow=()):
     """Build a ``SandboxRuntime`` matching the legacy ``_make_sandbox_config_mock`` defaults."""
     from codebase.context import SandboxRuntime
-    from codebase.repo_config import SandboxCommandPolicy
+    from core.sandbox.command_policy import SandboxCommandPolicy
 
     return SandboxRuntime(
         base_image="python:3.12",
@@ -688,7 +688,7 @@ class TestSandboxMiddleware:
     async def test_abefore_agent_builds_start_session_from_ctx_sandbox(self, tmp_path: Path):
         """abefore_agent must build StartSessionRequest from ``ctx.sandbox``, not ``ctx.config.sandbox``."""
         from codebase.context import SandboxRuntime
-        from codebase.repo_config import SandboxCommandPolicy
+        from core.sandbox.command_policy import SandboxCommandPolicy
         from core.sandbox.schemas import StartSessionRequest
 
         repo_dir = tmp_path / "repoX"
@@ -752,7 +752,7 @@ class TestSandboxMiddleware:
 
         from automation.agent.middlewares.sandbox import _check_command_policy
         from codebase.context import SandboxRuntime
-        from codebase.repo_config import SandboxCommandPolicy
+        from core.sandbox.command_policy import SandboxCommandPolicy
 
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir(parents=True)

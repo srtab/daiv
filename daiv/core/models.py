@@ -305,33 +305,6 @@ class SiteConfiguration(models.Model):
     sandbox_timeout = models.FloatField(
         _("sandbox timeout"), blank=True, null=True, help_text=_("Timeout for sandbox requests, in seconds.")
     )
-    sandbox_base_image = models.CharField(
-        _("sandbox base image"),
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_("Default Docker base image for sandbox sessions."),
-    )
-    sandbox_ephemeral = models.BooleanField(
-        _("sandbox ephemeral"), null=True, help_text=_("Whether sandbox sessions are ephemeral by default.")
-    )
-    sandbox_network_enabled = models.BooleanField(
-        _("sandbox network enabled"),
-        null=True,
-        help_text=_("Whether to enable network access in sandbox sessions by default."),
-    )
-    sandbox_cpu = models.FloatField(
-        _("sandbox CPU"),
-        blank=True,
-        null=True,
-        help_text=_("CPUs to allocate to sandbox sessions by default. Leave empty for no limit."),
-    )
-    sandbox_memory = models.BigIntegerField(
-        _("sandbox memory"),
-        blank=True,
-        null=True,
-        help_text=_("Memory limit in bytes to allocate to sandbox sessions by default. Leave empty for no limit."),
-    )
 
     # -- Authentication --
     auth_login_enabled = models.BooleanField(
