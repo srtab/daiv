@@ -12,6 +12,15 @@
             <div>
                 <strong>{{ env.name }}</strong>
                 <span class="text-sm text-gray-400">{{ env.base_image }}</span>
+                {% if env.repo_ids %}
+                <div class="mt-1 flex flex-wrap gap-1">
+                    {% for repo_id in env.repo_ids %}
+                    <span class="inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300">
+                        {{ repo_id }}
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
             <div class="flex items-center gap-3">
                 <a href="{% url 'sandbox_envs:edit' env.id %}"
