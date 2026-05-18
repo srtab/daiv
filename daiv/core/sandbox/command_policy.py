@@ -64,6 +64,24 @@ class DenialReason(StrEnum):
 
 
 @dataclass(frozen=True)
+class SandboxCommandPolicy:
+    """Effective bash command policy for the sandbox.
+
+    ``allow`` and ``disallow`` are tuples of space-separated command prefixes,
+    e.g. ``"rm -rf"`` matches any ``rm`` invocation whose first arg is ``-rf``.
+    ``disallow`` takes precedence over ``allow``; built-in safety rules
+    (``DEFAULT_DISALLOW_RULES``) override both.
+
+    Defaults to empty — no per-env policy configured. This is the runtime
+    fallback used by every ``SandboxRuntime`` until per-env policies are
+    re-introduced.
+    """
+
+    disallow: tuple[str, ...] = ()
+    allow: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class PolicyResult:
     """
     The outcome of a policy evaluation.
