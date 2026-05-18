@@ -366,3 +366,49 @@ def test_site_settings_has_no_sandbox_resource_fields():
     ):
         assert removed not in site_settings.FIELD_DEFAULTS
     assert "sandbox_timeout" in site_settings.FIELD_DEFAULTS
+
+
+@pytest.mark.django_db
+class TestMergeSandboxRuntime:
+    def test_per_run_env_supplies_fields_when_set(self):
+        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
+
+        per_run = SandboxEnvOverride(
+            base_image="python:3.14", network_enabled=True, memory_bytes=2 * 2**30, cpus=2.0, env_vars={"K": "v"}
+        )
+        global_default = SandboxEnvOverride(
+            base_image="python:3.12", network_enabled=False, memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}
+        )
+        runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
+        assert runtime.base_image == "python:3.14"
+        assert runtime.network_enabled is True
+        assert runtime.memory_bytes == 2 * 2**30
+        assert runtime.cpus == 2.0
+        assert runtime.env_vars == {"G": "g", "K": "v"}
+
+    def test_falls_through_to_global_default(self):
+        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
+
+        per_run = SandboxEnvOverride(
+            base_image=None, network_enabled=None, memory_bytes=None, cpus=None, env_vars={"K": "v"}
+        )
+        global_default = SandboxEnvOverride(
+            base_image="python:3.12", network_enabled=False, memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}
+        )
+        runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
+        assert runtime.base_image == "python:3.12"
+        assert runtime.network_enabled is False
+        assert runtime.memory_bytes == 1 * 2**30
+        assert runtime.cpus == 1.0
+        assert runtime.env_vars == {"G": "g", "K": "v"}
+
+    def test_command_policy_defaults_empty(self):
+        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
+
+        from core.sandbox.command_policy import SandboxCommandPolicy
+
+        per_run = SandboxEnvOverride(
+            base_image="python:3.14", network_enabled=False, memory_bytes=None, cpus=None, env_vars={}
+        )
+        runtime = merge_sandbox_runtime(per_run=per_run, global_default=None)
+        assert runtime.command_policy == SandboxCommandPolicy()

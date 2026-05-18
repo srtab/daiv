@@ -10,7 +10,6 @@ from sandbox_envs.models import SandboxEnvironment, Scope
 
 if TYPE_CHECKING:
     from codebase.context import SandboxRuntime
-    from codebase.repo_config import Sandbox
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -195,32 +194,26 @@ def resolve_env_for_run_sync(*, user, repo_id: str | None) -> SandboxEnvironment
 
 
 def merge_sandbox_runtime(
-    repo_sandbox: Sandbox,
-    repo_fields_set: frozenset[str],
-    per_run: SandboxEnvOverride | None,
-    global_default: SandboxEnvOverride | None,
-    locked_fields: frozenset[str] = frozenset(),
+    *, per_run: SandboxEnvOverride | None, global_default: SandboxEnvOverride | None
 ) -> SandboxRuntime:
-    """Per-field precedence: per_run > .daiv.yml (explicit key) > global_default.
+    """Resolve the effective sandbox runtime from a per-run env + GLOBAL default.
 
-    A field is taken from per_run only when its value is non-None. A field is
-    taken from .daiv.yml only when the key was literally present in the YAML
-    (so ``base_image: null`` is "explicitly disabled" and beats global).
+    For each resource field (``base_image``, ``network_enabled``, ``memory_bytes``,
+    ``cpus``): the per-run env wins when its value is non-None; otherwise the
+    GLOBAL default wins; otherwise the field's runtime default applies.
 
-    Fields in ``locked_fields`` (DAIV_SANDBOX_* env-locked) skip both per_run
-    and ``.daiv.yml``; only ``global_default`` (already overlaid with the
-    env-var values by :func:`get_global_default`) is consulted.
+    ``env_vars`` are unioned with per-run keys shadowing GLOBAL keys.
+    ``command_policy`` defaults to an empty policy; built-in safety rules in
+    :mod:`core.sandbox.command_policy` still apply.
     """
     from codebase.context import SandboxRuntime
+    from core.sandbox.command_policy import SandboxCommandPolicy
 
     def pick(field: str, runtime_default):
-        if field not in locked_fields:
-            if per_run is not None:
-                v = getattr(per_run, field)
-                if v is not None:
-                    return v
-            if field in repo_fields_set:
-                return getattr(repo_sandbox, field)
+        if per_run is not None:
+            v = getattr(per_run, field)
+            if v is not None:
+                return v
         if global_default is not None:
             v = getattr(global_default, field)
             if v is not None:
@@ -233,5 +226,5 @@ def merge_sandbox_runtime(
         memory_bytes=pick("memory_bytes", None),
         cpus=pick("cpus", None),
         env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
-        command_policy=repo_sandbox.command_policy,
+        command_policy=SandboxCommandPolicy(),
     )
