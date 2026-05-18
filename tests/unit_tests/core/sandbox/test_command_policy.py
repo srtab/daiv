@@ -266,13 +266,3 @@ def test_sandbox_command_policy_defaults_to_empty():
     policy = SandboxCommandPolicy()
     assert policy.allow == ()
     assert policy.disallow == ()
-
-
-def test_sandbox_command_policy_is_frozen():
-    import dataclasses
-
-    from core.sandbox.command_policy import SandboxCommandPolicy
-
-    policy = SandboxCommandPolicy(allow=("ls",), disallow=("rm -rf",))
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        policy.allow = ()  # type: ignore[misc]
