@@ -24,6 +24,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
     """
 
     env_vars_json = forms.CharField(required=False, widget=forms.HiddenInput())
+    repo_ids_json = forms.CharField(required=False, widget=forms.HiddenInput())
     memory_value = forms.IntegerField(required=False, min_value=1)
     memory_unit = forms.ChoiceField(required=False, choices=[("MiB", "MiB"), ("GiB", "GiB")], initial="MiB")
     network_choice = forms.ChoiceField(
@@ -146,6 +147,26 @@ class SandboxEnvironmentForm(forms.ModelForm):
             })
         return cleaned
 
+    def clean_repo_ids_json(self):
+        raw = (self.cleaned_data.get("repo_ids_json") or "").strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as err:
+            raise forms.ValidationError(_("repo_ids must be valid JSON.")) from err
+        if not isinstance(parsed, list):
+            raise forms.ValidationError(_("repo_ids must be a list."))
+        cleaned: list[str] = []
+        for idx, entry in enumerate(parsed):
+            if not isinstance(entry, str):
+                raise forms.ValidationError(_("repo_ids[%d] must be a string.") % idx)
+            value = entry.strip()
+            if not value:
+                raise forms.ValidationError(_("repo_ids[%d] cannot be blank.") % idx)
+            cleaned.append(value)
+        return cleaned
+
     def clean(self):
         cleaned = super().clean()
         cleaned["network_enabled"] = _CHOICE_TO_NETWORK[cleaned.get("network_choice") or "default"]
@@ -163,6 +184,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
         instance: SandboxEnvironment = super().save(commit=False)
         instance.network_enabled = self.cleaned_data.get("network_enabled")
         instance.memory_bytes = self.cleaned_data.get("memory_bytes")
+        instance.repo_ids = self.cleaned_data.get("repo_ids_json") or []
         if instance.scope == Scope.USER and self.user is not None:
             instance.user = self.user
         if instance.pk is not None:

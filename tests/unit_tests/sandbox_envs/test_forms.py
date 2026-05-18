@@ -1,6 +1,11 @@
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+
 import pytest
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
+
+User = get_user_model()
 
 
 @pytest.mark.django_db
@@ -302,3 +307,59 @@ def test_form_rejects_custom_cpu_mode_without_value():
     )
     assert not form.is_valid()
     assert "cpus" in form.errors
+
+
+@pytest.mark.django_db
+class TestRepoIdsField:
+    def _post_data(self, **overrides):
+        base = {
+            "name": "env",
+            "description": "",
+            "scope": "user",
+            "base_image": "python:3.14",
+            "network_choice": "default",
+            "memory_mode": "default",
+            "cpu_mode": "default",
+            "memory_unit": "MiB",
+            "env_vars_json": "[]",
+            "repo_ids_json": "[]",
+        }
+        base.update(overrides)
+        return base
+
+    def test_repo_ids_default_empty(self):
+        user = User.objects.create(username="u", email="u@x.test")
+        form = SandboxEnvironmentForm(data=self._post_data(), user=user, is_admin=False)
+        assert form.is_valid(), form.errors
+        env = form.save()
+        assert env.repo_ids == []
+
+    def test_repo_ids_parsed_from_json(self):
+        user = User.objects.create(username="u", email="u@x.test")
+        form = SandboxEnvironmentForm(
+            data=self._post_data(repo_ids_json='["acme/foo", "acme/bar"]'), user=user, is_admin=False
+        )
+        assert form.is_valid(), form.errors
+        env = form.save()
+        assert env.repo_ids == ["acme/foo", "acme/bar"]
+
+    def test_repo_ids_invalid_json_rejected(self):
+        user = User.objects.create(username="u", email="u@x.test")
+        form = SandboxEnvironmentForm(data=self._post_data(repo_ids_json="not json"), user=user, is_admin=False)
+        assert not form.is_valid()
+        assert "repo_ids_json" in form.errors
+
+    def test_repo_ids_uniqueness_violation_surfaced_as_form_error(self):
+        user = User.objects.create(username="u", email="u@x.test")
+        SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=user, name="a", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+        form = SandboxEnvironmentForm(
+            data=self._post_data(name="b", repo_ids_json='["acme/foo"]'), user=user, is_admin=False
+        )
+        # Note: model validation runs inside .save(); the view layer catches
+        # ValidationError and re-attaches via form.add_error. The form itself
+        # accepts the JSON, then model-level full_clean blocks the save.
+        assert form.is_valid()
+        with pytest.raises(ValidationError):
+            form.save()
