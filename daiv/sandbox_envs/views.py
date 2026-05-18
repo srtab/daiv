@@ -50,6 +50,10 @@ def _encode_env_vars_for_template(env: SandboxEnvironment) -> str:
     return json.dumps(masked)
 
 
+def _encode_repo_ids_for_template(env: SandboxEnvironment) -> str:
+    return json.dumps(list(env.repo_ids or []))
+
+
 def _is_htmx(request) -> bool:
     return request.headers.get("HX-Request") == "true"
 
@@ -123,6 +127,8 @@ class EnvCreateView(LoginRequiredMixin, CreateView):
         form = ctx["form"]
         submitted = form.data.get("env_vars_json") if form.is_bound else None
         ctx["env_vars_initial"] = submitted or "[]"
+        submitted_repos = form.data.get("repo_ids_json") if form.is_bound else None
+        ctx["repo_ids_initial"] = submitted_repos or "[]"
         ctx["in_drawer"] = _is_htmx(self.request)
         ctx["is_default_form"] = False
         ctx.update(_global_default_summary_context())
@@ -182,6 +188,8 @@ class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
         form = ctx["form"]
         submitted = form.data.get("env_vars_json") if form.is_bound else None
         ctx["env_vars_initial"] = submitted or _encode_env_vars_for_template(self.object)
+        submitted_repos = form.data.get("repo_ids_json") if form.is_bound else None
+        ctx["repo_ids_initial"] = submitted_repos or _encode_repo_ids_for_template(self.object)
         ctx["show_delete"] = True
         ctx["in_drawer"] = _is_htmx(self.request)
         ctx["is_default_form"] = self.object.scope == Scope.GLOBAL and self.object.is_default

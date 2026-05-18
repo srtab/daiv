@@ -124,6 +124,41 @@
         {% endif %}
     </fieldset>
 
+    <fieldset x-data='repoIdsEditor({{ repo_ids_initial }})'>
+        <legend class="text-[15px] font-medium text-gray-300">
+            {% translate "Repositories" %}
+            <span class="text-gray-500" x-text="ids.length ? '(' + ids.length + ')' : ''"></span>
+        </legend>
+        <p class="mt-1 text-sm text-gray-400">
+            {% translate "When a run targets one of these repositories and the user has selected Auto, this environment is used." %}
+        </p>
+
+        <div class="mt-2 flex items-center gap-2">
+            <input type="text" x-model="draft"
+                   @keydown.enter.prevent="addDraft()"
+                   placeholder="owner/repo"
+                   class="flex-1 font-mono">
+            <button type="button" @click="addDraft()" class="btn-secondary text-sm">
+                + {% translate "Add" %}
+            </button>
+        </div>
+        <p x-show="error" x-cloak class="mt-1 text-xs text-red-400" x-text="error"></p>
+
+        <div class="mt-2 flex flex-wrap gap-1.5">
+            <template x-for="(id, i) in ids" :key="id">
+                <span class="inline-flex items-center gap-1 rounded-md bg-white/[0.05] px-2 py-0.5 font-mono text-xs text-gray-200">
+                    <span x-text="id"></span>
+                    <button type="button" @click="removeAt(i)" class="text-gray-400 hover:text-red-300" aria-label="{% translate 'Remove' %}">×</button>
+                </span>
+            </template>
+        </div>
+
+        <input type="hidden" name="repo_ids_json" :value="JSON.stringify(ids)">
+        {% if form.repo_ids_json.errors %}
+        <p class="mt-1.5 text-sm text-red-400">{{ form.repo_ids_json.errors.0 }}</p>
+        {% endif %}
+    </fieldset>
+
     <div class="border-t border-white/[0.06]"></div>
 
     {# ---- Resources ---- #}
