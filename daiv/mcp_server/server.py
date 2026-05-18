@@ -118,8 +118,9 @@ async def submit_job(
             description=(
                 "Optional sandbox environment to use for every job in this batch — pass the env"
                 " name or UUID. Visible scopes are the caller's USER envs plus all GLOBAL envs."
-                " Use ``list_environments`` to discover names. Omit to fall back to repo"
-                " ``.daiv.yml`` and the GLOBAL default."
+                " Use ``list_environments`` to discover names. When omitted, the runtime is"
+                " Auto-resolved for each repository (USER env matching repo_ids → GLOBAL env"
+                " matching repo_ids → GLOBAL default)."
             )
         ),
     ] = None,

@@ -130,7 +130,10 @@ async def set_runtime_ctx(
         merge_request: The merge request object if the context is scoped to a merge request.
         offline: Whether to use the cached configuration or to fetch it from the repository.
         sandbox_env_id: Optional per-run sandbox environment UUID. When provided, the env
-            is resolved and merged with ``.daiv.yml`` + GLOBAL default to build ``ctx.sandbox``.
+            is resolved and merged with the GLOBAL default to build ``ctx.sandbox``.
+            When not provided, Auto-resolution selects an env via
+            :func:`sandbox_envs.services.resolve_env_for_run` using ``repo_id``; falls back
+            to the GLOBAL default env if nothing matches.
         **kwargs: Additional keyword arguments to pass to the repository client.
 
     Yields:

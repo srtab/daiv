@@ -402,6 +402,26 @@ class TestMergeSandboxRuntime:
         assert runtime.cpus == 1.0
         assert runtime.env_vars == {"G": "g", "K": "v"}
 
+    def test_per_run_env_vars_shadow_global_on_key_collision(self):
+        from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
+
+        per_run = SandboxEnvOverride(
+            base_image=None,
+            network_enabled=None,
+            memory_bytes=None,
+            cpus=None,
+            env_vars={"SHARED": "from-per-run", "PER_RUN_ONLY": "x"},
+        )
+        global_default = SandboxEnvOverride(
+            base_image="python:3.12",
+            network_enabled=False,
+            memory_bytes=None,
+            cpus=None,
+            env_vars={"SHARED": "from-global", "GLOBAL_ONLY": "g"},
+        )
+        runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
+        assert runtime.env_vars == {"SHARED": "from-per-run", "PER_RUN_ONLY": "x", "GLOBAL_ONLY": "g"}
+
     def test_command_policy_defaults_empty(self):
         from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
 
