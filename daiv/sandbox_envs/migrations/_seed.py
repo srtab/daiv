@@ -11,6 +11,6 @@ _FALLBACK_IMAGE = "python:3.12-alpine"
 
 
 def seed_global_default(SandboxEnvironment) -> None:  # noqa: N803
-    SandboxEnvironment.objects.update_or_create(
+    SandboxEnvironment.objects.get_or_create(
         scope="global", name="Default", defaults={"base_image": _FALLBACK_IMAGE, "is_default": True, "user": None}
     )
