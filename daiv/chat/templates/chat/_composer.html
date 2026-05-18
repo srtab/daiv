@@ -18,7 +18,7 @@
     the hero unmounts and `thread` becomes truthy, so the chip takes over here.
     {% endcomment %}
     <div class="chat-composer__meta" x-show="thread" x-cloak>
-      {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="sandbox_environment" on_change_event="daiv:env-changed" %}
+      {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id auto_resolved_id=auto_resolved_env_id field_name="sandbox_environment" on_change_event="daiv:env-changed" %}
       <span class="repo-chip">
         <span class="repo-chip__btn">
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

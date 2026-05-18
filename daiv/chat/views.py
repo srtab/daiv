@@ -75,6 +75,14 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["selected_sandbox_env_id"] = (
             str(thread.sandbox_environment_id) if thread is not None and thread.sandbox_environment_id else ""
         )
+        repo_id = thread.repo_id if thread is not None else None
+        if repo_id:
+            from sandbox_envs.services import resolve_env_for_run_sync
+
+            resolved = resolve_env_for_run_sync(user=self.request.user, repo_id=repo_id)
+            ctx["auto_resolved_env_id"] = str(resolved.id) if resolved else ""
+        else:
+            ctx["auto_resolved_env_id"] = ""
         if thread is None:
             ctx.update({"turns": [], "expired": False, "active_run_id": "", "merge_request": None})
             return ctx
