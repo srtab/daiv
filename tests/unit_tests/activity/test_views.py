@@ -568,3 +568,41 @@ class TestActivityDetailSubscriberContext:
         response = client.get(reverse("activity_detail", args=[activity.pk]))
         html = response.content.decode()
         assert reverse("schedule_update", args=[schedule.pk]) in html
+
+
+@pytest.mark.django_db
+def test_agent_run_form_auto_resolves_when_single_repo_preselected(logged_in_client, user):
+    """Pre-filling the form from a retryable source activity gives the view a
+    single ``repos`` entry; Auto resolves to whichever env claims that repo."""
+    from sandbox_envs.models import SandboxEnvironment, Scope
+
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.12", is_default=True)
+    matched = SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL, name="django-env", base_image="python:3.14", repo_ids=["acme/foo"]
+    )
+    source = Activity.objects.create(
+        user=user,
+        repo_id="acme/foo",
+        ref="main",
+        prompt="x",
+        trigger_type=TriggerType.UI_JOB,
+        status=ActivityStatus.FAILED,
+    )
+
+    resp = logged_in_client.get(reverse("runs:agent_run_new") + f"?from={source.pk}")
+    assert resp.context["auto_resolved_env_id"] == str(matched.id)
+
+
+@pytest.mark.django_db
+def test_agent_run_form_auto_resolved_empty_with_no_initial_repo(logged_in_client):
+    from sandbox_envs.models import SandboxEnvironment, Scope
+
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    default = SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL, name="Default", base_image="python:3.12", is_default=True
+    )
+
+    resp = logged_in_client.get(reverse("runs:agent_run_new"))
+    # No initial repo → Auto falls back to GLOBAL default for the preview.
+    assert resp.context["auto_resolved_env_id"] == str(default.id)

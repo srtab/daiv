@@ -125,6 +125,49 @@ def humanise_env_summary(env: SandboxEnvironment) -> str:
     return " · ".join(parts)
 
 
+_MULTI_REPO = object()  # sentinel: caller supplied >1 repos → skip auto-resolve
+
+
+def _single_repo_from_form_repos(form_repos) -> str | None | object:
+    """Return the single repo id from a form's ``repos`` value.
+
+    Returns:
+      - the repo_id string when exactly one repo is present,
+      - ``_MULTI_REPO`` sentinel when two or more repos are present (skip resolve),
+      - ``None`` when zero repos are present (fall through to global default).
+    """
+    if not isinstance(form_repos, list):
+        return None
+    if len(form_repos) > 1:
+        return _MULTI_REPO
+    if len(form_repos) == 0:
+        return None
+    entry = form_repos[0]
+    if isinstance(entry, dict):
+        return entry.get("repo_id")
+    return None
+
+
+def auto_resolved_env_context(form, user) -> dict:
+    """Compute ``auto_resolved_env_id`` for the env picker partial.
+
+    Inspects the form's bound or initial ``repos`` value:
+    - exactly one repo → resolve Auto for that repo,
+    - zero repos → resolve Auto without a repo (returns global default),
+    - two or more repos → return empty string (picker shows plain "Auto").
+    """
+    if "repos" in form.fields:
+        bound = form["repos"]
+        raw = bound.value() if form.is_bound else bound.initial
+    else:
+        raw = None
+    repo_id = _single_repo_from_form_repos(raw)
+    if repo_id is _MULTI_REPO:
+        return {"auto_resolved_env_id": ""}
+    resolved = resolve_env_for_run_sync(user=user, repo_id=repo_id)
+    return {"auto_resolved_env_id": str(resolved.id) if resolved else ""}
+
+
 def env_picker_context(form) -> dict:
     """Build the `sandbox_envs` / `selected_sandbox_env_id` context for views rendering
     the env-picker partial. Empty values when the form has no ``sandbox_environment``

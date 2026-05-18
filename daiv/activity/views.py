@@ -19,7 +19,7 @@ from django.views import View
 from django.views.generic import DetailView, FormView
 
 from django_filters.views import FilterView
-from sandbox_envs.services import env_picker_context
+from sandbox_envs.services import auto_resolved_env_context, env_picker_context
 
 from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
@@ -280,6 +280,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         ctx = super().get_context_data(**kwargs)
         ctx["source_activity"] = self._get_source_activity()
         ctx.update(env_picker_context(ctx["form"]))
+        ctx.update(auto_resolved_env_context(ctx["form"], self.request.user))
         return ctx
 
     def get_form_kwargs(self):

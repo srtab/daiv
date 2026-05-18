@@ -28,7 +28,7 @@
 
         <div class="flex flex-wrap items-center gap-1.5">
             {% if with_env_picker %}
-                {% include "sandbox_envs/_env_picker.html" with envs=env_picker_envs selected_id=env_picker_selected_id field_name="sandbox_environment" %}
+                {% include "sandbox_envs/_env_picker.html" with envs=env_picker_envs selected_id=env_picker_selected_id auto_resolved_id=env_picker_auto_resolved_id field_name="sandbox_environment" %}
             {% endif %}
             {% include "codebase/_repo_picker.html" with with_x_data=False initial_repos=form.repos.value|default:"[]" max_repos=20 show_conflict_message=False required=repos_required %}
         </div>

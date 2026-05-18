@@ -16,7 +16,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from activity.models import TriggerType
 from activity.services import RepoTarget, submit_batch_runs
-from sandbox_envs.services import env_picker_context
+from sandbox_envs.services import auto_resolved_env_context, env_picker_context
 
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
@@ -117,6 +117,7 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         tpl = self._get_template()
         context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
         context.update(env_picker_context(context["form"]))
+        context.update(auto_resolved_env_context(context["form"], self.request.user))
         return context
 
     def form_valid(self, form):
@@ -144,6 +145,7 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
         context.update(env_picker_context(context["form"]))
+        context.update(auto_resolved_env_context(context["form"], self.request.user))
         return context
 
     def get_breadcrumbs(self):

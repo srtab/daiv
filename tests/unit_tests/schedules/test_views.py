@@ -776,3 +776,42 @@ class TestScheduleViewsEnvContext:
         response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
         assert response.status_code == 200
         assert response.context["selected_sandbox_env_id"] == str(env.id)
+
+
+@pytest.mark.django_db
+def test_schedule_update_view_auto_resolves_for_single_repo(member_client, member_user):
+    from sandbox_envs.models import SandboxEnvironment, Scope
+
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.12", is_default=True)
+    matched = SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL, name="django-env", base_image="python:3.14", repo_ids=["acme/foo"]
+    )
+    schedule = ScheduledJob.objects.create(
+        user=member_user,
+        name="s",
+        prompt="p",
+        frequency=Frequency.WEEKLY,
+        repos=[{"repo_id": "acme/foo", "ref": "main"}],
+    )
+
+    resp = member_client.get(reverse("schedule_update", args=[schedule.pk]))
+    assert resp.context["auto_resolved_env_id"] == str(matched.id)
+
+
+@pytest.mark.django_db
+def test_schedule_update_view_auto_resolved_empty_for_multi_repo(member_client, member_user):
+    from sandbox_envs.models import SandboxEnvironment, Scope
+
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.12", is_default=True)
+    schedule = ScheduledJob.objects.create(
+        user=member_user,
+        name="s",
+        prompt="p",
+        frequency=Frequency.WEEKLY,
+        repos=[{"repo_id": "acme/foo", "ref": "main"}, {"repo_id": "acme/bar", "ref": "main"}],
+    )
+
+    resp = member_client.get(reverse("schedule_update", args=[schedule.pk]))
+    assert resp.context["auto_resolved_env_id"] == ""
