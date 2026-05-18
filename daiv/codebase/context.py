@@ -8,7 +8,8 @@ from git import Repo  # noqa: TC002
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.exceptions import SingleRepoRequiredError
-from codebase.repo_config import RepositoryConfig, SandboxCommandPolicy  # noqa: TC001
+from codebase.repo_config import RepositoryConfig  # noqa: TC001
+from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

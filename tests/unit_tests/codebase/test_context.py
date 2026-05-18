@@ -26,13 +26,12 @@ def user_factory(db):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_set_runtime_ctx_builds_sandbox_field(monkeypatch):
-    """ctx.sandbox is populated from .daiv.yml + global default (no per-run override here)."""
+async def test_set_runtime_ctx_builds_sandbox_field():
+    """ctx.sandbox is populated from the GLOBAL default env when no per-run env is supplied."""
     await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
     await SandboxEnvironment.objects.acreate(
         scope=Scope.GLOBAL, name="Default", base_image="python:3.12", memory_bytes=2_000_000_000, is_default=True
     )
-    monkeypatch.setattr("core.site_settings.site_settings.is_env_locked", lambda name: False)
     with patch("codebase.context.RepoClient.create_instance") as mock_client_factory:
         client = mock_client_factory.return_value
         client.get_repository.return_value = type("R", (), {"name": "x"})()
@@ -45,14 +44,10 @@ async def test_set_runtime_ctx_builds_sandbox_field(monkeypatch):
         with patch("codebase.context.RepositoryConfig.get_config") as gc:
             from codebase.repo_config import RepositoryConfig
 
-            gc.return_value = RepositoryConfig.model_validate({"sandbox": {"base_image": "node:18"}})
+            gc.return_value = RepositoryConfig.model_validate({})
             async with set_runtime_ctx(repo_id="r/p", scope=RepoScope.GLOBAL) as ctx:
-                # .daiv.yml's explicit base_image beats the global default.
-                assert ctx.sandbox.base_image == "node:18"
-                # No memory_bytes in .daiv.yml → global default fills it in.
+                assert ctx.sandbox.base_image == "python:3.12"
                 assert ctx.sandbox.memory_bytes == 2_000_000_000
-                # ctx.config.sandbox is still the raw .daiv.yml view.
-                assert ctx.config.sandbox.base_image == "node:18"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -74,7 +69,7 @@ async def test_set_runtime_ctx_honors_per_run_env(user_factory):
         with patch("codebase.context.RepositoryConfig.get_config") as gc:
             from codebase.repo_config import RepositoryConfig
 
-            gc.return_value = RepositoryConfig.model_validate({"sandbox": {"base_image": "node:18"}})
+            gc.return_value = RepositoryConfig.model_validate({})
             async with set_runtime_ctx(repo_id="r/p", scope=RepoScope.GLOBAL, sandbox_env_id=str(env.id)) as ctx:
                 assert ctx.sandbox.base_image == "alpine:latest"
                 assert ctx.sandbox.memory_bytes == 1_000_000_000

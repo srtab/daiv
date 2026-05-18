@@ -49,73 +49,6 @@ class SlashCommands(BaseModel):
     enabled: bool = Field(default=True, description="Enable slash command features.")
 
 
-class SandboxCommandPolicy(BaseModel):
-    """
-    Per-repository bash command execution policy for the sandbox.
-
-    Entries in :attr:`disallow` and :attr:`allow` are space-separated command
-    prefixes that match the beginning of a parsed command's argument vector.
-    For example, ``"rm -rf"`` blocks any ``rm`` invocation whose first argument
-    is ``-rf``.
-
-    Precedence: ``disallow`` entries override ``allow`` entries, which override
-    the global default policy.  Built-in safety rules always take precedence.
-    """
-
-    disallow: tuple[str, ...] = Field(
-        default_factory=tuple,
-        description=(
-            "List of bash command prefixes to block in this repository. "
-            "Each entry is a space-separated prefix, e.g. 'rm -rf'. "
-            "Takes precedence over allow entries."
-        ),
-    )
-    allow: tuple[str, ...] = Field(
-        default_factory=tuple,
-        description=(
-            "List of bash command prefixes to explicitly permit in this repository, "
-            "overriding the default disallow policy. "
-            "Repo-level disallow entries and built-in rules still take precedence."
-        ),
-    )
-
-
-class Sandbox(BaseModel):
-    """
-    Sandbox configuration as declared in ``.daiv.yml``.
-
-    All fields default to ``None``; the runtime resolver in ``sandbox_envs.services``
-    merges this raw view with the per-run env, the GLOBAL default env, and the
-    ``DAIV_SANDBOX_*`` env-locked overlays to build the effective ``SandboxRuntime``.
-    """
-
-    base_image: str | None = Field(
-        default=None,
-        examples=["python:3.12-alpine", "node:18-alpine"],
-        description=(
-            "The base image for the sandbox. Omit the key to inherit the global default; "
-            "set to ``null`` explicitly to disable the sandbox for this repository."
-        ),
-    )
-    network_enabled: bool | None = Field(
-        default=None, description="Whether to enable the network in the sandbox. Omit to inherit."
-    )
-    memory_bytes: int | None = Field(
-        default=None,
-        validation_alias=AliasChoices("memory_bytes", "memory"),
-        description="The memory limit for the sandbox (bytes). Omit to inherit.",
-    )
-    cpus: float | None = Field(
-        default=None,
-        validation_alias=AliasChoices("cpus", "cpu"),
-        description="The CPU limit for the sandbox (CPUs). Omit to inherit.",
-    )
-    command_policy: SandboxCommandPolicy = Field(
-        default_factory=SandboxCommandPolicy,
-        description="Bash command execution policy for this repository's sandbox sessions.",
-    )
-
-
 class AgentModelConfig(BaseModel):
     """
     Model configuration for the DAIV agent.
@@ -223,9 +156,6 @@ class RepositoryConfig(BaseModel):
     issue_addressing: IssueAddressing = Field(
         default_factory=IssueAddressing, description="Configure issue addressing features."
     )
-    sandbox: Sandbox = Field(
-        default_factory=Sandbox, description="Configure the daiv-sandbox instance to be used to execute commands."
-    )
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
 
     def is_user_allowed(self, username: str) -> bool:
@@ -236,16 +166,6 @@ class RepositoryConfig(BaseModel):
         if not self.allowed_usernames:
             return True
         return username.lower() in {u.lower() for u in self.allowed_usernames}
-
-    @property
-    def sandbox_fields_set(self) -> frozenset[str]:
-        """Set of ``sandbox.*`` keys that appeared explicitly in ``.daiv.yml``.
-
-        Used by the runtime merge resolver to distinguish "key absent from YAML"
-        (fall through to the global default) from "key present with a value or
-        explicit null" (this is the repo's choice; honor it).
-        """
-        return frozenset(self.sandbox.model_fields_set)
 
     @staticmethod
     def get_config(repo_id: str, *, repository: Repository | None = None, offline: bool = False) -> RepositoryConfig:
