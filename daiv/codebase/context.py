@@ -20,9 +20,11 @@ class SandboxRuntime:
     """Effective sandbox configuration for the current run.
 
     Built by :func:`sandbox_envs.services.merge_sandbox_runtime` (invoked from
-    :func:`set_runtime_ctx`) via per-field merge of: per-run env (if any),
-    ``.daiv.yml``'s sandbox section, and the GLOBAL default env.
-    ``command_policy`` always comes from ``.daiv.yml``.
+    :func:`set_runtime_ctx`) from two inputs: the per-run env (either picked
+    explicitly via ``sandbox_env_id`` or auto-resolved from the repo via
+    :func:`sandbox_envs.services.resolve_env_for_run`) and the GLOBAL default
+    env. ``command_policy`` is currently always the empty default; per-env
+    policies are a future iteration.
     """
 
     base_image: str | None

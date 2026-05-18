@@ -76,7 +76,20 @@ uv run --all-extras python scripts/dump_schemas.py \
     > /path/to/daiv/daiv/core/sandbox/schemas.dump.json
 ```
 
-**Sandbox environments** — runtime sandbox config flows through `RuntimeCtx.sandbox`, built by `sandbox_envs.services.merge_sandbox_runtime` from per-run env (if any), `.daiv.yml`, and the GLOBAL default env. Per-field precedence: per-run > `.daiv.yml` (key present in YAML) > global default. Three `DAIV_SANDBOX_*` env vars act as runtime locks on the GLOBAL default env — `DAIV_SANDBOX_NETWORK_ENABLED`, `DAIV_SANDBOX_CPU`, `DAIV_SANDBOX_MEMORY` — and `get_global_default()` overlays them on every read so per-run / `.daiv.yml` cannot override them. `DAIV_SANDBOX_BASE_IMAGE` is NOT a runtime lock: it seeds the GLOBAL Default row at migration time (and would overwrite a UI-edited value on re-run, though migrations only run once per deployment), and admins can override it via the UI thereafter. The agent middleware never reads `ctx.config.sandbox.*` directly — always go through `ctx.sandbox`.
+**Sandbox environments** — runtime sandbox config flows through `RuntimeCtx.sandbox`,
+built by `sandbox_envs.services.merge_sandbox_runtime` from per-run env (either
+picked explicitly or auto-resolved from the repo via `resolve_env_for_run`) and
+the GLOBAL default env. Per-field precedence: per-run > global default. There
+are no deployment-level overrides: `DAIV_SANDBOX_BASE_IMAGE`, `DAIV_SANDBOX_CPU`,
+`DAIV_SANDBOX_MEMORY`, `DAIV_SANDBOX_NETWORK_ENABLED`, and `DAIV_SANDBOX_EPHEMERAL`
+have been removed — manage runtime values through the SandboxEnvironment UI.
+Auto-resolution: USER env with matching `repo_ids` for the running user wins;
+otherwise a GLOBAL env with matching `repo_ids` wins; otherwise the GLOBAL
+default. The agent middleware never reads `ctx.config.sandbox.*` directly —
+that field no longer exists; always go through `ctx.sandbox`. `command_policy`
+is currently dropped (empty policy + built-in safety rules). `DAIV_SANDBOX_TIMEOUT`
+and `DAIV_SANDBOX_API_KEY` remain in `SiteConfiguration` — they configure the
+sandbox HTTP client and authentication, not runtime resource limits.
 
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 

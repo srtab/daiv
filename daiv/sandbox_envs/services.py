@@ -16,8 +16,9 @@ logger = logging.getLogger("daiv.sandbox_envs")
 
 @dataclass(frozen=True)
 class SandboxEnvOverride:
-    """A resolved sandbox-env view with secrets decrypted. Internal — only the
-    merge resolver in ``merge_sandbox_runtime`` should construct or read these."""
+    """A resolved sandbox-env view with secrets decrypted. Carries env data
+    between the services layer (where it is built by :func:`row_to_override`)
+    and :func:`merge_sandbox_runtime` / :func:`set_runtime_ctx`."""
 
     base_image: str | None
     network_enabled: bool | None
