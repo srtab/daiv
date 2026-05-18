@@ -19,6 +19,7 @@ from django.views import View
 from django.views.generic import DetailView, FormView
 
 from django_filters.views import FilterView
+from sandbox_envs.models import Scope
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
 from accounts.mixins import BreadcrumbMixin
@@ -93,7 +94,9 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
     context_object_name = "activity"
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
+        return Activity.objects.by_owner(self.request.user).select_related(
+            "task_result", "scheduled_job", "user", "sandbox_environment"
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -105,6 +108,11 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
         context["is_schedule_owner_or_admin"] = user.is_admin or (schedule is not None and schedule.user_id == user.pk)
         context["is_subscriber"] = bool(
             schedule is not None and schedule.user_id != user.pk and schedule.subscribers.filter(pk=user.pk).exists()
+        )
+        env = activity.sandbox_environment
+        context["can_edit_sandbox_environment"] = bool(
+            env
+            and ((env.scope == Scope.GLOBAL and user.is_admin) or (env.scope == Scope.USER and env.user_id == user.pk))
         )
         return context
 
