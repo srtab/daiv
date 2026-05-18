@@ -415,3 +415,112 @@ class TestHumaniseEnvSummary:
             is_default=False,
         )
         assert humanise_env_summary(env) == "alpine · 2 CPU · 2 GiB · net"
+
+
+@pytest.mark.django_db
+class TestResolveEnvForRun:
+    @pytest.fixture(autouse=True)
+    def _clear_global_envs(self):
+        """Remove migration-seeded global envs so each test starts from scratch."""
+        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+
+    def _user(self, name="u"):
+        return User.objects.create(username=name, email=f"{name}@x.test")
+
+    def test_returns_none_when_no_repo_and_no_global_default(self):
+        user = self._user()
+        from asgiref.sync import async_to_sync
+        from sandbox_envs.services import resolve_env_for_run
+
+        result = async_to_sync(resolve_env_for_run)(user=user, repo_id=None)
+        assert result is None
+
+    def test_returns_global_default_when_no_repo(self):
+        user = self._user()
+        from asgiref.sync import async_to_sync
+        from sandbox_envs.services import resolve_env_for_run
+
+        default_env = SandboxEnvironment.objects.create(
+            scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+        )
+        result = async_to_sync(resolve_env_for_run)(user=user, repo_id=None)
+        assert result == default_env
+
+    def test_returns_user_env_matching_repo(self):
+        user = self._user()
+        from asgiref.sync import async_to_sync
+        from sandbox_envs.services import resolve_env_for_run
+
+        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True)
+        user_env = SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=user, name="me", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+        result = async_to_sync(resolve_env_for_run)(user=user, repo_id="acme/foo")
+        assert result == user_env
+
+    def test_user_env_beats_global_env_for_same_repo(self):
+        user = self._user()
+        from asgiref.sync import async_to_sync
+        from sandbox_envs.services import resolve_env_for_run
+
+        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True)
+        SandboxEnvironment.objects.create(
+            scope=Scope.GLOBAL, name="org-env", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+        user_env = SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=user, name="my-env", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+        result = async_to_sync(resolve_env_for_run)(user=user, repo_id="acme/foo")
+        assert result == user_env
+
+    def test_global_env_matches_when_no_user_env(self):
+        user = self._user()
+        from asgiref.sync import async_to_sync
+        from sandbox_envs.services import resolve_env_for_run
+
+        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True)
+        global_env = SandboxEnvironment.objects.create(
+            scope=Scope.GLOBAL, name="org-env", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+        result = async_to_sync(resolve_env_for_run)(user=user, repo_id="acme/foo")
+        assert result == global_env
+
+    def test_falls_back_to_global_default_when_no_match(self):
+        user = self._user()
+        from asgiref.sync import async_to_sync
+        from sandbox_envs.services import resolve_env_for_run
+
+        default_env = SandboxEnvironment.objects.create(
+            scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+        )
+        SandboxEnvironment.objects.create(
+            scope=Scope.GLOBAL, name="org-env", base_image="python:3.14", repo_ids=["other/repo"]
+        )
+        result = async_to_sync(resolve_env_for_run)(user=user, repo_id="acme/foo")
+        assert result == default_env
+
+    def test_does_not_return_other_users_user_env(self):
+        u1 = self._user("u1")
+        u2 = self._user("u2")
+        from asgiref.sync import async_to_sync
+        from sandbox_envs.services import resolve_env_for_run
+
+        default_env = SandboxEnvironment.objects.create(
+            scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+        )
+        SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=u2, name="theirs", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+        result = async_to_sync(resolve_env_for_run)(user=u1, repo_id="acme/foo")
+        assert result == default_env
+
+    def test_anonymous_user_uses_global_only(self):
+        from asgiref.sync import async_to_sync
+        from sandbox_envs.services import resolve_env_for_run
+
+        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True)
+        global_env = SandboxEnvironment.objects.create(
+            scope=Scope.GLOBAL, name="org-env", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+        result = async_to_sync(resolve_env_for_run)(user=None, repo_id="acme/foo")
+        assert result == global_env

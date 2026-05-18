@@ -241,6 +241,29 @@ async def resolve_env_for_user(user, name_or_id: str | None) -> SandboxEnvironme
     return env
 
 
+async def resolve_env_for_run(*, user, repo_id: str | None) -> SandboxEnvironment | None:
+    """Auto-resolve the SandboxEnvironment to use for a run.
+
+    Resolution chain (per repo):
+      1. USER env owned by ``user`` whose ``repo_ids`` contains ``repo_id``.
+      2. GLOBAL env whose ``repo_ids`` contains ``repo_id``.
+      3. The single GLOBAL env marked ``is_default=True``.
+      4. ``None`` when no env is configured at all.
+
+    ``user`` may be ``None`` (e.g. webhook-triggered runs without a DAIV user);
+    in that case L1 is skipped.
+    """
+    if repo_id:
+        if user is not None and getattr(user, "is_authenticated", True):
+            async for env in SandboxEnvironment.objects.filter(scope=Scope.USER, user=user).order_by("name"):
+                if repo_id in (env.repo_ids or []):
+                    return env
+        async for env in SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=False).order_by("name"):
+            if repo_id in (env.repo_ids or []):
+                return env
+    return await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
+
+
 def merge_sandbox_runtime(
     repo_sandbox: Sandbox,
     repo_fields_set: frozenset[str],
