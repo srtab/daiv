@@ -94,6 +94,7 @@ class SandboxEnvironment(TimeStampedModel):
             raise ValidationError({"base_image": _("Base image is required.")})
         self.base_image = self.base_image.strip()
         self._validate_env_vars()
+        self._validate_repo_ids()
 
     def _validate_env_vars(self) -> None:
         from core.encryption import DecryptionError
@@ -128,6 +129,38 @@ class SandboxEnvironment(TimeStampedModel):
             if name in seen:
                 raise ValidationError({"env_vars": _("Duplicate env var name '%s'.") % name})
             seen.add(name)
+
+    def _validate_repo_ids(self) -> None:
+        raw = self.repo_ids or []
+        if not isinstance(raw, list):
+            raise ValidationError({"repo_ids": _("repo_ids must be a list.")})
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for idx, entry in enumerate(raw):
+            if not isinstance(entry, str):
+                raise ValidationError({"repo_ids": _("repo_ids[%d] must be a string.") % idx})
+            value = entry.strip()
+            if not value:
+                raise ValidationError({"repo_ids": _("repo_ids[%d] cannot be blank.") % idx})
+            if value in seen:
+                raise ValidationError({"repo_ids": _("Duplicate repo id '%s' in this env.") % value})
+            seen.add(value)
+            cleaned.append(value)
+        self.repo_ids = cleaned
+        if not cleaned:
+            return
+        qs = SandboxEnvironment.objects.filter(scope=self.scope)
+        if self.scope == Scope.USER:
+            qs = qs.filter(user=self.user)
+        if self.pk is not None:
+            qs = qs.exclude(pk=self.pk)
+        for other in qs.only("id", "name", "repo_ids"):
+            overlap = sorted(set(other.repo_ids or []) & set(cleaned))
+            if overlap:
+                raise ValidationError({
+                    "repo_ids": _("Repo id(s) %(repos)s already claimed by environment '%(name)s'.")
+                    % {"repos": ", ".join(overlap), "name": other.name}
+                })
 
     def promote_as_default(self) -> None:
         """Atomically demote any other GLOBAL default and mark this env as default.
