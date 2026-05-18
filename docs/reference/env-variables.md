@@ -99,11 +99,6 @@ Variables marked with:
 | `DAIV_SANDBOX_URL`     | URL of the sandbox service    | `http://sandbox:8000` | `http://sandbox:8000` |
 | `DAIV_SANDBOX_TIMEOUT` | Timeout for sandbox requests in seconds        | `600`          | `600`           |
 | `DAIV_SANDBOX_API_KEY` :material-lock: | API key for sandbox requests        | *(none)*          | `random-api-key`           |
-| `DAIV_SANDBOX_BASE_IMAGE` | Default base image for sandbox sessions | `python:3.12-bookworm` | `node:18-alpine` |
-| `DAIV_SANDBOX_EPHEMERAL` | Default ephemeral setting for sandbox sessions | `False` | `True` |
-| `DAIV_SANDBOX_NETWORK_ENABLED` | Default network setting for sandbox sessions | `False` | `True` |
-| `DAIV_SANDBOX_CPU` | Default CPU limit for sandbox sessions (CPUs) | `None` | `1.0` |
-| `DAIV_SANDBOX_MEMORY` | Default memory limit for sandbox sessions (bytes) | `None` | `1073741824` |
 | `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | Space-separated list of additional bash command prefixes to block globally (e.g. `curl wget`) | `""` (none) | `"curl wget npm publish"` |
 | `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | Space-separated list of bash command prefixes to globally permit, overriding the default policy | `""` (none) | `"my-safe-tool"` |
 
