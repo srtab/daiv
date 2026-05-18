@@ -7,7 +7,7 @@ from activity.models import TriggerType
 from activity.services import RepoTarget, asubmit_batch_runs
 from django_tasks_db.models import DBTaskResult
 from ninja import Router
-from sandbox_envs.services import resolve_env_for_user
+from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.results import parse_agent_result
 from chat.api.security import AuthBearer
@@ -28,15 +28,16 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     Returns ``{batch_id, jobs, failed}``. Partial failures at enqueue time are reported
     in ``failed``; the rest of the batch still runs.
     """
-    sandbox_environment_id = None
+    explicit_env_id = None
     if payload.environment:
         try:
             env = await resolve_env_for_user(request.auth, payload.environment)
         except LookupError as err:
             return 400, {"detail": str(err)}
-        sandbox_environment_id = str(env.id) if env else None
+        explicit_env_id = str(env.id) if env else None
 
     targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
+    targets = await aresolve_repo_envs(user=request.auth, repos=targets, explicit_env_id=explicit_env_id)
     result = await asubmit_batch_runs(
         user=request.auth,
         prompt=payload.prompt,
@@ -44,7 +45,6 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         use_max=payload.use_max,
         notify_on=payload.notify_on,
         trigger_type=TriggerType.API_JOB,
-        sandbox_environment_id=sandbox_environment_id,
     )
 
     # Pair each non-failed spec (in input order) with the corresponding activity, so the

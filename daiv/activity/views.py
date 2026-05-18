@@ -19,7 +19,7 @@ from django.views import View
 from django.views.generic import DetailView, FormView
 
 from django_filters.views import FilterView
-from sandbox_envs.services import auto_resolved_env_context, env_picker_context
+from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
 from accounts.mixins import BreadcrumbMixin
 from activity.filters import ActivityFilter
@@ -280,7 +280,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         ctx = super().get_context_data(**kwargs)
         ctx["source_activity"] = self._get_source_activity()
         ctx.update(env_picker_context(ctx["form"]))
-        ctx.update(auto_resolved_env_context(ctx["form"], self.request.user))
         return ctx
 
     def get_form_kwargs(self):
@@ -291,6 +290,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     def form_valid(self, form):
         repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in form.cleaned_data["repos"]]
         env = form.cleaned_data.get("sandbox_environment")
+        repos = resolve_repo_envs(user=self.request.user, repos=repos, explicit_env_id=str(env.id) if env else None)
         try:
             result = submit_batch_runs(
                 user=self.request.user,
@@ -299,7 +299,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 use_max=form.cleaned_data["use_max"],
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=TriggerType.UI_JOB,
-                sandbox_environment_id=str(env.id) if env else None,
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             # Let Django middleware render these as 4xx instead of swallowing as "submit failed" 200.

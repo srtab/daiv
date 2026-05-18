@@ -72,8 +72,8 @@ def test_form_init_filters_queryset_by_user(member_user):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_post_passes_sandbox_environment_id_to_submit(member_client, member_user):
-    """Submitting the form with a sandbox_environment forwards the id to submit_batch_runs."""
+def test_post_persists_explicitly_selected_env(member_client, member_user):
+    """Explicit env on the form → every batch target carries it → Activity records it."""
     env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="prod", base_image="x")
 
     from activity import services as _services
@@ -96,14 +96,19 @@ def test_post_passes_sandbox_environment_id_to_submit(member_client, member_user
         )
 
     assert resp.status_code == 302
-    assert m_submit.call_args.kwargs["sandbox_environment_id"] == str(env.id)
+    targets = m_submit.call_args.kwargs["repos"]
+    assert [t.sandbox_environment_id for t in targets] == [str(env.id)]
     activity = Activity.objects.get(task_result_id=task_id)
     assert activity.sandbox_environment_id == env.id
 
 
 @pytest.mark.django_db(transaction=True)
-def test_post_without_env_passes_none(member_client):
-    """Submitting without a selection forwards None (resolver picks GLOBAL default at runtime)."""
+def test_post_auto_resolves_to_global_default(member_client):
+    """No explicit selection → Auto resolves to GLOBAL default at submit time and persists it."""
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    default = SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+    )
     from activity import services as _services
 
     task_id = uuid.uuid4()
@@ -118,4 +123,55 @@ def test_post_without_env_passes_none(member_client):
             data={"prompt": "go", "repos": json.dumps([{"repo_id": "a/b", "ref": ""}]), "notify_on": "never"},
         )
     assert resp.status_code == 302
-    assert m_submit.call_args.kwargs["sandbox_environment_id"] is None
+    targets = m_submit.call_args.kwargs["repos"]
+    assert [t.sandbox_environment_id for t in targets] == [str(default.id)]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_post_auto_resolves_user_env_matching_repo(member_client, member_user):
+    """Auto + USER env claiming the repo_id → submit-time resolution picks the USER env."""
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True)
+    user_env = SandboxEnvironment.objects.create(
+        scope=Scope.USER, user=member_user, name="mine", base_image="python:3.14", repo_ids=["acme/foo"]
+    )
+    from activity import services as _services
+
+    task_id = uuid.uuid4()
+    fake_task = _make_task_result(task_id)
+    with (
+        mock.patch("activity.services.run_job_task") as m_task,
+        mock.patch("activity.views.submit_batch_runs", wraps=_services.submit_batch_runs) as m_submit,
+    ):
+        m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
+        resp = member_client.post(
+            reverse("runs:agent_run_new"),
+            data={"prompt": "go", "repos": json.dumps([{"repo_id": "acme/foo", "ref": ""}]), "notify_on": "never"},
+        )
+    assert resp.status_code == 302
+    targets = m_submit.call_args.kwargs["repos"]
+    assert [t.sandbox_environment_id for t in targets] == [str(user_env.id)]
+    activity = Activity.objects.get(task_result_id=task_id)
+    assert activity.sandbox_environment_id == user_env.id
+
+
+@pytest.mark.django_db(transaction=True)
+def test_post_auto_with_no_envs_stays_none(member_client):
+    """Auto with nothing to resolve to → target carries None and Activity records None."""
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    from activity import services as _services
+
+    task_id = uuid.uuid4()
+    fake_task = _make_task_result(task_id)
+    with (
+        mock.patch("activity.services.run_job_task") as m_task,
+        mock.patch("activity.views.submit_batch_runs", wraps=_services.submit_batch_runs) as m_submit,
+    ):
+        m_task.aenqueue = mock.AsyncMock(return_value=fake_task)
+        resp = member_client.post(
+            reverse("runs:agent_run_new"),
+            data={"prompt": "go", "repos": json.dumps([{"repo_id": "a/b", "ref": ""}]), "notify_on": "never"},
+        )
+    assert resp.status_code == 302
+    targets = m_submit.call_args.kwargs["repos"]
+    assert [t.sandbox_environment_id for t in targets] == [None]

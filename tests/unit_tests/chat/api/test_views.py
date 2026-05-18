@@ -129,6 +129,96 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_first_message_auto_resolves_user_env_onto_thread(client: TestAsyncClient, authed):
+    """When the first chat message omits the env header (Auto), the view resolves the env
+    for the calling user + repo and stamps it on the freshly-created thread."""
+    from sandbox_envs.models import SandboxEnvironment, Scope
+
+    _, raw, user = authed
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    await SandboxEnvironment.objects.acreate(
+        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+    )
+    user_env = await SandboxEnvironment.objects.acreate(
+        scope=Scope.USER, user=user, name="mine", base_image="python:3.14", repo_ids=["a/b"]
+    )
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_stream),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
+    ):
+        m_instance = MagicMock()
+
+        async def _empty_stream(_input):
+            if False:
+                yield
+
+        m_instance.run = _empty_stream
+        m_agent_cls.return_value = m_instance
+
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-auto"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+    assert response.status_code == 200
+    created = await ChatThread.objects.aget(thread_id="t-auto")
+    assert created.sandbox_environment_id == user_env.id
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_existing_thread_keeps_original_env_even_when_resolution_would_pick_another(
+    client: TestAsyncClient, authed
+):
+    """``get_or_create_for_user`` only applies ``sandbox_environment`` on create. A second
+    request whose Auto-resolution would pick a different env must NOT overwrite the thread."""
+    from sandbox_envs.models import SandboxEnvironment, Scope
+
+    _, raw, user = authed
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    original = await SandboxEnvironment.objects.acreate(
+        scope=Scope.GLOBAL, name="Original", base_image="python:3.14", is_default=True
+    )
+    # Pre-create the thread with the original env, simulating a prior first-message run.
+    await ChatThread.objects.acreate(
+        thread_id="t-keep", user=user, repo_id="a/b", ref="main", sandbox_environment=original
+    )
+    # Now add a USER env that would win at Auto resolution; the existing thread must
+    # ignore it because get_or_create_for_user only applies on create.
+    await SandboxEnvironment.objects.acreate(
+        scope=Scope.USER, user=user, name="newer", base_image="python:3.14", repo_ids=["a/b"]
+    )
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_stream),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_stream),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent") as m_agent_cls,
+    ):
+        m_instance = MagicMock()
+
+        async def _empty_stream(_input):
+            if False:
+                yield
+
+        m_instance.run = _empty_stream
+        m_agent_cls.return_value = m_instance
+
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-keep"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+    assert response.status_code == 200
+    thread = await ChatThread.objects.aget(thread_id="t-keep")
+    assert thread.sandbox_environment_id == original.id
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(client: TestAsyncClient, authed):
     _, raw, user = authed
     await ChatThread.objects.acreate(thread_id="t-boom", user=user, repo_id="a/b", ref="main")

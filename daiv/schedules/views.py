@@ -16,7 +16,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from activity.models import TriggerType
 from activity.services import RepoTarget, submit_batch_runs
-from sandbox_envs.services import auto_resolved_env_context, env_picker_context
+from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
@@ -117,7 +117,6 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         tpl = self._get_template()
         context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
         context.update(env_picker_context(context["form"]))
-        context.update(auto_resolved_env_context(context["form"], self.request.user))
         return context
 
     def form_valid(self, form):
@@ -145,7 +144,6 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
         context.update(env_picker_context(context["form"]))
-        context.update(auto_resolved_env_context(context["form"], self.request.user))
         return context
 
     def get_breadcrumbs(self):
@@ -203,9 +201,15 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, pk):
-
         schedule = get_object_or_404(self.get_queryset(), pk=pk)
         repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in schedule.repos]
+        # Resolve against the schedule owner, not request.user, so admin "Run now" picks the
+        # owner's USER envs — same semantics as the cron dispatcher.
+        repos = resolve_repo_envs(
+            user=schedule.user,
+            repos=repos,
+            explicit_env_id=str(schedule.sandbox_environment_id) if schedule.sandbox_environment_id else None,
+        )
         try:
             result = submit_batch_runs(
                 user=request.user,
@@ -215,9 +219,6 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 notify_on=None,
                 trigger_type=TriggerType.SCHEDULE,
                 scheduled_job=schedule,
-                sandbox_environment_id=(
-                    str(schedule.sandbox_environment_id) if schedule.sandbox_environment_id else None
-                ),
             )
         except Exception:
             logger.exception("Failed to enqueue run-now for schedule pk=%d (%s)", schedule.pk, schedule.name)

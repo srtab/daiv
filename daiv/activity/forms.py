@@ -9,11 +9,11 @@ it so ``cleaned_data["repos"]`` is a list of dicts; the caller converts to
 from __future__ import annotations
 
 from django import forms
-from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
 from notifications.choices import NotifyOn
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment
+from sandbox_envs.services import visible_envs_for
 
 from activity.services import validate_repo_list
 
@@ -70,9 +70,7 @@ class AgentRunFieldsMixin(forms.Form):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         if "sandbox_environment" in self.fields and user is not None:
-            self.fields["sandbox_environment"].queryset = SandboxEnvironment.objects.filter(
-                Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL)
-            ).order_by("scope", "name")
+            self.fields["sandbox_environment"].queryset = visible_envs_for(user)
 
 
 class AgentRunCreateForm(AgentRunFieldsMixin, forms.Form):

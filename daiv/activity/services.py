@@ -30,6 +30,7 @@ MAX_REPOS_PER_BATCH = 20
 class RepoTarget:
     repo_id: str
     ref: str = ""
+    sandbox_environment_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -187,9 +188,11 @@ async def asubmit_batch_runs(
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
-    sandbox_environment_id: str | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Activity`` rows.
+
+    Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
+    :func:`sandbox_envs.services.resolve_repo_envs`), so the batch can mix per-repo envs.
 
     Best-effort: any per-repo exception (enqueue failure or post-enqueue activity-creation
     failure) lands in ``result.failed`` while siblings continue. Callers can use this to
@@ -212,7 +215,7 @@ async def asubmit_batch_runs(
                 ref=ref_for_task,
                 use_max=use_max,
                 thread_id=thread_id,
-                sandbox_environment_id=sandbox_environment_id,
+                sandbox_environment_id=target.sandbox_environment_id,
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
@@ -237,7 +240,7 @@ async def asubmit_batch_runs(
                 batch_id=batch_id,
                 thread_id=thread_id,
                 title=activity_title,
-                sandbox_environment_id=sandbox_environment_id,
+                sandbox_environment_id=target.sandbox_environment_id,
             )
         except Exception:
             logger.exception(

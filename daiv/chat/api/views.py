@@ -1,3 +1,5 @@
+import logging
+
 from django.http import Http404, HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
@@ -5,6 +7,7 @@ from ag_ui.encoder import EventEncoder
 from ninja import Router
 from ninja.errors import HttpError
 from ninja.security import django_auth
+from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
 
 from chat.models import ChatThread
 from core.api.throttling import JobsRateThrottle
@@ -12,6 +15,8 @@ from core.api.throttling import JobsRateThrottle
 from .security import AuthBearer
 from .streaming import ChatRunStreamer
 from .threads import ChatThreadService
+
+logger = logging.getLogger("daiv.chat")
 
 HEADER_REPO_ID = "X-Repo-ID"
 HEADER_REF = "X-Ref"
@@ -59,13 +64,19 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
-    from sandbox_envs.services import resolve_env_for_user
-
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:
         env_obj = await resolve_env_for_user(user, env_header)
     except LookupError as err:
         raise HttpError(400, str(err)) from err
+    # Auto: snapshot the resolved env at thread creation so the stored env matches what ran.
+    # Existing threads keep their original env (get_or_create_for_user only applies on create);
+    # this resolution still runs on every request but is discarded for existing threads.
+    if env_obj is None:
+        env_obj = await resolve_env_for_run(user=user, repo_id=repo_id)
+        logger.debug(
+            "chat: auto-resolved env=%s for repo=%s user=%s", env_obj.id if env_obj else None, repo_id, user.pk
+        )
 
     thread = await ChatThreadService.get_or_create_for_user(
         user=user, thread_id=thread_id, repo_id=repo_id, ref=ref, input_data=input_data, sandbox_environment=env_obj

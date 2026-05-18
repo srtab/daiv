@@ -34,7 +34,8 @@ def test_jobs_endpoint_accepts_environment_name(auth_pair):
             HTTP_AUTHORIZATION=f"Bearer {key}",
         )
     assert resp.status_code == 202
-    assert submit.await_args.kwargs["sandbox_environment_id"] == str(env.id)
+    targets = submit.await_args.kwargs["repos"]
+    assert [t.sandbox_environment_id for t in targets] == [str(env.id)]
 
 
 @pytest.mark.django_db

@@ -1644,10 +1644,8 @@ main:has(.chat-shell) {
   .env-popover__row--auto {
     @apply border-b border-white/[0.06];
   }
-  .env-popover__scope-tag--auto {
-    @apply bg-blue-500/15 text-blue-300;
-  }
-  .env-pill__subname {
-    @apply ml-1 text-gray-400;
+
+  .repo-id-chip {
+    @apply inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300;
   }
 }

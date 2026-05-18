@@ -302,25 +302,6 @@ class TestResolveEnvForRun:
 
 
 @pytest.mark.django_db
-class TestResolveEnvForRunSync:
-    @pytest.fixture(autouse=True)
-    def _clear_global_envs(self):
-        """Remove migration-seeded global envs so each test starts from scratch."""
-        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-
-    def test_sync_wrapper_returns_same_env(self):
-        from sandbox_envs.services import resolve_env_for_run_sync
-
-        user = User.objects.create(username="u", email="u@x.test")
-        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True)
-        env = SandboxEnvironment.objects.create(
-            scope=Scope.USER, user=user, name="me", base_image="python:3.14", repo_ids=["acme/foo"]
-        )
-        result = resolve_env_for_run_sync(user=user, repo_id="acme/foo")
-        assert result == env
-
-
-@pytest.mark.django_db
 def test_get_global_default_returns_row_values_without_overlay():
     """After the env-lock removal, get_global_default just reads the row."""
     from asgiref.sync import async_to_sync
@@ -432,3 +413,115 @@ class TestMergeSandboxRuntime:
         )
         runtime = merge_sandbox_runtime(per_run=per_run, global_default=None)
         assert runtime.command_policy == SandboxCommandPolicy()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestAresolveRepoEnvs:
+    """Direct coverage for aresolve_repo_envs precedence + edge cases.
+
+    View-level tests exercise this indirectly through single-repo cases. These
+    pin the in-memory precedence ladder and protect contracts shared by all
+    batch call sites.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_global(self):
+        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+
+    @pytest.mark.asyncio
+    async def test_explicit_env_id_stamps_all_targets(self):
+        from activity.services import RepoTarget
+        from sandbox_envs.services import aresolve_repo_envs
+
+        resolved = await aresolve_repo_envs(
+            user=None,
+            repos=[RepoTarget(repo_id="a/b"), RepoTarget(repo_id="c/d")],
+            explicit_env_id="00000000-0000-0000-0000-000000000099",
+        )
+        assert [t.sandbox_environment_id for t in resolved] == [
+            "00000000-0000-0000-0000-000000000099",
+            "00000000-0000-0000-0000-000000000099",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_empty_repos_returns_empty_list(self):
+        from sandbox_envs.services import aresolve_repo_envs
+
+        assert await aresolve_repo_envs(user=None, repos=[], explicit_env_id=None) == []
+        assert await aresolve_repo_envs(user=None, repos=[], explicit_env_id="x") == []
+
+    @pytest.mark.asyncio
+    async def test_user_env_wins_over_global_when_both_match_repo(self):
+        from activity.services import RepoTarget
+        from sandbox_envs.services import aresolve_repo_envs
+
+        user = await User.objects.acreate(username="u", email="u@x.test")
+        user_env = await SandboxEnvironment.objects.acreate(
+            scope=Scope.USER, user=user, name="mine", base_image="x", repo_ids=["a/b"]
+        )
+        await SandboxEnvironment.objects.acreate(scope=Scope.GLOBAL, name="theirs", base_image="x", repo_ids=["a/b"])
+        resolved = await aresolve_repo_envs(user=user, repos=[RepoTarget(repo_id="a/b")], explicit_env_id=None)
+        assert resolved[0].sandbox_environment_id == str(user_env.id)
+
+    @pytest.mark.asyncio
+    async def test_global_repo_match_wins_over_default(self):
+        from activity.services import RepoTarget
+        from sandbox_envs.services import aresolve_repo_envs
+
+        await SandboxEnvironment.objects.acreate(scope=Scope.GLOBAL, name="Default", base_image="x", is_default=True)
+        repo_env = await SandboxEnvironment.objects.acreate(
+            scope=Scope.GLOBAL, name="match", base_image="x", repo_ids=["a/b"]
+        )
+        resolved = await aresolve_repo_envs(user=None, repos=[RepoTarget(repo_id="a/b")], explicit_env_id=None)
+        assert resolved[0].sandbox_environment_id == str(repo_env.id)
+
+    @pytest.mark.asyncio
+    async def test_no_envs_at_all_yields_none(self):
+        from activity.services import RepoTarget
+        from sandbox_envs.services import aresolve_repo_envs
+
+        resolved = await aresolve_repo_envs(user=None, repos=[RepoTarget(repo_id="a/b")], explicit_env_id=None)
+        assert resolved[0].sandbox_environment_id is None
+
+    @pytest.mark.asyncio
+    async def test_envs_with_empty_repo_ids_do_not_match(self):
+        """An env with an empty ``repo_ids`` list must not match any repo and must fall
+        through to the GLOBAL default."""
+        from activity.services import RepoTarget
+        from sandbox_envs.services import aresolve_repo_envs
+
+        default = await SandboxEnvironment.objects.acreate(
+            scope=Scope.GLOBAL, name="Default", base_image="x", is_default=True, repo_ids=[]
+        )
+        await SandboxEnvironment.objects.acreate(
+            scope=Scope.GLOBAL, name="empty", base_image="x", is_default=False, repo_ids=[]
+        )
+        resolved = await aresolve_repo_envs(user=None, repos=[RepoTarget(repo_id="a/b")], explicit_env_id=None)
+        assert resolved[0].sandbox_environment_id == str(default.id)
+
+    @pytest.mark.asyncio
+    async def test_user_scope_skipped_for_anonymous_or_none(self):
+        from activity.services import RepoTarget
+        from sandbox_envs.services import aresolve_repo_envs
+
+        other = await User.objects.acreate(username="o", email="o@x.test")
+        await SandboxEnvironment.objects.acreate(
+            scope=Scope.USER, user=other, name="other-env", base_image="x", repo_ids=["a/b"]
+        )
+        default = await SandboxEnvironment.objects.acreate(
+            scope=Scope.GLOBAL, name="Default", base_image="x", is_default=True
+        )
+        # user=None must not leak the other user's USER env.
+        resolved = await aresolve_repo_envs(user=None, repos=[RepoTarget(repo_id="a/b")], explicit_env_id=None)
+        assert resolved[0].sandbox_environment_id == str(default.id)
+
+    @pytest.mark.asyncio
+    async def test_input_targets_not_mutated(self):
+        from activity.services import RepoTarget
+        from sandbox_envs.services import aresolve_repo_envs
+
+        await SandboxEnvironment.objects.acreate(scope=Scope.GLOBAL, name="Default", base_image="x", is_default=True)
+        original = [RepoTarget(repo_id="a/b"), RepoTarget(repo_id="c/d", ref="dev")]
+        await aresolve_repo_envs(user=None, repos=original, explicit_env_id=None)
+        assert all(t.sandbox_environment_id is None for t in original)
+        assert original[1].ref == "dev"

@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.db.models import Q
+
+from asgiref.sync import async_to_sync
+
 from sandbox_envs.models import SandboxEnvironment, Scope
 
 if TYPE_CHECKING:
+    from activity.services import RepoTarget
+
     from codebase.context import SandboxRuntime
 
 logger = logging.getLogger("daiv.sandbox_envs")
@@ -125,57 +131,64 @@ def humanise_env_summary(env: SandboxEnvironment) -> str:
     return " · ".join(parts)
 
 
-_MULTI_REPO = object()  # sentinel: caller supplied >1 repos → skip auto-resolve
-
-
-def _single_repo_from_form_repos(form_repos) -> str | None | object:
-    """Return the single repo id from a form's ``repos`` value.
-
-    Returns:
-      - the repo_id string when exactly one repo is present,
-      - ``_MULTI_REPO`` sentinel when two or more repos are present (skip resolve),
-      - ``None`` when zero repos are present (fall through to global default).
-    """
-    if not isinstance(form_repos, list):
-        return None
-    if len(form_repos) > 1:
-        return _MULTI_REPO
-    if len(form_repos) == 0:
-        return None
-    entry = form_repos[0]
-    if isinstance(entry, dict):
-        return entry.get("repo_id")
-    return None
-
-
-def auto_resolved_env_context(form, user) -> dict:
-    """Compute ``auto_resolved_env_id`` for the env picker partial.
-
-    Inspects the form's bound or initial ``repos`` value:
-    - exactly one repo → resolve Auto for that repo,
-    - zero repos → resolve Auto without a repo (returns global default),
-    - two or more repos → return empty string (picker shows plain "Auto").
-    """
-    if "repos" in form.fields:
-        bound = form["repos"]
-        raw = bound.value() if form.is_bound else bound.initial
-    else:
-        raw = None
-    repo_id = _single_repo_from_form_repos(raw)
-    if repo_id is _MULTI_REPO:
-        return {"auto_resolved_env_id": ""}
-    resolved = resolve_env_for_run_sync(user=user, repo_id=repo_id)
-    return {"auto_resolved_env_id": str(resolved.id) if resolved else ""}
+def visible_envs_for(user):
+    return SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL)).order_by(
+        "scope", "name"
+    )
 
 
 def env_picker_context(form) -> dict:
-    """Build the `sandbox_envs` / `selected_sandbox_env_id` context for views rendering
-    the env-picker partial. Empty values when the form has no ``sandbox_environment``
-    field, so the partial degrades to "Default" rather than raising."""
+    """Build the picker's ``sandbox_envs`` / ``selected_sandbox_env_id`` context from a form.
+    Empty values when the form lacks ``sandbox_environment`` so the partial renders an
+    empty popover with only the Auto row."""
     if "sandbox_environment" not in form.fields:
         return {"sandbox_envs": [], "selected_sandbox_env_id": ""}
     bound = form["sandbox_environment"]
     return {"sandbox_envs": list(bound.field.queryset), "selected_sandbox_env_id": str(bound.value() or "")}
+
+
+async def aresolve_repo_envs(*, user, repos: list[RepoTarget], explicit_env_id: str | None) -> list[RepoTarget]:
+    """Stamp ``sandbox_environment_id`` on each :class:`activity.services.RepoTarget`.
+
+    When ``explicit_env_id`` is set every target gets that id; otherwise each repo is
+    matched against a per-call snapshot of USER envs (owned by ``user``), GLOBAL non-default
+    envs, and the GLOBAL default, preserving the precedence in :func:`resolve_env_for_run`.
+
+    One snapshot per call keeps the cost flat regardless of batch size (max-batch = 20
+    repos), instead of repeating ``resolve_env_for_run``'s up-to-three queries per repo.
+    Returns a new list; input is not mutated.
+    """
+    if explicit_env_id is not None:
+        return [replace(t, sandbox_environment_id=explicit_env_id) for t in repos]
+
+    user_envs: list[SandboxEnvironment] = []
+    if user is not None and getattr(user, "is_authenticated", False):
+        user_envs = [e async for e in SandboxEnvironment.objects.filter(scope=Scope.USER, user=user).order_by("name")]
+    global_repo_envs = [
+        e async for e in SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=False).order_by("name")
+    ]
+    global_default = await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
+
+    def _match(repo_id: str | None) -> SandboxEnvironment | None:
+        if repo_id:
+            for env in user_envs:
+                if repo_id in (env.repo_ids or []):
+                    return env
+            for env in global_repo_envs:
+                if repo_id in (env.repo_ids or []):
+                    return env
+        return global_default
+
+    resolved = []
+    for t in repos:
+        env = _match(t.repo_id)
+        resolved.append(replace(t, sandbox_environment_id=str(env.id) if env is not None else None))
+    return resolved
+
+
+def resolve_repo_envs(*, user, repos: list[RepoTarget], explicit_env_id: str | None) -> list[RepoTarget]:
+    """Synchronous wrapper around :func:`aresolve_repo_envs` for view-layer callers."""
+    return async_to_sync(aresolve_repo_envs)(user=user, repos=repos, explicit_env_id=explicit_env_id)
 
 
 def looks_like_uuid(s: str) -> bool:
@@ -193,9 +206,7 @@ async def resolve_env_for_user(user, name_or_id: str | None) -> SandboxEnvironme
     if not name_or_id:
         return None
 
-    from django.db.models import Q
-
-    qs = SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL))
+    qs = visible_envs_for(user)
     if looks_like_uuid(name_or_id):
         env = await qs.filter(pk=name_or_id).afirst()
         if env is not None:
@@ -220,7 +231,7 @@ async def resolve_env_for_run(*, user, repo_id: str | None) -> SandboxEnvironmen
     in that case L1 is skipped.
     """
     if repo_id:
-        if user is not None and getattr(user, "is_authenticated", True):
+        if user is not None and getattr(user, "is_authenticated", False):
             async for env in SandboxEnvironment.objects.filter(scope=Scope.USER, user=user).order_by("name"):
                 if repo_id in (env.repo_ids or []):
                     return env
@@ -228,13 +239,6 @@ async def resolve_env_for_run(*, user, repo_id: str | None) -> SandboxEnvironmen
             if repo_id in (env.repo_ids or []):
                 return env
     return await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
-
-
-def resolve_env_for_run_sync(*, user, repo_id: str | None) -> SandboxEnvironment | None:
-    """Synchronous wrapper around :func:`resolve_env_for_run` for view-layer callers."""
-    from asgiref.sync import async_to_sync
-
-    return async_to_sync(resolve_env_for_run)(user=user, repo_id=repo_id)
 
 
 def merge_sandbox_runtime(

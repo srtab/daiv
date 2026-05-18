@@ -1,0 +1,7 @@
+{% if repo_ids %}
+<div class="mt-1 flex flex-wrap gap-1">
+    {% for repo_id in repo_ids %}
+    <span class="repo-id-chip">{{ repo_id }}</span>
+    {% endfor %}
+</div>
+{% endif %}

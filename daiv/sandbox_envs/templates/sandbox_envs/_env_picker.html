@@ -7,8 +7,6 @@ Reusable env pill + popover.
 Parameters:
 - envs (required)               — iterable of SandboxEnvironment instances visible to the user
 - selected_id (default "")      — UUID string of the currently-selected env; "" means Auto
-- auto_resolved_id (default "") — UUID of the env that would be used when selectedId is "" (Auto);
-                                  supplied by the host page when the repo is known
 - field_name (default "")       — name of the hidden input that mirrors `selectedId` for form POSTs;
                                   leave empty to use the picker as an event-only source (e.g. chat hero)
 - on_change_event (default "")  — when set, the component dispatches this window event on selection with {id}
@@ -27,7 +25,6 @@ Parameters:
             {% endfor %}
         ],
         selectedId: "{{ selected_id|default:''|escapejs }}",
-        autoResolvedId: "{{ auto_resolved_id|default:''|escapejs }}",
         onChangeEvent: "{{ on_change_event|default:''|escapejs }}",
         createUrl: "{{ env_create_url|escapejs }}"
      })'
@@ -44,8 +41,6 @@ Parameters:
             <path d="M12 22.08V12"/>
         </svg>
         <span class="env-pill__name" x-text="pillLabel.name"></span>
-        <span x-show="pillLabel.subname" x-cloak class="env-pill__subname"
-              x-text="'→ ' + pillLabel.subname"></span>
         <span x-show="pillLabel.scopeTag" x-cloak
               class="env-pill__scope-tag"
               :class="'env-pill__scope-tag--' + pillLabel.scopeTag"
@@ -72,7 +67,7 @@ Parameters:
             <button type="button"
                     @click="select('')"
                     @mouseenter="highlightIndex = -1"
-                    :title="autoResolvedLabel ? '{% translate "Auto-resolved from the current repo: " %}' + autoResolvedLabel : '{% translate "Resolved at runtime from the selected repo." %}'"
+                    title="{% translate 'Resolved at runtime from the selected repo.' %}"
                     class="env-popover__row env-popover__row--auto"
                     :class="{
                         'env-popover__row--selected': _isAutoSelected(),
@@ -86,10 +81,6 @@ Parameters:
                 <div class="env-popover__row-body">
                     <div class="env-popover__row-head">
                         <span class="env-popover__row-name">{% translate "Auto" %}</span>
-                        <span class="env-popover__scope-tag env-popover__scope-tag--auto">{% translate "auto" %}</span>
-                    </div>
-                    <div class="env-popover__row-subtitle" x-show="autoResolvedLabel" x-cloak>
-                        → <span x-text="autoResolvedLabel"></span>
                     </div>
                 </div>
             </button>

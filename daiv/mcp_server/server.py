@@ -13,8 +13,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import BaseModel, Field
-from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import looks_like_uuid, resolve_env_for_user
+from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user, visible_envs_for
 
 from automation.agent.results import parse_agent_result
 from codebase.clients import RepoClient
@@ -149,16 +148,17 @@ async def submit_job(
             )
         })
 
-    sandbox_environment_id: str | None = None
+    explicit_env_id: str | None = None
     if environment:
         try:
             env_row = await resolve_env_for_user(mcp_user, environment)
         except LookupError as err:
             return json.dumps({"error": str(err)})
         if env_row is not None:
-            sandbox_environment_id = str(env_row.id)
+            explicit_env_id = str(env_row.id)
 
     targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
+    targets = await aresolve_repo_envs(user=mcp_user, repos=targets, explicit_env_id=explicit_env_id)
     result = await asubmit_batch_runs(
         user=mcp_user,
         prompt=prompt,
@@ -166,7 +166,6 @@ async def submit_job(
         use_max=use_max,
         notify_on=notify_on,
         trigger_type=TriggerType.MCP_JOB,
-        sandbox_environment_id=sandbox_environment_id,
     )
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
@@ -370,12 +369,8 @@ async def list_environments() -> list[dict]:
     Use the returned ``name`` (or ``id``) as the ``environment`` argument to ``submit_job``.
     Secret env-var values are not included; call ``get_environment`` for full details.
     """
-    from django.db.models import Q
-
     user = await get_current_user()
-    qs = SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL)).order_by(
-        "scope", "name"
-    )
+    qs = visible_envs_for(user)
     return [
         {
             "id": str(env.id),
@@ -398,17 +393,16 @@ async def get_environment(
 
     Secret env-var values are masked as ``"******"``.
     """
-    from django.db.models import Q
-
     from core.encryption import DecryptionError
 
     user = await get_current_user()
-    qs = SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL))
-    env: SandboxEnvironment | None = None
-    if looks_like_uuid(name_or_id):
-        env = await qs.filter(pk=name_or_id).afirst()
-    if env is None:
-        env = await qs.filter(name=name_or_id).afirst()
+    try:
+        env = await resolve_env_for_user(user, name_or_id)
+    except LookupError as err:
+        # Surface the typo-vs-permissions distinction in logs even though the tool
+        # contract is just ``None`` — the message carries the "valid: [...]" list.
+        logger.warning("get_environment: %s", err)
+        return None
     if env is None:
         return None
     try:

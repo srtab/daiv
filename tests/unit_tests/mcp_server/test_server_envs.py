@@ -38,7 +38,8 @@ async def test_submit_job_resolves_environment_name():
         patch("mcp_server.server.asubmit_batch_runs", new=AsyncMock(return_value=fake_result)) as submit,
     ):
         await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}], environment="dev")
-    assert submit.await_args.kwargs["sandbox_environment_id"] == str(env.id)
+    targets = submit.await_args.kwargs["repos"]
+    assert [t.sandbox_environment_id for t in targets] == [str(env.id)]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -99,6 +100,32 @@ async def test_get_environment_unknown_returns_none():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         result = await get_environment("missing")
     assert result is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_environment_swallows_lookup_error_and_logs():
+    """``resolve_env_for_user`` raises ``LookupError`` for unknown names with a candidate
+    list in the message. ``get_environment`` must swallow that to ``None`` (its contract)
+    while still logging the message so the typo-vs-permissions distinction is observable."""
+    import logging
+
+    from accounts.models import User
+
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    from mcp_server.server import get_environment
+
+    with (
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch(
+            "mcp_server.server.resolve_env_for_user",
+            new=AsyncMock(side_effect=LookupError("unknown environment 'typo'; valid: ['dev']")),
+        ),
+        patch.object(logging.getLogger("daiv.mcp_server"), "warning") as m_warn,
+    ):
+        result = await get_environment("typo")
+    assert result is None
+    m_warn.assert_called_once()
+    assert "typo" in m_warn.call_args.args[1].args[0]
 
 
 @pytest.mark.django_db(transaction=True)

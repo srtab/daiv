@@ -4,8 +4,6 @@
  * Constructor args (passed via x-data):
  *   envs:            Array<{id, name, scope, is_default, summary}> — server-rendered env list.
  *   selectedId:      string — UUID of the currently selected env; '' means Auto (resolved at runtime).
- *   autoResolvedId:  string — UUID of the env that would be used when selectedId is '' (Auto);
- *                    supplied by the host page when the repo is known.
  *   onChangeEvent:   optional window event name dispatched on selection change with {detail: {id}}.
  *   createUrl:       URL the drawer fetches when "+ New environment" is clicked.
  *
@@ -14,10 +12,9 @@
  *   open-env-drawer (sent): opens the create drawer with {mode, url} payload.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("envPicker", ({envs = [], selectedId = "", autoResolvedId = "", onChangeEvent = "", createUrl = ""} = {}) => ({
+    Alpine.data("envPicker", ({envs = [], selectedId = "", onChangeEvent = "", createUrl = ""} = {}) => ({
         envs: [...envs],
         selectedId: selectedId || "",
-        autoResolvedId: autoResolvedId || "",
         onChangeEvent,
         createUrl,
         open: false,
@@ -85,11 +82,12 @@ document.addEventListener("alpine:init", () => {
         },
 
         get filteredEnvs() {
+            // The GLOBAL default is reachable via the Auto row — listing it again would be redundant.
+            // Scope-guard the filter so a future USER-scoped default (if introduced) stays visible.
             const q = this.query.trim().toLowerCase();
-            const matches = q ? this.envs.filter(e => e.name.toLowerCase().includes(q)) : [...this.envs];
+            const visible = this.envs.filter(e => !(e.scope === "global" && e.is_default));
+            const matches = q ? visible.filter(e => e.name.toLowerCase().includes(q)) : visible;
             matches.sort((a, b) => {
-                if (a.is_default && !b.is_default) return -1;
-                if (!a.is_default && b.is_default) return 1;
                 if (a.scope !== b.scope) return a.scope.localeCompare(b.scope);
                 return a.name.localeCompare(b.name);
             });
@@ -129,27 +127,11 @@ document.addEventListener("alpine:init", () => {
             return env.id === this.selectedId;
         },
 
-        get autoResolvedLabel() {
-            if (!this.autoResolvedId) return "";
-            const env = this.envs.find(e => e.id === this.autoResolvedId);
-            return env ? env.name : "";
-        },
-
         get pillLabel() {
-            if (!this.selectedId) {
-                return {
-                    name: this._autoLabel(),
-                    scopeTag: "auto",
-                    subname: this.autoResolvedLabel || "",
-                };
-            }
+            if (!this.selectedId) return {name: "Auto", scopeTag: ""};
             const env = this.envs.find(e => e.id === this.selectedId);
-            if (env) return {name: env.name, scopeTag: env.scope, subname: ""};
-            return {name: this._autoLabel(), scopeTag: "", subname: ""};
-        },
-
-        _autoLabel() {
-            return "Auto";
+            if (env) return {name: env.name, scopeTag: env.scope};
+            return {name: "Auto", scopeTag: ""};
         },
     }));
 });

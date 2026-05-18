@@ -280,6 +280,49 @@ class TestScheduleRunNowView:
         content = response.content.decode()
         assert "triggered with failures" in content or "Failed to trigger" in content
 
+    def test_run_now_persists_explicit_env_on_activity(self, member_client, member_user, schedule):
+        """Schedule with an explicit env → run-now stamps that env on the generated Activity."""
+        from sandbox_envs.models import SandboxEnvironment, Scope
+
+        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="prod", base_image="x")
+        schedule.sandbox_environment = env
+        schedule.save(update_fields=["sandbox_environment"])
+
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
+            response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
+
+        assert response.status_code == 302
+        activity = Activity.objects.get(scheduled_job=schedule)
+        assert activity.sandbox_environment_id == env.id
+
+    def test_run_now_auto_resolves_against_schedule_owner_not_request_user(
+        self, member_client, member_user, schedule, admin_user
+    ):
+        """ScheduleRunNowView.post intentionally resolves Auto against ``schedule.user``,
+        not ``request.user`` — locks parity with the cron dispatcher. If a future change
+        switches to request.user, this test fails."""
+        from sandbox_envs.models import SandboxEnvironment, Scope
+
+        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="x", is_default=True)
+        # Owner's USER env claiming the schedule's repo; admin (request.user) has none.
+        owner_env = SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=member_user, name="owner-env", base_image="x", repo_ids=["owner/repo"]
+        )
+
+        from django.test import Client
+
+        admin_client = Client()
+        admin_client.force_login(admin_user)
+        with mock.patch("activity.services.run_job_task") as m_task:
+            m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
+            response = admin_client.post(reverse("schedule_run_now", args=[schedule.pk]))
+
+        assert response.status_code == 302
+        activity = Activity.objects.get(scheduled_job=schedule)
+        assert activity.sandbox_environment_id == owner_env.id
+
 
 @pytest.mark.django_db
 class TestScheduleCreateViewSubscribers:
@@ -776,42 +819,3 @@ class TestScheduleViewsEnvContext:
         response = member_client.get(reverse("schedule_update", args=[schedule.pk]))
         assert response.status_code == 200
         assert response.context["selected_sandbox_env_id"] == str(env.id)
-
-
-@pytest.mark.django_db
-def test_schedule_update_view_auto_resolves_for_single_repo(member_client, member_user):
-    from sandbox_envs.models import SandboxEnvironment, Scope
-
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.12", is_default=True)
-    matched = SandboxEnvironment.objects.create(
-        scope=Scope.GLOBAL, name="django-env", base_image="python:3.14", repo_ids=["acme/foo"]
-    )
-    schedule = ScheduledJob.objects.create(
-        user=member_user,
-        name="s",
-        prompt="p",
-        frequency=Frequency.WEEKLY,
-        repos=[{"repo_id": "acme/foo", "ref": "main"}],
-    )
-
-    resp = member_client.get(reverse("schedule_update", args=[schedule.pk]))
-    assert resp.context["auto_resolved_env_id"] == str(matched.id)
-
-
-@pytest.mark.django_db
-def test_schedule_update_view_auto_resolved_empty_for_multi_repo(member_client, member_user):
-    from sandbox_envs.models import SandboxEnvironment, Scope
-
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.12", is_default=True)
-    schedule = ScheduledJob.objects.create(
-        user=member_user,
-        name="s",
-        prompt="p",
-        frequency=Frequency.WEEKLY,
-        repos=[{"repo_id": "acme/foo", "ref": "main"}, {"repo_id": "acme/bar", "ref": "main"}],
-    )
-
-    resp = member_client.get(reverse("schedule_update", args=[schedule.pk]))
-    assert resp.context["auto_resolved_env_id"] == ""
