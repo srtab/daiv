@@ -91,3 +91,19 @@ def test_promote_as_default_rejects_user_scope(db, user):
         env.promote_as_default()
     env.refresh_from_db()
     assert env.is_default is False
+
+
+@pytest.mark.django_db
+class TestRepoIdsField:
+    def test_repo_ids_defaults_to_empty_list(self):
+        user = User.objects.create(username="u", email="u@x.test")
+        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="env", base_image="python:3.14")
+        assert env.repo_ids == []
+
+    def test_repo_ids_stores_provided_list(self):
+        user = User.objects.create(username="u", email="u@x.test")
+        env = SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=user, name="env", base_image="python:3.14", repo_ids=["acme/foo", "acme/bar"]
+        )
+        env.refresh_from_db()
+        assert env.repo_ids == ["acme/foo", "acme/bar"]

@@ -46,6 +46,8 @@ class SandboxEnvironment(TimeStampedModel):
     _env_vars_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL means "no env vars set"
     env_vars = EncryptedJSONFieldDescriptor("env_vars")
 
+    repo_ids = models.JSONField(_("repo ids"), default=list, blank=True)
+
     is_default = models.BooleanField(_("is default"), default=False)
 
     class Meta:
