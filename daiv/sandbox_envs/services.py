@@ -264,6 +264,13 @@ async def resolve_env_for_run(*, user, repo_id: str | None) -> SandboxEnvironmen
     return await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
 
 
+def resolve_env_for_run_sync(*, user, repo_id: str | None) -> SandboxEnvironment | None:
+    """Synchronous wrapper around :func:`resolve_env_for_run` for view-layer callers."""
+    from asgiref.sync import async_to_sync
+
+    return async_to_sync(resolve_env_for_run)(user=user, repo_id=repo_id)
+
+
 def merge_sandbox_runtime(
     repo_sandbox: Sandbox,
     repo_fields_set: frozenset[str],

@@ -524,3 +524,22 @@ class TestResolveEnvForRun:
         )
         result = async_to_sync(resolve_env_for_run)(user=None, repo_id="acme/foo")
         assert result == global_env
+
+
+@pytest.mark.django_db
+class TestResolveEnvForRunSync:
+    @pytest.fixture(autouse=True)
+    def _clear_global_envs(self):
+        """Remove migration-seeded global envs so each test starts from scratch."""
+        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+
+    def test_sync_wrapper_returns_same_env(self):
+        from sandbox_envs.services import resolve_env_for_run_sync
+
+        user = User.objects.create(username="u", email="u@x.test")
+        SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True)
+        env = SandboxEnvironment.objects.create(
+            scope=Scope.USER, user=user, name="me", base_image="python:3.14", repo_ids=["acme/foo"]
+        )
+        result = resolve_env_for_run_sync(user=user, repo_id="acme/foo")
+        assert result == env
