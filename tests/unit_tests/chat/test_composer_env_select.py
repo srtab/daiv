@@ -52,11 +52,15 @@ def test_composer_renders_env_picker_with_envs(member_client, member_user):
 
     assert resp.status_code == 200
     body = resp.content.decode()
-    # Hidden input for form contract (still present even though chat uses @submit.prevent).
-    assert 'name="sandbox_environment"' in body
     # Env-picker partial root present.
     assert "envPicker(" in body
     # USER env reached the partial's JSON payload (hyphens are escaped by |escapejs).
     assert "zeta\\u002Denv" in body
     # And it's in the context queryset for sanity.
     assert any(e.id == user_env.id for e in resp.context["sandbox_envs"])
+    # Composer renders the picker in locked mode — the backend ignores env changes after
+    # the first turn, so the pill must not look editable on follow-ups.
+    assert "env-pill--locked" in body
+    # No hidden form input — the composer doesn't submit a form, and the JS-only state
+    # has nothing to write into (the picker is non-interactive in this context).
+    assert 'name="sandbox_environment"' not in body

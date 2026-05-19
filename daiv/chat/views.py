@@ -70,6 +70,9 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["selected_sandbox_env_id"] = (
             str(thread.sandbox_environment_id) if thread is not None and thread.sandbox_environment_id else ""
         )
+        ctx["selected_sandbox_env"] = next(
+            (e for e in ctx["sandbox_envs"] if str(e.id) == ctx["selected_sandbox_env_id"]), None
+        )
         if thread is None:
             ctx.update({"turns": [], "expired": False, "active_run_id": "", "merge_request": None})
             return ctx
