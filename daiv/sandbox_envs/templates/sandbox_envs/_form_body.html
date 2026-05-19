@@ -7,8 +7,7 @@
 </div>
 {% endif %}
 
-<form {% if in_drawer %}hx-post="{{ request.path }}" hx-target="this" hx-swap="outerHTML"{% else %}method="post"{% endif %}
-      class="space-y-5">
+<form hx-post="{{ request.path }}" hx-target="this" hx-swap="outerHTML" class="space-y-5">
     {% csrf_token %}
 
     {# ---- Identity ---- #}
@@ -73,7 +72,7 @@
         {% if form.base_image.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.base_image.errors.0 }}</p>{% endif %}
     </div>
 
-    <fieldset x-data="envVarsEditor({{ env_vars_initial }}, {
+    <fieldset x-data="envVarsEditor({{ form.env_vars_json.value|default:form.env_vars_json.initial }}, {
                   invalidName: '{% translate 'Invalid name'|escapejs %}',
                   duplicateName: '{% translate 'Duplicate name'|escapejs %}',
               })"
@@ -124,7 +123,7 @@
         {% endif %}
     </fieldset>
 
-    <fieldset x-data='repoIdsEditor({{ repo_ids_initial }})'>
+    <fieldset x-data='repoIdsEditor({{ form.repo_ids_json.value|default:form.repo_ids_json.initial }})'>
         <legend class="text-[15px] font-medium text-gray-300">
             {% translate "Repositories" %}
             <span class="text-gray-500" x-text="ids.length ? '(' + ids.length + ')' : ''"></span>
@@ -282,17 +281,13 @@
 
     <div class="flex items-center gap-3 border-t border-white/[0.06] pt-5">
         <button type="submit" class="btn-primary">{% translate "Save" %}</button>
-        {% if in_drawer %}
-        <button type="button"
-                @click="$dispatch('close-env-drawer')"
-                class="btn-secondary">{% translate "Cancel" %}</button>
-        {% else %}
-        <a href="{% url 'sandbox_envs:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
-        {% endif %}
+        <button type="button" @click="$dispatch('close-env-drawer')" class="btn-secondary">{% translate "Cancel" %}</button>
         {% if show_delete %}
-        <a href="{% url 'sandbox_envs:delete' object.id %}" class="btn-danger-outline ml-auto">
+        <button type="button"
+                @click.prevent="$dispatch('open-env-drawer', {mode: 'delete', url: '{% url 'sandbox_envs:delete' object.id %}'})"
+                class="btn-danger-outline ml-auto">
             {% translate "Delete" %}
-        </a>
+        </button>
         {% endif %}
     </div>
     {% include "sandbox_envs/_env_paste_overlay.html" %}

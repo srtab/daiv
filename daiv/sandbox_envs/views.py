@@ -5,68 +5,29 @@ import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.http import Http404, HttpResponse, HttpResponseForbidden, HttpResponseRedirect
-from django.shortcuts import get_object_or_404, redirect
-from django.template.loader import render_to_string
-from django.urls import reverse_lazy
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views import View
-from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+from django.views.generic import ListView
 
 from accounts.mixins import AdminRequiredMixin
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import humanise_global_default
+from sandbox_envs.services import build_env_trigger, humanise_global_default
 
 logger = logging.getLogger("daiv.sandbox_envs")
-
-
-def _encode_env_vars_for_template(env: SandboxEnvironment) -> str:
-    """Serialise an env's env_vars list for the template's JS editor.
-
-    Secret values are masked (rendered as an empty string) so decrypted secrets
-    never reach the page HTML. ``has_existing_value`` is a UI hint so the editor
-    can show a "keep existing value" affordance for stored secrets.
-
-    Returns an empty list when decryption fails — the user can re-enter values
-    via the form, and the form's :meth:`_preserve_unchanged_secrets` will block
-    save with a clear error if the underlying ciphertext is still unreadable.
-    """
-    from core.encryption import DecryptionError
-
-    try:
-        rows = env.env_vars or []
-    except DecryptionError:
-        logger.error("env_vars decryption failed for SandboxEnvironment id=%s; rendering empty editor", env.id)
-        rows = []
-    masked = [
-        {
-            "name": r.get("name", ""),
-            "value": "" if r.get("is_secret") else r.get("value", ""),
-            "is_secret": bool(r.get("is_secret")),
-            "has_existing_value": bool(r.get("is_secret")),
-        }
-        for r in rows
-    ]
-    return json.dumps(masked)
-
-
-def _encode_repo_ids_for_template(env: SandboxEnvironment) -> str:
-    return json.dumps(list(env.repo_ids or []))
 
 
 def _is_htmx(request) -> bool:
     return request.headers.get("HX-Request") == "true"
 
 
-def _global_envs_context(user) -> dict:
-    return {
-        "global_envs": SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).order_by("name"),
-        "is_admin": user.is_admin,
-    }
-
-
-def _global_default_summary_context() -> dict:
-    return {"global_default_summary": humanise_global_default()}
+def _redirect_with_open(action: str, env_id=None):
+    """Redirect to the list with ``?open=<action>[:<id>]`` so the list template's
+    inline Alpine init can auto-open the drawer for deep links."""
+    suffix = f"{action}:{env_id}" if env_id else action
+    return redirect(f"{reverse('sandbox_envs:list')}?open={suffix}")
 
 
 class EnvListView(LoginRequiredMixin, ListView):
@@ -74,166 +35,95 @@ class EnvListView(LoginRequiredMixin, ListView):
     context_object_name = "user_envs"
 
     def get_queryset(self):
-        return SandboxEnvironment.objects.filter(scope=Scope.USER, user=self.request.user)
+        return SandboxEnvironment.objects.user_envs(self.request.user)
 
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-        ctx.update(_global_envs_context(self.request.user))
+        ctx["global_envs"] = SandboxEnvironment.objects.global_envs()
+        ctx["is_admin"] = self.request.user.is_admin
+        ctx["global_default_summary"] = humanise_global_default()
         return ctx
 
 
-class _ScopedEnvMixin:
-    """Object-scoping for `Env(Update|Delete)View`.
+class EnvFormView(LoginRequiredMixin, View):
+    """Drawer-only create / edit. Dispatches on the presence of ``pk`` in
+    ``kwargs``. Non-HTMX GET redirects to the list with ``?open=`` so deep
+    links open the drawer client-side."""
 
-    Raises ``PermissionError`` (not ``PermissionDenied``) for GLOBAL-as-non-admin
-    so the calling view's ``dispatch`` can translate it to a 403 with a custom
-    message; the standard ``PermissionDenied`` would render Django's generic
-    403 page instead. Non-owner USER access raises ``Http404``.
-    """
+    http_method_names = ["get", "post"]
 
-    def get_object(self, queryset=None):
-        env_id = self.kwargs["pk"]
-        env = get_object_or_404(SandboxEnvironment, pk=env_id)
-        user = self.request.user
-        if env.scope == Scope.GLOBAL:
-            if not user.is_admin:
-                raise PermissionError("admin required")
-            return env
-        if env.user_id != user.id:
-            raise Http404("Not found")
-        return env
+    def get_object(self):
+        pk = self.kwargs.get("pk")
+        if pk is None:
+            return None
+        return SandboxEnvironment.objects.scoped_get(self.request.user, pk)
 
+    def _make_form(self, *, instance, data=None):
+        return SandboxEnvironmentForm(
+            data,
+            instance=instance,
+            user=self.request.user,
+            is_admin=self.request.user.is_admin,
+            is_default_form=bool(instance and instance.scope == Scope.GLOBAL and instance.is_default),
+        )
 
-class EnvCreateView(LoginRequiredMixin, CreateView):
-    """HX-Request flips this into a drawer-friendly mode:
+    def _render(self, form, *, instance):
+        return render(
+            self.request,
+            "sandbox_envs/_form_body.html",
+            {
+                "form": form,
+                "object": instance,
+                "show_delete": instance is not None,
+                "is_default_form": bool(instance and instance.scope == Scope.GLOBAL and instance.is_default),
+                "global_default_summary": humanise_global_default(),
+            },
+        )
 
-    GET returns just ``_form_body.html`` (no page chrome); POST on success returns
-    204 + an ``HX-Trigger: env-created`` event carrying the new env's id/scope/name
-    so the host page can append the option and select it without a reload.
-    Validation failures re-render the form body so HTMX can swap it back in place.
-    """
+    def get(self, request, **_kw):
+        instance = self.get_object()
+        if not _is_htmx(request):
+            action = "edit" if instance else "create"
+            return _redirect_with_open(action, env_id=instance.id if instance else None)
+        return self._render(self._make_form(instance=instance), instance=instance)
 
-    template_name = "sandbox_envs/form.html"
-    form_class = SandboxEnvironmentForm
-    success_url = reverse_lazy("sandbox_envs:list")
-
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs.update({"user": self.request.user, "is_admin": self.request.user.is_admin})
-        return kwargs
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        form = ctx["form"]
-        submitted = form.data.get("env_vars_json") if form.is_bound else None
-        ctx["env_vars_initial"] = submitted or "[]"
-        submitted_repos = form.data.get("repo_ids_json") if form.is_bound else None
-        ctx["repo_ids_initial"] = submitted_repos or "[]"
-        ctx["in_drawer"] = _is_htmx(self.request)
-        ctx["is_default_form"] = False
-        ctx.update(_global_default_summary_context())
-        return ctx
-
-    def get_template_names(self):
-        return ["sandbox_envs/_form_body.html"] if _is_htmx(self.request) else [self.template_name]
-
-    def form_valid(self, form):
+    def post(self, request, **_kw):
+        instance = self.get_object()
+        form = self._make_form(instance=instance, data=request.POST)
+        if not form.is_valid():
+            return self._render(form, instance=instance)
         try:
             env = form.save()
         except ValidationError as err:
-            # ``form.save()`` runs ``instance.full_clean()`` which raises
-            # ``django.core.exceptions.ValidationError`` (not the forms one), so
-            # it never reaches ``form_invalid`` on its own.
+            # form.save() runs full_clean() which raises core.exceptions.ValidationError
+            # (not the forms one), so it doesn't reach form_invalid on its own.
             form.add_error(None, err)
-            return self.form_invalid(form)
-        if not _is_htmx(self.request):
-            return HttpResponseRedirect(self.get_success_url())
-        payload = {
-            "env-created": {
-                "id": str(env.id),
-                "name": env.name,
-                "scope": env.scope,
-                "scope_display": env.get_scope_display(),
-                "is_default": env.is_default,
-                "summary": env.summary,
-            }
-        }
+            return self._render(form, instance=instance)
+        action = "updated" if instance else "created"
+        return HttpResponse(status=204, headers={"HX-Trigger": json.dumps(build_env_trigger(env, action))})
+
+
+class EnvDeleteView(LoginRequiredMixin, View):
+    http_method_names = ["get", "post"]
+
+    def get_object(self):
+        return SandboxEnvironment.objects.scoped_get(self.request.user, self.kwargs["pk"])
+
+    def get(self, request, **_kw):
+        env = self.get_object()
+        if not _is_htmx(request):
+            return _redirect_with_open("delete", env_id=env.id)
+        return render(request, "sandbox_envs/_delete_body.html", {"object": env})
+
+    def post(self, request, **_kw):
+        env = self.get_object()
+        ok, msg = env.can_delete()
+        if not ok:
+            return HttpResponse(msg, status=409)
+        # Snapshot the trigger payload before the row goes away.
+        payload = build_env_trigger(env, "deleted")
+        env.delete()
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps(payload)})
-
-
-class EnvUpdateView(LoginRequiredMixin, _ScopedEnvMixin, UpdateView):
-    """HX-Request flips this into a drawer-friendly mode, mirroring `EnvCreateView`."""
-
-    template_name = "sandbox_envs/form.html"
-    form_class = SandboxEnvironmentForm
-    success_url = reverse_lazy("sandbox_envs:list")
-
-    def dispatch(self, request, *args, **kwargs):
-        try:
-            return super().dispatch(request, *args, **kwargs)
-        except PermissionError:
-            return HttpResponseForbidden("Admin required for global environments")
-
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs.update({
-            "user": self.request.user,
-            "is_admin": self.request.user.is_admin,
-            "is_default_form": (self.object.scope == Scope.GLOBAL and self.object.is_default),
-        })
-        return kwargs
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        form = ctx["form"]
-        submitted = form.data.get("env_vars_json") if form.is_bound else None
-        ctx["env_vars_initial"] = submitted or _encode_env_vars_for_template(self.object)
-        submitted_repos = form.data.get("repo_ids_json") if form.is_bound else None
-        ctx["repo_ids_initial"] = submitted_repos or _encode_repo_ids_for_template(self.object)
-        ctx["show_delete"] = True
-        ctx["in_drawer"] = _is_htmx(self.request)
-        ctx["is_default_form"] = self.object.scope == Scope.GLOBAL and self.object.is_default
-        ctx.update(_global_default_summary_context())
-        return ctx
-
-    def get_template_names(self):
-        return ["sandbox_envs/_form_body.html"] if _is_htmx(self.request) else [self.template_name]
-
-    def form_valid(self, form):
-        try:
-            env = form.save()
-        except ValidationError as err:
-            form.add_error(None, err)
-            return self.form_invalid(form)
-        if not _is_htmx(self.request):
-            return HttpResponseRedirect(self.get_success_url())
-        payload = {
-            "env-updated": {
-                "id": str(env.id),
-                "name": env.name,
-                "scope": env.scope,
-                "scope_display": env.get_scope_display(),
-                "is_default": env.is_default,
-                "summary": env.summary,
-            }
-        }
-        return HttpResponse(status=204, headers={"HX-Trigger": json.dumps(payload)})
-
-
-class EnvDeleteView(LoginRequiredMixin, _ScopedEnvMixin, DeleteView):
-    template_name = "sandbox_envs/delete_confirm.html"
-    success_url = reverse_lazy("sandbox_envs:list")
-
-    def dispatch(self, request, *args, **kwargs):
-        try:
-            return super().dispatch(request, *args, **kwargs)
-        except PermissionError:
-            return HttpResponseForbidden("Admin required for global environments")
-
-    def form_valid(self, form):
-        if self.object.is_default and self.object.scope == Scope.GLOBAL:
-            return HttpResponse("Set another global environment as default before deleting this one.", status=409)
-        return super().form_valid(form)
 
 
 class EnvSetDefaultView(AdminRequiredMixin, View):
@@ -243,17 +133,18 @@ class EnvSetDefaultView(AdminRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, pk):
-        env = get_object_or_404(SandboxEnvironment, pk=pk, scope=Scope.GLOBAL)
+        env = get_object_or_404(SandboxEnvironment.objects.global_envs(), pk=pk)
         try:
             env.promote_as_default()
         except ValidationError as err:
-            # ``promote_as_default`` re-reads under FOR UPDATE; ValidationError here
+            # promote_as_default re-reads under FOR UPDATE; ValidationError here
             # means a concurrent admin deleted or rescoped the row mid-flight.
             logger.warning("set-default conflict for env_id=%s: %s", pk, err)
             return HttpResponse(err.messages[0] if err.messages else "Conflict", status=409)
         if _is_htmx(request):
-            html = render_to_string(
-                "sandbox_envs/_global_envs.html", _global_envs_context(request.user), request=request
+            return render(
+                request,
+                "sandbox_envs/_global_envs.html",
+                {"global_envs": SandboxEnvironment.objects.global_envs(), "is_admin": request.user.is_admin},
             )
-            return HttpResponse(html, content_type="text/html")
         return redirect("sandbox_envs:list")

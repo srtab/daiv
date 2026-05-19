@@ -43,7 +43,7 @@ def test_non_admin_cannot_edit_global(client, user):
 def test_admin_can_edit_global(client, admin):
     env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
     client.force_login(admin)
-    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
 
 
@@ -60,7 +60,7 @@ def test_user_cannot_see_other_users_envs(client, user, db):
 def test_delete_global_default_blocked(client, admin):
     env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
     client.force_login(admin)
-    resp = client.post(reverse("sandbox_envs:delete", args=[env.id]))
+    resp = client.post(reverse("sandbox_envs:delete", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 409
     assert SandboxEnvironment.objects.filter(pk=env.id).exists()
 
@@ -198,22 +198,19 @@ def test_create_htmx_post_invalid_returns_form_body_with_errors(client, user):
 
 
 @pytest.mark.django_db
-def test_edit_page_shows_delete_link(client, user):
+def test_edit_htmx_fragment_shows_delete_button(client, user):
     env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="x")
     client.force_login(user)
-
-    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
-
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
+    assert b"'open-env-drawer'" in resp.content
     assert reverse("sandbox_envs:delete", args=[env.id]).encode() in resp.content
 
 
 @pytest.mark.django_db
-def test_create_page_does_not_show_delete_link(client, user):
+def test_create_htmx_fragment_does_not_show_delete_button(client, user):
     client.force_login(user)
-
-    resp = client.get(reverse("sandbox_envs:create"))
-
+    resp = client.get(reverse("sandbox_envs:create"), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
     assert b"btn-danger-outline" not in resp.content
 
@@ -228,7 +225,7 @@ def test_edit_template_does_not_leak_secret_values(client, user):
         env_vars=[{"name": "TOKEN", "value": "real-secret", "is_secret": True}],
     )
     client.force_login(user)
-    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
     assert b"real-secret" not in resp.content
 
@@ -236,7 +233,7 @@ def test_edit_template_does_not_leak_secret_values(client, user):
 @pytest.mark.django_db
 def test_create_context_includes_global_default_summary(client, user):
     client.force_login(user)
-    resp = client.get(reverse("sandbox_envs:create"))
+    resp = client.get(reverse("sandbox_envs:create"), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
     summary = resp.context["global_default_summary"]
     assert set(summary.keys()) == {"network", "memory", "cpus", "has_network", "has_memory", "has_cpus"}
@@ -307,7 +304,7 @@ def test_edit_global_default_sets_is_default_form_true(client, admin):
         scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
     )
     client.force_login(admin)
-    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
     assert resp.context["is_default_form"] is True
 
@@ -316,7 +313,7 @@ def test_edit_global_default_sets_is_default_form_true(client, admin):
 def test_edit_non_default_user_env_sets_is_default_form_false(client, user):
     env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
-    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
     assert resp.context["is_default_form"] is False
 
@@ -324,7 +321,7 @@ def test_edit_non_default_user_env_sets_is_default_form_false(client, user):
 @pytest.mark.django_db
 def test_create_context_sets_is_default_form_false(client, user):
     client.force_login(user)
-    resp = client.get(reverse("sandbox_envs:create"))
+    resp = client.get(reverse("sandbox_envs:create"), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
     assert resp.context["is_default_form"] is False
 
@@ -347,7 +344,76 @@ def test_invalid_create_post_preserves_submitted_env_vars(client, user):
         HTTP_HX_REQUEST="true",
     )
     assert resp.status_code == 200
-    assert resp.context["env_vars_initial"] == submitted_json
+    assert resp.context["form"]["env_vars_json"].value() == submitted_json
+
+
+@pytest.mark.django_db
+def test_create_get_non_htmx_redirects_with_open_param(client, user):
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:create"))
+    assert resp.status_code == 302
+    assert resp["Location"] == reverse("sandbox_envs:list") + "?open=create"
+
+
+@pytest.mark.django_db
+def test_edit_get_non_htmx_redirects_with_open_param(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    assert resp.status_code == 302
+    assert resp["Location"] == reverse("sandbox_envs:list") + f"?open=edit:{env.id}"
+
+
+@pytest.mark.django_db
+def test_delete_get_non_htmx_redirects_with_open_param(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:delete", args=[env.id]))
+    assert resp.status_code == 302
+    assert resp["Location"] == reverse("sandbox_envs:list") + f"?open=delete:{env.id}"
+
+
+@pytest.mark.django_db
+def test_delete_htmx_get_returns_delete_body_fragment(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    client.force_login(user)
+    resp = client.get(reverse("sandbox_envs:delete", args=[env.id]), HTTP_HX_REQUEST="true")
+    assert resp.status_code == 200
+    rendered = [t.name for t in resp.templates]
+    assert "sandbox_envs/_delete_body.html" in rendered
+    assert "base_app.html" not in rendered
+
+
+@pytest.mark.django_db
+def test_delete_htmx_post_success_fires_env_deleted(client, user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
+    env_id = env.id
+    env_name = env.name
+    env_summary = env.summary
+    client.force_login(user)
+    resp = client.post(reverse("sandbox_envs:delete", args=[env.id]), HTTP_HX_REQUEST="true")
+    assert resp.status_code == 204
+    trigger = json.loads(resp.headers["HX-Trigger"])
+    assert trigger == {
+        "env-deleted": {
+            "id": str(env_id),
+            "name": env_name,
+            "scope": Scope.USER,
+            "scope_display": "User",
+            "is_default": False,
+            "summary": env_summary,
+        }
+    }
+    assert not SandboxEnvironment.objects.filter(pk=env_id).exists()
+
+
+@pytest.mark.django_db
+def test_delete_htmx_post_global_default_returns_409(client, admin):
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
+    client.force_login(admin)
+    resp = client.post(reverse("sandbox_envs:delete", args=[env.id]), HTTP_HX_REQUEST="true")
+    assert resp.status_code == 409
+    assert SandboxEnvironment.objects.filter(pk=env.id).exists()
 
 
 @pytest.mark.django_db
@@ -364,7 +430,7 @@ def test_edit_renders_existing_env_vars_with_escaped_quotes(client, user):
         env_vars=[{"name": "API_KEY", "value": "plain-value", "is_secret": False}],
     )
     client.force_login(user)
-    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]))
+    resp = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
     body = resp.content.decode()
     # The unescaped JSON ending the attribute early is the bug we're guarding
@@ -393,4 +459,4 @@ def test_invalid_edit_post_preserves_submitted_env_vars(client, user):
         HTTP_HX_REQUEST="true",
     )
     assert resp.status_code == 200
-    assert resp.context["env_vars_initial"] == submitted_json
+    assert resp.context["form"]["env_vars_json"].value() == submitted_json

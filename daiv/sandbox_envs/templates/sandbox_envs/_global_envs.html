@@ -1,7 +1,7 @@
 {% load i18n %}
 <div id="global-envs" class="mt-3"
      hx-get="{% url 'sandbox_envs:list' %}"
-     hx-trigger="env-created from:body, env-updated from:body"
+     hx-trigger="env-created from:body, env-updated from:body, env-deleted from:body"
      hx-select="#global-envs"
      hx-target="this"
      hx-swap="outerHTML">
@@ -34,6 +34,11 @@
                         hx-disabled-elt="this"
                         class="text-sm text-emerald-300 hover:text-emerald-200">
                     {% translate "Make default" %}
+                </button>
+                <button type="button"
+                        @click="window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode: 'delete', url: '{% url 'sandbox_envs:delete' env.id %}'}}))"
+                        class="text-sm text-red-300 hover:text-red-200">
+                    {% translate "Delete" %}
                 </button>
                 {% endif %}
                 {% endif %}

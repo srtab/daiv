@@ -34,4 +34,18 @@
     {% include "sandbox_envs/_user_envs.html" %}
 </section>
 {% include "sandbox_envs/_env_drawer.html" %}
+
+<div x-data x-init="
+    const p = new URLSearchParams(location.search).get('open');
+    if (!p) return;
+    const [mode, id] = p.split(':');
+    const base = '{% url 'sandbox_envs:list' %}';
+    if (mode === 'create') {
+        window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode: 'create', url: base + 'create/'}}));
+    } else if ((mode === 'edit' || mode === 'delete') && id) {
+        const url = base + encodeURIComponent(id) + '/' + (mode === 'edit' ? 'edit/' : 'delete/');
+        window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode, url}}));
+    }
+    window.history.replaceState({}, '', base);
+"></div>
 {% endblock app_content %}
