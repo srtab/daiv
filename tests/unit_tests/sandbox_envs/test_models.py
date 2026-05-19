@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.http import Http404
@@ -282,3 +284,63 @@ def test_manager_scoped_get_raises_http404_for_missing_pk(user, _clear_global_en
 
     with pytest.raises(Http404):
         SandboxEnvironment.objects.scoped_get(user, uuid.uuid4())
+
+
+@pytest.mark.django_db
+def test_summary_returns_all_segments_joined(user):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="rust:1.83",
+        cpus=Decimal("2"),
+        memory_bytes=4 * 2**30,
+        network_enabled=True,
+    )
+    assert env.summary == "rust:1.83 · 2 CPU · 4 GiB · net"
+
+
+@pytest.mark.django_db
+def test_summary_omits_missing_segments(user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine:3.20")
+    assert env.summary == "alpine:3.20"
+
+
+@pytest.mark.django_db
+def test_summary_includes_network_only_when_explicitly_enabled(user):
+    env_off = SandboxEnvironment.objects.create(
+        scope=Scope.USER, user=user, name="off", base_image="alpine", network_enabled=False
+    )
+    env_on = SandboxEnvironment.objects.create(
+        scope=Scope.USER, user=user, name="on", base_image="alpine", network_enabled=True
+    )
+    assert "net" not in env_off.summary
+    assert "net" in env_on.summary
+
+
+@pytest.mark.django_db
+def test_summary_formats_memory_in_mib_when_not_whole_gib(user):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER, user=user, name="dev", base_image="busybox", cpus=Decimal("0.5"), memory_bytes=512 * 2**20
+    )
+    assert env.summary == "busybox · 0.5 CPU · 512 MiB"
+
+
+@pytest.mark.django_db
+def test_can_delete_blocks_global_default(_clear_global_envs):
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="d", base_image="g", is_default=True)
+    ok, msg = env.can_delete()
+    assert ok is False
+    assert "default" in msg.lower()
+
+
+@pytest.mark.django_db
+def test_can_delete_allows_user_env(user):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="x")
+    assert env.can_delete() == (True, None)
+
+
+@pytest.mark.django_db
+def test_can_delete_allows_non_default_global(_clear_global_envs):
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="g", is_default=False)
+    assert env.can_delete() == (True, None)

@@ -10,7 +10,7 @@ from django.db.models import Q
 
 from asgiref.sync import async_to_sync
 
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
 
 if TYPE_CHECKING:
     from activity.services import RepoTarget
@@ -82,15 +82,6 @@ async def get_global_default() -> SandboxEnvOverride | None:
     no GLOBAL default row exists."""
     row = await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).afirst()
     return row_to_override(row) if row is not None else None
-
-
-def _fmt_memory(mem: int) -> str:
-    return f"{mem // 2**30} GiB" if mem % 2**30 == 0 else f"{mem // 2**20} MiB"
-
-
-def _fmt_cpus(cpus: Decimal | float | int) -> str:
-    d = cpus if isinstance(cpus, Decimal) else Decimal(cpus)
-    return str(int(d)) if d == d.to_integral_value() else str(d.normalize())
 
 
 def humanise_global_default() -> dict[str, str | bool]:

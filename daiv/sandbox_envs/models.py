@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import NON_FIELD_ERRORS, PermissionDenied, ValidationError
@@ -25,6 +26,15 @@ _UNSET = object()
 class Scope(models.TextChoices):
     USER = "user", _("User")
     GLOBAL = "global", _("Global")
+
+
+def _fmt_memory(mem: int) -> str:
+    return f"{mem // 2**30} GiB" if mem % 2**30 == 0 else f"{mem // 2**20} MiB"
+
+
+def _fmt_cpus(cpus) -> str:
+    d = cpus if isinstance(cpus, Decimal) else Decimal(cpus)
+    return str(int(d)) if d == d.to_integral_value() else str(d.normalize())
 
 
 class SandboxEnvironmentQuerySet(models.QuerySet):
@@ -125,6 +135,32 @@ class SandboxEnvironment(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.get_scope_display()}: {self.name}"
+
+    @property
+    def summary(self) -> str:
+        """Compact one-line description of this env's runtime shape.
+
+        Format: ``"<base_image> · <N> CPU · <memory> · net"`` with each
+        segment omitted when its source value is missing. Memory renders
+        as ``GiB`` for whole-GiB values, ``MiB`` otherwise. Network is
+        included only when explicitly enabled (True)."""
+        parts: list[str] = []
+        if self.base_image:
+            parts.append(self.base_image)
+        if self.cpus is not None:
+            parts.append(f"{_fmt_cpus(self.cpus)} CPU")
+        if self.memory_bytes is not None:
+            parts.append(_fmt_memory(self.memory_bytes))
+        if self.network_enabled is True:
+            parts.append("net")
+        return " · ".join(parts)
+
+    def can_delete(self) -> tuple[bool, str | None]:
+        """Row-level invariant gate for delete. ``promote_as_default`` must run
+        first if this is the global default."""
+        if self.is_default and self.scope == Scope.GLOBAL:
+            return False, str(_("Set another global environment as default before deleting this one."))
+        return True, None
 
     def clean(self) -> None:
         super().clean()
