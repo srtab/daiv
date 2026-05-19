@@ -76,21 +76,6 @@ uv run --all-extras python scripts/dump_schemas.py \
     > /path/to/daiv/daiv/core/sandbox/schemas.dump.json
 ```
 
-**Sandbox environments** — runtime sandbox config flows through `RuntimeCtx.sandbox`,
-built by `sandbox_envs.services.merge_sandbox_runtime` from per-run env (either
-picked explicitly or auto-resolved from the repo via `resolve_env_for_run`) and
-the GLOBAL default env. Per-field precedence: per-run > global default. There
-are no deployment-level overrides: `DAIV_SANDBOX_BASE_IMAGE`, `DAIV_SANDBOX_CPU`,
-`DAIV_SANDBOX_MEMORY`, `DAIV_SANDBOX_NETWORK_ENABLED`, and `DAIV_SANDBOX_EPHEMERAL`
-have been removed — manage runtime values through the SandboxEnvironment UI.
-Auto-resolution: USER env with matching `repo_ids` for the running user wins;
-otherwise a GLOBAL env with matching `repo_ids` wins; otherwise the GLOBAL
-default. The agent middleware never reads `ctx.config.sandbox.*` directly —
-that field no longer exists; always go through `ctx.sandbox`. `command_policy`
-is currently dropped (empty policy + built-in safety rules). `DAIV_SANDBOX_TIMEOUT`
-and `DAIV_SANDBOX_API_KEY` remain in `SiteConfiguration` — they configure the
-sandbox HTTP client and authentication, not runtime resource limits.
-
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
 **Icons in templates** — never hand-roll an inline `<svg>` for a UI icon. Use `{% load icon_tags %}{% icon "name" "css-classes" %}`; see `DESIGN.md` §Icon System for the mechanism and the icon directory. Exceptions (keep inline): animated spinners, SVGs that need `<title>`/Alpine `:class` on the element itself, and brand/logo `<img>` tags.
