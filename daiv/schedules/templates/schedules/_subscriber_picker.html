@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 {% url 'picker_users' as user_picker_url %}
 <div class="mt-6"
      x-data="subscriberPicker({ initial: {{ subscriber_initial_json|default:'[]' }} })">
@@ -32,9 +32,7 @@
                     x-show="selected.length === 0"
                     @click.stop="openPicker()"
                     class="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]">
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <path d="M16 11a4 4 0 10-8 0 4 4 0 008 0zM4 21a8 8 0 0116 0"/>
-                </svg>
+                {% icon "users" "h-3.5 w-3.5" %}
                 <span>{% translate "Add subscriber" %}</span>
             </button>
 
@@ -44,9 +42,7 @@
                     aria-label="{% translate 'Add subscriber' %}"
                     title="{% translate 'Add subscriber' %}"
                     class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <path d="M12 5v14M5 12h14"/>
-                </svg>
+                {% icon "plus" "h-3.5 w-3.5" %}
             </button>
         </div>
 

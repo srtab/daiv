@@ -69,9 +69,7 @@ Parameters:
             {% elif git_platform == "gitlab" %}
                 {% icon "gitlab" "h-3.5 w-3.5 text-[#FC6D26]" %}
             {% else %}
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
-                </svg>
+                {% icon "squares-2x2" "h-3.5 w-3.5" %}
             {% endif %}
             <span>{{ choose_repo_label }}</span>
         </button>
@@ -82,9 +80,7 @@ Parameters:
                 aria-label="{% translate 'Add repository' %}"
                 title="{% translate 'Add repository' %}"
                 class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
-            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <path d="M12 5v14M5 12h14"/>
-            </svg>
+            {% icon "plus" "h-3.5 w-3.5" %}
         </button>
     </div>
 

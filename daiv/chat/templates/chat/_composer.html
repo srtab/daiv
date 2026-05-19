@@ -56,13 +56,7 @@
              rel="noopener noreferrer"
              :title="thread.merge_request.title || ''">
             <span class="repo-chip__btn">
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="6" cy="6" r="2.5"/>
-                <circle cx="6" cy="18" r="2.5"/>
-                <circle cx="18" cy="18" r="2.5"/>
-                <path d="M6 8.5v7"/>
-                <path d="M6 6h7a5 5 0 015 5v4.5"/>
-              </svg>
+              {% icon "merge-request" "h-3.5 w-3.5" %}
               <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% translate "MR" %}'"></span>
               <span x-show="thread.merge_request.draft"
                     class="repo-chip__badge"
@@ -78,9 +72,7 @@
         <button type="submit" :disabled="(streaming || resuming) || !canSend()"
                 class="chat-composer__btn chat-composer__btn--send">
           <span x-text="(streaming || resuming) ? '{% translate 'Sending…' %}' : '{% translate 'Send' %}'"></span>
-          <svg x-show="!(streaming || resuming)" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10.22 16.78a.75.75 0 0 1-1.06-1.06l4.47-4.47H4a.75.75 0 0 1 0-1.5h9.63l-4.47-4.47a.75.75 0 1 1 1.06-1.06l5.75 5.75a.75.75 0 0 1 0 1.06l-5.75 5.75Z"/>
-          </svg>
+          <span x-show="!(streaming || resuming)">{% icon "arrow-right" "h-3.5 w-3.5" %}</span>
         </button>
       </div>
     </div>

@@ -1,4 +1,4 @@
-{% load i18n static %}
+{% load i18n icon_tags static %}
 {% url 'sandbox_envs:create' as env_create_url %}
 
 {% comment %}
@@ -157,9 +157,7 @@ Parameters:
 
         <div class="env-popover__footer">
             <button type="button" @click="openCreate()" class="env-popover__create">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                    <path d="M12 5v14M5 12h14"/>
-                </svg>
+                {% icon "plus" "h-3.5 w-3.5" %}
                 {% translate "New environment" %}
             </button>
         </div>

@@ -15,11 +15,7 @@
     <div class="absolute right-3 top-3 z-10" x-data="{ open: false }">
         <button type="button" @click="open = !open" aria-label="Schedule actions"
                 class="rounded-lg p-2 text-gray-400 transition-all duration-200 hover:bg-white/[0.04] hover:text-white">
-            <svg class="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
-                <circle cx="3" cy="8" r="1.5"/>
-                <circle cx="8" cy="8" r="1.5"/>
-                <circle cx="13" cy="8" r="1.5"/>
-            </svg>
+            {% icon "ellipsis-horizontal" "h-4 w-4" %}
         </button>
         <div x-show="open" @click.outside="open = false" x-transition x-cloak
              class="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded-xl border border-white/[0.06] bg-[#0a0e1a] py-1 shadow-xl">
@@ -34,10 +30,10 @@
                     hx-disabled-elt="this"
                     class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-300 hover:bg-white/[0.04] hover:text-white">
                 {% if schedule.is_enabled %}
-                <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path d="M5.75 4.5a1.25 1.25 0 011.25 1.25v8.5a1.25 1.25 0 01-2.5 0v-8.5A1.25 1.25 0 015.75 4.5zm8.5 0a1.25 1.25 0 011.25 1.25v8.5a1.25 1.25 0 01-2.5 0v-8.5a1.25 1.25 0 011.25-1.25z"/></svg>
+                {% icon "pause" "h-4 w-4 shrink-0" %}
                 Pause
                 {% else %}
-                <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path d="M6.3 2.84A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.27l9.344-5.89a1.5 1.5 0 000-2.54L6.3 2.84z"/></svg>
+                {% icon "play" "h-4 w-4 shrink-0" %}
                 Resume
                 {% endif %}
             </button>

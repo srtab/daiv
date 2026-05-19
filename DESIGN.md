@@ -218,7 +218,7 @@ Icons are SVGs rendered via a CSS-mask technique for easy theming with `currentC
 
 ### Available Icons
 
-`agent`, `beaker`, `bolt`, `chart-bar`, `check`, `check-circle`, `clock`, `code-bracket`, `cog-6-tooth`, `command-line`, `cpu-chip`, `cube`, `diff-to-metadata`, `envelope`, `exclamation-circle`, `exclamation-triangle`, `github`, `gitlab`, `information-circle`, `jobs`, `key`, `link`, `lock-closed`, `providers`, `puzzle-piece`, `sandbox`, `squares-2x2`, `squares-plus`, `users`, `web-fetch`, `web-search`
+See `daiv/core/static/core/img/icons/` — the filename (without `.svg`) is the icon name.
 
 ### Icon Container Pattern
 

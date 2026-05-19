@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load i18n static %}
+{% load i18n icon_tags static %}
 
 {% block title %}{% if thread.title %}{{ thread.title }} — {% endif %}DAIV Chat{% endblock %}
 
@@ -144,11 +144,7 @@
                         <template x-for="b in toolSignature(seg).badges" :key="b.text">
                           <span class="chat-tool__badge" :class="`chat-tool__badge--${b.tone}`" x-text="b.text"></span>
                         </template>
-                        <span class="chat-tool__chev">
-                          <svg viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5">
-                            <path fill-rule="evenodd" d="M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4Z" clip-rule="evenodd"/>
-                          </svg>
-                        </span>
+                        {% icon "chevron-down" "chat-tool__chev h-3.5 w-3.5" %}
                       </summary>
                       <div class="chat-tool__body" x-html="toolBodyHTML(seg)"></div>
                     </details>
