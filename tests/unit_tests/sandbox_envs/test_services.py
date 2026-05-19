@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import SandboxEnvOverride, get_global_default, resolve_sandbox_env
+from sandbox_envs.services import SandboxEnvOverride, build_env_trigger, get_global_default, resolve_sandbox_env
 
 from accounts.models import User
 
@@ -131,7 +131,7 @@ def test_humanise_global_default_memory_in_mib_when_not_whole_gib():
 @pytest.mark.django_db
 class TestResolveEnvForRun:
     @pytest.fixture(autouse=True)
-    def _clear_global_envs(self):
+    def _clearglobal_envs(self):
         """Remove migration-seeded global envs so each test starts from scratch."""
         SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
 
@@ -169,7 +169,7 @@ class TestResolveEnvForRun:
         result = async_to_sync(resolve_env_for_run)(user=user, repo_id="acme/foo")
         assert result == user_env
 
-    def test_user_env_beats_global_env_for_same_repo(self):
+    def test_user_env_beatsglobal_env_for_same_repo(self):
         user = self._user()
         from asgiref.sync import async_to_sync
         from sandbox_envs.services import resolve_env_for_run
@@ -184,7 +184,7 @@ class TestResolveEnvForRun:
         result = async_to_sync(resolve_env_for_run)(user=user, repo_id="acme/foo")
         assert result == user_env
 
-    def test_global_env_matches_when_no_user_env(self):
+    def testglobal_env_matches_when_no_user_env(self):
         user = self._user()
         from asgiref.sync import async_to_sync
         from sandbox_envs.services import resolve_env_for_run
@@ -463,41 +463,29 @@ class TestAresolveRepoEnvs:
         assert original[1].ref == "dev"
 
 
-@pytest.mark.django_db
-def test_build_env_trigger_created_shape(db):
-    from sandbox_envs.models import SandboxEnvironment, Scope
-    from sandbox_envs.services import build_env_trigger
-
+@pytest.fixture
+def global_env(db):
     SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine")
-    payload = build_env_trigger(env, "created")
+    return SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine")
+
+
+def test_build_env_trigger_created_shape(global_env):
+    payload = build_env_trigger(global_env, "created")
     assert payload == {
         "env-created": {
-            "id": str(env.id),
+            "id": str(global_env.id),
             "name": "g",
             "scope": "global",
-            "scope_display": env.get_scope_display(),
+            "scope_display": global_env.get_scope_display(),
             "is_default": False,
             "summary": "alpine",
         }
     }
 
 
-@pytest.mark.django_db
-def test_build_env_trigger_updated_uses_action_key(db):
-    from sandbox_envs.models import SandboxEnvironment, Scope
-    from sandbox_envs.services import build_env_trigger
-
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine")
-    assert "env-updated" in build_env_trigger(env, "updated")
+def test_build_env_trigger_updated_uses_action_key(global_env):
+    assert "env-updated" in build_env_trigger(global_env, "updated")
 
 
-@pytest.mark.django_db
-def test_build_env_trigger_deleted_uses_action_key(db):
-    from sandbox_envs.models import SandboxEnvironment, Scope
-    from sandbox_envs.services import build_env_trigger
-
-    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine")
-    assert "env-deleted" in build_env_trigger(env, "deleted")
+def test_build_env_trigger_deleted_uses_action_key(global_env):
+    assert "env-deleted" in build_env_trigger(global_env, "deleted")

@@ -54,25 +54,15 @@ document.addEventListener("alpine:init", () => {
         },
 
         get title() {
-            if (this.mode === "edit") return this.editTitle;
-            if (this.mode === "delete") return this.deleteTitle;
-            return this.createTitle;
+            return ({edit: this.editTitle, delete: this.deleteTitle})[this.mode] ?? this.createTitle;
         },
 
         get subtitle() {
-            if (this.mode === "edit") return this.editSubtitle;
-            if (this.mode === "delete") return this.deleteSubtitle;
-            return this.createSubtitle;
+            return ({edit: this.editSubtitle, delete: this.deleteSubtitle})[this.mode] ?? this.createSubtitle;
         },
     }));
 });
 
-window.addEventListener("env-created", () => {
-    window.dispatchEvent(new CustomEvent("close-env-drawer"));
-});
-window.addEventListener("env-updated", () => {
-    window.dispatchEvent(new CustomEvent("close-env-drawer"));
-});
-window.addEventListener("env-deleted", () => {
-    window.dispatchEvent(new CustomEvent("close-env-drawer"));
+["env-created", "env-updated", "env-deleted"].forEach((name) => {
+    window.addEventListener(name, () => window.dispatchEvent(new CustomEvent("close-env-drawer")));
 });

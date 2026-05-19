@@ -8,7 +8,7 @@
     <p class="text-red-200">
         {% blocktranslate with name=object.name %}Delete environment "{{ name }}"?{% endblocktranslate %}
     </p>
-    {% if object.scope == "global" and object.is_default %}
+    {% if object.is_global_default %}
     <p class="text-sm text-red-300/80">
         {% translate "This is the current global default. Promote another global environment as default before deleting." %}
     </p>

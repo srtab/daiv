@@ -333,6 +333,15 @@ def test_summary_empty_for_env_with_no_fields_set(_clear_global_envs):
     assert env.summary == ""
 
 
+@pytest.mark.parametrize(
+    ("scope", "is_default", "expected"),
+    [(Scope.GLOBAL, True, True), (Scope.GLOBAL, False, False), (Scope.USER, True, False), (Scope.USER, False, False)],
+)
+def test_is_global_default(scope, is_default, expected):
+    env = SandboxEnvironment(scope=scope, name="x", base_image="b", is_default=is_default)
+    assert env.is_global_default is expected
+
+
 @pytest.mark.django_db
 def test_can_delete_blocks_global_default(_clear_global_envs):
     env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="d", base_image="g", is_default=True)

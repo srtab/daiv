@@ -10,7 +10,6 @@
 <form hx-post="{{ request.path }}" hx-target="this" hx-swap="outerHTML" class="space-y-5">
     {% csrf_token %}
 
-    {# ---- Identity ---- #}
     <div>
         <label for="{{ form.name.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
             {% translate "Name" %} <span class="text-red-400">*</span>
@@ -48,7 +47,6 @@
 
     <div class="border-t border-white/[0.06]"></div>
 
-    {# ---- Container ---- #}
     <div>
         <label for="{{ form.base_image.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
             {% translate "Base image" %} <span class="text-red-400">*</span>
@@ -160,7 +158,6 @@
 
     <div class="border-t border-white/[0.06]"></div>
 
-    {# ---- Resources ---- #}
     <div x-data="resourceControl({
               network: '{{ form.network_choice.value|default:'default'|escapejs }}',
               memValue: '{{ form.memory_value.value|default:''|escapejs }}',

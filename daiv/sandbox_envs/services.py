@@ -239,12 +239,7 @@ def merge_sandbox_runtime(
 
 
 def build_env_trigger(env: SandboxEnvironment, action: Literal["created", "updated", "deleted"]) -> dict:
-    """Build the ``HX-Trigger`` payload dict for a sandbox-env mutation event.
-
-    The drawer JS (``env-drawer.js``) listens for the corresponding window
-    event (``env-created`` / ``env-updated`` / ``env-deleted``) and closes
-    the drawer; the list fragments re-fetch via their ``hx-trigger``.
-    """
+    """Return the ``{event_name: payload}`` dict for an ``HX-Trigger`` JSON header."""
     return {
         f"env-{action}": {
             "id": str(env.id),

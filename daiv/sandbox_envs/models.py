@@ -155,10 +155,20 @@ class SandboxEnvironment(TimeStampedModel):
             parts.append("net")
         return " · ".join(parts)
 
+    @property
+    def is_global_default(self) -> bool:
+        """True iff this row is the single GLOBAL env currently marked default.
+
+        The explicit ``scope == GLOBAL`` guard is redundant for persisted rows
+        (the ``env_default_only_on_global`` CheckConstraint enforces it) but
+        defends unsaved/in-memory instances against the disallowed combo.
+        """
+        return self.scope == Scope.GLOBAL and bool(self.is_default)
+
     def can_delete(self) -> tuple[bool, str | None]:
         """Row-level invariant gate for delete. ``promote_as_default`` must run
         first if this is the global default."""
-        if self.is_default and self.scope == Scope.GLOBAL:
+        if self.is_global_default:
             return False, str(_("Set another global environment as default before deleting this one."))
         return True, None
 

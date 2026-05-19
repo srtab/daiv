@@ -8,12 +8,13 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.functional import cached_property
 from django.views import View
 from django.views.generic import ListView
 
 from accounts.mixins import AdminRequiredMixin
 from sandbox_envs.forms import SandboxEnvironmentForm
-from sandbox_envs.models import SandboxEnvironment, Scope
+from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import build_env_trigger, humanise_global_default
 
 logger = logging.getLogger("daiv.sandbox_envs")
@@ -58,14 +59,22 @@ class EnvFormView(LoginRequiredMixin, View):
             return None
         return SandboxEnvironment.objects.scoped_get(self.request.user, pk)
 
+    @staticmethod
+    def _is_default_form(instance) -> bool:
+        return bool(instance and instance.is_global_default)
+
     def _make_form(self, *, instance, data=None):
         return SandboxEnvironmentForm(
             data,
             instance=instance,
             user=self.request.user,
             is_admin=self.request.user.is_admin,
-            is_default_form=bool(instance and instance.scope == Scope.GLOBAL and instance.is_default),
+            is_default_form=self._is_default_form(instance),
         )
+
+    @cached_property
+    def _global_default_summary(self):
+        return humanise_global_default()
 
     def _render(self, form, *, instance):
         return render(
@@ -75,8 +84,8 @@ class EnvFormView(LoginRequiredMixin, View):
                 "form": form,
                 "object": instance,
                 "show_delete": instance is not None,
-                "is_default_form": bool(instance and instance.scope == Scope.GLOBAL and instance.is_default),
-                "global_default_summary": humanise_global_default(),
+                "is_default_form": self._is_default_form(instance),
+                "global_default_summary": self._global_default_summary,
             },
         )
 
@@ -95,8 +104,8 @@ class EnvFormView(LoginRequiredMixin, View):
         try:
             env = form.save()
         except ValidationError as err:
-            # form.save() runs full_clean() which raises core.exceptions.ValidationError
-            # (not the forms one), so it doesn't reach form_invalid on its own.
+            # full_clean() inside save() raises core.exceptions.ValidationError,
+            # which is_valid() didn't catch; surface it as a non-field error.
             form.add_error(None, err)
             return self._render(form, instance=instance)
         action = "updated" if instance else "created"
