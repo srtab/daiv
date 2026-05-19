@@ -93,6 +93,9 @@
                     {% else %}
                     <span class="text-gray-300">{{ activity.sandbox_environment.name }}</span>
                     {% endif %}
+                    {% if activity.sandbox_environment.short_summary %}
+                    <div class="text-xs text-gray-500">{{ activity.sandbox_environment.short_summary }}</div>
+                    {% endif %}
                 {% else %}
                 <span class="italic text-gray-500">{% translate "(deleted)" %}</span>
                 {% endif %}

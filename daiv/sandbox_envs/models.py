@@ -156,6 +156,18 @@ class SandboxEnvironment(TimeStampedModel):
         return " · ".join(parts)
 
     @property
+    def short_summary(self) -> str:
+        """Compact ``"<base_image>"`` description, with ``" · net"`` appended
+        when network access is explicitly enabled. Segments are omitted when
+        their source value is missing."""
+        parts: list[str] = []
+        if self.base_image:
+            parts.append(self.base_image)
+        if self.network_enabled is True:
+            parts.append("net")
+        return " · ".join(parts)
+
+    @property
     def is_global_default(self) -> bool:
         """True iff this row is the single GLOBAL env currently marked default.
 

@@ -319,6 +319,28 @@ def test_summary_includes_network_only_when_explicitly_enabled(user):
 
 
 @pytest.mark.django_db
+def test_short_summary_joins_base_image_and_net(user):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="rust:1.83",
+        cpus=Decimal("2"),
+        memory_bytes=4 * 2**30,
+        network_enabled=True,
+    )
+    assert env.short_summary == "rust:1.83 · net"
+
+
+@pytest.mark.django_db
+def test_short_summary_omits_net_when_disabled(user):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER, user=user, name="dev", base_image="alpine:3.20", network_enabled=False
+    )
+    assert env.short_summary == "alpine:3.20"
+
+
+@pytest.mark.django_db
 def test_summary_formats_memory_in_mib_when_not_whole_gib(user):
     env = SandboxEnvironment.objects.create(
         scope=Scope.USER, user=user, name="dev", base_image="busybox", cpus=Decimal("0.5"), memory_bytes=512 * 2**20
