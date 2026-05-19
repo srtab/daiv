@@ -1,9 +1,11 @@
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
+from django.http import Http404
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
 
-from accounts.models import User
+from accounts.models import Role, User
 
 
 @pytest.fixture
@@ -197,3 +199,86 @@ class TestRepoIdsValidation:
         )
         env.repo_ids = ["acme/foo", "acme/bar"]
         env.full_clean()  # no raise — self-overlap is fine
+
+
+@pytest.fixture
+def admin_user(db) -> User:
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    return User.objects.create_user(username="a", email="a@e.com", password="x", role=Role.ADMIN)  # noqa: S106
+
+
+@pytest.fixture
+def _clear_global_envs(db):
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+
+
+@pytest.mark.django_db
+def test_manager_global_envs_returns_only_global_rows_ordered_by_name(user, _clear_global_envs):
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="bravo", base_image="g")
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="alpha", base_image="g")
+    SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="x")
+    names = list(SandboxEnvironment.objects.global_envs().values_list("name", flat=True))
+    assert names == ["alpha", "bravo"]
+
+
+@pytest.mark.django_db
+def test_manager_user_envs_returns_only_caller_owned_rows(user, _clear_global_envs):
+    other = User.objects.create_user(username="other", email="o@e.com", password="x")  # noqa: S106
+    SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="mine", base_image="x")
+    SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="theirs", base_image="x")
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="global", base_image="g")
+    names = list(SandboxEnvironment.objects.user_envs(user).values_list("name", flat=True))
+    assert names == ["mine"]
+
+
+@pytest.mark.django_db
+def test_manager_global_default_returns_marked_row_or_none(user, _clear_global_envs):
+    assert SandboxEnvironment.objects.global_default() is None
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="d", base_image="g", is_default=True)
+    assert SandboxEnvironment.objects.global_default() == env
+
+
+@pytest.mark.django_db
+def test_manager_visible_to_returns_user_envs_and_all_globals(user, _clear_global_envs):
+    other = User.objects.create_user(username="other", email="o@e.com", password="x")  # noqa: S106
+    mine = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="mine", base_image="x")
+    SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="theirs", base_image="x")
+    g1 = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g1", base_image="g")
+    g2 = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g2", base_image="g")
+    visible = list(SandboxEnvironment.objects.visible_to(user))
+    assert set(visible) == {mine, g1, g2}
+
+
+@pytest.mark.django_db
+def test_manager_scoped_get_returns_owner_user_env(user, _clear_global_envs):
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="x")
+    assert SandboxEnvironment.objects.scoped_get(user, env.pk) == env
+
+
+@pytest.mark.django_db
+def test_manager_scoped_get_raises_http404_for_non_owner_user_env(user, _clear_global_envs):
+    other = User.objects.create_user(username="other", email="o@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(scope=Scope.USER, user=other, name="dev", base_image="x")
+    with pytest.raises(Http404):
+        SandboxEnvironment.objects.scoped_get(user, env.pk)
+
+
+@pytest.mark.django_db
+def test_manager_scoped_get_raises_permission_denied_for_non_admin_global(user, _clear_global_envs):
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="g")
+    with pytest.raises(PermissionDenied):
+        SandboxEnvironment.objects.scoped_get(user, env.pk)
+
+
+@pytest.mark.django_db
+def test_manager_scoped_get_returns_global_for_admin(admin_user):
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="g")
+    assert SandboxEnvironment.objects.scoped_get(admin_user, env.pk) == env
+
+
+@pytest.mark.django_db
+def test_manager_scoped_get_raises_http404_for_missing_pk(user, _clear_global_envs):
+    import uuid
+
+    with pytest.raises(Http404):
+        SandboxEnvironment.objects.scoped_get(user, uuid.uuid4())

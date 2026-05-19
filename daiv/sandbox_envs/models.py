@@ -4,8 +4,11 @@ import re
 import uuid
 
 from django.conf import settings
-from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, PermissionDenied, ValidationError
 from django.db import models, transaction
+from django.db.models import Q
+from django.http import Http404
+from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
@@ -22,6 +25,43 @@ _UNSET = object()
 class Scope(models.TextChoices):
     USER = "user", _("User")
     GLOBAL = "global", _("Global")
+
+
+class SandboxEnvironmentQuerySet(models.QuerySet):
+    """Queryset helpers consumed by views, services, and external callers
+    (chat, activity, mcp_server). Methods live here rather than in services
+    so they're chainable and easy to compose with ``filter`` / ``annotate``."""
+
+    def global_envs(self):
+        return self.filter(scope=Scope.GLOBAL).order_by("name")
+
+    def user_envs(self, user):
+        return self.filter(scope=Scope.USER, user=user).order_by("name")
+
+    def global_default(self):
+        return self.filter(scope=Scope.GLOBAL, is_default=True).first()
+
+    async def aglobal_default(self):
+        return await self.filter(scope=Scope.GLOBAL, is_default=True).afirst()
+
+    def visible_to(self, user):
+        return self.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL)).order_by("scope", "name")
+
+    def scoped_get(self, user, pk):
+        """Return the env at ``pk`` if ``user`` may operate on it.
+
+        - non-owner USER env → ``Http404``
+        - GLOBAL env with non-admin user → ``PermissionDenied``
+        - missing pk → ``Http404``
+        """
+        env = get_object_or_404(self, pk=pk)
+        if env.scope == Scope.GLOBAL:
+            if not user.is_admin:
+                raise PermissionDenied("Admin required for global environments")
+            return env
+        if env.user_id != user.id:
+            raise Http404("Not found")
+        return env
 
 
 class SandboxEnvironment(TimeStampedModel):
@@ -49,6 +89,8 @@ class SandboxEnvironment(TimeStampedModel):
     repo_ids = models.JSONField(_("repo ids"), default=list, blank=True)
 
     is_default = models.BooleanField(_("is default"), default=False)
+
+    objects = SandboxEnvironmentQuerySet.as_manager()
 
     class Meta:
         ordering = ["scope", "name"]
