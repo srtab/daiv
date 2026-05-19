@@ -13,7 +13,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import BaseModel, Field
-from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user, visible_envs_for
+from sandbox_envs.models import SandboxEnvironment
+from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.results import parse_agent_result
 from codebase.clients import RepoClient
@@ -370,7 +371,7 @@ async def list_environments() -> list[dict]:
     Secret env-var values are not included; call ``get_environment`` for full details.
     """
     user = await get_current_user()
-    qs = visible_envs_for(user)
+    qs = SandboxEnvironment.objects.visible_to(user)
     return [
         {
             "id": str(env.id),

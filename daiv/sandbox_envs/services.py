@@ -6,8 +6,6 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import Q
-
 from asgiref.sync import async_to_sync
 
 from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
@@ -99,12 +97,6 @@ def humanise_global_default() -> dict[str, str | bool]:
     }
 
 
-def visible_envs_for(user):
-    return SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL)).order_by(
-        "scope", "name"
-    )
-
-
 def env_picker_context(form) -> dict:
     """Build the picker's ``sandbox_envs`` / ``selected_sandbox_env_id`` context from a form.
     Empty values when the form lacks ``sandbox_environment`` so the partial renders an
@@ -174,7 +166,7 @@ async def resolve_env_for_user(user, name_or_id: str | None) -> SandboxEnvironme
     if not name_or_id:
         return None
 
-    qs = visible_envs_for(user)
+    qs = SandboxEnvironment.objects.visible_to(user)
     if looks_like_uuid(name_or_id):
         env = await qs.filter(pk=name_or_id).afirst()
         if env is not None:

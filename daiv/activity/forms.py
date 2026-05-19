@@ -13,7 +13,6 @@ from django.utils.translation import gettext_lazy as _
 
 from notifications.choices import NotifyOn
 from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.services import visible_envs_for
 
 from activity.services import validate_repo_list
 
@@ -70,7 +69,7 @@ class AgentRunFieldsMixin(forms.Form):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         if "sandbox_environment" in self.fields and user is not None:
-            self.fields["sandbox_environment"].queryset = visible_envs_for(user)
+            self.fields["sandbox_environment"].queryset = SandboxEnvironment.objects.visible_to(user)
 
 
 class AgentRunCreateForm(AgentRunFieldsMixin, forms.Form):
