@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from asgiref.sync import async_to_sync
@@ -236,3 +236,22 @@ def merge_sandbox_runtime(
         env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
         command_policy=SandboxCommandPolicy(),
     )
+
+
+def build_env_trigger(env: SandboxEnvironment, action: Literal["created", "updated", "deleted"]) -> dict:
+    """Build the ``HX-Trigger`` payload dict for a sandbox-env mutation event.
+
+    The drawer JS (``env-drawer.js``) listens for the corresponding window
+    event (``env-created`` / ``env-updated`` / ``env-deleted``) and closes
+    the drawer; the list fragments re-fetch via their ``hx-trigger``.
+    """
+    return {
+        f"env-{action}": {
+            "id": str(env.id),
+            "name": env.name,
+            "scope": env.scope,
+            "scope_display": env.get_scope_display(),
+            "is_default": env.is_default,
+            "summary": env.summary,
+        }
+    }

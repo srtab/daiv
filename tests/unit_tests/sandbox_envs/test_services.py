@@ -461,3 +461,43 @@ class TestAresolveRepoEnvs:
         await aresolve_repo_envs(user=None, repos=original, explicit_env_id=None)
         assert all(t.sandbox_environment_id is None for t in original)
         assert original[1].ref == "dev"
+
+
+@pytest.mark.django_db
+def test_build_env_trigger_created_shape(db):
+    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.services import build_env_trigger
+
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine")
+    payload = build_env_trigger(env, "created")
+    assert payload == {
+        "env-created": {
+            "id": str(env.id),
+            "name": "g",
+            "scope": "global",
+            "scope_display": env.get_scope_display(),
+            "is_default": False,
+            "summary": "alpine",
+        }
+    }
+
+
+@pytest.mark.django_db
+def test_build_env_trigger_updated_uses_action_key(db):
+    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.services import build_env_trigger
+
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine")
+    assert "env-updated" in build_env_trigger(env, "updated")
+
+
+@pytest.mark.django_db
+def test_build_env_trigger_deleted_uses_action_key(db):
+    from sandbox_envs.models import SandboxEnvironment, Scope
+    from sandbox_envs.services import build_env_trigger
+
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="alpine")
+    assert "env-deleted" in build_env_trigger(env, "deleted")
