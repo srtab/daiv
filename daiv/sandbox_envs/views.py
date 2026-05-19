@@ -119,7 +119,7 @@ class EnvDeleteView(LoginRequiredMixin, View):
         env = self.get_object()
         ok, msg = env.can_delete()
         if not ok:
-            return HttpResponse(msg, status=409)
+            return render(request, "sandbox_envs/_delete_body.html", {"object": env, "delete_error": msg})
         # Snapshot the trigger payload before the row goes away.
         payload = build_env_trigger(env, "deleted")
         env.delete()

@@ -57,11 +57,15 @@ def test_user_cannot_see_other_users_envs(client, user, db):
 
 
 @pytest.mark.django_db
-def test_delete_global_default_blocked(client, admin):
+def test_delete_global_default_blocked_renders_inline_error(client, admin):
     env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
     client.force_login(admin)
     resp = client.post(reverse("sandbox_envs:delete", args=[env.id]), HTTP_HX_REQUEST="true")
-    assert resp.status_code == 409
+    assert resp.status_code == 200
+    rendered = [t.name for t in resp.templates]
+    assert "sandbox_envs/_delete_body.html" in rendered
+    assert resp.context["delete_error"]
+    assert "default" in resp.context["delete_error"].lower()
     assert SandboxEnvironment.objects.filter(pk=env.id).exists()
 
 
@@ -405,15 +409,6 @@ def test_delete_htmx_post_success_fires_env_deleted(client, user):
         }
     }
     assert not SandboxEnvironment.objects.filter(pk=env_id).exists()
-
-
-@pytest.mark.django_db
-def test_delete_htmx_post_global_default_returns_409(client, admin):
-    env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Default", base_image="g", is_default=True)
-    client.force_login(admin)
-    resp = client.post(reverse("sandbox_envs:delete", args=[env.id]), HTTP_HX_REQUEST="true")
-    assert resp.status_code == 409
-    assert SandboxEnvironment.objects.filter(pk=env.id).exists()
 
 
 @pytest.mark.django_db
