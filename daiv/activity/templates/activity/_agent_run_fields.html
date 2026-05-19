@@ -26,7 +26,12 @@
 
     <div class="flex items-center justify-between gap-3 px-3 py-2">
 
-        {% include "codebase/_repo_picker.html" with with_x_data=False initial_repos=form.repos.value|default:"[]" max_repos=20 show_conflict_message=False required=repos_required %}
+        <div class="flex flex-wrap items-center gap-1.5">
+            {% if with_env_picker %}
+                {% include "sandbox_envs/_env_picker.html" with envs=env_picker_envs selected_id=env_picker_selected_id field_name="sandbox_environment" %}
+            {% endif %}
+            {% include "codebase/_repo_picker.html" with with_x_data=False initial_repos=form.repos.value|default:"[]" max_repos=20 show_conflict_message=False required=repos_required %}
+        </div>
 
         <label class="inline-flex shrink-0 cursor-pointer items-center gap-2 text-[13px] text-gray-400"
                title="{% translate 'More capable model with thinking set to high.' %}">

@@ -163,16 +163,23 @@ class TestEncryptedFields:
         assert "auth_client_secret" in SiteConfiguration.ENCRYPTED_FIELDS
         assert "rocketchat_auth_token" in SiteConfiguration.ENCRYPTED_FIELDS
 
-    def test_corrupted_ciphertext_returns_none(self, site_config):
-        """Corrupted data returns None instead of raising."""
+    def test_corrupted_ciphertext_raises_decryption_error(self, site_config):
+        """Reading a corrupted encrypted field raises DecryptionError so callers
+        round-tripping the value don't silently overwrite still-valid ciphertext."""
+        import pytest
+
+        from core.encryption import DecryptionError
+
         site_config._web_search_api_key_encrypted = "not-a-valid-fernet-token"
         site_config.save()
 
         reloaded = SiteConfiguration.objects.get_instance()
-        assert reloaded.web_search_api_key is None
+        with pytest.raises(DecryptionError):
+            _ = reloaded.web_search_api_key
 
     def test_corrupted_ciphertext_hint_returns_none(self, site_config):
-        """get_secret_hint also returns None for corrupted data."""
+        """get_secret_hint catches DecryptionError and returns None so the UI
+        can render a 'no hint available' state instead of crashing."""
         site_config._web_search_api_key_encrypted = "not-a-valid-fernet-token"
         site_config.save()
 

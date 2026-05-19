@@ -33,7 +33,6 @@ class GeneratedTitle(BaseModel):
     title: str = Field(
         min_length=3,
         max_length=MAX_TITLE_LENGTH,
-        pattern=r'^[^\s"\'#*].+',
         description="3-6 words. Plain text only — no quotes, markdown, or trailing punctuation.",
     )
 

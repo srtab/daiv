@@ -20,6 +20,7 @@ LOCAL_APPS = [
     "core",
     "mcp_server",
     "notifications",
+    "sandbox_envs",
     "schedules",
     "slash_commands",
 ]

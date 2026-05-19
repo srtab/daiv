@@ -84,6 +84,7 @@ class ChatRunStreamer:
     run_id: str
     input_data: RunAgentInput
     encoder: EventEncoder
+    sandbox_environment_id: str | None = None
 
     def __post_init__(self) -> None:
         # The view passes thread_id/run_id alongside input_data; a future refactor
@@ -100,7 +101,9 @@ class ChatRunStreamer:
         try:
             async with (
                 open_checkpointer() as checkpointer,
-                set_runtime_ctx(repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref) as runtime_ctx,
+                set_runtime_ctx(
+                    repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref, sandbox_env_id=self.sandbox_environment_id
+                ) as runtime_ctx,
             ):
                 agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
                 langsmith_config = build_langsmith_config(

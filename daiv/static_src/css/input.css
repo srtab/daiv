@@ -538,6 +538,10 @@ main:has(.chat-shell) {
   }
 
   .chat-hero__picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     margin-top: 18px;
   }
 
@@ -569,23 +573,34 @@ main:has(.chat-shell) {
     display: none;
   }
 
-  /* Repo chip — shared between the activity form picker and the chat composer.
-     Inside `_repo_picker.html` (interactive, with edit/remove buttons) the chip
-     is rendered inline with its sibling utility classes; the styles here mirror
-     that look so the chat composer can render a static, non-interactive chip
-     with the same appearance using just `.repo-chip` + `.repo-chip__btn`. */
+  /* Repo chip — shared between the interactive picker (`_repo_picker.html`)
+     and the static chip rendered by the chat composer once a thread exists.
+     The picker uses `<button>` elements so it gets hover affordances; the
+     composer uses `<span>` so its segments stay visually inert. */
 
+  /* Outer vertical padding is intentionally tight (2px) so the total chip
+     height matches `.env-pill` and the empty-state "Choose repository"
+     button (~27px). Bumping this to 4px makes the row visibly jump when a
+     repo is selected in the picker. */
   .repo-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 4px;
+    padding: 2px 4px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.05);
     color: #cbd5e1;
     font-size: 13px;
     font-weight: 500;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+
+  /* Conflict state used by the picker when the chosen repo is already in the list. */
+  .repo-chip--conflict {
+    border-color: rgba(248, 113, 113, 0.6);
+    background: rgba(239, 68, 68, 0.15);
+    color: #fecaca;
   }
 
   .repo-chip__btn {
@@ -596,9 +611,22 @@ main:has(.chat-shell) {
     border-radius: 999px;
   }
 
+  button.repo-chip__btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+  }
+
   .repo-chip__btn--branch {
     color: #93c5fd;
   }
+
+  /* Picker-only "×" remove control. */
+  .repo-chip__remove {
+    border-radius: 999px;
+    padding: 0 6px;
+    color: #6b7280;
+  }
+  button.repo-chip__remove:hover { color: #e5e7eb; }
 
   /* When the agent has committed to a working branch, lift the branch segment
      so users see at a glance that it's not the original ref anymore. */
@@ -1340,8 +1368,9 @@ main:has(.chat-shell) {
   .chat-composer__meta {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 8px;
+    min-width: 0;
   }
 
   .chat-composer__textarea {
@@ -1377,37 +1406,21 @@ main:has(.chat-shell) {
     margin-top: 6px;
   }
 
-  .chat-composer__hint {
+  .chat-composer__buttons {
     display: inline-flex;
-    align-items: center;
+    flex-shrink: 0;
+    margin-left: auto;
     gap: 6px;
-    font-size: 10.5px;
-    color: #64748b;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-  }
-
-  .chat-composer__kbd {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 4px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    font-size: 10px;
-    color: #cbd5e1;
   }
 
   .chat-composer__btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 7px 14px;
-    border-radius: 10px;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 8px;
     font-weight: 600;
-    font-size: 13.5px;
+    font-size: 12.5px;
     font-family: "Outfit", system-ui, sans-serif;
     letter-spacing: 0.01em;
     transition: transform 0.15s ease, background 0.15s ease;
@@ -1436,8 +1449,8 @@ main:has(.chat-shell) {
 
   .chat-composer__btn--stop::before {
     content: "";
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     background: #fca5a5;
     border-radius: 2px;
   }
@@ -1572,5 +1585,104 @@ main:has(.chat-shell) {
 
   .toggle-switch__input:disabled + .toggle-switch__track {
     @apply opacity-50 cursor-not-allowed;
+  }
+
+  .env-pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-medium text-[#e7e8ff];
+    background-color: rgba(120, 120, 200, 0.18);
+    border: 1px solid rgba(120, 120, 200, 0.35);
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .env-pill:hover {
+    background-color: rgba(120, 120, 200, 0.28);
+  }
+  .env-pill:focus-visible {
+    outline: 2px solid rgba(180, 180, 255, 0.5);
+    outline-offset: 2px;
+  }
+  .env-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
+  .env-pill__name { @apply max-w-[18ch] truncate; }
+  .env-pill__scope-tag {
+    @apply text-[10px] uppercase rounded px-1 py-px;
+    letter-spacing: 0.04em;
+  }
+  .env-pill__scope-tag--global { @apply bg-white/[0.1] text-gray-300; }
+  .env-pill__scope-tag--user {
+    background-color: rgba(200, 160, 255, 0.18);
+    color: #d4b7ff;
+  }
+  .env-pill__caret { @apply text-[10px] opacity-50 ml-px; }
+
+  .env-pill--locked {
+    @apply opacity-75 pointer-events-none;
+    background-color: rgba(120, 120, 200, 0.10);
+  }
+  .env-pill__lock { @apply h-3 w-3 opacity-60 ml-px; }
+
+  /* Shared shell for the repo / branch / env / subscriber pickers — see _repo_picker.html,
+     _env_picker.html, _subscriber_picker.html. Templates layer on left-* / w-* utilities
+     since position and width vary per call site. */
+  .picker-popover {
+    @apply absolute top-full z-50 mt-2 rounded-xl border p-2 shadow-lg;
+    background: #0d1117;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  .picker-popover__search {
+    @apply w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none;
+  }
+  .picker-popover__list { @apply mt-1 max-h-60 overflow-auto; }
+
+  .env-popover__row {
+    @apply flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left;
+    cursor: pointer;
+  }
+  .env-popover__row:hover,
+  .env-popover__row--highlighted { background-color: rgba(255, 255, 255, 0.04); }
+  .env-popover__row--selected { background-color: rgba(120, 120, 200, 0.14); }
+  .env-popover__check { @apply h-3.5 w-3.5 mt-1 shrink-0 text-[#b9c2ff]; }
+  .env-popover__row-body { @apply min-w-0 flex-1; }
+  .env-popover__row-head { @apply flex items-center gap-2 min-w-0; }
+  .env-popover__row-name { @apply text-[14px] text-[#e7e8ff] truncate min-w-0 flex-1; }
+  .env-popover__row-subtitle { @apply mt-0.5 text-[12px] text-gray-400 truncate; }
+  .env-popover__info { @apply inline-flex shrink-0 text-gray-500 cursor-help; }
+  .env-popover__info svg { @apply h-3.5 w-3.5; }
+  .env-popover__scope-tag {
+    @apply text-[10px] uppercase rounded px-1 py-px shrink-0;
+    letter-spacing: 0.04em;
+  }
+  .env-popover__scope-tag--global { @apply bg-white/[0.08] text-gray-300; }
+  .env-popover__scope-tag--user {
+    background-color: rgba(200, 160, 255, 0.12);
+    color: #d4b7ff;
+  }
+  .env-popover__empty { @apply px-3 py-4 text-center text-[13px] text-gray-500; }
+  .env-popover__footer { @apply mt-1 border-t border-white/[0.06] pt-1; }
+  .env-popover__create {
+    @apply flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-[#b9c2ff];
+  }
+  .env-popover__create:hover { background-color: rgba(255, 255, 255, 0.04); }
+
+  .env-popover__row--auto {
+    @apply border-b border-white/[0.06];
+  }
+
+  .repo-id-chip {
+    @apply inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300;
+  }
+
+  /* Thin, dimly-tinted scrollbar for scrollable popover lists (repo/branch/env pickers).
+     Firefox uses `scrollbar-*`; WebKit needs the pseudo-elements. */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.22);
   }
 }

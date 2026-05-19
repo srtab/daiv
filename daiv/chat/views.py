@@ -10,6 +10,7 @@ from django.views.generic import DetailView, ListView, View
 
 from activity.models import Activity
 from asgiref.sync import async_to_sync
+from sandbox_envs.models import SandboxEnvironment
 
 from accounts.mixins import BreadcrumbMixin
 from chat.models import ChatThread
@@ -63,6 +64,15 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         thread = ctx.setdefault("thread", None)
+        # Populate sandbox envs both for the empty hero state and a live thread; JS
+        # forwards the selection on each request via the ``X-Sandbox-Env`` header.
+        ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
+        ctx["selected_sandbox_env_id"] = (
+            str(thread.sandbox_environment_id) if thread is not None and thread.sandbox_environment_id else ""
+        )
+        ctx["selected_sandbox_env"] = next(
+            (e for e in ctx["sandbox_envs"] if str(e.id) == ctx["selected_sandbox_env_id"]), None
+        )
         if thread is None:
             ctx.update({"turns": [], "expired": False, "active_run_id": "", "merge_request": None})
             return ctx

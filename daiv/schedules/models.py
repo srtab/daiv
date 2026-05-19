@@ -141,6 +141,14 @@ class ScheduledJob(TimeStampedModel):
         verbose_name=_("subscribers"),
         help_text=_("Other users CC'd on this schedule's finish notifications."),
     )
+    sandbox_environment = models.ForeignKey(
+        "sandbox_envs.SandboxEnvironment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scheduled_jobs",
+        verbose_name=_("sandbox environment"),
+    )
     source_template = models.ForeignKey(
         "schedules.ScheduleTemplate",
         on_delete=models.SET_NULL,

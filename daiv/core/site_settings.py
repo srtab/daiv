@@ -85,11 +85,6 @@ def _build_field_defaults() -> dict[str, Any]:
         "web_fetch_max_content_chars": 50_000,
         # Sandbox
         "sandbox_timeout": 600,
-        "sandbox_cpu": None,
-        "sandbox_memory": None,
-        "sandbox_base_image": "python:3.12-bookworm",
-        "sandbox_ephemeral": False,
-        "sandbox_network_enabled": False,
         # Jobs
         "jobs_throttle_rate": "20/hour",
         # Authentication

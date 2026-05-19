@@ -8,10 +8,35 @@ from git import Repo  # noqa: TC002
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.exceptions import SingleRepoRequiredError
-from codebase.repo_config import RepositoryConfig
+from codebase.repo_config import RepositoryConfig  # noqa: TC001
+from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+
+@dataclass(frozen=True)
+class SandboxRuntime:
+    """Effective sandbox configuration for the current run.
+
+    Built by :func:`sandbox_envs.services.merge_sandbox_runtime` (invoked from
+    :func:`set_runtime_ctx`) from two inputs: the per-run env (either picked
+    explicitly via ``sandbox_env_id`` or auto-resolved from the repo via
+    :func:`sandbox_envs.services.resolve_env_for_run`) and the GLOBAL default
+    env. ``command_policy`` is currently always the empty default; per-env
+    policies are a future iteration.
+    """
+
+    base_image: str | None
+    network_enabled: bool
+    memory_bytes: int | None
+    cpus: float | None
+    env_vars: dict[str, str]
+    command_policy: SandboxCommandPolicy
+
+    @property
+    def enabled(self) -> bool:
+        return self.base_image is not None
 
 
 @dataclass(frozen=True)
@@ -45,6 +70,8 @@ class RuntimeCtx:
 
     bot_username: str
     repos: tuple[RepoHandle, ...] = ()
+    sandbox: SandboxRuntime | None = None
+    """The effective sandbox configuration for the current run"""
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
@@ -90,29 +117,50 @@ async def set_runtime_ctx(
     issue: Issue | None = None,
     merge_request: MergeRequest | None = None,
     offline: bool = False,
+    sandbox_env_id: str | None = None,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
-    """
-    Set the runtime context and load repository files to a temporary directory.
+    """Set the runtime context and load repository files to a temporary directory.
 
     Args:
         repo_id: The repository identifier
         scope: The scope of the context.
         ref: The reference branch or tag. If None, the default branch will be used.
-        issue: The issue object if the context is scoped to an issue, None otherwise
-        merge_request: The merge request object if the context is scoped to a merge request, None otherwise
+        issue: The issue object if the context is scoped to an issue.
+        merge_request: The merge request object if the context is scoped to a merge request.
         offline: Whether to use the cached configuration or to fetch it from the repository.
+        sandbox_env_id: Optional per-run sandbox environment UUID. When provided, the env
+            is resolved and merged with the GLOBAL default to build ``ctx.sandbox``.
+            When not provided, Auto-resolution selects an env via
+            :func:`sandbox_envs.services.resolve_env_for_run` using ``repo_id``; falls back
+            to the GLOBAL default env if nothing matches.
         **kwargs: Additional keyword arguments to pass to the repository client.
 
     Yields:
         RuntimeCtx: The runtime context
     """
+    from sandbox_envs.services import (
+        get_global_default,
+        merge_sandbox_runtime,
+        resolve_env_for_run,
+        resolve_sandbox_env,
+        row_to_override,
+    )
+
     repo_client = RepoClient.create_instance(**kwargs)
     repository = repo_client.get_repository(repo_id)
     config = RepositoryConfig.get_config(repo_id=repo_id, repository=repository, offline=offline)
 
     if ref is None:
         ref = cast("str", config.default_branch)
+
+    if sandbox_env_id:
+        per_run = await resolve_sandbox_env(sandbox_env_id)
+    else:
+        auto_env = await resolve_env_for_run(user=None, repo_id=repo_id)
+        per_run = row_to_override(auto_env) if auto_env is not None else None
+    global_default = await get_global_default()
+    sandbox = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
 
     with repo_client.load_repo(repository, sha=ref) as repo:
         handle = RepoHandle(
@@ -121,6 +169,7 @@ async def set_runtime_ctx(
         ctx = RuntimeCtx(
             bot_username=repo_client.current_user.username,
             repos=(handle,),
+            sandbox=sandbox,
             scope=scope,
             issue=issue,
             merge_request=merge_request,

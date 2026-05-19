@@ -3,7 +3,7 @@
 
 {% block title %}Agent Activity — DAIV{% endblock %}
 
-{% block container_width %}max-w-screen-2xl{% endblock %}
+{% block container_width %}max-w-6xl{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/ui@3.15.11/dist/cdn.min.js"
@@ -161,7 +161,7 @@
                             {% endif %}
                         </div>
                     </div>
-                    <svg class="ml-4 h-3.5 w-3.5 shrink-0 text-gray-700 transition-colors group-hover:text-gray-400" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3l5 5-5 5"/></svg>
+                    {% icon "chevron-right" "ml-4 h-3.5 w-3.5 shrink-0 text-gray-700 transition-colors group-hover:text-gray-400" %}
                 </div>
                 {% endfor %}
             </div>

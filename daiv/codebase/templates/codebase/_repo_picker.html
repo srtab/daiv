@@ -38,32 +38,25 @@ Parameters:
 
     <div class="flex flex-wrap items-center gap-1.5">
         <template x-for="(repo, index) in repos" :key="index">
-            <span class="inline-flex items-center gap-1 rounded-full border py-1 pl-1 pr-1 text-[13px] font-medium transition-colors"
-                  :class="conflictIndex === index ? 'border-red-400/60 bg-red-500/15 text-red-200' : 'border-white/[0.08] bg-white/[0.05] text-gray-300'">
+            <span class="repo-chip" :class="conflictIndex === index ? 'repo-chip--conflict' : ''">
                 <button type="button"
                         @click.stop="openRepoPicker(index)"
                         :aria-label="'Change repository ' + repo.slug"
-                        class="inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 hover:bg-white/[0.05] hover:text-white">
-                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M4 6h16M4 12h16M4 18h10"/>
-                    </svg>
+                        class="repo-chip__btn">
+                    {% icon "repo" "h-3.5 w-3.5" %}
                     <span x-text="repo.slug"></span>
                 </button>
                 <button type="button"
                         @click.stop="openBranchPicker(index)"
                         :aria-label="'Change branch for ' + repo.slug"
-                        class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 hover:bg-white/[0.05] hover:text-white">
-                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M6 3v12a3 3 0 003 3h9m-3-3l3 3-3 3"/>
-                        <circle cx="6" cy="18" r="3"/>
-                        <circle cx="18" cy="6" r="3"/>
-                    </svg>
-                    <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'" class="text-blue-300"></span>
+                        class="repo-chip__btn">
+                    {% icon "branch" "h-3.5 w-3.5" %}
+                    <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'" class="repo-chip__btn--branch"></span>
                 </button>
                 <button type="button"
                         @click="remove(index)"
                         :aria-label="'Remove ' + repo.slug"
-                        class="rounded-full px-1.5 text-gray-500 hover:text-gray-200">×</button>
+                        class="repo-chip__remove">×</button>
             </span>
         </template>
 
@@ -76,9 +69,7 @@ Parameters:
             {% elif git_platform == "gitlab" %}
                 {% icon "gitlab" "h-3.5 w-3.5 text-[#FC6D26]" %}
             {% else %}
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
-                </svg>
+                {% icon "squares-2x2" "h-3.5 w-3.5" %}
             {% endif %}
             <span>{{ choose_repo_label }}</span>
         </button>
@@ -89,9 +80,7 @@ Parameters:
                 aria-label="{% translate 'Add repository' %}"
                 title="{% translate 'Add repository' %}"
                 class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
-            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <path d="M12 5v14M5 12h14"/>
-            </svg>
+            {% icon "plus" "h-3.5 w-3.5" %}
         </button>
     </div>
 
@@ -103,7 +92,7 @@ Parameters:
     <div x-show="popover === 'repo'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
-         class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+         class="picker-popover left-3 w-80">
         <input type="search" name="q" autofocus
                x-ref="repoSearch"
                placeholder="{{ search_repos_placeholder }}"
@@ -111,7 +100,7 @@ Parameters:
                hx-trigger="refresh, input changed delay:200ms, search"
                hx-sync="this:abort"
                hx-target="#repo-picker-list"
-               class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+               class="picker-popover__search">
         <div x-show="repoLoading" class="animate-pulse py-1">
             <div class="px-3 py-2 space-y-1.5">
                 <div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div>
@@ -133,13 +122,13 @@ Parameters:
                 <div class="h-3 rounded bg-white/[0.04] w-2/5"></div>
             </div>
         </div>
-        <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading" class="max-h-60 overflow-auto"></div>
+        <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading" class="picker-popover__list scrollbar-thin"></div>
     </div>
 
     <div x-show="popover === 'branch'" x-cloak
          @click.outside="closePopover()"
          @keydown.escape.window="closePopover()"
-         class="absolute left-3 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+         class="picker-popover left-3 w-80">
         <input type="search" name="q" autofocus
                x-ref="branchSearch"
                placeholder="{{ search_branches_placeholder }}"
@@ -147,7 +136,7 @@ Parameters:
                hx-trigger="refresh, input changed delay:200ms, search"
                hx-sync="this:abort"
                hx-target="#branch-picker-list"
-               class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+               class="picker-popover__search">
         <div x-show="branchLoading" class="animate-pulse py-1">
             <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-2/3"></div></div>
             <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-1/2"></div></div>
@@ -156,7 +145,7 @@ Parameters:
             <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-4/5"></div></div>
             <div class="px-3 py-2"><div class="h-3.5 rounded bg-white/[0.07] w-3/5"></div></div>
         </div>
-        <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading" class="max-h-60 overflow-auto"></div>
+        <div id="branch-picker-list" x-ref="branchPickerList" x-show="!branchLoading" class="picker-popover__list scrollbar-thin"></div>
     </div>
 
     {% if field_name|default:"repos" %}

@@ -174,8 +174,7 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
     tool_call_id = getattr(runtime, "tool_call_id", None)
 
     # Build effective policy from global settings + repo config.
-    repo_config = runtime.context.config
-    repo_policy = repo_config.sandbox.command_policy
+    repo_policy = runtime.context.sandbox.command_policy
 
     policy = CommandPolicy(
         disallow=[
@@ -473,13 +472,15 @@ class SandboxMiddleware(AgentMiddleware):
                 # so bash calls reuse the pool.
                 return None
 
+            sb = runtime.context.sandbox
             session_id = await client.start_session(
                 StartSessionRequest(
-                    base_image=runtime.context.config.sandbox.base_image,
+                    base_image=sb.base_image,
                     extract_patch=True,
-                    network_enabled=runtime.context.config.sandbox.network_enabled,
-                    memory_bytes=runtime.context.config.sandbox.memory_bytes,
-                    cpus=runtime.context.config.sandbox.cpus,
+                    network_enabled=sb.network_enabled,
+                    memory_bytes=sb.memory_bytes,
+                    cpus=sb.cpus,
+                    environment=sb.env_vars or None,
                 )
             )
             try:

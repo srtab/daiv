@@ -123,6 +123,7 @@
     // from the first render — assigning a *new* key onto an existing reactive
     // proxy after init doesn't always re-render templates.
     thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
+    selectedSandboxEnvId: config.selectedSandboxEnvId || "",
     turns: loadInitialTurns(),
     draftMessage: "",
     draftRepoId: "",
@@ -153,6 +154,10 @@
       if (this.draftRepoId) {
         this.$nextTick(() => this.$refs.prompt?.focus());
       }
+    },
+
+    applySandboxEnvSelection(detail) {
+      this.selectedSandboxEnvId = detail?.id || "";
     },
 
     init() {
@@ -489,6 +494,10 @@
       this.streaming = true;
       this.abortCtl = new AbortController();
 
+      // Forward the picker's selection so the API resolves the requested env per-request;
+      // missing or empty falls through to the GLOBAL default on the server.
+      const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
+
       try {
         const resp = await fetch(this.endpoint, {
           method: "POST",
@@ -497,6 +506,7 @@
             "X-Repo-ID": this.thread.repo_id,
             "X-Ref": this.thread.ref,
             "X-CSRFToken": this.csrfToken,
+            ...envHeaders,
           },
           body: JSON.stringify(body),
           credentials: "include",

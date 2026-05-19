@@ -1,0 +1,23 @@
+{% load i18n %}
+<div class="space-y-4">
+    {% if delete_error %}
+    <div class="rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3">
+        <p class="text-sm text-red-200">{{ delete_error }}</p>
+    </div>
+    {% endif %}
+    <p class="text-red-200">
+        {% blocktranslate with name=object.name %}Delete environment "{{ name }}"?{% endblocktranslate %}
+    </p>
+    {% if object.is_global_default %}
+    <p class="text-sm text-red-300/80">
+        {% translate "This is the current global default. Promote another global environment as default before deleting." %}
+    </p>
+    {% endif %}
+    <form hx-post="{% url 'sandbox_envs:delete' object.id %}" hx-target="this" hx-swap="outerHTML">
+        {% csrf_token %}
+        <div class="flex items-center gap-3">
+            <button type="submit" class="btn-danger">{% translate "Delete" %}</button>
+            <button type="button" @click="$dispatch('close-env-drawer')" class="btn-secondary">{% translate "Cancel" %}</button>
+        </div>
+    </form>
+</div>

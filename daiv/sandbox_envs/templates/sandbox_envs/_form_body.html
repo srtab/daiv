@@ -1,0 +1,289 @@
+{% load i18n icon_tags %}
+{% if form.non_field_errors %}
+<div class="rounded-2xl border border-red-800/50 bg-red-950/30 p-4">
+    {% for error in form.non_field_errors %}
+    <p class="text-[15px] text-red-200">{{ error }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+
+<form hx-post="{{ request.path }}" hx-target="this" hx-swap="outerHTML" class="space-y-5">
+    {% csrf_token %}
+
+    <div>
+        <label for="{{ form.name.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+            {% translate "Name" %} <span class="text-red-400">*</span>
+        </label>
+        {{ form.name }}
+        {% if form.name.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.name.errors.0 }}</p>{% endif %}
+    </div>
+
+    <div>
+        <label for="{{ form.description.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+            {% translate "Description" %}
+        </label>
+        {{ form.description }}
+        {% if form.description.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.description.errors.0 }}</p>{% endif %}
+    </div>
+
+    {% if form.scope.field.disabled %}
+        {{ form.scope.as_hidden }}
+    {% else %}
+    <div>
+        <label class="block text-[15px] font-medium text-gray-400">{% translate "Scope" %}</label>
+        <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1"
+             x-data="{ scope: '{{ form.scope.value|default:'user'|escapejs }}' }">
+            {% for value, label in form.scope.field.choices %}
+            <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                   :class="scope === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                <input type="radio" name="scope" value="{{ value }}" x-model="scope" class="sr-only">
+                {% if value == 'user' %}{% translate "Personal" %}{% else %}{% translate "Shared with everyone" %}{% endif %}
+            </label>
+            {% endfor %}
+        </div>
+        {% if form.scope.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.scope.errors.0 }}</p>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="border-t border-white/[0.06]"></div>
+
+    <div>
+        <label for="{{ form.base_image.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+            {% translate "Base image" %} <span class="text-red-400">*</span>
+        </label>
+        {{ form.base_image }}
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+            <span class="text-xs text-gray-500">{% translate "Try:" %}</span>
+            <button type="button"
+                    @click="document.getElementById('{{ form.base_image.id_for_label }}').value = 'python:3.14'"
+                    class="rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-mono text-xs text-gray-300 hover:border-white/[0.12] hover:text-white">python:3.14</button>
+            <button type="button"
+                    @click="document.getElementById('{{ form.base_image.id_for_label }}').value = 'node:22'"
+                    class="rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-mono text-xs text-gray-300 hover:border-white/[0.12] hover:text-white">node:22</button>
+            <button type="button"
+                    @click="document.getElementById('{{ form.base_image.id_for_label }}').value = 'ubuntu:24.04'"
+                    class="rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-mono text-xs text-gray-300 hover:border-white/[0.12] hover:text-white">ubuntu:24.04</button>
+        </div>
+        {% if form.base_image.help_text %}
+        <p class="mt-1.5 text-sm text-gray-400">{{ form.base_image.help_text }}</p>
+        {% endif %}
+        {% if form.base_image.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.base_image.errors.0 }}</p>{% endif %}
+    </div>
+
+    <fieldset x-data="envVarsEditor({{ form.env_vars_json.value|default:form.env_vars_json.initial }}, {
+                  invalidName: '{% translate 'Invalid name'|escapejs %}',
+                  duplicateName: '{% translate 'Duplicate name'|escapejs %}',
+              })"
+              @env-paste-apply.window="mergeImport($event.detail.entries, $event.detail.replace)">
+        <div class="flex items-center justify-between gap-2">
+            <legend class="text-[15px] font-medium text-gray-300">
+                {% translate "Environment variables" %} <span class="text-gray-500" x-text="rows.length ? '(' + rows.length + ')' : ''"></span>
+            </legend>
+            <button type="button"
+                    @click="window.dispatchEvent(new CustomEvent('open-env-paste'))"
+                    class="btn-secondary text-sm">
+                {% translate "Paste .env" %}
+            </button>
+        </div>
+
+        <template x-for="(row, i) in rows" :key="i">
+            <div class="mt-2">
+                <div class="flex items-center gap-2">
+                    <input type="text" x-model="row.name" placeholder="NAME"
+                           class="flex-1 font-mono"
+                           :class="rowError(i) ? '!border-red-500/60 focus:!ring-red-500/30' : ''">
+                    <input x-model="row.value"
+                           :type="row.is_secret ? 'password' : 'text'"
+                           :placeholder="row.has_existing_value ? '{% translate '🔒 keep existing'|escapejs %}' : '{% translate 'value'|escapejs %}'"
+                           class="flex-1">
+                    <label class="toggle-switch" :title="row.is_secret ? '{% translate "Secret" %}' : '{% translate "Plain" %}'">
+                        <input type="checkbox" x-model="row.is_secret" class="toggle-switch__input">
+                        <span class="toggle-switch__track"></span>
+                    </label>
+                    <button type="button" @click="removeRow(i)" aria-label="{% translate 'Remove' %}"
+                            class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-white/[0.06] hover:text-red-300">
+                        {% icon "trash" "h-4 w-4" %}
+                    </button>
+                </div>
+                <p x-show="rowError(i)" x-cloak class="mt-1 text-xs text-red-400" x-text="rowError(i)"></p>
+            </div>
+        </template>
+
+        <button type="button" @click="addRow()" class="btn-secondary mt-3 text-sm">
+            + {% translate "Add variable" %}
+        </button>
+
+        <input type="hidden" name="env_vars_json" :value="JSON.stringify(serialised)">
+        {% if form.env_vars_json.errors %}
+        <p class="mt-1.5 text-sm text-red-400">{{ form.env_vars_json.errors.0 }}</p>
+        {% endif %}
+    </fieldset>
+
+    <fieldset x-data='repoIdsEditor({{ form.repo_ids_json.value|default:form.repo_ids_json.initial }})'>
+        <legend class="text-[15px] font-medium text-gray-300">
+            {% translate "Repositories" %}
+            <span class="text-gray-500" x-text="ids.length ? '(' + ids.length + ')' : ''"></span>
+        </legend>
+        <p class="mt-1 text-sm text-gray-400">
+            {% translate "When a run targets one of these repositories and the user has selected Auto, this environment is used." %}
+        </p>
+
+        <div class="mt-2 flex items-center gap-2">
+            <input type="text" x-model="draft"
+                   @keydown.enter.prevent="addDraft()"
+                   placeholder="owner/repo"
+                   class="flex-1 font-mono">
+            <button type="button" @click="addDraft()" class="btn-secondary text-sm">
+                + {% translate "Add" %}
+            </button>
+        </div>
+        <p x-show="error" x-cloak class="mt-1 text-xs text-red-400" x-text="error"></p>
+
+        <div class="mt-2 flex flex-wrap gap-1.5">
+            <template x-for="(id, i) in ids" :key="id">
+                <span class="inline-flex items-center gap-1 rounded-md bg-white/[0.05] px-2 py-0.5 font-mono text-xs text-gray-200">
+                    <span x-text="id"></span>
+                    <button type="button" @click="removeAt(i)" class="text-gray-400 hover:text-red-300" aria-label="{% translate 'Remove' %}">×</button>
+                </span>
+            </template>
+        </div>
+
+        <input type="hidden" name="repo_ids_json" :value="JSON.stringify(ids)">
+        {% if form.repo_ids_json.errors %}
+        <p class="mt-1.5 text-sm text-red-400">{{ form.repo_ids_json.errors.0 }}</p>
+        {% endif %}
+    </fieldset>
+
+    <div class="border-t border-white/[0.06]"></div>
+
+    <div x-data="resourceControl({
+              network: '{{ form.network_choice.value|default:'default'|escapejs }}',
+              memValue: '{{ form.memory_value.value|default:''|escapejs }}',
+              memUnit: '{{ form.memory_unit.value|default:'MiB'|escapejs }}',
+              cpuValue: '{{ form.cpus.value|default:''|escapejs }}',
+              forceOpen: {% if is_default_form %}true{% else %}false{% endif %},
+              hasErrors: {% if form.network_choice.errors or form.memory_value.errors or form.memory_unit.errors or form.cpus.errors %}true{% else %}false{% endif %},
+          })">
+        <button type="button" @click="resourcesOpen = !resourcesOpen"
+                class="inline-flex items-center gap-1 text-[13px] font-medium text-gray-300 hover:text-white">
+            <span x-text="resourcesOpen ? '▾' : '▸'"></span>
+            {% translate "Resources" %}
+        </button>
+        <p x-show="!resourcesOpen" x-cloak class="mt-1.5 text-sm text-gray-500">
+            {% translate "Inherits network, memory, and CPUs from the global default. Click to override." %}
+        </p>
+
+        <div x-show="resourcesOpen" x-cloak class="mt-4 space-y-5 border-l-2 border-white/[0.06] pl-4">
+
+            {# Network #}
+            <div>
+                <label class="block text-[15px] font-medium text-gray-400">
+                    {% translate "Network" %}
+                    {% if form.network_choice.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
+                </label>
+                <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                           :class="network === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="network_choice" value="default" x-model="network" class="sr-only"
+                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
+                        {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_network %} — {{ global_default_summary.network }}{% endif %}{% endif %}
+                    </label>
+                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                           :class="network === 'on' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="network_choice" value="on" x-model="network" class="sr-only"
+                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
+                        {% translate "On" %}
+                    </label>
+                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                           :class="network === 'off' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="network_choice" value="off" x-model="network" class="sr-only"
+                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
+                        {% translate "Off" %}
+                    </label>
+                </div>
+                {% if form.network_choice.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.network_choice.errors.0 }}</p>{% endif %}
+            </div>
+
+            {# Memory #}
+            <div>
+                <label class="block text-[15px] font-medium text-gray-400">
+                    {% translate "Memory" %}
+                    {% if form.memory_value.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
+                </label>
+                <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                           :class="memMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.memory_value.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="memory_mode" value="default" :checked="memMode === 'default'" @change="setMemMode('default')" class="sr-only"
+                               {% if form.memory_value.field.disabled %}disabled{% endif %}>
+                        {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_memory %} — {{ global_default_summary.memory }}{% endif %}{% endif %}
+                    </label>
+                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                           :class="memMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.memory_value.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="memory_mode" value="custom" :checked="memMode === 'custom'" @change="setMemMode('custom')" class="sr-only"
+                               {% if form.memory_value.field.disabled %}disabled{% endif %}>
+                        {% translate "Custom" %}
+                    </label>
+                </div>
+                <div x-show="memMode === 'custom'" x-cloak class="mt-2 flex items-center gap-2">
+                    <input type="number" min="1" x-model="memValue" placeholder="1" class="!w-32" {% if form.memory_value.field.disabled %}disabled{% endif %}>
+                    <select x-model="memUnit" class="!w-28" {% if form.memory_unit.field.disabled %}disabled{% endif %}>
+                        <option value="MiB">MiB</option>
+                        <option value="GiB">GiB</option>
+                    </select>
+                </div>
+                <input type="hidden" name="memory_value" :value="memHiddenValue">
+                <input type="hidden" name="memory_unit" :value="memHiddenUnit">
+                {% if form.memory_value.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.memory_value.errors.0 }}</p>{% endif %}
+            </div>
+
+            {# CPUs #}
+            <div>
+                <label class="block text-[15px] font-medium text-gray-400">
+                    {% translate "CPUs" %}
+                    {% if form.cpus.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
+                </label>
+                <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                           :class="cpuMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.cpus.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="cpu_mode" value="default" :checked="cpuMode === 'default'" @change="setCpuMode('default')" class="sr-only"
+                               {% if form.cpus.field.disabled %}disabled{% endif %}>
+                        {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_cpus %} — {{ global_default_summary.cpus }}{% endif %}{% endif %}
+                    </label>
+                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                           :class="cpuMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                           {% if form.cpus.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                        <input type="radio" name="cpu_mode" value="custom" :checked="cpuMode === 'custom'" @change="setCpuMode('custom')" class="sr-only"
+                               {% if form.cpus.field.disabled %}disabled{% endif %}>
+                        {% translate "Custom" %}
+                    </label>
+                </div>
+                <div x-show="cpuMode === 'custom'" x-cloak class="mt-2">
+                    <input type="number" min="0.25" step="0.25" x-model="cpuValue" placeholder="1.0" class="!w-32"
+                           {% if form.cpus.field.disabled %}disabled{% endif %}>
+                </div>
+                <input type="hidden" name="cpus" :value="cpuHiddenValue">
+                {% if form.cpus.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.cpus.errors.0 }}</p>{% endif %}
+            </div>
+
+        </div>
+    </div>
+
+    <div class="flex items-center gap-3 border-t border-white/[0.06] pt-5">
+        <button type="submit" class="btn-primary">{% translate "Save" %}</button>
+        <button type="button" @click="$dispatch('close-env-drawer')" class="btn-secondary">{% translate "Cancel" %}</button>
+        {% if show_delete %}
+        <button type="button"
+                @click.prevent="$dispatch('open-env-drawer', {mode: 'delete', url: '{% url 'sandbox_envs:delete' object.id %}'})"
+                class="btn-danger-outline ml-auto">
+            {% translate "Delete" %}
+        </button>
+        {% endif %}
+    </div>
+    {% include "sandbox_envs/_env_paste_overlay.html" %}
+</form>

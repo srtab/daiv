@@ -151,6 +151,15 @@ class Activity(models.Model):
         verbose_name=_("scheduled job"),
     )
 
+    sandbox_environment = models.ForeignKey(
+        "sandbox_envs.SandboxEnvironment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="activities",
+        verbose_name=_("sandbox environment"),
+    )
+
     # Denormalized result / error (survives DBTaskResult pruning)
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")

@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 
 <div data-testid="app-user-menu" x-data="{ open: false }" class="relative" @keydown.escape="open = false">
   <button type="button"
@@ -9,9 +9,7 @@
       {{ user.name|default:user.email|first|upper }}
     </span>
     <span class="hidden text-[13px] text-gray-300 sm:inline">{{ user.email }}</span>
-    <svg class="h-3 w-3 text-gray-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
-      <path d="M3 4.5L6 7.5L9 4.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
+    {% icon "chevron-down" "h-3 w-3 text-gray-500" %}
   </button>
 
   <div x-show="open"

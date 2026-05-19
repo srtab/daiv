@@ -1,0 +1,65 @@
+{% load i18n icon_tags %}
+<div x-data="envPasteOverlay({
+        importLabel: '{% translate 'Import' %}',
+        importLabelN: '{% translate 'Import {n} vars' %}',
+     })"
+     @open-env-paste.window="onOpen()"
+     @keydown.escape.window="if (open) close()"
+     x-show="open"
+     x-cloak
+     class="fixed inset-0 z-40">
+    <div x-show="open" x-transition.opacity
+         @click="close()"
+         class="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
+
+    <aside x-show="open"
+           x-transition:enter="transition duration-200 ease-out"
+           x-transition:enter-start="translate-x-full"
+           x-transition:enter-end="translate-x-0"
+           x-transition:leave="transition duration-150 ease-in"
+           x-transition:leave-start="translate-x-0"
+           x-transition:leave-end="translate-x-full"
+           role="dialog" aria-modal="true"
+           class="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col border-l border-white/[0.06] bg-[#0d1117] shadow-2xl">
+
+        <header class="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
+            <div>
+                <h2 class="text-lg font-semibold text-white">{% translate "Paste .env contents" %}</h2>
+                <p class="mt-1 text-sm text-gray-400">{% translate "Lines like KEY=value are imported. Comments (#) and blank lines are skipped." %}</p>
+            </div>
+            <button type="button" @click="close()" aria-label="{% translate 'Close' %}"
+                    class="rounded-lg p-2 text-gray-400 hover:bg-white/[0.06] hover:text-white">
+                {% icon "x-mark" "h-4 w-4" %}
+            </button>
+        </header>
+
+        <div class="flex-1 overflow-y-auto px-6 py-5">
+            <textarea x-model="text" @input="onInput()" rows="14"
+                      placeholder='API_KEY=sk-...&#10;DEBUG="true"&#10;# this line is ignored'
+                      class="block w-full font-mono text-sm"></textarea>
+
+            <p class="mt-3 text-sm text-gray-400">
+                <span x-text="parsed.entries.length"></span> {% translate "vars parsed" %}<span x-show="parsed.invalidLines.length" x-cloak>, <span x-text="parsed.invalidLines.length"></span> {% translate "invalid lines skipped" %} (<span x-text="parsed.invalidLines.join(', ')"></span>)</span>
+            </p>
+
+            <div class="mt-4 space-y-2 text-sm">
+                <label class="flex cursor-pointer items-center gap-2 text-gray-300">
+                    <input type="radio" name="env-paste-mode" value="merge" x-model="mode" checked>
+                    {% translate "Merge — skip names that already exist" %}
+                </label>
+                <label class="flex cursor-pointer items-center gap-2 text-gray-300">
+                    <input type="radio" name="env-paste-mode" value="replace" x-model="mode">
+                    {% translate "Replace all current variables" %}
+                </label>
+            </div>
+        </div>
+
+        <footer class="flex items-center gap-3 border-t border-white/[0.06] px-6 py-4">
+            <button type="button" @click="importNow()" :disabled="!parsed.entries.length"
+                    class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
+                <span x-text="importButtonText"></span>
+            </button>
+            <button type="button" @click="close()" class="btn-secondary">{% translate "Cancel" %}</button>
+        </footer>
+    </aside>
+</div>

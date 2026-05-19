@@ -16,6 +16,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from activity.models import TriggerType
 from activity.services import RepoTarget, submit_batch_runs
+from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
@@ -96,6 +97,7 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.request.user
+        kwargs["user"] = self.request.user
         return kwargs
 
     def get_initial(self):
@@ -114,6 +116,7 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         context["schedule_templates"] = _template_picker_payload()
         tpl = self._get_template()
         context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
+        context.update(env_picker_context(context["form"]))
         return context
 
     def form_valid(self, form):
@@ -134,11 +137,13 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["owner"] = self.object.user
+        kwargs["user"] = self.request.user
         return kwargs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
+        context.update(env_picker_context(context["form"]))
         return context
 
     def get_breadcrumbs(self):
@@ -196,9 +201,15 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, pk):
-
         schedule = get_object_or_404(self.get_queryset(), pk=pk)
         repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in schedule.repos]
+        # Resolve against the schedule owner, not request.user, so admin "Run now" picks the
+        # owner's USER envs — same semantics as the cron dispatcher.
+        repos = resolve_repo_envs(
+            user=schedule.user,
+            repos=repos,
+            explicit_env_id=str(schedule.sandbox_environment_id) if schedule.sandbox_environment_id else None,
+        )
         try:
             result = submit_batch_runs(
                 user=request.user,

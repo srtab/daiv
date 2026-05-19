@@ -49,78 +49,6 @@ class SlashCommands(BaseModel):
     enabled: bool = Field(default=True, description="Enable slash command features.")
 
 
-class SandboxCommandPolicy(BaseModel):
-    """
-    Per-repository bash command execution policy for the sandbox.
-
-    Entries in :attr:`disallow` and :attr:`allow` are space-separated command
-    prefixes that match the beginning of a parsed command's argument vector.
-    For example, ``"rm -rf"`` blocks any ``rm`` invocation whose first argument
-    is ``-rf``.
-
-    Precedence: ``disallow`` entries override ``allow`` entries, which override
-    the global default policy.  Built-in safety rules always take precedence.
-    """
-
-    disallow: tuple[str, ...] = Field(
-        default_factory=tuple,
-        description=(
-            "List of bash command prefixes to block in this repository. "
-            "Each entry is a space-separated prefix, e.g. 'rm -rf'. "
-            "Takes precedence over allow entries."
-        ),
-    )
-    allow: tuple[str, ...] = Field(
-        default_factory=tuple,
-        description=(
-            "List of bash command prefixes to explicitly permit in this repository, "
-            "overriding the default disallow policy. "
-            "Repo-level disallow entries and built-in rules still take precedence."
-        ),
-    )
-
-
-class Sandbox(BaseModel):
-    """
-    Sandbox configuration.
-    """
-
-    base_image: str | None = Field(
-        default_factory=lambda: site_settings.sandbox_base_image,
-        examples=["python:3.12-alpine", "node:18-alpine"],
-        description=(
-            "The base image for the sandbox to allow agents to execute shell commands. "
-            "Supply a custom image if you need preinstalled tooling."
-            "To disable the sandbox, set this to `null`."
-        ),
-    )
-    network_enabled: bool = Field(
-        default_factory=lambda: site_settings.sandbox_network_enabled,
-        description="Whether to enable the network in the sandbox.",
-    )
-    memory_bytes: int | None = Field(
-        default_factory=lambda: site_settings.sandbox_memory,
-        validation_alias=AliasChoices("memory_bytes", "memory"),
-        description="The memory limit for the sandbox (bytes).",
-    )
-    cpus: float | None = Field(
-        default_factory=lambda: site_settings.sandbox_cpu,
-        validation_alias=AliasChoices("cpus", "cpu"),
-        description="The CPU limit for the sandbox (CPUs).",
-    )
-    command_policy: SandboxCommandPolicy = Field(
-        default_factory=SandboxCommandPolicy,
-        description="Bash command execution policy for this repository's sandbox sessions.",
-    )
-
-    @property
-    def enabled(self) -> bool:
-        """
-        Check if the sandbox is enabled.
-        """
-        return self.base_image is not None
-
-
 class AgentModelConfig(BaseModel):
     """
     Model configuration for the DAIV agent.
@@ -228,9 +156,6 @@ class RepositoryConfig(BaseModel):
     issue_addressing: IssueAddressing = Field(
         default_factory=IssueAddressing, description="Configure issue addressing features."
     )
-    sandbox: Sandbox = Field(
-        default_factory=Sandbox, description="Configure the daiv-sandbox instance to be used to execute commands."
-    )
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
 
     def is_user_allowed(self, username: str) -> bool:
@@ -277,6 +202,11 @@ class RepositoryConfig(BaseModel):
             try:
                 config = RepositoryConfig(**yaml.safe_load(StringIO(config_file)))
             except ValidationError, ParserError:
+                logger.exception(
+                    "Failed to parse %s for repository %s; falling back to default configuration",
+                    CONFIGURATION_FILE_NAME,
+                    repo_id,
+                )
                 config = RepositoryConfig()
         else:
             config = RepositoryConfig()

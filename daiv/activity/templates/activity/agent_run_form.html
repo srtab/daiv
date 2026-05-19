@@ -7,6 +7,7 @@
 
 {% block alpine_plugins %}
 <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+{% include "sandbox_envs/_scripts.html" %}
 {% endblock alpine_plugins %}
 
 {% block breadcrumb %}
@@ -43,7 +44,7 @@
     {% csrf_token %}
 
     <div class="-mx-6 -mt-6 [&>div]:!rounded-b-none">
-        {% include "activity/_agent_run_fields.html" with form=form %}
+        {% include "activity/_agent_run_fields.html" with form=form with_env_picker=True env_picker_envs=sandbox_envs env_picker_selected_id=selected_sandbox_env_id %}
     </div>
 
     {% include "notifications/_notify_on_radio.html" with form=form %}
@@ -57,4 +58,5 @@
         </a>
     </div>
 </form>
+{% include "sandbox_envs/_env_drawer.html" %}
 {% endblock app_content %}

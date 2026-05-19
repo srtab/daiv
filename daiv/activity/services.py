@@ -16,6 +16,7 @@ _PROMPT_DRIVEN = {TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.UI_JOB}
 
 if TYPE_CHECKING:
     from notifications.choices import NotifyOn
+    from sandbox_envs.models import SandboxEnvironment
 
     from accounts.models import User
     from schedules.models import ScheduledJob
@@ -29,6 +30,7 @@ MAX_REPOS_PER_BATCH = 20
 class RepoTarget:
     repo_id: str
     ref: str = ""
+    sandbox_environment_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,7 @@ def create_activity(
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
     title: str = "",
+    sandbox_environment: SandboxEnvironment | None = None,
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult.
 
@@ -123,6 +126,7 @@ def create_activity(
         batch_id=batch_id,
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
+        sandbox_environment=sandbox_environment,
     )
 
 
@@ -144,8 +148,15 @@ async def acreate_activity(
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
     title: str = "",
+    sandbox_environment: SandboxEnvironment | None = None,
+    sandbox_environment_id: str | None = None,
 ) -> Activity:
     """Async variant of create_activity."""
+    extra: dict = {}
+    if sandbox_environment_id is not None:
+        extra["sandbox_environment_id"] = sandbox_environment_id
+    else:
+        extra["sandbox_environment"] = sandbox_environment
     return await Activity.objects.acreate(
         trigger_type=trigger_type,
         task_result_id=task_result_id,
@@ -163,6 +174,7 @@ async def acreate_activity(
         batch_id=batch_id,
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
+        **extra,
     )
 
 
@@ -178,6 +190,9 @@ async def asubmit_batch_runs(
     external_username: str = "",
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Activity`` rows.
+
+    Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
+    :func:`sandbox_envs.services.resolve_repo_envs`), so the batch can mix per-repo envs.
 
     Best-effort: any per-repo exception (enqueue failure or post-enqueue activity-creation
     failure) lands in ``result.failed`` while siblings continue. Callers can use this to
@@ -195,7 +210,12 @@ async def asubmit_batch_runs(
         thread_id = str(uuid.uuid4())
         try:
             task = await run_job_task.aenqueue(
-                repo_id=target.repo_id, prompt=prompt, ref=ref_for_task, use_max=use_max, thread_id=thread_id
+                repo_id=target.repo_id,
+                prompt=prompt,
+                ref=ref_for_task,
+                use_max=use_max,
+                thread_id=thread_id,
+                sandbox_environment_id=target.sandbox_environment_id,
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
@@ -220,6 +240,7 @@ async def asubmit_batch_runs(
                 batch_id=batch_id,
                 thread_id=thread_id,
                 title=activity_title,
+                sandbox_environment_id=target.sandbox_environment_id,
             )
         except Exception:
             logger.exception(

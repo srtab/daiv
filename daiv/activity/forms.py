@@ -12,6 +12,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from notifications.choices import NotifyOn
+from sandbox_envs.models import SandboxEnvironment
 
 from activity.services import validate_repo_list
 
@@ -56,6 +57,19 @@ class AgentRunFieldsMixin(forms.Form):
         help_text=_("More capable model with thinking set to high."),
     )
     notify_on = forms.ChoiceField(label=_("Notify me"), choices=NotifyOn.choices, required=True)
+    sandbox_environment = forms.ModelChoiceField(
+        # Queryset is scoped to the caller in ``__init__``; an empty default avoids
+        # leaking other users' USER-scoped envs if a subclass forgets to pass ``user``.
+        queryset=SandboxEnvironment.objects.none(),
+        required=False,
+        empty_label=_("(global default)"),
+        label=_("Sandbox environment"),
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "sandbox_environment" in self.fields and user is not None:
+            self.fields["sandbox_environment"].queryset = SandboxEnvironment.objects.visible_to(user)
 
 
 class AgentRunCreateForm(AgentRunFieldsMixin, forms.Form):

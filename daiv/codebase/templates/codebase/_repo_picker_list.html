@@ -6,7 +6,7 @@
 {% for repo in repos %}
   <li>
     <button type="button"
-            class="combobox-option block w-full px-3 py-2 text-left text-[15px] text-gray-300 hover:bg-white/[0.06]"
+            class="combobox-option block w-full rounded-lg px-3 py-2 text-left text-[15px] text-gray-300 hover:bg-white/[0.06]"
             @click="setRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')">
       <span class="block text-white">{{ repo.slug }}</span>
       {% if repo.name and repo.name != repo.slug %}

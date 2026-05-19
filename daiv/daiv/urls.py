@@ -31,6 +31,7 @@ urlpatterns = [
     path("dashboard/chat/", include("chat.urls")),
     path("dashboard/runs/", include("activity.urls_runs", namespace="runs")),
     path("dashboard/notifications/", include("notifications.urls")),
+    path("dashboard/sandbox-envs/", include("sandbox_envs.urls", namespace="sandbox_envs")),
     path("dashboard/schedules/", include("schedules.urls")),
     path("codebase/", include("codebase.urls")),
     path("api/", api.urls),

@@ -23,6 +23,7 @@ def dispatch_scheduled_jobs_cron_task():
     """
     from activity.models import TriggerType
     from activity.services import RepoTarget, submit_batch_runs
+    from sandbox_envs.services import resolve_repo_envs
 
     now = datetime.now(tz=UTC)
     dispatched = 0
@@ -37,6 +38,13 @@ def dispatch_scheduled_jobs_cron_task():
             try:
                 with transaction.atomic():
                     repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in schedule.repos]
+                    repos = resolve_repo_envs(
+                        user=schedule.user,
+                        repos=repos,
+                        explicit_env_id=(
+                            str(schedule.sandbox_environment_id) if schedule.sandbox_environment_id else None
+                        ),
+                    )
                     result = submit_batch_runs(
                         user=schedule.user,
                         prompt=schedule.prompt,

@@ -81,7 +81,17 @@ class TestResolveActiveSection:
         request.resolver_match = None
         assert _resolve_active_section(request) == ""
 
-    def test_returns_empty_for_url_name_outside_known_sections(self):
+    def test_returns_empty_for_view_name_outside_known_sections(self):
         request = RequestFactory().get("/")
-        request.resolver_match = type("Match", (), {"url_name": "account_login"})()
+        request.resolver_match = type("Match", (), {"view_name": "account_login"})()
+        assert _resolve_active_section(request) == ""
+
+    def test_namespaced_view_name_disambiguates_colliding_url_names(self):
+        # ``sandbox_envs:list`` and ``notifications:list`` share ``url_name == "list"``;
+        # only the sandbox-envs namespace should resolve to the ``sandbox_envs`` section.
+        request = RequestFactory().get("/")
+        request.resolver_match = type("Match", (), {"view_name": "sandbox_envs:list"})()
+        assert _resolve_active_section(request) == "sandbox_envs"
+
+        request.resolver_match = type("Match", (), {"view_name": "notifications:list"})()
         assert _resolve_active_section(request) == ""

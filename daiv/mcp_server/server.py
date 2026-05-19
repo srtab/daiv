@@ -13,6 +13,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import BaseModel, Field
+from sandbox_envs.models import SandboxEnvironment
+from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.results import parse_agent_result
 from codebase.clients import RepoClient
@@ -110,6 +112,18 @@ async def submit_job(
             )
         ),
     ] = False,
+    environment: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional sandbox environment to use for every job in this batch — pass the env"
+                " name or UUID. Visible scopes are the caller's USER envs plus all GLOBAL envs."
+                " Use ``list_environments`` to discover names. When omitted, the runtime is"
+                " Auto-resolved for each repository (USER env matching repo_ids → GLOBAL env"
+                " matching repo_ids → GLOBAL default)."
+            )
+        ),
+    ] = None,
 ) -> str:
     """Submit a batch of agent jobs. Each repository runs as an independent job.
 
@@ -124,13 +138,28 @@ async def submit_job(
 
     specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
 
-    mcp_user = None
     try:
         mcp_user = await get_current_user()
     except Exception:
         logger.exception("Failed to resolve current user for MCP submit_job")
+        return json.dumps({
+            "error": (
+                "Authentication failed: unable to resolve the current user. Re-authenticate and "
+                "retry; if this persists, contact your administrator."
+            )
+        })
+
+    explicit_env_id: str | None = None
+    if environment:
+        try:
+            env_row = await resolve_env_for_user(mcp_user, environment)
+        except LookupError as err:
+            return json.dumps({"error": str(err)})
+        if env_row is not None:
+            explicit_env_id = str(env_row.id)
 
     targets = [RepoTarget(repo_id=s.repo_id, ref=s.ref or "") for s in specs]
+    targets = await aresolve_repo_envs(user=mcp_user, repos=targets, explicit_env_id=explicit_env_id)
     result = await asubmit_batch_runs(
         user=mcp_user,
         prompt=prompt,
@@ -332,3 +361,72 @@ async def list_repositories(
             "There are more results available. Ask the user to provide a search term or topic to narrow down."
         )
     return json.dumps(result)
+
+
+@mcp.tool()
+async def list_environments() -> list[dict]:
+    """List sandbox environments visible to the caller — their own USER envs plus all GLOBAL envs.
+
+    Use the returned ``name`` (or ``id``) as the ``environment`` argument to ``submit_job``.
+    Secret env-var values are not included; call ``get_environment`` for full details.
+    """
+    user = await get_current_user()
+    qs = SandboxEnvironment.objects.visible_to(user)
+    return [
+        {
+            "id": str(env.id),
+            "name": env.name,
+            "scope": env.scope,
+            "description": env.description,
+            "base_image": env.base_image,
+            "is_default": env.is_default,
+        }
+        async for env in qs
+    ]
+
+
+@mcp.tool()
+async def get_environment(
+    name_or_id: Annotated[str, Field(description="The environment name or UUID to look up.")],
+) -> dict | None:
+    """Look up one sandbox environment by name or UUID. Returns ``None`` if not found
+    in the caller's visible scopes (own USER envs plus all GLOBAL envs).
+
+    Secret env-var values are masked as ``"******"``.
+    """
+    from core.encryption import DecryptionError
+
+    user = await get_current_user()
+    try:
+        env = await resolve_env_for_user(user, name_or_id)
+    except LookupError as err:
+        # Surface the typo-vs-permissions distinction in logs even though the tool
+        # contract is just ``None`` — the message carries the "valid: [...]" list.
+        logger.warning("get_environment: %s", err)
+        return None
+    if env is None:
+        return None
+    try:
+        env_vars_rows = env.env_vars or []
+    except DecryptionError:
+        logger.error("env_vars decryption failed for SandboxEnvironment id=%s; returning empty list", env.id)
+        env_vars_rows = []
+    return {
+        "id": str(env.id),
+        "name": env.name,
+        "scope": env.scope,
+        "description": env.description,
+        "base_image": env.base_image,
+        "network_enabled": env.network_enabled,
+        "memory_bytes": env.memory_bytes,
+        "cpus": float(env.cpus) if env.cpus is not None else None,
+        "is_default": env.is_default,
+        "env_vars": [
+            {
+                "name": r["name"],
+                "value": "******" if r.get("is_secret") else r["value"],
+                "is_secret": bool(r.get("is_secret")),
+            }
+            for r in env_vars_rows
+        ],
+    }

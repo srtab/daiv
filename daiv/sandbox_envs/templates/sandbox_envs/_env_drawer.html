@@ -1,0 +1,63 @@
+{% load i18n icon_tags %}
+<div x-data="envDrawer({
+        createTitle: '{% translate 'New sandbox environment' %}',
+        editTitle: '{% translate 'Edit sandbox environment' %}',
+        deleteTitle: '{% translate 'Delete sandbox environment' %}',
+        createSubtitle: '{% translate 'Create an environment without leaving this page.' %}',
+        editSubtitle: '{% translate 'Edit without leaving this page.' %}',
+        deleteSubtitle: '{% translate 'Confirm deletion of this environment.' %}',
+     })"
+     @open-env-drawer.window="openDrawer($event.detail)"
+     @close-env-drawer.window="close()"
+     @keydown.escape.window="if (open) close()"
+     x-show="open"
+     x-cloak
+     class="fixed inset-0 z-30">
+    <div x-show="open" x-transition.opacity
+         @click="close()"
+         class="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
+
+    <aside x-show="open"
+           x-transition:enter="transition duration-200 ease-out"
+           x-transition:enter-start="translate-x-full"
+           x-transition:enter-end="translate-x-0"
+           x-transition:leave="transition duration-150 ease-in"
+           x-transition:leave-start="translate-x-0"
+           x-transition:leave-end="translate-x-full"
+           role="dialog" aria-modal="true"
+           class="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l border-white/[0.06] bg-[#0d1117] shadow-2xl">
+
+        <header class="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
+            <div>
+                <h2 class="text-lg font-semibold text-white" x-text="title">{% translate "New sandbox environment" %}</h2>
+                <p class="mt-1 text-sm text-gray-400" x-text="subtitle">
+                    {% translate "Create an environment without leaving this page." %}
+                </p>
+            </div>
+            <button type="button" @click="close()" aria-label="{% translate 'Close' %}"
+                    class="rounded-lg p-2 text-gray-400 hover:bg-white/[0.06] hover:text-white">
+                {% icon "x-mark" "h-4 w-4" %}
+            </button>
+        </header>
+
+        <div class="flex-1 overflow-y-auto px-6 py-5">
+            <div x-show="error"
+                 class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3">
+                <p class="text-sm text-red-200">
+                    {% translate "Something went wrong. Check the connection and try again." %}
+                </p>
+                <button type="button" @click="retryLoad()" class="btn-secondary text-sm">
+                    {% translate "Retry" %}
+                </button>
+            </div>
+            <div x-ref="body">
+                <div class="animate-pulse space-y-3">
+                    <div class="h-4 w-1/3 rounded bg-white/[0.06]"></div>
+                    <div class="h-9 rounded bg-white/[0.04]"></div>
+                    <div class="h-4 w-1/3 rounded bg-white/[0.06]"></div>
+                    <div class="h-9 rounded bg-white/[0.04]"></div>
+                </div>
+            </div>
+        </div>
+    </aside>
+</div>

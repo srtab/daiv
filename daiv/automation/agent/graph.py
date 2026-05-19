@@ -188,7 +188,7 @@ async def create_daiv_agent(
         BaseAgent.get_model(model=model_name, thinking_level=thinking_level) for model_name in model_names[1:]
     ]
 
-    _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.config.sandbox.enabled
+    _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.sandbox.enabled
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 

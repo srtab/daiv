@@ -7,6 +7,7 @@ from activity.models import TriggerType
 from activity.services import RepoTarget, asubmit_batch_runs
 from django_tasks_db.models import DBTaskResult
 from ninja import Router
+from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.results import parse_agent_result
 from chat.api.security import AuthBearer
@@ -20,14 +21,23 @@ logger = logging.getLogger("daiv.jobs")
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
 
 
-@jobs_router.post("", response={202: JobSubmitResponse, 503: dict}, throttle=[JobsRateThrottle()])
+@jobs_router.post("", response={202: JobSubmitResponse, 400: dict, 503: dict}, throttle=[JobsRateThrottle()])
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
 
     Returns ``{batch_id, jobs, failed}``. Partial failures at enqueue time are reported
     in ``failed``; the rest of the batch still runs.
     """
+    explicit_env_id = None
+    if payload.environment:
+        try:
+            env = await resolve_env_for_user(request.auth, payload.environment)
+        except LookupError as err:
+            return 400, {"detail": str(err)}
+        explicit_env_id = str(env.id) if env else None
+
     targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
+    targets = await aresolve_repo_envs(user=request.auth, repos=targets, explicit_env_id=explicit_env_id)
     result = await asubmit_batch_runs(
         user=request.auth,
         prompt=payload.prompt,

@@ -1,0 +1,170 @@
+{% load i18n icon_tags static %}
+{% url 'sandbox_envs:create' as env_create_url %}
+
+{% comment %}
+Reusable env pill + popover.
+
+Parameters:
+- envs (required)               — iterable of SandboxEnvironment instances visible to the user
+- selected_id (default "")      — UUID string of the currently-selected env; "" means Auto
+- field_name (default "")       — name of the hidden input that mirrors `selectedId` for form POSTs;
+                                  leave empty to use the picker as an event-only source (e.g. chat hero)
+- on_change_event (default "")  — when set, the component dispatches this window event on selection with {id}
+- disabled (default False)      — render a static, server-rendered pill (no Alpine, no popover, no caret).
+                                  Used where the env is locked for the current context (e.g. chat composer
+                                  on an existing thread, since the backend ignores env changes after the
+                                  first turn). Caller must pass `selected_env` (the resolved env object,
+                                  or None for Auto) since the locked render doesn't ship the envs list.
+- selected_env (default None)   — pre-resolved env object for the locked render only.
+{% endcomment %}
+
+{% if disabled %}
+<div class="relative inline-flex">
+    <span class="env-pill env-pill--locked"
+          {% if selected_env %}title="{{ selected_env.scope }} · {{ selected_env.name }}"{% else %}title="{% translate 'Auto' %}"{% endif %}
+          aria-disabled="true">
+        <svg class="env-pill__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            <path d="M3.27 6.96L12 12.01l8.73-5.05"/>
+            <path d="M12 22.08V12"/>
+        </svg>
+        <span class="env-pill__name">{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
+        {% if selected_env %}
+        <span class="env-pill__scope-tag env-pill__scope-tag--{{ selected_env.scope }}">{{ selected_env.scope }}</span>
+        {% endif %}
+        <svg class="env-pill__lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <title>{% translate "Locked for this conversation" %}</title>
+            <rect x="5" y="11" width="14" height="9" rx="2"/>
+            <path d="M8 11V8a4 4 0 0 1 8 0v3"/>
+        </svg>
+    </span>
+</div>
+{% else %}
+<div x-data='envPicker({
+        envs: [
+            {% for env in envs %}
+            {
+                "id": "{{ env.id }}",
+                "name": "{{ env.name|escapejs }}",
+                "scope": "{{ env.scope }}",
+                "is_default": {% if env.is_default %}true{% else %}false{% endif %},
+                "summary": "{{ env.summary|escapejs }}"
+            }{% if not forloop.last %},{% endif %}
+            {% endfor %}
+        ],
+        selectedId: "{{ selected_id|default:''|escapejs }}",
+        onChangeEvent: "{{ on_change_event|default:''|escapejs }}",
+        createUrl: "{{ env_create_url|escapejs }}"
+     })'
+     class="relative inline-flex">
+
+    <button type="button"
+            @click.stop="toggle()"
+            :aria-expanded="open"
+            :title="pillLabel.scopeTag ? pillLabel.scopeTag + ' · ' + pillLabel.name : pillLabel.name"
+            class="env-pill">
+        <svg class="env-pill__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            <path d="M3.27 6.96L12 12.01l8.73-5.05"/>
+            <path d="M12 22.08V12"/>
+        </svg>
+        <span class="env-pill__name" x-text="pillLabel.name"></span>
+        <span x-show="pillLabel.scopeTag" x-cloak
+              class="env-pill__scope-tag"
+              :class="'env-pill__scope-tag--' + pillLabel.scopeTag"
+              x-text="pillLabel.scopeTag"></span>
+        <span class="env-pill__caret" aria-hidden="true">▾</span>
+    </button>
+
+    <div x-show="open" x-cloak
+         @click.outside="close()"
+         @keydown.escape.window="close()"
+         @keydown.arrow-down.prevent="moveHighlight(1)"
+         @keydown.arrow-up.prevent="moveHighlight(-1)"
+         @keydown.enter.prevent="selectHighlighted()"
+         class="picker-popover left-0 w-[340px]">
+
+        <input type="search" x-ref="search" x-model="query"
+               @keydown.arrow-down.prevent.stop="moveHighlight(1)"
+               @keydown.arrow-up.prevent.stop="moveHighlight(-1)"
+               @keydown.enter.prevent.stop="selectHighlighted()"
+               placeholder="{% translate 'Search environments…' %}"
+               class="picker-popover__search">
+
+        <div class="picker-popover__list scrollbar-thin">
+            <button type="button"
+                    @click="select('')"
+                    @mouseenter="highlightIndex = -1"
+                    title="{% translate 'Resolved at runtime from the selected repo.' %}"
+                    class="env-popover__row env-popover__row--auto"
+                    :class="{
+                        'env-popover__row--selected': _isAutoSelected(),
+                        'env-popover__row--highlighted': highlightIndex === -1,
+                    }">
+                <svg class="env-popover__check" :class="{ 'invisible': !_isAutoSelected() }"
+                     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                <div class="env-popover__row-body">
+                    <div class="env-popover__row-head">
+                        <span class="env-popover__row-name !flex-none">{% translate "Auto" %}</span>
+                        <span class="env-popover__info"
+                              title="{% translate 'Auto resolution order: 1) your env whose repo list matches; 2) a shared env whose repo list matches; 3) the shared default.' %}"
+                              aria-label="{% translate 'How Auto picks an environment' %}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4"/>
+                                <path d="M12 8h.01"/>
+                            </svg>
+                        </span>
+                    </div>
+                    <div class="env-popover__row-subtitle">
+                        {% translate "Resolves to a matching env (else global default)" %}
+                    </div>
+                </div>
+            </button>
+            <template x-for="(env, idx) in filteredEnvs" :key="env.id">
+                <button type="button"
+                        @click="select(env.id)"
+                        @mouseenter="highlightIndex = idx"
+                        class="env-popover__row"
+                        :class="{
+                            'env-popover__row--selected': _isSelected(env),
+                            'env-popover__row--highlighted': highlightIndex === idx,
+                        }">
+                    <svg class="env-popover__check" :class="{ 'invisible': !_isSelected(env) }"
+                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    <div class="env-popover__row-body">
+                        <div class="env-popover__row-head">
+                            <span class="env-popover__row-name" x-text="env.name"></span>
+                            <span class="env-popover__scope-tag"
+                                  :class="'env-popover__scope-tag--' + env.scope"
+                                  x-text="env.scope"></span>
+                        </div>
+                        <div class="env-popover__row-subtitle" x-text="env.summary"
+                             x-show="env.summary"></div>
+                    </div>
+                </button>
+            </template>
+            <div x-show="filteredEnvs.length === 0" class="env-popover__empty">
+                {% translate "No environments match" %}
+            </div>
+        </div>
+
+        <div class="env-popover__footer">
+            <button type="button" @click="openCreate()" class="env-popover__create">
+                {% icon "plus" "h-3.5 w-3.5" %}
+                {% translate "New environment" %}
+            </button>
+        </div>
+    </div>
+
+    {% if field_name %}
+    <input type="hidden" name="{{ field_name }}" :value="selectedId">
+    {% endif %}
+</div>
+{% endif %}

@@ -258,3 +258,11 @@ class TestGlobalFlagsBeforeSubcommand:
     def test_safe_commands_with_global_flags_still_allowed(self, argv):
         result = evaluate_command_policy([_seg(argv)], CommandPolicy())
         assert result.allowed
+
+
+def test_sandbox_command_policy_defaults_to_empty():
+    from core.sandbox.command_policy import SandboxCommandPolicy
+
+    policy = SandboxCommandPolicy()
+    assert policy.allow == ()
+    assert policy.disallow == ()

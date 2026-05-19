@@ -1,0 +1,51 @@
+{% extends "base_app.html" %}
+{% load i18n static %}
+
+{% block title %}{% translate "Sandbox Environments" %} — DAIV{% endblock %}
+
+{% block head_extra %}
+<script defer src="{% static 'sandbox_envs/js/env-drawer.js' %}"></script>
+<script defer src="{% static 'sandbox_envs/js/env-vars-editor.js' %}"></script>
+<script defer src="{% static 'sandbox_envs/js/resource-control.js' %}"></script>
+{% endblock head_extra %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Sandbox Environments" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Reusable sandbox configurations for agent runs." %}
+        </p>
+    </div>
+    <a href="{% url 'sandbox_envs:create' %}"
+       @click.prevent="window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode: 'create', url: '{% url 'sandbox_envs:create' %}'}}))"
+       class="btn-primary">{% translate "New environment" %}</a>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "Global environments" %}</h2>
+    {% include "sandbox_envs/_global_envs.html" %}
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "My environments" %}</h2>
+    {% include "sandbox_envs/_user_envs.html" %}
+</section>
+{% include "sandbox_envs/_env_drawer.html" %}
+
+<div x-data x-init="
+    const p = new URLSearchParams(location.search).get('open');
+    if (!p) return;
+    const [mode, id] = p.split(':');
+    const base = '{% url 'sandbox_envs:list' %}';
+    if (mode === 'create') {
+        window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode: 'create', url: base + 'create/'}}));
+    } else if ((mode === 'edit' || mode === 'delete') && id) {
+        const url = base + encodeURIComponent(id) + '/' + (mode === 'edit' ? 'edit/' : 'delete/');
+        window.dispatchEvent(new CustomEvent('open-env-drawer', {detail: {mode, url}}));
+    }
+    window.history.replaceState({}, '', base);
+"></div>
+{% endblock app_content %}

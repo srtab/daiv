@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 {% url 'picker_users' as user_picker_url %}
 <div class="mt-6"
      x-data="subscriberPicker({ initial: {{ subscriber_initial_json|default:'[]' }} })">
@@ -32,9 +32,7 @@
                     x-show="selected.length === 0"
                     @click.stop="openPicker()"
                     class="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]">
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <path d="M16 11a4 4 0 10-8 0 4 4 0 008 0zM4 21a8 8 0 0116 0"/>
-                </svg>
+                {% icon "users" "h-3.5 w-3.5" %}
                 <span>{% translate "Add subscriber" %}</span>
             </button>
 
@@ -44,16 +42,14 @@
                     aria-label="{% translate 'Add subscriber' %}"
                     title="{% translate 'Add subscriber' %}"
                     class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <path d="M12 5v14M5 12h14"/>
-                </svg>
+                {% icon "plus" "h-3.5 w-3.5" %}
             </button>
         </div>
 
         <div x-show="popover" x-cloak
              @click.outside="closePicker()"
              @keydown.escape.window="closePicker()"
-             class="absolute left-0 top-full z-50 mt-2 w-80 rounded-xl border border-white/[0.08] bg-[#0d1117] p-2 shadow-lg">
+             class="picker-popover left-0 w-80">
             {% comment %} `hx-include` pulls in the hidden `exclude` CSV so the backend can filter out already-selected users. HTMX 2.x only sends the triggering input's value on GET by default, so without this the enclosing form's other inputs are *not* sent (which is what we want — the picker stays scoped to `q` and `exclude`). {% endcomment %}
             <input type="hidden" name="exclude" :value="excludeCsv">
             <input type="search" name="q" autofocus autocomplete="off"
@@ -64,7 +60,7 @@
                    hx-include="previous input[name='exclude']"
                    hx-sync="this:abort"
                    hx-target="#user-picker-list"
-                   class="mb-1 w-full rounded-md border border-white/[0.1] bg-white/[0.02] px-3 py-2 text-[14px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none">
+                   class="picker-popover__search">
             <div x-show="loading" class="animate-pulse py-1">
                 <div class="px-3 py-2 space-y-1.5">
                     <div class="h-3.5 rounded bg-white/[0.07] w-3/4"></div>
@@ -81,7 +77,7 @@
             </div>
             <div id="user-picker-list" x-ref="userPickerList"
                  data-error-message="{% translate 'Could not load users.' %}"
-                 x-show="!loading" class="max-h-60 overflow-auto"></div>
+                 x-show="!loading" class="picker-popover__list scrollbar-thin"></div>
         </div>
     </div>
 
