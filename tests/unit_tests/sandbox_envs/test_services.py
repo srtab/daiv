@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import SandboxEnvOverride, get_global_default, humanise_env_summary, resolve_sandbox_env
+from sandbox_envs.services import SandboxEnvOverride, get_global_default, resolve_sandbox_env
 
 from accounts.models import User
 
@@ -126,70 +126,6 @@ def test_humanise_global_default_memory_in_mib_when_not_whole_gib():
     from sandbox_envs.services import humanise_global_default
 
     assert humanise_global_default()["memory"] == "768 MiB"
-
-
-@pytest.mark.django_db
-class TestHumaniseEnvSummary:
-    def test_user_env_with_all_fields(self):
-        user = User.objects.create(username="u1", email="u1@example.com")
-        env = SandboxEnvironment.objects.create(
-            scope=Scope.USER,
-            user=user,
-            name="rust",
-            base_image="rust:1.83",
-            cpus=Decimal("2"),
-            memory_bytes=4 * 2**30,
-            network_enabled=True,
-        )
-        assert humanise_env_summary(env) == "rust:1.83 · 2 CPU · 4 GiB · net"
-
-    def test_user_env_minimal_falls_back_to_base_image(self):
-        user = User.objects.create(username="u2", email="u2@example.com")
-        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="bare", base_image="alpine:3.20")
-        assert humanise_env_summary(env) == "alpine:3.20"
-
-    def test_user_env_with_no_base_image_returns_empty(self):
-        user = User.objects.create(username="u3", email="u3@example.com")
-        env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="x")
-        assert humanise_env_summary(env) == ""
-
-    def test_user_env_fractional_cpu_and_mib(self):
-        user = User.objects.create(username="u4", email="u4@example.com")
-        env = SandboxEnvironment.objects.create(
-            scope=Scope.USER,
-            user=user,
-            name="tiny",
-            base_image="busybox",
-            cpus=Decimal("0.5"),
-            memory_bytes=512 * 2**20,
-        )
-        assert humanise_env_summary(env) == "busybox · 0.5 CPU · 512 MiB"
-
-    def test_user_env_network_disabled_no_suffix(self):
-        user = User.objects.create(username="u5", email="u5@example.com")
-        env = SandboxEnvironment.objects.create(
-            scope=Scope.USER, user=user, name="off", base_image="alpine", network_enabled=False
-        )
-        assert humanise_env_summary(env) == "alpine"
-
-    def test_default_summary_uses_row_fields(self):
-        SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).update(
-            base_image="python:3.14-slim", cpus=Decimal("1"), memory_bytes=2 * 2**30, network_enabled=True
-        )
-        env = SandboxEnvironment.objects.get(scope=Scope.GLOBAL, is_default=True)
-        assert humanise_env_summary(env) == "python:3.14-slim · 1 CPU · 2 GiB · net"
-
-    def test_global_non_default_uses_row_fields(self):
-        env = SandboxEnvironment.objects.create(
-            scope=Scope.GLOBAL,
-            name="staging",
-            base_image="alpine",
-            cpus=Decimal("2"),
-            memory_bytes=2 * 2**30,
-            network_enabled=True,
-            is_default=False,
-        )
-        assert humanise_env_summary(env) == "alpine · 2 CPU · 2 GiB · net"
 
 
 @pytest.mark.django_db

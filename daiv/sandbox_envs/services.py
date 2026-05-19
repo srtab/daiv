@@ -99,29 +99,6 @@ def humanise_global_default() -> dict[str, str | bool]:
     }
 
 
-def humanise_env_summary(env: SandboxEnvironment) -> str:
-    """Compact one-line description of an env for the popover row subtitle.
-
-    Reads the env's row fields directly for every scope.
-
-    Format: ``"<base_image> · <N> CPU · <memory> · net"`` with each segment
-    omitted when its source value is missing. Memory renders as ``GiB`` for
-    whole-GiB values, ``MiB`` otherwise. Network is included only when
-    explicitly enabled.
-    """
-    parts: list[str] = []
-    if env.base_image:
-        parts.append(env.base_image)
-
-    if env.cpus is not None:
-        parts.append(f"{_fmt_cpus(env.cpus)} CPU")
-    if env.memory_bytes is not None:
-        parts.append(_fmt_memory(env.memory_bytes))
-    if env.network_enabled is True:
-        parts.append("net")
-    return " · ".join(parts)
-
-
 def visible_envs_for(user):
     return SandboxEnvironment.objects.filter(Q(scope=Scope.USER, user=user) | Q(scope=Scope.GLOBAL)).order_by(
         "scope", "name"

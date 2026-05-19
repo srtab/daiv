@@ -327,6 +327,13 @@ def test_summary_formats_memory_in_mib_when_not_whole_gib(user):
 
 
 @pytest.mark.django_db
+def test_summary_empty_for_env_with_no_fields_set(_clear_global_envs):
+    # GLOBAL env with no base_image/cpus/memory/network — summary should be "".
+    env = SandboxEnvironment(scope=Scope.GLOBAL, name="empty", base_image="")
+    assert env.summary == ""
+
+
+@pytest.mark.django_db
 def test_can_delete_blocks_global_default(_clear_global_envs):
     env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="d", base_image="g", is_default=True)
     ok, msg = env.can_delete()

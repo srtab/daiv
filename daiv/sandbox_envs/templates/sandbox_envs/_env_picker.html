@@ -1,4 +1,4 @@
-{% load env_picker i18n static %}
+{% load i18n static %}
 {% url 'sandbox_envs:create' as env_create_url %}
 
 {% comment %}
@@ -20,7 +20,7 @@ Parameters:
                 "name": "{{ env.name|escapejs }}",
                 "scope": "{{ env.scope }}",
                 "is_default": {% if env.is_default %}true{% else %}false{% endif %},
-                "summary": "{{ env|humanise_env_summary_for_template|escapejs }}"
+                "summary": "{{ env.summary|escapejs }}"
             }{% if not forloop.last %},{% endif %}
             {% endfor %}
         ],
