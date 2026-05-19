@@ -1,3 +1,6 @@
+import json
+import logging
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
@@ -6,6 +9,14 @@ from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
 
 User = get_user_model()
+
+
+@pytest.fixture
+def user(db):
+    from accounts.models import User as AccountsUser
+
+    SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    return AccountsUser.objects.create_user(username="u", email="u@e.com", password="x")  # noqa: S106
 
 
 @pytest.mark.django_db
@@ -303,3 +314,66 @@ class TestRepoIdsField:
         assert form.is_valid()
         with pytest.raises(ValidationError):
             form.save()
+
+
+@pytest.mark.django_db
+def test_form_env_vars_json_initial_is_empty_list_for_unsaved_instance(user):
+    form = SandboxEnvironmentForm(user=user, is_admin=False)
+    assert form.fields["env_vars_json"].initial == "[]"
+
+
+@pytest.mark.django_db
+def test_form_repo_ids_json_initial_is_empty_list_for_unsaved_instance(user):
+    form = SandboxEnvironmentForm(user=user, is_admin=False)
+    assert form.fields["repo_ids_json"].initial == "[]"
+
+
+@pytest.mark.django_db
+def test_form_env_vars_json_initial_masks_secret_values(user):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine",
+        env_vars=[
+            {"name": "PLAIN", "value": "v1", "is_secret": False},
+            {"name": "TOKEN", "value": "real-secret", "is_secret": True},
+        ],
+    )
+    form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
+    parsed = json.loads(form.fields["env_vars_json"].initial)
+    assert parsed == [
+        {"name": "PLAIN", "value": "v1", "is_secret": False, "has_existing_value": False},
+        {"name": "TOKEN", "value": "", "is_secret": True, "has_existing_value": True},
+    ]
+
+
+@pytest.mark.django_db
+def test_form_repo_ids_json_initial_reflects_instance(user):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER, user=user, name="dev", base_image="alpine", repo_ids=["o/a", "o/b"]
+    )
+    form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
+    assert json.loads(form.fields["repo_ids_json"].initial) == ["o/a", "o/b"]
+
+
+@pytest.mark.django_db
+def test_form_env_vars_json_initial_returns_empty_on_decryption_error(user, mocker, caplog):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine",
+        env_vars=[{"name": "TOKEN", "value": "secret", "is_secret": True}],
+    )
+    from core.encryption import DecryptionError
+
+    # Patch the descriptor: when accessed on the instance, raise DecryptionError.
+    def _raise(instance):
+        raise DecryptionError("bad key")
+
+    mocker.patch.object(type(env), "env_vars", new_callable=lambda: property(fget=_raise))
+    caplog.set_level(logging.ERROR, logger="daiv.sandbox_envs")
+    form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
+    assert form.fields["env_vars_json"].initial == "[]"
+    assert "decryption failed" in caplog.text

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from sandbox_envs.models import _ENV_VAR_NAME_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
+
+logger = logging.getLogger("daiv.sandbox_envs")
 
 MIB = 2**20
 GIB = 2**30
@@ -66,6 +69,42 @@ class SandboxEnvironmentForm(forms.ModelForm):
                     self.initial.setdefault("memory_unit", "MiB")
             self.initial.setdefault("memory_mode", "custom" if instance.memory_bytes else "default")
             self.initial.setdefault("cpu_mode", "custom" if instance.cpus else "default")
+        self.fields["env_vars_json"].initial = self._initial_env_vars_json()
+        self.fields["repo_ids_json"].initial = self._initial_repo_ids_json()
+
+    def _initial_env_vars_json(self) -> str:
+        """JSON string for the env-vars editor's initial state. Secret values
+        are masked (rendered as ``""`` with a ``has_existing_value`` UI hint)
+        so decrypted secrets never leak into page HTML. Returns ``"[]"`` for
+        unsaved instances or when existing ciphertext cannot be decrypted —
+        :meth:`_preserve_unchanged_secrets` still blocks save with a clear
+        error on the POST path."""
+        from core.encryption import DecryptionError
+
+        if self.instance.pk is None:
+            return "[]"
+        try:
+            rows = self.instance.env_vars or []
+        except DecryptionError:
+            logger.error(
+                "env_vars decryption failed for SandboxEnvironment id=%s; rendering empty editor", self.instance.id
+            )
+            return "[]"
+        masked = [
+            {
+                "name": r.get("name", ""),
+                "value": "" if r.get("is_secret") else r.get("value", ""),
+                "is_secret": bool(r.get("is_secret")),
+                "has_existing_value": bool(r.get("is_secret")),
+            }
+            for r in rows
+        ]
+        return json.dumps(masked)
+
+    def _initial_repo_ids_json(self) -> str:
+        if self.instance.pk is None:
+            return "[]"
+        return json.dumps(list(self.instance.repo_ids or []))
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]
