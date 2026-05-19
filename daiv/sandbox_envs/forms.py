@@ -41,14 +41,16 @@ class SandboxEnvironmentForm(forms.ModelForm):
 
     class Meta:
         model = SandboxEnvironment
-        fields = ("name", "description", "scope", "base_image", "cpus", "is_default")
+        # Excludes ``is_default`` deliberately: the template renders no checkbox,
+        # so including it here would demote the default on save (missing
+        # BooleanField → ``False``). Promotion is handled by a dedicated view.
+        fields = ("name", "description", "scope", "base_image", "cpus")
         widgets = {"description": forms.Textarea(attrs={"rows": 2})}
 
-    def __init__(self, *args, user=None, is_admin=False, is_default_form=False, **kwargs):
+    def __init__(self, *args, user=None, is_admin=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         self.is_admin = is_admin
-        self.is_default_form = is_default_form
         if not is_admin:
             # Non-admins cannot select GLOBAL. We restrict the available choices
             # rather than disabling the field, so a submitted GLOBAL value is
@@ -56,7 +58,6 @@ class SandboxEnvironmentForm(forms.ModelForm):
             # silently coerced to the initial value.
             self.fields["scope"].choices = [(Scope.USER.value, Scope.USER.label)]
             self.fields["scope"].initial = Scope.USER
-            self.fields.pop("is_default", None)
         instance = self.instance
         if instance.pk is not None:
             self.initial.setdefault("network_choice", _NETWORK_TO_CHOICE[instance.network_enabled])

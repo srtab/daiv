@@ -65,11 +65,7 @@ class EnvFormView(LoginRequiredMixin, View):
 
     def _make_form(self, *, instance, data=None):
         return SandboxEnvironmentForm(
-            data,
-            instance=instance,
-            user=self.request.user,
-            is_admin=self.request.user.is_admin,
-            is_default_form=self._is_default_form(instance),
+            data, instance=instance, user=self.request.user, is_admin=self.request.user.is_admin
         )
 
     @cached_property
