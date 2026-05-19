@@ -1,12 +1,12 @@
 /**
- * Alpine component: side drawer for creating OR editing a sandbox environment.
+ * Alpine component: side drawer for creating, editing, OR deleting a sandbox environment.
  *
  * Event contract (all on window):
- *   open-env-drawer  {detail: {mode: 'create'|'edit', url: string}} → opens; lazy-loads the form fragment via HTMX
- *   close-env-drawer                                                 → closes
- *   env-created / env-updated                                        → host page refreshes; this file also closes
+ *   open-env-drawer  {detail: {mode: 'create'|'edit'|'delete', url: string}} → opens; lazy-loads the body fragment via HTMX
+ *   close-env-drawer                                                          → closes
+ *   env-created / env-updated / env-deleted                                   → host page refreshes; this file also closes
  *
- * The form fragment is fetched on every open against the provided URL via
+ * The body fragment is fetched on every open against the provided URL via
  * htmx.ajax(); errors are surfaced as an inline banner with a Retry button.
  */
 document.addEventListener("alpine:init", () => {
@@ -17,8 +17,10 @@ document.addEventListener("alpine:init", () => {
         error: false,
         createTitle: labels.createTitle || "New sandbox environment",
         editTitle: labels.editTitle || "Edit sandbox environment",
+        deleteTitle: labels.deleteTitle || "Delete sandbox environment",
         createSubtitle: labels.createSubtitle || "Create an environment without leaving this page.",
         editSubtitle: labels.editSubtitle || "Edit without leaving this page.",
+        deleteSubtitle: labels.deleteSubtitle || "Confirm deletion of this environment.",
 
         init() {
             this.$el.addEventListener("htmx:afterRequest", (e) => {
@@ -52,11 +54,15 @@ document.addEventListener("alpine:init", () => {
         },
 
         get title() {
-            return this.mode === "edit" ? this.editTitle : this.createTitle;
+            if (this.mode === "edit") return this.editTitle;
+            if (this.mode === "delete") return this.deleteTitle;
+            return this.createTitle;
         },
 
         get subtitle() {
-            return this.mode === "edit" ? this.editSubtitle : this.createSubtitle;
+            if (this.mode === "edit") return this.editSubtitle;
+            if (this.mode === "delete") return this.deleteSubtitle;
+            return this.createSubtitle;
         },
     }));
 });
@@ -65,5 +71,8 @@ window.addEventListener("env-created", () => {
     window.dispatchEvent(new CustomEvent("close-env-drawer"));
 });
 window.addEventListener("env-updated", () => {
+    window.dispatchEvent(new CustomEvent("close-env-drawer"));
+});
+window.addEventListener("env-deleted", () => {
     window.dispatchEvent(new CustomEvent("close-env-drawer"));
 });

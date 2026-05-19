@@ -2,8 +2,10 @@
 <div x-data="envDrawer({
         createTitle: '{% translate 'New sandbox environment' %}',
         editTitle: '{% translate 'Edit sandbox environment' %}',
+        deleteTitle: '{% translate 'Delete sandbox environment' %}',
         createSubtitle: '{% translate 'Create an environment without leaving this page.' %}',
         editSubtitle: '{% translate 'Edit without leaving this page.' %}',
+        deleteSubtitle: '{% translate 'Confirm deletion of this environment.' %}',
      })"
      @open-env-drawer.window="openDrawer($event.detail)"
      @close-env-drawer.window="close()"
