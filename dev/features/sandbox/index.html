@@ -863,63 +863,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
+  <a href="#configuring-the-sandbox" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Configuration
+        Configuring the sandbox
       
     </span>
   </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-base-image" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom base image
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Custom base image">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Requirements
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Examples
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#building-your-own-image" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building your own image
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1412,63 +1362,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
+  <a href="#configuring-the-sandbox" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Configuration
+        Configuring the sandbox
       
     </span>
   </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-base-image" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom base image
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Custom base image">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Requirements
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Examples
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#building-your-own-image" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building your own image
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1598,21 +1498,8 @@
 </table>
 <p>These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.</p>
 <h3 id="per-repository-rules">Per-repository rules</h3>
-<p>You can add custom allow and disallow rules in your <code>.daiv.yml</code>:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
-<span class="normal"><a href="#__codelineno-0-2">2</a></span>
-<span class="normal"><a href="#__codelineno-0-3">3</a></span>
-<span class="normal"><a href="#__codelineno-0-4">4</a></span>
-<span class="normal"><a href="#__codelineno-0-5">5</a></span>
-<span class="normal"><a href="#__codelineno-0-6">6</a></span>
-<span class="normal"><a href="#__codelineno-0-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">sandbox</span><span class="p">:</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="nt">command_policy</span><span class="p">:</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">    </span><span class="nt">allow</span><span class="p">:</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;npm</span><span class="nv"> </span><span class="s">install&quot;</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;pytest&quot;</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="w">    </span><span class="nt">disallow</span><span class="p">:</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;rm</span><span class="nv"> </span><span class="s">-rf&quot;</span>
-</code></pre></div></td></tr></table></div>
+<p>Custom allow and disallow rules were previously declared in <code>.daiv.yml</code>. Per-environment
+command policies are a future iteration; for now, only the built-in safety rules apply.</p>
 <h3 id="precedence">Precedence</h3>
 <p>When a command is evaluated, rules are checked in this order:</p>
 <ol>
@@ -1621,128 +1508,14 @@
 <li><strong>Repository allow</strong> — permits commands not caught by 1 or 2</li>
 <li><strong>Default</strong> — everything else is allowed</li>
 </ol>
-<h2 id="configuration">Configuration</h2>
-<p>The sandbox is configured per-repository in <code>.daiv.yml</code>:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span>
-<span class="normal"><a href="#__codelineno-1-3">3</a></span>
-<span class="normal"><a href="#__codelineno-1-4">4</a></span>
-<span class="normal"><a href="#__codelineno-1-5">5</a></span>
-<span class="normal"><a href="#__codelineno-1-6">6</a></span>
-<span class="normal"><a href="#__codelineno-1-7">7</a></span>
-<span class="normal"><a href="#__codelineno-1-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nt">sandbox</span><span class="p">:</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span><span class="nt">base_image</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python:3.12-bookworm&quot;</span><span class="w">  </span><span class="c1"># Docker image (set to null to disable)</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span><span class="nt">network_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">               </span><span class="c1"># Allow network access</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span><span class="nt">memory_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4294967296</span><span class="w">             </span><span class="c1"># Memory limit (4 GB)</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="w">  </span><span class="nt">cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">                            </span><span class="c1"># CPU limit</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="w">  </span><span class="nt">command_policy</span><span class="p">:</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7"></a><span class="w">    </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8"></a><span class="w">    </span><span class="nt">disallow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
-</code></pre></div></td></tr></table></div>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>base_image</code></td>
-<td><code>python:3.12-bookworm</code></td>
-<td>Docker image for the sandbox. Set to <code>null</code> to disable the sandbox for this repository.</td>
-</tr>
-<tr>
-<td><code>network_enabled</code></td>
-<td><code>false</code></td>
-<td>Whether the container can access the network.</td>
-</tr>
-<tr>
-<td><code>memory_bytes</code></td>
-<td><code>null</code> (unlimited)</td>
-<td>Memory limit in bytes.</td>
-</tr>
-<tr>
-<td><code>cpus</code></td>
-<td><code>null</code> (unlimited)</td>
-<td>CPU limit.</td>
-</tr>
-<tr>
-<td><code>command_policy.allow</code></td>
-<td><code>[]</code></td>
-<td>Commands to explicitly allow.</td>
-</tr>
-<tr>
-<td><code>command_policy.disallow</code></td>
-<td><code>[]</code></td>
-<td>Commands to explicitly block.</td>
-</tr>
-</tbody>
-</table>
-<h2 id="custom-base-image">Custom base image</h2>
-<p>The <code>base_image</code> option is one of the most powerful sandbox settings. By providing your own Docker image, you give the agent access to your project's exact toolchain — the same runtimes, package managers, and utilities your team uses every day.</p>
-<h3 id="requirements">Requirements</h3>
-<p>Your base image <strong>must include <code>git</code></strong>. The sandbox mounts the repository and the agent relies on git to inspect the codebase (e.g., <code>git diff</code>, <code>git log</code>, <code>git status</code>). Without it, many sandbox operations will fail.</p>
-<h3 id="examples">Examples</h3>
-<table>
-<thead>
-<tr>
-<th>Project type</th>
-<th>Recommended image</th>
-<th>Why</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Python</td>
-<td><code>python:3.12-bookworm</code> (default)</td>
-<td>Includes pip, git, and common build tools</td>
-</tr>
-<tr>
-<td>Node.js</td>
-<td><code>node:22-bookworm</code></td>
-<td>Includes npm/npx and git</td>
-</tr>
-<tr>
-<td>Go</td>
-<td><code>golang:1.23-bookworm</code></td>
-<td>Includes go toolchain and git</td>
-</tr>
-<tr>
-<td>Multi-language</td>
-<td>Your own image</td>
-<td>Pre-install all runtimes and dependencies</td>
-</tr>
-</tbody>
-</table>
-<h3 id="building-your-own-image">Building your own image</h3>
-<p>For the best experience, create an image with your project's dependencies pre-installed. This avoids the agent spending time on <code>npm install</code> or <code>pip install</code> on every task.</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Docker</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
-<span class="normal"><a href="#__codelineno-2-2">2</a></span>
-<span class="normal"><a href="#__codelineno-2-3">3</a></span>
-<span class="normal"><a href="#__codelineno-2-4">4</a></span>
-<span class="normal"><a href="#__codelineno-2-5">5</a></span>
-<span class="normal"><a href="#__codelineno-2-6">6</a></span>
-<span class="normal"><a href="#__codelineno-2-7">7</a></span>
-<span class="normal"><a href="#__codelineno-2-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="k">FROM</span><span class="w"> </span><span class="s">python:3.12-bookworm</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="c"># Ensure git is available</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="k">RUN</span><span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>git<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>rm<span class="w"> </span>-rf<span class="w"> </span>/var/lib/apt/lists/*
-<a id="__codelineno-2-5" name="__codelineno-2-5"></a>
-<a id="__codelineno-2-6" name="__codelineno-2-6"></a><span class="c"># Pre-install project dependencies</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7"></a><span class="k">COPY</span><span class="w"> </span>requirements.txt<span class="w"> </span>.
-<a id="__codelineno-2-8" name="__codelineno-2-8"></a><span class="k">RUN</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
-</code></pre></div></td></tr></table></div>
-<p>Then reference it in <code>.daiv.yml</code>:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
-<span class="normal"><a href="#__codelineno-3-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="nt">sandbox</span><span class="p">:</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="w">  </span><span class="nt">base_image</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-registry.example.com/your-project-sandbox:latest&quot;</span>
-</code></pre></div></td></tr></table></div>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>Pre-installing dependencies in your image makes the agent significantly faster — it can jump straight into running tests or builds instead of waiting for package installation.</p>
-</div>
+<h2 id="configuring-the-sandbox">Configuring the sandbox</h2>
+<p>Sandbox runtime configuration (<code>base_image</code>, <code>cpus</code>, <code>memory</code>, <code>network</code>, and
+environment variables) is managed through the <strong>Sandbox Environments</strong> admin
+page rather than <code>.daiv.yml</code>. Each environment can be bound to specific
+repositories (<code>owner/repo</code>); when an agent runs in a repo claimed by an
+environment, that environment is auto-selected. Personal (USER-scoped)
+environments override organization-wide (GLOBAL-scoped) environments for the
+running user. See the Sandbox Environments page for details.</p>
 
 
 
@@ -1765,7 +1538,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 13, 2026 21:54:00 UTC">May 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 19, 2026 22:22:22 UTC">May 19, 2026</span>
   </span>
 
     
@@ -1775,7 +1548,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 13, 2026 21:54:00 UTC">May 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 19, 2026 22:22:22 UTC">May 19, 2026</span>
   </span>
 
     

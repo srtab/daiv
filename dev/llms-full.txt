@@ -2333,17 +2333,7 @@ These rules exist because DAIV manages git operations (commits, pushes, branches
 
 ### Per-repository rules
 
-You can add custom allow and disallow rules in your `.daiv.yml`:
-
-```
-sandbox:
-  command_policy:
-    allow:
-      - "npm install"
-      - "pytest"
-    disallow:
-      - "rm -rf"
-```
+Custom allow and disallow rules were previously declared in `.daiv.yml`. Per-environment command policies are a future iteration; for now, only the built-in safety rules apply.
 
 ### Precedence
 
@@ -2354,72 +2344,9 @@ When a command is evaluated, rules are checked in this order:
 1. **Repository allow** — permits commands not caught by 1 or 2
 1. **Default** — everything else is allowed
 
-## Configuration
+## Configuring the sandbox
 
-The sandbox is configured per-repository in `.daiv.yml`:
-
-```
-sandbox:
-  base_image: "python:3.12-bookworm"  # Docker image (set to null to disable)
-  network_enabled: false               # Allow network access
-  memory_bytes: 4294967296             # Memory limit (4 GB)
-  cpus: 2.0                            # CPU limit
-  command_policy:
-    allow: []
-    disallow: []
-```
-
-| Option                    | Default                | Description                                                                             |
-| ------------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
-| `base_image`              | `python:3.12-bookworm` | Docker image for the sandbox. Set to `null` to disable the sandbox for this repository. |
-| `network_enabled`         | `false`                | Whether the container can access the network.                                           |
-| `memory_bytes`            | `null` (unlimited)     | Memory limit in bytes.                                                                  |
-| `cpus`                    | `null` (unlimited)     | CPU limit.                                                                              |
-| `command_policy.allow`    | `[]`                   | Commands to explicitly allow.                                                           |
-| `command_policy.disallow` | `[]`                   | Commands to explicitly block.                                                           |
-
-## Custom base image
-
-The `base_image` option is one of the most powerful sandbox settings. By providing your own Docker image, you give the agent access to your project's exact toolchain — the same runtimes, package managers, and utilities your team uses every day.
-
-### Requirements
-
-Your base image **must include `git`**. The sandbox mounts the repository and the agent relies on git to inspect the codebase (e.g., `git diff`, `git log`, `git status`). Without it, many sandbox operations will fail.
-
-### Examples
-
-| Project type   | Recommended image                | Why                                       |
-| -------------- | -------------------------------- | ----------------------------------------- |
-| Python         | `python:3.12-bookworm` (default) | Includes pip, git, and common build tools |
-| Node.js        | `node:22-bookworm`               | Includes npm/npx and git                  |
-| Go             | `golang:1.23-bookworm`           | Includes go toolchain and git             |
-| Multi-language | Your own image                   | Pre-install all runtimes and dependencies |
-
-### Building your own image
-
-For the best experience, create an image with your project's dependencies pre-installed. This avoids the agent spending time on `npm install` or `pip install` on every task.
-
-```
-FROM python:3.12-bookworm
-
-# Ensure git is available
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-
-# Pre-install project dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-```
-
-Then reference it in `.daiv.yml`:
-
-```
-sandbox:
-  base_image: "your-registry.example.com/your-project-sandbox:latest"
-```
-
-Tip
-
-Pre-installing dependencies in your image makes the agent significantly faster — it can jump straight into running tests or builds instead of waiting for package installation.
+Sandbox runtime configuration (`base_image`, `cpus`, `memory`, `network`, and environment variables) is managed through the **Sandbox Environments** admin page rather than `.daiv.yml`. Each environment can be bound to specific repositories (`owner/repo`); when an agent runs in a repo claimed by an environment, that environment is auto-selected. Personal (USER-scoped) environments override organization-wide (GLOBAL-scoped) environments for the running user. See the Sandbox Environments page for details.
 # Integrations
 
 # Request Tracker Triage
@@ -2565,16 +2492,6 @@ pull_request_assistant:
 slash_commands:
   enabled: true
 
-# Sandbox
-sandbox:
-  base_image: "python:3.12-bookworm"
-  network_enabled: false
-  cpus: 2.0
-  memory_bytes: 4294967296
-  command_policy:
-    allow: []
-    disallow: []
-
 # Model overrides
 models:
   agent:
@@ -2650,18 +2567,7 @@ slash_commands:
 | `pull_request_assistant` | `enabled` | `true`  | [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) |
 | `slash_commands`         | `enabled` | `true`  | [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md)        |
 
-## Sandbox
-
-Configure the sandbox for command execution. See [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) for a full explanation of what the sandbox does and how the command policy works.
-
-| Option                            | Type            | Default                | Description                             |
-| --------------------------------- | --------------- | ---------------------- | --------------------------------------- |
-| `sandbox.base_image`              | `str \| null`   | `python:3.12-bookworm` | Docker image. Set to `null` to disable. |
-| `sandbox.network_enabled`         | `bool`          | `false`                | Allow network access.                   |
-| `sandbox.cpus`                    | `float \| null` | `null`                 | CPU limit.                              |
-| `sandbox.memory_bytes`            | `int \| null`   | `null`                 | Memory limit in bytes.                  |
-| `sandbox.command_policy.allow`    | `list[str]`     | `[]`                   | Command prefixes to explicitly permit.  |
-| `sandbox.command_policy.disallow` | `list[str]`     | `[]`                   | Command prefixes to block.              |
+# 
 
 ## Branch naming and commit conventions
 
@@ -3232,18 +3138,13 @@ LangSmith variables can also use `LANGCHAIN_` prefix (e.g., `LANGCHAIN_TRACING_V
 
 ### Sandbox (client-side)
 
-| Variable                               | Description                                                                                     | Default                | Example                   |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------- | ------------------------- |
-| `DAIV_SANDBOX_URL`                     | URL of the sandbox service                                                                      | `http://sandbox:8000`  | `http://sandbox:8000`     |
-| `DAIV_SANDBOX_TIMEOUT`                 | Timeout for sandbox requests in seconds                                                         | `600`                  | `600`                     |
-| `DAIV_SANDBOX_API_KEY`                 | API key for sandbox requests                                                                    | *(none)*               | `random-api-key`          |
-| `DAIV_SANDBOX_BASE_IMAGE`              | Default base image for sandbox sessions                                                         | `python:3.12-bookworm` | `node:18-alpine`          |
-| `DAIV_SANDBOX_EPHEMERAL`               | Default ephemeral setting for sandbox sessions                                                  | `False`                | `True`                    |
-| `DAIV_SANDBOX_NETWORK_ENABLED`         | Default network setting for sandbox sessions                                                    | `False`                | `True`                    |
-| `DAIV_SANDBOX_CPU`                     | Default CPU limit for sandbox sessions (CPUs)                                                   | `None`                 | `1.0`                     |
-| `DAIV_SANDBOX_MEMORY`                  | Default memory limit for sandbox sessions (bytes)                                               | `None`                 | `1073741824`              |
-| `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | Space-separated list of additional bash command prefixes to block globally (e.g. `curl wget`)   | `""` (none)            | `"curl wget npm publish"` |
-| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW`    | Space-separated list of bash command prefixes to globally permit, overriding the default policy | `""` (none)            | `"my-safe-tool"`          |
+| Variable                               | Description                                                                                     | Default               | Example                   |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
+| `DAIV_SANDBOX_URL`                     | URL of the sandbox service                                                                      | `http://sandbox:8000` | `http://sandbox:8000`     |
+| `DAIV_SANDBOX_TIMEOUT`                 | Timeout for sandbox requests in seconds                                                         | `600`                 | `600`                     |
+| `DAIV_SANDBOX_API_KEY`                 | API key for sandbox requests                                                                    | *(none)*              | `random-api-key`          |
+| `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | Space-separated list of additional bash command prefixes to block globally (e.g. `curl wget`)   | `""` (none)           | `"curl wget npm publish"` |
+| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW`    | Space-separated list of bash command prefixes to globally permit, overriding the default policy | `""` (none)           | `"my-safe-tool"`          |
 
 Info
 
@@ -3602,13 +3503,13 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 
 ### Conditionally enabled
 
-| Middleware                 | Condition                                                |
-| -------------------------- | -------------------------------------------------------- |
-| `SandboxMiddleware`        | Sandbox is configured (`DAIV_SANDBOX_BASE_IMAGE` is set) |
-| `WebSearchMiddleware`      | `DAIV_WEB_SEARCH_ENABLED` is `true`                      |
-| `WebFetchMiddleware`       | `DAIV_WEB_FETCH_ENABLED` is `true`                       |
-| `ModelFallbackMiddleware`  | A fallback model is configured                           |
-| `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode)                |
+| Middleware                 | Condition                                                                              |
+| -------------------------- | -------------------------------------------------------------------------------------- |
+| `SandboxMiddleware`        | A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists) |
+| `WebSearchMiddleware`      | `DAIV_WEB_SEARCH_ENABLED` is `true`                                                    |
+| `WebFetchMiddleware`       | `DAIV_WEB_FETCH_ENABLED` is `true`                                                     |
+| `ModelFallbackMiddleware`  | A fallback model is configured                                                         |
+| `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode)                                              |
 
 ## Subagents
 

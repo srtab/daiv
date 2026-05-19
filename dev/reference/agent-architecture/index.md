@@ -124,13 +124,13 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 
 ### Conditionally enabled
 
-| Middleware                 | Condition                                                |
-| -------------------------- | -------------------------------------------------------- |
-| `SandboxMiddleware`        | Sandbox is configured (`DAIV_SANDBOX_BASE_IMAGE` is set) |
-| `WebSearchMiddleware`      | `DAIV_WEB_SEARCH_ENABLED` is `true`                      |
-| `WebFetchMiddleware`       | `DAIV_WEB_FETCH_ENABLED` is `true`                       |
-| `ModelFallbackMiddleware`  | A fallback model is configured                           |
-| `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode)                |
+| Middleware                 | Condition                                                                              |
+| -------------------------- | -------------------------------------------------------------------------------------- |
+| `SandboxMiddleware`        | A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists) |
+| `WebSearchMiddleware`      | `DAIV_WEB_SEARCH_ENABLED` is `true`                                                    |
+| `WebFetchMiddleware`       | `DAIV_WEB_FETCH_ENABLED` is `true`                                                     |
+| `ModelFallbackMiddleware`  | A fallback model is configured                                                         |
+| `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode)                                              |
 
 ## Subagents
 
