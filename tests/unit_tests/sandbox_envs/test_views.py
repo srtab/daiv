@@ -314,6 +314,61 @@ def test_edit_global_default_sets_is_default_form_true(client, admin):
 
 
 @pytest.mark.django_db
+def test_edit_global_default_post_preserves_is_default(client, admin):
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL, name="Default", base_image="python:3.14", is_default=True
+    )
+    client.force_login(admin)
+    resp = client.post(
+        reverse("sandbox_envs:edit", args=[env.id]),
+        data={
+            "name": "Default",
+            "description": "edited",
+            "scope": Scope.GLOBAL,
+            "base_image": "python:3.14",
+            "memory_value": "",
+            "memory_unit": "MiB",
+            "network_choice": "default",
+            "env_vars_json": "[]",
+        },
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 204
+    env.refresh_from_db()
+    assert env.is_default is True
+    assert env.description == "edited"
+
+
+@pytest.mark.django_db
+def test_edit_post_cannot_promote_via_is_default_field(client, admin):
+    """Promotion is owned by ``EnvSetDefaultView``; submitting ``is_default=true``
+    in an edit POST must be ignored."""
+    SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="Current", base_image="python:3.14", is_default=True)
+    candidate = SandboxEnvironment.objects.create(
+        scope=Scope.GLOBAL, name="Candidate", base_image="python:3.14", is_default=False
+    )
+    client.force_login(admin)
+    resp = client.post(
+        reverse("sandbox_envs:edit", args=[candidate.id]),
+        data={
+            "name": "Candidate",
+            "description": "",
+            "scope": Scope.GLOBAL,
+            "base_image": "python:3.14",
+            "memory_value": "",
+            "memory_unit": "MiB",
+            "network_choice": "default",
+            "env_vars_json": "[]",
+            "is_default": "true",
+        },
+        HTTP_HX_REQUEST="true",
+    )
+    assert resp.status_code == 204
+    candidate.refresh_from_db()
+    assert candidate.is_default is False
+
+
+@pytest.mark.django_db
 def test_edit_non_default_user_env_sets_is_default_form_false(client, user):
     env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine")
     client.force_login(user)
