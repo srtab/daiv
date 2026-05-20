@@ -1,5 +1,6 @@
 import logging
 import uuid
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -420,6 +421,44 @@ class TestJobActivityNotifications:
         assert n.context["trigger_label"]
         assert n.context["repo_id"] == "acme/app"
 
+    def test_job_context_carries_token_and_cost_usage(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB,
+            user=member_user,
+            repo_id="acme/app",
+            status=ActivityStatus.SUCCESSFUL,
+            input_tokens=12345,
+            output_tokens=6789,
+            total_tokens=19134,
+            cost_usd=Decimal("0.214321"),
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        n = Notification.objects.get(recipient=member_user, event_type="job.finished")
+        assert n.context["input_tokens"] == 12345
+        assert n.context["output_tokens"] == 6789
+        assert n.context["total_tokens"] == 19134
+        # JSONField round-trips Decimal as float; renderers receive a number, not a string.
+        assert n.context["cost_usd"] == pytest.approx(0.214321)
+
+    def test_job_context_token_fields_default_to_none_when_unset(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        activity = Activity.objects.create(
+            trigger_type=TriggerType.UI_JOB, user=member_user, repo_id="acme/app", status=ActivityStatus.SUCCESSFUL
+        )
+        activity_finished.send(sender=Activity, activity=activity)
+
+        n = Notification.objects.get(recipient=member_user, event_type="job.finished")
+        assert n.context["input_tokens"] is None
+        assert n.context["output_tokens"] is None
+        assert n.context["total_tokens"] is None
+        assert n.context["cost_usd"] is None
+
 
 @pytest.mark.django_db
 class TestUserBindingSeeder:
@@ -764,6 +803,62 @@ class TestBatchRollup:
         rollup = Notification.objects.get(recipient=member_user, event_type="job_batch.finished")
         assert schedule.name in rollup.subject
         assert "2/3" in rollup.subject
+
+    def test_batch_context_carries_repo_results_and_summed_usage(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        bid = uuid.uuid4()
+        a = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            user=member_user,
+            repo_id="acme/api",
+            status=ActivityStatus.SUCCESSFUL,
+            batch_id=bid,
+            notify_on=NotifyOn.ALWAYS,
+            input_tokens=100,
+            output_tokens=200,
+            total_tokens=300,
+            cost_usd=Decimal("0.10"),
+        )
+        b = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            user=member_user,
+            repo_id="acme/legacy",
+            status=ActivityStatus.FAILED,
+            batch_id=bid,
+            notify_on=NotifyOn.ALWAYS,
+            input_tokens=50,
+            output_tokens=75,
+            total_tokens=125,
+            cost_usd=Decimal("0.05"),
+        )
+        activity_finished.send(sender=Activity, activity=a)
+        activity_finished.send(sender=Activity, activity=b)
+
+        rollup = Notification.objects.get(recipient=member_user, event_type="job_batch.finished")
+        assert rollup.context["input_tokens"] == 150
+        assert rollup.context["output_tokens"] == 275
+        assert rollup.context["total_tokens"] == 425
+        assert rollup.context["cost_usd"] == pytest.approx(0.15)
+
+        # repo_results preserves per-repo outcome so renderers can show ✓/✗ per row.
+        results_by_repo = {r["repo"]: r["ok"] for r in rollup.context["repo_results"]}
+        assert results_by_repo == {"acme/api": True, "acme/legacy": False}
+
+    def test_batch_context_usage_totals_are_none_when_no_activity_has_usage(self, member_user):
+        member_user.notify_on_jobs = NotifyOn.ALWAYS
+        member_user.save(update_fields=["notify_on_jobs"])
+
+        a, b = self._make_batch(member_user, statuses=[ActivityStatus.SUCCESSFUL, ActivityStatus.SUCCESSFUL])
+        activity_finished.send(sender=Activity, activity=a)
+        activity_finished.send(sender=Activity, activity=b)
+
+        rollup = Notification.objects.get(event_type="job_batch.finished")
+        assert rollup.context["input_tokens"] is None
+        assert rollup.context["output_tokens"] is None
+        assert rollup.context["total_tokens"] is None
+        assert rollup.context["cost_usd"] is None
 
     def test_empty_recipients_on_multi_job_batch_logs_warning(self, caplog):
         bid = uuid.uuid4()
