@@ -1,12 +1,10 @@
 {% extends "base_app.html" %}
-{% load i18n static %}
+{% load i18n %}
 
 {% block title %}{% translate "Sandbox Environments" %} — DAIV{% endblock %}
 
 {% block head_extra %}
-<script defer src="{% static 'sandbox_envs/js/env-drawer.js' %}"></script>
-<script defer src="{% static 'sandbox_envs/js/env-vars-editor.js' %}"></script>
-<script defer src="{% static 'sandbox_envs/js/resource-control.js' %}"></script>
+{% include "sandbox_envs/_scripts.html" %}
 {% endblock head_extra %}
 
 {% block container_width %}max-w-6xl{% endblock %}
