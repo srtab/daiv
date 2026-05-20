@@ -1,0 +1,5 @@
+docker/local/app/config.secrets.env
+docker/local/gitlab-runner/config.toml
+data/certs
+data/db
+data/gitlab
