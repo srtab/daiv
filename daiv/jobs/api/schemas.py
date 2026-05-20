@@ -15,13 +15,16 @@ class JobSubmitRequest(Schema):
     prompt: str = Field(min_length=1)
     use_max: bool = False
     notify_on: NotifyOn | None = None
-    environment: str | None = None  # env name or UUID
+    environment: str | None = None
+    thread_id: str | None = None
 
 
 class JobSubmitJobItem(Schema):
     job_id: str
     repo_id: str
     ref: str | None = None
+    thread_id: str
+    status: Literal["QUEUED", "READY"]
 
 
 class JobSubmitFailureItem(Schema):
@@ -38,7 +41,8 @@ class JobSubmitResponse(Schema):
 
 class JobStatusResponse(Schema):
     job_id: str
-    status: Literal["READY", "RUNNING", "SUCCESSFUL", "FAILED"]
+    status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "FAILED"]
+    thread_id: str | None = None
     result: str | None = None
     merge_request_url: str | None = None
     error: str | None = None
