@@ -10,13 +10,16 @@ class RepoSubmitItem(Schema):
     ref: str | None = None
 
 
+_UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
+
 class JobSubmitRequest(Schema):
     repos: list[RepoSubmitItem] = Field(min_length=1, max_length=20)
     prompt: str = Field(min_length=1)
     use_max: bool = False
     notify_on: NotifyOn | None = None
     environment: str | None = None
-    thread_id: str | None = None
+    thread_id: str | None = Field(default=None, min_length=36, max_length=36, pattern=_UUID_PATTERN)
 
 
 class JobSubmitJobItem(Schema):

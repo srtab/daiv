@@ -246,3 +246,44 @@ class TestThreadContinuation:
         assert activity.status == ActivityStatus.QUEUED
         assert activity.task_result_id is None
         mock_task.aenqueue.assert_not_called()
+
+    async def test_enqueue_failure_marks_failed_with_audit_and_releases_queued_sibling(self, member_user):
+        """When the new READY row's enqueue raises, the row must transition to FAILED with
+        ``finished_at`` and a ``enqueue_failed:`` error_message, and an existing QUEUED sibling
+        on the same thread must be released (via emit_activity_finished_if_terminal)."""
+        thread = str(uuid.uuid4())
+        # A prior QUEUED sibling waiting for the active slot to open up.
+        queued = await Activity.objects.acreate(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="acme/api",
+            thread_id=thread,
+            status=ActivityStatus.QUEUED,
+            user=member_user,
+            prompt="p",
+        )
+        good_task = await _make_db_task_result()
+        # services-layer aenqueue fails (the new submission); the dispatcher-layer
+        # aenqueue (used by signals.py to release the QUEUED sibling) succeeds.
+        services_patch, services_mock = _patch_run_job_task(side_effect=RuntimeError("broker down"))
+        signals_mock = MagicMock()
+        signals_mock.aenqueue = AsyncMock(return_value=good_task)
+        with services_patch, patch("activity.signals.run_job_task", signals_mock):
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="follow-up",
+                repos=[RepoTarget(repo_id="acme/api", ref="")],
+                trigger_type=TriggerType.API_JOB,
+                thread_id=thread,
+            )
+
+        assert result.activities == [] and len(result.failed) == 1
+        assert "RuntimeError" in result.failed[0].error
+        services_mock.aenqueue.assert_awaited_once()
+
+        failed_row = await Activity.objects.aget(thread_id=thread, status=ActivityStatus.FAILED)
+        assert failed_row.error_message.startswith("enqueue_failed:")
+        assert failed_row.finished_at is not None
+
+        await queued.arefresh_from_db()
+        assert queued.status == ActivityStatus.READY
+        assert queued.task_result_id == good_task.id

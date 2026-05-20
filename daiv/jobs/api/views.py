@@ -25,11 +25,11 @@ jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
 
 
 async def _validate_thread_id(thread_id: str, user: User) -> tuple[bool, str | None]:
-    """Return (ok, error_detail). Same opaque message for unknown and not-owned threads."""
-    try:
-        uuid_mod.UUID(thread_id)
-    except ValueError, TypeError:
-        return False, _THREAD_NOT_FOUND
+    """Return (ok, error_detail). One opaque message regardless of cause (unknown or not owned).
+
+    Schema-layer validation already constrains ``thread_id`` to a well-formed UUID, so no
+    UUID parsing is needed here — a non-existent ID is indistinguishable from a non-owned one.
+    """
     latest = await Activity.objects.filter(thread_id=thread_id).order_by("-created_at").afirst()
     if latest is None or latest.user_id != user.pk:
         return False, _THREAD_NOT_FOUND
@@ -106,7 +106,6 @@ async def get_job_status(request: HttpRequest, job_id: str):
     except Activity.DoesNotExist:
         return 404, {"detail": "Job not found"}
 
-    # Use the denormalized fields on Activity (they survive DBTaskResult pruning).
     error = "Job execution failed" if activity.status == ActivityStatus.FAILED else None
     return 200, JobStatusResponse(
         job_id=str(activity.id),

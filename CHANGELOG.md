@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `release_orphan_queued_threads` management command to recover `QUEUED` activities left behind on threads with no active sibling (rare TOCTOU loss).
 - Added per-domain auth headers for the `web_fetch` tool to the configuration UI under **Web Fetch → Per-domain auth headers**. Each row pairs a domain (exact match) with an HTTP header name and a header value (encrypted at rest). Replaces the previous env-only `AUTOMATION_WEB_FETCH_AUTH_HEADERS` setting; the new env override is `DAIV_WEB_FETCH_AUTH_HEADERS` (same JSON shape). Operators using the old name must rename it.
 - Added a "Start a run" page at `/dashboard/runs/new/` for launching new agent runs from the UI, and a "Retry" button on terminal non-webhook activities that pre-fills the form with the original prompt, repository, ref, and max-mode flag.
 - Added configurable models for the titling task (chat thread and activity titles). The primary and fallback models can now be set via `DAIV_TITLING_MODEL_NAME` / `DAIV_TITLING_FALLBACK_MODEL_NAME` env vars or the configuration UI under a new **Titling** section. Defaults remain `gpt-5.4-mini` (primary) and `claude-haiku-4.5` (fallback).
@@ -37,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Enforced "at most one active (`READY`/`RUNNING`) API/MCP Activity per `thread_id`" at the DB layer via a partial unique constraint. Concurrent submissions on the same thread cleanly fall back to `QUEUED` instead of both running.
+- Made the FIFO dispatcher race-safe: an atomic compare-and-swap (`UPDATE filter(status=QUEUED) → READY`) prevents two terminal events on the same thread from double-promoting the same queued sibling. Dispatch failures now set `finished_at` and iterate via a loop instead of recursive signal re-entry. The loop bails after `MAX_CONSECUTIVE_DISPATCH_FAILURES` (3) consecutive failures so a transient broker outage does not mass-fail an entire QUEUED backlog — remaining rows stay QUEUED for `release_orphan_queued_threads`.
+- Guarded the post-enqueue `task_result_id` save in both `asubmit_batch_runs` and `dispatch_next_in_thread`: a DB blip after a successful broker enqueue now marks the row FAILED (and releases queued siblings) instead of stranding it in READY with no task linkage.
+- `release_orphan_queued_threads` tolerates concurrent submissions: an `IntegrityError` from the CAS no longer aborts the command — the affected row is counted as skipped and left QUEUED for the next pass.
+- MCP batch-poll timeout responses now report each job's real status (QUEUED/READY/RUNNING) instead of a placeholder.
+- MCP `submit_job` now rejects unauthenticated calls early (parity with `get_job_status`), so an unresolvable user no longer creates orphan activities that subsequent polls 404.
+- Tightened `thread_id` validation: rejected at the API schema layer (proper 422 for malformed UUIDs) and validated in `asubmit_batch_runs` as a non-empty UUID string.
+- `QUEUED` activities now render a dedicated "Waiting in queue" hero on the detail page (previously misreported as "Agent is working").
 - Standardized LangSmith metadata and tags across all agent invocation paths. The Jobs API and Chat API were missing critical metadata fields (`scope`, `repository`, `git_platform`) and had no tags, making their traces invisible in several LangSmith dashboard charts.
 - Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml` version (`2.0.0`).
 - Fixed `web_fetch` tool to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing infinite redirect loops and DNS rebinding attacks.

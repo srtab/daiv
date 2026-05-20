@@ -1,0 +1,17 @@
+<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
+    <div class="flex items-center justify-between gap-3">
+        <h2 class="text-[15px] font-semibold text-gray-300">Result</h2>
+        <div class="flex items-center gap-2 opacity-40">
+            <span class="btn-secondary rounded-lg px-3 py-1.5 text-sm" aria-disabled="true">Copy</span>
+            <span class="btn-secondary rounded-lg px-3 py-1.5 text-sm" aria-disabled="true">Markdown</span>
+        </div>
+    </div>
+    <div class="mt-4 flex flex-col items-center justify-center rounded-xl bg-black/20 px-6 py-10 text-center"
+         role="status" aria-live="polite">
+        <div class="h-9 w-9 rounded-full border-[3px] border-amber-400/20"
+             style="border-top-color: rgb(251 191 36 / 0.7);"></div>
+        <span class="sr-only">Job is queued behind a prior run on this thread</span>
+        <p class="mt-3 text-[15px] font-medium text-gray-200">Waiting in queue</p>
+        <p class="mt-1 text-sm text-gray-400">A prior run on this thread is still in flight. This job will start when that one finishes.</p>
+    </div>
+</div>

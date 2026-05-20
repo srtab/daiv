@@ -62,6 +62,9 @@ class _FakeActivity:
         self.task_result_id = task_result_id
         self.thread_id = str(uuid.uuid4())
         self.status = ActivityStatus.READY
+        # Tests bypass the real ORM via ``_patch_acreate``; provide an async no-op
+        # for the post-acreate ``activity.asave(update_fields=...)`` call.
+        self.asave = AsyncMock(return_value=None)
 
 
 async def _fake_acreate_activity(**kwargs):
@@ -394,3 +397,46 @@ class TestThreadContinuationAPI:
         assert len(created_activities) == 1
         assert body["jobs"][0]["job_id"] == str(created_activities[0].id)
         assert body["jobs"][0]["job_id"] != str(created_activities[0].task_result_id)
+
+    async def test_empty_thread_id_rejected_at_schema(self, authenticated_client):
+        """An empty-string thread_id is malformed at the protocol layer (422, not 400)."""
+        body = _single_repo_body(prompt="x", thread_id="")
+        response = await authenticated_client.post("/jobs", json=body)
+        assert response.status_code == 422
+
+    async def test_malformed_thread_id_rejected_at_schema(self, authenticated_client):
+        """A non-UUID thread_id is rejected by the schema, not silently mapped to 'not found'."""
+        body = _single_repo_body(prompt="x", thread_id="not-a-uuid")
+        response = await authenticated_client.post("/jobs", json=body)
+        assert response.status_code == 422
+
+    async def test_continuation_creates_queued_when_sibling_running(self, authenticated_client):
+        """An IntegrityError fallback path: when an active sibling exists on the thread,
+        the second submission lands in QUEUED with no enqueue."""
+        user = await User.objects.aget(username="testuser")
+        thread = str(uuid.uuid4())
+        await Activity.objects.acreate(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="group/project",
+            thread_id=thread,
+            status=ActivityStatus.RUNNING,
+            user=user,
+        )
+        with patch("activity.services.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
+            mock_task.module_path = run_job_task.module_path
+            response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x", thread_id=thread))
+        assert response.status_code == 202
+        body = response.json()
+        assert body["jobs"][0]["status"] == "QUEUED"
+        mock_task.aenqueue.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_queued_passes_through(authenticated_client: TestAsyncClient):
+    """A QUEUED Activity surfaces as ``status='QUEUED'`` in get_job_status (not 'PENDING')."""
+    user = await User.objects.aget(username="testuser")
+    activity = await _create_activity_row(user, status=ActivityStatus.QUEUED)
+    response = await authenticated_client.get(f"/jobs/{activity.id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "QUEUED"

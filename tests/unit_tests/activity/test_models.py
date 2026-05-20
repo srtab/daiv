@@ -273,3 +273,76 @@ class TestQueuedStatus:
 
     def test_queued_is_not_terminal(self):
         assert "QUEUED" not in ActivityStatus.terminal()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestActiveThreadConstraint:
+    """Sentinel tests pinning the partial unique constraint ``activity_one_active_per_thread``.
+
+    A future migration that drops the constraint, removes the partial filter, or widens its
+    trigger_type scope would silently re-open the TOCTOU race that the constraint exists to
+    close — these tests fail loudly in that case.
+    """
+
+    def test_two_active_api_rows_on_same_thread_violate(self, member_user):
+        from django.db.utils import IntegrityError
+
+        thread = str(uuid.uuid4())
+        Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="a/b",
+            user=member_user,
+            thread_id=thread,
+            status=ActivityStatus.READY,
+        )
+        with pytest.raises(IntegrityError):
+            Activity.objects.create(
+                trigger_type=TriggerType.API_JOB,
+                repo_id="a/b",
+                user=member_user,
+                thread_id=thread,
+                status=ActivityStatus.RUNNING,
+            )
+
+    def test_two_active_schedule_rows_on_same_thread_allowed(self, member_user):
+        """SCHEDULE rows are intentionally excluded from the constraint."""
+        thread = str(uuid.uuid4())
+        Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            repo_id="a/b",
+            user=member_user,
+            thread_id=thread,
+            status=ActivityStatus.RUNNING,
+        )
+        Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE,
+            repo_id="a/b",
+            user=member_user,
+            thread_id=thread,
+            status=ActivityStatus.READY,
+        )
+
+    def test_multiple_queued_siblings_allowed(self, member_user):
+        """QUEUED is intentionally outside the constraint so siblings can stack FIFO."""
+        thread = str(uuid.uuid4())
+        Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="a/b",
+            user=member_user,
+            thread_id=thread,
+            status=ActivityStatus.RUNNING,
+        )
+        Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="a/b",
+            user=member_user,
+            thread_id=thread,
+            status=ActivityStatus.QUEUED,
+        )
+        Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="a/b",
+            user=member_user,
+            thread_id=thread,
+            status=ActivityStatus.QUEUED,
+        )

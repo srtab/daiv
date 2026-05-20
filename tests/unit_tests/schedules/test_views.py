@@ -6,7 +6,7 @@ from django.test import Client
 from django.urls import reverse
 
 import pytest
-from activity.models import Activity, TriggerType
+from activity.models import Activity, ActivityStatus, TriggerType
 from django_tasks_db.models import DBTaskResult, get_date_max
 from notifications.choices import NotifyOn
 
@@ -274,9 +274,12 @@ class TestScheduleRunNowView:
             m_task.aenqueue = mock.AsyncMock(side_effect=RuntimeError("backend down"))
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
 
-        # All repos failed → no activities, redirect to schedule_list with a warning message.
+        # All repos failed → the schedule_list view shows a warning. The Activity row
+        # exists (created before the enqueue attempt) and is marked FAILED so the
+        # audit trail remains visible.
         assert response.status_code == 200
-        assert not Activity.objects.filter(scheduled_job=schedule).exists()
+        activities = list(Activity.objects.filter(scheduled_job=schedule))
+        assert activities and all(a.status == ActivityStatus.FAILED for a in activities)
         content = response.content.decode()
         assert "triggered with failures" in content or "Failed to trigger" in content
 

@@ -161,10 +161,15 @@ async def submit_job(
                 "retry; if this persists, contact your administrator."
             )
         })
+    if mcp_user is None:
+        return json.dumps({
+            "error": (
+                "Authentication failed: unable to resolve the current user. Re-authenticate and "
+                "retry; if this persists, contact your administrator."
+            )
+        })
 
     if thread_id is not None:
-        if mcp_user is None:
-            return json.dumps({"error": _THREAD_NOT_FOUND})
         try:
             uuid_mod.UUID(thread_id)
         except ValueError:
@@ -253,7 +258,7 @@ def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[s
         "statuses": [
             _build_job_response_dict(results_by_id[jid])
             if jid in results_by_id
-            else {"job_id": jid, "status": "PENDING"}
+            else {"job_id": jid, "status": str(ActivityStatus.RUNNING)}
             for jid in [j["job_id"] for j in enqueue_response["jobs"]]
         ],
     })
@@ -262,7 +267,12 @@ def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[s
 async def _poll_batch_until_complete(
     batch_id: str, job_ids: list[str], enqueue_response: dict, mcp_user: object
 ) -> str:
-    """Poll every job in the batch until terminal or the 10-minute budget is exhausted."""
+    """Poll every job in the batch until terminal or the 10-minute budget is exhausted.
+
+    Captures the latest row for every outstanding job on each iteration (not only
+    terminal ones), so on timeout the response reports each job's real status
+    (QUEUED/READY/RUNNING) rather than a placeholder.
+    """
     results_by_id: dict[str, Activity] = {}
     if not job_ids:
         return _batch_response(batch_id, enqueue_response, results_by_id)
@@ -276,8 +286,8 @@ async def _poll_batch_until_complete(
 
         try:
             async for row in Activity.objects.filter(id__in=list(outstanding), user=mcp_user):
+                results_by_id[str(row.id)] = row
                 if row.status in TERMINAL_STATUSES:
-                    results_by_id[str(row.id)] = row
                     outstanding.discard(row.id)
         except Exception:
             logger.exception("Failed to poll batch_id=%s", batch_id)

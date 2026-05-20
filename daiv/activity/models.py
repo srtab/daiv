@@ -202,7 +202,16 @@ class Activity(models.Model):
             # filtering ``thread_id__isnull`` don't miss empty-string sentinels.
             models.CheckConstraint(
                 condition=models.Q(thread_id__isnull=True) | ~models.Q(thread_id=""), name="activity_thread_id_nonempty"
-            )
+            ),
+            # At most one active (READY or RUNNING) API/MCP Activity per thread. The
+            # FIFO queue uses QUEUED, which is intentionally outside the constraint
+            # so siblings can stack up while one runs. Webhook-driven triggers share
+            # deterministic thread_ids across events and are intentionally excluded.
+            models.UniqueConstraint(
+                fields=["thread_id"],
+                condition=models.Q(status__in=["READY", "RUNNING"], trigger_type__in=["api_job", "mcp_job"]),
+                name="activity_one_active_per_thread",
+            ),
         ]
 
     def __str__(self) -> str:

@@ -25,6 +25,10 @@ class _FakeActivity:
         self.status = "READY"
         type(self)._next_pk += 1
         self.pk = type(self)._next_pk
+        # Tests bypass the real ORM via ``_patch_acreate``; provide an async no-op
+        # so the post-acreate ``activity.asave(update_fields=...)`` call in
+        # ``asubmit_batch_runs`` doesn't AttributeError on this stub.
+        self.asave = AsyncMock(return_value=None)
 
 
 async def _fake_acreate_activity(**kwargs):
@@ -51,6 +55,22 @@ def _patch_acreate():
             return acreate_patch.__exit__(exc_type, exc, tb)
 
     return _Combined()
+
+
+@pytest.fixture(autouse=True)
+def _default_mcp_user(db):
+    """Make ``get_current_user`` return a real authenticated user by default.
+
+    ``submit_job`` and ``get_job_status`` reject ``mcp_user=None`` (defense in depth
+    around the OAuth-bearer path) and downstream ORM filters require a real PK.
+    Tests that explicitly test cross-user or unauthenticated paths patch the same
+    name within their own ``with`` block, overriding this default.
+    """
+    from accounts.models import User
+
+    user = User.objects.create_user(username="mcp_default", email="mcp@test.com", password="x")  # noqa: S106
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        yield user
 
 
 @pytest.mark.django_db(transaction=True)
@@ -247,8 +267,11 @@ async def test_submit_job_wait_success():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_wait_pending_when_never_found():
-    """When the batch poll times out without terminal results, statuses report PENDING."""
+async def test_submit_job_wait_running_when_never_terminal():
+    """When the batch poll times out without terminal results, statuses surface as RUNNING.
+
+    RUNNING is the closest valid Activity status; PENDING is not in the documented enum.
+    """
     mock_result = MagicMock()
     mock_result.id = str(uuid.uuid4())
 
@@ -275,7 +298,46 @@ async def test_submit_job_wait_pending_when_never_found():
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
 
     data = json.loads(result)
-    assert data["statuses"][0]["status"] == "PENDING"
+    assert data["statuses"][0]["status"] == "RUNNING"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_user):
+    """The batch poll must scope its Activity lookup by ``user=mcp_user`` to prevent
+    cross-user reads. Asserts the call construction (not just behavior) so a refactor
+    that drops the kwarg fails immediately."""
+    from mcp_server.server import _poll_batch_until_complete
+
+    captured: list[dict] = []
+
+    class _EmptyAsyncRows:
+        def __aiter__(self):
+            return self._aiter()
+
+        async def _aiter(self):
+            if False:
+                yield None
+
+    def _capture_filter(**kwargs):
+        captured.append(kwargs)
+        return _EmptyAsyncRows()
+
+    job_id = str(uuid.uuid4())
+    with (
+        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_server.server.MAX_POLL_DURATION", 2.0),
+        patch("mcp_server.server.POLL_INTERVAL", 2.0),
+    ):
+        mock_model.objects.filter = MagicMock(side_effect=_capture_filter)
+        await _poll_batch_until_complete(
+            "batch-1", [job_id], {"jobs": [{"job_id": job_id}], "failed": []}, _default_mcp_user
+        )
+
+    assert captured, "poll loop never called filter()"
+    assert captured[0].get("user") is _default_mcp_user, (
+        f"poll filter must be scoped by user=mcp_user; got kwargs={captured[0]!r}"
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -417,7 +479,7 @@ async def test_get_job_status_wait_not_found_then_appears():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_batch_poll_db_exception_breaks_loop():
-    """DB error during batch polling terminates the loop; PENDING returned."""
+    """DB error during batch polling terminates the loop; unresolved jobs surface as RUNNING."""
     mock_result = MagicMock()
     mock_result.id = str(uuid.uuid4())
 
@@ -436,8 +498,7 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop():
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", wait=True)
 
     data = json.loads(result)
-    # Loop breaks on DB error; statuses report PENDING for unresolved jobs.
-    assert data["statuses"][0]["status"] == "PENDING"
+    assert data["statuses"][0]["status"] == "RUNNING"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -600,6 +661,20 @@ class TestMCPThreadContinuation:
             )
         data = json.loads(result)
         assert "exactly one repo" in data["error"]
+
+    async def test_malformed_thread_id_rejected(self):
+        user = MagicMock(pk=1)
+        with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+            result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id="not-a-uuid")
+        data = json.loads(result)
+        assert "thread_id not found" in data["error"]
+
+    async def test_unauthenticated_user_rejected(self):
+        """Without a resolvable user, submit_job must reject — not silently submit as user=None."""
+        with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
+            result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
+        data = json.loads(result)
+        assert "Authentication failed" in data["error"]
 
 
 @pytest.mark.django_db(transaction=True)
