@@ -318,6 +318,7 @@ class TestProcessCallbackThreadId:
             patch("codebase.clients.github.api.callbacks.address_issue_task") as mock_task,
             patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -346,6 +347,7 @@ class TestProcessCallbackThreadId:
             patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
             patch("codebase.clients.github.api.callbacks.note_mentions_daiv", return_value=True),
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -378,6 +380,7 @@ class TestProcessCallbackThreadId:
             patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
             patch("codebase.clients.github.api.callbacks.note_mentions_daiv", return_value=True),
             patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
             mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
             mock_activity.side_effect = AsyncMock(return_value=None)
@@ -387,3 +390,83 @@ class TestProcessCallbackThreadId:
         assert mock_task.aenqueue.call_args.kwargs["thread_id"] == expected
         assert mock_activity.call_args.kwargs["thread_id"] == expected
         assert mock_activity.call_args.kwargs["ref"] == "feat/x"
+
+
+class TestProcessCallbackSandboxEnvironment:
+    """Webhook callbacks must forward the resolved env id to both the task and the Activity row."""
+
+    async def test_issue_callback_propagates_env_id(self, monkeypatch_dependencies, mock_repo_client):
+        from unittest.mock import AsyncMock, Mock, patch
+
+        callback = create_issue_callback(action="opened", issue_labels=[Label(id=1, name=BOT_LABEL)])
+        callback.sender = User(**{"id": 10, "login": "testuser"})
+        env_row = Mock(id="env-uuid-1")
+
+        with (
+            patch("codebase.clients.github.api.callbacks.address_issue_task") as mock_task,
+            patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
+        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-1"
+
+    async def test_pr_review_comment_callback_propagates_env_id(self, monkeypatch_dependencies, mock_repo_config):
+        from unittest.mock import AsyncMock, Mock, patch
+
+        mock_repo_config.pull_request_assistant.enabled = True
+
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(
+                id=100, number=99, title="PR", state="open", labels=[], pull_request={"url": "https://example/pr/99"}
+            ),
+            comment=Comment(id=300, body="@daiv review", user=User(**{"id": 10, "login": "alice"})),
+        )
+        env_row = Mock(id="env-uuid-2")
+
+        with (
+            patch("codebase.clients.github.api.callbacks.address_mr_comments_task") as mock_task,
+            patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.github.api.callbacks.note_mentions_daiv", return_value=True),
+            patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            callback._client.get_merge_request = Mock(return_value=Mock(source_branch="feat/x"))
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
+        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-2"
+
+    async def test_issue_comment_callback_propagates_env_id(self, monkeypatch_dependencies, mock_repo_config):
+        from unittest.mock import AsyncMock, Mock, patch
+
+        # Plain issue (no pull_request) → ISSUE-comment branch.
+        callback = IssueCommentCallback(
+            action="created",
+            repository=Repository(id=1, full_name="owner/repo", default_branch="main"),
+            issue=Issue(id=100, number=42, title="Bug", state="open", labels=[]),
+            comment=Comment(id=200, body="@daiv help", user=User(**{"id": 10, "login": "alice"})),
+        )
+        env_row = Mock(id="env-uuid-3")
+
+        with (
+            patch("codebase.clients.github.api.callbacks.address_issue_task") as mock_task,
+            patch("codebase.clients.github.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.github.api.callbacks.note_mentions_daiv", return_value=True),
+            patch("codebase.clients.github.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
+            patch("codebase.clients.github.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
+        ):
+            mock_task.aenqueue = AsyncMock(return_value=type("R", (), {"id": "task-1"})())
+            mock_activity.side_effect = AsyncMock(return_value=None)
+            await callback.process_callback()
+
+        assert mock_task.aenqueue.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"
+        assert mock_activity.call_args.kwargs["sandbox_environment_id"] == "env-uuid-3"

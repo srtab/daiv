@@ -6,6 +6,7 @@ from activity.models import TriggerType
 from activity.services import acreate_activity
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
+from sandbox_envs.services import resolve_env_for_run
 
 from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
@@ -99,8 +100,16 @@ class IssueCallback(GitHubCallback):
         thread_id = compute_thread_id(
             repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
         )
+        # user=None: webhook triggers are not scoped to the commenter's USER envs (the webhook
+        # fires for whoever interacted with the issue/PR, not the configured agent owner). Only
+        # GLOBAL repo envs and the GLOBAL default apply — mirroring set_runtime_ctx's contract.
+        sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
+        sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
         result = await address_issue_task.aenqueue(
-            repo_id=self.repository.full_name, issue_iid=self.issue.number, thread_id=thread_id
+            repo_id=self.repository.full_name,
+            issue_iid=self.issue.number,
+            thread_id=thread_id,
+            sandbox_environment_id=sandbox_environment_id,
         )
         daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
@@ -114,6 +123,7 @@ class IssueCallback(GitHubCallback):
                 external_username=self.sender.username,
                 title=self.issue.title,
                 thread_id=thread_id,
+                sandbox_environment_id=sandbox_environment_id,
             )
         except Exception:
             logger.exception("Failed to create activity for issue %s#%s", self.repository.full_name, self.issue.number)
@@ -171,11 +181,14 @@ class IssueCommentCallback(GitHubCallback):
             thread_id = compute_thread_id(
                 repo_slug=self.repository.full_name, scope=Scope.ISSUE, entity_iid=self.issue.number
             )
+            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
+            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
             result = await address_issue_task.aenqueue(
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
+                sandbox_environment_id=sandbox_environment_id,
             )
             try:
                 await acreate_activity(
@@ -189,6 +202,7 @@ class IssueCommentCallback(GitHubCallback):
                     external_username=self.comment.user.username,
                     title=self.issue.title,
                     thread_id=thread_id,
+                    sandbox_environment_id=sandbox_environment_id,
                 )
             except Exception:
                 logger.exception(
@@ -205,11 +219,14 @@ class IssueCommentCallback(GitHubCallback):
             thread_id = compute_thread_id(
                 repo_slug=self.repository.full_name, scope=Scope.MERGE_REQUEST, entity_iid=self.issue.number
             )
+            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repository.full_name)
+            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
             result = await address_mr_comments_task.aenqueue(
                 repo_id=self.repository.full_name,
                 merge_request_id=self.issue.number,
                 mention_comment_id=str(self.comment.id),
                 thread_id=thread_id,
+                sandbox_environment_id=sandbox_environment_id,
             )
             # GitHub's issue_comment payload omits head.ref, so fetch the PR. If that
             # fails the activity is still useful without a branch — don't drop it.
@@ -234,6 +251,7 @@ class IssueCommentCallback(GitHubCallback):
                     external_username=self.comment.user.username,
                     title=self.issue.title,
                     thread_id=thread_id,
+                    sandbox_environment_id=sandbox_environment_id,
                 )
             except Exception:
                 logger.exception(

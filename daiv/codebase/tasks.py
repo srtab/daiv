@@ -41,6 +41,7 @@ async def address_issue_task(
     mention_comment_id: str | None = None,
     ref: str | None = None,
     thread_id: str | None = None,
+    sandbox_environment_id: str | None = None,
 ) -> AgentResult:
     """
     Address an issue by creating a merge request with the changes described on the issue description.
@@ -52,10 +53,16 @@ async def address_issue_task(
         ref (str | None): The reference. Defaults to None.
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
             the addressor recomputes it from the runtime context.
+        sandbox_environment_id (str | None): Per-run sandbox env id resolved at webhook time.
+            When ``None``, ``set_runtime_ctx`` auto-resolves via
+            :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
+            falls back to the GLOBAL ``is_default=True`` env — so a non-None env may still apply.
     """
     client = RepoClient.create_instance()
     issue = client.get_issue(repo_id, issue_iid)
-    async with set_runtime_ctx(repo_id, scope=Scope.ISSUE, ref=ref, issue=issue) as runtime_ctx:
+    async with set_runtime_ctx(
+        repo_id, scope=Scope.ISSUE, ref=ref, issue=issue, sandbox_env_id=sandbox_environment_id
+    ) as runtime_ctx:
         return await IssueAddressorManager.address_issue(
             issue=issue, mention_comment_id=mention_comment_id, runtime_ctx=runtime_ctx, thread_id=thread_id
         )
@@ -191,7 +198,11 @@ async def record_merge_metrics_task(
 
 @task(dedup=True)
 async def address_mr_comments_task(
-    repo_id: str, merge_request_id: int, mention_comment_id: str, thread_id: str | None = None
+    repo_id: str,
+    merge_request_id: int,
+    mention_comment_id: str,
+    thread_id: str | None = None,
+    sandbox_environment_id: str | None = None,
 ) -> AgentResult:
     """
     Address comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -202,11 +213,19 @@ async def address_mr_comments_task(
         mention_comment_id (str): The mention comment id.
         thread_id (str | None): The LangGraph checkpoint key minted by the caller. When ``None``
             the addressor recomputes it from the runtime context.
+        sandbox_environment_id (str | None): Per-run sandbox env id resolved at webhook time.
+            When ``None``, ``set_runtime_ctx`` auto-resolves via
+            :func:`sandbox_envs.services.resolve_env_for_run` (USER tier skipped) and ultimately
+            falls back to the GLOBAL ``is_default=True`` env — so a non-None env may still apply.
     """
     client = RepoClient.create_instance()
     merge_request = client.get_merge_request(repo_id, merge_request_id)
     async with set_runtime_ctx(
-        repo_id, scope=Scope.MERGE_REQUEST, ref=merge_request.source_branch, merge_request=merge_request
+        repo_id,
+        scope=Scope.MERGE_REQUEST,
+        ref=merge_request.source_branch,
+        merge_request=merge_request,
+        sandbox_env_id=sandbox_environment_id,
     ) as runtime_ctx:
         return await CommentsAddressorManager.address_comments(
             merge_request=merge_request,
