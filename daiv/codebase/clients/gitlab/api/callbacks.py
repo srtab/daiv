@@ -5,6 +5,7 @@ from typing import Any, Literal
 from activity.models import TriggerType
 from activity.services import acreate_activity
 from gitlab.exceptions import GitlabError
+from sandbox_envs.services import resolve_env_for_run
 
 from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
@@ -114,8 +115,16 @@ class IssueCallback(BaseCallback):
         thread_id = compute_thread_id(
             repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.object_attributes.iid
         )
+        # user=None: webhook triggers are not scoped to the commenter's USER envs (the webhook
+        # fires for whoever interacted with the issue/MR, not the configured agent owner). Only
+        # GLOBAL repo envs and the GLOBAL default apply — mirroring set_runtime_ctx's contract.
+        sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
+        sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
         result = await address_issue_task.aenqueue(
-            repo_id=self.project.path_with_namespace, issue_iid=self.object_attributes.iid, thread_id=thread_id
+            repo_id=self.project.path_with_namespace,
+            issue_iid=self.object_attributes.iid,
+            thread_id=thread_id,
+            sandbox_environment_id=sandbox_environment_id,
         )
         daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         try:
@@ -129,6 +138,7 @@ class IssueCallback(BaseCallback):
                 external_username=self.user.username,
                 title=self.object_attributes.title,
                 thread_id=thread_id,
+                sandbox_environment_id=sandbox_environment_id,
             )
         except Exception:
             logger.exception(
@@ -194,11 +204,14 @@ class NoteCallback(BaseCallback):
             thread_id = compute_thread_id(
                 repo_slug=self.project.path_with_namespace, scope=Scope.ISSUE, entity_iid=self.issue.iid
             )
+            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
+            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
             result = await address_issue_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.issue.iid,
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
+                sandbox_environment_id=sandbox_environment_id,
             )
             try:
                 await acreate_activity(
@@ -212,6 +225,7 @@ class NoteCallback(BaseCallback):
                     external_username=self.user.username,
                     title=self.issue.title,
                     thread_id=thread_id,
+                    sandbox_environment_id=sandbox_environment_id,
                 )
             except Exception:
                 logger.exception(
@@ -230,11 +244,14 @@ class NoteCallback(BaseCallback):
             thread_id = compute_thread_id(
                 repo_slug=self.project.path_with_namespace, scope=Scope.MERGE_REQUEST, entity_iid=self.merge_request.iid
             )
+            sandbox_env = await resolve_env_for_run(user=None, repo_id=self.project.path_with_namespace)
+            sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
             result = await address_mr_comments_task.aenqueue(
                 repo_id=self.project.path_with_namespace,
                 merge_request_id=self.merge_request.iid,
                 mention_comment_id=self.object_attributes.discussion_id,
                 thread_id=thread_id,
+                sandbox_environment_id=sandbox_environment_id,
             )
             try:
                 await acreate_activity(
@@ -249,6 +266,7 @@ class NoteCallback(BaseCallback):
                     external_username=self.user.username,
                     title=self.merge_request.title,
                     thread_id=thread_id,
+                    sandbox_environment_id=sandbox_environment_id,
                 )
             except Exception:
                 logger.exception(
