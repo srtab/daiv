@@ -7,7 +7,7 @@ from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
 
-from notifications.choices import ChannelType, DeliveryStatus
+from notifications.choices import ChannelType, DeliveryStatus, EventType
 
 
 class Notification(TimeStampedModel):
@@ -21,7 +21,7 @@ class Notification(TimeStampedModel):
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications", verbose_name=_("recipient")
     )
-    event_type = models.CharField(_("event type"), max_length=64)
+    event_type = models.CharField(_("event type"), max_length=64, choices=EventType.choices)
     source_type = models.CharField(_("source type"), max_length=64, blank=True, default="")
     source_id = models.CharField(_("source id"), max_length=64, blank=True, default="")
     subject = models.CharField(_("subject"), max_length=255)
@@ -42,7 +42,7 @@ class Notification(TimeStampedModel):
             # insert is swallowed at the application layer.
             models.UniqueConstraint(
                 fields=["recipient", "source_type", "source_id", "event_type"],
-                condition=models.Q(event_type="job_batch.finished"),
+                condition=models.Q(event_type=EventType.JOB_BATCH_FINISHED),
                 name="notif_unique_per_batch_recipient",
             )
         ]

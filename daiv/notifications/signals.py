@@ -16,7 +16,7 @@ from activity.models import Activity, ActivityStatus, TriggerType
 from activity.signals import activity_finished
 
 from notifications.channels.registry import enabled_channels
-from notifications.choices import ChannelType, NotifyOn
+from notifications.choices import ChannelType, EventType, NotifyOn
 from notifications.models import UserChannelBinding
 from notifications.services import notify
 
@@ -121,7 +121,7 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
 
     subject, body, context = _render_payload(activity)
     link_url = reverse("activity_detail", args=[activity.pk])
-    event_type = "schedule.finished" if _is_schedule(activity) else "job.finished"
+    event_type = EventType.SCHEDULE_FINISHED if _is_schedule(activity) else EventType.JOB_FINISHED
 
     for recipient in recipients.values():
         try:
@@ -187,7 +187,7 @@ def _handle_batch_completion(activity: Activity, siblings, total: int) -> None:
         try:
             notify(
                 recipient=recipient,
-                event_type="job_batch.finished",
+                event_type=EventType.JOB_BATCH_FINISHED,
                 source_type="activity.Batch",
                 source_id=str(activity.batch_id),
                 subject=subject,
@@ -224,7 +224,10 @@ def _rollup_exists(recipient, batch_id) -> bool:
     from notifications.models import Notification
 
     return Notification.objects.filter(
-        recipient=recipient, source_type="activity.Batch", source_id=str(batch_id), event_type="job_batch.finished"
+        recipient=recipient,
+        source_type="activity.Batch",
+        source_id=str(batch_id),
+        event_type=EventType.JOB_BATCH_FINISHED,
     ).exists()
 
 
