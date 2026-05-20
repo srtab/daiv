@@ -267,6 +267,10 @@ main:has(.chat-shell) {
     @apply bg-blue-900/40 text-blue-300;
   }
 
+  .status-badge-queued {
+    @apply bg-amber-900/40 text-amber-300;
+  }
+
   .status-badge-pending {
     @apply bg-gray-800/60 text-gray-400;
   }
@@ -290,6 +294,10 @@ main:has(.chat-shell) {
   .status-dot-running {
     @apply bg-blue-400;
     animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  .status-dot-queued {
+    @apply bg-amber-400;
   }
 
   .status-dot-pending {

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `release_orphan_queued_threads` management command to recover `QUEUED` activities left behind on threads with no active sibling (rare TOCTOU loss).
 - Added per-domain auth headers for the `web_fetch` tool to the configuration UI under **Web Fetch → Per-domain auth headers**. Each row pairs a domain (exact match) with an HTTP header name and a header value (encrypted at rest). Replaces the previous env-only `AUTOMATION_WEB_FETCH_AUTH_HEADERS` setting; the new env override is `DAIV_WEB_FETCH_AUTH_HEADERS` (same JSON shape). Operators using the old name must rename it.
 - Added a "Start a run" page at `/dashboard/runs/new/` for launching new agent runs from the UI, and a "Retry" button on terminal non-webhook activities that pre-fills the form with the original prompt, repository, ref, and max-mode flag.
 - Added configurable models for the titling task (chat thread and activity titles). The primary and fallback models can now be set via `DAIV_TITLING_MODEL_NAME` / `DAIV_TITLING_FALLBACK_MODEL_NAME` env vars or the configuration UI under a new **Titling** section. Defaults remain `gpt-5.4-mini` (primary) and `claude-haiku-4.5` (fallback).
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Scheduled Jobs feature that lets users create recurring agent runs from the dashboard. Supports hourly, daily, weekdays, weekly, and custom cron frequencies with timezone-aware scheduling. Includes automatic circuit-breaker that disables a schedule if dispatch repeatedly fails.
 - Added a database-backed configuration interface at `/dashboard/configuration/` (admin-only) that allows managing global settings — agent models, thinking levels, web search/fetch options, sandbox defaults, feature flags, rate limits, and API keys — without redeployment. API keys are encrypted at rest using Fernet. Environment variables still act as hard overrides when explicitly set. Per-repository `.daiv.yml` overrides remain the highest priority.
 - Added MCP (Model Context Protocol) server endpoint at `/mcp/` with OAuth 2.0 authentication using PKCE. Enables MCP clients like Claude Code to connect to DAIV via a remote URL with browser-based authentication. Exposes `submit_job` and `get_job_status` tools. Includes OAuth metadata discovery (`/.well-known/oauth-authorization-server`), dynamic client registration (`/api/oauth/register`), and Bearer token validation for MCP requests.
+- `submit_job` (MCP and HTTP API) accepts an optional `thread_id` to continue an existing agent thread. If a prior run on the thread is still in flight, the new job is queued and runs FIFO after it terminates.
 - Added code merge analytics that tracks lines added/removed, files changed, and DAIV vs human attribution whenever a MR/PR is merged to a default branch. Metrics are displayed in the dashboard under a new "Code Velocity" section with the same period filters.
 - Added web-based authentication via django-allauth with GitHub and GitLab social login, passwordless login-by-code for existing users, and a styled dark-themed login page. Includes a post-login dashboard with API key management (create, list, revoke).
 - Added role-based user management with admin and member roles. Admins can create, edit, and delete users from the dashboard. New users receive a branded welcome email and sign in via OAuth or login-by-code. Social signup is restricted to pre-existing users only.
@@ -36,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Enforced "at most one active (`READY`/`RUNNING`) API/MCP Activity per `thread_id`" at the DB layer via a partial unique constraint. Concurrent submissions on the same thread cleanly fall back to `QUEUED` instead of both running.
+- Made the FIFO dispatcher race-safe: an atomic compare-and-swap (`UPDATE filter(status=QUEUED) → READY`) prevents two terminal events on the same thread from double-promoting the same queued sibling. Dispatch failures now set `finished_at` and iterate via a loop instead of recursive signal re-entry. The loop bails after `MAX_CONSECUTIVE_DISPATCH_FAILURES` (3) consecutive failures so a transient broker outage does not mass-fail an entire QUEUED backlog — remaining rows stay QUEUED for `release_orphan_queued_threads`.
+- Guarded the post-enqueue `task_result_id` save in both `asubmit_batch_runs` and `dispatch_next_in_thread`: a DB blip after a successful broker enqueue now marks the row FAILED (and releases queued siblings) instead of stranding it in READY with no task linkage.
+- `release_orphan_queued_threads` tolerates concurrent submissions: an `IntegrityError` from the CAS no longer aborts the command — the affected row is counted as skipped and left QUEUED for the next pass.
+- MCP batch-poll timeout responses now report each job's real status (QUEUED/READY/RUNNING) instead of a placeholder.
+- MCP `submit_job` now rejects unauthenticated calls early (parity with `get_job_status`), so an unresolvable user no longer creates orphan activities that subsequent polls 404.
+- Tightened `thread_id` validation: rejected at the API schema layer (proper 422 for malformed UUIDs) and validated in `asubmit_batch_runs` as a non-empty UUID string.
+- `QUEUED` activities now render a dedicated "Waiting in queue" hero on the detail page (previously misreported as "Agent is working").
 - Standardized LangSmith metadata and tags across all agent invocation paths. The Jobs API and Chat API were missing critical metadata fields (`scope`, `repository`, `git_platform`) and had no tags, making their traces invisible in several LangSmith dashboard charts.
 - Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml` version (`2.0.0`).
 - Fixed `web_fetch` tool to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing infinite redirect loops and DNS rebinding attacks.
@@ -44,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `job_id` in `submit_job` / `get_job_status` responses now corresponds to `Activity.id` (was previously `DBTaskResult.id`). Capture the new id from `submit_job` responses going forward — old ids will no longer resolve.
+- `submit_job` and `get_job_status` responses now include `thread_id` and a `QUEUED` status value.
 - Improved diff-to-metadata prompts to enforce repository conventions from memory, incorporate ticket identifiers from context, and reduce vague language in generated PR titles, descriptions, and commit messages.
 - Improved diff-to-metadata prompts to extract and include external references (Sentry issue URLs, Jira ticket URLs, error-tracking links) from issue context into generated PR descriptions and commit messages.
 - Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini, with Claude Haiku 4.5 as fallback.

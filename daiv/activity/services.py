@@ -6,10 +6,14 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from django.db import IntegrityError
+from django.utils import timezone
+
 from asgiref.sync import async_to_sync
 from jobs.tasks import run_job_task
 
-from activity.models import Activity, TriggerType
+from activity.models import Activity, ActivityStatus, TriggerType
+from activity.signals import emit_activity_finished_if_terminal
 from automation.titling.tasks import generate_batch_title_task
 
 _PROMPT_DRIVEN = {TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.UI_JOB}
@@ -104,6 +108,7 @@ def create_activity(
     thread_id: str | None = None,
     title: str = "",
     sandbox_environment: SandboxEnvironment | None = None,
+    status: str = ActivityStatus.READY,
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult.
 
@@ -127,6 +132,7 @@ def create_activity(
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
         sandbox_environment=sandbox_environment,
+        status=status,
     )
 
 
@@ -150,6 +156,7 @@ async def acreate_activity(
     title: str = "",
     sandbox_environment: SandboxEnvironment | None = None,
     sandbox_environment_id: str | None = None,
+    status: str = ActivityStatus.READY,
 ) -> Activity:
     """Async variant of create_activity."""
     extra: dict = {}
@@ -174,8 +181,36 @@ async def acreate_activity(
         batch_id=batch_id,
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
+        status=status,
         **extra,
     )
+
+
+async def _mark_failed_and_release(activity: Activity, *, prefix: str, err: Exception, previous_status: str) -> None:
+    """Transition a row to FAILED with finished_at and emit ``activity_finished``.
+
+    Used by the services-layer post-create error paths (enqueue or task-result-id-link
+    failure). The emit is best-effort — if it raises, we log loudly and recommend the
+    operator run ``release_orphan_queued_threads`` to recover stranded siblings.
+    """
+    now = timezone.now()
+    activity.status = ActivityStatus.FAILED
+    activity.error_message = f"{prefix}: {type(err).__name__}: {err}"
+    activity.finished_at = now
+    if activity.started_at is None:
+        activity.started_at = now
+    try:
+        await activity.asave(update_fields=["status", "error_message", "finished_at", "started_at"])
+    except Exception:
+        logger.exception("submit_batch_runs: terminal save failed for activity=%s", activity.pk)
+    try:
+        await asyncio.to_thread(emit_activity_finished_if_terminal, activity, previous_status=previous_status)
+    except Exception:
+        logger.exception(
+            "submit_batch_runs: emit_activity_finished_if_terminal failed for activity=%s; "
+            "queued siblings on this thread may be stranded — run release_orphan_queued_threads",
+            activity.pk,
+        )
 
 
 async def asubmit_batch_runs(
@@ -188,6 +223,7 @@ async def asubmit_batch_runs(
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
+    thread_id: str | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Activity`` rows.
 
@@ -199,6 +235,15 @@ async def asubmit_batch_runs(
     distinguish "submitted" from "orphaned" and recover accordingly.
     """
     _validate(repos)
+    if thread_id is not None:
+        if not thread_id:
+            raise ValueError("thread_id must be a non-empty UUID string")
+        try:
+            uuid.UUID(thread_id)
+        except (ValueError, TypeError) as err:
+            raise ValueError("thread_id must be a UUID string") from err
+        if len(repos) != 1:
+            raise ValueError("thread_id continuation requires exactly one repo")
     batch_id = uuid.uuid4()
 
     schedule_run_base = 0
@@ -206,50 +251,85 @@ async def asubmit_batch_runs(
         schedule_run_base = await Activity.objects.filter(scheduled_job=scheduled_job).acount()
 
     async def _submit_one(idx: int, target: RepoTarget) -> Activity | BatchSubmitFailure:
-        ref_for_task = target.ref or None
-        thread_id = str(uuid.uuid4())
-        try:
-            task = await run_job_task.aenqueue(
-                repo_id=target.repo_id,
-                prompt=prompt,
-                ref=ref_for_task,
-                use_max=use_max,
-                thread_id=thread_id,
-                sandbox_environment_id=target.sandbox_environment_id,
-            )
-        except Exception as err:  # noqa: BLE001
-            logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
+        effective_thread_id = thread_id or str(uuid.uuid4())
 
         activity_title = ""
         if trigger_type == TriggerType.SCHEDULE and scheduled_job is not None:
             activity_title = f"{scheduled_job.name} · run #{schedule_run_base + idx + 1}"
 
+        common_kwargs: dict = {
+            "trigger_type": trigger_type,
+            "repo_id": target.repo_id,
+            "ref": target.ref,
+            "prompt": prompt,
+            "use_max": use_max,
+            "scheduled_job": scheduled_job,
+            "user": user,
+            "external_username": external_username,
+            "notify_on": notify_on,
+            "batch_id": batch_id,
+            "thread_id": effective_thread_id,
+            "title": activity_title,
+            "sandbox_environment_id": target.sandbox_environment_id,
+        }
+
+        # Claim the thread atomically by trying to create a READY row. The partial
+        # unique constraint ``activity_one_active_per_thread`` raises IntegrityError
+        # when a sibling (READY/RUNNING) is already active on this thread — in that
+        # case we fall back to QUEUED, no task enqueue.
         try:
-            activity = await acreate_activity(
-                trigger_type=trigger_type,
-                task_result_id=task.id,
+            activity = await acreate_activity(**common_kwargs, task_result_id=None, status=ActivityStatus.READY)
+        except IntegrityError:
+            try:
+                return await acreate_activity(**common_kwargs, task_result_id=None, status=ActivityStatus.QUEUED)
+            except Exception as inner_err:
+                logger.exception("submit_batch_runs: queued activity creation failed for repo_id=%s", target.repo_id)
+                return BatchSubmitFailure(
+                    repo_id=target.repo_id,
+                    ref=target.ref,
+                    error=f"ActivityCreationFailed: {type(inner_err).__name__}: {inner_err}",
+                )
+        except Exception as err:
+            logger.exception("submit_batch_runs: activity creation failed for repo_id=%s", target.repo_id)
+            return BatchSubmitFailure(
+                repo_id=target.repo_id, ref=target.ref, error=f"ActivityCreationFailed: {type(err).__name__}: {err}"
+            )
+
+        try:
+            task = await run_job_task.aenqueue(
                 repo_id=target.repo_id,
-                ref=target.ref,
                 prompt=prompt,
+                ref=target.ref or None,
                 use_max=use_max,
-                scheduled_job=scheduled_job,
-                user=user,
-                external_username=external_username,
-                notify_on=notify_on,
-                batch_id=batch_id,
-                thread_id=thread_id,
-                title=activity_title,
+                thread_id=effective_thread_id,
                 sandbox_environment_id=target.sandbox_environment_id,
             )
-        except Exception:
-            logger.exception(
-                "submit_batch_runs: activity creation failed for repo_id=%s task_id=%s (orphan job will run)",
-                target.repo_id,
-                task.id,
+        except Exception as err:  # noqa: BLE001
+            logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
+            await _mark_failed_and_release(
+                activity, prefix="enqueue_failed", err=err, previous_status=ActivityStatus.READY
             )
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error="ActivityCreationFailed")
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
 
+        try:
+            activity.task_result_id = task.id
+            await activity.asave(update_fields=["task_result_id"])
+        except Exception as save_err:
+            # The broker now holds a task this Activity row doesn't link to.
+            # Mark the row FAILED so callers see the failure and queued siblings advance;
+            # the orphan task itself will execute and ``_sync_activity_for_task`` will no-op
+            # (no Activity with that task_result_id).
+            logger.exception(
+                "submit_batch_runs: failed to link task_result_id=%s to activity=%s (orphan task will run)",
+                task.id,
+                activity.pk,
+            )
+            await _mark_failed_and_release(
+                activity, prefix="link_failed", err=save_err, previous_status=ActivityStatus.READY
+            )
+            return BatchSubmitFailure(
+                repo_id=target.repo_id, ref=target.ref, error=f"LinkFailed: {type(save_err).__name__}: {save_err}"
+            )
         return activity
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the

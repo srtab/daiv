@@ -31,11 +31,13 @@
                 {% endif %}
             {% elif activity.status == "FAILED" %}
                 {% include "activity/_hero_failed.html" %}
+            {% elif activity.status == "QUEUED" %}
+                {% include "activity/_hero_queued.html" %}
             {% else %}
                 {% include "activity/_hero_running.html" %}
             {% endif %}
 
-            {% if activity.status == "RUNNING" or activity.status == "READY" %}
+            {% if activity.status == "RUNNING" or activity.status == "READY" or activity.status == "QUEUED" %}
                 {% include "activity/_prompt_disclosure.html" with prompt_open_by_default=True %}
             {% elif activity.status == "SUCCESSFUL" and not activity.task_result and not activity.result_summary %}
                 {% include "activity/_prompt_disclosure.html" with prompt_open_by_default=True %}

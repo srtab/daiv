@@ -3,11 +3,10 @@ import json
 import logging
 import uuid as uuid_mod
 from typing import TYPE_CHECKING, Annotated
+from uuid import UUID
 
-from activity.models import TriggerType
+from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import MAX_REPOS_PER_BATCH, RepoTarget, asubmit_batch_runs
-from django_tasks_db.models import DBTaskResult
-from jobs.tasks import run_job_task
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -16,7 +15,6 @@ from pydantic import BaseModel, Field
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 
-from automation.agent.results import parse_agent_result
 from codebase.clients import RepoClient
 from core.conf import settings as core_settings
 from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
@@ -62,8 +60,9 @@ continue polling with `get_job_status` if the result is not yet available.\
     token_verifier=DjangoOAuthTokenVerifier(),
 )
 
+_THREAD_NOT_FOUND = "thread_id not found"
 
-TERMINAL_STATUSES = {"SUCCESSFUL", "FAILED"}
+TERMINAL_STATUSES = {ActivityStatus.SUCCESSFUL, ActivityStatus.FAILED}
 POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
 
@@ -124,10 +123,22 @@ async def submit_job(
             )
         ),
     ] = None,
+    thread_id: Annotated[
+        UUID | None,
+        Field(
+            description=(
+                "Optional. Continue an existing thread by passing its UUID (from a prior"
+                " submit_job or get_job_status response). When set, ``repos`` must contain"
+                " exactly one entry whose latest Activity belongs to the calling user."
+                " If a prior run on this thread is still in flight, the new job is queued"
+                " and runs FIFO after it terminates."
+            )
+        ),
+    ] = None,
 ) -> str:
     """Submit a batch of agent jobs. Each repository runs as an independent job.
 
-    Returns ``{batch_id, jobs: [{job_id, repo_id, ref}], failed: [...]}``. Each job runs
+    Returns ``{batch_id, jobs: [{job_id, repo_id, ref, thread_id, status}], failed: [...]}``. Each job runs
     independently; poll with ``get_job_status`` per job_id or pass ``wait=true``.
     """
     # FastMCP validates only at the protocol layer; direct calls bypass it.
@@ -137,6 +148,9 @@ async def submit_job(
         return json.dumps({"error": f"At most {MAX_REPOS_PER_BATCH} repositories allowed per submission."})
 
     specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
+
+    if thread_id is not None and len(specs) != 1:
+        return json.dumps({"error": "thread_id continuation requires exactly one repo"})
 
     try:
         mcp_user = await get_current_user()
@@ -148,6 +162,26 @@ async def submit_job(
                 "retry; if this persists, contact your administrator."
             )
         })
+    if mcp_user is None:
+        return json.dumps({
+            "error": (
+                "Authentication failed: unable to resolve the current user. Re-authenticate and "
+                "retry; if this persists, contact your administrator."
+            )
+        })
+
+    thread_id_str: str | None = None
+    if thread_id is not None:
+        # FastMCP's protocol layer coerces to UUID via Pydantic; direct callers (tests, in-process
+        # use) may still pass a raw string, so normalise either input through UUID() once.
+        try:
+            thread_id_str = str(uuid_mod.UUID(str(thread_id)))
+        except ValueError, TypeError:
+            logger.info("submit_job: rejecting malformed thread_id", extra={"user_id": mcp_user.pk})
+            return json.dumps({"error": _THREAD_NOT_FOUND})
+        latest = await Activity.objects.filter(thread_id=thread_id_str).order_by("-created_at").afirst()
+        if latest is None or latest.user_id != mcp_user.pk:
+            return json.dumps({"error": _THREAD_NOT_FOUND})
 
     explicit_env_id: str | None = None
     if environment:
@@ -167,6 +201,7 @@ async def submit_job(
         use_max=use_max,
         notify_on=notify_on,
         trigger_type=TriggerType.MCP_JOB,
+        thread_id=thread_id_str,
     )
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
@@ -179,8 +214,14 @@ async def submit_job(
         if (spec.repo_id, spec.ref or "") in failed_keys:
             continue
         activity = next(activities_iter)
-        jobs.append({"job_id": str(activity.task_result_id), "repo_id": spec.repo_id, "ref": spec.ref})
-        job_ids.append(str(activity.task_result_id))
+        jobs.append({
+            "job_id": str(activity.id),
+            "repo_id": spec.repo_id,
+            "ref": spec.ref,
+            "thread_id": str(activity.thread_id) if activity.thread_id else None,
+            "status": str(activity.status),
+        })
+        job_ids.append(str(activity.id))
 
     failed_out = [{"repo_id": f.repo_id, "ref": f.ref, "error": f.error} for f in result.failed]
 
@@ -190,31 +231,31 @@ async def submit_job(
     if not wait:
         return json.dumps(response)
 
-    return await _poll_batch_until_complete(str(result.batch_id), job_ids, response)
+    return await _poll_batch_until_complete(str(result.batch_id), job_ids, response, mcp_user)
 
 
-def _build_job_response_dict(db_result: DBTaskResult) -> dict:
-    """Build a dict response from a DBTaskResult (shared by single + batch paths)."""
-    error = "Job execution failed." if db_result.status == "FAILED" else None
-    parsed = parse_agent_result(db_result.return_value)
+def _build_job_response_dict(activity: Activity) -> dict:
+    """Build a dict response from an Activity (shared by single + batch paths)."""
+    error = "Job execution failed." if activity.status == ActivityStatus.FAILED else None
     return {
-        "job_id": str(db_result.id),
-        "status": db_result.status,
-        "result": parsed["response"] or None,
-        "merge_request_url": parsed["merge_request_web_url"],
+        "job_id": str(activity.id),
+        "status": str(activity.status),
+        "thread_id": str(activity.thread_id) if activity.thread_id else None,
+        "result": activity.result_summary or None,
+        "merge_request_url": activity.merge_request_web_url or None,
         "error": error,
-        "created_at": db_result.enqueued_at.isoformat() if db_result.enqueued_at else None,
-        "started_at": db_result.started_at.isoformat() if db_result.started_at else None,
-        "finished_at": db_result.finished_at.isoformat() if db_result.finished_at else None,
+        "created_at": activity.created_at.isoformat() if activity.created_at else None,
+        "started_at": activity.started_at.isoformat() if activity.started_at else None,
+        "finished_at": activity.finished_at.isoformat() if activity.finished_at else None,
     }
 
 
-def _build_job_response(db_result: DBTaskResult) -> str:
-    """Build a JSON response string from a DBTaskResult."""
-    return json.dumps(_build_job_response_dict(db_result))
+def _build_job_response(activity: Activity) -> str:
+    """Build a JSON response string from an Activity."""
+    return json.dumps(_build_job_response_dict(activity))
 
 
-def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[str, DBTaskResult]) -> str:
+def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[str, Activity]) -> str:
     return json.dumps({
         "batch_id": batch_id,
         "jobs": enqueue_response["jobs"],
@@ -222,15 +263,22 @@ def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[s
         "statuses": [
             _build_job_response_dict(results_by_id[jid])
             if jid in results_by_id
-            else {"job_id": jid, "status": "PENDING"}
+            else {"job_id": jid, "status": str(ActivityStatus.RUNNING)}
             for jid in [j["job_id"] for j in enqueue_response["jobs"]]
         ],
     })
 
 
-async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_response: dict) -> str:
-    """Poll every job in the batch until terminal or the 10-minute budget is exhausted."""
-    results_by_id: dict[str, DBTaskResult] = {}
+async def _poll_batch_until_complete(
+    batch_id: str, job_ids: list[str], enqueue_response: dict, mcp_user: object
+) -> str:
+    """Poll every job in the batch until terminal or the 10-minute budget is exhausted.
+
+    Captures the latest row for every outstanding job on each iteration (not only
+    terminal ones), so on timeout the response reports each job's real status
+    (QUEUED/READY/RUNNING) rather than a placeholder.
+    """
+    results_by_id: dict[str, Activity] = {}
     if not job_ids:
         return _batch_response(batch_id, enqueue_response, results_by_id)
 
@@ -242,9 +290,9 @@ async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_
         elapsed += POLL_INTERVAL
 
         try:
-            async for row in DBTaskResult.objects.filter(id__in=list(outstanding), task_path=run_job_task.module_path):
+            async for row in Activity.objects.filter(id__in=list(outstanding), user=mcp_user):
+                results_by_id[str(row.id)] = row
                 if row.status in TERMINAL_STATUSES:
-                    results_by_id[str(row.id)] = row
                     outstanding.discard(row.id)
         except Exception:
             logger.exception("Failed to poll batch_id=%s", batch_id)
@@ -253,42 +301,41 @@ async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_
     return _batch_response(batch_id, enqueue_response, results_by_id)
 
 
-async def _poll_job_until_complete(job_id: str) -> str:
+async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
     """Poll a job until it reaches a terminal status or the timeout is exceeded."""
     job_uuid = uuid_mod.UUID(job_id)
     elapsed = 0.0
-    last_result: DBTaskResult | None = None
+    last: Activity | None = None
 
     while elapsed < MAX_POLL_DURATION:
         await asyncio.sleep(POLL_INTERVAL)
         elapsed += POLL_INTERVAL
 
         try:
-            last_result = await DBTaskResult.objects.aget(id=job_uuid, task_path=run_job_task.module_path)
-        except DBTaskResult.DoesNotExist:
+            last = await Activity.objects.aget(id=job_uuid, user=mcp_user)
+        except Activity.DoesNotExist:
             logger.debug("Job %s not yet available, retrying (%.0fs elapsed)", job_id, elapsed)
             continue
         except Exception:
             logger.exception("Failed to poll job status for job_id=%s", job_id)
             return json.dumps({"error": "Failed to retrieve job status. Please try again later.", "job_id": job_id})
 
-        if last_result.status in TERMINAL_STATUSES:
-            return _build_job_response(last_result)
+        if last.status in TERMINAL_STATUSES:
+            return _build_job_response(last)
 
     # Timeout — return current status so the caller isn't left without info
-    if last_result is not None:
+    if last is not None:
         logger.info(
-            "Polling timeout for job_id=%s after %.0fs, returning current status: %s",
-            job_id,
-            elapsed,
-            last_result.status,
+            "Polling timeout for job_id=%s after %.0fs, returning current status: %s", job_id, elapsed, last.status
         )
-        return _build_job_response(last_result)
+        return _build_job_response(last)
 
     logger.warning("Polling timeout for job_id=%s after %.0fs, job never appeared in database", job_id, elapsed)
     return json.dumps({
-        "error": f"Job '{job_id}' was submitted but has not appeared yet after {int(MAX_POLL_DURATION)}s. "
-        "The task queue may be backed up. Use get_job_status to check later.",
+        "error": (
+            f"Job '{job_id}' was submitted but has not appeared yet after {int(MAX_POLL_DURATION)}s. "
+            "The task queue may be backed up. Use get_job_status to check later."
+        ),
         "job_id": job_id,
     })
 
@@ -305,26 +352,33 @@ async def get_job_status(
         ),
     ] = False,
 ) -> str:
-    """Get the status and result of a previously submitted job. Status is one of: READY, RUNNING, SUCCESSFUL, FAILED."""
+    """Get the status and result of a previously submitted job.
+
+    Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, FAILED.
+    """
+    mcp_user = await get_current_user()
+    if mcp_user is None:
+        return json.dumps({"error": "Authentication failed: unable to resolve the current user."})
+
     try:
-        job_uuid = uuid_mod.UUID(job_id)
+        activity_uuid = uuid_mod.UUID(job_id)
     except ValueError:
         return json.dumps({"error": "Invalid job_id format."})
 
     try:
-        db_result = await DBTaskResult.objects.aget(id=job_uuid, task_path=run_job_task.module_path)
-    except DBTaskResult.DoesNotExist:
+        activity = await Activity.objects.aget(id=activity_uuid, user=mcp_user)
+    except Activity.DoesNotExist:
         if wait:
-            return await _poll_job_until_complete(job_id)
+            return await _poll_job_until_complete(job_id, mcp_user)
         return json.dumps({"error": "Job not found."})
     except Exception:
         logger.exception("Failed to retrieve job status for job_id=%s", job_id)
         return json.dumps({"error": "Failed to retrieve job status. Please try again later."})
 
-    if wait and db_result.status not in TERMINAL_STATUSES:
-        return await _poll_job_until_complete(job_id)
+    if wait and activity.status not in TERMINAL_STATUSES:
+        return await _poll_job_until_complete(job_id, mcp_user)
 
-    return _build_job_response(db_result)
+    return _build_job_response(activity)
 
 
 MAX_REPOSITORIES = 40

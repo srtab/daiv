@@ -16,12 +16,13 @@
  * elapsed counter, duration, timeline dots) reflect the new state.
  */
 document.addEventListener("alpine:init", () => {
-    const VARIANTS = ["success", "failed", "running", "pending"];
+    const VARIANTS = ["success", "failed", "running", "queued", "pending"];
 
     function statusVariantFor(status) {
         if (status === "SUCCESSFUL") return "success";
         if (status === "FAILED") return "failed";
         if (status === "RUNNING") return "running";
+        if (status === "QUEUED") return "queued";
         return "pending";
     }
 
@@ -29,6 +30,7 @@ document.addEventListener("alpine:init", () => {
         if (status === "SUCCESSFUL") return "Successful";
         if (status === "FAILED") return "Failed";
         if (status === "RUNNING") return "Running";
+        if (status === "QUEUED") return "Queued";
         return "Pending";
     }
 

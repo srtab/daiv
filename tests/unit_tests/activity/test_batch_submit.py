@@ -155,6 +155,8 @@ class TestSubmitBatchRunsSync:
             def __init__(self, task_result_id):
                 self.task_result_id = task_result_id
                 self.pk = uuid.uuid4()
+                # Stand-in for the post-acreate ``activity.asave(update_fields=...)`` call.
+                self.asave = mock.AsyncMock(return_value=None)
 
         async def _flaky_create(**kwargs):
             if kwargs["repo_id"] == "o/b":
