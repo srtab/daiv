@@ -236,6 +236,55 @@ class TestSend:
             RocketChatChannel().send(n, d)
         assert "not configured" in str(exc.value)
 
+    def test_disabled_channel_raises_unrecoverable(
+        self, notification_with_delivery, rocketchat_configured, monkeypatch
+    ):
+        from core.site_settings import site_settings
+
+        monkeypatch.setattr(site_settings, "rocketchat_enabled", False)
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "alice"
+        d.save()
+        with pytest.raises(UnrecoverableDeliveryError) as exc:
+            RocketChatChannel().send(n, d)
+        assert "disabled" in str(exc.value)
+
+    def test_job_batch_finished_renders_repo_breakdown_on_the_wire(
+        self, httpx_mock, notification_with_delivery, rocketchat_configured
+    ):
+        # End-to-end pin: a JOB_BATCH_FINISHED notification dispatched through send() must
+        # produce a payload whose attachments include the per-repo ✓/✗ breakdown. Catches
+        # any regression in the renderer-registry wiring for the most complex event.
+        from notifications.choices import EventType
+
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "alice"
+        d.save()
+        n.event_type = EventType.JOB_BATCH_FINISHED
+        n.subject = "'nightly' batch: 1/2 succeeded — alice"
+        n.context = {
+            "successful_count": 1,
+            "failed_count": 1,
+            "total": 2,
+            "duration_seconds": 90,
+            "trigger_owner": "alice",
+            "repo_results": [{"repo": "acme/api", "ok": True}, {"repo": "acme/legacy", "ok": False}],
+        }
+        n.save()
+
+        httpx_mock.add_response(
+            method="POST", url="https://rc.example.com/api/v1/chat.postMessage", json={"success": True}, status_code=200
+        )
+        RocketChatChannel().send(n, d)
+
+        body = json.loads(httpx_mock.get_requests()[0].content)
+        fields_by_title = {f["title"]: f["value"] for f in body["attachments"][0]["fields"]}
+        assert fields_by_title["Results"] == "✓ 1 · ✗ 1 of 2"
+        assert "✓ acme/api" in fields_by_title["Repositories"]
+        assert "✗ acme/legacy" in fields_by_title["Repositories"]
+
     def test_permanent_rc_error_raises_unrecoverable(
         self, httpx_mock, notification_with_delivery, rocketchat_configured
     ):

@@ -142,6 +142,25 @@ class TestScheduleFinishedRenderer:
         assert fields["Owner"] == "alice"
         assert fields["Duration"] == "47s"
 
+    def test_usage_and_cost_fields_appended_when_present(self):
+        # The production signal handler emits these keys for every schedule run, so the
+        # append branches in schedule_finished.py need explicit coverage.
+        notif = _stub_notification(
+            context={
+                "is_successful": True,
+                "repo_id": "acme/api",
+                "trigger_owner": "alice",
+                "duration_seconds": 47,
+                "input_tokens": 8123,
+                "output_tokens": 22456,
+                "cost_usd": 0.14,
+            }
+        )
+        _text, attachments = ScheduleFinishedRenderer().render(notif)
+        fields = _fields_by_title(attachments[0])
+        assert fields["Usage"] == "8.1k in · 22.5k out"
+        assert fields["Cost"] == "$0.14"
+
 
 class TestJobBatchFinishedRenderer:
     def _ctx(self, **overrides):

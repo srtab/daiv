@@ -169,6 +169,8 @@ def _build_payload(notification: Notification, delivery: NotificationDelivery) -
     channel = f"@{delivery.address}"
     renderer = get_renderer(notification.event_type)
     if renderer is None:
+        # Log so a missing renderer doesn't silently degrade to plain text forever.
+        logger.warning("Rocket Chat: no renderer for event_type=%r; sending plain text", notification.event_type)
         return {"channel": channel, "text": _compose_text(notification)}
     text, attachments = renderer.render(notification)
     return {"channel": channel, "text": text, "attachments": attachments}
