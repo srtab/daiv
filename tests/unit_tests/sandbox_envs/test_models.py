@@ -132,6 +132,26 @@ class TestRepoIdsValidation:
             env.full_clean()
         assert "repo_ids" in exc.value.error_dict
 
+    @pytest.mark.parametrize("repo_id", ["acme/foo", "dipcode/omd/omd-theme", "dipcode/omd/wordpress/omd-theme"])
+    def test_slash_separated_paths_accepted(self, repo_id):
+        user = self._make_user()
+        env = SandboxEnvironment(scope=Scope.USER, user=user, name="env", base_image="python:3.14", repo_ids=[repo_id])
+        env.full_clean()
+        assert env.repo_ids == [repo_id]
+
+    @pytest.mark.parametrize(
+        "repo_id",
+        ["acme", "acme/", "/acme/foo", "acme//foo", "acme foo/bar", "acme\tfoo/bar", "https://github.com/owner/repo"],
+    )
+    def test_invalid_format_rejected(self, repo_id):
+        from django.core.exceptions import ValidationError
+
+        user = self._make_user()
+        env = SandboxEnvironment(scope=Scope.USER, user=user, name="env", base_image="python:3.14", repo_ids=[repo_id])
+        with pytest.raises(ValidationError) as exc:
+            env.full_clean()
+        assert "repo_ids" in exc.value.error_dict
+
     def test_duplicate_within_same_env_rejected(self):
         from django.core.exceptions import ValidationError
 

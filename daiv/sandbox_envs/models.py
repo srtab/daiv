@@ -17,6 +17,7 @@ from django_extensions.db.models import TimeStampedModel
 from core.models import EncryptedJSONFieldDescriptor
 
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_REPO_ID_RE = re.compile(r"^[^\s/]+(/[^\s/]+)+$")
 ENV_VARS_MAX_ENTRIES = 100
 ENV_VARS_MAX_ENCRYPTED_SIZE = 32 * 1024  # 32 KiB
 
@@ -242,6 +243,14 @@ class SandboxEnvironment(TimeStampedModel):
             value = entry.strip()
             if not value:
                 raise ValidationError({"repo_ids": _("repo_ids[%d] cannot be blank.") % idx})
+            if not _REPO_ID_RE.match(value):
+                raise ValidationError({
+                    "repo_ids": _(
+                        "Invalid repo id '%(value)s' at index %(idx)d. Use a slash-separated path "
+                        "like 'owner/repo' or 'group/subgroup/repo'."
+                    )
+                    % {"value": value, "idx": idx}
+                })
             if value in seen:
                 raise ValidationError({"repo_ids": _("Duplicate repo id '%s' in this env.") % value})
             seen.add(value)

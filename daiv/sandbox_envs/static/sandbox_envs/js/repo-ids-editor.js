@@ -1,6 +1,7 @@
 /**
- * Alpine component: simple chip list of repo ids (owner/repo) bound to a
- * hidden JSON input named `repo_ids_json`.
+ * Alpine component: simple chip list of repo ids (slash-separated paths,
+ * e.g. `owner/repo` or `group/subgroup/repo`) bound to a hidden JSON input
+ * named `repo_ids_json`.
  *
  * Constructor arg: Array<string> — initial repo ids (already deduped).
  */
@@ -12,9 +13,12 @@ document.addEventListener("alpine:init", () => {
 
         addDraft() {
             const value = this.draft.trim();
-            if (!value) return;
-            if (!/^[^\s/]+\/[^\s/]+$/.test(value)) {
-                this.error = "Use 'owner/repo' format.";
+            if (!value) {
+                this.error = "";
+                return;
+            }
+            if (!/^[^\s/]+(\/[^\s/]+)+$/.test(value)) {
+                this.error = "Use a slash-separated path like 'owner/repo' or 'group/subgroup/repo'.";
                 return;
             }
             if (this.ids.includes(value)) {
