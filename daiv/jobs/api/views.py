@@ -1,6 +1,6 @@
 import logging
 import uuid as uuid_mod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django
 
@@ -84,8 +84,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
                 job_id=str(activity.id),
                 repo_id=spec.repo_id,
                 ref=spec.ref,
-                thread_id=activity.thread_id,
-                status=activity.status,
+                thread_id=str(activity.thread_id),
+                status=cast("Literal['QUEUED', 'READY']", activity.status),
             )
         )
 
@@ -110,8 +110,8 @@ async def get_job_status(request: HttpRequest, job_id: str):
     error = "Job execution failed" if activity.status == ActivityStatus.FAILED else None
     return 200, JobStatusResponse(
         job_id=str(activity.id),
-        status=activity.status,
-        thread_id=activity.thread_id,
+        status=cast("Literal['QUEUED', 'READY', 'RUNNING', 'SUCCESSFUL', 'FAILED']", activity.status),
+        thread_id=str(activity.thread_id) if activity.thread_id else None,
         result=activity.result_summary or None,
         merge_request_url=activity.merge_request_web_url or None,
         error=error,
