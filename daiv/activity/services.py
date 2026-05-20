@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from asgiref.sync import async_to_sync
 from jobs.tasks import run_job_task
 
-from activity.models import Activity, TriggerType
+from activity.models import Activity, ActivityStatus, TriggerType
 from automation.titling.tasks import generate_batch_title_task
 
 _PROMPT_DRIVEN = {TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.UI_JOB}
@@ -104,6 +104,7 @@ def create_activity(
     thread_id: str | None = None,
     title: str = "",
     sandbox_environment: SandboxEnvironment | None = None,
+    status: str = ActivityStatus.READY,
 ) -> Activity:
     """Create an Activity record linked to a DBTaskResult.
 
@@ -127,6 +128,7 @@ def create_activity(
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
         sandbox_environment=sandbox_environment,
+        status=status,
     )
 
 
@@ -150,6 +152,7 @@ async def acreate_activity(
     title: str = "",
     sandbox_environment: SandboxEnvironment | None = None,
     sandbox_environment_id: str | None = None,
+    status: str = ActivityStatus.READY,
 ) -> Activity:
     """Async variant of create_activity."""
     extra: dict = {}
@@ -174,6 +177,7 @@ async def acreate_activity(
         batch_id=batch_id,
         thread_id=thread_id,
         title=title[: Activity._meta.get_field("title").max_length],
+        status=status,
         **extra,
     )
 
@@ -188,6 +192,7 @@ async def asubmit_batch_runs(
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
+    thread_id: str | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Activity`` rows.
 
@@ -199,6 +204,8 @@ async def asubmit_batch_runs(
     distinguish "submitted" from "orphaned" and recover accordingly.
     """
     _validate(repos)
+    if thread_id is not None and len(repos) != 1:
+        raise ValueError("thread_id continuation requires exactly one repo")
     batch_id = uuid.uuid4()
 
     schedule_run_base = 0
@@ -206,20 +213,36 @@ async def asubmit_batch_runs(
         schedule_run_base = await Activity.objects.filter(scheduled_job=scheduled_job).acount()
 
     async def _submit_one(idx: int, target: RepoTarget) -> Activity | BatchSubmitFailure:
-        ref_for_task = target.ref or None
-        thread_id = str(uuid.uuid4())
-        try:
-            task = await run_job_task.aenqueue(
-                repo_id=target.repo_id,
-                prompt=prompt,
-                ref=ref_for_task,
-                use_max=use_max,
-                thread_id=thread_id,
-                sandbox_environment_id=target.sandbox_environment_id,
+        effective_thread_id = thread_id or str(uuid.uuid4())
+
+        non_terminal_sibling = False
+        if thread_id is not None:
+            non_terminal_sibling = (
+                await Activity.objects
+                .filter(thread_id=thread_id)
+                .exclude(status__in=list(ActivityStatus.terminal()))
+                .aexists()
             )
-        except Exception as err:  # noqa: BLE001
-            logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
+
+        ref_for_task = target.ref or None
+        task = None
+        if not non_terminal_sibling:
+            try:
+                task = await run_job_task.aenqueue(
+                    repo_id=target.repo_id,
+                    prompt=prompt,
+                    ref=ref_for_task,
+                    use_max=use_max,
+                    thread_id=effective_thread_id,
+                    sandbox_environment_id=target.sandbox_environment_id,
+                )
+            except Exception as err:  # noqa: BLE001
+                logger.exception(
+                    "submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id
+                )
+                return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
+
+        activity_status = ActivityStatus.QUEUED if non_terminal_sibling else ActivityStatus.READY
 
         activity_title = ""
         if trigger_type == TriggerType.SCHEDULE and scheduled_job is not None:
@@ -228,7 +251,7 @@ async def asubmit_batch_runs(
         try:
             activity = await acreate_activity(
                 trigger_type=trigger_type,
-                task_result_id=task.id,
+                task_result_id=task.id if task is not None else None,
                 repo_id=target.repo_id,
                 ref=target.ref,
                 prompt=prompt,
@@ -238,15 +261,16 @@ async def asubmit_batch_runs(
                 external_username=external_username,
                 notify_on=notify_on,
                 batch_id=batch_id,
-                thread_id=thread_id,
+                thread_id=effective_thread_id,
                 title=activity_title,
                 sandbox_environment_id=target.sandbox_environment_id,
+                status=activity_status,
             )
         except Exception:
             logger.exception(
                 "submit_batch_runs: activity creation failed for repo_id=%s task_id=%s (orphan job will run)",
                 target.repo_id,
-                task.id,
+                task.id if task is not None else None,
             )
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error="ActivityCreationFailed")
 

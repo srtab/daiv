@@ -1,6 +1,10 @@
+import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from activity.models import TriggerType
-from activity.services import acreate_activity, create_activity, validate_repo_list
+from activity.models import Activity, ActivityStatus, TriggerType
+from activity.services import RepoTarget, acreate_activity, asubmit_batch_runs, create_activity, validate_repo_list
+from django_tasks_db.models import DBTaskResult, get_date_max
 from notifications.choices import NotifyOn
 
 from schedules.models import Frequency, ScheduledJob
@@ -143,3 +147,102 @@ class TestEffectiveNotifyOn:
 
         activity = Activity.objects.create(trigger_type=TriggerType.API_JOB, repo_id="x/y")
         assert activity.effective_notify_on == NotifyOn.NEVER
+
+
+async def _make_db_task_result() -> MagicMock:
+    task_id = uuid.uuid4()
+    await DBTaskResult.objects.acreate(
+        id=task_id,
+        status="READY",
+        task_path="jobs.tasks.run_job_task",
+        args_kwargs={"args": [], "kwargs": {}},
+        queue_name="default",
+        backend_name="default",
+        run_after=get_date_max(),
+        return_value={},
+    )
+    return MagicMock(id=task_id)
+
+
+def _patch_run_job_task(side_effect=None):
+    mock_task = MagicMock()
+    mock_task.aenqueue = AsyncMock(side_effect=side_effect)
+    return patch("activity.services.run_job_task", mock_task), mock_task
+
+
+@pytest.mark.django_db(transaction=True)
+class TestThreadContinuation:
+    async def test_reuses_supplied_thread_id(self, member_user):
+        thread = str(uuid.uuid4())
+        fake_task = await _make_db_task_result()
+        patcher, mock_task = _patch_run_job_task()
+        mock_task.aenqueue.return_value = fake_task
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="follow-up",
+                repos=[RepoTarget(repo_id="acme/api", ref="")],
+                trigger_type=TriggerType.API_JOB,
+                thread_id=thread,
+            )
+        activity = result.activities[0]
+        assert activity.thread_id == thread
+
+    async def test_multi_repo_with_thread_id_raises(self, member_user):
+        thread = str(uuid.uuid4())
+        with pytest.raises(ValueError, match="exactly one repo"):
+            await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id="a/b", ref=""), RepoTarget(repo_id="c/d", ref="")],
+                trigger_type=TriggerType.API_JOB,
+                thread_id=thread,
+            )
+
+    async def test_prior_terminal_creates_ready_and_enqueues(self, member_user):
+        thread = str(uuid.uuid4())
+        # Prior terminal Activity on this thread
+        await Activity.objects.acreate(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="acme/api",
+            thread_id=thread,
+            status=ActivityStatus.SUCCESSFUL,
+            user=member_user,
+        )
+        fake_task = await _make_db_task_result()
+        patcher, mock_task = _patch_run_job_task()
+        mock_task.aenqueue.return_value = fake_task
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="follow-up",
+                repos=[RepoTarget(repo_id="acme/api", ref="")],
+                trigger_type=TriggerType.API_JOB,
+                thread_id=thread,
+            )
+        activity = result.activities[0]
+        assert activity.status == ActivityStatus.READY
+        mock_task.aenqueue.assert_called_once()
+
+    async def test_prior_non_terminal_creates_queued_and_skips_enqueue(self, member_user):
+        thread = str(uuid.uuid4())
+        await Activity.objects.acreate(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="acme/api",
+            thread_id=thread,
+            status=ActivityStatus.RUNNING,
+            user=member_user,
+        )
+        patcher, mock_task = _patch_run_job_task()
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="follow-up",
+                repos=[RepoTarget(repo_id="acme/api", ref="")],
+                trigger_type=TriggerType.API_JOB,
+                thread_id=thread,
+            )
+        activity = result.activities[0]
+        assert activity.status == ActivityStatus.QUEUED
+        assert activity.task_result_id is None
+        mock_task.aenqueue.assert_not_called()
