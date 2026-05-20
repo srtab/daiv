@@ -1,6 +1,7 @@
+import uuid
 from datetime import UTC, datetime
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -101,3 +102,36 @@ class TestSyncStuckActivitiesCommand:
         assert bad_activity.status == ActivityStatus.RUNNING
         assert "Synced: 1" in str(exc_info.value)
         assert "errored: 1" in str(exc_info.value)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSyncReleasesQueuedSibling:
+    def test_terminal_dbtaskresult_releases_queued_sibling(self, create_db_task_result):
+        """When sync_stuck_activities reconciles a stuck RUNNING Activity whose
+        DBTaskResult is already terminal, the resulting activity_finished signal
+        must release the oldest QUEUED sibling on the same thread_id.
+        """
+        thread = str(uuid.uuid4())
+        tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "done"})
+        stuck = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB,
+            repo_id="a/b",
+            thread_id=thread,
+            status=ActivityStatus.RUNNING,
+            task_result=tr,
+            prompt="p",
+        )
+        queued = Activity.objects.create(
+            trigger_type=TriggerType.API_JOB, repo_id="a/b", thread_id=thread, status=ActivityStatus.QUEUED, prompt="p"
+        )
+
+        fake_task = MagicMock(id=create_db_task_result().id)
+        with patch("activity.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=fake_task)
+            call_command("sync_stuck_activities")
+
+        stuck.refresh_from_db()
+        queued.refresh_from_db()
+        assert stuck.status == ActivityStatus.SUCCESSFUL
+        assert queued.status == ActivityStatus.READY
+        assert queued.task_result_id == fake_task.id
