@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 
 class ActivityStatus(models.TextChoices):
+    QUEUED = "QUEUED", _("Queued")
     READY = "READY", _("Pending")
     RUNNING = "RUNNING", _("Running")
     SUCCESSFUL = "SUCCESSFUL", _("Successful")
@@ -194,6 +195,7 @@ class Activity(models.Model):
                 name="activity_ext_user_created_idx",
                 condition=models.Q(external_username__gt=""),
             ),
+            models.Index(fields=["thread_id", "status"], name="activity_thread_status_idx"),
         ]
         constraints = [
             # NULL is the unambiguous "no thread" marker; reject "" so legacy queries

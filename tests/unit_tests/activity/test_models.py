@@ -264,3 +264,12 @@ class TestActivityThreadId:
 
         with pytest.raises(IntegrityError):
             Activity.objects.create(trigger_type=TriggerType.UI_JOB, repo_id="x/y", user=member_user, thread_id="")
+
+
+class TestQueuedStatus:
+    def test_queued_in_choices(self):
+        assert ActivityStatus.QUEUED == "QUEUED"
+        assert "QUEUED" in {s.value for s in ActivityStatus}
+
+    def test_queued_is_not_terminal(self):
+        assert "QUEUED" not in ActivityStatus.terminal()
