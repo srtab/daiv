@@ -1,5 +1,4 @@
 import uuid
-import uuid as _uuid_test  # local alias for TestThreadContinuationAPI tests
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -137,7 +136,7 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     async def _aenq(**kwargs):
         return await _make_task_row(task_id)
 
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="List all files"))
@@ -146,8 +145,6 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     data = response.json()
     assert "batch_id" in data
     assert len(data["jobs"]) == 1
-    # job_id is now Activity.id, not task_result_id
-    mock_create.side_effect.mock_calls[0] if hasattr(mock_create.side_effect, "mock_calls") else None
     # Verify it's a valid UUID
     assert uuid.UUID(data["jobs"][0]["job_id"])
     assert data["jobs"][0]["thread_id"]
@@ -269,17 +266,6 @@ async def test_submit_job_all_enqueue_failures_reported(authenticated_client: Te
 # --- Get job status tests (Activity-based) ---
 
 
-@pytest.fixture
-def owner_user(db):
-    return User.objects.create_user(username="testuser", email="test@test.com", password="testpass")  # noqa: S106
-
-
-@pytest.fixture
-def api_key_for_owner(owner_user):
-    _, key = async_to_sync(APIKey.objects.create_key)(user=owner_user, name="test-key")
-    return key
-
-
 async def _create_activity_row(
     user, status="SUCCESSFUL", result_summary="", merge_request_web_url="", error_message=""
 ):
@@ -363,14 +349,14 @@ class TestThreadContinuationAPI:
         assert body["jobs"][0]["status"] == "READY"
 
     async def test_continuation_with_unknown_thread_id_rejects(self, authenticated_client):
-        body = _single_repo_body(prompt="x", thread_id=str(_uuid_test.uuid4()))
+        body = _single_repo_body(prompt="x", thread_id=str(uuid.uuid4()))
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 400
         assert "thread_id not found" in response.json()["detail"]
 
     async def test_continuation_with_other_user_thread_id_rejects(self, authenticated_client, db):
         other = await User.objects.acreate_user(username="other", email="o@t.com", password="x")  # noqa: S106
-        thread = str(_uuid_test.uuid4())
+        thread = str(uuid.uuid4())
         await Activity.objects.acreate(trigger_type=TriggerType.API_JOB, repo_id="a/b", thread_id=thread, user=other)
         body = _single_repo_body(prompt="x", thread_id=thread)
         response = await authenticated_client.post("/jobs", json=body)
@@ -381,17 +367,30 @@ class TestThreadContinuationAPI:
         body = {
             "repos": [{"repo_id": "a/b", "ref": None}, {"repo_id": "c/d", "ref": None}],
             "prompt": "x",
-            "thread_id": str(_uuid_test.uuid4()),
+            "thread_id": str(uuid.uuid4()),
         }
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 400
         assert "exactly one repo" in response.json()["detail"]
 
     async def test_job_id_is_activity_id(self, authenticated_client):
-        with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+        created_activities: list = []
+
+        async def capture_acreate(**kwargs):
+            activity = _FakeActivity(task_result_id=kwargs["task_result_id"])
+            created_activities.append(activity)
+            return activity
+
+        with (
+            patch("activity.services.run_job_task") as mock_task,
+            patch("activity.services.acreate_activity", new_callable=AsyncMock, side_effect=capture_acreate),
+            patch("activity.services.generate_batch_title_task"),
+        ):
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
             mock_task.module_path = run_job_task.module_path
             response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x"))
+
         body = response.json()
-        # job_id is a UUID; specific value matches Activity.id (not DBTaskResult.id).
-        assert _uuid_test.UUID(body["jobs"][0]["job_id"])
+        assert len(created_activities) == 1
+        assert body["jobs"][0]["job_id"] == str(created_activities[0].id)
+        assert body["jobs"][0]["job_id"] != str(created_activities[0].task_result_id)

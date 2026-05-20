@@ -1,5 +1,6 @@
 import logging
 import uuid as uuid_mod
+from typing import TYPE_CHECKING
 
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django
 
@@ -13,20 +14,25 @@ from core.api.throttling import JobsRateThrottle
 
 from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
 
+if TYPE_CHECKING:
+    from accounts.models import User
+
 logger = logging.getLogger("daiv.jobs")
+
+_THREAD_NOT_FOUND = "thread_id not found"
 
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
 
 
-async def _validate_thread_id(thread_id: str, user) -> tuple[bool, str | None]:
+async def _validate_thread_id(thread_id: str, user: User) -> tuple[bool, str | None]:
     """Return (ok, error_detail). Same opaque message for unknown and not-owned threads."""
     try:
         uuid_mod.UUID(thread_id)
     except ValueError, TypeError:
-        return False, "thread_id not found"
+        return False, _THREAD_NOT_FOUND
     latest = await Activity.objects.filter(thread_id=thread_id).order_by("-created_at").afirst()
-    if latest is None or latest.user_id != user.id:
-        return False, "thread_id not found"
+    if latest is None or latest.user_id != user.pk:
+        return False, _THREAD_NOT_FOUND
     return True, None
 
 
