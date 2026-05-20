@@ -120,6 +120,16 @@ services:
         gitaly['logging_level'] = 'warn'
         nginx['error_log_level'] = 'warn'
         puma['log_level'] = 'warn'
+
+        puma['worker_processes'] = 2
+        sidekiq['max_concurrency'] = 5
+        postgresql['shared_buffers'] = '128MB'
+
+        prometheus_monitoring['enable'] = false
+        gitlab_kas['enable'] = false
+        registry['enable'] = false
+        mattermost['enable'] = false
+        gitlab_pages['enable'] = false
     ports:
       - "8929:8929"
       - "2224:22"
