@@ -280,13 +280,26 @@ async def test_submit_job_wait_pending_when_never_found():
 
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_not_found():
-    result = await get_job_status(job_id=str(uuid.uuid4()))
+    caller = MagicMock(pk=1)
+
+    class _DoesNotExistError(Exception):
+        pass
+
+    with (
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
+        patch("mcp_server.server.Activity") as mock_model,
+    ):
+        mock_model.DoesNotExist = _DoesNotExistError
+        mock_model.objects.aget = AsyncMock(side_effect=_DoesNotExistError)
+        result = await get_job_status(job_id=str(uuid.uuid4()))
     data = json.loads(result)
     assert data["error"] == "Job not found."
 
 
 async def test_get_job_status_invalid_uuid():
-    result = await get_job_status(job_id="not-a-uuid")
+    caller = MagicMock(pk=1)
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)):
+        result = await get_job_status(job_id="not-a-uuid")
     data = json.loads(result)
     assert data["error"] == "Invalid job_id format."
 
@@ -308,7 +321,11 @@ async def test_get_job_status_wait_already_complete():
     mock_activity.started_at = now
     mock_activity.finished_at = now
 
-    with patch("mcp_server.server.Activity") as mock_model:
+    caller = MagicMock(pk=1)
+    with (
+        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
+    ):
         mock_model.objects.aget = AsyncMock(return_value=mock_activity)
         mock_model.DoesNotExist = Exception
 
@@ -343,9 +360,11 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result.started_at = now
     finished_result.finished_at = now
 
+    caller = MagicMock(pk=1)
     with (
         patch("mcp_server.server.Activity") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         # First call is the initial fetch (running), then polling finds it finished
         mock_model.objects.aget = AsyncMock(side_effect=[running_result, finished_result])
@@ -380,9 +399,11 @@ async def test_get_job_status_wait_not_found_then_appears():
     class _DoesNotExistError(Exception):
         pass
 
+    caller = MagicMock(pk=1)
     with (
         patch("mcp_server.server.Activity") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         mock_model.DoesNotExist = _DoesNotExistError
         # Initial fetch raises DoesNotExist, then poll finds it
@@ -427,7 +448,11 @@ async def test_get_job_status_db_exception():
     class _DoesNotExistError(Exception):
         pass
 
-    with patch("mcp_server.server.Activity") as mock_model:
+    caller = MagicMock(pk=1)
+    with (
+        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
+    ):
         mock_model.DoesNotExist = _DoesNotExistError
         mock_model.objects.aget = AsyncMock(side_effect=RuntimeError("DB connection lost"))
 
@@ -575,3 +600,32 @@ class TestMCPThreadContinuation:
             )
         data = json.loads(result)
         assert "exactly one repo" in data["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_other_user_activity_returns_not_found():
+    """An MCP caller cannot read another user's Activity by id."""
+    from activity.models import Activity, ActivityStatus, TriggerType
+
+    from accounts.models import User
+
+    # One user owns the Activity
+    owner = await User.objects.acreate_user(
+        username="owner_mcp",
+        email="owner_mcp@example.com",
+        password="x",  # noqa: S106
+    )
+    activity = await Activity.objects.acreate(
+        trigger_type=TriggerType.MCP_JOB, repo_id="a/b", status=ActivityStatus.SUCCESSFUL, user=owner
+    )
+
+    # A different caller tries to read the same Activity id
+    caller = await User.objects.acreate_user(
+        username="caller_mcp",
+        email="caller_mcp@example.com",
+        password="x",  # noqa: S106
+    )
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)):
+        result = await get_job_status(job_id=str(activity.id))
+    data = json.loads(result)
+    assert "Job not found" in data["error"]

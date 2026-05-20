@@ -221,7 +221,7 @@ async def submit_job(
     if not wait:
         return json.dumps(response)
 
-    return await _poll_batch_until_complete(str(result.batch_id), job_ids, response)
+    return await _poll_batch_until_complete(str(result.batch_id), job_ids, response, mcp_user)
 
 
 def _build_job_response_dict(activity: Activity) -> dict:
@@ -259,7 +259,9 @@ def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[s
     })
 
 
-async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_response: dict) -> str:
+async def _poll_batch_until_complete(
+    batch_id: str, job_ids: list[str], enqueue_response: dict, mcp_user: object
+) -> str:
     """Poll every job in the batch until terminal or the 10-minute budget is exhausted."""
     results_by_id: dict[str, Activity] = {}
     if not job_ids:
@@ -273,7 +275,7 @@ async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_
         elapsed += POLL_INTERVAL
 
         try:
-            async for row in Activity.objects.filter(id__in=list(outstanding)):
+            async for row in Activity.objects.filter(id__in=list(outstanding), user=mcp_user):
                 if row.status in TERMINAL_STATUSES:
                     results_by_id[str(row.id)] = row
                     outstanding.discard(row.id)
@@ -284,7 +286,7 @@ async def _poll_batch_until_complete(batch_id: str, job_ids: list[str], enqueue_
     return _batch_response(batch_id, enqueue_response, results_by_id)
 
 
-async def _poll_job_until_complete(job_id: str) -> str:
+async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
     """Poll a job until it reaches a terminal status or the timeout is exceeded."""
     job_uuid = uuid_mod.UUID(job_id)
     elapsed = 0.0
@@ -295,7 +297,7 @@ async def _poll_job_until_complete(job_id: str) -> str:
         elapsed += POLL_INTERVAL
 
         try:
-            last = await Activity.objects.aget(id=job_uuid)
+            last = await Activity.objects.aget(id=job_uuid, user=mcp_user)
         except Activity.DoesNotExist:
             logger.debug("Job %s not yet available, retrying (%.0fs elapsed)", job_id, elapsed)
             continue
@@ -339,23 +341,27 @@ async def get_job_status(
 
     Status is one of: QUEUED, READY, RUNNING, SUCCESSFUL, FAILED.
     """
+    mcp_user = await get_current_user()
+    if mcp_user is None:
+        return json.dumps({"error": "Authentication failed: unable to resolve the current user."})
+
     try:
         activity_uuid = uuid_mod.UUID(job_id)
     except ValueError:
         return json.dumps({"error": "Invalid job_id format."})
 
     try:
-        activity = await Activity.objects.aget(id=activity_uuid)
+        activity = await Activity.objects.aget(id=activity_uuid, user=mcp_user)
     except Activity.DoesNotExist:
         if wait:
-            return await _poll_job_until_complete(job_id)
+            return await _poll_job_until_complete(job_id, mcp_user)
         return json.dumps({"error": "Job not found."})
     except Exception:
         logger.exception("Failed to retrieve job status for job_id=%s", job_id)
         return json.dumps({"error": "Failed to retrieve job status. Please try again later."})
 
     if wait and activity.status not in TERMINAL_STATUSES:
-        return await _poll_job_until_complete(job_id)
+        return await _poll_job_until_complete(job_id, mcp_user)
 
     return _build_job_response(activity)
 
