@@ -12,6 +12,7 @@ from core.site_settings import site_settings
 from core.utils import build_absolute_url, build_uri
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
+from notifications.channels.rocketchat_renderers.registry import get_renderer
 from notifications.choices import ChannelType
 from notifications.exceptions import UnrecoverableDeliveryError
 
@@ -159,6 +160,20 @@ def _compose_text(notification: Notification) -> str:
     return "\n".join(parts)
 
 
+def _build_payload(notification: Notification, delivery: NotificationDelivery) -> dict:
+    """Build the ``chat.postMessage`` body for ``notification``.
+
+    Falls back to a plain-text message when no renderer is registered for the
+    event type, so newly-introduced events deliver before their renderer ships.
+    """
+    channel = f"@{delivery.address}"
+    renderer = get_renderer(notification.event_type)
+    if renderer is None:
+        return {"channel": channel, "text": _compose_text(notification)}
+    text, attachments = renderer.render(notification)
+    return {"channel": channel, "text": text, "attachments": attachments}
+
+
 @register_channel
 class RocketChatChannel(NotificationChannel):
     channel_type = ChannelType.ROCKETCHAT
@@ -176,9 +191,8 @@ class RocketChatChannel(NotificationChannel):
         if client is None:
             raise UnrecoverableDeliveryError("Rocket Chat not configured")
 
-        text = _compose_text(notification)
         try:
-            _rc_post(client, "chat.postMessage", {"channel": f"@{delivery.address}", "text": text})
+            _rc_post(client, "chat.postMessage", _build_payload(notification, delivery))
         except RocketChatPermanentError as exc:
             logger.error("Rocket Chat delivery %s permanently failed: %s", delivery.id, exc)
             raise UnrecoverableDeliveryError(str(exc)) from exc
