@@ -1,8 +1,10 @@
+import uuid
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
+from activity.signals import activity_finished
 from django_tasks.signals import task_finished, task_started
 
 from accounts.models import User
@@ -214,3 +216,65 @@ class TestActivityFinishedSignal:
             assert not received.called
         finally:
             activity_finished.disconnect(dispatch_uid="test-term")
+
+
+def _make_activity(*, thread_id: str, status: str, **kwargs) -> Activity:
+    return Activity.objects.create(
+        trigger_type=TriggerType.API_JOB, repo_id="acme/api", thread_id=thread_id, status=status, prompt="p", **kwargs
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDispatchNextInThread:
+    def test_releases_oldest_queued_sibling(self, create_db_task_result):
+        thread = str(uuid.uuid4())
+        finished = _make_activity(thread_id=thread, status=ActivityStatus.SUCCESSFUL)
+        oldest = _make_activity(thread_id=thread, status=ActivityStatus.QUEUED)
+        _make_activity(thread_id=thread, status=ActivityStatus.QUEUED)  # newer sibling
+
+        db_task = create_db_task_result()
+        fake_task = MagicMock(id=db_task.id)
+        with patch("activity.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=fake_task)
+            activity_finished.send(sender=Activity, activity=finished)
+
+        oldest.refresh_from_db()
+        assert oldest.status == ActivityStatus.READY
+        assert oldest.task_result_id == fake_task.id
+
+    def test_no_op_when_no_thread_id(self):
+        finished = _make_activity(thread_id=None, status=ActivityStatus.SUCCESSFUL)
+        with patch("activity.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            activity_finished.send(sender=Activity, activity=finished)
+            mock_task.aenqueue.assert_not_called()
+
+    def test_no_op_when_no_queued_sibling(self):
+        thread = str(uuid.uuid4())
+        finished = _make_activity(thread_id=thread, status=ActivityStatus.SUCCESSFUL)
+        with patch("activity.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            activity_finished.send(sender=Activity, activity=finished)
+            mock_task.aenqueue.assert_not_called()
+
+    def test_dispatch_failure_marks_queued_failed_and_unblocks_chain(self, create_db_task_result):
+        thread = str(uuid.uuid4())
+        finished = _make_activity(thread_id=thread, status=ActivityStatus.SUCCESSFUL)
+        bad = _make_activity(thread_id=thread, status=ActivityStatus.QUEUED)
+        next_q = _make_activity(thread_id=thread, status=ActivityStatus.QUEUED)
+
+        db_task = create_db_task_result()
+        fake_task = MagicMock(id=db_task.id)
+        with patch("activity.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(side_effect=[RuntimeError("queue down"), fake_task])
+            # First emission: tries to release `bad`, enqueue raises, `bad` is
+            # marked FAILED. The FAILED save fires activity_finished again,
+            # which releases `next_q`.
+            activity_finished.send(sender=Activity, activity=finished)
+
+        bad.refresh_from_db()
+        next_q.refresh_from_db()
+        assert bad.status == ActivityStatus.FAILED
+        assert "dispatch_failed" in (bad.error_message or "")
+        assert next_q.status == ActivityStatus.READY
+        assert next_q.task_result_id == fake_task.id

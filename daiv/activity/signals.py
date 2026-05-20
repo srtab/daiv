@@ -7,7 +7,9 @@ from django.conf import settings
 from django.db.models.signals import post_save
 from django.dispatch import Signal, receiver
 
+from asgiref.sync import async_to_sync
 from django_tasks.signals import task_finished, task_started
+from jobs.tasks import run_job_task
 
 logger = logging.getLogger("daiv.activity")
 
@@ -90,3 +92,52 @@ def sync_activity_on_task_signal(sender: type, task_result: Any, **kwargs: Any) 
     without a transaction guard.
     """
     _sync_activity_for_task(task_result.id)
+
+
+@receiver(activity_finished)
+def dispatch_next_in_thread(sender: type, activity: Any, **kwargs: Any) -> None:
+    """Release the oldest queued continuation on this thread, if any."""
+    from activity.models import Activity, ActivityStatus
+
+    thread_id = getattr(activity, "thread_id", None)
+    if not thread_id:
+        return
+
+    next_q = Activity.objects.filter(thread_id=thread_id, status=ActivityStatus.QUEUED).order_by("created_at").first()
+    if next_q is None:
+        return
+
+    _enqueue_queued_activity(next_q)
+
+
+def _enqueue_queued_activity(activity: Any) -> None:
+    """Enqueue the persisted ``run_job_task`` for a queued Activity, transitioning it to READY.
+
+    On enqueue failure, marks the row FAILED (with a ``dispatch_failed:`` prefix on
+    ``error_message``) and saves it — that terminal transition re-fires
+    ``activity_finished``, releasing the next queued sibling so a single bad row
+    doesn't permanently block the thread.
+    """
+    from activity.models import ActivityStatus
+
+    try:
+        task = async_to_sync(run_job_task.aenqueue)(
+            repo_id=activity.repo_id,
+            prompt=activity.prompt,
+            thread_id=activity.thread_id,
+            ref=activity.ref or None,
+            use_max=activity.use_max,
+            sandbox_environment_id=str(activity.sandbox_environment_id) if activity.sandbox_environment_id else None,
+        )
+    except Exception as err:  # noqa: BLE001
+        logger.exception("dispatch_next_in_thread: enqueue failed for activity=%s", activity.pk)
+        activity.status = ActivityStatus.FAILED
+        activity.error_message = f"dispatch_failed: {type(err).__name__}: {err}"
+        previous = ActivityStatus.QUEUED
+        activity.save(update_fields=["status", "error_message"])
+        emit_activity_finished_if_terminal(activity, previous_status=previous)
+        return
+
+    activity.task_result_id = task.id
+    activity.status = ActivityStatus.READY
+    activity.save(update_fields=["task_result_id", "status"])
