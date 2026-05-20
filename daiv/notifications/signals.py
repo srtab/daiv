@@ -5,7 +5,7 @@ import logging
 from django.conf import settings
 from django.db import Error as DatabaseError
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.urls import reverse
@@ -93,6 +93,10 @@ def _render_payload(activity: Activity) -> tuple[str, str, dict]:
         "trigger_owner": owner,
         "repo_id": repo,
         "duration_seconds": activity.duration,
+        "input_tokens": activity.input_tokens,
+        "output_tokens": activity.output_tokens,
+        "total_tokens": activity.total_tokens,
+        "cost_usd": float(activity.cost_usd) if activity.cost_usd is not None else None,
     }
     return subject, body, context
 
@@ -155,6 +159,10 @@ def _handle_batch_completion(activity: Activity, siblings, total: int) -> None:
     agg = siblings.aggregate(
         terminal=Count("id", filter=Q(status__in=ActivityStatus.terminal())),
         successful=Count("id", filter=Q(status=ActivityStatus.SUCCESSFUL)),
+        total_input_tokens=Sum("input_tokens"),
+        total_output_tokens=Sum("output_tokens"),
+        total_total_tokens=Sum("total_tokens"),
+        total_cost_usd=Sum("cost_usd"),
     )
     if agg["terminal"] < total:
         return
@@ -175,12 +183,18 @@ def _handle_batch_completion(activity: Activity, siblings, total: int) -> None:
     failed = total - successful
     agg_status = ActivityStatus.SUCCESSFUL if failed == 0 else ActivityStatus.FAILED
 
-    rows = list(siblings.values_list("repo_id", "started_at", "finished_at"))
+    rows = list(siblings.values_list("repo_id", "started_at", "finished_at", "status"))
 
     effective = activity.effective_notify_on
     channels = [cls.channel_type for cls in enabled_channels()] if _status_matches(effective, agg_status) else []
 
-    subject, body, context = _render_batch_payload(activity, rows, total, successful, failed, agg_status)
+    usage = {
+        "input_tokens": agg["total_input_tokens"],
+        "output_tokens": agg["total_output_tokens"],
+        "total_tokens": agg["total_total_tokens"],
+        "cost_usd": float(agg["total_cost_usd"]) if agg["total_cost_usd"] is not None else None,
+    }
+    subject, body, context = _render_batch_payload(activity, rows, total, successful, failed, agg_status, usage)
     link_url = f"{reverse('activity_list')}?batch={activity.batch_id}"
 
     for recipient in recipients.values():
@@ -232,11 +246,14 @@ def _rollup_exists(recipient, batch_id) -> bool:
 
 
 def _render_batch_payload(
-    activity: Activity, rows: list[tuple], total: int, successful: int, failed: int, agg_status: str
+    activity: Activity, rows: list[tuple], total: int, successful: int, failed: int, agg_status: str, usage: dict
 ) -> tuple[str, str, dict]:
     is_schedule = _is_schedule(activity)
     ok = failed == 0
-    repo_ids = sorted({repo for repo, _start, _end in rows if repo})
+    repo_ids = sorted({repo for repo, _start, _end, _status in rows if repo})
+    repo_results = [
+        {"repo": repo, "ok": status == ActivityStatus.SUCCESSFUL} for repo, _start, _end, status in rows if repo
+    ]
     name = activity.scheduled_job.name if is_schedule else ""
     owner = str(activity.scheduled_job.user) if is_schedule else ""
 
@@ -277,11 +294,16 @@ def _render_batch_payload(
         "trigger_owner": owner,
         "repo_id": repo_ids[0] if len(repo_ids) == 1 else "",
         "repo_ids": repo_ids,
+        "repo_results": repo_results,
         "total": total,
         "successful_count": successful,
         "failed_count": failed,
         "duration_seconds": _batch_duration(rows),
         "batch_id": str(activity.batch_id),
+        "input_tokens": usage["input_tokens"],
+        "output_tokens": usage["output_tokens"],
+        "total_tokens": usage["total_tokens"],
+        "cost_usd": usage["cost_usd"],
     }
     return subject, body, context
 
@@ -297,7 +319,7 @@ def _summarize_repos(repo_ids: list[str], limit: int = 3) -> str:
 
 def _batch_duration(rows: list[tuple]) -> float | None:
     """Wall-clock span from earliest start to latest finish across the batch."""
-    pairs = [(start, end) for _repo, start, end in rows if start and end]
+    pairs = [(start, end) for _repo, start, end, _status in rows if start and end]
     if not pairs:
         return None
     earliest = min(start for start, _end in pairs)
