@@ -375,6 +375,27 @@ class TestScheduleUpdateViewSubscribers:
         html = response.content.decode()
         assert "alice" in html
 
+    def test_subscriber_initial_json_carries_avatar_fields(self, member_client, schedule):
+        # The Alpine chip in ``_subscriber_picker.html`` reads ``u.initials`` and
+        # ``u.color_index`` — losing them from the payload would silently break
+        # the rendered avatar without failing any other test.
+        import html as _html
+        import json as _json
+        import re
+
+        alice = User.objects.create_user(username="alice", email="a@t.com", password="x", name="Alice Doe")  # noqa: S106
+        schedule.subscribers.add(alice)
+        page = member_client.get(reverse("schedule_update", args=[schedule.pk])).content.decode()
+        # `x-data="subscriberPicker({ initial: [...] })"` — JSON's double quotes
+        # get HTML-escaped to `&quot;` inside the attribute, so unescape first.
+        match = re.search(r"subscriberPicker\(\{\s*initial:\s*(\[.*?\])\s*\}\)", _html.unescape(page))
+        assert match, "subscriberPicker x-data init not found in rendered HTML"
+        rows = _json.loads(match.group(1))
+        assert len(rows) == 1
+        assert rows[0]["initials"] == "AD"
+        assert isinstance(rows[0]["color_index"], int)
+        assert 0 <= rows[0]["color_index"] < 10
+
     def test_create_form_renders_picker_markers(self, member_client):
         response = member_client.get(reverse("schedule_create"))
         html = response.content.decode()

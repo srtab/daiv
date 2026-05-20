@@ -17,8 +17,9 @@
                 <span class="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.05] py-1 pl-1 pr-1 text-[13px] font-medium text-gray-300"
                       :title="u.email">
                     <span class="inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5">
-                        <span class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[9px] font-semibold text-white"
-                              x-text="(u.name || u.email).charAt(0).toUpperCase()"></span>
+                        <span class="avatar avatar--sm"
+                              :class="'avatar--c' + (u.color_index ?? 0)"
+                              x-text="u.initials || '?'"></span>
                         <span x-text="u.name || u.username"></span>
                     </span>
                     <button type="button"

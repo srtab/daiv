@@ -19,6 +19,7 @@ from activity.services import RepoTarget, submit_batch_runs
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
+from accounts.templatetags.avatar_tags import user_color_index, user_initials
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import ScheduledJob, ScheduleTemplate
 
@@ -33,10 +34,24 @@ class _ScheduleOwnerMixin:
 
 
 def _subscriber_initial_json(schedule) -> str:
-    """Serialize a schedule's current subscribers for the Alpine picker."""
+    """Serialize a schedule's current subscribers for the Alpine picker.
+
+    ``initials`` and ``color_index`` are precomputed server-side so the chip
+    avatars render identically to ``_avatar.html`` without a JS hashing helper.
+    """
     if schedule is None:
         return "[]"
-    rows = [{"id": u.pk, "username": u.username, "name": u.name, "email": u.email} for u in schedule.subscribers.all()]
+    rows = [
+        {
+            "id": u.pk,
+            "username": u.username,
+            "name": u.name,
+            "email": u.email,
+            "initials": user_initials(u),
+            "color_index": user_color_index(u),
+        }
+        for u in schedule.subscribers.all()
+    ]
     return json.dumps(rows)
 
 

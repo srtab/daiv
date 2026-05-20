@@ -1,13 +1,12 @@
-{% load i18n icon_tags %}
+{% load avatar_tags i18n icon_tags %}
 
 <div data-testid="app-user-menu" x-data="{ open: false }" class="relative" @keydown.escape="open = false">
   <button type="button"
           @click="open = !open"
           :aria-expanded="open.toString()"
           class="flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.02] py-1 pl-1 pr-3 text-sm text-gray-300 transition-colors hover:bg-white/[0.04]">
-    <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 text-[11px] font-semibold text-white">
-      {{ user.name|default:user.email|first|upper }}
-    </span>
+    {% user_color_index user as user_color %}
+    <span class="avatar avatar--md avatar--c{{ user_color }}">{% user_initials user %}</span>
     <span class="hidden text-[13px] text-gray-300 sm:inline">{{ user.email }}</span>
     {% icon "chevron-down" "h-3 w-3 text-gray-500" %}
   </button>
