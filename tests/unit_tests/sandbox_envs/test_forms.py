@@ -300,6 +300,12 @@ class TestRepoIdsField:
         assert not form.is_valid()
         assert "repo_ids_json" in form.errors
 
+    def test_repo_ids_invalid_format_surfaces_as_field_error(self):
+        user = User.objects.create(username="u", email="u@x.test")
+        form = SandboxEnvironmentForm(data=self._post_data(repo_ids_json='["not-a-path"]'), user=user, is_admin=False)
+        assert not form.is_valid()
+        assert "repo_ids_json" in form.errors
+
     def test_repo_ids_uniqueness_violation_surfaced_as_form_error(self):
         user = User.objects.create(username="u", email="u@x.test")
         SandboxEnvironment.objects.create(

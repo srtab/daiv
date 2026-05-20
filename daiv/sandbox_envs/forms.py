@@ -6,7 +6,7 @@ import logging
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from sandbox_envs.models import _ENV_VAR_NAME_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
+from sandbox_envs.models import _ENV_VAR_NAME_RE, _REPO_ID_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Scope
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -163,6 +163,14 @@ class SandboxEnvironmentForm(forms.ModelForm):
             value = entry.strip()
             if not value:
                 raise forms.ValidationError(_("repo_ids[%d] cannot be blank.") % idx)
+            if not _REPO_ID_RE.match(value):
+                raise forms.ValidationError(
+                    _(
+                        "Invalid repo id '%(value)s' at index %(idx)d. Use a slash-separated path "
+                        "like 'owner/repo' or 'group/subgroup/repo'."
+                    )
+                    % {"value": value, "idx": idx}
+                )
             cleaned.append(value)
         return cleaned
 
