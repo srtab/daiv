@@ -174,12 +174,16 @@ class TestVerifyUsername:
 
 @pytest.mark.django_db
 class TestSend:
-    def test_happy_path_posts_to_user_dm(self, httpx_mock, notification_with_delivery, rocketchat_configured):
+    def test_happy_path_posts_renderer_payload_to_user_dm(
+        self, httpx_mock, notification_with_delivery, rocketchat_configured
+    ):
+        # event_type="schedule.finished" on the fixture → uses ScheduleFinishedRenderer.
         n, d = notification_with_delivery
         d.channel_type = ChannelType.ROCKETCHAT
         d.address = "alice"
         d.save()
         n.subject, n.body, n.link_url = "Subject", "Body line", "/x/"
+        n.context = {"is_successful": True, "repo_id": "acme/api", "trigger_owner": "alice", "duration_seconds": 47}
         n.save()
 
         httpx_mock.add_response(
@@ -190,7 +194,33 @@ class TestSend:
         request = httpx_mock.get_requests()[0]
         body = json.loads(request.content)
         assert body["channel"] == "@alice"
+        # `text` is the OS-notification line; structured detail lives in attachments.
+        assert "Subject" in body["text"]
+        assert body["attachments"][0]["title"] == "Subject"
+        assert body["attachments"][0]["color"]  # color is set per outcome
+        # `Body line` is intentionally NOT in the payload — renderer surfaces structured fields.
+        assert "Body line" not in json.dumps(body)
+
+    def test_unknown_event_type_falls_back_to_plain_text(
+        self, httpx_mock, notification_with_delivery, rocketchat_configured
+    ):
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "alice"
+        d.save()
+        n.event_type = "some.future.event"  # no renderer registered
+        n.subject, n.body, n.link_url = "Subject", "Body line", "/x/"
+        n.save()
+
+        httpx_mock.add_response(
+            method="POST", url="https://rc.example.com/api/v1/chat.postMessage", json={"success": True}, status_code=200
+        )
+        RocketChatChannel().send(n, d)
+
+        body = json.loads(httpx_mock.get_requests()[0].content)
+        assert body["channel"] == "@alice"
         assert "Subject" in body["text"] and "Body line" in body["text"]
+        assert "attachments" not in body
 
     def test_missing_configuration_raises_unrecoverable(
         self, notification_with_delivery, rocketchat_configured, monkeypatch
@@ -205,6 +235,55 @@ class TestSend:
         with pytest.raises(UnrecoverableDeliveryError) as exc:
             RocketChatChannel().send(n, d)
         assert "not configured" in str(exc.value)
+
+    def test_disabled_channel_raises_unrecoverable(
+        self, notification_with_delivery, rocketchat_configured, monkeypatch
+    ):
+        from core.site_settings import site_settings
+
+        monkeypatch.setattr(site_settings, "rocketchat_enabled", False)
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "alice"
+        d.save()
+        with pytest.raises(UnrecoverableDeliveryError) as exc:
+            RocketChatChannel().send(n, d)
+        assert "disabled" in str(exc.value)
+
+    def test_job_batch_finished_renders_repo_breakdown_on_the_wire(
+        self, httpx_mock, notification_with_delivery, rocketchat_configured
+    ):
+        # End-to-end pin: a JOB_BATCH_FINISHED notification dispatched through send() must
+        # produce a payload whose attachments include the per-repo ✓/✗ breakdown. Catches
+        # any regression in the renderer-registry wiring for the most complex event.
+        from notifications.choices import EventType
+
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.ROCKETCHAT
+        d.address = "alice"
+        d.save()
+        n.event_type = EventType.JOB_BATCH_FINISHED
+        n.subject = "'nightly' batch: 1/2 succeeded — alice"
+        n.context = {
+            "successful_count": 1,
+            "failed_count": 1,
+            "total": 2,
+            "duration_seconds": 90,
+            "trigger_owner": "alice",
+            "repo_results": [{"repo": "acme/api", "ok": True}, {"repo": "acme/legacy", "ok": False}],
+        }
+        n.save()
+
+        httpx_mock.add_response(
+            method="POST", url="https://rc.example.com/api/v1/chat.postMessage", json={"success": True}, status_code=200
+        )
+        RocketChatChannel().send(n, d)
+
+        body = json.loads(httpx_mock.get_requests()[0].content)
+        fields_by_title = {f["title"]: f["value"] for f in body["attachments"][0]["fields"]}
+        assert fields_by_title["Results"] == "✓ 1 · ✗ 1 of 2"
+        assert "✓ acme/api" in fields_by_title["Repositories"]
+        assert "✗ acme/legacy" in fields_by_title["Repositories"]
 
     def test_permanent_rc_error_raises_unrecoverable(
         self, httpx_mock, notification_with_delivery, rocketchat_configured
