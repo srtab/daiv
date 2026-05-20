@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from accounts.models import User
-    from notifications.choices import ChannelType
+    from notifications.choices import ChannelType, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def _resolve_address_or_skipped_reason(channel_type: ChannelType, recipient: Use
 def create_notification(
     *,
     recipient: User,
-    event_type: str,
+    event_type: EventType,
     source_type: str,
     source_id: str,
     subject: str,
@@ -89,7 +89,7 @@ def dispatch_notification(notification: Notification) -> None:
 def notify(
     *,
     recipient: User,
-    event_type: str,
+    event_type: EventType,
     source_type: str = "",
     source_id: str = "",
     subject: str,

@@ -19,3 +19,11 @@ class DeliveryStatus(models.TextChoices):
     SENT = "sent", _("Sent")
     FAILED = "failed", _("Failed")
     SKIPPED = "skipped", _("Skipped")
+
+
+class EventType(models.TextChoices):
+    """Notification event identifiers in ``<snake_domain>.<past_participle>`` form."""
+
+    JOB_FINISHED = "job.finished", _("Job finished")
+    SCHEDULE_FINISHED = "schedule.finished", _("Schedule finished")
+    JOB_BATCH_FINISHED = "job_batch.finished", _("Job batch finished")
