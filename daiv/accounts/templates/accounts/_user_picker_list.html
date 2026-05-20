@@ -1,10 +1,12 @@
-{% load i18n %}
+{% load avatar_tags i18n %}
 <ul>
 {% for u in users %}
+  {% user_initials u as u_initials %}
+  {% user_color_index u as u_color %}
   <li>
     <button type="button"
             class="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] text-gray-300 hover:bg-white/[0.06]"
-            @click="addUser({ id: {{ u.pk }}, username: '{{ u.username|escapejs }}', name: '{{ u.name|default:''|escapejs }}', email: '{{ u.email|escapejs }}' })">
+            @click="addUser({ id: {{ u.pk }}, username: '{{ u.username|escapejs }}', name: '{{ u.name|default:''|escapejs }}', email: '{{ u.email|escapejs }}', initials: '{{ u_initials|escapejs }}', color_index: {{ u_color }} })">
       {% include "accounts/_avatar.html" with user=u %}
       <span class="min-w-0 flex-1 truncate">
         <span class="block text-white">{{ u.name|default:u.username }}</span>

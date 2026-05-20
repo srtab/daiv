@@ -75,7 +75,12 @@ class TestPickerUsersView:
         alice = User.objects.create_user(username="alice", email="a@t.com", password="x", name="Alice Doe")  # noqa: S106
         response = member_client.get(reverse("picker_users"), {"q": "ali"})
         html = response.content.decode()
-        assert f"addUser({{ id: {alice.pk}, username: 'alice', name: 'Alice Doe', email: 'a@t.com' }})" in html
+        # Avatar precomputed fields (initials, color_index) ride along so the chip
+        # renders identically once the user is added to the selected list.
+        assert (
+            f"addUser({{ id: {alice.pk}, username: 'alice', name: 'Alice Doe', email: 'a@t.com', "
+            f"initials: 'AD', color_index: " in html
+        )
 
     def test_caps_results_at_picker_limit(self, member_client):
         from accounts.views import PICKER_USERS_LIMIT

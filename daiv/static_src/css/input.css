@@ -206,6 +206,48 @@ main:has(.chat-shell) {
   }
 }
 
+/* -- Avatar ---------------------------------------------------------------
+
+   Shared by ``accounts/_avatar.html``, ``_user_menu.html`` and the schedule
+   subscriber picker (Alpine ``x-bind``). Initials and the palette index are
+   produced by ``accounts.templatetags.avatar_tags`` so two people sharing a
+   first letter still get distinct circles. Keep ``PALETTE_SIZE`` in the
+   templatetag in sync with the number of ``.avatar--c*`` modifiers below. */
+
+@layer components {
+  .avatar {
+    @apply inline-flex items-center justify-center rounded-full font-semibold uppercase text-white select-none;
+    /* Tighten two-letter pairs without offsetting single letters. */
+    letter-spacing: -0.02em;
+  }
+
+  .avatar--sm { @apply h-4 w-4 text-[9px]; }
+  .avatar--md { @apply h-6 w-6 text-[10px]; }
+
+  /* Stacked group of avatars (owner + N members), each subsequent circle slides
+     under the previous and gets a ring matching the page background. */
+  .avatar--stacked { @apply -ml-2 ring-2 ring-[#0a0e1a]; }
+
+  /* "+N" overflow chip rendered after a stacked group — neutral colors, wider
+     padding to fit two digits. */
+  .avatar--more {
+    @apply -ml-2 min-w-6 px-1.5 ring-2 ring-[#0a0e1a];
+    background: rgb(31 41 55);
+    color: rgb(209 213 219);
+  }
+
+  .avatar--c0 { background-image: linear-gradient(to bottom right, #8b5cf6, #22d3ee); }
+  .avatar--c1 { background-image: linear-gradient(to bottom right, #0ea5e9, #6366f1); }
+  .avatar--c2 { background-image: linear-gradient(to bottom right, #ec4899, #f43f5e); }
+  .avatar--c3 { background-image: linear-gradient(to bottom right, #10b981, #14b8a6); }
+  .avatar--c4 { background-image: linear-gradient(to bottom right, #f59e0b, #ef4444); }
+  .avatar--c5 { background-image: linear-gradient(to bottom right, #6366f1, #a855f7); }
+  .avatar--c6 { background-image: linear-gradient(to bottom right, #14b8a6, #06b6d4); }
+  .avatar--c7 { background-image: linear-gradient(to bottom right, #f43f5e, #f97316); }
+  .avatar--c8 { background-image: linear-gradient(to bottom right, #84cc16, #10b981); }
+  .avatar--c9 { background-image: linear-gradient(to bottom right, #a855f7, #ec4899); }
+}
+
 /* -- Status badge variants ------------------------------------------------ */
 
 @layer components {
