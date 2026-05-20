@@ -1,6 +1,7 @@
 import logging
 import uuid as uuid_mod
 from typing import TYPE_CHECKING, Literal, cast
+from uuid import UUID
 
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django
 
@@ -24,13 +25,13 @@ _THREAD_NOT_FOUND = "thread_id not found"
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
 
 
-async def _validate_thread_id(thread_id: str, user: User) -> tuple[bool, str | None]:
+async def _validate_thread_id(thread_id: UUID, user: User) -> tuple[bool, str | None]:
     """Return (ok, error_detail). One opaque message regardless of cause (unknown or not owned).
 
     Schema-layer validation already constrains ``thread_id`` to a well-formed UUID, so no
     UUID parsing is needed here — a non-existent ID is indistinguishable from a non-owned one.
     """
-    latest = await Activity.objects.filter(thread_id=thread_id).order_by("-created_at").afirst()
+    latest = await Activity.objects.filter(thread_id=str(thread_id)).order_by("-created_at").afirst()
     if latest is None or latest.user_id != user.pk:
         return False, _THREAD_NOT_FOUND
     return True, None
@@ -69,7 +70,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         use_max=payload.use_max,
         notify_on=payload.notify_on,
         trigger_type=TriggerType.API_JOB,
-        thread_id=payload.thread_id,
+        thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
     )
 
     failed_keys = {(f.repo_id, f.ref) for f in result.failed}

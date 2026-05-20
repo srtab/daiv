@@ -1,5 +1,6 @@
 from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
 from typing import Literal
+from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
 from ninja import Field, Schema
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime by Pydantic
@@ -10,16 +11,13 @@ class RepoSubmitItem(Schema):
     ref: str | None = None
 
 
-_UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-
-
 class JobSubmitRequest(Schema):
     repos: list[RepoSubmitItem] = Field(min_length=1, max_length=20)
     prompt: str = Field(min_length=1)
     use_max: bool = False
     notify_on: NotifyOn | None = None
     environment: str | None = None
-    thread_id: str | None = Field(default=None, min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    thread_id: UUID | None = None
 
 
 class JobSubmitJobItem(Schema):

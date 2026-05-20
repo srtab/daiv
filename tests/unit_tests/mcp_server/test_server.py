@@ -669,6 +669,15 @@ class TestMCPThreadContinuation:
         data = json.loads(result)
         assert "thread_id not found" in data["error"]
 
+    async def test_non_string_thread_id_rejected(self):
+        """Pins the TypeError arm: direct callers passing a non-str/non-UUID value get the
+        opaque error instead of an unhandled 500."""
+        user = MagicMock(pk=1)
+        with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+            result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=12345)
+        data = json.loads(result)
+        assert "thread_id not found" in data["error"]
+
     async def test_unauthenticated_user_rejected(self):
         """Without a resolvable user, submit_job must reject — not silently submit as user=None."""
         with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):

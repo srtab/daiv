@@ -3,6 +3,7 @@ import json
 import logging
 import uuid as uuid_mod
 from typing import TYPE_CHECKING, Annotated
+from uuid import UUID
 
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import MAX_REPOS_PER_BATCH, RepoTarget, asubmit_batch_runs
@@ -123,7 +124,7 @@ async def submit_job(
         ),
     ] = None,
     thread_id: Annotated[
-        str | None,
+        UUID | None,
         Field(
             description=(
                 "Optional. Continue an existing thread by passing its UUID (from a prior"
@@ -169,12 +170,16 @@ async def submit_job(
             )
         })
 
+    thread_id_str: str | None = None
     if thread_id is not None:
+        # FastMCP's protocol layer coerces to UUID via Pydantic; direct callers (tests, in-process
+        # use) may still pass a raw string, so normalise either input through UUID() once.
         try:
-            uuid_mod.UUID(thread_id)
-        except ValueError:
+            thread_id_str = str(uuid_mod.UUID(str(thread_id)))
+        except ValueError, TypeError:
+            logger.info("submit_job: rejecting malformed thread_id", extra={"user_id": mcp_user.pk})
             return json.dumps({"error": _THREAD_NOT_FOUND})
-        latest = await Activity.objects.filter(thread_id=thread_id).order_by("-created_at").afirst()
+        latest = await Activity.objects.filter(thread_id=thread_id_str).order_by("-created_at").afirst()
         if latest is None or latest.user_id != mcp_user.pk:
             return json.dumps({"error": _THREAD_NOT_FOUND})
 
@@ -196,7 +201,7 @@ async def submit_job(
         use_max=use_max,
         notify_on=notify_on,
         trigger_type=TriggerType.MCP_JOB,
-        thread_id=thread_id,
+        thread_id=thread_id_str,
     )
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
