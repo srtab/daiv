@@ -85,6 +85,8 @@ SKILLS_SYSTEM_PROMPT = f"""\
 - Only use skills listed in <available_skills> below, but creation is possible
 - Do not invoke a skill that is already running.
 
+{{skills_locations}}{{skills_load_warnings}}
+
 {{skills_list}}"""  # noqa: E501
 
 
@@ -94,12 +96,6 @@ AVAILABLE_SKILLS_TEMPLATE = PromptTemplate.from_template(
   <skill>
     <name>{{name}}</name>
     <description>{{description}}</description>
-    {{#metadata.is_builtin}}
-    <builtin>true</builtin>
-    {{/metadata.is_builtin}}
-    {{#metadata.is_global}}
-    <global>true</global>
-    {{/metadata.is_global}}
   </skill>
   {{/skills_list}}
 </available_skills>""",
@@ -128,35 +124,25 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         """
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
+
+        ``skills_load_errors`` are captured once per session and persist through subsequent turns;
+        a misconfig fixed mid-session will continue surfacing in ``<skill_load_warnings>`` until restart.
         """
-        # Clear the active skill mode when the user sends a follow-up message. This allows the agent to transition
-        # from plan mode (read-only) to implementation mode (full tool access) when the user says "proceed" or similar.
         clear_skill_mode = state.get("active_skill_mode") is not None and self._has_user_followup(state["messages"])
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # Materialize before super() so the `skill` tool can resolve files on disk,
-        # not just metadata; otherwise the agent gets a not_found at invocation time.
-        builtin_skills, custom_global_skills = await self._copy_global_skills()
+        # Skip the filesystem walk once skills_metadata is in state — upstream `abefore_agent` also
+        # short-circuits on the same condition, so re-walking is pure waste on turns 2+.
+        local_load_errors: list[str] = []
+        if "skills_metadata" not in state:
+            local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
-        # Mark skills based on their origin. Custom global skills take precedence over built-in skills with the same
-        # name. Per-repository skills (not in either list) get both flags removed.
-        if skills_update is not None:
-            for skill in skills_update["skills_metadata"]:
-                if skill["name"] in custom_global_skills:
-                    skill["metadata"]["is_global"] = True
-                    skill["metadata"].pop("is_builtin", None)
-                elif skill["name"] in builtin_skills:
-                    skill["metadata"]["is_builtin"] = True
-                    skill["metadata"].pop("is_global", None)
-                else:
-                    skill["metadata"].pop("is_builtin", None)
-                    skill["metadata"].pop("is_global", None)
+        if local_load_errors and skills_update is not None:
+            skills_update.setdefault("skills_load_errors", []).extend(local_load_errors)
 
-        # If the super method returns None, it means that the skills metadata was already captured and registered in
-        # the state.
         skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
 
         builtin_slash_commands = None
@@ -166,6 +152,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
         if builtin_slash_commands:
+            if skills_update is not None and "skills_load_errors" in skills_update:
+                builtin_slash_commands["skills_load_errors"] = skills_update["skills_load_errors"]
             if clear_skill_mode:
                 builtin_slash_commands["active_skill_mode"] = None
             return builtin_slash_commands
@@ -175,51 +163,60 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return skills_update
 
-    async def _copy_global_skills(self) -> tuple[list[str], list[str]]:
+    async def _copy_global_skills(self) -> list[str]:
         """
         Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
-        sibling to the agent's working directory.
+        sibling to the agent's working directory. Custom global skills override builtins with
+        the same name at first cache population.
 
-        Custom global skills override builtins with the same name (later writes in
-        ``files_to_upload`` win).
-
-        Returns a tuple of (builtin skill names, custom global skill names).
+        Returns source-level load errors so callers can surface them via ``skills_load_errors``.
         """
         files_to_upload: list[tuple[str, bytes]] = []
+        errors: list[str] = []
         skills_path = Path(GLOBAL_SKILLS_PATH)
 
-        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
+        self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload, errors)
 
-        custom_global_skills: list[str] = []
         custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH
         if custom_skills_path is not None and custom_skills_path.is_dir():
             try:
-                custom_global_skills = self._collect_skill_files(custom_skills_path, skills_path, files_to_upload)
-            except OSError:
-                logger.exception("Failed to read custom global skills from '%s', skipping", custom_skills_path)
+                self._collect_skill_files(custom_skills_path, skills_path, files_to_upload, errors)
+            except OSError as exc:
+                # Host path stays in the operator log; the agent gets a generic warning
+                # because it cannot act on a real-filesystem location and shouldn't leak it.
+                # ``exc.strerror`` carries the OS message without the path (which lives in
+                # ``exc.filename``); ``str(exc)`` would include both.
+                logger.exception("Failed to read custom global skills from '%s'", custom_skills_path)
+                reason = exc.strerror or type(exc).__name__
+                errors.append(f"Some custom global skills failed to load: {reason}")
         elif custom_skills_path is not None:
             logger.warning("Custom global skills path '%s' does not exist or is not a directory", custom_skills_path)
 
-        for response in await self._backend.aupload_files(files_to_upload):
-            if response.error:
-                raise RuntimeError(f"Failed to upload skill: {response.error}")
-        return builtin_skills, custom_global_skills
+        responses = await self._backend.aupload_files(files_to_upload)
+        failures = [
+            (dest, resp.error) for (dest, _), resp in zip(files_to_upload, responses, strict=True) if resp.error
+        ]
+        if failures:
+            for dest, err in failures:
+                logger.error("Skill upload failed: dest=%s error=%s", dest, err)
+            first_dest, first_err = failures[0]
+            extra = f"; first failure at '{first_dest}': {first_err}"
+            raise RuntimeError(f"Failed to upload {len(failures)} skill file(s){extra}")
+
+        return errors
 
     @staticmethod
     def _collect_skill_files(
-        source_root: Path, project_skills_path: Path, files_to_upload: list[tuple[str, bytes]]
-    ) -> list[str]:
+        source_root: Path, project_skills_path: Path, files_to_upload: list[tuple[str, bytes]], errors: list[str]
+    ) -> None:
         """
-        Walk skill directories under ``source_root`` and append files to ``files_to_upload``.
-
-        Returns the list of skill names found.
+        Walk skill directories under ``source_root``, appending uploadable files to
+        ``files_to_upload`` and ``SKILL.md`` read failures to ``errors`` so a broken
+        manifest is not silently dropped from the agent's view.
         """
-        skill_names: list[str] = []
         for skill_dir in source_root.iterdir():
             if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
                 continue
-
-            skill_names.append(skill_dir.name)
 
             for root, dirs, files in skill_dir.walk():
                 dirs[:] = [d for d in dirs if d != "__pycache__"]
@@ -233,13 +230,20 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     # is a virtual path under ``GLOBAL_SKILLS_PATH``, which never exists
                     # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
                     dest_path = project_skills_path / rel
-                    if not (SKILLS_CACHE_PATH / rel).exists():
-                        try:
-                            files_to_upload.append((str(dest_path), source_path.read_bytes()))
-                        except OSError:
-                            logger.warning("Failed to read skill file '%s', skipping", source_path)
-
-        return skill_names
+                    if (SKILLS_CACHE_PATH / rel).exists():
+                        continue
+                    try:
+                        files_to_upload.append((str(dest_path), source_path.read_bytes()))
+                    except OSError as exc:
+                        logger.warning(
+                            "Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name
+                        )
+                        # Surface broken SKILL.md by skill name so the agent can warn a user
+                        # who invokes the skill. Host paths stay in the log only — ``exc.strerror``
+                        # is the OS message without the path (which lives in ``exc.filename``).
+                        if source_path.name == "SKILL.md":
+                            reason = exc.strerror or type(exc).__name__
+                            errors.append(f"Cannot load skill '{skill_dir.name}': {reason}")
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:

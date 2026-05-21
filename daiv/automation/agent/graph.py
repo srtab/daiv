@@ -232,7 +232,7 @@ async def create_daiv_agent(
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         SkillsMiddleware(
             backend=backend,
-            sources=[GLOBAL_SKILLS_PATH, *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
+            sources=[(GLOBAL_SKILLS_PATH, "Global"), *[f"/{agent_path.name}/{source}" for source in SKILLS_SOURCES]],
             subagents=subagents,
         ),
         *([SandboxMiddleware(backend=backend, agent_root=agent_root)] if _sandbox_enabled else []),
