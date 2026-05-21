@@ -84,6 +84,7 @@ SKILLS_SYSTEM_PROMPT = f"""\
 - CRITICAL: The `{SKILLS_TOOL_NAME}` tool MUST be the ONLY tool call in its assistant turn. NEVER call `{SKILLS_TOOL_NAME}` in parallel with other tools (e.g., do NOT call `{SKILLS_TOOL_NAME}` and `gitlab` at the same time). Other tools can be called in subsequent turns after the skill has been processed.
 - Only use skills listed in <available_skills> below, but creation is possible
 - Do not invoke a skill that is already running.
+{{skills_load_warnings}}
 
 {{skills_list}}"""  # noqa: E501
 
