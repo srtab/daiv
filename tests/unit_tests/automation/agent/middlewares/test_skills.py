@@ -80,6 +80,34 @@ class TestSkillsMiddleware:
         assert skills["skill-one"]["path"] == "/skills/skill-one/SKILL.md"
         assert skills["skill-two"]["path"] == "/skills/skill-two/SKILL.md"
 
+    async def test_skips_copy_global_skills_when_metadata_already_cached(self, tmp_path: Path):
+        """Once skills_metadata is in state, abefore_agent must not re-walk the filesystem."""
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / "repoX"))
+        runtime.context.config = RepositoryConfig(slash_commands=SlashCommands(enabled=False))
+
+        state = {
+            "messages": [HumanMessage(content="hello")],
+            "skills_metadata": [
+                {"name": "skill-one", "description": "ok", "path": "/skills/skill-one/SKILL.md", "metadata": {}}
+            ],
+        }
+
+        with (
+            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock) as mock_copy,
+        ):
+            await middleware.abefore_agent(state, runtime, Mock())
+
+        mock_copy.assert_not_called()
+
     async def test_preserves_user_supplied_metadata(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
@@ -896,7 +924,7 @@ class TestCustomGlobalSkills:
         assert any(str(missing) in err and "does not exist" in err for err in errors)
         assert (tmp_path / "skills" / "skill-one" / "SKILL.md").exists()
 
-    async def test_custom_global_skills_oserror_surfaces_in_load_errors(self, tmp_path: Path, monkeypatch):
+    async def test_custom_global_skills_oserror_surfaces_in_load_errors(self, tmp_path: Path):
         """An OSError raised while walking the custom-skills dir must reach skills_load_errors."""
         from deepagents.backends.filesystem import FilesystemBackend
 

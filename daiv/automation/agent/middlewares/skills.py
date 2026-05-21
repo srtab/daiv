@@ -125,32 +125,24 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
 
-        ``skills_load_errors`` follow upstream's load-once contract: they are populated on the first turn
-        (when ``skills_metadata`` is not yet in state) and preserved across subsequent turns via LangGraph's
-        last-write-wins merge. Errors are not re-validated mid-session — a transient misconfig that's fixed
-        after the first turn will continue surfacing in ``<skill_load_warnings>`` until the session restarts.
+        ``skills_load_errors`` are captured once per session and persist through subsequent turns;
+        a misconfig fixed mid-session will continue surfacing in ``<skill_load_warnings>`` until restart.
         """
-        # Clear the active skill mode when the user sends a follow-up message. This allows the agent to transition
-        # from plan mode (read-only) to implementation mode (full tool access) when the user says "proceed" or similar.
         clear_skill_mode = state.get("active_skill_mode") is not None and self._has_user_followup(state["messages"])
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # Materialize before super() so the `skill` tool can resolve files on disk,
-        # not just metadata; otherwise the agent gets a not_found at invocation time.
-        local_load_errors = await self._copy_global_skills()
+        # Skip the filesystem walk once skills_metadata is in state — upstream `abefore_agent` also
+        # short-circuits on the same condition, so re-walking is pure waste on turns 2+.
+        local_load_errors: list[str] = []
+        if "skills_metadata" not in state:
+            local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
-        # Merge daiv-side load errors (custom-skills misconfig, unreadable SKILL.md) into the
-        # upstream `skills_load_errors` channel so they render in `<skill_load_warnings>`.
-        # Only attach to `skills_update` on the first turn; once skills_metadata is in state,
-        # upstream returns None and LangGraph keeps the prior turn's errors via merge.
         if local_load_errors and skills_update is not None:
             skills_update.setdefault("skills_load_errors", []).extend(local_load_errors)
 
-        # If the super method returns None, it means that the skills metadata was already captured and registered in
-        # the state.
         skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
 
         builtin_slash_commands = None
@@ -166,11 +158,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 builtin_slash_commands["active_skill_mode"] = None
             return builtin_slash_commands
 
-        # The spread is load-bearing on the first turn: it copies `skills_metadata` AND
-        # `skills_load_errors` from skills_update into the return so they reach the next
-        # `wrap_model_call`. On subsequent turns skills_update is None and LangGraph's
-        # last-write-wins merge preserves both keys from state. Tests at
-        # `test_abefore_agent_forwards_skills_load_errors_through_*_branch` pin this contract.
         if clear_skill_mode:
             return {**(skills_update or {}), "active_skill_mode": None}
 
@@ -179,14 +166,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     async def _copy_global_skills(self) -> list[str]:
         """
         Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
-        sibling to the agent's working directory.
+        sibling to the agent's working directory. Custom global skills override builtins with
+        the same name at first cache population.
 
-        Custom global skills override builtins with the same name on the first cache-population
-        pass (later writes in ``files_to_upload`` win); once ``SKILLS_CACHE_PATH`` is warm both
-        writes become no-ops, so override semantics only apply at first materialization.
-
-        Returns source-level load errors (custom-skills-dir misconfig, OSError while walking,
-        unreadable ``SKILL.md`` files) so callers can surface them via ``skills_load_errors``.
+        Returns source-level load errors so callers can surface them via ``skills_load_errors``.
         """
         files_to_upload: list[tuple[str, bytes]] = []
         errors: list[str] = []
@@ -200,7 +183,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 self._collect_skill_files(custom_skills_path, skills_path, files_to_upload, errors)
             except OSError as exc:
                 logger.exception("Failed to read custom global skills from '%s'", custom_skills_path)
-                errors.append(f"Cannot load custom global skills from '{custom_skills_path}': {exc}")
+                errors.append(f"Cannot load skills from '{custom_skills_path}': {exc}")
         elif custom_skills_path is not None:
             msg = f"Custom global skills path '{custom_skills_path}' does not exist or is not a directory"
             logger.warning(msg)
@@ -224,12 +207,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         source_root: Path, project_skills_path: Path, files_to_upload: list[tuple[str, bytes]], errors: list[str]
     ) -> None:
         """
-        Walk skill directories under ``source_root`` and append files to ``files_to_upload``.
-
-        Records ``SKILL.md`` read failures into ``errors`` so the skill is not silently dropped
-        from the agent's view. Helper-file read failures are logged at warning level and skipped
-        without escalation (a skill with a usable ``SKILL.md`` but a broken helper is still
-        partially usable).
+        Walk skill directories under ``source_root``, appending uploadable files to
+        ``files_to_upload`` and ``SKILL.md`` read failures to ``errors`` so a broken
+        manifest is not silently dropped from the agent's view.
         """
         for skill_dir in source_root.iterdir():
             if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
@@ -256,9 +236,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                             "Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name
                         )
                         if source_path.name == "SKILL.md":
-                            errors.append(
-                                f"Cannot read SKILL.md for skill '{skill_dir.name}' at '{source_path}': {exc}"
-                            )
+                            errors.append(f"Cannot load skills from '{source_path}': {exc}")
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
