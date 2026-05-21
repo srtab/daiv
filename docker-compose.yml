@@ -184,7 +184,7 @@ services:
     container_name: daiv-mcp-sentry
     command:
       - --stdio
-      - "npx @sentry/mcp-server@latest"
+      - "npx @sentry/mcp-server@0.34.0"
       - --outputTransport
       - streamableHttp
       - --healthEndpoint
@@ -209,7 +209,7 @@ services:
     container_name: daiv-mcp-context7
     command:
       - --stdio
-      - "npx @upstash/context7-mcp@latest"
+      - "npx @upstash/context7-mcp@2.2.5"
       - --outputTransport
       - streamableHttp
       - --healthEndpoint
