@@ -8,8 +8,29 @@ from .schemas import ToolFilter
 
 @mcp_server
 class SentryMCPServer(MCPServer):
+    """
+    Read-only tools allowed.
+    """
+
     name = "sentry"
-    tool_filter = ToolFilter(mode="allow", items=["find_organizations", "find_projects", "list_issues", "list_events"])
+    tool_filter = ToolFilter(
+        mode="allow",
+        items=[
+            "whoami",
+            "find_teams",
+            "get_issue_tag_values",
+            "get_event_attachment",
+            "get_replay_details",
+            "get_profile_details",
+            "get_sentry_resource",
+            "find_organizations",
+            "find_projects",
+            "find_releases",
+            "search_events",
+            "search_issue",
+            "search_issue_events",
+        ],
+    )
 
     def is_enabled(self) -> bool:
         return settings.SENTRY_URL is not None

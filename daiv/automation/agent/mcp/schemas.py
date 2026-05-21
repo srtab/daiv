@@ -18,7 +18,12 @@ class ToolFilter(BaseModel):
     mode: Literal["allow", "block"] = Field(
         ..., description="Filtering mode - 'allow' to whitelist tools, 'block' to blacklist tools"
     )
-    items: list[str] = Field(..., alias="list", description="List of tool names to filter based on the mode")
+    items: list[str] = Field(
+        ...,
+        validation_alias="list",
+        serialization_alias="list",
+        description="List of tool names to filter based on the mode",
+    )
 
 
 class UserMcpServer(BaseModel):
