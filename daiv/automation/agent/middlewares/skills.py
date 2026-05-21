@@ -133,9 +133,16 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         # Materialize before super() so the `skill` tool can resolve files on disk,
         # not just metadata; otherwise the agent gets a not_found at invocation time.
-        await self._copy_global_skills()
+        local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
+
+        # Merge daiv-side load errors (custom-skills misconfig, unreadable SKILL.md) into the
+        # upstream `skills_load_errors` channel so they render in `<skill_load_warnings>`.
+        # Only attach to `skills_update` on the first turn; once skills_metadata is in state,
+        # upstream returns None and LangGraph keeps the prior turn's errors via merge.
+        if local_load_errors and skills_update is not None:
+            skills_update.setdefault("skills_load_errors", []).extend(local_load_errors)
 
         # If the super method returns None, it means that the skills metadata was already captured and registered in
         # the state.
@@ -154,43 +161,70 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 builtin_slash_commands["active_skill_mode"] = None
             return builtin_slash_commands
 
+        # The spread is load-bearing on the first turn: it copies `skills_metadata` AND
+        # `skills_load_errors` from skills_update into the return so they reach the next
+        # `wrap_model_call`. On subsequent turns skills_update is None and LangGraph's
+        # last-write-wins merge preserves both keys from state. Tests at
+        # `test_abefore_agent_forwards_skills_load_errors_through_*_branch` pin this contract.
         if clear_skill_mode:
             return {**(skills_update or {}), "active_skill_mode": None}
 
         return skills_update
 
-    async def _copy_global_skills(self) -> None:
+    async def _copy_global_skills(self) -> list[str]:
         """
         Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
         sibling to the agent's working directory.
 
-        Custom global skills override builtins with the same name (later writes in
-        ``files_to_upload`` win).
+        Custom global skills override builtins with the same name on the first cache-population
+        pass (later writes in ``files_to_upload`` win); once ``SKILLS_CACHE_PATH`` is warm both
+        writes become no-ops, so override semantics only apply at first materialization.
+
+        Returns source-level load errors (custom-skills-dir misconfig, OSError while walking,
+        unreadable ``SKILL.md`` files) so callers can surface them via ``skills_load_errors``.
         """
         files_to_upload: list[tuple[str, bytes]] = []
+        errors: list[str] = []
         skills_path = Path(GLOBAL_SKILLS_PATH)
 
-        self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
+        self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload, errors)
 
         custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH
         if custom_skills_path is not None and custom_skills_path.is_dir():
             try:
-                self._collect_skill_files(custom_skills_path, skills_path, files_to_upload)
-            except OSError:
-                logger.exception("Failed to read custom global skills from '%s', skipping", custom_skills_path)
+                self._collect_skill_files(custom_skills_path, skills_path, files_to_upload, errors)
+            except OSError as exc:
+                logger.exception("Failed to read custom global skills from '%s'", custom_skills_path)
+                errors.append(f"Cannot load custom global skills from '{custom_skills_path}': {exc}")
         elif custom_skills_path is not None:
-            logger.warning("Custom global skills path '%s' does not exist or is not a directory", custom_skills_path)
+            msg = f"Custom global skills path '{custom_skills_path}' does not exist or is not a directory"
+            logger.warning(msg)
+            errors.append(msg)
 
-        for response in await self._backend.aupload_files(files_to_upload):
-            if response.error:
-                raise RuntimeError(f"Failed to upload skill: {response.error}")
+        responses = await self._backend.aupload_files(files_to_upload)
+        failures = [
+            (dest, resp.error) for (dest, _), resp in zip(files_to_upload, responses, strict=True) if resp.error
+        ]
+        if failures:
+            for dest, err in failures:
+                logger.error("Skill upload failed: dest=%s error=%s", dest, err)
+            first_dest, first_err = failures[0]
+            extra = f"; first failure at '{first_dest}': {first_err}"
+            raise RuntimeError(f"Failed to upload {len(failures)} skill file(s){extra}")
+
+        return errors
 
     @staticmethod
     def _collect_skill_files(
-        source_root: Path, project_skills_path: Path, files_to_upload: list[tuple[str, bytes]]
+        source_root: Path, project_skills_path: Path, files_to_upload: list[tuple[str, bytes]], errors: list[str]
     ) -> None:
         """
         Walk skill directories under ``source_root`` and append files to ``files_to_upload``.
+
+        Records ``SKILL.md`` read failures into ``errors`` so the skill is not silently dropped
+        from the agent's view. Helper-file read failures are logged at warning level and skipped
+        without escalation (a skill with a usable ``SKILL.md`` but a broken helper is still
+        partially usable).
         """
         for skill_dir in source_root.iterdir():
             if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
@@ -208,11 +242,18 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     # is a virtual path under ``GLOBAL_SKILLS_PATH``, which never exists
                     # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
                     dest_path = project_skills_path / rel
-                    if not (SKILLS_CACHE_PATH / rel).exists():
-                        try:
-                            files_to_upload.append((str(dest_path), source_path.read_bytes()))
-                        except OSError:
-                            logger.warning("Failed to read skill file '%s', skipping", source_path)
+                    if (SKILLS_CACHE_PATH / rel).exists():
+                        continue
+                    try:
+                        files_to_upload.append((str(dest_path), source_path.read_bytes()))
+                    except OSError as exc:
+                        logger.warning(
+                            "Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name
+                        )
+                        if source_path.name == "SKILL.md":
+                            errors.append(
+                                f"Cannot read SKILL.md for skill '{skill_dir.name}' at '{source_path}': {exc}"
+                            )
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:

@@ -185,7 +185,7 @@ class TestSkillsMiddleware:
 
         with (
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            pytest.raises(RuntimeError, match="Failed to upload skill: boom"),
+            pytest.raises(RuntimeError, match="boom"),
         ):
             await middleware._copy_global_skills()
 
@@ -809,8 +809,7 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", None),
         ):
-            # Must not raise. Returns None now (no name-list reporting).
-            assert await middleware._copy_global_skills() is None
+            assert await middleware._copy_global_skills() == []
 
         # Built-in skill was materialized.
         assert (tmp_path / "skills" / "skill-one" / "SKILL.md").exists()
@@ -824,11 +823,117 @@ class TestCustomGlobalSkills:
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        missing = tmp_path / "nonexistent"
 
         with (
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", tmp_path / "nonexistent"),
+            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", missing),
         ):
-            assert await middleware._copy_global_skills() is None
+            errors = await middleware._copy_global_skills()
 
+        assert any(str(missing) in err and "does not exist" in err for err in errors)
         assert (tmp_path / "skills" / "skill-one" / "SKILL.md").exists()
+
+    async def test_custom_global_skills_oserror_surfaces_in_load_errors(self, tmp_path: Path, monkeypatch):
+        """An OSError raised while walking the custom-skills dir must reach skills_load_errors."""
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
+
+        custom_global = tmp_path / "custom_skills"
+        custom_global.mkdir(parents=True)
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+
+        def _raise_on_custom(source_root, project_skills_path, files_to_upload, errors):
+            if source_root == custom_global:
+                raise PermissionError("permission denied")
+            # builtin path: pass through as no-op
+            return None
+
+        with (
+            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
+            patch.object(SkillsMiddleware, "_collect_skill_files", staticmethod(_raise_on_custom)),
+        ):
+            errors = await middleware._copy_global_skills()
+
+        assert any(str(custom_global) in err and "permission denied" in err for err in errors)
+
+    async def test_missing_skill_md_surfaces_in_load_errors(self, tmp_path: Path):
+        """When SKILL.md cannot be read, the skill's name must surface in errors so it doesn't silently vanish."""
+        from pathlib import Path as _Path
+
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "broken-skill").mkdir(parents=True)
+        skill_md = builtin / "broken-skill" / "SKILL.md"
+        skill_md.write_text(_make_skill_md(name="broken-skill", description="will fail to read"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+
+        original_read_bytes = _Path.read_bytes
+
+        def _fail_on_skill_md(self):
+            if self.name == "SKILL.md":
+                raise PermissionError("read denied")
+            return original_read_bytes(self)
+
+        with (
+            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch.object(_Path, "read_bytes", _fail_on_skill_md),
+        ):
+            errors = await middleware._copy_global_skills()
+
+        assert any("broken-skill" in err and "SKILL.md" in err for err in errors)
+
+    async def test_abefore_agent_merges_copy_global_skills_errors_into_state(self, tmp_path: Path):
+        """Errors from _copy_global_skills must be merged into skills_load_errors returned by abefore_agent."""
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        repo_name = "repoX"
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
+        runtime.context.config = RepositoryConfig(slash_commands=SlashCommands(enabled=False))
+
+        missing = tmp_path / "nonexistent"
+
+        with (
+            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", missing),
+        ):
+            result = await middleware.abefore_agent({"messages": [HumanMessage(content="hello")]}, runtime, Mock())
+
+        assert result is not None
+        assert "skills_load_errors" in result
+        assert any(str(missing) in err for err in result["skills_load_errors"])
+
+    async def test_upload_failure_includes_dest_path_in_error(self, tmp_path: Path):
+        """Upload errors must include the destination path so operators can pinpoint the failing file."""
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+
+        backend = Mock()
+        backend.aupload_files = AsyncMock(return_value=[Mock(error="storage backend exploded")])
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+
+        with (
+            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            pytest.raises(RuntimeError) as exc_info,
+        ):
+            await middleware._copy_global_skills()
+
+        # Error must contain both the failing dest path and the underlying backend error.
+        assert "skill-one/SKILL.md" in str(exc_info.value)
+        assert "storage backend exploded" in str(exc_info.value)
