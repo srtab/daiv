@@ -146,6 +146,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
         if builtin_slash_commands:
+            if skills_update is not None and "skills_load_errors" in skills_update:
+                builtin_slash_commands["skills_load_errors"] = skills_update["skills_load_errors"]
             if clear_skill_mode:
                 builtin_slash_commands["active_skill_mode"] = None
             return builtin_slash_commands
