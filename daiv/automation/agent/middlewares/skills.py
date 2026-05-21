@@ -182,12 +182,12 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             try:
                 self._collect_skill_files(custom_skills_path, skills_path, files_to_upload, errors)
             except OSError as exc:
+                # Host path stays in the operator log; the agent gets a generic warning
+                # because it cannot act on a real-filesystem location and shouldn't leak it.
                 logger.exception("Failed to read custom global skills from '%s'", custom_skills_path)
-                errors.append(f"Cannot load skills from '{custom_skills_path}': {exc}")
+                errors.append(f"Some custom global skills failed to load: {exc}")
         elif custom_skills_path is not None:
-            msg = f"Custom global skills path '{custom_skills_path}' does not exist or is not a directory"
-            logger.warning(msg)
-            errors.append(msg)
+            logger.warning("Custom global skills path '%s' does not exist or is not a directory", custom_skills_path)
 
         responses = await self._backend.aupload_files(files_to_upload)
         failures = [
@@ -235,8 +235,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                         logger.warning(
                             "Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name
                         )
+                        # Surface broken SKILL.md by skill name so the agent can warn a user
+                        # who invokes the skill. Host paths stay in the log only.
                         if source_path.name == "SKILL.md":
-                            errors.append(f"Cannot load skills from '{source_path}': {exc}")
+                            errors.append(f"Cannot load skill '{skill_dir.name}': {exc}")
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
