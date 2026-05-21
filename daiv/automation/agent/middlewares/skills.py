@@ -184,8 +184,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             except OSError as exc:
                 # Host path stays in the operator log; the agent gets a generic warning
                 # because it cannot act on a real-filesystem location and shouldn't leak it.
+                # ``exc.strerror`` carries the OS message without the path (which lives in
+                # ``exc.filename``); ``str(exc)`` would include both.
                 logger.exception("Failed to read custom global skills from '%s'", custom_skills_path)
-                errors.append(f"Some custom global skills failed to load: {exc}")
+                reason = exc.strerror or type(exc).__name__
+                errors.append(f"Some custom global skills failed to load: {reason}")
         elif custom_skills_path is not None:
             logger.warning("Custom global skills path '%s' does not exist or is not a directory", custom_skills_path)
 
@@ -236,9 +239,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                             "Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name
                         )
                         # Surface broken SKILL.md by skill name so the agent can warn a user
-                        # who invokes the skill. Host paths stay in the log only.
+                        # who invokes the skill. Host paths stay in the log only — ``exc.strerror``
+                        # is the OS message without the path (which lives in ``exc.filename``).
                         if source_path.name == "SKILL.md":
-                            errors.append(f"Cannot load skill '{skill_dir.name}': {exc}")
+                            reason = exc.strerror or type(exc).__name__
+                            errors.append(f"Cannot load skill '{skill_dir.name}': {reason}")
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:

@@ -940,9 +940,13 @@ class TestCustomGlobalSkills:
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
 
+        leaky_path = str(custom_global / "secret-skill")
+
         def _raise_on_custom(source_root, project_skills_path, files_to_upload, errors):
             if source_root == custom_global:
-                raise PermissionError("permission denied")
+                # Three-arg form mirrors what the OS raises: ``str(exc)`` embeds the path,
+                # so this exercises the path-stripping behavior of the middleware.
+                raise PermissionError(13, "Permission denied", leaky_path)
             # builtin path: pass through as no-op
             return None
 
@@ -953,9 +957,10 @@ class TestCustomGlobalSkills:
         ):
             errors = await middleware._copy_global_skills()
 
-        # Host path stays in the operator log; the agent-visible error must not leak it,
-        # but must still signal that something failed so the agent can warn the user.
-        assert any("permission denied" in err for err in errors)
+        # Agent-visible error must signal failure but strip both the host path the operator
+        # would see in ``str(exc)`` and the parent custom-skills directory.
+        assert any("Permission denied" in err for err in errors)
+        assert not any(leaky_path in err for err in errors)
         assert not any(str(custom_global) in err for err in errors)
 
     async def test_missing_skill_md_surfaces_in_load_errors(self, tmp_path: Path):
@@ -976,7 +981,9 @@ class TestCustomGlobalSkills:
 
         def _fail_on_skill_md(self):
             if self.name == "SKILL.md":
-                raise PermissionError("read denied")
+                # Three-arg form mirrors what the OS raises: ``str(exc)`` embeds the file path,
+                # so this exercises the path-stripping behavior of the middleware.
+                raise PermissionError(13, "Permission denied", str(self))
             return original_read_bytes(self)
 
         with (
@@ -987,7 +994,7 @@ class TestCustomGlobalSkills:
 
         # Agent-visible error must name the skill (so the agent can warn the user if invoked)
         # but must not leak the host filesystem path of the SKILL.md file.
-        assert any("broken-skill" in err and "read denied" in err for err in errors)
+        assert any("broken-skill" in err and "Permission denied" in err for err in errors)
         assert not any(str(builtin) in err for err in errors)
 
     async def test_abefore_agent_merges_copy_global_skills_errors_into_state(self, tmp_path: Path):
@@ -1010,7 +1017,7 @@ class TestCustomGlobalSkills:
 
         def _fail_on_skill_md(self):
             if self.name == "SKILL.md":
-                raise PermissionError("read denied")
+                raise PermissionError(13, "Permission denied", str(self))
             return original_read_bytes(self)
 
         with (
@@ -1022,6 +1029,7 @@ class TestCustomGlobalSkills:
         assert result is not None
         assert "skills_load_errors" in result
         assert any("broken-skill" in err for err in result["skills_load_errors"])
+        assert not any(str(builtin) in err for err in result["skills_load_errors"])
 
     async def test_upload_failure_includes_dest_path_in_error(self, tmp_path: Path):
         """Upload errors must include the destination path so operators can pinpoint the failing file."""
