@@ -566,6 +566,68 @@ class TestSkillsMiddleware:
         assert result["skills_load_errors"]
         assert any(".agents/skills" in err for err in result["skills_load_errors"])
 
+    async def test_abefore_agent_forwards_skills_load_errors_with_clear_mode_and_slash_command(self, tmp_path: Path):
+        """All three signals must merge: slash-command short-circuit, clear-skill-mode, AND load errors."""
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        repo_name = "repoX"
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+
+        class DemoSlashCommand(SlashCommand):
+            description = "demo"
+
+            async def execute_for_agent(
+                self,
+                *,
+                args: str,
+                issue_iid: int | None = None,
+                merge_request_id: int | None = None,
+                available_skills: list | None = None,
+                available_subagents: list | None = None,
+            ) -> str:
+                return "ran"
+
+        registry = SlashCommandRegistry()
+        registry.register(DemoSlashCommand, "demo", [Scope.GLOBAL])
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills", f"/{repo_name}/.agents/skills"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
+        runtime.context.config = RepositoryConfig()
+
+        # Active read-only mode plus a user follow-up message that also invokes a slash command.
+        state = {
+            "active_skill_mode": SKILL_MODE_READ_ONLY,
+            "messages": [
+                HumanMessage(content="run /plan"),
+                AIMessage(content="planned"),
+                HumanMessage(content="@daiv-bot /demo proceed"),
+            ],
+        }
+        upstream_update = {
+            "skills_metadata": [],
+            "skills_load_errors": [f"Cannot load skills from '/{repo_name}/.agents/skills': permission_denied"],
+        }
+
+        with (
+            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.skills.slash_command_registry", registry),
+            patch(
+                "automation.agent.middlewares.skills.DeepAgentsSkillsMiddleware.abefore_agent",
+                AsyncMock(return_value=upstream_update),
+            ),
+        ):
+            result = await middleware.abefore_agent(state, runtime, Mock())
+
+        assert result is not None
+        assert result["jump_to"] == "end"
+        # Both the clear-mode signal AND the load errors must survive through the slash-command return.
+        assert result.get("active_skill_mode") is None
+        assert "skills_load_errors" in result
+        assert any(".agents/skills" in err for err in result["skills_load_errors"])
+
     def test_system_prompt_renders_skills_load_warnings(self):
         """When skills_load_errors is in state, the rendered prompt includes the warnings block."""
         from langchain.agents.middleware.types import ModelRequest
