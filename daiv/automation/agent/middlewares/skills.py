@@ -124,6 +124,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         """
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
+
+        ``skills_load_errors`` follow upstream's load-once contract: they are populated on the first turn
+        (when ``skills_metadata`` is not yet in state) and preserved across subsequent turns via LangGraph's
+        last-write-wins merge. Errors are not re-validated mid-session — a transient misconfig that's fixed
+        after the first turn will continue surfacing in ``<skill_load_warnings>`` until the session restarts.
         """
         # Clear the active skill mode when the user sends a follow-up message. This allows the agent to transition
         # from plan mode (read-only) to implementation mode (full tool access) when the user says "proceed" or similar.

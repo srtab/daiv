@@ -675,7 +675,7 @@ class TestSkillsMiddleware:
         content = extract_text_content(modified.system_message.content)
         # Upstream's _format_skills_locations renders "**{label} Skills**: `{path}`".
         assert "**Global Skills**: `/skills`" in content
-        # `.agents/skills` leaf -> upstream climbs to ".agents" parent -> "Agents" label.
+        # `.agents/skills` leaf -> upstream climbs to `.agents` parent, strips the leading dot, capitalises -> "Agents".
         assert "**Agents Skills**: `/repo/.agents/skills`" in content
         # Last source is flagged as higher priority.
         assert "(higher priority)" in content
