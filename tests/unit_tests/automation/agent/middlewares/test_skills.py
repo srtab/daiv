@@ -78,10 +78,8 @@ class TestSkillsMiddleware:
         assert skills["skill-two"]["description"] == "does two"
         assert skills["skill-one"]["path"] == "/skills/skill-one/SKILL.md"
         assert skills["skill-two"]["path"] == "/skills/skill-two/SKILL.md"
-        assert skills["skill-one"]["metadata"]["is_builtin"] is True
-        assert skills["skill-two"]["metadata"]["is_builtin"] is True
 
-    async def test_marks_builtin_metadata_and_clears_custom(self, tmp_path: Path):
+    async def test_preserves_user_supplied_metadata(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
         repo_name = "repoX"
@@ -108,10 +106,14 @@ class TestSkillsMiddleware:
 
         assert result is not None
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
-        assert skills["skill-one"]["metadata"]["is_builtin"] is True
-        assert skills["skill-two"]["metadata"]["is_builtin"] is True
-        assert skills["custom-skill"]["metadata"]["owner"] == "user"
-        assert "is_builtin" not in skills["custom-skill"]["metadata"]
+        # Built-in skills carry no daiv-injected metadata; user-supplied
+        # frontmatter metadata is preserved as-is.
+        assert skills["skill-one"]["metadata"] == {}
+        assert skills["skill-two"]["metadata"] == {}
+        # YAML normalizes the unquoted `true` scalar to Python True, which the
+        # upstream loader then serializes back to the string "True". This is
+        # an upstream concern; the assertion documents the observed behavior.
+        assert skills["custom-skill"]["metadata"] == {"is_builtin": "True", "owner": "user"}
 
     async def test_materializes_global_skills_under_skills_dir(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -186,21 +188,10 @@ class TestSkillsMiddleware:
         ):
             await middleware._copy_global_skills()
 
-    def test_format_skills_list_marks_builtin_and_global(self):
+    def test_format_skills_list_renders_xml(self):
         middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
         formatted = middleware._format_skills_list([
-            {
-                "name": "skill-one",
-                "description": "does one",
-                "path": "/skills/skill-one/SKILL.md",
-                "metadata": {"is_builtin": True},
-            },
-            {
-                "name": "global-skill",
-                "description": "does global",
-                "path": "/skills/global-skill/SKILL.md",
-                "metadata": {"is_global": True},
-            },
+            {"name": "skill-one", "description": "does one", "path": "/skills/skill-one/SKILL.md", "metadata": {}},
             {
                 "name": "custom-skill",
                 "description": "does custom",
@@ -211,10 +202,10 @@ class TestSkillsMiddleware:
 
         assert formatted.startswith("<available_skills>")
         assert "<name>skill-one</name>" in formatted
-        assert "<name>global-skill</name>" in formatted
+        assert "<description>does one</description>" in formatted
         assert "<name>custom-skill</name>" in formatted
-        assert formatted.count("<builtin>true</builtin>") == 1
-        assert formatted.count("<global>true</global>") == 1
+        assert "<builtin>" not in formatted
+        assert "<global>" not in formatted
 
     def test_format_skills_list_returns_empty_hint(self):
         middleware = SkillsMiddleware(backend=Mock(), sources=["/skills", "/extra/skills"])
@@ -470,13 +461,9 @@ class TestSkillsMiddleware:
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
         assert set(skills) == {"skill-one", "daiv-skill", "agents-skill", "cursor-skill"}
         assert skills["skill-one"]["description"] == "builtin one"
-        assert skills["skill-one"]["metadata"]["is_builtin"] is True
         assert skills["daiv-skill"]["description"] == "from daiv"
-        assert "is_builtin" not in skills["daiv-skill"]["metadata"]
         assert skills["agents-skill"]["description"] == "from agents"
-        assert "is_builtin" not in skills["agents-skill"]["metadata"]
         assert skills["cursor-skill"]["description"] == "from cursor"
-        assert "is_builtin" not in skills["cursor-skill"]["metadata"]
 
 
 class TestReadOnlyMode:
@@ -569,8 +556,7 @@ class TestCustomGlobalSkills:
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
         assert set(skills) == {"skill-one", "my-global-skill"}
         assert skills["my-global-skill"]["description"] == "a global skill"
-        assert skills["my-global-skill"]["metadata"].get("is_global") is True
-        assert skills["skill-one"]["metadata"].get("is_builtin") is True
+        assert skills["skill-one"]["description"] == "builtin one"
 
     async def test_custom_global_skill_overrides_builtin(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -596,11 +582,10 @@ class TestCustomGlobalSkills:
 
         assert result is not None
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
+        # Custom global skill wins via "last source wins" in `_collect_skill_files`.
         assert skills["plan"]["description"] == "custom plan"
-        assert skills["plan"]["metadata"].get("is_global") is True
-        assert "is_builtin" not in skills["plan"]["metadata"]
 
-    async def test_custom_global_skill_marked_as_global(self, tmp_path: Path):
+    async def test_custom_global_skill_is_materialized(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
         builtin = tmp_path / "builtin_skills"
@@ -619,10 +604,10 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", custom_global),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills()
+            await middleware._copy_global_skills()
 
-        assert "global-skill" in custom_global_names
-        assert "global-skill" not in builtin_names
+        # File-level: custom global SKILL.md must have been materialized into the cache.
+        assert (tmp_path / "skills" / "global-skill" / "SKILL.md").exists()
 
     async def test_per_repo_skill_overrides_custom_global(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -654,10 +639,8 @@ class TestCustomGlobalSkills:
 
         assert result is not None
         skills = {skill["name"]: skill for skill in result["skills_metadata"]}
-        # Per-repo content wins (last source wins); metadata still labels by name-registration origin.
+        # Per-repo source wins (last source wins).
         assert skills["shared-skill"]["description"] == "repo version"
-        assert skills["shared-skill"]["metadata"].get("is_global") is True
-        assert "is_builtin" not in skills["shared-skill"]["metadata"]
 
     async def test_custom_global_skills_disabled_when_path_is_none(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -673,10 +656,11 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", None),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills()
+            # Must not raise. Returns None now (no name-list reporting).
+            assert await middleware._copy_global_skills() is None
 
-        assert builtin_names == ["skill-one"]
-        assert custom_global_names == []
+        # Built-in skill was materialized.
+        assert (tmp_path / "skills" / "skill-one" / "SKILL.md").exists()
 
     async def test_custom_global_skills_skipped_when_path_not_exists(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -692,7 +676,6 @@ class TestCustomGlobalSkills:
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
             patch("automation.agent.middlewares.skills.agent_settings.CUSTOM_SKILLS_PATH", tmp_path / "nonexistent"),
         ):
-            builtin_names, custom_global_names = await middleware._copy_global_skills()
+            assert await middleware._copy_global_skills() is None
 
-        assert builtin_names == ["skill-one"]
-        assert custom_global_names == []
+        assert (tmp_path / "skills" / "skill-one" / "SKILL.md").exists()

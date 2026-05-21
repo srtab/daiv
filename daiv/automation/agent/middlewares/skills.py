@@ -94,12 +94,6 @@ AVAILABLE_SKILLS_TEMPLATE = PromptTemplate.from_template(
   <skill>
     <name>{{name}}</name>
     <description>{{description}}</description>
-    {{#metadata.is_builtin}}
-    <builtin>true</builtin>
-    {{/metadata.is_builtin}}
-    {{#metadata.is_global}}
-    <global>true</global>
-    {{/metadata.is_global}}
   </skill>
   {{/skills_list}}
 </available_skills>""",
@@ -137,23 +131,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         # Materialize before super() so the `skill` tool can resolve files on disk,
         # not just metadata; otherwise the agent gets a not_found at invocation time.
-        builtin_skills, custom_global_skills = await self._copy_global_skills()
+        await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
-
-        # Mark skills based on their origin. Custom global skills take precedence over built-in skills with the same
-        # name. Per-repository skills (not in either list) get both flags removed.
-        if skills_update is not None:
-            for skill in skills_update["skills_metadata"]:
-                if skill["name"] in custom_global_skills:
-                    skill["metadata"]["is_global"] = True
-                    skill["metadata"].pop("is_builtin", None)
-                elif skill["name"] in builtin_skills:
-                    skill["metadata"]["is_builtin"] = True
-                    skill["metadata"].pop("is_global", None)
-                else:
-                    skill["metadata"].pop("is_builtin", None)
-                    skill["metadata"].pop("is_global", None)
 
         # If the super method returns None, it means that the skills metadata was already captured and registered in
         # the state.
@@ -175,26 +155,23 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return skills_update
 
-    async def _copy_global_skills(self) -> tuple[list[str], list[str]]:
+    async def _copy_global_skills(self) -> None:
         """
         Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
         sibling to the agent's working directory.
 
         Custom global skills override builtins with the same name (later writes in
         ``files_to_upload`` win).
-
-        Returns a tuple of (builtin skill names, custom global skill names).
         """
         files_to_upload: list[tuple[str, bytes]] = []
         skills_path = Path(GLOBAL_SKILLS_PATH)
 
-        builtin_skills = self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
+        self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload)
 
-        custom_global_skills: list[str] = []
         custom_skills_path = agent_settings.CUSTOM_SKILLS_PATH
         if custom_skills_path is not None and custom_skills_path.is_dir():
             try:
-                custom_global_skills = self._collect_skill_files(custom_skills_path, skills_path, files_to_upload)
+                self._collect_skill_files(custom_skills_path, skills_path, files_to_upload)
             except OSError:
                 logger.exception("Failed to read custom global skills from '%s', skipping", custom_skills_path)
         elif custom_skills_path is not None:
@@ -203,23 +180,17 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         for response in await self._backend.aupload_files(files_to_upload):
             if response.error:
                 raise RuntimeError(f"Failed to upload skill: {response.error}")
-        return builtin_skills, custom_global_skills
 
     @staticmethod
     def _collect_skill_files(
         source_root: Path, project_skills_path: Path, files_to_upload: list[tuple[str, bytes]]
-    ) -> list[str]:
+    ) -> None:
         """
         Walk skill directories under ``source_root`` and append files to ``files_to_upload``.
-
-        Returns the list of skill names found.
         """
-        skill_names: list[str] = []
         for skill_dir in source_root.iterdir():
             if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
                 continue
-
-            skill_names.append(skill_dir.name)
 
             for root, dirs, files in skill_dir.walk():
                 dirs[:] = [d for d in dirs if d != "__pycache__"]
@@ -238,8 +209,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                             files_to_upload.append((str(dest_path), source_path.read_bytes()))
                         except OSError:
                             logger.warning("Failed to read skill file '%s', skipping", source_path)
-
-        return skill_names
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
