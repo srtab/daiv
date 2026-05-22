@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import io
+import os
+import time
+from unittest.mock import patch
 
 import pytest
+from skills.constants import TRASH_TTL_SECONDS
 from skills.models import GlobalSkill
 from skills.services import SkillPackage, SkillStorage
 
@@ -63,3 +67,45 @@ def test_replace_overwrites_and_moves_old_to_trash(storage, admin_user, build_sk
     # DB row updated, not duplicated
     assert GlobalSkill.objects.filter(name="demo").count() == 1
     assert GlobalSkill.objects.get(name="demo").description == "v2"
+
+
+@pytest.mark.django_db
+def test_replace_rolls_back_on_db_error(storage, admin_user, build_skill_zip):
+    data_v1 = build_skill_zip(skill_name="demo", description="v1")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)
+
+    data_v2 = build_skill_zip(skill_name="demo", description="v2")
+    pkg_v2 = SkillPackage.inspect(io.BytesIO(data_v2))
+
+    boom = RuntimeError("simulated db failure")
+    with (
+        patch("skills.services.GlobalSkill.objects.update_or_create", side_effect=boom),
+        pytest.raises(RuntimeError, match="simulated"),
+    ):
+        storage.replace(pkg_v2, uploaded_by=admin_user)
+
+    base = storage.root
+    # Old tree and old zip restored
+    assert b"v1" in (base / "demo" / "SKILL.md").read_bytes()
+    assert (base / ".zips" / "demo.zip").read_bytes() == data_v1
+    # DB row unchanged
+    assert GlobalSkill.objects.get(name="demo").description == "v1"
+
+
+@pytest.mark.django_db
+def test_trash_sweep_removes_entries_older_than_ttl(storage):
+    base = storage.root
+    # Seed an old trashed dir and zip
+    old_dir = base / ".trash" / "ancient.1"
+    old_dir.mkdir()
+    (old_dir / "x.txt").write_text("x")
+    old_zip = base / ".trash" / ".zips" / "ancient.1.zip"
+    old_zip.write_bytes(b"x")
+    ancient = time.time() - (TRASH_TTL_SECONDS + 60)
+    os.utime(old_dir, (ancient, ancient))
+    os.utime(old_zip, (ancient, ancient))
+
+    storage.sweep_trash()
+
+    assert not old_dir.exists()
+    assert not old_zip.exists()

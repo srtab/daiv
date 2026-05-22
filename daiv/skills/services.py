@@ -30,6 +30,7 @@ from skills.constants import (
     SKILL_NAME_RE,
     TMP_DIR,
     TRASH_DIR,
+    TRASH_TTL_SECONDS,
     TRASH_ZIPS_DIR,
     ZIPS_DIR,
 )
@@ -226,23 +227,26 @@ class SkillStorage:
     def replace(self, pkg: SkillPackage, *, uploaded_by) -> GlobalSkill:
         staged = self._stage_extract(pkg)
         try:
-            with transaction.atomic():
-                skill, _created = GlobalSkill.objects.update_or_create(
-                    name=pkg.name,
-                    defaults={
-                        "description": pkg.description,
-                        "uploaded_by": uploaded_by,
-                        "size_bytes": pkg.unpacked_size_bytes,
-                        "file_count": pkg.file_count,
-                        "checksum": pkg.checksum,
-                    },
-                )
-                self._swap_in(pkg, staged)
-        except Exception:
-            shutil.rmtree(staged, ignore_errors=True)
-            raise
+            trashed_tree, trashed_zip = self._swap_in(pkg, staged)
+            try:
+                with transaction.atomic():
+                    skill, _created = GlobalSkill.objects.update_or_create(
+                        name=pkg.name,
+                        defaults={
+                            "description": pkg.description,
+                            "uploaded_by": uploaded_by,
+                            "size_bytes": pkg.unpacked_size_bytes,
+                            "file_count": pkg.file_count,
+                            "checksum": pkg.checksum,
+                        },
+                    )
+            except Exception:
+                self._rollback_swap(pkg, trashed_tree, trashed_zip)
+                raise
         finally:
+            shutil.rmtree(staged, ignore_errors=True)
             self._invalidate_cache(pkg.name)
+            self.sweep_trash()
         return skill
 
     def _stage_extract(self, pkg: SkillPackage) -> Path:
@@ -258,7 +262,7 @@ class SkillStorage:
                     shutil.copyfileobj(src, dst)
         return staged
 
-    def _swap_in(self, pkg: SkillPackage, staged: Path) -> None:
+    def _swap_in(self, pkg: SkillPackage, staged: Path) -> tuple[Path | None, Path | None]:
         new_tree = self.root / pkg.name
         staged_tree = staged / pkg.name
         if not staged_tree.is_dir():
@@ -267,13 +271,16 @@ class SkillStorage:
         ts = str(int(time.time() * 1000))
         old_tree_target = self.root / TRASH_DIR / f"{pkg.name}.{ts}"
         old_zip_target = self.root / TRASH_ZIPS_DIR / f"{pkg.name}.{ts}.zip"
-        old_tree = self.root / pkg.name
         old_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip"
 
-        if old_tree.exists():
-            old_tree.replace(old_tree_target)
+        trashed_tree: Path | None = None
+        trashed_zip: Path | None = None
+        if new_tree.exists():
+            new_tree.replace(old_tree_target)
+            trashed_tree = old_tree_target
         if old_zip.exists():
             old_zip.replace(old_zip_target)
+            trashed_zip = old_zip_target
 
         try:
             staged_tree.replace(new_tree)
@@ -281,14 +288,60 @@ class SkillStorage:
             tmp_zip.write_bytes(pkg.zip_bytes)
             tmp_zip.replace(self.root / ZIPS_DIR / f"{pkg.name}.zip")
         except Exception:
-            # Best-effort rollback: restore old tree and zip from .trash
-            if old_tree_target.exists():
-                old_tree_target.replace(old_tree)
-            if old_zip_target.exists():
-                old_zip_target.replace(old_zip)
+            self._rollback_swap(pkg, trashed_tree, trashed_zip)
             raise
-        finally:
-            shutil.rmtree(staged, ignore_errors=True)
+
+        return trashed_tree, trashed_zip
+
+    def _rollback_swap(self, pkg: SkillPackage, trashed_tree: Path | None, trashed_zip: Path | None) -> None:
+        new_tree = self.root / pkg.name
+        new_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip"
+        # Move the new tree (if any) aside so we can restore old.
+        if new_tree.exists():
+            quarantine = self.root / TMP_DIR / f"{pkg.name}.failed.{int(time.time() * 1000)}"
+            try:
+                new_tree.replace(quarantine)
+            except OSError:
+                logger.exception("Failed to quarantine new tree during rollback for %r", pkg.name)
+        if new_zip.exists():
+            try:
+                new_zip.unlink()
+            except OSError:
+                logger.exception("Failed to remove new zip during rollback for %r", pkg.name)
+        if trashed_tree is not None and trashed_tree.exists():
+            try:
+                trashed_tree.replace(new_tree)
+            except OSError:
+                logger.exception("Failed to restore old tree during rollback for %r", pkg.name)
+        if trashed_zip is not None and trashed_zip.exists():
+            try:
+                trashed_zip.replace(new_zip)
+            except OSError:
+                logger.exception("Failed to restore old zip during rollback for %r", pkg.name)
+
+    def sweep_trash(self) -> None:
+        """Remove .trash entries older than ``TRASH_TTL_SECONDS``. Inline,
+        cheap, runs at the end of each replace/delete."""
+        cutoff = time.time() - TRASH_TTL_SECONDS
+        for parent in (self.root / TRASH_DIR, self.root / TRASH_ZIPS_DIR):
+            if not parent.is_dir():
+                continue
+            for entry in parent.iterdir():
+                # Skip the nested .zips dir under .trash
+                if entry == self.root / TRASH_ZIPS_DIR:
+                    continue
+                try:
+                    mtime = entry.stat().st_mtime
+                except FileNotFoundError:
+                    continue
+                if mtime < cutoff:
+                    if entry.is_dir():
+                        shutil.rmtree(entry, ignore_errors=True)
+                    else:
+                        try:
+                            entry.unlink()
+                        except OSError:
+                            logger.exception("Failed to sweep trash entry: %s", entry)
 
     def _invalidate_cache(self, name: str) -> None:
         # Best-effort: the agent's per-turn check is "file exists on disk in
