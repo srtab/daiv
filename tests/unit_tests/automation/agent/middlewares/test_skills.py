@@ -1086,3 +1086,55 @@ class TestCustomGlobalSkills:
         assert not any(".zips" in dest for dest in dest_paths)
         assert not any(".tmp" in dest for dest in dest_paths)
         assert errors == []
+
+
+class TestSkillToolRecordsInvocation:
+    async def test_skill_tool_records_invocation(self, tmp_path: Path):
+        """Invoking the skill tool persists a SkillInvocation row."""
+        import uuid
+        from unittest.mock import AsyncMock, patch
+
+        from deepagents.backends.filesystem import FilesystemBackend
+        from skills.models import SkillInvocation
+
+        builtin = tmp_path / "builtin_skills"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text(_make_skill_md(name="code-review", description="review code"))
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / "repoX"), repo_id="org/repoX")
+        thread_id = str(uuid.uuid4())
+        runtime.config = {"configurable": {"thread_id": thread_id}}
+        runtime.tool_call_id = "call-1"
+        runtime.state = {
+            "skills_metadata": [
+                {
+                    "name": "code-review",
+                    "description": "review code",
+                    "path": "/skills/code-review/SKILL.md",
+                    "metadata": {},
+                }
+            ]
+        }
+
+        skill_tool = middleware.tools[0]
+        with (
+            patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"code-review"})),
+            patch("skills.services.SkillInvocation.objects.acreate", new=AsyncMock(return_value=None)) as mock_acreate,
+        ):
+            # The deepagents backend's adownload_files needs a stub since we never wrote the
+            # SKILL.md into the virtual fs in this test; route it to the on-disk content.
+            backend.adownload_files = AsyncMock(
+                return_value=[
+                    type("R", (), {"content": (builtin / "code-review" / "SKILL.md").read_bytes(), "error": None})()
+                ]
+            )
+            await skill_tool.coroutine(skill="code-review", runtime=runtime)
+
+        mock_acreate.assert_awaited_once()
+        kwargs = mock_acreate.await_args.kwargs
+        assert kwargs["name"] == "code-review"
+        assert kwargs["source"] == SkillInvocation.Source.BUILTIN
+        assert kwargs["repo_slug"] == "org/repoX"
+        assert kwargs["thread_id"] == thread_id

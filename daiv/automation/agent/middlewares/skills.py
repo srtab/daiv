@@ -442,6 +442,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             if skill_mode:
                 update["active_skill_mode"] = skill_mode
 
+            from skills.services import _record_invocation
+
+            await _record_invocation(name=skill, skill_path=loaded_skill["path"], runtime=runtime)
+
             return Command(update=update)
 
         return tool(SKILLS_TOOL_NAME, description=SKILLS_TOOL_DESCRIPTION)(skill_tool)
