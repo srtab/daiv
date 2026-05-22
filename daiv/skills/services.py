@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import fcntl
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langchain.tools import ToolRuntime
 import hashlib
 import io
 import logging
@@ -288,6 +292,23 @@ def _classify_source(name: str, skill_path: str) -> SkillInvocation.Source:
     if skill_path.startswith(GLOBAL_SKILLS_PATH + "/") or skill_path == GLOBAL_SKILLS_PATH:
         return SkillInvocation.Source.GLOBAL
     return SkillInvocation.Source.REPO
+
+
+async def _record_invocation(name: str, skill_path: str, runtime: ToolRuntime) -> None:
+    """Persist a SkillInvocation row; swallow & log any failure.
+
+    Called from ``SkillsMiddleware._skill_tool_generator`` right before the
+    Command returns. Telemetry failure must never abort a skill invocation,
+    so every exception is logged and discarded.
+    """
+    try:
+        source = _classify_source(name, skill_path)
+        thread_id = runtime.config["configurable"]["thread_id"]
+        await SkillInvocation.objects.acreate(
+            name=name, source=source, repo_slug=runtime.context.repository.slug, thread_id=thread_id
+        )
+    except Exception:
+        logger.exception("Failed to record skill invocation for %r", name)
 
 
 class SkillStorage:
