@@ -191,3 +191,29 @@ def test_download_404_when_zip_missing(client, admin_user, storage):
     client.force_login(admin_user)
     resp = client.get(reverse("skills:download", args=["orphan"]))
     assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_full_admin_journey(client, admin_user, storage, build_skill_zip):
+    """Upload → list → detail → download → delete."""
+    client.force_login(admin_user)
+
+    data = build_skill_zip(skill_name="journey", description="end to end", extra_files={"scripts/foo.py": b"x"})
+    uploaded = SimpleUploadedFile("journey.zip", data, content_type="application/zip")
+    resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
+    assert resp.status_code == 204
+
+    resp = client.get(reverse("skills:list"))
+    assert resp.status_code == 200
+    assert b"journey" in resp.content
+    assert b"end to end" in resp.content
+
+    resp = client.get(reverse("skills:detail", args=["journey"]))
+    assert resp.status_code == 200
+
+    resp = client.get(reverse("skills:download", args=["journey"]))
+    assert resp.status_code == 200
+
+    resp = client.post(reverse("skills:delete", args=["journey"]))
+    assert resp.status_code == 204
+    assert not GlobalSkill.objects.filter(name="journey").exists()
