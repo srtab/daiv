@@ -1,38 +1,41 @@
 {% extends "base_app.html" %}
-{% load i18n %}
+{% load i18n icon_tags %}
 
 {% block title %}{{ skill.name }} — {% translate "Skills" %} — DAIV{% endblock %}
 
 {% block container_width %}max-w-4xl{% endblock %}
 
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock breadcrumb %}
+
 {% block app_content %}
 <div class="animate-fade-up">
-    <a href="{% url 'skills:list' %}" class="text-sm text-gray-400 hover:text-gray-200">
-        ← {% translate "Back to skills" %}
-    </a>
-    <div class="mt-2 flex items-start justify-between gap-4">
-        <div>
-            <h1 class="text-2xl font-bold tracking-tight">{{ skill.name }}</h1>
-            <p class="mt-1.5 text-[15px] font-light text-gray-400">{{ skill.description }}</p>
-            <div class="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-500">
-                <span>{% translate "Uploaded by" %}</span>
-                {% if skill.uploaded_by %}
-                {% include "accounts/_avatar.html" with user=skill.uploaded_by label=_("Uploaded by") %}
-                {% else %}
-                <span class="text-gray-400">{% translate "(unknown)" %}</span>
-                {% endif %}
-                <span>&middot; {{ skill.created|date:"Y-m-d H:i" }}</span>
-                <span>&middot; {{ skill.size_bytes|filesizeformat }}</span>
-            </div>
-        </div>
-        <div class="flex shrink-0 items-center gap-3">
-            <a href="{% url 'skills:download' skill.name %}" class="btn-secondary">
+    <div class="flex items-start justify-between gap-4">
+        <h1 class="text-2xl font-bold tracking-tight">{{ skill.name }}</h1>
+        <div class="flex shrink-0 items-center gap-2">
+            <a href="{% url 'skills:download' skill.name %}"
+               class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+                {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
                 {% translate "Download zip" %}
             </a>
-            <a href="{% url 'skills:delete' skill.name %}" class="btn-danger-outline">
+            <a href="{% url 'skills:delete' skill.name %}"
+               class="btn-danger-outline inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+                {% icon "trash" "h-4 w-4 shrink-0" %}
                 {% translate "Delete skill" %}
             </a>
         </div>
+    </div>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">{{ skill.description }}</p>
+    <div class="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-500">
+        <span>{% translate "Uploaded by" %}</span>
+        {% if skill.uploaded_by %}
+        {% include "accounts/_avatar.html" with user=skill.uploaded_by label=_("Uploaded by") %}
+        {% else %}
+        <span class="text-gray-400">{% translate "(unknown)" %}</span>
+        {% endif %}
+        <span>&middot; {{ skill.created|date:"Y-m-d H:i" }}</span>
+        <span>&middot; {{ skill.size_bytes|filesizeformat }}</span>
     </div>
 </div>
 

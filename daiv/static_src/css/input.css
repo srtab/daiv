@@ -1776,6 +1776,7 @@ main:has(.chat-shell) {
 
   .card__title       { @apply block min-w-0 break-words pr-10 text-[15px] font-medium text-white; }
   .card__description { @apply mt-2 text-sm text-gray-400 line-clamp-2; }
+  .card__description--lg { @apply line-clamp-4; }
   .card__footer      { @apply mt-auto pt-3 text-xs text-gray-500; }
 
   .card__corner-badge {

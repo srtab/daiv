@@ -98,7 +98,10 @@ class SkillDetailView(AdminRequiredMixin, View):
             raise Http404("skill files unreadable on disk") from err
         body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
         tree = self._list_tree(root)
-        return render(request, "skills/detail.html", {"skill": skill, "body": body, "tree": tree})
+        breadcrumbs = [{"label": _("Skills"), "url": reverse("skills:list")}, {"label": skill.name, "url": None}]
+        return render(
+            request, "skills/detail.html", {"skill": skill, "body": body, "tree": tree, "breadcrumbs": breadcrumbs}
+        )
 
     @staticmethod
     def _list_tree(root) -> list[dict[str, object]]:
