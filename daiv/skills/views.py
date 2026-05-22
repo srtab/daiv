@@ -4,7 +4,7 @@ import json
 import logging
 
 from django.http import FileResponse, Http404, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
@@ -66,7 +66,7 @@ class SkillDetailView(AdminRequiredMixin, View):
     http_method_names = ["get"]
 
     def get(self, request, name):
-        skill = self._get_or_404(name)
+        skill = get_object_or_404(GlobalSkill, name=name)
         root = SkillStorage().root / skill.name
         try:
             skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
@@ -77,12 +77,6 @@ class SkillDetailView(AdminRequiredMixin, View):
         body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
         tree = self._list_tree(root)
         return render(request, "skills/detail.html", {"skill": skill, "body": body, "tree": tree})
-
-    def _get_or_404(self, name: str) -> GlobalSkill:
-        try:
-            return GlobalSkill.objects.get(name=name)
-        except GlobalSkill.DoesNotExist as err:
-            raise Http404("skill not found") from err
 
     @staticmethod
     def _list_tree(root) -> list[dict[str, object]]:
@@ -97,18 +91,12 @@ class SkillDetailView(AdminRequiredMixin, View):
 class SkillDeleteView(AdminRequiredMixin, View):
     http_method_names = ["get", "post"]
 
-    def _get_or_404(self, name: str) -> GlobalSkill:
-        try:
-            return GlobalSkill.objects.get(name=name)
-        except GlobalSkill.DoesNotExist as err:
-            raise Http404("skill not found") from err
-
     def get(self, request, name):
-        skill = self._get_or_404(name)
+        skill = get_object_or_404(GlobalSkill, name=name)
         return render(request, "skills/_delete_confirm.html", {"skill": skill})
 
     def post(self, request, name):
-        skill = self._get_or_404(name)
+        skill = get_object_or_404(GlobalSkill, name=name)
         try:
             SkillStorage().delete(skill.name)
         except (SkillStorageError, OSError) as err:
@@ -122,10 +110,7 @@ class SkillZipDownloadView(AdminRequiredMixin, View):
     http_method_names = ["get"]
 
     def get(self, request, name):
-        try:
-            skill = GlobalSkill.objects.get(name=name)
-        except GlobalSkill.DoesNotExist as err:
-            raise Http404("skill not found") from err
+        skill = get_object_or_404(GlobalSkill, name=name)
         path = SkillStorage().root / ZIPS_DIR / f"{skill.name}.zip"
         if not path.is_file():
             raise Http404("zip not found on disk")
