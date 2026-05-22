@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from notifications.choices import NotifyOn
 
 from automation.agent.results import parse_agent_result
+from core.models import ThinkingLevelChoices
 
 logger = logging.getLogger("daiv.activity")
 
@@ -123,7 +124,22 @@ class Activity(models.Model):
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
-    use_max = models.BooleanField(_("use max model"), default=False)
+    use_max = models.BooleanField(_("use max model"), default=False)  # deprecated; remove in follow-up release
+    agent_model = models.CharField(
+        _("agent model"),
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_("Per-run model override (slug:model_name); empty = auto."),
+    )
+    agent_thinking_level = models.CharField(
+        _("agent thinking level"),
+        max_length=20,
+        blank=True,
+        default="",
+        choices=ThinkingLevelChoices.choices,
+        help_text=_("Per-run thinking effort; empty = inherit from repo config or use_max."),
+    )
     notify_on = models.CharField(  # noqa: DJ001 — null distinguishes "no override" from explicit "never".
         _("notify on"),
         max_length=16,
