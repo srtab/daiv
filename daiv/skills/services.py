@@ -19,7 +19,7 @@ from django.db import DatabaseError, transaction
 import yaml
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
 from skills.constants import (
     ALLOWED_SUFFIXES,
     FORBIDDEN_PATH_PARTS,
@@ -37,7 +37,7 @@ from skills.constants import (
     TRASH_ZIPS_DIR,
     ZIPS_DIR,
 )
-from skills.models import GlobalSkill
+from skills.models import GlobalSkill, SkillInvocation
 
 logger = logging.getLogger("daiv.skills")
 
@@ -272,6 +272,22 @@ class SkillPackage:
             raise SkillValidationError(
                 "SKILL.md frontmatter 'description' exceeds 1024 characters", code="description_too_long"
             )
+
+
+def _classify_source(name: str, skill_path: str) -> SkillInvocation.Source:
+    """Classify a skill invocation by name + virtual path.
+
+    Built-ins are detected by name (the storage layer forbids name collisions
+    with built-ins, so a built-in name unambiguously denotes a built-in even
+    when the same virtual path also holds custom-global files). Anything else
+    under ``GLOBAL_SKILLS_PATH`` is a custom global; everything outside is a
+    per-repo skill.
+    """
+    if name in BUILTIN_SKILL_NAMES:
+        return SkillInvocation.Source.BUILTIN
+    if skill_path.startswith(GLOBAL_SKILLS_PATH + "/") or skill_path == GLOBAL_SKILLS_PATH:
+        return SkillInvocation.Source.GLOBAL
+    return SkillInvocation.Source.REPO
 
 
 class SkillStorage:
