@@ -1,16 +1,12 @@
 {% load i18n %}
 <div class="mt-3">
     {% if builtin_skills %}
-    <div class="rounded-2xl border border-white/[0.06] divide-y divide-white/[0.06]">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {% for skill in builtin_skills %}
-        <div class="flex items-center justify-between px-4 py-3">
-            <div class="flex-1">
-                <p class="font-semibold">{{ skill.name }}</p>
-                <p class="text-sm text-gray-400">{{ skill.description }}</p>
-            </div>
-            <span class="inline-flex items-center rounded-md bg-gray-800/50 px-2 py-0.5 text-xs text-gray-400">
-                {% translate "Built-in" %}
-            </span>
+        <div class="card">
+            <span class="card__corner-badge">{% translate "Built-in" %}</span>
+            <span class="card__title">{{ skill.name }}</span>
+            <p class="card__description">{{ skill.description }}</p>
         </div>
         {% endfor %}
     </div>

@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworked sandbox file sync: `write_file` and `edit_file` now push changes to the sandbox eagerly per tool call, and `bash_tool` no longer tarballs the entire working tree on every invocation. Substantially reduces per-turn cost on long agent runs. **BREAKING**: requires the matching daiv-sandbox release with the new mutation/seed wire protocol.
 - Sandbox runtime is now configured exclusively through `SandboxEnvironment` rows; the `sandbox:` block in `.daiv.yml` is no longer honored. Recreate per-repo runtime configuration by creating an environment and listing the repo under its repository assignments.
 - The env picker gains an `Auto` mode (the new default): when no env is explicitly picked and a repository is known, the environment claiming that repository wins (USER-scoped beats GLOBAL-scoped); otherwise the GLOBAL default applies.
+- Redesigned the global skills list page (`/dashboard/skills/`) as a responsive grid of cards. Custom-skill cards expose Download zip and Delete in a kebab menu and show uploader, upload time, size, and file count; built-in skills render the same shape with a "Built-in" badge.
 
 ### Removed
 
