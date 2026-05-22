@@ -70,6 +70,38 @@ def test_replace_overwrites_and_moves_old_to_trash(storage, admin_user, build_sk
 
 
 @pytest.mark.django_db
+def test_replace_rolls_back_on_filesystem_error(storage, admin_user, build_skill_zip):
+    """If a filesystem write fails mid-swap, the previous tree, zip and DB row must be restored."""
+    data_v1 = build_skill_zip(skill_name="demo", description="v1")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)
+
+    data_v2 = build_skill_zip(skill_name="demo", description="v2")
+    pkg_v2 = SkillPackage.inspect(io.BytesIO(data_v2))
+
+    real_write_bytes = type(storage.root).write_bytes
+    triggered = []
+
+    def fail_for_new_zip(self, data, *args, **kwargs):
+        if self.name == "demo.zip.tmp":
+            triggered.append(self)
+            raise OSError("simulated disk full")
+        return real_write_bytes(self, data, *args, **kwargs)
+
+    with patch.object(type(storage.root), "write_bytes", fail_for_new_zip), pytest.raises(OSError, match="simulated"):
+        storage.replace(pkg_v2, uploaded_by=admin_user)
+
+    # Guard against a future rename of the tmp zip suffix silently skipping the failure path.
+    assert triggered, "patched write_bytes was never called for demo.zip.tmp"
+
+    base = storage.root
+    # Old tree and old zip restored to their canonical locations.
+    assert b"v1" in (base / "demo" / "SKILL.md").read_bytes()
+    assert (base / ".zips" / "demo.zip").read_bytes() == data_v1
+    # DB row unchanged (description still v1).
+    assert GlobalSkill.objects.get(name="demo").description == "v1"
+
+
+@pytest.mark.django_db
 def test_replace_rolls_back_on_db_error(storage, admin_user, build_skill_zip):
     data_v1 = build_skill_zip(skill_name="demo", description="v1")
     storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)

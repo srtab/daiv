@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
@@ -142,6 +143,38 @@ def test_delete_post_member_denied(client, member_user, storage, admin_user, bui
 
 
 @pytest.mark.django_db
+def test_upload_get_denies_member(client, member_user, storage):
+    client.force_login(member_user)
+    resp = client.get(reverse("skills:upload"))
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_download_denies_member(client, member_user, storage, admin_user, build_skill_zip):
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    client.force_login(member_user)
+    resp = client.get(reverse("skills:download", args=["demo"]))
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_upload_collision_when_dir_present_but_row_missing(client, admin_user, storage, build_skill_zip):
+    """Orphan-on-disk: directory exists without a DB row → still trigger conflict confirm."""
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    GlobalSkill.objects.filter(name="demo").delete()  # leave the directory orphaned
+    assert (storage.root / "demo").exists()
+
+    client.force_login(admin_user)
+    uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
+    resp = client.post(reverse("skills:upload"), data={"zip": uploaded, "force": ""})
+
+    assert resp.status_code == 200
+    assert b"already exists" in resp.content.lower() or b"replace" in resp.content.lower()
+
+
+@pytest.mark.django_db
 def test_detail_shows_skill_body_and_tree(client, admin_user, storage, build_skill_zip):
     data = build_skill_zip(
         skill_name="demo",
@@ -217,6 +250,17 @@ def test_upload_refuses_builtin_name(client, admin_user, storage, build_skill_zi
 
 
 @pytest.mark.django_db
+def test_detail_404_when_skill_md_not_utf8(client, admin_user, storage, build_skill_zip):
+    """Hand-edited non-UTF-8 SKILL.md on disk must return 404, not 500."""
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    (storage.root / "demo" / "SKILL.md").write_bytes(b"\xff\xfe not utf-8")
+    client.force_login(admin_user)
+    resp = client.get(reverse("skills:detail", args=["demo"]))
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
 def test_detail_404_when_disk_missing(client, admin_user, storage):
     """If the DB row exists but the on-disk tree is gone, return 404 (not 500)."""
     GlobalSkill.objects.create(
@@ -225,6 +269,34 @@ def test_detail_404_when_disk_missing(client, admin_user, storage):
     client.force_login(admin_user)
     resp = client.get(reverse("skills:detail", args=["orphan"]))
     assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_upload_post_surfaces_storage_oserror(client, admin_user, storage, build_skill_zip):
+    """A disk failure inside SkillStorage.replace must re-render the modal with an inline error, not 500."""
+    client.force_login(admin_user)
+    data = build_skill_zip(skill_name="demo")
+    uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
+    with patch("skills.views.SkillStorage.replace", side_effect=OSError("disk full")):
+        resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
+    assert resp.status_code == 200
+    assert b"<form" in resp.content
+    assert b"Could not save the skill" in resp.content
+
+
+@pytest.mark.django_db
+def test_delete_post_surfaces_storage_oserror(client, admin_user, storage, build_skill_zip):
+    """A disk failure inside SkillStorage.delete must re-render the confirm partial with an inline error."""
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    client.force_login(admin_user)
+    with patch("skills.views.SkillStorage.delete", side_effect=OSError("disk failure")):
+        resp = client.post(reverse("skills:delete", args=["demo"]))
+    # 200 keeps HTMX swapping reliably (default config does not swap 4xx).
+    assert resp.status_code == 200
+    assert b"Could not delete the skill" in resp.content
+    # Row still present because delete failed.
+    assert GlobalSkill.objects.filter(name="demo").exists()
 
 
 @pytest.mark.django_db

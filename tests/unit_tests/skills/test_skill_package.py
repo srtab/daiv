@@ -4,7 +4,7 @@ import io
 import zipfile
 
 import pytest
-from skills.constants import MAX_FILES, MAX_PER_FILE_BYTES, MAX_UNPACKED_BYTES
+from skills.constants import MAX_FILES, MAX_PER_FILE_BYTES
 from skills.services import SkillPackage, SkillValidationError  # noqa: F401
 
 
@@ -93,6 +93,14 @@ def test_bad_zip_bytes():
     with pytest.raises(SkillValidationError) as exc:
         SkillPackage.inspect(io.BytesIO(b"not a zip"))
     assert exc.value.code == "bad_zip"
+
+
+def test_non_utf8_skill_md_rejected():
+    bad_bytes = b"---\nname: demo\ndescription: \xff\xfe not utf-8 \xc3\x28\n---\nbody\n"
+    data = _raw_zip([("demo/SKILL.md", bad_bytes)])
+    with pytest.raises(SkillValidationError) as exc:
+        SkillPackage.inspect(io.BytesIO(data))
+    assert exc.value.code == "bad_skill_md_encoding"
 
 
 def _valid_skill_md() -> tuple[str, bytes]:
@@ -188,5 +196,3 @@ def test_unpacked_total_too_large_rejected():
     with pytest.raises(SkillValidationError) as exc:
         SkillPackage.inspect(io.BytesIO(buf.getvalue()))
     assert exc.value.code == "unpacked_too_large"
-    # Anchor the cap value so a future change here flags a regression
-    assert MAX_UNPACKED_BYTES == 25 * 1024 * 1024

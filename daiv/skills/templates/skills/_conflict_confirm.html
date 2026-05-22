@@ -14,7 +14,10 @@
         <p class="mt-2 text-sm text-gray-400">
             {% translate "Confirm to replace it. The previous version is kept in a recycle bin for 24 hours." %}
         </p>
-        <form hx-post="{% url 'skills:upload' %}"
+        <form method="post"
+              enctype="multipart/form-data"
+              action="{% url 'skills:upload' %}"
+              hx-post="{% url 'skills:upload' %}"
               hx-encoding="multipart/form-data"
               hx-target="#skills-modal-host"
               hx-swap="innerHTML"

@@ -5,6 +5,7 @@ import logging
 
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import render
+from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
@@ -42,7 +43,6 @@ class SkillUploadView(AdminRequiredMixin, View):
         force = bool(form.cleaned_data.get("force"))
         storage = SkillStorage()
 
-        # Conflict detection — covered fully in Task 16
         existing_row = GlobalSkill.objects.filter(name=package.name).first()
         existing_dir = (storage.root / package.name).exists()
         if (existing_row or existing_dir) and not force:
@@ -54,6 +54,10 @@ class SkillUploadView(AdminRequiredMixin, View):
             storage.replace(package, uploaded_by=request.user)
         except SkillStorageError as err:
             form.add_error("zip", str(err))
+            return render(request, "skills/_upload_modal.html", {"form": form})
+        except OSError:
+            logger.exception("Could not save skill %r", package.name)
+            form.add_error("zip", _("Could not save the skill. Please try again."))
             return render(request, "skills/_upload_modal.html", {"form": form})
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"skill-uploaded": {"name": package.name}})})
 
@@ -68,6 +72,8 @@ class SkillDetailView(AdminRequiredMixin, View):
             skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
         except FileNotFoundError as err:
             raise Http404("skill files missing on disk") from err
+        except UnicodeDecodeError as err:
+            raise Http404("skill files unreadable on disk") from err
         body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
         tree = self._list_tree(root)
         return render(request, "skills/detail.html", {"skill": skill, "body": body, "tree": tree})
@@ -103,7 +109,12 @@ class SkillDeleteView(AdminRequiredMixin, View):
 
     def post(self, request, name):
         skill = self._get_or_404(name)
-        SkillStorage().delete(skill.name)
+        try:
+            SkillStorage().delete(skill.name)
+        except (SkillStorageError, OSError) as err:
+            logger.exception("Failed to delete skill %r", skill.name)
+            message = str(err) if isinstance(err, SkillStorageError) else _("Could not delete the skill.")
+            return render(request, "skills/_delete_confirm.html", {"skill": skill, "error": message})
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"skill-deleted": {"name": skill.name}})})
 
 

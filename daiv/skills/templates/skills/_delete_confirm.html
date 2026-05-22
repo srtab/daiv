@@ -10,6 +10,9 @@
         <p class="mt-2 text-sm text-gray-400">
             {% translate "The skill is moved to a recycle bin for 24 hours before being permanently removed." %}
         </p>
+        {% if error %}
+        <p class="mt-2 text-sm text-red-300">{{ error }}</p>
+        {% endif %}
         <form hx-post="{% url 'skills:delete' skill.name %}"
               hx-target="#skills-modal-host"
               hx-swap="innerHTML"

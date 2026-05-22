@@ -95,6 +95,8 @@ def list_builtins() -> list[dict[str, str]]:
                     description = str(data.get("description", "")).strip()
         except OSError:
             logger.warning("Failed to read built-in SKILL.md at %s", skill_md)
+        except yaml.YAMLError:
+            logger.warning("Malformed YAML frontmatter in built-in SKILL.md at %s", skill_md)
         out.append({"name": entry.name, "description": description})
     return out
 
@@ -154,7 +156,11 @@ class SkillPackage:
             except KeyError as err:
                 raise SkillValidationError(f"missing {skill_md_path}", code="missing_skill_md") from err
 
-            frontmatter = cls._parse_frontmatter(skill_md_bytes.decode("utf-8"))
+            try:
+                skill_md_text = skill_md_bytes.decode("utf-8")
+            except UnicodeDecodeError as err:
+                raise SkillValidationError(f"{skill_md_path} is not valid UTF-8", code="bad_skill_md_encoding") from err
+            frontmatter = cls._parse_frontmatter(skill_md_text)
             cls._require_frontmatter_fields(frontmatter, top_level)
 
             return cls(
@@ -290,6 +296,7 @@ class SkillStorage:
                         },
                     )
             except Exception:
+                logger.exception("DB swap failed for skill %r; rolling back filesystem", pkg.name)
                 self._rollback_swap(pkg, trashed_tree, trashed_zip)
                 raise
         finally:
@@ -303,7 +310,7 @@ class SkillStorage:
             raise SkillStorageError(f"cannot delete built-in skill '{name}'")
         old_tree = self.root / name
         old_zip = self.root / ZIPS_DIR / f"{name}.zip"
-        ts = str(int(time.time() * 1000))
+        ts = str(time.time_ns())
         trashed_tree = self.root / TRASH_DIR / f"{name}.{ts}"
         trashed_zip = self.root / TRASH_ZIPS_DIR / f"{name}.{ts}.zip"
 
@@ -320,7 +327,7 @@ class SkillStorage:
             with transaction.atomic():
                 GlobalSkill.objects.filter(name=name).delete()
         except Exception:
-            # Restore on DB failure
+            logger.exception("DB delete failed for skill %r; restoring filesystem", name)
             if moved_tree and trashed_tree.exists():
                 trashed_tree.replace(old_tree)
             if moved_zip and trashed_zip.exists():
@@ -349,7 +356,7 @@ class SkillStorage:
         if not staged_tree.is_dir():
             raise SkillStorageError(f"staged extraction did not produce '{pkg.name}/' top-level dir")
 
-        ts = str(int(time.time() * 1000))
+        ts = str(time.time_ns())
         old_tree_target = self.root / TRASH_DIR / f"{pkg.name}.{ts}"
         old_zip_target = self.root / TRASH_ZIPS_DIR / f"{pkg.name}.{ts}.zip"
         old_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip"
@@ -379,7 +386,7 @@ class SkillStorage:
         new_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip"
         # Move the new tree (if any) aside so we can restore old.
         if new_tree.exists():
-            quarantine = self.root / TMP_DIR / f"{pkg.name}.failed.{int(time.time() * 1000)}"
+            quarantine = self.root / TMP_DIR / f"{pkg.name}.failed.{time.time_ns()}"
             try:
                 new_tree.replace(quarantine)
             except OSError:
@@ -401,8 +408,8 @@ class SkillStorage:
                 logger.exception("Failed to restore old zip during rollback for %r", pkg.name)
 
     def sweep_trash(self) -> None:
-        """Remove .trash entries older than ``TRASH_TTL_SECONDS``. Inline,
-        cheap, runs at the end of each replace/delete."""
+        """Remove .trash entries older than ``TRASH_TTL_SECONDS``. Inline; runs
+        at the end of each replace/delete."""
         cutoff = time.time() - TRASH_TTL_SECONDS
         for parent in (self.root / TRASH_DIR, self.root / TRASH_ZIPS_DIR):
             if not parent.is_dir():

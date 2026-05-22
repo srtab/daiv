@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
+
+from skills.constants import SKILL_NAME_RE
 
 
 class GlobalSkill(TimeStampedModel):
@@ -15,7 +18,7 @@ class GlobalSkill(TimeStampedModel):
     UI and attribute the upload.
     """
 
-    name = models.SlugField(_("name"), max_length=80, unique=True)
+    name = models.SlugField(_("name"), max_length=80, unique=True, validators=[RegexValidator(regex=SKILL_NAME_RE)])
     description = models.CharField(_("description"), max_length=1024, blank=True, default="")
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="uploaded_skills"
