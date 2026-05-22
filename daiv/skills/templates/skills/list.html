@@ -33,6 +33,8 @@
 </section>
 
 <div id="skills-modal-host"
+     x-data
+     @close-skills-modal.window="$el.innerHTML = ''"
      hx-get="{% url 'skills:list' %}"
      hx-trigger="skill-uploaded from:body, skill-deleted from:body"
      hx-select="#skills-modal-host"

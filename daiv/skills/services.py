@@ -272,6 +272,8 @@ class SkillStorage:
         (self.root / ZIPS_DIR).mkdir(exist_ok=True)
 
     def replace(self, pkg: SkillPackage, *, uploaded_by) -> GlobalSkill:
+        if pkg.name in BUILTIN_SKILL_NAMES:
+            raise SkillStorageError(f"cannot upload skill '{pkg.name}': name conflicts with a built-in skill")
         staged = self._stage_extract(pkg)
         try:
             trashed_tree, trashed_zip = self._swap_in(pkg, staged)

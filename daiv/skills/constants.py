@@ -30,9 +30,8 @@ FORBIDDEN_SUFFIXES: frozenset[str] = frozenset({".pyc"})
 SKILL_NAME_RE: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 FRONTMATTER_RE: re.Pattern[str] = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-# Subdirectories inside CUSTOM_SKILLS_PATH used by the storage layer. The
-# leading underscore is intentional: the agent's skill walker skips these
-# because they don't contain a SKILL.md.
+# Subdirectories inside CUSTOM_SKILLS_PATH used by the storage layer. Names
+# start with a `.` so the agent's skill walker skips them.
 TRASH_DIR = ".trash"
 TRASH_ZIPS_DIR = ".trash/.zips"
 TMP_DIR = ".tmp"

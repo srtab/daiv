@@ -194,6 +194,40 @@ def test_download_404_when_zip_missing(client, admin_user, storage):
 
 
 @pytest.mark.django_db
+def test_list_template_wires_modal_close_listener(client, admin_user):
+    """Cancel/Escape/click-outside dispatch ``close-skills-modal``; the list page must listen."""
+    client.force_login(admin_user)
+    resp = client.get(reverse("skills:list"))
+    assert resp.status_code == 200
+    assert b"close-skills-modal" in resp.content
+    assert b"x-data" in resp.content
+
+
+@pytest.mark.django_db
+def test_upload_refuses_builtin_name(client, admin_user, storage, build_skill_zip, monkeypatch):
+    """Uploading a skill whose name collides with a built-in must be rejected with an inline error."""
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
+    client.force_login(admin_user)
+    data = build_skill_zip(skill_name="demo")
+    uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
+    resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
+    assert resp.status_code == 200  # re-rendered modal with error
+    assert b"built-in" in resp.content.lower()
+    assert not GlobalSkill.objects.filter(name="demo").exists()
+
+
+@pytest.mark.django_db
+def test_detail_404_when_disk_missing(client, admin_user, storage):
+    """If the DB row exists but the on-disk tree is gone, return 404 (not 500)."""
+    GlobalSkill.objects.create(
+        name="orphan", description="", uploaded_by=admin_user, size_bytes=1, file_count=1, checksum="x"
+    )
+    client.force_login(admin_user)
+    resp = client.get(reverse("skills:detail", args=["orphan"]))
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
 def test_full_admin_journey(client, admin_user, storage, build_skill_zip):
     """Upload → list → detail → download → delete."""
     client.force_login(admin_user)

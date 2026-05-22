@@ -12,7 +12,7 @@ from accounts.mixins import AdminRequiredMixin
 from skills.constants import FRONTMATTER_RE, ZIPS_DIR
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill
-from skills.services import SkillStorage, list_builtins
+from skills.services import SkillStorage, SkillStorageError, list_builtins
 
 logger = logging.getLogger("daiv.skills")
 
@@ -50,7 +50,11 @@ class SkillUploadView(AdminRequiredMixin, View):
                 request, "skills/_conflict_confirm.html", {"form": form, "package": package, "existing": existing_row}
             )
 
-        storage.replace(package, uploaded_by=request.user)
+        try:
+            storage.replace(package, uploaded_by=request.user)
+        except SkillStorageError as err:
+            form.add_error("zip", str(err))
+            return render(request, "skills/_upload_modal.html", {"form": form})
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"skill-uploaded": {"name": package.name}})})
 
 
@@ -60,7 +64,10 @@ class SkillDetailView(AdminRequiredMixin, View):
     def get(self, request, name):
         skill = self._get_or_404(name)
         root = SkillStorage().root / skill.name
-        skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
+        try:
+            skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
+        except FileNotFoundError as err:
+            raise Http404("skill files missing on disk") from err
         body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
         tree = self._list_tree(root)
         return render(request, "skills/detail.html", {"skill": skill, "body": body, "tree": tree})

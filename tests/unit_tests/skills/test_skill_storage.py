@@ -136,6 +136,20 @@ def test_delete_refuses_builtin_name(storage, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_replace_refuses_builtin_name(storage, admin_user, build_skill_zip, monkeypatch):
+    """Uploads must not be allowed to shadow a built-in skill (it would become un-deletable)."""
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
+    data = build_skill_zip(skill_name="demo")
+    pkg = SkillPackage.inspect(io.BytesIO(data))
+    with pytest.raises(SkillStorageError, match="built-in"):
+        storage.replace(pkg, uploaded_by=admin_user)
+    # No tree, no zip, no DB row left behind.
+    assert not (storage.root / "demo").exists()
+    assert not (storage.root / ".zips" / "demo.zip").exists()
+    assert not GlobalSkill.objects.filter(name="demo").exists()
+
+
+@pytest.mark.django_db
 def test_replace_invalidates_skill_cache(storage, admin_user, tmp_path, build_skill_zip):
     import skills.services as svc_mod
 
