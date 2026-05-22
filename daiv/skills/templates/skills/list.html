@@ -13,13 +13,7 @@
             {% translate "Skills uploaded as zip archives are available to every agent run." %}
         </p>
     </div>
-    <button type="button"
-            class="btn-primary"
-            hx-get="{% url 'skills:upload' %}"
-            hx-target="#skills-modal-host"
-            hx-swap="innerHTML">
-        {% translate "Upload skill" %}
-    </button>
+    <a href="{% url 'skills:upload' %}" class="btn-primary">{% translate "Upload skill" %}</a>
 </div>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 100ms">
@@ -31,12 +25,4 @@
     <h2 class="text-lg font-semibold">{% translate "Built-in skills" %}</h2>
     {% include "skills/_builtin_skills.html" %}
 </section>
-
-<div id="skills-modal-host"
-     x-data
-     @close-skills-modal.window="$el.innerHTML = ''"
-     hx-get="{% url 'skills:list' %}"
-     hx-trigger="skill-uploaded from:body, skill-deleted from:body"
-     hx-select="#skills-modal-host"
-     hx-swap="outerHTML"></div>
 {% endblock app_content %}

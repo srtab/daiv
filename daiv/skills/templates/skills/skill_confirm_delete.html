@@ -1,0 +1,43 @@
+{% extends "base_app.html" %}
+{% load i18n icon_tags %}
+
+{% block title %}{% translate "Delete skill" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock breadcrumb %}
+
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">{% translate "Delete skill" %}</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        {% translate "The skill is moved to a recycle bin for 24 hours before being permanently removed." %}
+    </p>
+</div>
+
+<div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-6" style="animation-delay: 100ms">
+    <div class="flex items-start gap-3">
+        {% icon "exclamation-triangle" "mt-0.5 h-5 w-5 shrink-0 text-red-400" %}
+        <div>
+            <p class="text-[15px] font-medium text-red-200">
+                {% blocktranslate with name=object.name %}Are you sure you want to delete <strong>{{ name }}</strong>?{% endblocktranslate %}
+            </p>
+            {% if object.description %}
+            <p class="mt-1 text-sm text-red-300/70">{{ object.description }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if error %}
+    <p class="mt-4 text-sm text-red-300">{{ error }}</p>
+    {% endif %}
+
+    <form method="post" class="mt-6 flex items-center gap-3">
+        {% csrf_token %}
+        <button type="submit" class="btn-danger">{% translate "Delete skill" %}</button>
+        <a href="{% url 'skills:detail' object.name %}" class="btn-secondary">{% translate "Cancel" %}</a>
+    </form>
+</div>
+{% endblock app_content %}

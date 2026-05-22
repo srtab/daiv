@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from unittest.mock import patch
 
+from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
@@ -43,13 +44,15 @@ def test_list_denies_member(client, member_user):
 
 
 @pytest.mark.django_db
-def test_upload_get_returns_modal_partial(client, admin_user):
+def test_upload_get_renders_full_page(client, admin_user):
     client.force_login(admin_user)
     resp = client.get(reverse("skills:upload"))
     assert resp.status_code == 200
-    # The partial should not extend base_app.html
+    # Full-page render via base_app.html includes the breadcrumb nav and a form.
+    assert b"app-breadcrumb" in resp.content
     assert b"<form" in resp.content
-    assert b"<aside" not in resp.content
+    # No modal overlay scaffolding remains.
+    assert b"close-skills-modal" not in resp.content
 
 
 @pytest.mark.django_db
@@ -58,22 +61,25 @@ def test_upload_post_happy_path(client, admin_user, storage, build_skill_zip):
     data = build_skill_zip(skill_name="demo")
     uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
     resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
-    assert resp.status_code == 204
-    assert "HX-Trigger" in resp.headers
+    assert resp.status_code == 302
+    assert resp.url == reverse("skills:list")
     assert GlobalSkill.objects.filter(name="demo").exists()
+    msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+    assert any("demo" in m for m in msgs)
 
 
 @pytest.mark.django_db
-def test_upload_post_validation_error_re_renders_modal(client, admin_user, storage):
+def test_upload_post_validation_error_re_renders_full_page(client, admin_user, storage):
     client.force_login(admin_user)
     uploaded = SimpleUploadedFile("bad.zip", b"not a zip", content_type="application/zip")
     resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
-    assert resp.status_code == 200  # re-rendered modal with error
+    assert resp.status_code == 200
+    assert b"app-breadcrumb" in resp.content
     assert b"<form" in resp.content
 
 
 @pytest.mark.django_db
-def test_upload_collision_re_renders_confirm_partial(client, admin_user, storage, build_skill_zip):
+def test_upload_collision_re_renders_with_conflict_banner(client, admin_user, storage, build_skill_zip):
     client.force_login(admin_user)
     data_v1 = build_skill_zip(skill_name="demo", description="v1")
     storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)
@@ -84,7 +90,9 @@ def test_upload_collision_re_renders_confirm_partial(client, admin_user, storage
 
     assert resp.status_code == 200
     assert b"already exists" in resp.content.lower() or b"replace" in resp.content.lower()
-    # The existing skill is not yet replaced
+    # The hidden force input flips to true so the resubmit overwrites.
+    assert b'name="force" value="true"' in resp.content
+    # The existing skill is not yet replaced.
     assert GlobalSkill.objects.get(name="demo").description == "v1"
 
 
@@ -98,18 +106,20 @@ def test_upload_with_force_overwrites(client, admin_user, storage, build_skill_z
     uploaded = SimpleUploadedFile("demo.zip", data_v2, content_type="application/zip")
     resp = client.post(reverse("skills:upload"), data={"zip": uploaded, "force": "true"})
 
-    assert resp.status_code == 204
+    assert resp.status_code == 302
+    assert resp.url == reverse("skills:list")
     assert GlobalSkill.objects.get(name="demo").description == "v2"
 
 
 @pytest.mark.django_db
-def test_delete_get_returns_confirm_partial(client, admin_user, storage, build_skill_zip):
+def test_delete_get_renders_full_page(client, admin_user, storage, build_skill_zip):
     data = build_skill_zip(skill_name="demo")
     storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
     client.force_login(admin_user)
 
     resp = client.get(reverse("skills:delete", args=["demo"]))
     assert resp.status_code == 200
+    assert b"app-breadcrumb" in resp.content
     assert b"demo" in resp.content
     assert b"<form" in resp.content
 
@@ -121,9 +131,11 @@ def test_delete_post_removes_skill(client, admin_user, storage, build_skill_zip)
     client.force_login(admin_user)
 
     resp = client.post(reverse("skills:delete", args=["demo"]))
-    assert resp.status_code == 204
-    assert "HX-Trigger" in resp.headers
+    assert resp.status_code == 302
+    assert resp.url == reverse("skills:list")
     assert not GlobalSkill.objects.filter(name="demo").exists()
+    msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+    assert any("demo" in m for m in msgs)
 
 
 @pytest.mark.django_db
@@ -160,7 +172,7 @@ def test_download_denies_member(client, member_user, storage, admin_user, build_
 
 @pytest.mark.django_db
 def test_upload_collision_when_dir_present_but_row_missing(client, admin_user, storage, build_skill_zip):
-    """Orphan-on-disk: directory exists without a DB row → still trigger conflict confirm."""
+    """Orphan-on-disk: directory exists without a DB row → still trigger conflict banner."""
     data = build_skill_zip(skill_name="demo")
     storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
     GlobalSkill.objects.filter(name="demo").delete()  # leave the directory orphaned
@@ -227,16 +239,6 @@ def test_download_404_when_zip_missing(client, admin_user, storage):
 
 
 @pytest.mark.django_db
-def test_list_template_wires_modal_close_listener(client, admin_user):
-    """Cancel/Escape/click-outside dispatch ``close-skills-modal``; the list page must listen."""
-    client.force_login(admin_user)
-    resp = client.get(reverse("skills:list"))
-    assert resp.status_code == 200
-    assert b"close-skills-modal" in resp.content
-    assert b"x-data" in resp.content
-
-
-@pytest.mark.django_db
 def test_upload_refuses_builtin_name(client, admin_user, storage, build_skill_zip, monkeypatch):
     """Uploading a skill whose name collides with a built-in must be rejected with an inline error."""
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
@@ -244,7 +246,7 @@ def test_upload_refuses_builtin_name(client, admin_user, storage, build_skill_zi
     data = build_skill_zip(skill_name="demo")
     uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
     resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
-    assert resp.status_code == 200  # re-rendered modal with error
+    assert resp.status_code == 200
     assert b"built-in" in resp.content.lower()
     assert not GlobalSkill.objects.filter(name="demo").exists()
 
@@ -273,7 +275,7 @@ def test_detail_404_when_disk_missing(client, admin_user, storage):
 
 @pytest.mark.django_db
 def test_upload_post_surfaces_storage_oserror(client, admin_user, storage, build_skill_zip):
-    """A disk failure inside SkillStorage.replace must re-render the modal with an inline error, not 500."""
+    """A disk failure inside SkillStorage.replace must re-render the form with an inline error, not 500."""
     client.force_login(admin_user)
     data = build_skill_zip(skill_name="demo")
     uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
@@ -286,13 +288,12 @@ def test_upload_post_surfaces_storage_oserror(client, admin_user, storage, build
 
 @pytest.mark.django_db
 def test_delete_post_surfaces_storage_oserror(client, admin_user, storage, build_skill_zip):
-    """A disk failure inside SkillStorage.delete must re-render the confirm partial with an inline error."""
+    """A disk failure inside SkillStorage.delete must re-render the confirm page with an inline error."""
     data = build_skill_zip(skill_name="demo")
     storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
     client.force_login(admin_user)
     with patch("skills.views.SkillStorage.delete", side_effect=OSError("disk failure")):
         resp = client.post(reverse("skills:delete", args=["demo"]))
-    # 200 keeps HTMX swapping reliably (default config does not swap 4xx).
     assert resp.status_code == 200
     assert b"Could not delete the skill" in resp.content
     # Row still present because delete failed.
@@ -307,7 +308,8 @@ def test_full_admin_journey(client, admin_user, storage, build_skill_zip):
     data = build_skill_zip(skill_name="journey", description="end to end", extra_files={"scripts/foo.py": b"x"})
     uploaded = SimpleUploadedFile("journey.zip", data, content_type="application/zip")
     resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
-    assert resp.status_code == 204
+    assert resp.status_code == 302
+    assert resp.url == reverse("skills:list")
 
     resp = client.get(reverse("skills:list"))
     assert resp.status_code == 200
@@ -321,5 +323,6 @@ def test_full_admin_journey(client, admin_user, storage, build_skill_zip):
     assert resp.status_code == 200
 
     resp = client.post(reverse("skills:delete", args=["journey"]))
-    assert resp.status_code == 204
+    assert resp.status_code == 302
+    assert resp.url == reverse("skills:list")
     assert not GlobalSkill.objects.filter(name="journey").exists()

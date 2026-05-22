@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 
-from django.http import FileResponse, Http404, HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.contrib import messages
+from django.http import FileResponse, Http404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
@@ -30,14 +31,33 @@ class SkillListView(AdminRequiredMixin, TemplateView):
 
 class SkillUploadView(AdminRequiredMixin, View):
     http_method_names = ["get", "post"]
+    template_name = "skills/skill_upload.html"
+
+    @staticmethod
+    def _breadcrumbs():
+        return [{"label": _("Skills"), "url": reverse("skills:list")}, {"label": _("Upload skill"), "url": None}]
+
+    def _render(self, request, form, *, package=None, existing=None, conflict=False, status=200):
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "package": package,
+                "existing": existing,
+                "conflict": conflict,
+                "breadcrumbs": self._breadcrumbs(),
+            },
+            status=status,
+        )
 
     def get(self, request):
-        return render(request, "skills/_upload_modal.html", {"form": SkillUploadForm()})
+        return self._render(request, SkillUploadForm())
 
     def post(self, request):
         form = SkillUploadForm(request.POST, request.FILES)
         if not form.is_valid():
-            return render(request, "skills/_upload_modal.html", {"form": form})
+            return self._render(request, form)
 
         package = form.cleaned_data["package"]
         force = bool(form.cleaned_data.get("force"))
@@ -46,20 +66,21 @@ class SkillUploadView(AdminRequiredMixin, View):
         existing_row = GlobalSkill.objects.filter(name=package.name).first()
         existing_dir = (storage.root / package.name).exists()
         if (existing_row or existing_dir) and not force:
-            return render(
-                request, "skills/_conflict_confirm.html", {"form": form, "package": package, "existing": existing_row}
-            )
+            return self._render(request, form, package=package, existing=existing_row, conflict=True)
 
+        had_conflict = bool(existing_row or existing_dir)
         try:
             storage.replace(package, uploaded_by=request.user)
         except SkillStorageError as err:
             form.add_error("zip", str(err))
-            return render(request, "skills/_upload_modal.html", {"form": form})
+            return self._render(request, form, package=package, existing=existing_row, conflict=had_conflict)
         except OSError:
             logger.exception("Could not save skill %r", package.name)
             form.add_error("zip", _("Could not save the skill. Please try again."))
-            return render(request, "skills/_upload_modal.html", {"form": form})
-        return HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"skill-uploaded": {"name": package.name}})})
+            return self._render(request, form, package=package, existing=existing_row, conflict=had_conflict)
+
+        messages.success(request, _("Skill '%(name)s' uploaded.") % {"name": package.name})
+        return redirect("skills:list")
 
 
 class SkillDetailView(AdminRequiredMixin, View):
@@ -90,10 +111,19 @@ class SkillDetailView(AdminRequiredMixin, View):
 
 class SkillDeleteView(AdminRequiredMixin, View):
     http_method_names = ["get", "post"]
+    template_name = "skills/skill_confirm_delete.html"
+
+    @staticmethod
+    def _breadcrumbs(skill):
+        return [
+            {"label": _("Skills"), "url": reverse("skills:list")},
+            {"label": skill.name, "url": reverse("skills:detail", args=[skill.name])},
+            {"label": _("Delete"), "url": None},
+        ]
 
     def get(self, request, name):
         skill = get_object_or_404(GlobalSkill, name=name)
-        return render(request, "skills/_delete_confirm.html", {"skill": skill})
+        return render(request, self.template_name, {"object": skill, "breadcrumbs": self._breadcrumbs(skill)})
 
     def post(self, request, name):
         skill = get_object_or_404(GlobalSkill, name=name)
@@ -102,8 +132,13 @@ class SkillDeleteView(AdminRequiredMixin, View):
         except (SkillStorageError, OSError) as err:
             logger.exception("Failed to delete skill %r", skill.name)
             message = str(err) if isinstance(err, SkillStorageError) else _("Could not delete the skill.")
-            return render(request, "skills/_delete_confirm.html", {"skill": skill, "error": message})
-        return HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"skill-deleted": {"name": skill.name}})})
+            return render(
+                request,
+                self.template_name,
+                {"object": skill, "error": message, "breadcrumbs": self._breadcrumbs(skill)},
+            )
+        messages.success(request, _("Skill '%(name)s' deleted.") % {"name": skill.name})
+        return redirect("skills:list")
 
 
 class SkillZipDownloadView(AdminRequiredMixin, View):
