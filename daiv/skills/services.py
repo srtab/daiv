@@ -1,10 +1,6 @@
 from __future__ import annotations
 
 import fcntl
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from langchain.tools import ToolRuntime
 import hashlib
 import io
 import logging
@@ -16,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 from django.db import DatabaseError, transaction
 
@@ -42,6 +38,12 @@ from skills.constants import (
     ZIPS_DIR,
 )
 from skills.models import GlobalSkill, SkillInvocation
+
+if TYPE_CHECKING:
+    from deepagents.middleware.skills import SkillsState
+    from langchain.tools import ToolRuntime
+
+    from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.skills")
 
@@ -294,7 +296,7 @@ def _classify_source(name: str, skill_path: str) -> SkillInvocation.Source:
     return SkillInvocation.Source.REPO
 
 
-async def _record_invocation(name: str, skill_path: str, runtime: ToolRuntime) -> None:
+async def _record_invocation(name: str, skill_path: str, runtime: ToolRuntime[RuntimeCtx, SkillsState]) -> None:
     """Persist a SkillInvocation row; swallow & log any failure.
 
     Called from ``SkillsMiddleware._skill_tool_generator`` right before the
