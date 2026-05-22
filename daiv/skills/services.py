@@ -3,12 +3,19 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import shutil
+import tempfile
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import BinaryIO
+
+from django.db import transaction
 
 import yaml
 
+from automation.agent.conf import settings as agent_settings
+from automation.agent.constants import SKILLS_CACHE_PATH
 from skills.constants import (
     ALLOWED_SUFFIXES,
     FORBIDDEN_PATH_PARTS,
@@ -20,7 +27,12 @@ from skills.constants import (
     MAX_UNPACKED_BYTES,
     MAX_ZIP_BYTES,
     SKILL_NAME_RE,
+    TMP_DIR,
+    TRASH_DIR,
+    TRASH_ZIPS_DIR,
+    ZIPS_DIR,
 )
+from skills.models import GlobalSkill
 
 logger = logging.getLogger("daiv.skills")
 
@@ -193,3 +205,75 @@ class SkillPackage:
             raise SkillValidationError(
                 "SKILL.md frontmatter 'description' exceeds 1024 characters", code="description_too_long"
             )
+
+
+class SkillStorage:
+    """Owns the on-disk layout under ``CUSTOM_SKILLS_PATH`` and the DB row for
+    each global skill. The agent's skills middleware reads from ``self.root``
+    directly; this class is the only thing that writes to it."""
+
+    def __init__(self) -> None:
+        if agent_settings.CUSTOM_SKILLS_PATH is None:
+            raise SkillStorageError("CUSTOM_SKILLS_PATH is not configured")
+        self.root: Path = Path(agent_settings.CUSTOM_SKILLS_PATH)
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / TMP_DIR).mkdir(exist_ok=True)
+        (self.root / TRASH_DIR).mkdir(exist_ok=True)
+        (self.root / TRASH_ZIPS_DIR).mkdir(parents=True, exist_ok=True)
+        (self.root / ZIPS_DIR).mkdir(exist_ok=True)
+
+    def replace(self, pkg: SkillPackage, *, uploaded_by) -> GlobalSkill:
+        staged = self._stage_extract(pkg)
+        try:
+            with transaction.atomic():
+                skill, _created = GlobalSkill.objects.update_or_create(
+                    name=pkg.name,
+                    defaults={
+                        "description": pkg.description,
+                        "uploaded_by": uploaded_by,
+                        "size_bytes": pkg.unpacked_size_bytes,
+                        "file_count": pkg.file_count,
+                        "checksum": pkg.checksum,
+                    },
+                )
+                self._swap_in(pkg, staged)
+        except Exception:
+            shutil.rmtree(staged, ignore_errors=True)
+            raise
+        finally:
+            self._invalidate_cache(pkg.name)
+        return skill
+
+    def _stage_extract(self, pkg: SkillPackage) -> Path:
+        staged_parent = self.root / TMP_DIR
+        staged = Path(tempfile.mkdtemp(prefix=f"{pkg.name}.", dir=staged_parent))
+        with zipfile.ZipFile(io.BytesIO(pkg.zip_bytes)) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                target = staged / info.filename
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, Path(target).open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+        return staged
+
+    def _swap_in(self, pkg: SkillPackage, staged: Path) -> None:
+        new_tree = self.root / pkg.name
+        staged_tree = staged / pkg.name
+        if not staged_tree.is_dir():
+            raise SkillStorageError(f"staged extraction did not produce '{pkg.name}/' top-level dir")
+        Path(staged_tree).replace(new_tree)
+        new_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip"
+        tmp_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip.tmp"
+        tmp_zip.write_bytes(pkg.zip_bytes)
+        Path(tmp_zip).replace(new_zip)
+        shutil.rmtree(staged, ignore_errors=True)
+
+    def _invalidate_cache(self, name: str) -> None:
+        # Best-effort: the agent's per-turn check is "file exists on disk in
+        # SKILLS_CACHE_PATH → skip upload". Wiping the per-skill subdir means
+        # the next turn re-uploads.
+        try:
+            shutil.rmtree(SKILLS_CACHE_PATH / name, ignore_errors=True)
+        except OSError:
+            logger.exception("Failed to invalidate skills cache for %r", name)
