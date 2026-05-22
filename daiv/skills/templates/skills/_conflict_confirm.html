@@ -1,0 +1,40 @@
+{% load i18n %}
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+     @keydown.escape.window="$dispatch('close-skills-modal')"
+     @click.self="$dispatch('close-skills-modal')">
+    <div class="w-full max-w-md rounded-2xl border border-amber-800/50 bg-[#0c0f1a] p-6">
+        <h2 class="text-lg font-semibold">{% translate "Skill already exists" %}</h2>
+        <p class="mt-2 text-sm text-amber-200">
+            {% blocktranslate with name=package.name %}A skill named "{{ name }}" already exists.{% endblocktranslate %}
+            {% if existing and existing.uploaded_by %}
+            {% blocktranslate with by=existing.uploaded_by.username at=existing.created|date:"Y-m-d H:i" %}
+            Uploaded by {{ by }} on {{ at }}.{% endblocktranslate %}
+            {% endif %}
+        </p>
+        <p class="mt-2 text-sm text-gray-400">
+            {% translate "Confirm to replace it. The previous version is kept in a recycle bin for 24 hours." %}
+        </p>
+        <form hx-post="{% url 'skills:upload' %}"
+              hx-encoding="multipart/form-data"
+              hx-target="#skills-modal-host"
+              hx-swap="innerHTML"
+              class="mt-4 space-y-4">
+            {% csrf_token %}
+            {# Re-upload the file because Django doesn't preserve the FileField #}
+            <input type="file"
+                   name="zip"
+                   accept=".zip,application/zip"
+                   required
+                   class="block w-full text-sm text-gray-300 file:mr-3 file:rounded-md file:border-0 file:bg-violet-600 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-violet-500">
+            <input type="hidden" name="force" value="true">
+            <div class="flex items-center justify-end gap-3">
+                <button type="button"
+                        class="btn-secondary"
+                        @click="$dispatch('close-skills-modal')">
+                    {% translate "Cancel" %}
+                </button>
+                <button type="submit" class="btn-danger">{% translate "Replace" %}</button>
+            </div>
+        </form>
+    </div>
+</div>

@@ -69,3 +69,33 @@ def test_upload_post_validation_error_re_renders_modal(client, admin_user, stora
     resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
     assert resp.status_code == 200  # re-rendered modal with error
     assert b"<form" in resp.content
+
+
+@pytest.mark.django_db
+def test_upload_collision_re_renders_confirm_partial(client, admin_user, storage, build_skill_zip):
+    client.force_login(admin_user)
+    data_v1 = build_skill_zip(skill_name="demo", description="v1")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)
+
+    data_v2 = build_skill_zip(skill_name="demo", description="v2")
+    uploaded = SimpleUploadedFile("demo.zip", data_v2, content_type="application/zip")
+    resp = client.post(reverse("skills:upload"), data={"zip": uploaded, "force": ""})
+
+    assert resp.status_code == 200
+    assert b"already exists" in resp.content.lower() or b"replace" in resp.content.lower()
+    # The existing skill is not yet replaced
+    assert GlobalSkill.objects.get(name="demo").description == "v1"
+
+
+@pytest.mark.django_db
+def test_upload_with_force_overwrites(client, admin_user, storage, build_skill_zip):
+    client.force_login(admin_user)
+    data_v1 = build_skill_zip(skill_name="demo", description="v1")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)
+
+    data_v2 = build_skill_zip(skill_name="demo", description="v2")
+    uploaded = SimpleUploadedFile("demo.zip", data_v2, content_type="application/zip")
+    resp = client.post(reverse("skills:upload"), data={"zip": uploaded, "force": "true"})
+
+    assert resp.status_code == 204
+    assert GlobalSkill.objects.get(name="demo").description == "v2"
