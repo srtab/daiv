@@ -31,7 +31,11 @@
             <p class="card__description">{{ skill.description }}</p>
 
             <div class="mt-3">
+                {% if skill.uploaded_by %}
                 {% include "accounts/_avatar.html" with user=skill.uploaded_by label=_("Uploaded by") %}
+                {% else %}
+                <span class="text-sm text-gray-400">{% translate "Uploaded by (unknown)" %}</span>
+                {% endif %}
             </div>
 
             <p class="card__footer">
