@@ -8,6 +8,7 @@ import tempfile
 import time
 import zipfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import BinaryIO
 
@@ -66,6 +67,36 @@ def _scan_builtin_skill_names() -> frozenset[str]:
 
 
 BUILTIN_SKILL_NAMES: frozenset[str] = _scan_builtin_skill_names()
+
+
+@lru_cache(maxsize=1)
+def list_builtins() -> list[dict[str, str]]:
+    """Return ``[{"name", "description"}, ...]`` for each skill shipped under
+    ``BUILTIN_SKILLS_PATH``. Memoised — built-ins are fixed at deploy time."""
+    out: list[dict[str, str]] = []
+    try:
+        entries = sorted(BUILTIN_SKILLS_PATH.iterdir(), key=lambda p: p.name)
+    except OSError:
+        logger.exception("Failed to scan BUILTIN_SKILLS_PATH at %s", BUILTIN_SKILLS_PATH)
+        return []
+    for entry in entries:
+        if not entry.is_dir() or entry.name == "__pycache__":
+            continue
+        skill_md = entry / "SKILL.md"
+        if not skill_md.is_file():
+            continue
+        description = ""
+        try:
+            text = skill_md.read_text(encoding="utf-8")
+            match = FRONTMATTER_RE.match(text)
+            if match:
+                data = yaml.safe_load(match.group(1)) or {}
+                if isinstance(data, dict):
+                    description = str(data.get("description", "")).strip()
+        except OSError:
+            logger.warning("Failed to read built-in SKILL.md at %s", skill_md)
+        out.append({"name": entry.name, "description": description})
+    return out
 
 
 @dataclass(frozen=True, slots=True)
