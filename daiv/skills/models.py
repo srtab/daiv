@@ -32,3 +32,32 @@ class GlobalSkill(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+
+class SkillInvocation(TimeStampedModel):
+    """One row per skill invocation by the agent.
+
+    Persisted by ``SkillsMiddleware._skill_tool_generator`` after a skill is
+    resolved and its body downloaded — i.e. when the agent commits to running
+    the skill. Powers the admin counts and 30-day chart on the Skills pages.
+    """
+
+    class Source(models.TextChoices):
+        BUILTIN = "builtin", _("Built-in")
+        GLOBAL = "global", _("Custom global")
+        REPO = "repo", _("Per-repo")
+
+    name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=SKILL_NAME_RE)])
+    source = models.CharField(_("source"), max_length=16, choices=Source.choices)
+    repo_slug = models.CharField(_("repository"), max_length=255, db_index=True)
+    thread_id = models.UUIDField(_("thread id"), db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["name", "source"]),
+            models.Index(fields=["name", "source", "-created"]),
+            models.Index(fields=["-created"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.source}) @ {self.created:%Y-%m-%d %H:%M}"
