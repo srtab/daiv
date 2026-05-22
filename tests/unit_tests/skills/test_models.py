@@ -23,8 +23,8 @@ def test_skill_invocation_persists_and_defaults_timestamps():
     assert inv.created is not None
     assert inv.modified is not None
     assert inv.source == "builtin"
+    assert str(inv) == f"code-review (builtin) @ {inv.created:%Y-%m-%d %H:%M}"
 
 
-@pytest.mark.django_db
 def test_skill_invocation_source_choices():
     assert set(SkillInvocation.Source.values) == {"builtin", "global", "repo"}
