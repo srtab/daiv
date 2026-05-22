@@ -165,3 +165,29 @@ def test_detail_404_for_unknown_name(client, admin_user, storage):
     client.force_login(admin_user)
     resp = client.get(reverse("skills:detail", args=["nope"]))
     assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_download_serves_original_zip(client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    client.force_login(admin_user)
+
+    resp = client.get(reverse("skills:download", args=["demo"]))
+    assert resp.status_code == 200
+    assert resp["Content-Type"].startswith("application/zip")
+    assert "attachment" in resp["Content-Disposition"]
+    assert "demo.zip" in resp["Content-Disposition"]
+    body = b"".join(resp.streaming_content)
+    assert body == data
+
+
+@pytest.mark.django_db
+def test_download_404_when_zip_missing(client, admin_user, storage):
+    # Create a row but no zip on disk to simulate hand-edit drift
+    GlobalSkill.objects.create(
+        name="orphan", description="", uploaded_by=admin_user, size_bytes=1, file_count=1, checksum="x"
+    )
+    client.force_login(admin_user)
+    resp = client.get(reverse("skills:download", args=["orphan"]))
+    assert resp.status_code == 404

@@ -3,28 +3,18 @@ from __future__ import annotations
 import json
 import logging
 
-from django.http import Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import render
 from django.views import View
 from django.views.generic import TemplateView
 
 from accounts.mixins import AdminRequiredMixin
-from skills.constants import FRONTMATTER_RE
+from skills.constants import FRONTMATTER_RE, ZIPS_DIR
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill
 from skills.services import SkillStorage, list_builtins
 
 logger = logging.getLogger("daiv.skills")
-
-
-class _StubAdminView(AdminRequiredMixin, View):
-    """Placeholder until the real view is implemented in a later task."""
-
-    def get(self, request, *args, **kwargs):
-        return HttpResponse(status=501)
-
-    def post(self, request, *args, **kwargs):
-        return HttpResponse(status=501)
 
 
 class SkillListView(AdminRequiredMixin, TemplateView):
@@ -110,5 +100,17 @@ class SkillDeleteView(AdminRequiredMixin, View):
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"skill-deleted": {"name": skill.name}})})
 
 
-class SkillZipDownloadView(_StubAdminView):
-    pass
+class SkillZipDownloadView(AdminRequiredMixin, View):
+    http_method_names = ["get"]
+
+    def get(self, request, name):
+        try:
+            skill = GlobalSkill.objects.get(name=name)
+        except GlobalSkill.DoesNotExist as err:
+            raise Http404("skill not found") from err
+        path = SkillStorage().root / ZIPS_DIR / f"{skill.name}.zip"
+        if not path.is_file():
+            raise Http404("zip not found on disk")
+        return FileResponse(
+            path.open("rb"), as_attachment=True, filename=f"{skill.name}.zip", content_type="application/zip"
+        )
