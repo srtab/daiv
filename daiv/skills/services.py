@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import io
 import logging
@@ -7,12 +8,13 @@ import shutil
 import tempfile
 import time
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import BinaryIO
 
-from django.db import transaction
+from django.db import DatabaseError, transaction
 
 import yaml
 
@@ -38,6 +40,14 @@ from skills.constants import (
 from skills.models import GlobalSkill
 
 logger = logging.getLogger("daiv.skills")
+
+
+def _log_rmtree_error(func, path, exc: BaseException) -> None:
+    # shutil.rmtree onexc callback: log instead of raising so cleanup is best-effort but visible.
+    # The "not present" case is normal (e.g. cache never populated) — don't warn on it.
+    if isinstance(exc, FileNotFoundError):
+        return
+    logger.warning("rmtree failed in %s on %s", func.__name__, path, exc_info=exc)
 
 
 class SkillValidationError(Exception):
@@ -192,6 +202,8 @@ class SkillPackage:
                 raise SkillValidationError(
                     f"path contains forbidden segment '{part}': {name}", code="forbidden_path_part"
                 )
+            if part.startswith("."):
+                raise SkillValidationError(f"path contains hidden segment '{part}': {name}", code="hidden_path_part")
 
         leaf = parts[-1]
         suffix = ""
@@ -277,65 +289,90 @@ class SkillStorage:
         (self.root / TRASH_ZIPS_DIR).mkdir(parents=True, exist_ok=True)
         (self.root / ZIPS_DIR).mkdir(exist_ok=True)
 
+    @contextmanager
+    def _lock(self, name: str):
+        # Per-skill exclusive lock under .tmp so concurrent replace/delete for the
+        # same name can't race on the FS swap. flock is released when the fd
+        # closes; the .lock file itself can persist (zero-byte).
+        lock_path = self.root / TMP_DIR / f"{name}.lock"
+        with lock_path.open("a") as lock_f:
+            fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
+
     def replace(self, pkg: SkillPackage, *, uploaded_by) -> GlobalSkill:
         if pkg.name in BUILTIN_SKILL_NAMES:
             raise SkillStorageError(f"cannot upload skill '{pkg.name}': name conflicts with a built-in skill")
         staged = self._stage_extract(pkg)
         try:
-            trashed_tree, trashed_zip = self._swap_in(pkg, staged)
-            try:
-                with transaction.atomic():
-                    skill, _created = GlobalSkill.objects.update_or_create(
-                        name=pkg.name,
-                        defaults={
-                            "description": pkg.description,
-                            "uploaded_by": uploaded_by,
-                            "size_bytes": pkg.unpacked_size_bytes,
-                            "file_count": pkg.file_count,
-                            "checksum": pkg.checksum,
-                        },
-                    )
-            except Exception:
-                logger.exception("DB swap failed for skill %r; rolling back filesystem", pkg.name)
-                self._rollback_swap(pkg, trashed_tree, trashed_zip)
-                raise
+            with self._lock(pkg.name):
+                try:
+                    trashed_tree, trashed_zip = self._swap_in(pkg, staged)
+                    try:
+                        with transaction.atomic():
+                            skill, _created = GlobalSkill.objects.update_or_create(
+                                name=pkg.name,
+                                defaults={
+                                    "description": pkg.description,
+                                    "uploaded_by": uploaded_by,
+                                    "size_bytes": pkg.unpacked_size_bytes,
+                                    "file_count": pkg.file_count,
+                                    "checksum": pkg.checksum,
+                                },
+                            )
+                    except DatabaseError, OSError:
+                        logger.exception("DB swap failed for skill %r; rolling back filesystem", pkg.name)
+                        self._rollback_swap(pkg, trashed_tree, trashed_zip)
+                        raise
+                finally:
+                    # Cache + trash housekeeping must run under the same lock as the swap so a
+                    # concurrent replace/delete can't observe a stale cache for this name.
+                    self._invalidate_cache(pkg.name)
+                    self.sweep_trash()
         finally:
             shutil.rmtree(staged, ignore_errors=True)
-            self._invalidate_cache(pkg.name)
-            self.sweep_trash()
         return skill
 
     def delete(self, name: str) -> None:
         if name in BUILTIN_SKILL_NAMES:
             raise SkillStorageError(f"cannot delete built-in skill '{name}'")
-        old_tree = self.root / name
-        old_zip = self.root / ZIPS_DIR / f"{name}.zip"
-        ts = str(time.time_ns())
-        trashed_tree = self.root / TRASH_DIR / f"{name}.{ts}"
-        trashed_zip = self.root / TRASH_ZIPS_DIR / f"{name}.{ts}.zip"
+        with self._lock(name):
+            old_tree = self.root / name
+            old_zip = self.root / ZIPS_DIR / f"{name}.zip"
+            ts = str(time.time_ns())
+            trashed_tree = self.root / TRASH_DIR / f"{name}.{ts}"
+            trashed_zip = self.root / TRASH_ZIPS_DIR / f"{name}.{ts}.zip"
 
-        moved_tree = False
-        moved_zip = False
-        if old_tree.exists():
-            old_tree.replace(trashed_tree)
-            moved_tree = True
-        if old_zip.exists():
-            old_zip.replace(trashed_zip)
-            moved_zip = True
+            moved_tree = False
+            moved_zip = False
+            if old_tree.exists():
+                old_tree.replace(trashed_tree)
+                moved_tree = True
+            if old_zip.exists():
+                old_zip.replace(trashed_zip)
+                moved_zip = True
 
-        try:
-            with transaction.atomic():
-                GlobalSkill.objects.filter(name=name).delete()
-        except Exception:
-            logger.exception("DB delete failed for skill %r; restoring filesystem", name)
-            if moved_tree and trashed_tree.exists():
-                trashed_tree.replace(old_tree)
-            if moved_zip and trashed_zip.exists():
-                trashed_zip.replace(old_zip)
-            raise
-        finally:
-            self._invalidate_cache(name)
-            self.sweep_trash()
+            try:
+                with transaction.atomic():
+                    GlobalSkill.objects.filter(name=name).delete()
+            except DatabaseError, OSError:
+                logger.exception("DB delete failed for skill %r; restoring filesystem", name)
+                if moved_tree and trashed_tree.exists():
+                    try:
+                        trashed_tree.replace(old_tree)
+                    except OSError:
+                        logger.exception("Failed to restore old tree during delete rollback for %r", name)
+                if moved_zip and trashed_zip.exists():
+                    try:
+                        trashed_zip.replace(old_zip)
+                    except OSError:
+                        logger.exception("Failed to restore old zip during delete rollback for %r", name)
+                raise
+            finally:
+                self._invalidate_cache(name)
+                self.sweep_trash()
 
     def _stage_extract(self, pkg: SkillPackage) -> Path:
         staged_parent = self.root / TMP_DIR
@@ -375,7 +412,7 @@ class SkillStorage:
             tmp_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip.tmp"
             tmp_zip.write_bytes(pkg.zip_bytes)
             tmp_zip.replace(self.root / ZIPS_DIR / f"{pkg.name}.zip")
-        except Exception:
+        except OSError:
             self._rollback_swap(pkg, trashed_tree, trashed_zip)
             raise
 
@@ -408,15 +445,14 @@ class SkillStorage:
                 logger.exception("Failed to restore old zip during rollback for %r", pkg.name)
 
     def sweep_trash(self) -> None:
-        """Remove .trash entries older than ``TRASH_TTL_SECONDS``. Inline; runs
-        at the end of each replace/delete."""
+        """Remove .trash entries older than ``TRASH_TTL_SECONDS``."""
         cutoff = time.time() - TRASH_TTL_SECONDS
         for parent in (self.root / TRASH_DIR, self.root / TRASH_ZIPS_DIR):
             if not parent.is_dir():
                 continue
             for entry in parent.iterdir():
-                # Skip the nested .zips dir under .trash
-                if entry == self.root / TRASH_ZIPS_DIR:
+                # Skip dotfiles (e.g. the nested .zips dir under .trash) — they belong to the storage layer.
+                if entry.name.startswith("."):
                     continue
                 try:
                     mtime = entry.stat().st_mtime
@@ -424,7 +460,7 @@ class SkillStorage:
                     continue
                 if mtime < cutoff:
                     if entry.is_dir():
-                        shutil.rmtree(entry, ignore_errors=True)
+                        shutil.rmtree(entry, onexc=_log_rmtree_error)
                     else:
                         try:
                             entry.unlink()
@@ -432,10 +468,5 @@ class SkillStorage:
                             logger.exception("Failed to sweep trash entry: %s", entry)
 
     def _invalidate_cache(self, name: str) -> None:
-        # Best-effort: the agent's per-turn check is "file exists on disk in
-        # SKILLS_CACHE_PATH → skip upload". Wiping the per-skill subdir means
-        # the next turn re-uploads.
-        try:
-            shutil.rmtree(SKILLS_CACHE_PATH / name, ignore_errors=True)
-        except OSError:
-            logger.exception("Failed to invalidate skills cache for %r", name)
+        # Drop the per-skill cache dir so the next turn re-uploads.
+        shutil.rmtree(SKILLS_CACHE_PATH / name, onexc=_log_rmtree_error)

@@ -5,6 +5,8 @@ import os
 import time
 from unittest.mock import patch
 
+from django.db import DatabaseError
+
 import pytest
 from skills.constants import TRASH_TTL_SECONDS
 from skills.models import GlobalSkill
@@ -109,10 +111,10 @@ def test_replace_rolls_back_on_db_error(storage, admin_user, build_skill_zip):
     data_v2 = build_skill_zip(skill_name="demo", description="v2")
     pkg_v2 = SkillPackage.inspect(io.BytesIO(data_v2))
 
-    boom = RuntimeError("simulated db failure")
+    boom = DatabaseError("simulated db failure")
     with (
         patch("skills.services.GlobalSkill.objects.update_or_create", side_effect=boom),
-        pytest.raises(RuntimeError, match="simulated"),
+        pytest.raises(DatabaseError, match="simulated"),
     ):
         storage.replace(pkg_v2, uploaded_by=admin_user)
 
@@ -182,6 +184,106 @@ def test_replace_refuses_builtin_name(storage, admin_user, build_skill_zip, monk
 
 
 @pytest.mark.django_db
+def test_replace_rolls_back_on_mid_swap_rename_error(storage, admin_user, build_skill_zip):
+    """If `staged_tree.replace(new_tree)` itself fails (e.g. EXDEV/EACCES), the
+    previous tree and zip must be restored, and the new tree must not appear
+    live under root/<name>."""
+    data_v1 = build_skill_zip(skill_name="demo", description="v1")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)
+
+    data_v2 = build_skill_zip(skill_name="demo", description="v2")
+    pkg_v2 = SkillPackage.inspect(io.BytesIO(data_v2))
+
+    real_replace = type(storage.root).replace
+    triggered = []
+
+    def fail_for_new_tree(self, target, *args, **kwargs):
+        # Only fail the staged_tree → new_tree rename (target is root/demo, source is under .tmp/).
+        if str(target) == str(storage.root / "demo") and ".tmp" in str(self):
+            triggered.append((self, target))
+            raise OSError("simulated rename failure")
+        return real_replace(self, target, *args, **kwargs)
+
+    with patch.object(type(storage.root), "replace", fail_for_new_tree), pytest.raises(OSError, match="simulated"):
+        storage.replace(pkg_v2, uploaded_by=admin_user)
+
+    assert triggered, "patched replace was never called for the staged tree → new tree rename"
+
+    base = storage.root
+    # Old tree and old zip restored.
+    assert b"v1" in (base / "demo" / "SKILL.md").read_bytes()
+    assert (base / ".zips" / "demo.zip").read_bytes() == data_v1
+    # No quarantine artifact lingering at the live location.
+    assert (base / "demo").is_dir()
+    # DB row unchanged.
+    assert GlobalSkill.objects.get(name="demo").description == "v1"
+
+
+@pytest.mark.django_db
+def test_delete_rolls_back_on_db_error(storage, admin_user, build_skill_zip):
+    """A DB failure mid-delete must restore the tree and zip to their canonical
+    locations and leave the row intact."""
+    data = build_skill_zip(skill_name="demo", description="v1")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    base = storage.root
+    assert (base / "demo" / "SKILL.md").exists()
+    assert (base / ".zips" / "demo.zip").exists()
+
+    boom = DatabaseError("simulated db failure")
+    with (
+        patch("django.db.models.query.QuerySet.delete", side_effect=boom),
+        pytest.raises(DatabaseError, match="simulated"),
+    ):
+        storage.delete("demo")
+
+    # FS restored.
+    assert b"v1" in (base / "demo" / "SKILL.md").read_bytes()
+    assert (base / ".zips" / "demo.zip").read_bytes() == data
+    # Row still present.
+    assert GlobalSkill.objects.filter(name="demo").exists()
+
+
+@pytest.mark.django_db
+def test_delete_invalidates_skill_cache(storage, admin_user, build_skill_zip):
+    import skills.services as svc_mod
+
+    cache_path = svc_mod.SKILLS_CACHE_PATH
+
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    stale_dir = cache_path / "demo"
+    stale_dir.mkdir(parents=True, exist_ok=True)
+    (stale_dir / "SKILL.md").write_bytes(b"stale")
+    assert (cache_path / "demo" / "SKILL.md").exists()
+
+    storage.delete("demo")
+
+    assert not (cache_path / "demo").exists()
+
+
+@pytest.mark.django_db
+def test_trash_sweep_keeps_fresh_entries(storage):
+    base = storage.root
+    # Old: must be swept.
+    old_dir = base / ".trash" / "ancient.1"
+    old_dir.mkdir()
+    (old_dir / "x.txt").write_text("x")
+    ancient = time.time() - (TRASH_TTL_SECONDS + 60)
+    os.utime(old_dir, (ancient, ancient))
+    # Fresh: must survive.
+    fresh_dir = base / ".trash" / "fresh.1"
+    fresh_dir.mkdir()
+    (fresh_dir / "y.txt").write_text("y")
+
+    storage.sweep_trash()
+
+    assert not old_dir.exists()
+    assert fresh_dir.exists()
+
+
+@pytest.mark.django_db
 def test_replace_invalidates_skill_cache(storage, admin_user, tmp_path, build_skill_zip):
     import skills.services as svc_mod
 
@@ -198,3 +300,33 @@ def test_replace_invalidates_skill_cache(storage, admin_user, tmp_path, build_sk
 
     # Cache wiped for this skill
     assert not (cache_path / "demo").exists()
+
+
+@pytest.mark.django_db
+def test_replace_invalidates_skill_cache_on_rollback(storage, admin_user, build_skill_zip):
+    """A failed replace must still wipe the cache so the next turn doesn't see
+    a stale entry for the restored old tree."""
+    import skills.services as svc_mod
+
+    cache_path = svc_mod.SKILLS_CACHE_PATH
+    data_v1 = build_skill_zip(skill_name="demo", description="v1")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)
+
+    stale_dir = cache_path / "demo"
+    stale_dir.mkdir(parents=True, exist_ok=True)
+    (stale_dir / "SKILL.md").write_bytes(b"stale")
+
+    data_v2 = build_skill_zip(skill_name="demo", description="v2")
+    pkg_v2 = SkillPackage.inspect(io.BytesIO(data_v2))
+
+    boom = DatabaseError("simulated db failure")
+    with (
+        patch("skills.services.GlobalSkill.objects.update_or_create", side_effect=boom),
+        pytest.raises(DatabaseError, match="simulated"),
+    ):
+        storage.replace(pkg_v2, uploaded_by=admin_user)
+
+    # Cache wiped even though the swap rolled back, so the next read of the restored v1 tree is fresh.
+    assert not (cache_path / "demo").exists()
+    # v1 still live.
+    assert b"v1" in (storage.root / "demo" / "SKILL.md").read_bytes()

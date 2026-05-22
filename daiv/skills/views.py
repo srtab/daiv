@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import stat
 
 from django.contrib import messages
 from django.http import FileResponse, Http404
@@ -11,7 +12,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from accounts.mixins import AdminRequiredMixin
-from skills.constants import FRONTMATTER_RE, ZIPS_DIR
+from skills.constants import FRONTMATTER_RE, MAX_FILES, ZIPS_DIR
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill
 from skills.services import SkillStorage, SkillStorageError, list_builtins
@@ -102,10 +103,17 @@ class SkillDetailView(AdminRequiredMixin, View):
     @staticmethod
     def _list_tree(root) -> list[dict[str, object]]:
         entries: list[dict[str, object]] = []
+        # lstat() so symlinks dropped on disk out-of-band aren't followed; MAX_FILES matches the upload cap.
         for path in sorted(root.rglob("*")):
-            if not path.is_file():
+            if len(entries) >= MAX_FILES:
+                break
+            try:
+                st = path.lstat()
+            except FileNotFoundError:
                 continue
-            entries.append({"path": str(path.relative_to(root)), "size": path.stat().st_size})
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            entries.append({"path": str(path.relative_to(root)), "size": st.st_size})
         return entries
 
 
@@ -129,13 +137,21 @@ class SkillDeleteView(AdminRequiredMixin, View):
         skill = get_object_or_404(GlobalSkill, name=name)
         try:
             SkillStorage().delete(skill.name)
-        except (SkillStorageError, OSError) as err:
+        except SkillStorageError as err:
             logger.exception("Failed to delete skill %r", skill.name)
-            message = str(err) if isinstance(err, SkillStorageError) else _("Could not delete the skill.")
             return render(
                 request,
                 self.template_name,
-                {"object": skill, "error": message, "breadcrumbs": self._breadcrumbs(skill)},
+                {"object": skill, "error": str(err), "breadcrumbs": self._breadcrumbs(skill)},
+                status=409,
+            )
+        except OSError:
+            logger.exception("Failed to delete skill %r", skill.name)
+            return render(
+                request,
+                self.template_name,
+                {"object": skill, "error": _("Could not delete the skill."), "breadcrumbs": self._breadcrumbs(skill)},
+                status=500,
             )
         messages.success(request, _("Skill '%(name)s' deleted.") % {"name": skill.name})
         return redirect("skills:list")

@@ -157,6 +157,22 @@ def test_forbidden_path_part_rejected():
     assert exc.value.code == "forbidden_path_part"
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "demo/.env/secrets.json",  # hidden dir as middle segment
+        "demo/.aws/credentials.txt",
+        "demo/.ssh/id_rsa.txt",
+        "demo/.dotfile.md",  # hidden leaf
+    ],
+)
+def test_hidden_path_segment_rejected(name):
+    data = _raw_zip([_valid_skill_md(), (name, b"x")])
+    with pytest.raises(SkillValidationError) as exc:
+        SkillPackage.inspect(io.BytesIO(data))
+    assert exc.value.code == "hidden_path_part"
+
+
 def test_path_too_deep_rejected():
     deep = "demo/" + "/".join(f"d{i}" for i in range(9)) + "/x.md"
     data = _raw_zip([_valid_skill_md(), (deep, b"x")])

@@ -294,7 +294,7 @@ def test_delete_post_surfaces_storage_oserror(client, admin_user, storage, build
     client.force_login(admin_user)
     with patch("skills.views.SkillStorage.delete", side_effect=OSError("disk failure")):
         resp = client.post(reverse("skills:delete", args=["demo"]))
-    assert resp.status_code == 200
+    assert resp.status_code == 500
     assert b"Could not delete the skill" in resp.content
     # Row still present because delete failed.
     assert GlobalSkill.objects.filter(name="demo").exists()
