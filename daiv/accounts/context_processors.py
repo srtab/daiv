@@ -30,6 +30,7 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "api_keys": {"api_keys", "api_key_create", "api_key_revoke"},
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
+    "skills": {"skills:list", "skills:upload", "skills:detail", "skills:delete", "skills:download"},
     "sandbox_envs": {
         "sandbox_envs:list",
         "sandbox_envs:create",

@@ -1,0 +1,42 @@
+{% load i18n %}
+<div id="custom-skills" class="mt-3"
+     hx-get="{% url 'skills:list' %}"
+     hx-trigger="skill-uploaded from:body, skill-deleted from:body"
+     hx-select="#custom-skills"
+     hx-target="this"
+     hx-swap="outerHTML">
+    {% if custom_skills %}
+    <div class="rounded-2xl border border-white/[0.06] divide-y divide-white/[0.06]">
+        {% for skill in custom_skills %}
+        <div class="flex items-center justify-between px-4 py-3">
+            <div class="flex-1">
+                <a href="{% url 'skills:detail' skill.name %}" class="font-semibold hover:underline">{{ skill.name }}</a>
+                <p class="text-sm text-gray-400">{{ skill.description }}</p>
+                <p class="mt-1 text-xs text-gray-500">
+                    {% blocktranslate with by=skill.uploaded_by.username|default:_("(unknown)") at=skill.created|date:"Y-m-d H:i" size=skill.size_bytes|filesizeformat %}
+                    Uploaded by {{ by }} on {{ at }} · {{ size }}
+                    {% endblocktranslate %}
+                </p>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="{% url 'skills:download' skill.name %}"
+                   class="text-sm text-gray-300 hover:text-white">
+                    {% translate "Download zip" %}
+                </a>
+                <button type="button"
+                        class="text-sm text-red-300 hover:text-red-200"
+                        hx-get="{% url 'skills:delete' skill.name %}"
+                        hx-target="#skills-modal-host"
+                        hx-swap="innerHTML">
+                    {% translate "Delete" %}
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
+        <p class="text-[15px] text-gray-400">{% translate "No custom skills uploaded yet." %}</p>
+    </div>
+    {% endif %}
+</div>

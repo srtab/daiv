@@ -1,0 +1,40 @@
+{% extends "base_app.html" %}
+{% load i18n icon_tags %}
+
+{% block title %}{% translate "Global skills" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Global skills" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Skills uploaded as zip archives are available to every agent run." %}
+        </p>
+    </div>
+    <button type="button"
+            class="btn-primary"
+            hx-get="{% url 'skills:upload' %}"
+            hx-target="#skills-modal-host"
+            hx-swap="innerHTML">
+        {% translate "Upload skill" %}
+    </button>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "Custom skills" %}</h2>
+    {% include "skills/_custom_skills.html" %}
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Built-in skills" %}</h2>
+    {% include "skills/_builtin_skills.html" %}
+</section>
+
+<div id="skills-modal-host"
+     hx-get="{% url 'skills:list' %}"
+     hx-trigger="skill-uploaded from:body, skill-deleted from:body"
+     hx-select="#skills-modal-host"
+     hx-swap="outerHTML"></div>
+{% endblock app_content %}
