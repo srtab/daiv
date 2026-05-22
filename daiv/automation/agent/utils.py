@@ -211,27 +211,39 @@ def extract_text_content(content: str | list) -> str:
     return str(content)
 
 
-def get_daiv_agent_kwargs(*, model_config: AgentModelConfig, use_max: bool = False) -> dict[str, Any]:
+def get_daiv_agent_kwargs(
+    *,
+    model_config: AgentModelConfig,
+    agent_model: str | None = None,
+    agent_thinking_level: str | None = None,
+    use_max: bool = False,
+) -> dict[str, Any]:
+    """Resolve model + thinking config for an agent run.
+
+    Precedence (highest to lowest):
+
+    1. ``agent_model`` (user override) → primary model is the override; the repo's
+       configured model is prepended to the fallback chain so the run degrades to
+       the repo default on provider outage. Thinking comes from ``agent_thinking_level``
+       if set, else from the repo config.
+    2. ``use_max`` (webhook-only, ``daiv-max`` label) → ``site_settings.agent_max_*``.
+       ``agent_thinking_level`` is ignored on this branch.
+    3. Auto → repo config; ``agent_thinking_level`` may still override effort.
     """
-    Get DAIV agent configuration based on models configuration and use max models configuration.
-
-    Args:
-        model_config (DAIVModelConfig): The models configuration.
-        use_max (bool): Whether to use the max models configuration.
-
-    Returns:
-        dict[str, Any]: Configuration kwargs for DAIVAgent.
-    """
-    model = model_config.model
-    fallback_models = [model_config.fallback_model]
-    thinking_level = model_config.thinking_level
-
+    if agent_model:
+        return {
+            "model_names": [agent_model, model_config.model, model_config.fallback_model],
+            "thinking_level": agent_thinking_level or model_config.thinking_level,
+        }
     if use_max:
-        model = site_settings.agent_max_model_name
-        fallback_models = [model_config.model, model_config.fallback_model]
-        thinking_level = site_settings.agent_max_thinking_level
-
-    return {"model_names": [model] + fallback_models, "thinking_level": thinking_level}
+        return {
+            "model_names": [site_settings.agent_max_model_name, model_config.model, model_config.fallback_model],
+            "thinking_level": site_settings.agent_max_thinking_level,
+        }
+    return {
+        "model_names": [model_config.model, model_config.fallback_model],
+        "thinking_level": agent_thinking_level or model_config.thinking_level,
+    }
 
 
 def build_langsmith_config(

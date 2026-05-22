@@ -1,6 +1,8 @@
 import base64
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from automation.agent.base import ThinkingLevel
 from automation.agent.schemas import Image
 from automation.agent.utils import (
@@ -11,6 +13,7 @@ from automation.agent.utils import (
 )
 from codebase.base import GitPlatform
 from codebase.repo_config import AgentModelConfig, Models
+from core.models import ThinkingLevelChoices
 from core.site_settings import site_settings
 
 
@@ -170,6 +173,65 @@ class TestGetDaivAgentKwargs:
         assert kwargs["model_names"][0] == "openrouter:anthropic/claude-haiku-4.5"
         # fallback_model should come from env vars
         assert kwargs["model_names"][1] == site_settings.agent_fallback_model_name
+
+
+@pytest.fixture
+def base_config():
+    return AgentModelConfig(
+        model="openrouter:anthropic/claude-sonnet-4.6",
+        fallback_model="openrouter:openai/gpt-5.4",
+        thinking_level=ThinkingLevelChoices.MEDIUM,
+    )
+
+
+def test_auto_branch_uses_repo_config(base_config):
+    out = get_daiv_agent_kwargs(model_config=base_config)
+    assert out["model_names"] == ["openrouter:anthropic/claude-sonnet-4.6", "openrouter:openai/gpt-5.4"]
+    assert out["thinking_level"] == ThinkingLevelChoices.MEDIUM
+
+
+def test_auto_branch_with_explicit_thinking_only(base_config):
+    out = get_daiv_agent_kwargs(model_config=base_config, agent_thinking_level=ThinkingLevelChoices.LOW)
+    assert out["model_names"][0] == base_config.model
+    assert out["thinking_level"] == ThinkingLevelChoices.LOW
+
+
+def test_explicit_model_wins(base_config):
+    out = get_daiv_agent_kwargs(
+        model_config=base_config,
+        agent_model="openrouter:anthropic/claude-opus-4.6",
+        agent_thinking_level=ThinkingLevelChoices.HIGH,
+    )
+    assert out["model_names"][0] == "openrouter:anthropic/claude-opus-4.6"
+    # repo defaults prepend to the fallback chain when an override is used
+    assert out["model_names"][1:] == [base_config.model, base_config.fallback_model]
+    assert out["thinking_level"] == ThinkingLevelChoices.HIGH
+
+
+def test_explicit_model_without_thinking_inherits(base_config):
+    out = get_daiv_agent_kwargs(model_config=base_config, agent_model="openrouter:anthropic/claude-opus-4.6")
+    assert out["thinking_level"] == base_config.thinking_level
+
+
+@patch("automation.agent.utils.site_settings")
+def test_use_max_branch_ignores_user_thinking(mock_settings, base_config):
+    mock_settings.agent_max_model_name = "openrouter:anthropic/claude-opus-4.6"
+    mock_settings.agent_max_thinking_level = ThinkingLevelChoices.HIGH
+    out = get_daiv_agent_kwargs(
+        model_config=base_config,
+        use_max=True,
+        agent_thinking_level=ThinkingLevelChoices.LOW,  # ignored
+    )
+    assert out["model_names"][0] == "openrouter:anthropic/claude-opus-4.6"
+    assert out["thinking_level"] == ThinkingLevelChoices.HIGH
+
+
+def test_explicit_model_supersedes_use_max(base_config):
+    """Defense in depth: if both arrive on the same call, model wins."""
+    out = get_daiv_agent_kwargs(
+        model_config=base_config, agent_model="openrouter:anthropic/claude-haiku-4.5", use_max=True
+    )
+    assert out["model_names"][0] == "openrouter:anthropic/claude-haiku-4.5"
 
 
 # Tests for extract_images_from_text
