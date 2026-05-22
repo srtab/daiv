@@ -1,0 +1,38 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{{ skill.name }} — {% translate "Skills" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-4xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up">
+    <a href="{% url 'skills:list' %}" class="text-sm text-gray-400 hover:text-gray-200">
+        ← {% translate "Back to skills" %}
+    </a>
+    <h1 class="mt-2 text-2xl font-bold tracking-tight">{{ skill.name }}</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">{{ skill.description }}</p>
+    <p class="mt-2 text-xs text-gray-500">
+        {% blocktranslate with by=skill.uploaded_by.username|default:_("(unknown)") at=skill.created|date:"Y-m-d H:i" size=skill.size_bytes|filesizeformat %}
+        Uploaded by {{ by }} on {{ at }} · {{ size }}
+        {% endblocktranslate %}
+    </p>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "SKILL.md body" %}</h2>
+    <pre class="mt-3 whitespace-pre-wrap rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 text-sm text-gray-300">{{ body }}</pre>
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Files" %}</h2>
+    <ul class="mt-3 divide-y divide-white/[0.06] rounded-2xl border border-white/[0.06]">
+        {% for entry in tree %}
+        <li class="flex items-center justify-between px-4 py-2 text-sm">
+            <span class="font-mono text-gray-300">{{ entry.path }}</span>
+            <span class="text-xs text-gray-500">{{ entry.size|filesizeformat }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock app_content %}

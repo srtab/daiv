@@ -9,6 +9,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from accounts.mixins import AdminRequiredMixin
+from skills.constants import FRONTMATTER_RE
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill
 from skills.services import SkillStorage, list_builtins
@@ -63,8 +64,31 @@ class SkillUploadView(AdminRequiredMixin, View):
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"skill-uploaded": {"name": package.name}})})
 
 
-class SkillDetailView(_StubAdminView):
-    pass
+class SkillDetailView(AdminRequiredMixin, View):
+    http_method_names = ["get"]
+
+    def get(self, request, name):
+        skill = self._get_or_404(name)
+        root = SkillStorage().root / skill.name
+        skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
+        body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
+        tree = self._list_tree(root)
+        return render(request, "skills/detail.html", {"skill": skill, "body": body, "tree": tree})
+
+    def _get_or_404(self, name: str) -> GlobalSkill:
+        try:
+            return GlobalSkill.objects.get(name=name)
+        except GlobalSkill.DoesNotExist as err:
+            raise Http404("skill not found") from err
+
+    @staticmethod
+    def _list_tree(root) -> list[dict[str, object]]:
+        entries: list[dict[str, object]] = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            entries.append({"path": str(path.relative_to(root)), "size": path.stat().st_size})
+        return entries
 
 
 class SkillDeleteView(AdminRequiredMixin, View):

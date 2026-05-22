@@ -139,3 +139,29 @@ def test_delete_post_member_denied(client, member_user, storage, admin_user, bui
     client.force_login(member_user)
     resp = client.post(reverse("skills:delete", args=["demo"]))
     assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_detail_shows_skill_body_and_tree(client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(
+        skill_name="demo",
+        description="A demo skill",
+        skill_md_extra_body="Hello body.",
+        extra_files={"scripts/foo.py": b"print('hi')\n"},
+    )
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    client.force_login(admin_user)
+
+    resp = client.get(reverse("skills:detail", args=["demo"]))
+    assert resp.status_code == 200
+    assert b"demo" in resp.content
+    assert b"A demo skill" in resp.content
+    assert b"Hello body" in resp.content
+    assert b"scripts/foo.py" in resp.content
+
+
+@pytest.mark.django_db
+def test_detail_404_for_unknown_name(client, admin_user, storage):
+    client.force_login(admin_user)
+    resp = client.get(reverse("skills:detail", args=["nope"]))
+    assert resp.status_code == 404
