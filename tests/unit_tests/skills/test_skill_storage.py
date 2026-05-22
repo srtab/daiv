@@ -37,3 +37,29 @@ def test_replace_writes_unpacked_tree_zip_and_row(storage, admin_user, tmp_path,
     assert skill.file_count == 2
     assert skill.size_bytes == pkg.unpacked_size_bytes
     assert skill.checksum == pkg.checksum
+
+
+@pytest.mark.django_db
+def test_replace_overwrites_and_moves_old_to_trash(storage, admin_user, build_skill_zip):
+    data_v1 = build_skill_zip(skill_name="demo", description="v1")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data_v1)), uploaded_by=admin_user)
+
+    data_v2 = build_skill_zip(skill_name="demo", description="v2", extra_files={"scripts/foo.py": b"new\n"})
+    storage.replace(SkillPackage.inspect(io.BytesIO(data_v2)), uploaded_by=admin_user)
+
+    base = storage.root
+    # New tree present, new zip present
+    assert b"v2" in (base / "demo" / "SKILL.md").read_bytes()
+    assert (base / "demo" / "scripts" / "foo.py").exists()
+    assert (base / ".zips" / "demo.zip").read_bytes() == data_v2
+
+    # Old tree moved to .trash, old zip moved to .trash/.zips
+    trashed_trees = list((base / ".trash").iterdir())
+    trashed_zips = list((base / ".trash" / ".zips").iterdir())
+    # Both lists contain at least one entry whose name starts with "demo."
+    assert any(p.is_dir() and p.name.startswith("demo.") for p in trashed_trees)
+    assert any(p.suffix == ".zip" and p.name.startswith("demo.") for p in trashed_zips)
+
+    # DB row updated, not duplicated
+    assert GlobalSkill.objects.filter(name="demo").count() == 1
+    assert GlobalSkill.objects.get(name="demo").description == "v2"

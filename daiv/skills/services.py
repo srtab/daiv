@@ -5,6 +5,7 @@ import io
 import logging
 import shutil
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -262,12 +263,32 @@ class SkillStorage:
         staged_tree = staged / pkg.name
         if not staged_tree.is_dir():
             raise SkillStorageError(f"staged extraction did not produce '{pkg.name}/' top-level dir")
-        Path(staged_tree).replace(new_tree)
-        new_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip"
-        tmp_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip.tmp"
-        tmp_zip.write_bytes(pkg.zip_bytes)
-        Path(tmp_zip).replace(new_zip)
-        shutil.rmtree(staged, ignore_errors=True)
+
+        ts = str(int(time.time() * 1000))
+        old_tree_target = self.root / TRASH_DIR / f"{pkg.name}.{ts}"
+        old_zip_target = self.root / TRASH_ZIPS_DIR / f"{pkg.name}.{ts}.zip"
+        old_tree = self.root / pkg.name
+        old_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip"
+
+        if old_tree.exists():
+            old_tree.replace(old_tree_target)
+        if old_zip.exists():
+            old_zip.replace(old_zip_target)
+
+        try:
+            staged_tree.replace(new_tree)
+            tmp_zip = self.root / ZIPS_DIR / f"{pkg.name}.zip.tmp"
+            tmp_zip.write_bytes(pkg.zip_bytes)
+            tmp_zip.replace(self.root / ZIPS_DIR / f"{pkg.name}.zip")
+        except Exception:
+            # Best-effort rollback: restore old tree and zip from .trash
+            if old_tree_target.exists():
+                old_tree_target.replace(old_tree)
+            if old_zip_target.exists():
+                old_zip_target.replace(old_zip)
+            raise
+        finally:
+            shutil.rmtree(staged, ignore_errors=True)
 
     def _invalidate_cache(self, name: str) -> None:
         # Best-effort: the agent's per-turn check is "file exists on disk in
