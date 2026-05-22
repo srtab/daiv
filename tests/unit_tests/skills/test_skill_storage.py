@@ -133,3 +133,22 @@ def test_delete_refuses_builtin_name(storage, monkeypatch):
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan", "init"}))
     with pytest.raises(SkillStorageError, match="built-in"):
         storage.delete("plan")
+
+
+@pytest.mark.django_db
+def test_replace_invalidates_skill_cache(storage, admin_user, tmp_path, build_skill_zip):
+    import skills.services as svc_mod
+
+    cache_path = svc_mod.SKILLS_CACHE_PATH
+
+    # Seed a stale cache entry for the skill we're about to upload
+    stale_dir = cache_path / "demo"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "SKILL.md").write_bytes(b"stale")
+    assert (cache_path / "demo" / "SKILL.md").exists()
+
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    # Cache wiped for this skill
+    assert not (cache_path / "demo").exists()
