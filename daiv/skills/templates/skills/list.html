@@ -1,0 +1,28 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Skills" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Skills" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "Skills uploaded as zip archives are available to every agent run." %}
+        </p>
+    </div>
+    <a href="{% url 'skills:upload' %}" class="btn-primary">{% translate "Upload skill" %}</a>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "Custom skills" %}</h2>
+    {% include "skills/_custom_skills.html" %}
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Built-in skills" %}</h2>
+    {% include "skills/_builtin_skills.html" %}
+</section>
+{% endblock app_content %}

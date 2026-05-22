@@ -1050,3 +1050,39 @@ class TestCustomGlobalSkills:
         # Error must contain both the failing dest path and the underlying backend error.
         assert "skill-one/SKILL.md" in str(exc_info.value)
         assert "storage backend exploded" in str(exc_info.value)
+
+    def test_collect_skill_files_skips_dot_prefixed_storage_subdirs(self, tmp_path: Path):
+        """Storage layer subdirs (.trash, .tmp, .zips) must not be walked as if they were skills."""
+        from pathlib import Path as _Path
+
+        custom_global = tmp_path / "custom_skills"
+        (custom_global / "demo").mkdir(parents=True)
+        (custom_global / "demo" / "SKILL.md").write_text(_make_skill_md(name="demo", description="real skill"))
+
+        # Storage subdirs that should be ignored.
+        (custom_global / ".trash" / "demo.123").mkdir(parents=True)
+        (custom_global / ".trash" / "demo.123" / "SKILL.md").write_text(
+            _make_skill_md(name="demo", description="trashed copy")
+        )
+        (custom_global / ".zips").mkdir()
+        (custom_global / ".zips" / "demo.zip").write_bytes(b"PK\x03\x04")
+        (custom_global / ".tmp").mkdir()
+        (custom_global / ".tmp" / "leftover").mkdir()
+        (custom_global / ".tmp" / "leftover" / "SKILL.md").write_text(
+            _make_skill_md(name="leftover", description="staging leftover")
+        )
+
+        project_skills_path = _Path("/skills")
+        files_to_upload: list[tuple[str, bytes]] = []
+        errors: list[str] = []
+
+        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", tmp_path / "cache"):
+            SkillsMiddleware._collect_skill_files(custom_global, project_skills_path, files_to_upload, errors)
+
+        # Only files under demo/ should be collected. No .trash, .zips, or .tmp entries.
+        dest_paths = [dest for dest, _ in files_to_upload]
+        assert dest_paths == ["/skills/demo/SKILL.md"]
+        assert not any(".trash" in dest for dest in dest_paths)
+        assert not any(".zips" in dest for dest in dest_paths)
+        assert not any(".tmp" in dest for dest in dest_paths)
+        assert errors == []

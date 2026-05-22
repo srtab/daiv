@@ -1,0 +1,73 @@
+{% extends "base_app.html" %}
+{% load i18n icon_tags %}
+
+{% block title %}{{ skill.name }} — {% translate "Skills" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-4xl{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock breadcrumb %}
+
+{% block app_content %}
+<div class="animate-fade-up">
+    <div class="flex items-start justify-between gap-4">
+        <h1 class="text-2xl font-bold tracking-tight">{{ skill.name }}</h1>
+        <div class="flex shrink-0 items-center gap-2">
+            <a href="{% url 'skills:download' skill.name %}"
+               class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+                {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
+                {% translate "Download zip" %}
+            </a>
+            <a href="{% url 'skills:delete' skill.name %}"
+               class="btn-danger-outline inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+                {% icon "trash" "h-4 w-4 shrink-0" %}
+                {% translate "Delete skill" %}
+            </a>
+        </div>
+    </div>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">{{ skill.description }}</p>
+    <div class="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-500">
+        <span>{% translate "Uploaded by" %}</span>
+        {% if skill.uploaded_by %}
+        {% include "accounts/_avatar.html" with user=skill.uploaded_by label=_("Uploaded by") %}
+        {% else %}
+        <span class="text-gray-400">{% translate "(unknown)" %}</span>
+        {% endif %}
+        <span>&middot; {{ skill.created|date:"Y-m-d H:i" }}</span>
+        <span>&middot; {{ skill.size_bytes|filesizeformat }}</span>
+    </div>
+</div>
+
+<section x-data="{ expanded: false, overflows: false }"
+         x-init="$nextTick(() => overflows = $refs.body.scrollHeight > $refs.body.clientHeight + 1)"
+         class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "SKILL.md body" %}</h2>
+    <div class="relative mt-3 overflow-hidden rounded-2xl">
+        <pre x-ref="body"
+             :class="expanded ? '' : 'max-h-96 overflow-hidden'"
+             class="whitespace-pre-wrap border border-white/[0.06] bg-white/[0.02] p-4 text-sm text-gray-300">{{ body }}</pre>
+        <div x-show="!expanded && overflows"
+             style="background-image: linear-gradient(to top, #0a0e1a 0%, rgba(10,14,26,0) 100%);"
+             class="pointer-events-none absolute inset-x-0 bottom-0 h-12"></div>
+    </div>
+    <button x-show="overflows" type="button"
+            @click="expanded = !expanded"
+            class="mt-2 text-sm text-gray-300 hover:text-white">
+        <span x-show="!expanded">{% translate "Show more" %}</span>
+        <span x-show="expanded">{% translate "Show less" %}</span>
+    </button>
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Files" %}</h2>
+    <ul class="mt-3 divide-y divide-white/[0.06] rounded-2xl border border-white/[0.06]">
+        {% for entry in tree %}
+        <li class="flex items-center justify-between px-4 py-2 text-sm">
+            <span class="font-mono text-gray-300">{{ entry.path }}</span>
+            <span class="text-xs text-gray-500">{{ entry.size|filesizeformat }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock app_content %}

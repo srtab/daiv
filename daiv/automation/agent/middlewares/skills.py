@@ -215,7 +215,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         manifest is not silently dropped from the agent's view.
         """
         for skill_dir in source_root.iterdir():
-            if not skill_dir.is_dir() or skill_dir.name == "__pycache__":
+            if not skill_dir.is_dir() or skill_dir.name == "__pycache__" or skill_dir.name.startswith("."):
                 continue
 
             for root, dirs, files in skill_dir.walk():
