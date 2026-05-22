@@ -1,33 +1,46 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 <div id="custom-skills" class="mt-3">
     {% if custom_skills %}
-    <div class="rounded-2xl border border-white/[0.06] divide-y divide-white/[0.06]">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {% for skill in custom_skills %}
-        <div class="flex items-center justify-between px-4 py-3">
-            <div class="flex-1">
-                <a href="{% url 'skills:detail' skill.name %}" class="font-semibold hover:underline">{{ skill.name }}</a>
-                <p class="text-sm text-gray-400">{{ skill.description }}</p>
-                <div class="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-500">
-                    <span>{% translate "Uploaded by" %}</span>
-                    {% if skill.uploaded_by %}
-                    {% include "accounts/_avatar.html" with user=skill.uploaded_by label=_("Uploaded by") %}
-                    {% else %}
-                    <span class="text-gray-400">{% translate "(unknown)" %}</span>
-                    {% endif %}
-                    <span>&middot; {{ skill.created|date:"Y-m-d H:i" }}</span>
-                    <span>&middot; {{ skill.size_bytes|filesizeformat }}</span>
+        <div id="skill-{{ skill.name }}" class="card">
+            <a href="{% url 'skills:detail' skill.name %}"
+               class="card__overlay-link"
+               aria-label="{% blocktranslate with name=skill.name %}Open {{ name }}{% endblocktranslate %}"></a>
+
+            <div class="card__menu" x-data="{ open: false }">
+                <button type="button" @click="open = !open"
+                        aria-label="{% translate 'Skill actions' %}" class="card__menu-btn">
+                    {% icon "ellipsis-horizontal" "h-4 w-4" %}
+                </button>
+                <div x-show="open" @click.outside="open = false" x-transition x-cloak
+                     class="card__menu-panel">
+                    <a href="{% url 'skills:download' skill.name %}" class="card__menu-item">
+                        {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
+                        {% translate "Download zip" %}
+                    </a>
+                    <a href="{% url 'skills:delete' skill.name %}"
+                       class="card__menu-item card__menu-item--danger">
+                        {% icon "trash" "h-4 w-4 shrink-0" %}
+                        {% translate "Delete" %}
+                    </a>
                 </div>
             </div>
-            <div class="flex items-center gap-3">
-                <a href="{% url 'skills:download' skill.name %}"
-                   class="text-sm text-gray-300 hover:text-white">
-                    {% translate "Download zip" %}
-                </a>
-                <a href="{% url 'skills:delete' skill.name %}"
-                   class="text-sm text-red-300 hover:text-red-200">
-                    {% translate "Delete" %}
-                </a>
+
+            <span class="card__title">{{ skill.name }}</span>
+            <p class="card__description">{{ skill.description }}</p>
+
+            <div class="mt-3">
+                {% include "accounts/_avatar.html" with user=skill.uploaded_by label=_("Uploaded by") %}
             </div>
+
+            <p class="card__footer">
+                {% blocktranslate with when=skill.created|timesince size=skill.size_bytes|filesizeformat count counter=skill.file_count %}
+                Uploaded {{ when }} ago · {{ size }} · {{ counter }} file
+                {% plural %}
+                Uploaded {{ when }} ago · {{ size }} · {{ counter }} files
+                {% endblocktranslate %}
+            </p>
         </div>
         {% endfor %}
     </div>
