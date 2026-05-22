@@ -1736,3 +1736,50 @@ main:has(.chat-shell) {
     background-color: rgba(255, 255, 255, 0.22);
   }
 }
+
+/* -- Cards ---------------------------------------------------------------
+
+   Generic card surface used by the skills list page. Sized for grid layouts
+   (`flex flex-col` so cards in a row equalize to the tallest neighbour and
+   the footer hugs the bottom via `mt-auto`).
+
+   Composition:
+   - `.card` is the surface.
+   - `.card__overlay-link` is an absolutely-positioned full-card link; the
+     `.card__menu-item` rules apply `relative z-10` so dropdown items remain
+     clickable above the overlay.
+   - `.card__corner-badge` replaces the kebab on non-interactive cards. */
+
+@layer components {
+  .card {
+    @apply relative flex flex-col rounded-2xl border border-white/[0.06]
+           bg-white/[0.02] p-5 transition hover:border-white/[0.12];
+  }
+
+  .card__overlay-link {
+    @apply absolute inset-0 rounded-2xl focus:outline-none
+           focus-visible:ring-2 focus-visible:ring-white/20;
+  }
+
+  .card__menu       { @apply absolute right-3 top-3 z-10; }
+  .card__menu-btn   { @apply rounded-lg p-2 text-gray-400 transition-all
+                             duration-200 hover:bg-white/[0.04] hover:text-white; }
+  .card__menu-panel { @apply absolute right-0 z-10 mt-1 w-40 overflow-hidden
+                             rounded-xl border border-white/[0.06] bg-[#0a0e1a]
+                             py-1 shadow-xl; }
+  .card__menu-item  { @apply relative z-10 flex w-full items-center gap-2 px-3
+                             py-2 text-left text-sm text-gray-300
+                             hover:bg-white/[0.04] hover:text-white; }
+  .card__menu-item--danger {
+    @apply text-red-300 hover:bg-red-500/[0.08] hover:text-red-200;
+  }
+
+  .card__title       { @apply block min-w-0 break-words pr-10 text-[15px] font-medium text-white; }
+  .card__description { @apply mt-2 text-sm text-gray-400 line-clamp-2; }
+  .card__footer      { @apply mt-auto pt-3 text-xs text-gray-500; }
+
+  .card__corner-badge {
+    @apply absolute right-3 top-3 inline-flex items-center rounded-md
+           bg-gray-800/50 px-2 py-0.5 text-xs text-gray-400;
+  }
+}
