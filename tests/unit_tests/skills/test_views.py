@@ -99,3 +99,43 @@ def test_upload_with_force_overwrites(client, admin_user, storage, build_skill_z
 
     assert resp.status_code == 204
     assert GlobalSkill.objects.get(name="demo").description == "v2"
+
+
+@pytest.mark.django_db
+def test_delete_get_returns_confirm_partial(client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    client.force_login(admin_user)
+
+    resp = client.get(reverse("skills:delete", args=["demo"]))
+    assert resp.status_code == 200
+    assert b"demo" in resp.content
+    assert b"<form" in resp.content
+
+
+@pytest.mark.django_db
+def test_delete_post_removes_skill(client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    client.force_login(admin_user)
+
+    resp = client.post(reverse("skills:delete", args=["demo"]))
+    assert resp.status_code == 204
+    assert "HX-Trigger" in resp.headers
+    assert not GlobalSkill.objects.filter(name="demo").exists()
+
+
+@pytest.mark.django_db
+def test_delete_post_unknown_name_returns_404(client, admin_user, storage):
+    client.force_login(admin_user)
+    resp = client.post(reverse("skills:delete", args=["does-not-exist"]))
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_delete_post_member_denied(client, member_user, storage, admin_user, build_skill_zip):
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    client.force_login(member_user)
+    resp = client.post(reverse("skills:delete", args=["demo"]))
+    assert resp.status_code == 403

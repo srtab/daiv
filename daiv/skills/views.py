@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import render
 from django.views import View
 from django.views.generic import TemplateView
@@ -67,8 +67,23 @@ class SkillDetailView(_StubAdminView):
     pass
 
 
-class SkillDeleteView(_StubAdminView):
-    pass
+class SkillDeleteView(AdminRequiredMixin, View):
+    http_method_names = ["get", "post"]
+
+    def _get_or_404(self, name: str) -> GlobalSkill:
+        try:
+            return GlobalSkill.objects.get(name=name)
+        except GlobalSkill.DoesNotExist as err:
+            raise Http404("skill not found") from err
+
+    def get(self, request, name):
+        skill = self._get_or_404(name)
+        return render(request, "skills/_delete_confirm.html", {"skill": skill})
+
+    def post(self, request, name):
+        skill = self._get_or_404(name)
+        SkillStorage().delete(skill.name)
+        return HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"skill-deleted": {"name": skill.name}})})
 
 
 class SkillZipDownloadView(_StubAdminView):
