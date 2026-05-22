@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from skills.constants import TRASH_TTL_SECONDS
 from skills.models import GlobalSkill
-from skills.services import SkillPackage, SkillStorage
+from skills.services import SkillPackage, SkillStorage, SkillStorageError
 
 
 @pytest.fixture
@@ -109,3 +109,27 @@ def test_trash_sweep_removes_entries_older_than_ttl(storage):
 
     assert not old_dir.exists()
     assert not old_zip.exists()
+
+
+@pytest.mark.django_db
+def test_delete_moves_tree_and_zip_to_trash_and_removes_row(storage, admin_user, build_skill_zip):
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    storage.delete("demo")
+
+    base = storage.root
+    assert not (base / "demo").exists()
+    assert not (base / ".zips" / "demo.zip").exists()
+    trashed_trees = list((base / ".trash").iterdir())
+    trashed_zips = list((base / ".trash" / ".zips").iterdir())
+    assert any(p.is_dir() and p.name.startswith("demo.") for p in trashed_trees)
+    assert any(p.name.startswith("demo.") for p in trashed_zips)
+    assert not GlobalSkill.objects.filter(name="demo").exists()
+
+
+@pytest.mark.django_db
+def test_delete_refuses_builtin_name(storage, monkeypatch):
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan", "init"}))
+    with pytest.raises(SkillStorageError, match="built-in"):
+        storage.delete("plan")

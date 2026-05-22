@@ -16,7 +16,7 @@ from django.db import transaction
 import yaml
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import SKILLS_CACHE_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH
 from skills.constants import (
     ALLOWED_SUFFIXES,
     FORBIDDEN_PATH_PARTS,
@@ -50,6 +50,22 @@ class SkillValidationError(Exception):
 
 class SkillStorageError(Exception):
     """Raised when storing or removing a skill on disk fails."""
+
+
+def _scan_builtin_skill_names() -> frozenset[str]:
+    """Names of skill directories under BUILTIN_SKILLS_PATH that contain a
+    SKILL.md. Memoised at module import; built-ins don't change at runtime."""
+    names: set[str] = set()
+    try:
+        for entry in BUILTIN_SKILLS_PATH.iterdir():
+            if entry.is_dir() and (entry / "SKILL.md").is_file():
+                names.add(entry.name)
+    except OSError:
+        logger.exception("Failed to scan BUILTIN_SKILLS_PATH at %s", BUILTIN_SKILLS_PATH)
+    return frozenset(names)
+
+
+BUILTIN_SKILL_NAMES: frozenset[str] = _scan_builtin_skill_names()
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +264,38 @@ class SkillStorage:
             self._invalidate_cache(pkg.name)
             self.sweep_trash()
         return skill
+
+    def delete(self, name: str) -> None:
+        if name in BUILTIN_SKILL_NAMES:
+            raise SkillStorageError(f"cannot delete built-in skill '{name}'")
+        old_tree = self.root / name
+        old_zip = self.root / ZIPS_DIR / f"{name}.zip"
+        ts = str(int(time.time() * 1000))
+        trashed_tree = self.root / TRASH_DIR / f"{name}.{ts}"
+        trashed_zip = self.root / TRASH_ZIPS_DIR / f"{name}.{ts}.zip"
+
+        moved_tree = False
+        moved_zip = False
+        if old_tree.exists():
+            old_tree.replace(trashed_tree)
+            moved_tree = True
+        if old_zip.exists():
+            old_zip.replace(trashed_zip)
+            moved_zip = True
+
+        try:
+            with transaction.atomic():
+                GlobalSkill.objects.filter(name=name).delete()
+        except Exception:
+            # Restore on DB failure
+            if moved_tree and trashed_tree.exists():
+                trashed_tree.replace(old_tree)
+            if moved_zip and trashed_zip.exists():
+                trashed_zip.replace(old_zip)
+            raise
+        finally:
+            self._invalidate_cache(name)
+            self.sweep_trash()
 
     def _stage_extract(self, pkg: SkillPackage) -> Path:
         staged_parent = self.root / TMP_DIR
