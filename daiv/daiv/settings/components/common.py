@@ -22,6 +22,7 @@ LOCAL_APPS = [
     "notifications",
     "sandbox_envs",
     "schedules",
+    "skills",
     "slash_commands",
 ]
 
