@@ -230,7 +230,8 @@ class TestScheduleCreateViewTemplateContext:
             frequency=Frequency.WEEKLY,
             time=time(9, 0),
             notify_on=NotifyOn.ON_SUCCESS,
-            use_max=True,
+            agent_model="openrouter:anthropic/claude-opus-4.6",
+            agent_thinking_level="high",
             created_by=admin_user,
         )
 
@@ -240,7 +241,8 @@ class TestScheduleCreateViewTemplateContext:
         [row] = response.context["schedule_templates"]
         assert row["id"] == tpl.id
         assert row["frequency_summary"] == "Weekly at 09:00"
-        assert row["use_max"] is True
+        assert row["agent_model"] == "openrouter:anthropic/claude-opus-4.6"
+        assert row["agent_thinking_level"] == "high"
         assert row["repos"] == [{"repo_id": "owner/repo", "ref": "main"}]
         assert "prompt" not in row
 

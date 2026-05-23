@@ -184,9 +184,10 @@ def _enqueue_queued_activity(activity: Any) -> bool:
         task = async_to_sync(run_job_task.aenqueue)(
             repo_id=activity.repo_id,
             prompt=activity.prompt,
-            thread_id=activity.thread_id,
+            thread_id=str(activity.thread_id),
             ref=activity.ref or None,
-            use_max=activity.use_max,
+            agent_model=activity.agent_model or None,
+            agent_thinking_level=activity.agent_thinking_level or None,
             sandbox_environment_id=str(activity.sandbox_environment_id) if activity.sandbox_environment_id else None,
         )
     except Exception as err:  # noqa: BLE001

@@ -198,7 +198,6 @@ async def submit_job(
         user=mcp_user,
         prompt=prompt,
         repos=targets,
-        use_max=use_max,
         notify_on=notify_on,
         trigger_type=TriggerType.MCP_JOB,
         thread_id=thread_id_str,

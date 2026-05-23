@@ -67,7 +67,6 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         user=request.auth,
         prompt=payload.prompt,
         repos=targets,
-        use_max=payload.use_max,
         notify_on=payload.notify_on,
         trigger_type=TriggerType.API_JOB,
         thread_id=str(payload.thread_id) if payload.thread_id is not None else None,

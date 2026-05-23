@@ -398,5 +398,6 @@ class ScheduleTemplate(TimeStampedModel):
             "frequency_display": self.get_frequency_display(),
             "frequency_summary": self.frequency_summary,
             "notify_on_display": self.get_notify_on_display(),
-            "use_max": self.use_max,
+            "agent_model": self.agent_model,
+            "agent_thinking_level": self.agent_thinking_level,
         }

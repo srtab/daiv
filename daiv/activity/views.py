@@ -280,7 +280,8 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             initial.update({
                 "prompt": source.prompt,
                 "repos": [{"repo_id": source.repo_id, "ref": source.ref}],
-                "use_max": source.use_max,
+                "agent_model": source.agent_model,
+                "agent_thinking_level": source.agent_thinking_level,
             })
         return initial
 
@@ -304,7 +305,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 user=self.request.user,
                 prompt=form.cleaned_data["prompt"],
                 repos=repos,
-                use_max=form.cleaned_data["use_max"],
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=TriggerType.UI_JOB,
             )

@@ -96,6 +96,8 @@ def create_activity(
     repo_id: str,
     ref: str = "",
     prompt: str = "",
+    agent_model: str = "",
+    agent_thinking_level: str = "",
     use_max: bool = False,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
@@ -113,6 +115,10 @@ def create_activity(
     """Create an Activity record linked to a DBTaskResult.
 
     ``notify_on=None`` defers to ``Activity.effective_notify_on`` at send time.
+    The ``agent_model`` / ``agent_thinking_level`` pair is the per-run override (empty
+    string = auto). ``use_max`` is the legacy column kept for webhook callers
+    (``daiv-max`` label) so the UI can still display the badge; non-webhook surfaces
+    pass the override pair instead.
     """
     return Activity.objects.create(
         trigger_type=trigger_type,
@@ -120,6 +126,8 @@ def create_activity(
         repo_id=repo_id,
         ref=ref,
         prompt=prompt,
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
         use_max=use_max,
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
@@ -143,6 +151,8 @@ async def acreate_activity(
     repo_id: str,
     ref: str = "",
     prompt: str = "",
+    agent_model: str = "",
+    agent_thinking_level: str = "",
     use_max: bool = False,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
@@ -170,6 +180,8 @@ async def acreate_activity(
         repo_id=repo_id,
         ref=ref,
         prompt=prompt,
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
         use_max=use_max,
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
@@ -218,7 +230,8 @@ async def asubmit_batch_runs(
     user: User | None,
     prompt: str,
     repos: list[RepoTarget],
-    use_max: bool = False,
+    agent_model: str = "",
+    agent_thinking_level: str = "",
     notify_on: NotifyOn | None = None,
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
@@ -262,7 +275,8 @@ async def asubmit_batch_runs(
             "repo_id": target.repo_id,
             "ref": target.ref,
             "prompt": prompt,
-            "use_max": use_max,
+            "agent_model": agent_model,
+            "agent_thinking_level": agent_thinking_level,
             "scheduled_job": scheduled_job,
             "user": user,
             "external_username": external_username,
@@ -300,7 +314,8 @@ async def asubmit_batch_runs(
                 repo_id=target.repo_id,
                 prompt=prompt,
                 ref=target.ref or None,
-                use_max=use_max,
+                agent_model=agent_model or None,
+                agent_thinking_level=agent_thinking_level or None,
                 thread_id=effective_thread_id,
                 sandbox_environment_id=target.sandbox_environment_id,
             )

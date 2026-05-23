@@ -158,7 +158,9 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     assert kwargs["repo_id"] == "group/project"
     assert kwargs["prompt"] == "List all files"
     assert kwargs["ref"] is None
-    assert kwargs["use_max"] is False
+    assert kwargs["agent_model"] is None
+    assert kwargs["agent_thinking_level"] is None
+    assert "use_max" not in kwargs
     assert kwargs["thread_id"]
 
 
@@ -179,40 +181,7 @@ async def test_submit_job_multi_repo(authenticated_client: TestAsyncClient):
     assert len(data["jobs"]) == 2
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_submit_job_with_use_max(authenticated_client: TestAsyncClient):
-    async def _aenq(**kwargs):
-        return await _make_task_row()
-
-    with patch("activity.services.run_job_task") as mock_task:
-        mock_task.aenqueue.side_effect = _aenq
-        mock_task.module_path = run_job_task.module_path
-        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="Fix the bug", use_max=True))
-
-    assert response.status_code == 202
-    mock_task.aenqueue.assert_called_once()
-    kwargs = mock_task.aenqueue.call_args.kwargs
-    assert kwargs["repo_id"] == "group/project"
-    assert kwargs["prompt"] == "Fix the bug"
-    assert kwargs["ref"] is None
-    assert kwargs["use_max"] is True
-    assert kwargs["thread_id"]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_use_max_to_activity(authenticated_client: TestAsyncClient):
-    """Verify the submit endpoint threads ``use_max`` into ``acreate_activity``."""
-
-    async def _aenq(**kwargs):
-        return await _make_task_row()
-
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
-        mock_task.aenqueue.side_effect = _aenq
-        mock_task.module_path = run_job_task.module_path
-        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="Fix the bug", use_max=True))
-
-    assert response.status_code == 202
-    assert mock_create.await_args.kwargs["use_max"] is True
+# NOTE: use_max-based API tests removed; Task 8 adds new tests for agent_model/agent_thinking_level.
 
 
 @pytest.mark.django_db(transaction=True)
