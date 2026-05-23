@@ -6,7 +6,7 @@
 {% block container_width %}max-w-4xl{% endblock %}
 
 {% block alpine_plugins %}
-{% if usage.total > 0 %}
+{% if usage.last_30_total > 0 %}
 <script defer
         src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"
         integrity="sha384-b0GXujLkk9eYYSmcSfoyZbfyElGAQnDyY0skCHSG6w3JgTMFnz11ggrTAr7seu9f"

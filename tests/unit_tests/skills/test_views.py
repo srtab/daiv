@@ -446,5 +446,26 @@ def test_detail_view_empty_usage(admin_client, admin_user, storage, build_skill_
     response = admin_client.get(reverse("skills:detail", args=["quiet"]))
     usage = response.context["usage"]
     assert usage["total"] == 0
+    assert usage["last_30_total"] == 0
     assert all(entry["count"] == 0 for entry in usage["daily_series"])
     assert usage["recent"] == []
+
+
+@pytest.mark.django_db
+def test_detail_view_only_old_invocations_shows_empty_state(admin_client, admin_user, storage, build_skill_zip):
+    """All invocations older than 30 days: lifetime total > 0, but last-30 is 0
+    so the empty-state placeholder renders instead of an all-zero chart."""
+    data = build_skill_zip(skill_name="stale", description="x")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    now = timezone.now()
+    for offset in (45, 60, 100):
+        inv = SkillInvocation.objects.create(
+            name="stale", source=SkillInvocation.Source.GLOBAL, repo_slug="org/repo", thread_id=uuid.uuid4()
+        )
+        SkillInvocation.objects.filter(pk=inv.pk).update(created=now - timedelta(days=offset))
+
+    response = admin_client.get(reverse("skills:detail", args=["stale"]))
+    usage = response.context["usage"]
+    assert usage["total"] == 3
+    assert usage["last_30_total"] == 0
+    assert all(entry["count"] == 0 for entry in usage["daily_series"])

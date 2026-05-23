@@ -32,7 +32,10 @@ class SkillListView(AdminRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         custom_qs = GlobalSkill.objects.select_related("uploaded_by")
         custom_skills = list(custom_qs)
-        builtin_skills = list_builtins()
+        # list_builtins() returns the SAME list of dicts on every call (lru_cache). We then
+        # annotate each entry with an invocations_count; copying first keeps the cache pristine
+        # for the next request and avoids a write race under concurrent traffic.
+        builtin_skills = [dict(entry) for entry in list_builtins()]
 
         # Single grouped query keyed by (name, source).
         counts = {
@@ -176,8 +179,14 @@ class SkillDetailView(AdminRequiredMixin, View):
         daily_series = [
             {"day": cutoff + timedelta(days=i), "count": grouped.get(cutoff + timedelta(days=i), 0)} for i in range(30)
         ]
+        last_30_total = sum(entry["count"] for entry in daily_series)
 
-        return {"total": qs.count(), "daily_series": daily_series, "recent": list(qs.order_by("-created")[:20])}
+        return {
+            "total": qs.count(),
+            "last_30_total": last_30_total,
+            "daily_series": daily_series,
+            "recent": list(qs.order_by("-created")[:20]),
+        }
 
     @staticmethod
     def _list_tree(root) -> list[dict[str, object]]:

@@ -1,8 +1,10 @@
 (function () {
+  let retries = 0;
   function init() {
     if (typeof Chart === "undefined") {
-      // Chart.js still loading — try again on the next tick.
-      setTimeout(init, 30);
+      // Chart.js still loading — retry briefly. Cap at ~3s so a blocked CDN
+      // (network policy, ad-blocker, air-gap) doesn't leak an endless timer.
+      if (++retries < 60) setTimeout(init, 50);
       return;
     }
     const dataNode = document.getElementById("skill-usage-data");
