@@ -15,12 +15,20 @@ def _resolve_max_model_spec(apps) -> str:
 def translate_use_max(apps, schema_editor):
     Activity = apps.get_model("activity", "Activity")
     spec = _resolve_max_model_spec(apps)
-    Activity.objects.filter(use_max=True).update(agent_model=spec, agent_thinking_level="high")
+    # Reset use_max=False atomically with the translation so the boolean stays the
+    # authoritative "this row was a max run" marker only for legacy rows the
+    # migration didn't reach (and so reading use_max alone never reports a stale
+    # True on rows already migrated to the new pair).
+    Activity.objects.filter(use_max=True).update(agent_model=spec, agent_thinking_level="high", use_max=False)
 
 
 def reverse_translate_use_max(apps, schema_editor):
+    # Lossless reverse: only flip use_max=True on rows whose override exactly
+    # matches the max preset. A user-chosen override (e.g. Haiku/low) must NOT
+    # be re-labelled as a max run on rollback.
     Activity = apps.get_model("activity", "Activity")
-    Activity.objects.exclude(agent_model="").update(use_max=True)
+    spec = _resolve_max_model_spec(apps)
+    Activity.objects.filter(agent_model=spec, agent_thinking_level="high").update(use_max=True)
 
 
 class Migration(migrations.Migration):
@@ -45,7 +53,7 @@ class Migration(migrations.Migration):
                 blank=True,
                 choices=[("minimal", "Minimal"), ("low", "Low"), ("medium", "Medium"), ("high", "High")],
                 default="",
-                help_text="Per-run thinking effort; empty = inherit from repo config or use_max.",
+                help_text="Per-run thinking effort; empty = inherit from repo config.",
                 max_length=20,
                 verbose_name="agent thinking level",
             ),

@@ -11,6 +11,9 @@ Parameters:
   "agent_thinking_level")              effort level; empty string = unset.
 - initial_agent_model (default "")   — pre-selected spec, e.g. ``openrouter:anthropic/claude-haiku-4.5``
 - initial_thinking_level (default "") — pre-selected effort: ``minimal|low|medium|high``
+- stale (default False)              — when True, the pre-selected model references a
+                                       provider that is no longer enabled. Renders a
+                                       muted hint so users notice the value is dead.
 - disabled (default False)           — render a static, server-rendered pill (no popover).
                                        Used by the chat composer on an existing thread since the
                                        backend ignores agent overrides after the first turn.
@@ -19,8 +22,11 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
 {% endcomment %}
 
 {% if disabled %}
-<span class="agent-pill" title="{% translate 'Locked for this conversation' %}" aria-disabled="true">
+<span class="agent-pill{% if stale %} agent-pill--stale{% endif %}"
+      title="{% if stale %}{% translate 'This model is no longer available — start a new thread to pick another.' %}{% else %}{% translate 'Locked for this conversation' %}{% endif %}"
+      aria-disabled="true">
     <span class="agent-pill__name">{{ initial_agent_model|default:"Auto" }}</span>
+    {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
 </span>
 {% else %}
 <div x-data='agentPicker({
@@ -34,9 +40,10 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
     <button type="button"
             @click.stop="toggle()"
             :aria-expanded="open"
-            :title="pillLabel.name"
-            class="agent-pill">
+            :title="{% if stale %}'{% translate "This model is no longer available — pick another."|escapejs %}'{% else %}pillLabel.name{% endif %}"
+            class="agent-pill{% if stale %} agent-pill--stale{% endif %}">
         <span class="agent-pill__name" x-text="pillLabel.name"></span>
+        {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
         <span class="agent-popover__effort-dots" x-show="pillLabel.effortDots > 0" x-cloak>
             <template x-for="i in 4" :key="i">
                 <span class="agent-pill__effort-dot"

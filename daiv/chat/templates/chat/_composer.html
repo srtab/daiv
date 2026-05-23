@@ -36,7 +36,7 @@
       {% endcomment %}
       <div class="chat-composer__meta" x-show="thread" x-cloak>
         {% include "sandbox_envs/_env_picker.html" with disabled=True selected_env=selected_sandbox_env %}
-        {% include "automation/_agent_picker.html" with disabled=True initial_agent_model=agent_picker_initial_model initial_thinking_level=agent_picker_initial_thinking %}
+        {% include "automation/_agent_picker.html" with disabled=True initial_agent_model=agent_picker_initial_model initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model %}
         <span class="repo-chip">
           <span class="repo-chip__btn">
             {% icon "repo" "h-3.5 w-3.5" %}

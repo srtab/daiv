@@ -304,3 +304,97 @@ async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
     )
     assert response.status_code == 409
     await user.adelete()
+
+
+@pytest.fixture
+def openrouter_provider(db):
+    from core.models import Provider, ProviderType
+
+    Provider.objects.filter(slug="openrouter").delete()
+    return Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=True
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_first_turn_rejects_invalid_agent_override_and_does_not_persist(
+    client: TestAsyncClient, authed, openrouter_provider
+):
+    """A malformed forwarded override must return 400 before any ChatThread row is created.
+    Without this guard the picker validator could be bypassed and we'd persist an invalid
+    spec that later fails opaquely during the stream."""
+    _, raw, user = authed
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(
+            threadId="t-bad-override", forwardedProps={"agent_model": "nopesuch:foo", "agent_thinking_level": ""}
+        ),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    assert await ChatThread.objects.filter(thread_id="t-bad-override").aexists() is False
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_divergent_override_on_existing_thread_returns_409(client: TestAsyncClient, authed, openrouter_provider):
+    """Once a thread is pinned, a client supplying a different override must get a 409
+    rather than silently running the persisted value — surfaces a bot bypassing the
+    locked composer pill instead of letting the user think they switched models."""
+    _, raw, user = authed
+    await ChatThread.objects.acreate(
+        thread_id="t-pinned",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        agent_model="openrouter:anthropic/claude-haiku-4.5",
+        agent_thinking_level="low",
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(
+            threadId="t-pinned",
+            forwardedProps={"agent_model": "openrouter:anthropic/claude-opus-4.6", "agent_thinking_level": "high"},
+        ),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 409
+    await user.adelete()
+
+
+@pytest.fixture
+def no_openrouter_provider(db):
+    """Ensure no enabled ``openrouter`` provider exists, then bust the Provider cache."""
+    from core.models import Provider
+
+    Provider.objects.filter(slug="openrouter").delete()
+    Provider.invalidate_cache()
+    yield
+    Provider.invalidate_cache()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_existing_thread_with_stale_persisted_override_returns_400(
+    client: TestAsyncClient, authed, no_openrouter_provider
+):
+    """A thread pinned to a model whose provider was disabled after creation must
+    surface a typed 400 before the stream starts, rather than blowing up deep in
+    the agent with an opaque ``ValueError``."""
+    _, raw, user = authed
+    await ChatThread.objects.acreate(
+        thread_id="t-stale-pin",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        agent_model="openrouter:anthropic/claude-haiku-4.5",
+        agent_thinking_level="low",
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-stale-pin"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    await user.adelete()

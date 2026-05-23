@@ -200,6 +200,26 @@ async def test_submit_job_rejects_unknown_provider(authenticated_client: TestAsy
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_invalid_thinking_level(authenticated_client: TestAsyncClient):
+    """``agent_thinking_level`` outside the enum returns a clear 4xx instead of a silent
+    accept. Ninja/Pydantic catches the enum mismatch at the protocol layer (422)."""
+    response = await authenticated_client.post(
+        "/jobs", json={"repos": [{"repo_id": "group/project"}], "prompt": "Fix it", "agent_thinking_level": "extreme"}
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_extra_field(authenticated_client: TestAsyncClient):
+    """``JobSubmitRequest`` is locked to ``extra='forbid'`` so a stale client still
+    sending the dropped ``use_max`` field gets a 422 instead of a silent strip+202."""
+    response = await authenticated_client.post(
+        "/jobs", json={"repos": [{"repo_id": "group/project"}], "prompt": "Fix it", "use_max": True}
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_agent_override(authenticated_client: TestAsyncClient, openrouter_provider):
     async def _aenq(**kwargs):
         return await _make_task_row()

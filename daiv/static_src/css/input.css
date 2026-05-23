@@ -1739,6 +1739,16 @@ main:has(.chat-shell) {
     @apply h-1.5 w-1.5 rounded-full bg-white/[0.25];
   }
   .agent-pill__effort-dot--on { @apply bg-white; }
+  /* Persisted model spec references a provider that is no longer enabled. The
+     pill still shows the stored value so users see what was selected, but the
+     amber tint + marker invites them to pick a fresh model. */
+  .agent-pill--stale {
+    @apply border-amber-500/40 bg-amber-500/5 text-amber-300;
+  }
+  .agent-pill__stale-marker {
+    @apply ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full
+           bg-amber-500/20 text-[10px] font-semibold text-amber-300;
+  }
   .agent-popover__section {
     @apply border-t border-white/[0.05] px-3 py-2 text-[12px];
   }

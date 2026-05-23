@@ -164,6 +164,22 @@ async def test_submit_job_rejects_unknown_provider():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider):
+    """The MCP tool's direct (in-process) call path bypasses FastMCP's protocol-layer
+    Pydantic validation, so the explicit ``validate_agent_override`` call inside the
+    tool must catch out-of-enum thinking levels."""
+    with _patch_acreate():
+        payload = await submit_job(
+            repos=[{"repo_id": "group/project", "ref": None}],
+            prompt="Fix it",
+            agent_model="openrouter:anthropic/claude-haiku-4.5",
+            agent_thinking_level="extreme",  # ty: ignore[invalid-argument-type]
+        )
+    body = json.loads(payload)
+    assert "thinking level" in body["error"].lower()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_agent_override(openrouter_provider):
     with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())

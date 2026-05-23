@@ -180,14 +180,32 @@ def _enqueue_queued_activity(activity: Any) -> bool:
     """
     from activity.models import ActivityStatus
 
+    agent_model = activity.agent_model or None
+    agent_thinking_level = activity.agent_thinking_level or None
+    # Legacy fallback: rows persisted before the data migration may carry
+    # ``use_max=True`` without the new override pair. ``run_job_task`` no longer
+    # accepts ``use_max``, so resolve it to the site-configured max preset here
+    # rather than silently downgrading the re-enqueued run to the default model.
+    if not agent_model and getattr(activity, "use_max", False):
+        from core.site_settings import site_settings
+
+        agent_model = site_settings.agent_max_model_name
+        agent_thinking_level = agent_thinking_level or site_settings.agent_max_thinking_level
+        logger.warning(
+            "dispatch_next_in_thread: legacy use_max=True activity=%s; resolving to %s/%s",
+            activity.pk,
+            agent_model,
+            agent_thinking_level,
+        )
+
     try:
         task = async_to_sync(run_job_task.aenqueue)(
             repo_id=activity.repo_id,
             prompt=activity.prompt,
             thread_id=str(activity.thread_id),
             ref=activity.ref or None,
-            agent_model=activity.agent_model or None,
-            agent_thinking_level=activity.agent_thinking_level or None,
+            agent_model=agent_model,
+            agent_thinking_level=agent_thinking_level,
             sandbox_environment_id=str(activity.sandbox_environment_id) if activity.sandbox_environment_id else None,
         )
     except Exception as err:  # noqa: BLE001

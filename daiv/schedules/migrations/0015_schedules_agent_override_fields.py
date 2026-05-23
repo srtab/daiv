@@ -13,16 +13,26 @@ def _resolve_max_model_spec(apps) -> str:
 
 
 def translate_use_max(apps, schema_editor):
+    # Reset use_max=False atomically with the translation so the boolean stays the
+    # authoritative "this row was a max run" marker only for legacy rows the
+    # migration didn't reach (and so reading use_max alone never reports a stale
+    # True on rows already migrated to the new pair).
     spec = _resolve_max_model_spec(apps)
     for model_name in ("ScheduledJob", "ScheduleTemplate"):
         apps.get_model("schedules", model_name).objects.filter(use_max=True).update(
-            agent_model=spec, agent_thinking_level="high"
+            agent_model=spec, agent_thinking_level="high", use_max=False
         )
 
 
 def reverse_translate_use_max(apps, schema_editor):
+    # Lossless reverse: only flip use_max=True on rows whose override exactly
+    # matches the max preset. A user-chosen override (e.g. Haiku/low) must NOT
+    # be re-labelled as a max run on rollback.
+    spec = _resolve_max_model_spec(apps)
     for model_name in ("ScheduledJob", "ScheduleTemplate"):
-        apps.get_model("schedules", model_name).objects.exclude(agent_model="").update(use_max=True)
+        apps.get_model("schedules", model_name).objects.filter(agent_model=spec, agent_thinking_level="high").update(
+            use_max=True
+        )
 
 
 class Migration(migrations.Migration):

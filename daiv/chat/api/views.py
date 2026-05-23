@@ -87,7 +87,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
             "chat: auto-resolved env=%s for repo=%s user=%s", env_obj.id if env_obj else None, repo_id, user.pk
         )
 
-    thread = await ChatThreadService.get_or_create_for_user(
+    thread, created = await ChatThreadService.get_or_create_for_user(
         user=user,
         thread_id=thread_id,
         repo_id=repo_id,
@@ -99,6 +99,33 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     )
     if thread.user_id != user.id:
         raise HttpError(403, "Thread not found")
+
+    # First-turn pin: an existing thread keeps the override that was set on creation.
+    # If the client supplies a divergent override (e.g. a bot bypassing the locked
+    # composer pill), reject with 409 rather than silently running the pinned value.
+    # Empty client values mean "no override supplied" and never count as a divergence.
+    if not created and (
+        (agent_model and agent_model != thread.agent_model)
+        or (agent_thinking_level and agent_thinking_level != thread.agent_thinking_level)
+    ):
+        raise HttpError(
+            409,
+            "Agent override is pinned for this thread; remove agent_model / agent_thinking_level"
+            " from forwarded_props or start a new thread to change it.",
+        )
+
+    # Re-validate the pinned override before kicking off the stream: a Provider row
+    # may have been disabled or renamed since the thread was created. Surface a
+    # typed 400 here so the user sees "model unavailable" instead of an opaque
+    # "Run failed" once the agent's parse_model_spec explodes mid-stream.
+    if thread.agent_model:
+        try:
+            validate_agent_override(thread.agent_model, thread.agent_thinking_level)
+        except AgentOverrideError as err:
+            raise HttpError(
+                400,
+                f"The model pinned to this thread is no longer available: {err}. Start a new thread to pick another.",
+            ) from err
 
     if not await ChatThreadService.try_claim_run(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")

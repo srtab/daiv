@@ -52,14 +52,16 @@ class ChatThreadService:
         sandbox_environment: SandboxEnvironment | None = None,
         agent_model: str = "",
         agent_thinking_level: str = "",
-    ) -> ChatThread:
+    ) -> tuple[ChatThread, bool]:
         """First sight of ``thread_id`` creates the row under ``user``; later calls
         return the existing row regardless of owner. Caller must enforce ownership.
 
         ``agent_model`` and ``agent_thinking_level`` are pinned at thread creation:
         they're written to ``defaults`` so the first turn fixes the override and
         subsequent turns ignore client-supplied values (same lock semantics as
-        ``sandbox_environment``).
+        ``sandbox_environment``). The boolean return flag lets callers detect the
+        existing-thread case and reject a client that tries to change the override
+        after the first turn — see ``chat.api.views.create_chat_completion``.
         """
         first_message = _extract_first_user_message(input_data)
         defaults = {
@@ -80,7 +82,7 @@ class ChatThreadService:
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue title task for chat thread %s", thread.thread_id)
-        return thread
+        return thread, created
 
     @staticmethod
     async def try_claim_run(thread_id: str, run_id: str) -> bool:

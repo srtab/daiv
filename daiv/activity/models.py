@@ -138,7 +138,7 @@ class Activity(models.Model):
         blank=True,
         default="",
         choices=ThinkingLevelChoices.choices,
-        help_text=_("Per-run thinking effort; empty = inherit from repo config or use_max."),
+        help_text=_("Per-run thinking effort; empty = inherit from repo config."),
     )
     notify_on = models.CharField(  # noqa: DJ001 — null distinguishes "no override" from explicit "never".
         _("notify on"),

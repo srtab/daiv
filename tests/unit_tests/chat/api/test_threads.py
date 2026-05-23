@@ -199,7 +199,7 @@ async def test_override_pinned_on_thread_creation(openrouter_provider):
     user = await User.objects.acreate_user(username="u-ov-1", email="ov1@x.com", password="x")  # noqa: S106
     input_data = _fake_input(["hello"])
 
-    thread = await ChatThreadService.get_or_create_for_user(
+    thread, created = await ChatThreadService.get_or_create_for_user(
         user=user,
         thread_id="t-ov-1",
         repo_id="acme/x",
@@ -209,6 +209,7 @@ async def test_override_pinned_on_thread_creation(openrouter_provider):
         agent_thinking_level="low",
     )
 
+    assert created is True
     assert thread.agent_model == "openrouter:anthropic/claude-haiku-4.5"
     assert thread.agent_thinking_level == "low"
     await user.adelete()
@@ -221,7 +222,7 @@ async def test_override_ignored_on_existing_thread(openrouter_provider):
     user = await User.objects.acreate_user(username="u-ov-2", email="ov2@x.com", password="x")  # noqa: S106
     input_data = _fake_input(["hello"])
 
-    await ChatThreadService.get_or_create_for_user(
+    _, first_created = await ChatThreadService.get_or_create_for_user(
         user=user,
         thread_id="t-ov-2",
         repo_id="acme/x",
@@ -230,7 +231,7 @@ async def test_override_ignored_on_existing_thread(openrouter_provider):
         agent_model="openrouter:anthropic/claude-haiku-4.5",
         agent_thinking_level="low",
     )
-    thread = await ChatThreadService.get_or_create_for_user(
+    thread, created = await ChatThreadService.get_or_create_for_user(
         user=user,
         thread_id="t-ov-2",
         repo_id="acme/x",
@@ -240,6 +241,8 @@ async def test_override_ignored_on_existing_thread(openrouter_provider):
         agent_thinking_level="high",
     )
 
+    assert first_created is True
+    assert created is False
     assert thread.agent_model == "openrouter:anthropic/claude-haiku-4.5"
     assert thread.agent_thinking_level == "low"
     await user.adelete()

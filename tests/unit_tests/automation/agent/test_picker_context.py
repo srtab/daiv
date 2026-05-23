@@ -133,3 +133,21 @@ def test_form_value_overrides_explicit_initials(providers):
     ctx = agent_picker_context(form, initial_model="ignored:spec", initial_thinking_level="medium")
     assert ctx["agent_picker_initial_model"] == "openrouter:anthropic/claude-sonnet-4.5"
     assert ctx["agent_picker_initial_thinking"] == "low"
+
+
+def test_stale_model_flag_set_when_provider_disabled(providers):
+    """A persisted spec whose provider was disabled after creation must be flagged
+    stale so the partial can warn instead of silently rendering an unselectable value."""
+    ctx = agent_picker_context(initial_model="anthropic:claude-opus-4-6")
+    assert ctx["agent_picker_initial_model"] == "anthropic:claude-opus-4-6"
+    assert ctx["agent_picker_stale_model"] is True
+
+
+def test_stale_model_flag_false_for_enabled_provider(providers):
+    ctx = agent_picker_context(initial_model="openrouter:anthropic/claude-haiku-4.5")
+    assert ctx["agent_picker_stale_model"] is False
+
+
+def test_stale_model_flag_false_when_no_initial_model(providers):
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_stale_model"] is False

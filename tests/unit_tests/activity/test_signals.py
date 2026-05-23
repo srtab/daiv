@@ -337,3 +337,48 @@ class TestDispatchNextInThread:
             statuses[row.status] = statuses.get(row.status, 0) + 1
         assert statuses[ActivityStatus.FAILED] == MAX_CONSECUTIVE_DISPATCH_FAILURES
         assert statuses[ActivityStatus.QUEUED] == 2
+
+    def test_re_enqueue_propagates_agent_override(self, create_db_task_result):
+        """Releasing a QUEUED sibling must forward the per-row agent override pair
+        to ``run_job_task`` — a refactor that drops the kwargs would silently
+        downgrade the second-in-line run to the auto model."""
+        thread = str(uuid.uuid4())
+        finished = _make_activity(thread_id=thread, status=ActivityStatus.SUCCESSFUL)
+        _make_activity(
+            thread_id=thread,
+            status=ActivityStatus.QUEUED,
+            agent_model="openrouter:anthropic/claude-opus-4.6",
+            agent_thinking_level="high",
+        )
+
+        db_task = create_db_task_result()
+        fake_task = MagicMock(id=db_task.id)
+        with patch("activity.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=fake_task)
+            activity_finished.send(sender=Activity, activity=finished)
+
+        kwargs = mock_task.aenqueue.call_args.kwargs
+        assert kwargs["agent_model"] == "openrouter:anthropic/claude-opus-4.6"
+        assert kwargs["agent_thinking_level"] == "high"
+        assert "use_max" not in kwargs
+
+    def test_re_enqueue_resolves_legacy_use_max_to_max_preset(self, create_db_task_result):
+        """A pre-migration row that still carries ``use_max=True`` with an empty
+        override pair must resolve to the site-configured max preset rather than
+        silently downgrade to the default model when the dispatcher releases it."""
+        from core.site_settings import site_settings
+
+        thread = str(uuid.uuid4())
+        finished = _make_activity(thread_id=thread, status=ActivityStatus.SUCCESSFUL)
+        _make_activity(thread_id=thread, status=ActivityStatus.QUEUED, use_max=True)
+
+        db_task = create_db_task_result()
+        fake_task = MagicMock(id=db_task.id)
+        with patch("activity.signals.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=fake_task)
+            activity_finished.send(sender=Activity, activity=finished)
+
+        kwargs = mock_task.aenqueue.call_args.kwargs
+        assert kwargs["agent_model"] == site_settings.agent_max_model_name
+        assert kwargs["agent_thinking_level"] == site_settings.agent_max_thinking_level
+        assert "use_max" not in kwargs

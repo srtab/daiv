@@ -32,6 +32,11 @@ def agent_picker_context(
     when those fields exist; missing fields fall back to the explicit ``initial_*``
     kwargs. Surfaces without a Django form (e.g. the chat composer) pass the initials
     directly, leaving ``form`` as ``None``.
+
+    When ``initial_model`` references a provider that is no longer enabled (or that
+    has no enabled Provider row at all), ``agent_picker_stale_model`` is ``True`` so
+    the partial can render a "no longer available" hint instead of showing a
+    silently-unselectable value.
     """
     providers = [
         {"slug": row.slug, "label": row.display_name or row.slug.replace("_", " ").title()}
@@ -52,9 +57,15 @@ def agent_picker_context(
         if "agent_thinking_level" in form.fields:
             resolved_thinking = str(form["agent_thinking_level"].value() or "") or resolved_thinking
 
+    stale_model = False
+    if resolved_model and ":" in resolved_model:
+        prefix = resolved_model.split(":", 1)[0]
+        stale_model = prefix not in enabled_slugs
+
     return {
         "agent_picker_providers": json.dumps(providers),
         "agent_picker_models": json.dumps(models),
         "agent_picker_initial_model": resolved_model,
         "agent_picker_initial_thinking": resolved_thinking,
+        "agent_picker_stale_model": stale_model,
     }
