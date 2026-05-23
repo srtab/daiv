@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import io
 import uuid
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
-from skills.models import GlobalSkill
+from skills.models import GlobalSkill, SkillInvocation
 from skills.services import SkillPackage, SkillStorage
 
 
@@ -379,3 +381,70 @@ def test_full_admin_journey(client, admin_user, storage, build_skill_zip):
     assert resp.status_code == 302
     assert resp.url == reverse("skills:list")
     assert not GlobalSkill.objects.filter(name="journey").exists()
+
+
+@pytest.mark.django_db
+def test_detail_view_renders_builtin_without_global_skill_row(admin_client, tmp_path, monkeypatch):
+    builtin = tmp_path / "builtin_skills"
+    (builtin / "plan").mkdir(parents=True)
+    (builtin / "plan" / "SKILL.md").write_text("---\nname: plan\ndescription: plan stuff\n---\n# plan\n")
+    # Make BUILTIN_SKILL_NAMES and BUILTIN_SKILLS_PATH point at our fixture.
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}), raising=False)
+    monkeypatch.setattr("skills.views.BUILTIN_SKILLS_PATH", builtin, raising=False)
+    # list_builtins is lru_cached and may have been populated by an earlier test
+    # against the real BUILTIN_SKILLS_PATH; drop the cache so our monkeypatch takes effect.
+    from skills.services import list_builtins
+
+    list_builtins.cache_clear()
+
+    response = admin_client.get(reverse("skills:detail", args=["plan"]))
+    assert response.status_code == 200
+    assert response.context["source"] == "builtin"
+    assert response.context["skill"]["name"] == "plan"
+    assert "plan stuff" in response.context["skill"]["description"]
+    # No GlobalSkill row exists; the view must not raise 404.
+    assert not GlobalSkill.objects.filter(name="plan").exists()
+
+
+@pytest.mark.django_db
+def test_detail_view_renders_global_skill_with_usage_block(admin_client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="custom-one", description="x")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    now = timezone.now()
+    for offset in (0, 1, 1, 5, 31):  # 31 is older than the 30-day window
+        inv = SkillInvocation.objects.create(
+            name="custom-one", source=SkillInvocation.Source.GLOBAL, repo_slug="org/repo", thread_id=uuid.uuid4()
+        )
+        SkillInvocation.objects.filter(pk=inv.pk).update(created=now - timedelta(days=offset))
+
+    response = admin_client.get(reverse("skills:detail", args=["custom-one"]))
+    assert response.status_code == 200
+    assert response.context["source"] == "global"
+
+    usage = response.context["usage"]
+    assert usage["total"] == 5
+    # Daily series always has exactly 30 entries, oldest first.
+    assert len(usage["daily_series"]) == 30
+    assert usage["daily_series"][-1]["day"] == timezone.localdate()
+    # Today has 1, yesterday has 2 (offset 1 twice), 5 days ago has 1, 31 days ago is dropped.
+    counts = {entry["day"]: entry["count"] for entry in usage["daily_series"]}
+    today = timezone.localdate()
+    assert counts[today] == 1
+    assert counts[today - timedelta(days=1)] == 2
+    assert counts[today - timedelta(days=5)] == 1
+    # Recent is capped at 20, newest first.
+    assert len(usage["recent"]) == 5
+    assert usage["recent"][0].created >= usage["recent"][-1].created
+
+
+@pytest.mark.django_db
+def test_detail_view_empty_usage(admin_client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="quiet", description="x")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    response = admin_client.get(reverse("skills:detail", args=["quiet"]))
+    usage = response.context["usage"]
+    assert usage["total"] == 0
+    assert all(entry["count"] == 0 for entry in usage["daily_series"])
+    assert usage["recent"] == []

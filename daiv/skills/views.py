@@ -2,21 +2,25 @@ from __future__ import annotations
 
 import logging
 import stat
+from datetime import timedelta
 
 from django.contrib import messages
 from django.db.models import Count
+from django.db.models.functions import TruncDate
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
 from accounts.mixins import AdminRequiredMixin
+from automation.agent.constants import BUILTIN_SKILLS_PATH
 from skills.constants import FRONTMATTER_RE, MAX_FILES, ZIPS_DIR
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill, SkillInvocation
-from skills.services import SkillStorage, SkillStorageError, list_builtins
+from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, SkillStorageError, list_builtins
 
 logger = logging.getLogger("daiv.skills")
 
@@ -104,6 +108,32 @@ class SkillDetailView(AdminRequiredMixin, View):
     http_method_names = ["get"]
 
     def get(self, request, name):
+        if name in BUILTIN_SKILL_NAMES:
+            return self._render_builtin(request, name)
+        return self._render_global(request, name)
+
+    def _render_builtin(self, request, name):
+        root = BUILTIN_SKILLS_PATH / name
+        try:
+            skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
+        except FileNotFoundError as err:
+            raise Http404("built-in skill files missing on disk") from err
+        body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
+        description = next((entry["description"] for entry in list_builtins() if entry["name"] == name), "")
+        return render(
+            request,
+            "skills/detail.html",
+            {
+                "skill": {"name": name, "description": description},
+                "source": "builtin",
+                "body": body,
+                "tree": self._list_tree(root),
+                "usage": self._compute_usage(name, SkillInvocation.Source.BUILTIN),
+                "breadcrumbs": [{"label": _("Skills"), "url": reverse("skills:list")}, {"label": name, "url": None}],
+            },
+        )
+
+    def _render_global(self, request, name):
         skill = get_object_or_404(GlobalSkill, name=name)
         root = SkillStorage().root / skill.name
         try:
@@ -113,11 +143,41 @@ class SkillDetailView(AdminRequiredMixin, View):
         except UnicodeDecodeError as err:
             raise Http404("skill files unreadable on disk") from err
         body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
-        tree = self._list_tree(root)
-        breadcrumbs = [{"label": _("Skills"), "url": reverse("skills:list")}, {"label": skill.name, "url": None}]
         return render(
-            request, "skills/detail.html", {"skill": skill, "body": body, "tree": tree, "breadcrumbs": breadcrumbs}
+            request,
+            "skills/detail.html",
+            {
+                "skill": skill,
+                "source": "global",
+                "body": body,
+                "tree": self._list_tree(root),
+                "usage": self._compute_usage(skill.name, SkillInvocation.Source.GLOBAL),
+                "breadcrumbs": [
+                    {"label": _("Skills"), "url": reverse("skills:list")},
+                    {"label": skill.name, "url": None},
+                ],
+            },
         )
+
+    @staticmethod
+    def _compute_usage(name: str, source: SkillInvocation.Source) -> dict:
+        qs = SkillInvocation.objects.filter(name=name, source=source)
+        today = timezone.localdate()
+        cutoff = today - timedelta(days=29)
+
+        grouped = dict(
+            qs
+            .filter(created__date__gte=cutoff)
+            .annotate(day=TruncDate("created"))
+            .values("day")
+            .annotate(c=Count("id"))
+            .values_list("day", "c")
+        )
+        daily_series = [
+            {"day": cutoff + timedelta(days=i), "count": grouped.get(cutoff + timedelta(days=i), 0)} for i in range(30)
+        ]
+
+        return {"total": qs.count(), "daily_series": daily_series, "recent": list(qs.order_by("-created")[:20])}
 
     @staticmethod
     def _list_tree(root) -> list[dict[str, object]]:
