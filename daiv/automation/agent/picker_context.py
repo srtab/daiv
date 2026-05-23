@@ -16,7 +16,9 @@ from automation.agent.constants import ModelName
 from core.models import Provider
 
 
-def agent_picker_context(form: Any) -> dict[str, Any]:
+def agent_picker_context(
+    form: Any = None, *, initial_model: str = "", initial_thinking_level: str = ""
+) -> dict[str, Any]:
     """Build context vars for the ``_agent_picker.html`` partial.
 
     Providers come from ``Provider.objects.filter(is_enabled=True)``; the model
@@ -25,10 +27,11 @@ def agent_picker_context(form: Any) -> dict[str, Any]:
     :func:`automation.agent.base.parse_model_spec` — the suggestions are only a
     convenience for the dropdown.
 
-    ``form`` is a bound Django form. Initial values for ``agent_model`` and
-    ``agent_thinking_level`` are read via ``form[field].value()`` when present;
-    forms without those fields get empty defaults so the partial renders in its
-    "Auto" state.
+    ``form`` (optional) is a bound Django form. When provided, initial values for
+    ``agent_model`` and ``agent_thinking_level`` are read via ``form[field].value()``
+    when those fields exist; missing fields fall back to the explicit ``initial_*``
+    kwargs. Surfaces without a Django form (e.g. the chat composer) pass the initials
+    directly, leaving ``form`` as ``None``.
     """
     providers = [
         {"slug": row.slug, "label": row.display_name or row.slug.replace("_", " ").title()}
@@ -41,16 +44,17 @@ def agent_picker_context(form: Any) -> dict[str, Any]:
         if prefix in models:
             models[prefix].append(name)
 
-    initial_model = ""
-    initial_thinking = ""
-    if "agent_model" in form.fields:
-        initial_model = str(form["agent_model"].value() or "")
-    if "agent_thinking_level" in form.fields:
-        initial_thinking = str(form["agent_thinking_level"].value() or "")
+    resolved_model = initial_model
+    resolved_thinking = initial_thinking_level
+    if form is not None:
+        if "agent_model" in form.fields:
+            resolved_model = str(form["agent_model"].value() or "") or resolved_model
+        if "agent_thinking_level" in form.fields:
+            resolved_thinking = str(form["agent_thinking_level"].value() or "") or resolved_thinking
 
     return {
         "agent_picker_providers": json.dumps(providers),
         "agent_picker_models": json.dumps(models),
-        "agent_picker_initial_model": initial_model,
-        "agent_picker_initial_thinking": initial_thinking,
+        "agent_picker_initial_model": resolved_model,
+        "agent_picker_initial_thinking": resolved_thinking,
     }

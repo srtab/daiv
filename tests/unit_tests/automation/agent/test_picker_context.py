@@ -114,3 +114,22 @@ def test_provider_uses_display_name_as_label(providers):
     ctx = agent_picker_context(form)
     by_slug = {p["slug"]: p["label"] for p in json.loads(ctx["agent_picker_providers"])}
     assert by_slug["openrouter"] == "OpenRouter"
+
+
+def test_explicit_initials_when_form_is_none(providers):
+    """Form-less surfaces (e.g. the chat composer) pass initials directly."""
+    ctx = agent_picker_context(initial_model="openrouter:anthropic/claude-haiku-4.5", initial_thinking_level="high")
+    assert ctx["agent_picker_initial_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert ctx["agent_picker_initial_thinking"] == "high"
+
+
+def test_form_value_overrides_explicit_initials(providers):
+    """When both are supplied the bound form wins — the form is the source of truth
+    on form-driven surfaces, kwargs only seed the form-less path."""
+    form = _StubForm(
+        ["agent_model", "agent_thinking_level"],
+        {"agent_model": "openrouter:anthropic/claude-sonnet-4.5", "agent_thinking_level": "low"},
+    )
+    ctx = agent_picker_context(form, initial_model="ignored:spec", initial_thinking_level="medium")
+    assert ctx["agent_picker_initial_model"] == "openrouter:anthropic/claude-sonnet-4.5"
+    assert ctx["agent_picker_initial_thinking"] == "low"

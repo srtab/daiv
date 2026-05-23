@@ -479,6 +479,19 @@
         }))
         .filter((m) => m.content);
 
+      // Read the agent picker's selection straight from its hidden inputs (rendered
+      // in the hero on a brand-new thread, absent in the locked composer pill).
+      // The server pins these to ``ChatThread.agent_model`` /
+      // ``agent_thinking_level`` on first sight of the thread and ignores them on
+      // subsequent turns, mirroring the env-pinning contract.
+      const agentModelInput = this.$root?.querySelector?.('input[name="agent_model"]');
+      const agentThinkingInput = this.$root?.querySelector?.('input[name="agent_thinking_level"]');
+      const forwardedProps = {};
+      const agentModel = agentModelInput?.value || "";
+      const agentThinkingLevel = agentThinkingInput?.value || "";
+      if (agentModel) forwardedProps.agent_model = agentModel;
+      if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
+
       const body = {
         threadId: this.thread.thread_id,
         runId: uuid(),
@@ -486,7 +499,7 @@
         messages: priorMessages,
         tools: [],
         context: [],
-        forwardedProps: {},
+        forwardedProps,
       };
 
       this.draftMessage = "";
