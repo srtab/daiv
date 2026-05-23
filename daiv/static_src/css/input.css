@@ -1716,6 +1716,31 @@ main:has(.chat-shell) {
     @apply border-b border-white/[0.06];
   }
 
+  /* Agent picker — model + thinking-effort pill rendered next to the env pill on
+     the run composer and chat composer. The popover reuses ``.picker-popover``
+     and ``.env-popover__*`` from the env picker; the rules below add the pill
+     itself plus the effort-dot meter that doubles as the popover's effort
+     selector. */
+  .agent-pill {
+    @apply inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08]
+           bg-white/[0.02] px-2.5 py-1 text-[12px] text-gray-300 transition-colors
+           hover:bg-white/[0.05];
+  }
+  .agent-pill__name { @apply truncate max-w-[160px]; }
+  .agent-pill__effort-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-white/[0.25];
+  }
+  .agent-pill__effort-dot--on { @apply bg-white; }
+  .agent-popover__section {
+    @apply border-t border-white/[0.05] px-3 py-2 text-[12px];
+  }
+  .agent-popover__effort {
+    @apply flex items-center justify-between gap-3;
+  }
+  .agent-popover__effort-dots {
+    @apply inline-flex items-center gap-1;
+  }
+
   .repo-id-chip {
     @apply inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300;
   }
