@@ -274,6 +274,14 @@ main:has(.chat-shell) {
   .status-badge-pending {
     @apply bg-gray-800/60 text-gray-400;
   }
+
+  /* Subtle inline chip used to surface per-run metadata (e.g., the agent
+     model + thinking-effort override) next to a heading or in dense lists.
+     Neutral palette — competes less for attention than `.status-badge*`. */
+  .meta-pill {
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.08]
+      bg-white/[0.02] px-2 py-0.5 text-[11px] text-gray-300;
+  }
 }
 
 /* -- Status dot variants -------------------------------------------------- */

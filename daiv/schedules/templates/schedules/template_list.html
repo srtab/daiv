@@ -36,8 +36,13 @@
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-1.5">
                 <span class="rounded-full bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-blue-300">{{ template.get_frequency_display }}</span>
-                {% if template.use_max %}
-                <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">max</span>
+                {% if template.agent_model %}
+                <span class="meta-pill" title="{{ template.agent_model }}{% if template.agent_thinking_level %} · {{ template.get_agent_thinking_level_display }}{% endif %}">
+                    {{ template.agent_model|cut:":"|slice:":24" }}
+                    {% if template.agent_thinking_level %}
+                    · {{ template.get_agent_thinking_level_display }}
+                    {% endif %}
+                </span>
                 {% endif %}
             </div>
             {% if template.description %}

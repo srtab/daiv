@@ -44,8 +44,14 @@
                     <div class="min-w-0 flex-1">
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="font-medium text-white" x-text="tpl.name"></span>
-                            <template x-if="tpl.use_max">
-                                <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">{% translate "max" %}</span>
+                            <template x-if="tpl.agent_model">
+                                <span class="meta-pill"
+                                      :title="tpl.agent_model + (tpl.agent_thinking_level ? ' · ' + (tpl.agent_thinking_level.charAt(0).toUpperCase() + tpl.agent_thinking_level.slice(1)) : '')">
+                                    <span x-text="(tpl.agent_model.split(':')[1] || tpl.agent_model).slice(0, 24)"></span>
+                                    <template x-if="tpl.agent_thinking_level">
+                                        <span>· <span x-text="tpl.agent_thinking_level.charAt(0).toUpperCase() + tpl.agent_thinking_level.slice(1)"></span></span>
+                                    </template>
+                                </span>
                             </template>
                         </div>
                         <p class="mt-1.5 whitespace-pre-wrap text-sm text-gray-300" x-text="tpl.description"></p>

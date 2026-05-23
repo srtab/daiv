@@ -74,7 +74,19 @@
         </div>
         {% endif %}
 
-        {% if activity.use_max %}
+        {% if activity.agent_model %}
+        <div class="flex justify-between gap-2">
+            <dt class="text-gray-500">Model</dt>
+            <dd class="min-w-0 text-right">
+                <span class="meta-pill" title="{{ activity.agent_model }}{% if activity.agent_thinking_level %} · {{ activity.get_agent_thinking_level_display }}{% endif %}">
+                    {{ activity.agent_model|cut:":"|slice:":24" }}
+                    {% if activity.agent_thinking_level %}
+                    · {{ activity.get_agent_thinking_level_display }}
+                    {% endif %}
+                </span>
+            </dd>
+        </div>
+        {% elif activity.use_max %}
         <div class="flex justify-between gap-2">
             <dt class="text-gray-500">Model</dt>
             <dd class="text-right text-gray-300">Max</dd>
