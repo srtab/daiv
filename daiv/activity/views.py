@@ -27,6 +27,7 @@ from activity.filters import ActivityFilter
 from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import RepoTarget, submit_batch_runs
+from automation.agent.picker_context import agent_picker_context
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.activity")
@@ -289,6 +290,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         ctx = super().get_context_data(**kwargs)
         ctx["source_activity"] = self._get_source_activity()
         ctx.update(env_picker_context(ctx["form"]))
+        ctx.update(agent_picker_context(ctx["form"]))
         return ctx
 
     def get_form_kwargs(self):
