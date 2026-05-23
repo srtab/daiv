@@ -151,3 +151,35 @@ def test_stale_model_flag_false_for_enabled_provider(providers):
 def test_stale_model_flag_false_when_no_initial_model(providers):
     ctx = agent_picker_context()
     assert ctx["agent_picker_stale_model"] is False
+
+
+def test_stale_model_flag_set_for_bare_name_with_disabled_heuristic_provider(providers):
+    """``parse_model_spec`` accepts bare names via ``_BARE_NAME_HEURISTICS``; if the
+    target slug exists but is disabled (the ``anthropic`` fixture state), the bare
+    name must still be flagged stale or the picker silently renders a dead value."""
+    from core.models import Provider
+
+    Provider.invalidate_cache()
+    ctx = agent_picker_context(initial_model="claude-opus-4-5")
+    assert ctx["agent_picker_initial_model"] == "claude-opus-4-5"
+    assert ctx["agent_picker_stale_model"] is True
+
+
+def test_stale_model_flag_set_for_existing_but_disabled_provider(providers):
+    """A row that resolves via ``parse_model_spec`` but has ``is_enabled=False``
+    must be flagged stale — the prior implementation only checked ``prefix not in
+    enabled_slugs`` which already covered this, but the new ``parse_model_spec``
+    routing must preserve the behaviour."""
+    from core.models import Provider
+
+    Provider.invalidate_cache()
+    ctx = agent_picker_context(initial_model="anthropic:claude-sonnet-4.6")
+    assert ctx["agent_picker_stale_model"] is True
+
+
+def test_stale_model_flag_set_for_unparseable_spec(providers):
+    from core.models import Provider
+
+    Provider.invalidate_cache()
+    ctx = agent_picker_context(initial_model="totally:not-a-real-provider")
+    assert ctx["agent_picker_stale_model"] is True

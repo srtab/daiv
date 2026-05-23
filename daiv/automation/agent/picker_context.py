@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from automation.agent.base import parse_model_spec
 from automation.agent.constants import ModelName
 from core.models import Provider
 
@@ -57,10 +58,17 @@ def agent_picker_context(
         if "agent_thinking_level" in form.fields:
             resolved_thinking = str(form["agent_thinking_level"].value() or "") or resolved_thinking
 
+    # Route through ``parse_model_spec`` so bare-name specs (``claude-opus-4-5``
+    # via ``_BARE_NAME_HEURISTICS``) are flagged identically to colon-prefixed
+    # ones, and so a row that resolves but is disabled also counts as stale.
     stale_model = False
-    if resolved_model and ":" in resolved_model:
-        prefix = resolved_model.split(":", 1)[0]
-        stale_model = prefix not in enabled_slugs
+    if resolved_model:
+        try:
+            resolved = parse_model_spec(resolved_model)
+        except ValueError:
+            stale_model = True
+        else:
+            stale_model = not resolved.row.is_enabled
 
     return {
         "agent_picker_providers": json.dumps(providers),

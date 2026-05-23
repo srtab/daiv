@@ -52,3 +52,20 @@ def test_thinking_level_alone_is_allowed(openrouter_provider):
     model, level = validate_agent_override("", ThinkingLevelChoices.LOW)
     assert model == ""
     assert level == ThinkingLevelChoices.LOW
+
+
+def test_rejects_disabled_provider(db):
+    """A Provider row that exists but has ``is_enabled=False`` must be rejected at
+    submit time, otherwise the deep ``RuntimeError`` inside ``BaseAgent.get_model_kwargs``
+    fires mid-run with no actionable signal at the boundary."""
+    Provider.objects.filter(slug="openrouter").delete()
+    Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=False
+    )
+    Provider.invalidate_cache()
+    try:
+        with pytest.raises(AgentOverrideError) as err:
+            validate_agent_override("openrouter:anthropic/claude-haiku-4.5", "")
+        assert "disabled" in str(err.value).lower()
+    finally:
+        Provider.invalidate_cache()

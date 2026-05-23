@@ -397,4 +397,78 @@ async def test_existing_thread_with_stale_persisted_override_returns_400(
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
     assert response.status_code == 400
+    assert "no longer available" in response.json()["detail"]
+    await user.adelete()
+
+
+@pytest.fixture
+def disabled_openrouter_provider(db):
+    """An ``openrouter`` Provider row exists but is_enabled=False — the "disabled
+    not deleted" case the prior 400 path silently missed."""
+    from core.models import Provider, ProviderType
+
+    Provider.objects.filter(slug="openrouter").delete()
+    Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=False
+    )
+    Provider.invalidate_cache()
+    yield
+    Provider.invalidate_cache()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_existing_thread_with_disabled_provider_returns_400(
+    client: TestAsyncClient, authed, disabled_openrouter_provider
+):
+    """``is_enabled=False`` rows must also fail at the 400 boundary, not deep in
+    ``BaseAgent.get_model_kwargs`` mid-run."""
+    _, raw, user = authed
+    await ChatThread.objects.acreate(
+        thread_id="t-disabled-pin",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        agent_model="openrouter:anthropic/claude-haiku-4.5",
+        agent_thinking_level="low",
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-disabled-pin"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stale_pinned_model_wins_over_divergent_client_override(
+    client: TestAsyncClient, authed, no_openrouter_provider
+):
+    """When a thread is both pinned to a stale model AND the client sends a
+    divergent override, the 400 "start a new thread" must fire first — otherwise
+    the 409 traps the user in a thread that cannot be run either way.
+
+    Forwarded override carries only ``agent_thinking_level`` so it validates
+    against the live Provider table (model is empty); the divergence then comes
+    from the level mismatch with the persisted ``low``.
+    """
+    _, raw, user = authed
+    await ChatThread.objects.acreate(
+        thread_id="t-stale-and-divergent",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        agent_model="openrouter:anthropic/claude-haiku-4.5",
+        agent_thinking_level="low",
+    )
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(
+            threadId="t-stale-and-divergent", forwardedProps={"agent_model": "", "agent_thinking_level": "high"}
+        ),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
     await user.adelete()
