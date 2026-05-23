@@ -73,6 +73,8 @@ class ChatThread(models.Model):
                 "repo_id": activity.repo_id,
                 "ref": activity.ref or "",
                 "title": existing_title or TitlerService.heuristic(activity.prompt or ""),
+                "agent_model": activity.agent_model or "",
+                "agent_thinking_level": activity.agent_thinking_level or "",
             },
         )
         if created and not existing_title and activity.prompt:

@@ -198,3 +198,15 @@ def test_post_django_control_flow_exceptions_propagate(member_client, monkeypatc
     resp = member_client.post(reverse("runs:agent_run_new"), data=_single_repo_post_data())
     # Django middleware renders these as 404/403/400 — not swallowed as "submit failed".
     assert resp.status_code in {400, 403, 404}
+
+
+@pytest.mark.django_db
+def test_post_invalid_agent_model_renders_field_error(member_client):
+    """A malformed ``agent_model`` posted via raw form data must surface as a visible
+    error on the page, not silently re-render with no message.
+    """
+    data = {**_single_repo_post_data(), "agent_model": "bogus:nope"}
+    resp = member_client.post(reverse("runs:agent_run_new"), data=data)
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Unknown provider prefix" in body

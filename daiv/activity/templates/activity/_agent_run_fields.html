@@ -34,10 +34,12 @@
         </div>
     </div>
 
-    <ul {% if not form.prompt.errors and not form.repos.errors %}x-show="conflictMessage" x-cloak{% endif %}
+    <ul {% if not form.prompt.errors and not form.repos.errors and not form.agent_model.errors and not form.agent_thinking_level.errors %}x-show="conflictMessage" x-cloak{% endif %}
         class="border-t border-white/[0.05] px-4 py-2.5 text-sm text-red-400">
         {% for err in form.prompt.errors %}<li>{{ err }}</li>{% endfor %}
         {% for err in form.repos.errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in form.agent_model.errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in form.agent_thinking_level.errors %}<li>{{ err }}</li>{% endfor %}
         <li x-show="conflictMessage" x-cloak x-text="conflictMessage"></li>
     </ul>
 </div>
