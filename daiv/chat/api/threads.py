@@ -50,12 +50,26 @@ class ChatThreadService:
         ref: str,
         input_data: RunAgentInput,
         sandbox_environment: SandboxEnvironment | None = None,
+        agent_model: str = "",
+        agent_thinking_level: str = "",
     ) -> ChatThread:
         """First sight of ``thread_id`` creates the row under ``user``; later calls
         return the existing row regardless of owner. Caller must enforce ownership.
+
+        ``agent_model`` and ``agent_thinking_level`` are pinned at thread creation:
+        they're written to ``defaults`` so the first turn fixes the override and
+        subsequent turns ignore client-supplied values (same lock semantics as
+        ``sandbox_environment``).
         """
         first_message = _extract_first_user_message(input_data)
-        defaults = {"user": user, "repo_id": repo_id, "ref": ref, "title": TitlerService.heuristic(first_message)}
+        defaults = {
+            "user": user,
+            "repo_id": repo_id,
+            "ref": ref,
+            "title": TitlerService.heuristic(first_message),
+            "agent_model": agent_model,
+            "agent_thinking_level": agent_thinking_level,
+        }
         if sandbox_environment is not None:
             defaults["sandbox_environment"] = sandbox_environment
         thread, created = await ChatThread.objects.aget_or_create(thread_id=thread_id, defaults=defaults)

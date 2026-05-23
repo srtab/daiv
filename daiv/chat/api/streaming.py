@@ -10,11 +10,10 @@ from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.utils import build_langsmith_config
+from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
-from core.site_settings import site_settings
 
 from .event_filter import SubagentEventFilter
 from .threads import ChatThreadService
@@ -85,6 +84,8 @@ class ChatRunStreamer:
     input_data: RunAgentInput
     encoder: EventEncoder
     sandbox_environment_id: str | None = None
+    agent_model: str | None = None
+    agent_thinking_level: str | None = None
 
     def __post_init__(self) -> None:
         # The view passes thread_id/run_id alongside input_data; a future refactor
@@ -105,12 +106,20 @@ class ChatRunStreamer:
                     repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref, sandbox_env_id=self.sandbox_environment_id
                 ) as runtime_ctx,
             ):
-                agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
+                agent_kwargs = get_daiv_agent_kwargs(
+                    model_config=runtime_ctx.config.models.agent,
+                    agent_model=self.agent_model,
+                    agent_thinking_level=self.agent_thinking_level,
+                )
+                agent = await create_daiv_agent(
+                    ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore(), **agent_kwargs
+                )
                 langsmith_config = build_langsmith_config(
                     runtime_ctx,
                     trigger="chat",
-                    model=site_settings.agent_model_name,
-                    thinking_level=site_settings.agent_thinking_level,
+                    model=agent_kwargs["model_names"][0],
+                    thinking_level=agent_kwargs["thinking_level"],
+                    extra_metadata={"override_source": "explicit" if self.agent_model else None},
                 )
                 langgraph_agent = RuntimeContextLangGraphAGUIAgent(
                     name="DAIV",

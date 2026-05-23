@@ -9,6 +9,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
 
+from automation.agent.validators import AgentOverrideError, validate_agent_override
 from chat.models import ChatThread
 from core.api.throttling import JobsRateThrottle
 
@@ -64,6 +65,14 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
+    forwarded = getattr(input_data, "forwarded_props", None) or {}
+    try:
+        agent_model, agent_thinking_level = validate_agent_override(
+            forwarded.get("agent_model"), forwarded.get("agent_thinking_level")
+        )
+    except AgentOverrideError as err:
+        raise HttpError(400, str(err)) from err
+
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:
         env_obj = await resolve_env_for_user(user, env_header)
@@ -79,7 +88,14 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         )
 
     thread = await ChatThreadService.get_or_create_for_user(
-        user=user, thread_id=thread_id, repo_id=repo_id, ref=ref, input_data=input_data, sandbox_environment=env_obj
+        user=user,
+        thread_id=thread_id,
+        repo_id=repo_id,
+        ref=ref,
+        input_data=input_data,
+        sandbox_environment=env_obj,
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
     )
     if thread.user_id != user.id:
         raise HttpError(403, "Thread not found")
@@ -96,5 +112,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         input_data=input_data,
         encoder=encoder,
         sandbox_environment_id=(str(thread.sandbox_environment_id) if thread.sandbox_environment_id else None),
+        agent_model=thread.agent_model or None,
+        agent_thinking_level=thread.agent_thinking_level or None,
     )
     return StreamingHttpResponse(streamer.events(), content_type=encoder.get_content_type())
