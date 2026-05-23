@@ -28,6 +28,10 @@
             </div>
 
             <span class="card__title">{{ skill.name }}</span>
+            <span class="ml-2 inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-xs text-gray-300"
+                  title="{% translate 'Lifetime invocations' %}">
+                {{ skill.invocations_count|default:0 }}
+            </span>
             <p class="card__description">{{ skill.description }}</p>
 
             <div class="mt-3">

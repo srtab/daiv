@@ -273,6 +273,61 @@ def test_detail_404_when_disk_missing(client, admin_user, storage):
     assert resp.status_code == 404
 
 
+import uuid  # noqa: E402
+
+
+@pytest.mark.django_db
+def test_list_view_annotates_invocations_count(admin_client):
+    from skills.models import SkillInvocation
+
+    custom = GlobalSkill.objects.create(name="custom-one", description="x", size_bytes=10, file_count=1, checksum="c")
+    # 2 invocations for the custom skill, 3 for a built-in named "plan".
+    for _ in range(2):
+        SkillInvocation.objects.create(
+            name=custom.name, source=SkillInvocation.Source.GLOBAL, repo_slug="r", thread_id=uuid.uuid4()
+        )
+    for _ in range(3):
+        SkillInvocation.objects.create(
+            name="plan", source=SkillInvocation.Source.BUILTIN, repo_slug="r", thread_id=uuid.uuid4()
+        )
+
+    response = admin_client.get(reverse("skills:list"))
+    assert response.status_code == 200
+
+    custom_rows = response.context["custom_skills"]
+    builtin_rows = response.context["builtin_skills"]
+
+    assert next(s for s in custom_rows if s.name == "custom-one").invocations_count == 2
+    assert next(s for s in builtin_rows if s["name"] == "plan")["invocations_count"] == 3
+
+
+@pytest.mark.django_db
+def test_list_view_aggregate_runs_once(admin_client, django_assert_num_queries):
+    from django.db import connection
+
+    from skills.models import SkillInvocation  # noqa: F401 (ensure table exists)
+
+    GlobalSkill.objects.create(name="a", description="x", size_bytes=1, file_count=1, checksum="c")
+    GlobalSkill.objects.create(name="b", description="x", size_bytes=1, file_count=1, checksum="c")
+
+    # One aggregate query for invocations, on top of the existing list queries.
+    _count_invocation_queries = _SqlCounter("skills_skillinvocation")
+    with connection.execute_wrapper(_count_invocation_queries):
+        admin_client.get(reverse("skills:list"))
+    assert _count_invocation_queries.matched == 1
+
+
+class _SqlCounter:
+    def __init__(self, table: str):
+        self.table = table
+        self.matched = 0
+
+    def __call__(self, execute, sql, params, many, context):
+        if self.table in sql:
+            self.matched += 1
+        return execute(sql, params, many, context)
+
+
 @pytest.mark.django_db
 def test_upload_post_surfaces_storage_oserror(client, admin_user, storage, build_skill_zip):
     """A disk failure inside SkillStorage.replace must re-render the form with an inline error, not 500."""

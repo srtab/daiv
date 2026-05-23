@@ -3,11 +3,15 @@
     {% if builtin_skills %}
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {% for skill in builtin_skills %}
-        <div class="card">
+        <a href="{% url 'skills:detail' skill.name %}" class="card block">
             <span class="card__corner-badge">{% translate "Built-in" %}</span>
             <span class="card__title">{{ skill.name }}</span>
+            <span class="ml-2 inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-xs text-gray-300"
+                  title="{% translate 'Lifetime invocations' %}">
+                {{ skill.invocations_count|default:0 }}
+            </span>
             <p class="card__description card__description--lg">{{ skill.description }}</p>
-        </div>
+        </a>
         {% endfor %}
     </div>
     {% else %}

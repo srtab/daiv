@@ -4,6 +4,7 @@ import logging
 import stat
 
 from django.contrib import messages
+from django.db.models import Count
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -14,7 +15,7 @@ from django.views.generic import TemplateView
 from accounts.mixins import AdminRequiredMixin
 from skills.constants import FRONTMATTER_RE, MAX_FILES, ZIPS_DIR
 from skills.forms import SkillUploadForm
-from skills.models import GlobalSkill
+from skills.models import GlobalSkill, SkillInvocation
 from skills.services import SkillStorage, SkillStorageError, list_builtins
 
 logger = logging.getLogger("daiv.skills")
@@ -25,8 +26,23 @@ class SkillListView(AdminRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["custom_skills"] = list(GlobalSkill.objects.select_related("uploaded_by"))
-        ctx["builtin_skills"] = list_builtins()
+        custom_qs = GlobalSkill.objects.select_related("uploaded_by")
+        custom_skills = list(custom_qs)
+        builtin_skills = list_builtins()
+
+        # Single grouped query keyed by (name, source).
+        counts = {
+            (row["name"], row["source"]): row["c"]
+            for row in (SkillInvocation.objects.values("name", "source").annotate(c=Count("id")))
+        }
+
+        for skill in custom_skills:
+            skill.invocations_count = counts.get((skill.name, SkillInvocation.Source.GLOBAL), 0)
+        for entry in builtin_skills:
+            entry["invocations_count"] = counts.get((entry["name"], SkillInvocation.Source.BUILTIN), 0)
+
+        ctx["custom_skills"] = custom_skills
+        ctx["builtin_skills"] = builtin_skills
         return ctx
 
 
