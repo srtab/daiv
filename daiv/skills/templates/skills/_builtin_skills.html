@@ -5,11 +5,12 @@
         {% for skill in builtin_skills %}
         <a href="{% url 'skills:detail' skill.name %}" class="card block">
             <span class="card__corner-badge">{% translate "Built-in" %}</span>
-            <span class="card__title">{{ skill.name }}</span>
-            <span class="ml-2 inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-xs text-gray-300"
-                  title="{% translate 'Lifetime invocations' %}">
-                {{ skill.invocations_count|default:0 }}
-            </span>
+            <div class="flex items-baseline gap-1.5">
+                <span class="card__title">{{ skill.name }}</span>
+                <span class="card__count-badge" title="{% translate 'Lifetime invocations' %}">
+                    {{ skill.invocations_count }}
+                </span>
+            </div>
             <p class="card__description card__description--lg">{{ skill.description }}</p>
         </a>
         {% endfor %}

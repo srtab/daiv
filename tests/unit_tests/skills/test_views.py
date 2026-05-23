@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import uuid
 from unittest.mock import patch
 
 from django.contrib.messages import get_messages
@@ -273,7 +274,15 @@ def test_detail_404_when_disk_missing(client, admin_user, storage):
     assert resp.status_code == 404
 
 
-import uuid  # noqa: E402
+class _SqlCounter:
+    def __init__(self, table: str):
+        self.table = table
+        self.matched = 0
+
+    def __call__(self, execute, sql, params, many, context):
+        if self.table in sql:
+            self.matched += 1
+        return execute(sql, params, many, context)
 
 
 @pytest.mark.django_db
@@ -302,7 +311,7 @@ def test_list_view_annotates_invocations_count(admin_client):
 
 
 @pytest.mark.django_db
-def test_list_view_aggregate_runs_once(admin_client, django_assert_num_queries):
+def test_list_view_aggregate_runs_once(admin_client):
     from django.db import connection
 
     from skills.models import SkillInvocation  # noqa: F401 (ensure table exists)
@@ -315,17 +324,6 @@ def test_list_view_aggregate_runs_once(admin_client, django_assert_num_queries):
     with connection.execute_wrapper(_count_invocation_queries):
         admin_client.get(reverse("skills:list"))
     assert _count_invocation_queries.matched == 1
-
-
-class _SqlCounter:
-    def __init__(self, table: str):
-        self.table = table
-        self.matched = 0
-
-    def __call__(self, execute, sql, params, many, context):
-        if self.table in sql:
-            self.matched += 1
-        return execute(sql, params, many, context)
 
 
 @pytest.mark.django_db
