@@ -388,6 +388,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     def _skill_tool_generator(self) -> BaseTool:
         """Generate a skill tool."""
+        from skills.services import _record_invocation
 
         async def skill_tool(
             skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],
@@ -441,8 +442,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             }
             if skill_mode:
                 update["active_skill_mode"] = skill_mode
-
-            from skills.services import _record_invocation
 
             await _record_invocation(name=skill, skill_path=loaded_skill["path"], runtime=runtime)
 

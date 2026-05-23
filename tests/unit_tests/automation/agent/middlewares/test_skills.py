@@ -377,8 +377,11 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        result = await tool.coroutine(skill="missing", runtime=runtime)
+        with patch("skills.services.SkillInvocation.objects.acreate", new_callable=AsyncMock) as mock_acreate:
+            result = await tool.coroutine(skill="missing", runtime=runtime)
+
         assert result == "error: Skill 'missing' not found. Available skills: demo."
+        mock_acreate.assert_not_awaited()
 
     async def test_skill_tool_reports_download_failure(self):
         backend = Mock()
@@ -390,8 +393,11 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        result = await tool.coroutine(skill="demo", runtime=runtime)
+        with patch("skills.services.SkillInvocation.objects.acreate", new_callable=AsyncMock) as mock_acreate:
+            result = await tool.coroutine(skill="demo", runtime=runtime)
+
         assert result == "error: Failed to launch skill 'demo': boom."
+        mock_acreate.assert_not_awaited()
 
     async def test_skill_tool_formats_body_with_arguments(self):
         backend = Mock()
@@ -410,7 +416,9 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="alpha beta")
+        with patch("skills.services._record_invocation", new_callable=AsyncMock):
+            result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="alpha beta")
+
         assert isinstance(result, Command)
         messages = result.update["messages"]
         assert isinstance(messages[0], ToolMessage)
@@ -430,7 +438,9 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="--flag=1")
+        with patch("skills.services._record_invocation", new_callable=AsyncMock):
+            result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="--flag=1")
+
         assert isinstance(result, Command)
         messages = result.update["messages"]
         assert messages[1].content.endswith("\n\n$ARGUMENTS: --flag=1")
