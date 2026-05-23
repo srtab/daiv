@@ -5,6 +5,8 @@ from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 from ninja import Field, Schema
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime by Pydantic
 
+from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
+
 
 class RepoSubmitItem(Schema):
     repo_id: str = Field(min_length=1)
@@ -14,7 +16,8 @@ class RepoSubmitItem(Schema):
 class JobSubmitRequest(Schema):
     repos: list[RepoSubmitItem] = Field(min_length=1, max_length=20)
     prompt: str = Field(min_length=1)
-    use_max: bool = False
+    agent_model: str | None = None
+    agent_thinking_level: ThinkingLevelChoices | None = None
     notify_on: NotifyOn | None = None
     environment: str | None = None
     thread_id: UUID | None = None
