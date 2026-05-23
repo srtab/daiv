@@ -36,7 +36,7 @@ async def test_run_job_task_uses_async_redis_saver_with_thread_id():
         cp_ctx.return_value.__aenter__.return_value = sentinel_checkpointer
         rc_ctx.return_value.__aenter__.return_value = runtime_ctx
 
-        await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", use_max=False, thread_id="t-123")
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", ref="main", thread_id="t-123")
 
     cp_ctx.assert_called_once()
     call_kwargs = agent.ainvoke.call_args.kwargs
@@ -79,3 +79,49 @@ async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
         await run_job_task.func(repo_id="r/p", prompt="p", thread_id="t1", sandbox_environment_id="env-uuid")
 
     assert captured["sandbox_env_id"] == "env-uuid"
+
+
+@pytest.mark.django_db
+async def test_run_job_task_forwards_overrides():
+    """When called with explicit overrides, the override pair flows into get_daiv_agent_kwargs."""
+    last_message = MagicMock()
+    last_message.content = "ok"
+    fake_result = {"messages": [last_message]}
+
+    runtime_ctx = MagicMock()
+    runtime_ctx.config.models.agent = MagicMock()
+
+    agent = AsyncMock()
+    agent.ainvoke = AsyncMock(return_value=fake_result)
+
+    captured_kwargs: dict = {}
+
+    def capture(**kwargs):
+        captured_kwargs.update(kwargs)
+        return {"model_names": ["captured"], "thinking_level": kwargs.get("agent_thinking_level")}
+
+    with (
+        patch("jobs.tasks.open_checkpointer") as cp_ctx,
+        patch("jobs.tasks.set_runtime_ctx") as rc_ctx,
+        patch("jobs.tasks.create_daiv_agent", new=AsyncMock(return_value=agent)),
+        patch("jobs.tasks.get_daiv_agent_kwargs", side_effect=capture),
+        patch("jobs.tasks.build_langsmith_config", return_value={}),
+        patch("jobs.tasks.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("jobs.tasks.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
+        patch("jobs.tasks.track_usage_metadata"),
+    ):
+        cp_ctx.return_value.__aenter__.return_value = object()
+        rc_ctx.return_value.__aenter__.return_value = runtime_ctx
+
+        await run_job_task.func(
+            repo_id="owner/repo",
+            prompt="hi",
+            ref="main",
+            thread_id="t-123",
+            agent_model="openrouter:anthropic/claude-haiku-4.5",
+            agent_thinking_level="low",
+        )
+
+    assert captured_kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert captured_kwargs["agent_thinking_level"] == "low"
+    assert "use_max" not in captured_kwargs
