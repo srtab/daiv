@@ -40,6 +40,22 @@ def test_classify_source_repo_when_path_outside_global_skills_path():
         )
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_record_invocation_warns_on_unclassified_path(caplog):
+    """A REPO classification on a path that doesn't look like a per-repo
+    .agents/skills layout should surface a warning so a new skill location
+    doesn't silently land in the REPO bucket."""
+    import logging
+
+    from skills.services import _record_invocation
+
+    rt = _runtime()
+    caplog.set_level(logging.WARNING, logger="daiv.skills")
+    with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()):
+        await _record_invocation(name="weird", skill_path="/some/weird/location/weird/SKILL.md", runtime=rt)
+    assert any("unclassified skill path" in rec.message for rec in caplog.records)
+
+
 def _runtime(*, repo_slug: str = "org/repo", thread_id: str | None = None) -> MagicMock:
     rt = MagicMock()
     rt.context.repository.slug = repo_slug
@@ -64,12 +80,14 @@ async def test_record_invocation_creates_row():
 
 @pytest.mark.django_db(transaction=True)
 async def test_record_invocation_swallows_db_errors(caplog):
+    from django.db import DatabaseError
+
     from skills.services import _record_invocation
 
     rt = _runtime()
     with (
         patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()),
-        patch.object(SkillInvocation.objects, "acreate", new=AsyncMock(side_effect=RuntimeError("db down"))),
+        patch.object(SkillInvocation.objects, "acreate", new=AsyncMock(side_effect=DatabaseError("db down"))),
     ):
         # Must not raise — telemetry failure cannot abort a skill invocation.
         await _record_invocation(name="anything", skill_path="/skills/anything/SKILL.md", runtime=rt)
@@ -86,5 +104,20 @@ async def test_record_invocation_swallows_missing_thread_id(caplog):
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()):
         await _record_invocation(name="anything", skill_path="/skills/anything/SKILL.md", runtime=rt)
     # No row created and the failure was logged.
+    assert await SkillInvocation.objects.acount() == 0
+    assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_record_invocation_swallows_none_config(caplog):
+    """A None runtime.config subscripted yields TypeError, not KeyError. The
+    handler must still swallow it so a broken runtime can't abort the agent."""
+    from skills.services import _record_invocation
+
+    rt = MagicMock()
+    rt.context.repository.slug = "org/repo"
+    rt.config = None
+    with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()):
+        await _record_invocation(name="anything", skill_path="/skills/anything/SKILL.md", runtime=rt)
     assert await SkillInvocation.objects.acount() == 0
     assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)

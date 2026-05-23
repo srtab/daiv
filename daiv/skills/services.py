@@ -14,6 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO
 
+from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
 
 import yaml
@@ -283,33 +284,47 @@ class SkillPackage:
 def _classify_source(name: str, skill_path: str) -> SkillInvocation.Source:
     """Classify a skill invocation by name + virtual path.
 
-    Built-ins are detected by name (the storage layer forbids name collisions
-    with built-ins, so a built-in name unambiguously denotes a built-in even
-    when the same virtual path also holds custom-global files). Anything else
-    under ``GLOBAL_SKILLS_PATH`` is a custom global; everything outside is a
-    per-repo skill.
+    A name in ``BUILTIN_SKILL_NAMES`` is always a built-in (the storage layer
+    forbids name collisions). Any other path under ``GLOBAL_SKILLS_PATH`` is a
+    custom global. Anything else is treated as per-repo; if a new skill
+    location is introduced and not added here, the caller logs a warning.
     """
     if name in BUILTIN_SKILL_NAMES:
         return SkillInvocation.Source.BUILTIN
-    if skill_path.startswith(GLOBAL_SKILLS_PATH + "/") or skill_path == GLOBAL_SKILLS_PATH:
+    if skill_path.startswith(GLOBAL_SKILLS_PATH + "/"):
         return SkillInvocation.Source.GLOBAL
     return SkillInvocation.Source.REPO
 
 
 async def _record_invocation(name: str, skill_path: str, runtime: ToolRuntime[RuntimeCtx, SkillsState]) -> None:
-    """Persist a SkillInvocation row; swallow & log any failure.
+    """Persist a SkillInvocation row.
 
-    Called from ``SkillsMiddleware._skill_tool_generator`` right before the
-    Command returns. Telemetry failure must never abort a skill invocation,
-    so every exception is logged and discarded.
+    Telemetry failure must never abort a skill invocation, so DB and
+    validation errors are logged and discarded. Invariant violations
+    (missing thread_id or repository context) are logged separately — they
+    indicate an architectural bug, not a transient telemetry hiccup, but
+    they still cannot be allowed to block the agent.
     """
     try:
         source = _classify_source(name, skill_path)
-        thread_id = runtime.config["configurable"]["thread_id"]
-        await SkillInvocation.objects.acreate(
-            name=name, source=source, repo_slug=runtime.context.repository.slug, thread_id=thread_id
-        )
-    except Exception:
+        # A repo-classified path that doesn't look like a per-repo .agents/skills
+        # layout means a new skill location appeared and _classify_source needs
+        # updating — surface it instead of silently lumping it into REPO.
+        if source is SkillInvocation.Source.REPO and "/.agents/skills/" not in skill_path:
+            logger.warning("unclassified skill path %r for skill %r", skill_path, name)
+        try:
+            thread_id = runtime.config["configurable"]["thread_id"]
+            repo_slug = runtime.context.repository.slug
+        except KeyError, AttributeError, TypeError:
+            # TypeError covers the case where runtime.config or its
+            # "configurable" entry is None (subscripting None raises TypeError,
+            # not KeyError). All three are invariant violations rather than
+            # transient telemetry failures, but the docstring guarantee that
+            # recording cannot abort the agent still applies.
+            logger.exception("Failed to record skill invocation for %r: missing thread_id or repository context", name)
+            return
+        await SkillInvocation.objects.acreate(name=name, source=source, repo_slug=repo_slug, thread_id=thread_id)
+    except DatabaseError, ValidationError:
         logger.exception("Failed to record skill invocation for %r", name)
 
 

@@ -416,7 +416,7 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        with patch("skills.services._record_invocation", new_callable=AsyncMock):
+        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="alpha beta")
 
         assert isinstance(result, Command)
@@ -438,7 +438,7 @@ class TestSkillsMiddleware:
         runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
-        with patch("skills.services._record_invocation", new_callable=AsyncMock):
+        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime, skill_args="--flag=1")
 
         assert isinstance(result, Command)

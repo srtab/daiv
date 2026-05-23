@@ -1800,4 +1800,7 @@ main:has(.chat-shell) {
   .skill-usage-chart canvas {
     @apply block w-full;
   }
+  .skill-usage-chart-fallback {
+    @apply mt-3 text-sm text-gray-400;
+  }
 }

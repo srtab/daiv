@@ -316,8 +316,6 @@ def test_list_view_annotates_invocations_count(admin_client):
 def test_list_view_aggregate_runs_once(admin_client):
     from django.db import connection
 
-    from skills.models import SkillInvocation  # noqa: F401 (ensure table exists)
-
     GlobalSkill.objects.create(name="a", description="x", size_bytes=1, file_count=1, checksum="c")
     GlobalSkill.objects.create(name="b", description="x", size_bytes=1, file_count=1, checksum="c")
 
@@ -384,20 +382,21 @@ def test_full_admin_journey(client, admin_user, storage, build_skill_zip):
 
 
 @pytest.mark.django_db
-def test_detail_view_renders_builtin_without_global_skill_row(admin_client, tmp_path, monkeypatch):
+def test_detail_view_renders_builtin_without_global_skill_row(admin_client, tmp_path, monkeypatch, request):
     builtin = tmp_path / "builtin_skills"
     (builtin / "plan").mkdir(parents=True)
     (builtin / "plan" / "SKILL.md").write_text("---\nname: plan\ndescription: plan stuff\n---\n# plan\n")
-    # Make BUILTIN_SKILL_NAMES and BUILTIN_SKILLS_PATH point at our fixture.
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
     monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
-    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}), raising=False)
-    monkeypatch.setattr("skills.views.BUILTIN_SKILLS_PATH", builtin, raising=False)
-    # list_builtins is lru_cached and may have been populated by an earlier test
-    # against the real BUILTIN_SKILLS_PATH; drop the cache so our monkeypatch takes effect.
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILLS_PATH", builtin)
+    # list_builtins is lru_cached: clear before populating it against tmp_path,
+    # and register a teardown so the next test doesn't see entries pointing at
+    # a now-deleted tmp dir.
     from skills.services import list_builtins
 
     list_builtins.cache_clear()
+    request.addfinalizer(list_builtins.cache_clear)
 
     response = admin_client.get(reverse("skills:detail", args=["plan"]))
     assert response.status_code == 200
@@ -449,6 +448,30 @@ def test_detail_view_empty_usage(admin_client, admin_user, storage, build_skill_
     assert usage["last_30_total"] == 0
     assert all(entry["count"] == 0 for entry in usage["daily_series"])
     assert usage["recent"] == []
+
+
+@pytest.mark.django_db
+def test_detail_view_builtin_missing_skill_md_logs_and_404s(admin_client, tmp_path, monkeypatch, request, caplog):
+    """If a built-in's SKILL.md is missing on disk the response is still 404
+    (to the user) but a logger.error must fire so Sentry catches the
+    deployment defect."""
+    import logging
+
+    builtin = tmp_path / "builtin_skills"
+    (builtin / "broken").mkdir(parents=True)  # directory exists but no SKILL.md
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"broken"}))
+    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"broken"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILLS_PATH", builtin)
+    from skills.services import list_builtins
+
+    list_builtins.cache_clear()
+    request.addfinalizer(list_builtins.cache_clear)
+
+    caplog.set_level(logging.ERROR, logger="daiv.skills")
+    response = admin_client.get(reverse("skills:detail", args=["broken"]))
+    assert response.status_code == 404
+    assert any("missing SKILL.md" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.django_db

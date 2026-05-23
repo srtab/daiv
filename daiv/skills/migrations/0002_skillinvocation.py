@@ -42,15 +42,16 @@ class Migration(migrations.Migration):
                         verbose_name="source",
                     ),
                 ),
-                ("repo_slug", models.CharField(db_index=True, max_length=255, verbose_name="repository")),
-                ("thread_id", models.UUIDField(db_index=True, verbose_name="thread id")),
+                ("repo_slug", models.CharField(max_length=255, verbose_name="repository")),
+                ("thread_id", models.UUIDField(verbose_name="thread id")),
             ],
             options={
-                "indexes": [
-                    models.Index(fields=["name", "source"], name="skills_skil_name_c94bc0_idx"),
-                    models.Index(fields=["name", "source", "-created"], name="skills_skil_name_1c5300_idx"),
-                    models.Index(fields=["-created"], name="skills_skil_created_216a45_idx"),
-                ]
+                "indexes": [models.Index(fields=["name", "source", "-created"], name="skills_skil_name_1c5300_idx")],
+                "constraints": [
+                    models.CheckConstraint(
+                        condition=models.Q(repo_slug__gt=""), name="skillinvocation_repo_slug_nonempty"
+                    )
+                ],
             },
         )
     ]

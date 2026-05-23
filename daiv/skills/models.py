@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
@@ -49,15 +50,15 @@ class SkillInvocation(TimeStampedModel):
 
     name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=SKILL_NAME_RE)])
     source = models.CharField(_("source"), max_length=16, choices=Source.choices)
-    repo_slug = models.CharField(_("repository"), max_length=255, db_index=True)
-    thread_id = models.UUIDField(_("thread id"), db_index=True)
+    repo_slug = models.CharField(_("repository"), max_length=255)
+    thread_id = models.UUIDField(_("thread id"))
 
     class Meta:
-        indexes = [
-            models.Index(fields=["name", "source"]),
-            models.Index(fields=["name", "source", "-created"]),
-            models.Index(fields=["-created"]),
-        ]
+        # (name, source, -created) covers every read path: the list-view
+        # GROUP BY (name, source) for counts and the detail-view filter on
+        # (name, source) + TruncDate(created) for the 30-day chart.
+        indexes = [models.Index(fields=["name", "source", "-created"])]
+        constraints = [models.CheckConstraint(condition=Q(repo_slug__gt=""), name="skillinvocation_repo_slug_nonempty")]
 
     def __str__(self) -> str:
         return f"{self.name} ({self.source}) @ {self.created:%Y-%m-%d %H:%M}"

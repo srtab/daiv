@@ -14,6 +14,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
+from skills.services import _record_invocation
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
@@ -388,7 +389,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     def _skill_tool_generator(self) -> BaseTool:
         """Generate a skill tool."""
-        from skills.services import _record_invocation
 
         async def skill_tool(
             skill: Annotated[str, "The skill name. E.g. 'code-review' or 'web-research'"],

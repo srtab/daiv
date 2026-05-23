@@ -32,12 +32,10 @@ class SkillListView(AdminRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         custom_qs = GlobalSkill.objects.select_related("uploaded_by")
         custom_skills = list(custom_qs)
-        # list_builtins() returns the SAME list of dicts on every call (lru_cache). We then
-        # annotate each entry with an invocations_count; copying first keeps the cache pristine
-        # for the next request and avoids a write race under concurrent traffic.
+        # list_builtins() returns an lru_cached list of shared dicts; shallow-copy
+        # each entry before annotating so we don't mutate cached state.
         builtin_skills = [dict(entry) for entry in list_builtins()]
 
-        # Single grouped query keyed by (name, source).
         counts = {
             (row["name"], row["source"]): row["c"]
             for row in (SkillInvocation.objects.values("name", "source").annotate(c=Count("id")))
@@ -120,6 +118,10 @@ class SkillDetailView(AdminRequiredMixin, View):
         try:
             skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
         except FileNotFoundError as err:
+            # Missing built-in SKILL.md is a deployment defect, not a client
+            # error — log loudly so Sentry catches it even though we still
+            # have to return 404 to the browser.
+            logger.error("Built-in skill %r is missing SKILL.md at %s", name, root)
             raise Http404("built-in skill files missing on disk") from err
         body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
         description = next((entry["description"] for entry in list_builtins() if entry["name"] == name), "")
