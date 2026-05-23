@@ -1,0 +1,45 @@
+{% load humanize i18n %}
+<section class="animate-fade-up mt-8" style="animation-delay: 200ms">
+    <h2 class="text-lg font-semibold">{% translate "Usage" %}</h2>
+
+    <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+            <div class="text-xs uppercase tracking-wide text-gray-500">
+                {% translate "Total invocations" %}
+            </div>
+            <div class="mt-1 text-2xl font-semibold text-white">
+                {{ usage.total|intcomma }}
+            </div>
+        </div>
+        <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 sm:col-span-2">
+            <div class="text-xs uppercase tracking-wide text-gray-500">
+                {% translate "Last 30 days" %}
+            </div>
+            {% if usage.total == 0 %}
+                <p class="mt-3 text-sm text-gray-400">
+                    {% translate "No usage in the last 30 days." %}
+                </p>
+            {% else %}
+                <div class="skill-usage-chart mt-2">
+                    <canvas id="skill-usage-canvas" height="140"></canvas>
+                </div>
+                {{ usage.daily_series|json_script:"skill-usage-data" }}
+            {% endif %}
+        </div>
+    </div>
+
+    {% if usage.recent %}
+    <h3 class="mt-6 text-sm font-semibold text-gray-300">
+        {% translate "Recent activity" %}
+    </h3>
+    <ul class="mt-2 divide-y divide-white/[0.06] rounded-2xl border border-white/[0.06]">
+        {% for inv in usage.recent %}
+        <li class="flex items-center justify-between gap-4 px-4 py-2 text-sm">
+            <span class="text-gray-300">{{ inv.created|date:"Y-m-d H:i" }}</span>
+            <span class="font-mono text-xs text-gray-400">{{ inv.repo_slug }}</span>
+            <span class="font-mono text-xs text-gray-500">{{ inv.thread_id }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>

@@ -1,9 +1,19 @@
 {% extends "base_app.html" %}
-{% load i18n icon_tags %}
+{% load i18n icon_tags static %}
 
 {% block title %}{{ skill.name }} — {% translate "Skills" %} — DAIV{% endblock %}
 
 {% block container_width %}max-w-4xl{% endblock %}
+
+{% block alpine_plugins %}
+{% if usage.total > 0 %}
+<script defer
+        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"
+        integrity="sha384-b0GXujLkk9eYYSmcSfoyZbfyElGAQnDyY0skCHSG6w3JgTMFnz11ggrTAr7seu9f"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'skills/js/usage_chart.js' %}"></script>
+{% endif %}
+{% endblock alpine_plugins %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
@@ -78,4 +88,6 @@
         {% endfor %}
     </ul>
 </section>
+
+{% include "skills/_skill_usage.html" %}
 {% endblock app_content %}
