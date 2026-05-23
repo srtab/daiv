@@ -8,16 +8,25 @@ import pytest
 from activity.forms import AgentRunCreateForm, RepoListField
 from notifications.choices import NotifyOn
 
+from core.models import Provider, ProviderType
+
 
 def _valid(**overrides):
     data = {
         "prompt": "do the thing",
         "repos": json.dumps([{"repo_id": "acme/repo", "ref": "main"}]),
-        "use_max": False,
         "notify_on": NotifyOn.NEVER,
     }
     data.update(overrides)
     return data
+
+
+@pytest.fixture
+def openrouter_provider(db):
+    Provider.objects.filter(slug="openrouter").delete()
+    return Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=True
+    )
 
 
 class TestAgentRunCreateForm:
@@ -79,6 +88,40 @@ def test_notify_on_round_trips(notify_on):
     form = AgentRunCreateForm(data=_valid(notify_on=notify_on))
     assert form.is_valid(), form.errors
     assert form.cleaned_data["notify_on"] == notify_on
+
+
+class TestAgentOverrideField:
+    """``agent_model`` / ``agent_thinking_level`` validate via ``validate_agent_override``."""
+
+    @pytest.mark.django_db
+    def test_form_validates_agent_model(self, openrouter_provider):
+        form = AgentRunCreateForm(data=_valid(agent_model="bogus:nope", agent_thinking_level=""))
+        assert not form.is_valid()
+        assert "agent_model" in form.errors
+
+    @pytest.mark.django_db
+    def test_form_accepts_valid_pair(self, openrouter_provider):
+        form = AgentRunCreateForm(
+            data=_valid(agent_model="openrouter:anthropic/claude-haiku-4.5", agent_thinking_level="low")
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+        assert form.cleaned_data["agent_thinking_level"] == "low"
+
+    @pytest.mark.django_db
+    def test_form_accepts_empty_override(self):
+        # Both fields empty: validator returns ("", "") without touching Provider.
+        form = AgentRunCreateForm(data=_valid())
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["agent_model"] == ""
+        assert form.cleaned_data["agent_thinking_level"] == ""
+
+    @pytest.mark.django_db
+    def test_form_rejects_invalid_thinking_level(self):
+        # ChoiceField rejects unknown values before our clean() runs — surfaced on the field.
+        form = AgentRunCreateForm(data=_valid(agent_thinking_level="extreme"))
+        assert not form.is_valid()
+        assert "agent_thinking_level" in form.errors
 
 
 class _OptionalRepoForm(forms.Form):
