@@ -143,7 +143,42 @@ async def test_submit_job_passes_ref():
         assert kwargs["thread_id"]
 
 
-# NOTE: use_max-based MCP test removed; Task 9 adds new tests for agent_model/agent_thinking_level.
+@pytest.fixture
+def openrouter_provider(db):
+    from core.models import Provider, ProviderType
+
+    Provider.objects.filter(slug="openrouter").delete()
+    return Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=True
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_unknown_provider():
+    with _patch_acreate():
+        payload = await submit_job(
+            repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix it", agent_model="bogus:nope"
+        )
+    body = json.loads(payload)
+    assert "Unknown provider prefix" in body["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_agent_override(openrouter_provider):
+    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+        mock_task.aenqueue = AsyncMock(return_value=_mock_task())
+        await submit_job(
+            repos=[{"repo_id": "group/project", "ref": None}],
+            prompt="Fix the bug",
+            agent_model="openrouter:anthropic/claude-haiku-4.5",
+            agent_thinking_level="low",
+        )
+
+    assert mock_create.await_args.kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert mock_create.await_args.kwargs["agent_thinking_level"] == "low"
+    enqueue_kwargs = mock_task.aenqueue.call_args.kwargs
+    assert enqueue_kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert enqueue_kwargs["agent_thinking_level"] == "low"
 
 
 @pytest.mark.django_db(transaction=True)
