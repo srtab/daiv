@@ -98,15 +98,11 @@ def test_none_field_values_normalised_to_empty(providers):
     assert ctx["agent_picker_initial_thinking"] == ""
 
 
-def test_models_grouped_by_provider(providers):
-    form = _StubForm([], {})
-    ctx = agent_picker_context(form)
-    models = json.loads(ctx["agent_picker_models"])
-    # ``ModelName`` enum is openrouter-only at time of writing — disabling
-    # anthropic should leave it absent from the models dict entirely.
-    assert "openrouter" in models
-    assert len(models["openrouter"]) > 0
-    assert "anthropic" not in models
+def test_models_dict_is_empty_after_dynamic_catalog(providers):
+    """The picker no longer ships server-rendered model suggestions; the
+    frontend fetches them on demand via ``automation:agent_models``."""
+    ctx = agent_picker_context()
+    assert json.loads(ctx["agent_picker_models"]) == {}
 
 
 def test_provider_uses_display_name_as_label(providers):

@@ -13,7 +13,6 @@ import json
 from typing import Any
 
 from automation.agent.base import parse_model_spec
-from automation.agent.constants import ModelName
 from core.models import Provider
 
 
@@ -22,11 +21,11 @@ def agent_picker_context(
 ) -> dict[str, Any]:
     """Build context vars for the ``_agent_picker.html`` partial.
 
-    Providers come from ``Provider.objects.filter(is_enabled=True)``; the model
-    suggestions are sourced from the :class:`ModelName` enum, grouped by provider
-    slug prefix. Free-text model names are still accepted server-side via
-    :func:`automation.agent.base.parse_model_spec` — the suggestions are only a
-    convenience for the dropdown.
+    Providers come from ``Provider.objects.filter(is_enabled=True)``. The model
+    catalog itself is no longer rendered server-side: the Alpine component
+    fetches it from ``automation:agent_models`` on first popover open. We still
+    ship the enabled providers (label + slug) and the stale-model flag — both
+    are cheap to compute synchronously.
 
     ``form`` (optional) is a bound Django form. When provided, initial values for
     ``agent_model`` and ``agent_thinking_level`` are read via ``form[field].value()``
@@ -43,12 +42,6 @@ def agent_picker_context(
         {"slug": row.slug, "label": row.display_name or row.slug.replace("_", " ").title()}
         for row in Provider.objects.filter(is_enabled=True).order_by("sort_order", "slug")
     ]
-    enabled_slugs = {p["slug"] for p in providers}
-    models: dict[str, list[str]] = {slug: [] for slug in enabled_slugs}
-    for spec in ModelName:
-        prefix, name = spec.value.split(":", 1)
-        if prefix in models:
-            models[prefix].append(name)
 
     resolved_model = initial_model
     resolved_thinking = initial_thinking_level
@@ -72,7 +65,10 @@ def agent_picker_context(
 
     return {
         "agent_picker_providers": json.dumps(providers),
-        "agent_picker_models": json.dumps(models),
+        # Kept as an empty JSON object for backwards-compatibility with templates
+        # that haven't migrated to the dynamic fetch URL yet. The Alpine component
+        # populates the live catalog via the ``catalogUrl`` prop instead.
+        "agent_picker_models": "{}",
         "agent_picker_initial_model": resolved_model,
         "agent_picker_initial_thinking": resolved_thinking,
         "agent_picker_stale_model": stale_model,

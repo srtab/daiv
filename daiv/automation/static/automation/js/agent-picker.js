@@ -1,32 +1,30 @@
 /**
  * Alpine component: agent model + thinking-effort pill + popover.
  *
- * Mirrors the structure of ``sandbox_envs/js/env-picker.js`` — same registration
- * pattern (``Alpine.data`` inside ``alpine:init``), same popover idioms — but the
- * picker carries TWO pieces of state (provider/model and effort) instead of one.
+ * The model catalog is no longer rendered server-side — we fetch it on first
+ * popover open via ``catalogUrl`` and hold the result for the page lifetime.
+ * The search input doubles as a free-text submit field (Enter or click the
+ * "Use exact name" affordance) so users can always type a model even when
+ * the catalog is empty or the endpoint failed.
  *
  * Constructor args (passed via x-data):
- *   providers:            Array<{slug, label}> — enabled providers from ``Provider.objects``.
- *   models:               Object<{providerSlug: Array<modelName>}> — server-curated suggestions
- *                         per provider. Free-text model names are also accepted by the backend
- *                         (``parse_model_spec``); the suggestions are a convenience only.
+ *   providers:            Array<{slug, label}> — enabled providers.
+ *   catalogUrl:           string — fetched lazily on first popover open.
  *   initialAgentModel:    string — e.g. ``"openrouter:anthropic/claude-haiku-4.5"``; ``""`` = Auto.
  *   initialThinkingLevel: string — ``"minimal" | "low" | "medium" | "high"``; ``""`` = unset.
- *
- * Emits no window events — the hidden inputs ``agent_model`` / ``agent_thinking_level``
- * are mirrored from the component's state and submitted with the form.
  */
 const EFFORT_LEVELS = ["minimal", "low", "medium", "high"];
 
 document.addEventListener("alpine:init", () => {
     Alpine.data("agentPicker", ({
         providers = [],
-        models = {},
+        catalogUrl = "",
         initialAgentModel = "",
         initialThinkingLevel = "",
     } = {}) => ({
         providers: [...providers],
-        models: {...models},
+        catalogUrl,
+        catalog: {byProvider: {}, status: "idle", error: null},
         selectedProvider: "",
         modelName: "",
         thinkingLevel: "",
@@ -50,11 +48,32 @@ document.addEventListener("alpine:init", () => {
             if (this.open) {
                 this.query = "";
                 this.$nextTick(() => this.$refs.search?.focus());
+                this.ensureCatalogLoaded();
             }
         },
 
         close() {
             this.open = false;
+        },
+
+        async ensureCatalogLoaded() {
+            if (this.catalog.status !== "idle") return;
+            if (!this.catalogUrl) {
+                this.catalog.status = "error";
+                this.catalog.error = "No catalog URL configured";
+                return;
+            }
+            this.catalog.status = "loading";
+            try {
+                const res = await fetch(this.catalogUrl, {credentials: "same-origin"});
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                this.catalog.byProvider = data.catalog || {};
+                this.catalog.status = "loaded";
+            } catch (err) {
+                this.catalog.status = "error";
+                this.catalog.error = (err && err.message) || "Network error";
+            }
         },
 
         selectAuto() {
@@ -76,17 +95,55 @@ document.addEventListener("alpine:init", () => {
 
         selectModel(name) {
             this.modelName = name;
+            this.query = "";
         },
 
         selectEffort(level) {
             this.thinkingLevel = level;
         },
 
+        submitFreeText() {
+            const raw = this.query.trim();
+            if (!raw) return;
+            // ``slug:model`` overrides the selected provider; otherwise we treat
+            // the value as a bare model name under the currently selected provider.
+            if (raw.includes(":")) {
+                const idx = raw.indexOf(":");
+                this.selectedProvider = raw.slice(0, idx);
+                this.modelName = raw.slice(idx + 1);
+            } else if (this.selectedProvider) {
+                this.modelName = raw;
+            } else {
+                // No provider yet and the typed value has no colon — refuse silently;
+                // user must pick a provider tab first.
+                return;
+            }
+            this.query = "";
+        },
+
         get filteredModels() {
-            const list = this.models[this.selectedProvider] || [];
+            const entry = this.catalog.byProvider[this.selectedProvider];
+            const list = (entry && entry.models) || [];
             const q = this.query.trim().toLowerCase();
             if (!q) return list;
             return list.filter(m => m.toLowerCase().includes(q));
+        },
+
+        get providerHint() {
+            // Free-text-only state messages — surfaced above the search input when
+            // the catalog can't deliver suggestions for the current provider.
+            if (this.catalog.status === "error") {
+                return `Couldn't load model list — ${this.catalog.error}. Type a model name and press Enter.`;
+            }
+            if (this.catalog.status !== "loaded") return "";
+            const entry = this.catalog.byProvider[this.selectedProvider];
+            if (entry && entry.error) {
+                return `Couldn't load ${this.selectedProvider} models — ${entry.error}. Type a model name and press Enter.`;
+            }
+            if (entry && entry.models.length === 0) {
+                return `No chat-capable models reported by ${this.selectedProvider}.`;
+            }
+            return "";
         },
 
         get agentModelValue() {
