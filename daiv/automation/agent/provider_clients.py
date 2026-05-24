@@ -27,19 +27,24 @@ class SdkClientKwargs(TypedDict):
     http_client: httpx.AsyncClient | None
 
 
-def build_sdk_client_kwargs(row: Provider.Cached) -> SdkClientKwargs:
+def build_sdk_client_kwargs(row: Provider.Cached, *, with_http_client: bool = True) -> SdkClientKwargs:
     """Return SDK-client kwargs for a provider row.
 
     Raises :class:`MissingApiKeyError` if the row has no API key. The caller
     fills in the provider-specific default ``base_url`` when this returns
     ``None``, and is responsible for closing ``http_client`` (use
     ``async with`` in adapters).
+
+    ``with_http_client=False`` skips httpx.AsyncClient construction even when
+    ``row.verify_ssl`` is False. Used by ``base.get_model_kwargs``, which
+    needs *both* sync and async LangChain clients and constructs them via
+    :func:`_apply_insecure_http_clients`.
     """
     if row.api_key is None:
         raise MissingApiKeyError(f"Provider '{row.slug}' has no API key configured.")
 
     http_client = None
-    if not row.verify_ssl:
+    if with_http_client and not row.verify_ssl:
         import httpx
 
         # admin-opted-in via Provider.verify_ssl; matches base.py:_apply_insecure_http_clients

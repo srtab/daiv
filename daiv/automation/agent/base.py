@@ -9,6 +9,8 @@ from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
 
+from automation.agent.model_catalog.exceptions import MissingApiKeyError
+from automation.agent.provider_clients import build_sdk_client_kwargs
 from core.constants import BOT_NAME
 from core.models import Provider, ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
@@ -244,42 +246,46 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         row = resolved.row
         if not row.is_enabled:
             raise RuntimeError(f"Provider '{row.slug}' is disabled. Enable it in the configuration.")
-        if row.api_key is None:
-            raise RuntimeError(f"Provider '{row.slug}' has no API key configured.")
+
+        # Shared primitive: api_key plaintext, base_url, default_headers.
+        # LangChain needs both sync and async httpx clients when verify_ssl=False
+        # — those are constructed below via _apply_insecure_http_clients, so we
+        # skip the helper's AsyncClient here to avoid leaking it.
+        try:
+            sdk_kw = build_sdk_client_kwargs(row, with_http_client=False)
+        except MissingApiKeyError as err:
+            raise RuntimeError(f"Provider '{row.slug}' has no API key configured.") from err
 
         kw: dict = {"temperature": 0, "model_kwargs": {}, "model": resolved.model_name, **kwargs}
+        kw["api_key"] = sdk_kw["api_key"]
 
         if row.provider_type == ProviderType.ANTHROPIC:
             kw["model_provider"] = ProviderType.ANTHROPIC.value
-            kw["api_key"] = row.api_key.get_secret_value()
             kw["betas"] = [ANTHROPIC_STRUCTURED_OUTPUTS_BETA]
-            if row.base_url:
-                kw["base_url"] = row.base_url
+            if sdk_kw["base_url"]:
+                kw["base_url"] = sdk_kw["base_url"]
             _apply_anthropic_thinking(kw, thinking_level, resolved.model_name)
 
         elif row.provider_type == ProviderType.OPENAI:
             kw["model_provider"] = ProviderType.OPENAI.value
-            kw["api_key"] = row.api_key.get_secret_value()
             if row.use_responses_api:
                 kw["use_responses_api"] = True
-            if row.base_url:
-                kw["openai_api_base"] = row.base_url
+            if sdk_kw["base_url"]:
+                kw["openai_api_base"] = sdk_kw["base_url"]
             _apply_openai_reasoning(kw, thinking_level, resolved.model_name)
 
         elif row.provider_type == ProviderType.OPENROUTER:
             # OpenRouter is OpenAI-compatible over the wire.
             kw["model_provider"] = ProviderType.OPENAI.value
-            kw["api_key"] = row.api_key.get_secret_value()
-            kw["openai_api_base"] = row.base_url or "https://openrouter.ai/api/v1"
+            kw["openai_api_base"] = sdk_kw["base_url"] or "https://openrouter.ai/api/v1"
             kw["model_kwargs"]["extra_headers"] = {"HTTP-Referer": "https://srtab.github.io/daiv", "X-Title": BOT_NAME}
             _apply_openrouter_thinking(kw, thinking_level, resolved.model_name)
 
         elif row.provider_type == ProviderType.GOOGLE_GENAI:
             kw["model_provider"] = ProviderType.GOOGLE_GENAI.value
-            kw["api_key"] = row.api_key.get_secret_value()
             kw["include_thoughts"] = True
-            if row.base_url:
-                kw["base_url"] = row.base_url
+            if sdk_kw["base_url"]:
+                kw["base_url"] = sdk_kw["base_url"]
 
         else:
             raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
@@ -287,11 +293,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         if not row.verify_ssl:
             _apply_insecure_http_clients(kw, row)
 
-        if row.extra_headers:
+        if sdk_kw["default_headers"]:
             # User-supplied headers don't override agent-managed ones (HTTP-Referer,
             # X-Title, anthropic-beta); admins customise via the agent code, not the row.
             existing = kw["model_kwargs"].setdefault("extra_headers", {})
-            for name, value in row.extra_headers.items():
+            for name, value in sdk_kw["default_headers"].items():
                 existing.setdefault(name, value)
 
         return kw
