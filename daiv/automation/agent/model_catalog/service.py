@@ -1,9 +1,5 @@
-"""Top-level service: fetch model catalog for a list of provider rows.
-
-Reads from Django cache; on miss invokes per-provider adapters concurrently
-with bounded timeouts. Cache is only written on success — errors are returned
-to the caller but never cached, so the next picker open retries.
-"""
+"""Cache-backed concurrent fetch over per-provider catalog adapters.
+Errors are returned to the caller but never cached so the next open retries."""
 
 from __future__ import annotations
 
@@ -31,6 +27,7 @@ MODEL_CATALOG_CACHE_KEY_FMT = "agent_picker:models:{slug}:v1"
 MODEL_CATALOG_CACHE_TTL = 60 * 15  # 15 minutes
 MODEL_CATALOG_FETCH_TIMEOUT = 4.0  # seconds, per-provider
 MODEL_CATALOG_TOTAL_TIMEOUT = 6.0  # seconds, whole gather
+MODEL_CATALOG_CANCEL_GRACE = 0.5  # seconds for cancelled tasks to clean up
 
 
 @dataclass(frozen=True)
@@ -90,11 +87,8 @@ async def _fetch_one(row: Provider.Cached) -> CatalogEntry:
 
 
 async def fetch_catalog(rows: list[Provider.Cached]) -> dict[str, CatalogEntry]:
-    """Fetch catalog entries for all rows concurrently.
-
-    Bounded by ``MODEL_CATALOG_TOTAL_TIMEOUT``; rows still in flight when the
-    total budget elapses get ``error='Request timed out'``.
-    """
+    """Bounded by ``MODEL_CATALOG_TOTAL_TIMEOUT``; rows still in flight when the
+    total budget elapses get ``error='Request timed out'``."""
     if not rows:
         return {}
 
@@ -105,6 +99,7 @@ async def fetch_catalog(rows: list[Provider.Cached]) -> dict[str, CatalogEntry]:
         )
 
     out: dict[str, CatalogEntry] = {}
+    pending: list[asyncio.Task] = []
     for slug, task in tasks.items():
         if task.done() and not task.cancelled():
             try:
@@ -116,6 +111,13 @@ async def fetch_catalog(rows: list[Provider.Cached]) -> dict[str, CatalogEntry]:
                 out[slug] = CatalogEntry(models=[], error=_safe_error_string(err))
         else:
             task.cancel()
+            pending.append(task)
             out[slug] = CatalogEntry(models=[], error="Request timed out")
+
+    # Give cancelled tasks a brief window to run their ``finally`` blocks so
+    # adapter http_client / SDK sessions are closed properly.
+    if pending:
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=MODEL_CATALOG_CANCEL_GRACE)
 
     return out

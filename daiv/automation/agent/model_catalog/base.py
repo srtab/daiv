@@ -1,10 +1,4 @@
-"""ABC for model catalog adapters.
-
-Implementations live in :mod:`automation.agent.model_catalog.adapters`. Each
-adapter wraps a provider SDK's ``models.list()`` call, filters to chat-capable
-models, and returns alphabetically-sorted model identifiers (without provider
-slug prefix — the picker concatenates the slug).
-"""
+"""ABC for model catalog adapters."""
 
 from __future__ import annotations
 
@@ -18,18 +12,15 @@ if TYPE_CHECKING:
 class ModelCatalogAdapter(ABC):
     """Provider-specific model lister.
 
-    Common contract for all adapters:
-      - Return type is the model name only (no ``slug:`` prefix).
-      - Output is alphabetically sorted; frontend does not re-sort.
+    Adapter contract:
+      - Return chat-capable model names only (no ``slug:`` prefix; the picker concatenates).
+      - Output is alphabetically sorted; the frontend does not re-sort.
       - Empty list is a valid successful return.
-      - ``httpx.AsyncClient`` lifecycle is managed via ``async with``.
-
-    Errors:
-      - Missing API key → :class:`MissingApiKeyError` (handled by ``build_sdk_client_kwargs``).
+      - Missing API key → :class:`MissingApiKeyError` (raised by ``build_sdk_client_kwargs``).
       - SDK exceptions → wrapped as :class:`CatalogFetchError` with a safe ``detail``.
+      - The adapter owns the lifecycle of any ``httpx.AsyncClient`` passed in via
+        ``build_sdk_client_kwargs`` and closes it in a ``finally`` block.
     """
 
     @abstractmethod
-    async def list_models(self, row: Provider.Cached) -> list[str]:
-        """Return chat-capable model identifiers for the given provider row,
-        alphabetically sorted. Raises a :class:`ModelCatalogError` subclass on failure."""
+    async def list_models(self, row: Provider.Cached) -> list[str]: ...

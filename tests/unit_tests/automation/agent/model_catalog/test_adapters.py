@@ -135,6 +135,56 @@ class TestOpenAIAdapter:
             _, kwargs = ctor.call_args
             assert kwargs["base_url"] == "https://api.openai.com/v1"
 
+    async def test_extra_headers_forwarded_to_sdk(self):
+        row = _row()
+        row = Provider.Cached(**{**row.__dict__, "extra_headers": {"X-Tenant": "acme"}})
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
+        mock_client.close = AsyncMock()
+
+        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+            await OpenAIAdapter().list_models(row)
+            _, kwargs = ctor.call_args
+            assert kwargs["default_headers"] == {"X-Tenant": "acme"}
+
+    async def test_http_client_forwarded_when_verify_ssl_false(self):
+        import httpx
+
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
+        mock_client.close = AsyncMock()
+
+        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+            await OpenAIAdapter().list_models(_row(verify_ssl=False))
+            _, kwargs = ctor.call_args
+            assert isinstance(kwargs["http_client"], httpx.AsyncClient)
+
+    async def test_orphan_http_client_closed_when_sdk_ctor_raises(self):
+        """If AsyncOpenAI(...) raises something other than OpenAIError, the externally
+        supplied httpx.AsyncClient must still be closed — otherwise we leak the pool."""
+        import httpx
+
+        captured_clients: list = []
+        orig_ctor = httpx.AsyncClient
+
+        def _track_ctor(*args, **kwargs):
+            client = orig_ctor(*args, **kwargs)
+            captured_clients.append(client)
+            return client
+
+        with (
+            patch("httpx.AsyncClient", side_effect=_track_ctor),
+            patch(
+                "automation.agent.model_catalog.adapters.openai.AsyncOpenAI",
+                side_effect=TypeError("ctor blew up before binding client"),
+            ),
+            pytest.raises(TypeError),
+        ):
+            await OpenAIAdapter().list_models(_row(verify_ssl=False))
+
+        assert len(captured_clients) == 1
+        assert captured_clients[0].is_closed
+
 
 class TestAnthropicAdapter:
     async def test_returns_sorted_ids(self):
@@ -260,6 +310,49 @@ class TestGoogleGenAIAdapter:
                     _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI, api_key=None)
                 )
             ctor.assert_not_called()
+
+    async def test_closes_async_session_after_iteration(self):
+        """``google.genai.Client.aio.aclose()`` must be awaited so the async httpx
+        session does not leak. ``Client.close()`` only closes the sync session."""
+        items = [SimpleNamespace(name="models/gemini-x", supported_actions=["generateContent"])]
+        aclose_mock = AsyncMock()
+        mock_aio = SimpleNamespace(models=MagicMock(), aclose=aclose_mock)
+        mock_aio.models.list = AsyncMock(return_value=_async_list_iter(items))
+        mock_client = SimpleNamespace(aio=mock_aio)
+
+        with patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client):
+            await GoogleGenAIAdapter().list_models(_row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI))
+
+        aclose_mock.assert_awaited_once()
+
+    async def test_closes_unused_http_client_when_verify_ssl_false(self):
+        """google.genai doesn't accept an http_client kwarg, so the AsyncClient
+        built by build_sdk_client_kwargs must be aclose()d explicitly."""
+        import httpx
+
+        captured: list = []
+        orig_ctor = httpx.AsyncClient
+
+        def _track_ctor(*args, **kwargs):
+            client = orig_ctor(*args, **kwargs)
+            captured.append(client)
+            return client
+
+        aclose_mock = AsyncMock()
+        mock_aio = SimpleNamespace(models=MagicMock(), aclose=aclose_mock)
+        mock_aio.models.list = AsyncMock(return_value=_async_list_iter([]))
+        mock_client = SimpleNamespace(aio=mock_aio)
+
+        with (
+            patch("httpx.AsyncClient", side_effect=_track_ctor),
+            patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client),
+        ):
+            await GoogleGenAIAdapter().list_models(
+                _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI, verify_ssl=False)
+            )
+
+        assert len(captured) == 1
+        assert captured[0].is_closed
 
 
 class TestOpenRouterAdapter:

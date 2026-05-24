@@ -15,9 +15,9 @@ Parameters:
 - stale (default False)              — when True, the pre-selected model references a
                                        provider that is no longer enabled. Renders a
                                        muted hint so users notice the value is dead.
-- disabled (default False)           — render a static, server-rendered pill (no popover).
-                                       Used by the chat composer on an existing thread since the
-                                       backend ignores agent overrides after the first turn.
+- disabled (default False)           — render a static, locked pill (no popover) when the value
+                                       cannot be changed (e.g. mid-conversation, where the backend
+                                       ignores agent overrides after the first turn).
 
 The caller is responsible for loading ``automation/js/agent-picker.js`` (deferred).
 {% endcomment %}

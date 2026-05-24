@@ -1,12 +1,9 @@
-"""Per-provider model catalog adapters.
-
-Each adapter wraps the provider's official SDK ``models.list()`` endpoint and
-returns sorted, chat-capable model ids. SDK exceptions are caught at the
-adapter boundary and re-raised as :class:`CatalogFetchError`.
-"""
+"""Per-provider model catalog adapters. SDK exceptions are wrapped as
+:class:`CatalogFetchError` at the adapter boundary."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from typing import TYPE_CHECKING
@@ -26,10 +23,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Model-id patterns we exclude from chat-capable results.
-# Conservative — when an id passes these filters but isn't truly a chat model
-# the search input + free-text fallback in the picker still let users type
-# their model name verbatim.
+# Conservative — when an id passes these filters but isn't truly a chat model,
+# the picker's free-text input still lets users type the model name verbatim.
 _OPENAI_NON_CHAT_PATTERNS = (
     re.compile(r"embedding", re.IGNORECASE),
     re.compile(r"^whisper-", re.IGNORECASE),
@@ -52,6 +47,20 @@ def _safe_detail(exc: Exception, max_len: int = 120) -> str:
     return text[:max_len]
 
 
+async def _aclose_orphan(http_client) -> None:
+    """Close an httpx.AsyncClient that the SDK never took ownership of.
+
+    The SDK's ``client.close()`` closes the httpx client it was passed — but only
+    if the SDK constructor returned successfully. If construction raises before
+    that, we own the orphan and must aclose it ourselves to avoid a connection-
+    pool leak.
+    """
+    if http_client is None:
+        return
+    with contextlib.suppress(Exception):
+        await http_client.aclose()
+
+
 class OpenAIAdapter(ModelCatalogAdapter):
     _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
@@ -59,25 +68,31 @@ class OpenAIAdapter(ModelCatalogAdapter):
         # build_sdk_client_kwargs raises MissingApiKeyError for missing keys — propagate.
         kw = build_sdk_client_kwargs(row)
         base_url = kw["base_url"] or self._DEFAULT_BASE_URL
+        http_client = kw["http_client"]
 
         client_kwargs: dict = {"api_key": kw["api_key"], "base_url": base_url}
         if kw["default_headers"]:
             client_kwargs["default_headers"] = kw["default_headers"]
-        if kw["http_client"] is not None:
-            client_kwargs["http_client"] = kw["http_client"]
+        if http_client is not None:
+            client_kwargs["http_client"] = http_client
 
         ids: list[str] = []
+        client = None
         try:
             client = openai.AsyncOpenAI(**client_kwargs)
-            try:
-                async for model in client.models.list():
-                    if _is_openai_chat_capable(model.id):
-                        ids.append(model.id)
-            finally:
-                await client.close()
+            async for model in client.models.list():
+                if _is_openai_chat_capable(model.id):
+                    ids.append(model.id)
         except openai.OpenAIError as err:
             logger.warning("OpenAIAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
             raise CatalogFetchError(_safe_detail(err)) from err
+        finally:
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    await client.close()
+            else:
+                # SDK ctor never bound `client` — close the orphan ourselves.
+                await _aclose_orphan(http_client)
 
         return sorted(ids)
 
@@ -88,24 +103,29 @@ class AnthropicAdapter(ModelCatalogAdapter):
     async def list_models(self, row: Provider.Cached) -> list[str]:
         kw = build_sdk_client_kwargs(row)
         base_url = kw["base_url"] or self._DEFAULT_BASE_URL
+        http_client = kw["http_client"]
 
         client_kwargs: dict = {"api_key": kw["api_key"], "base_url": base_url}
         if kw["default_headers"]:
             client_kwargs["default_headers"] = kw["default_headers"]
-        if kw["http_client"] is not None:
-            client_kwargs["http_client"] = kw["http_client"]
+        if http_client is not None:
+            client_kwargs["http_client"] = http_client
 
         ids: list[str] = []
+        client = None
         try:
             client = anthropic.AsyncAnthropic(**client_kwargs)
-            try:
-                async for model in client.models.list():
-                    ids.append(model.id)
-            finally:
-                await client.close()
+            async for model in client.models.list():
+                ids.append(model.id)
         except anthropic.AnthropicError as err:
             logger.warning("AnthropicAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
             raise CatalogFetchError(_safe_detail(err)) from err
+        finally:
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    await client.close()
+            else:
+                await _aclose_orphan(http_client)
 
         return sorted(ids)
 
@@ -113,12 +133,11 @@ class AnthropicAdapter(ModelCatalogAdapter):
 class GoogleGenAIAdapter(ModelCatalogAdapter):
     async def list_models(self, row: Provider.Cached) -> list[str]:
         kw = build_sdk_client_kwargs(row)
-        # google.genai.Client doesn't accept default_headers/http_client/base_url
-        # the same way openai/anthropic do; we pass only api_key. Insecure-TLS
-        # workaround for self-signed CAs isn't supported here — admins must mount
-        # the CA into the container (same trade-off as inference; see base.py).
+        # google.genai.Client doesn't expose default_headers/http_client/base_url
+        # the same way openai/anthropic do — we pass only api_key. The verify_ssl=False
+        # escape hatch isn't supported here; admins must mount the CA into the container.
         if kw["http_client"] is not None:
-            await kw["http_client"].aclose()
+            await _aclose_orphan(kw["http_client"])
             logger.warning(
                 "GoogleGenAIAdapter: verify_ssl=False ignored for provider %r"
                 " (SDK has no http_client hook); mount the CA into the container.",
@@ -126,10 +145,11 @@ class GoogleGenAIAdapter(ModelCatalogAdapter):
             )
 
         ids: list[str] = []
+        client = None
         try:
             client = google_genai.Client(api_key=kw["api_key"])
             # ``AsyncModels.list()`` is a coroutine that resolves to an AsyncPager;
-            # the pager is the actual async-iterable.
+            # await first, then iterate.
             pager = await client.aio.models.list()
             async for model in pager:
                 actions = getattr(model, "supported_actions", None) or []
@@ -143,17 +163,20 @@ class GoogleGenAIAdapter(ModelCatalogAdapter):
         except google_errors.APIError as err:
             logger.warning("GoogleGenAIAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
             raise CatalogFetchError(_safe_detail(err)) from err
+        finally:
+            # Client.close() only closes the sync session per the SDK docs;
+            # Client.aio.aclose() releases the async httpx session we just used.
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    await client.aio.aclose()
 
         return sorted(ids)
 
 
-# OpenRouter exposes provider-specific fields (architecture.input_modalities)
-# that the openai SDK doesn't surface. Fall back to id-pattern filtering, with
-# *image* added on top of the OpenAI exclusions. OpenRouter ids are formatted
-# as ``provider/model``; the leading ``^`` anchor in ``_OPENAI_NON_CHAT_PATTERNS``
-# would never match a slash-prefixed id, so we use a ``(?:^|/)`` boundary that
-# matches at the model-segment start. The free-text input in the picker is the
-# safety valve for over-filtered ids.
+# OpenRouter ids are formatted as ``provider/model``; the ``^`` anchor in
+# ``_OPENAI_NON_CHAT_PATTERNS`` would never match a slash-prefixed id, so we use
+# a ``(?:^|/)`` boundary that matches at the model-segment start. The picker's
+# free-text input is the safety valve for over-filtered ids.
 _OPENROUTER_NON_CHAT_PATTERNS = (
     re.compile(r"embedding", re.IGNORECASE),
     re.compile(r"(?:^|/)whisper-", re.IGNORECASE),
@@ -172,34 +195,36 @@ def _is_openrouter_chat_capable(model_id: str) -> bool:
 
 
 class OpenRouterAdapter(ModelCatalogAdapter):
-    """OpenAI-compatible over the wire — reuse the openai SDK with a different base URL.
-
-    Same pattern ``base.py`` uses for inference (see ``base.py:269-271``).
-    """
+    """OpenAI-compatible over the wire — reuse the openai SDK with a different base URL."""
 
     _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
     async def list_models(self, row: Provider.Cached) -> list[str]:
         kw = build_sdk_client_kwargs(row)
         base_url = kw["base_url"] or self._DEFAULT_BASE_URL
+        http_client = kw["http_client"]
 
         client_kwargs: dict = {"api_key": kw["api_key"], "base_url": base_url}
         if kw["default_headers"]:
             client_kwargs["default_headers"] = kw["default_headers"]
-        if kw["http_client"] is not None:
-            client_kwargs["http_client"] = kw["http_client"]
+        if http_client is not None:
+            client_kwargs["http_client"] = http_client
 
         ids: list[str] = []
+        client = None
         try:
             client = openai.AsyncOpenAI(**client_kwargs)
-            try:
-                async for model in client.models.list():
-                    if _is_openrouter_chat_capable(model.id):
-                        ids.append(model.id)
-            finally:
-                await client.close()
+            async for model in client.models.list():
+                if _is_openrouter_chat_capable(model.id):
+                    ids.append(model.id)
         except openai.OpenAIError as err:
             logger.warning("OpenRouterAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
             raise CatalogFetchError(_safe_detail(err)) from err
+        finally:
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    await client.close()
+            else:
+                await _aclose_orphan(http_client)
 
         return sorted(ids)

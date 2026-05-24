@@ -162,6 +162,48 @@ async def test_one_failing_provider_doesnt_block_others():
     assert result["bad"].error == "nope"
 
 
+async def test_total_timeout_cancels_inflight_tasks_and_marks_them_timed_out():
+    """When MODEL_CATALOG_TOTAL_TIMEOUT fires before per-provider tasks finish,
+    rows still in flight get ``error='Request timed out'`` and their tasks are cancelled.
+
+    Patches MODEL_CATALOG_FETCH_TIMEOUT higher than the total so the inner
+    per-provider timeout does not fire first — this is the only path that exercises
+    the outer gather timeout + the task.cancel() branch.
+    """
+    fast_row = _row("fast")
+    slow_row = _row("slow")
+    cancelled = asyncio.Event()
+
+    async def _list_models(row):
+        if row.slug == "fast":
+            return ["fast-model"]
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return []
+
+    class _Adapter:
+        async def list_models(self, row):
+            return await _list_models(row)
+
+    adapter = _Adapter()
+    with (
+        patch("automation.agent.model_catalog.service.get_adapter", return_value=adapter),
+        patch("automation.agent.model_catalog.service.MODEL_CATALOG_FETCH_TIMEOUT", 5.0),
+        patch("automation.agent.model_catalog.service.MODEL_CATALOG_TOTAL_TIMEOUT", 0.05),
+    ):
+        result = await fetch_catalog([fast_row, slow_row])
+
+    assert result["fast"].models == ["fast-model"]
+    assert result["fast"].error is None
+    assert result["slow"].models == []
+    assert result["slow"].error == "Request timed out"
+    # Cancel grace gave the slow task a chance to observe CancelledError.
+    assert cancelled.is_set()
+
+
 async def test_empty_response_is_successful_and_cached():
     row = _row("openrouter")
     fake_adapter = AsyncMock(return_value=[])

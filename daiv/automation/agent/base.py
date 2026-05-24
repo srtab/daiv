@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -111,24 +113,41 @@ class ResolvedProvider:
 _HTTPX_CLIENT_PROVIDER_TYPES = frozenset({ProviderType.OPENAI, ProviderType.OPENROUTER})
 
 
+_PENDING_ACLOSE_TASKS: set[asyncio.Task] = set()
+
+
 def _close_insecure_http_clients(kw: dict) -> None:
     """Close httpx clients attached by :func:`_apply_insecure_http_clients` when the
     downstream :func:`init_chat_model` call fails — prevents ``ResourceWarning`` and
-    connection-pool retention under retry loops. The async client is closed
-    best-effort: if no event loop is available we drop the reference and rely on GC."""
-    import asyncio
-
+    connection-pool retention under retry loops."""
     sync_client = kw.pop("http_client", None)
     async_client = kw.pop("http_async_client", None)
+
     if sync_client is not None:
-        sync_client.close()
-    if async_client is not None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop is not None:
-            loop.create_task(async_client.aclose())
+        # The sync transport can raise on already-closed pools / interpreter shutdown
+        # — suppress so we don't mask the original init_chat_model exception.
+        with contextlib.suppress(Exception):
+            sync_client.close()
+
+    if async_client is None:
+        return
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop — we cannot await aclose() from sync context. Surface this
+        # so operators can correlate ResourceWarnings with the call site.
+        logger.warning(
+            "Cannot close insecure httpx.AsyncClient: no running event loop. "
+            "Expect a ResourceWarning; the underlying connection pool will be released by GC."
+        )
+        return
+
+    # Retain a reference until done so Python's GC doesn't drop the task before
+    # aclose() completes (RUF006 / fire-and-forget asyncio task pitfall).
+    task = loop.create_task(async_client.aclose())
+    _PENDING_ACLOSE_TASKS.add(task)
+    task.add_done_callback(_PENDING_ACLOSE_TASKS.discard)
 
 
 def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:

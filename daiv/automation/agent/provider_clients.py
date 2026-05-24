@@ -1,12 +1,5 @@
-"""Shared row→SDK-client kwargs primitive.
-
-Both :func:`automation.agent.model_catalog.adapters` and
-:func:`automation.agent.base.get_model_kwargs` resolve the same per-row
-inputs (api_key plaintext, base_url, extra headers, optional verify_ssl-aware
-httpx client). This module owns that resolution; consumers layer on their
-own shape on top (LangChain ``init_chat_model`` kwargs vs. raw SDK client
-constructor kwargs).
-"""
+"""Shared row→SDK-client kwargs primitive. Consumers layer their own shape on top
+(LangChain ``init_chat_model`` kwargs vs. raw SDK client constructor kwargs)."""
 
 from __future__ import annotations
 
@@ -31,14 +24,11 @@ def build_sdk_client_kwargs(row: Provider.Cached, *, with_http_client: bool = Tr
     """Return SDK-client kwargs for a provider row.
 
     Raises :class:`MissingApiKeyError` if the row has no API key. The caller
-    fills in the provider-specific default ``base_url`` when this returns
-    ``None``, and is responsible for closing ``http_client`` (use
-    ``async with`` in adapters).
+    fills in the provider-specific default ``base_url`` when this returns ``None``
+    and is responsible for closing ``http_client``.
 
-    ``with_http_client=False`` skips httpx.AsyncClient construction even when
-    ``row.verify_ssl`` is False. Used by ``base.get_model_kwargs``, which
-    needs *both* sync and async LangChain clients and constructs them via
-    :func:`_apply_insecure_http_clients`.
+    Set ``with_http_client=False`` when the caller needs to construct both sync
+    and async httpx clients itself — building one here would leak.
     """
     if row.api_key is None:
         raise MissingApiKeyError(f"Provider '{row.slug}' has no API key configured.")
@@ -47,8 +37,7 @@ def build_sdk_client_kwargs(row: Provider.Cached, *, with_http_client: bool = Tr
     if with_http_client and not row.verify_ssl:
         import httpx
 
-        # admin-opted-in via Provider.verify_ssl; matches base.py:_apply_insecure_http_clients
-        http_client = httpx.AsyncClient(verify=False)  # noqa: S501
+        http_client = httpx.AsyncClient(verify=False)  # noqa: S501  # admin-opted-in via Provider.verify_ssl
 
     return SdkClientKwargs(
         api_key=row.api_key.get_secret_value(),

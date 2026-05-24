@@ -931,7 +931,6 @@ class Provider(models.Model):
 
     @classmethod
     def invalidate_model_catalog_cache(cls, slug: str) -> None:
-        """Drop the model catalog cache entry for one provider slug."""
         # Local import to avoid circular import: model_catalog imports from this module.
         from automation.agent.model_catalog.service import MODEL_CATALOG_CACHE_KEY_FMT
 
