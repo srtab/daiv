@@ -128,7 +128,10 @@ class GoogleGenAIAdapter(ModelCatalogAdapter):
         ids: list[str] = []
         try:
             client = google_genai.Client(api_key=kw["api_key"])
-            async for model in client.aio.models.list():
+            # ``AsyncModels.list()`` is a coroutine that resolves to an AsyncPager;
+            # the pager is the actual async-iterable.
+            pager = await client.aio.models.list()
+            async for model in pager:
                 actions = getattr(model, "supported_actions", None) or []
                 if "generateContent" not in actions:
                     continue

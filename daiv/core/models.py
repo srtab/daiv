@@ -817,7 +817,7 @@ class Provider(models.Model):
             if original.slug != self.slug or original.provider_type != self.provider_type:
                 raise ValueError(f"Provider {original.slug!r} is locked; slug and provider_type cannot change.")
         super().save(*args, **kwargs)
-        slug = self.slug
+        slug = str(self.slug)
         # Defer invalidation to commit so concurrent readers can't repopulate the
         # cache with pre-commit data and mask the new row for the 5-min TTL.
         transaction.on_commit(type(self).invalidate_cache)
@@ -826,7 +826,7 @@ class Provider(models.Model):
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         if self.is_locked:
             raise ValueError(f"Provider {self.slug!r} is locked and cannot be deleted.")
-        slug = self.slug
+        slug = str(self.slug)
         result = super().delete(*args, **kwargs)
         transaction.on_commit(type(self).invalidate_cache)
         transaction.on_commit(lambda: type(self).invalidate_model_catalog_cache(slug))

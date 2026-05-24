@@ -211,7 +211,7 @@ class TestGoogleGenAIAdapter:
             SimpleNamespace(name="models/gemini-no-actions", supported_actions=None),
         ]
         mock_aio = SimpleNamespace(models=MagicMock())
-        mock_aio.models.list = MagicMock(return_value=_async_list_iter(items))
+        mock_aio.models.list = AsyncMock(return_value=_async_list_iter(items))
         mock_client = SimpleNamespace(aio=mock_aio)
 
         with patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client):
@@ -224,7 +224,7 @@ class TestGoogleGenAIAdapter:
     async def test_strips_models_prefix(self):
         items = [SimpleNamespace(name="models/gemini-x", supported_actions=["generateContent"])]
         mock_aio = SimpleNamespace(models=MagicMock())
-        mock_aio.models.list = MagicMock(return_value=_async_list_iter(items))
+        mock_aio.models.list = AsyncMock(return_value=_async_list_iter(items))
         mock_client = SimpleNamespace(aio=mock_aio)
 
         with patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client):
@@ -244,7 +244,7 @@ class TestGoogleGenAIAdapter:
                 self.status = "INTERNAL"
 
         mock_aio = SimpleNamespace(models=MagicMock())
-        mock_aio.models.list = MagicMock(side_effect=_Boom())
+        mock_aio.models.list = AsyncMock(side_effect=_Boom())
         mock_client = SimpleNamespace(aio=mock_aio)
 
         with (
