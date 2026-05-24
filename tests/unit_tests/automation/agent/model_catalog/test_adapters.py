@@ -13,7 +13,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import SecretStr
 
-from automation.agent.model_catalog.adapters import AnthropicAdapter, GoogleGenAIAdapter, OpenAIAdapter
+from automation.agent.model_catalog.adapters import (
+    AnthropicAdapter,
+    GoogleGenAIAdapter,
+    OpenAIAdapter,
+    OpenRouterAdapter,
+)
 from automation.agent.model_catalog.exceptions import CatalogFetchError, MissingApiKeyError
 from core.models import Provider, ProviderType
 
@@ -255,3 +260,51 @@ class TestGoogleGenAIAdapter:
                     _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI, api_key=None)
                 )
             ctor.assert_not_called()
+
+
+class TestOpenRouterAdapter:
+    async def test_returns_sorted_filtered_ids(self):
+        items = [
+            SimpleNamespace(id="anthropic/claude-haiku-4.5"),
+            SimpleNamespace(id="anthropic/claude-opus-4.6"),
+            SimpleNamespace(id="openai/text-embedding-3-large"),
+            SimpleNamespace(id="openai/whisper-1"),
+            SimpleNamespace(id="black-forest-labs/flux-image"),
+            SimpleNamespace(id="z-ai/glm-5"),
+        ]
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
+        mock_client.close = AsyncMock()
+
+        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client):
+            result = await OpenRouterAdapter().list_models(
+                _row(slug="openrouter", provider_type=ProviderType.OPENROUTER)
+            )
+
+        assert result == ["anthropic/claude-haiku-4.5", "anthropic/claude-opus-4.6", "z-ai/glm-5"]
+
+    async def test_default_base_url_is_openrouter(self):
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
+        mock_client.close = AsyncMock()
+
+        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+            await OpenRouterAdapter().list_models(_row(slug="openrouter", provider_type=ProviderType.OPENROUTER))
+            _, kwargs = ctor.call_args
+            assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
+
+    async def test_row_base_url_overrides_default(self):
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
+        mock_client.close = AsyncMock()
+
+        with patch("automation.agent.model_catalog.adapters.openai.AsyncOpenAI", return_value=mock_client) as ctor:
+            await OpenRouterAdapter().list_models(
+                _row(
+                    slug="openrouter",
+                    provider_type=ProviderType.OPENROUTER,
+                    base_url="https://proxy.example/openrouter",
+                )
+            )
+            _, kwargs = ctor.call_args
+            assert kwargs["base_url"] == "https://proxy.example/openrouter"

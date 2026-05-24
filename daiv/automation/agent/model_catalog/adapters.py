@@ -142,3 +142,61 @@ class GoogleGenAIAdapter(ModelCatalogAdapter):
             raise CatalogFetchError(_safe_detail(err)) from err
 
         return sorted(ids)
+
+
+# OpenRouter exposes provider-specific fields (architecture.input_modalities)
+# that the openai SDK doesn't surface. Fall back to id-pattern filtering, with
+# *image* added on top of the OpenAI exclusions. OpenRouter ids are formatted
+# as ``provider/model``; the leading ``^`` anchor in ``_OPENAI_NON_CHAT_PATTERNS``
+# would never match a slash-prefixed id, so we use a ``(?:^|/)`` boundary that
+# matches at the model-segment start. The free-text input in the picker is the
+# safety valve for over-filtered ids.
+_OPENROUTER_NON_CHAT_PATTERNS = (
+    re.compile(r"embedding", re.IGNORECASE),
+    re.compile(r"(?:^|/)whisper-", re.IGNORECASE),
+    re.compile(r"(?:^|/)tts-", re.IGNORECASE),
+    re.compile(r"(?:^|/)dall-e-", re.IGNORECASE),
+    re.compile(r"moderation", re.IGNORECASE),
+    re.compile(r"(?:^|/)text-davinci-", re.IGNORECASE),
+    re.compile(r"(?:^|/)gpt-image-", re.IGNORECASE),
+    re.compile(r"-search-", re.IGNORECASE),
+    re.compile(r"image", re.IGNORECASE),
+)
+
+
+def _is_openrouter_chat_capable(model_id: str) -> bool:
+    return not any(pat.search(model_id) for pat in _OPENROUTER_NON_CHAT_PATTERNS)
+
+
+class OpenRouterAdapter(ModelCatalogAdapter):
+    """OpenAI-compatible over the wire — reuse the openai SDK with a different base URL.
+
+    Same pattern ``base.py`` uses for inference (see ``base.py:269-271``).
+    """
+
+    _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
+    async def list_models(self, row: Provider.Cached) -> list[str]:
+        kw = build_sdk_client_kwargs(row)
+        base_url = kw["base_url"] or self._DEFAULT_BASE_URL
+
+        client_kwargs: dict = {"api_key": kw["api_key"], "base_url": base_url}
+        if kw["default_headers"]:
+            client_kwargs["default_headers"] = kw["default_headers"]
+        if kw["http_client"] is not None:
+            client_kwargs["http_client"] = kw["http_client"]
+
+        ids: list[str] = []
+        try:
+            client = openai.AsyncOpenAI(**client_kwargs)
+            try:
+                async for model in client.models.list():
+                    if _is_openrouter_chat_capable(model.id):
+                        ids.append(model.id)
+            finally:
+                await client.close()
+        except openai.OpenAIError as err:
+            logger.warning("OpenRouterAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
+            raise CatalogFetchError(_safe_detail(err)) from err
+
+        return sorted(ids)

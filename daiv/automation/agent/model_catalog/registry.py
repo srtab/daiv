@@ -1,35 +1,26 @@
-"""Maps :class:`core.models.ProviderType` values to adapter instances.
-
-Entries are added one per adapter as each is implemented. See Tasks 4-7.
-"""
+"""Maps :class:`core.models.ProviderType` values to adapter instances."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from automation.agent.model_catalog.adapters import AnthropicAdapter, GoogleGenAIAdapter, OpenAIAdapter
+from automation.agent.model_catalog.adapters import (
+    AnthropicAdapter,
+    GoogleGenAIAdapter,
+    OpenAIAdapter,
+    OpenRouterAdapter,
+)
 from automation.agent.model_catalog.exceptions import UnsupportedProviderTypeError
 from core.models import ProviderType
 
 if TYPE_CHECKING:
     from automation.agent.model_catalog.base import ModelCatalogAdapter
 
-
-class _NotImplementedAdapter:
-    """Placeholder for provider types whose adapters are not yet implemented."""
-
-    def __init__(self, provider_type: ProviderType) -> None:
-        self._provider_type = provider_type
-
-    async def list_models(self, row):  # noqa: ARG002
-        raise UnsupportedProviderTypeError(f"Adapter for provider_type {self._provider_type!r} not implemented yet")
-
-
 _ADAPTERS: dict[ProviderType, ModelCatalogAdapter] = {
     ProviderType.OPENAI: OpenAIAdapter(),
     ProviderType.ANTHROPIC: AnthropicAdapter(),
     ProviderType.GOOGLE_GENAI: GoogleGenAIAdapter(),
-    ProviderType.OPENROUTER: _NotImplementedAdapter(ProviderType.OPENROUTER),  # type: ignore[dict-item]
+    ProviderType.OPENROUTER: OpenRouterAdapter(),
 }
 
 
