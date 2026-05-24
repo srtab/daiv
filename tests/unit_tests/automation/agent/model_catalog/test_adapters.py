@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import SecretStr
 
-from automation.agent.model_catalog.adapters import AnthropicAdapter, OpenAIAdapter
+from automation.agent.model_catalog.adapters import AnthropicAdapter, GoogleGenAIAdapter, OpenAIAdapter
 from automation.agent.model_catalog.exceptions import CatalogFetchError, MissingApiKeyError
 from core.models import Provider, ProviderType
 
@@ -194,3 +194,64 @@ class TestAnthropicAdapter:
             await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
             _, kwargs = ctor.call_args
             assert kwargs["base_url"] == "https://api.anthropic.com"
+
+
+class TestGoogleGenAIAdapter:
+    async def test_filter_keeps_only_generate_content_models(self):
+        items = [
+            SimpleNamespace(name="models/gemini-2.5-pro", supported_actions=["generateContent"]),
+            SimpleNamespace(name="models/gemini-2.5-flash", supported_actions=["generateContent", "countTokens"]),
+            SimpleNamespace(name="models/text-embedding-004", supported_actions=["embedContent"]),
+            SimpleNamespace(name="models/imagen-3.0", supported_actions=["generateImage"]),
+            SimpleNamespace(name="models/gemini-no-actions", supported_actions=None),
+        ]
+        mock_aio = SimpleNamespace(models=MagicMock())
+        mock_aio.models.list = MagicMock(return_value=_async_list_iter(items))
+        mock_client = SimpleNamespace(aio=mock_aio)
+
+        with patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client):
+            result = await GoogleGenAIAdapter().list_models(
+                _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI)
+            )
+
+        assert result == ["gemini-2.5-flash", "gemini-2.5-pro"]
+
+    async def test_strips_models_prefix(self):
+        items = [SimpleNamespace(name="models/gemini-x", supported_actions=["generateContent"])]
+        mock_aio = SimpleNamespace(models=MagicMock())
+        mock_aio.models.list = MagicMock(return_value=_async_list_iter(items))
+        mock_client = SimpleNamespace(aio=mock_aio)
+
+        with patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client):
+            result = await GoogleGenAIAdapter().list_models(
+                _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI)
+            )
+
+        assert result == ["gemini-x"]
+
+    async def test_sdk_error_wrapped(self):
+        from google.genai import errors as google_errors
+
+        class _Boom(google_errors.APIError):
+            def __init__(self):
+                self.message = "nope"
+                self.code = 500
+                self.status = "INTERNAL"
+
+        mock_aio = SimpleNamespace(models=MagicMock())
+        mock_aio.models.list = MagicMock(side_effect=_Boom())
+        mock_client = SimpleNamespace(aio=mock_aio)
+
+        with (
+            patch("automation.agent.model_catalog.adapters.google_genai.Client", return_value=mock_client),
+            pytest.raises(CatalogFetchError),
+        ):
+            await GoogleGenAIAdapter().list_models(_row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI))
+
+    async def test_missing_api_key_raises(self):
+        with patch("automation.agent.model_catalog.adapters.google_genai.Client") as ctor:
+            with pytest.raises(MissingApiKeyError):  # noqa: SIM117
+                await GoogleGenAIAdapter().list_models(
+                    _row(slug="google_genai", provider_type=ProviderType.GOOGLE_GENAI, api_key=None)
+                )
+            ctor.assert_not_called()

@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 
 import anthropic
 import openai
+from google import genai as google_genai
+from google.genai import errors as google_errors
 
 from automation.agent.model_catalog.base import ModelCatalogAdapter
 from automation.agent.model_catalog.exceptions import CatalogFetchError
@@ -103,6 +105,40 @@ class AnthropicAdapter(ModelCatalogAdapter):
                 await client.close()
         except anthropic.AnthropicError as err:
             logger.warning("AnthropicAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
+            raise CatalogFetchError(_safe_detail(err)) from err
+
+        return sorted(ids)
+
+
+class GoogleGenAIAdapter(ModelCatalogAdapter):
+    async def list_models(self, row: Provider.Cached) -> list[str]:
+        kw = build_sdk_client_kwargs(row)
+        # google.genai.Client doesn't accept default_headers/http_client/base_url
+        # the same way openai/anthropic do; we pass only api_key. Insecure-TLS
+        # workaround for self-signed CAs isn't supported here — admins must mount
+        # the CA into the container (same trade-off as inference; see base.py).
+        if kw["http_client"] is not None:
+            await kw["http_client"].aclose()
+            logger.warning(
+                "GoogleGenAIAdapter: verify_ssl=False ignored for provider %r"
+                " (SDK has no http_client hook); mount the CA into the container.",
+                row.slug,
+            )
+
+        ids: list[str] = []
+        try:
+            client = google_genai.Client(api_key=kw["api_key"])
+            async for model in client.aio.models.list():
+                actions = getattr(model, "supported_actions", None) or []
+                if "generateContent" not in actions:
+                    continue
+                name = model.name or ""
+                if name.startswith("models/"):
+                    name = name[len("models/") :]
+                if name:
+                    ids.append(name)
+        except google_errors.APIError as err:
+            logger.warning("GoogleGenAIAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
             raise CatalogFetchError(_safe_detail(err)) from err
 
         return sorted(ids)
