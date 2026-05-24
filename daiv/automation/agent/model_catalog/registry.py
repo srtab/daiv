@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from automation.agent.model_catalog.adapters import OpenAIAdapter
+from automation.agent.model_catalog.adapters import AnthropicAdapter, OpenAIAdapter
 from automation.agent.model_catalog.exceptions import UnsupportedProviderTypeError
 from core.models import ProviderType
 
@@ -27,7 +27,7 @@ class _NotImplementedAdapter:
 
 _ADAPTERS: dict[ProviderType, ModelCatalogAdapter] = {
     ProviderType.OPENAI: OpenAIAdapter(),
-    ProviderType.ANTHROPIC: _NotImplementedAdapter(ProviderType.ANTHROPIC),  # type: ignore[dict-item]
+    ProviderType.ANTHROPIC: AnthropicAdapter(),
     ProviderType.GOOGLE_GENAI: _NotImplementedAdapter(ProviderType.GOOGLE_GENAI),  # type: ignore[dict-item]
     ProviderType.OPENROUTER: _NotImplementedAdapter(ProviderType.OPENROUTER),  # type: ignore[dict-item]
 }

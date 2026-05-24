@@ -11,6 +11,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+import anthropic
 import openai
 
 from automation.agent.model_catalog.base import ModelCatalogAdapter
@@ -74,6 +75,34 @@ class OpenAIAdapter(ModelCatalogAdapter):
                 await client.close()
         except openai.OpenAIError as err:
             logger.warning("OpenAIAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
+            raise CatalogFetchError(_safe_detail(err)) from err
+
+        return sorted(ids)
+
+
+class AnthropicAdapter(ModelCatalogAdapter):
+    _DEFAULT_BASE_URL = "https://api.anthropic.com"
+
+    async def list_models(self, row: Provider.Cached) -> list[str]:
+        kw = build_sdk_client_kwargs(row)
+        base_url = kw["base_url"] or self._DEFAULT_BASE_URL
+
+        client_kwargs: dict = {"api_key": kw["api_key"], "base_url": base_url}
+        if kw["default_headers"]:
+            client_kwargs["default_headers"] = kw["default_headers"]
+        if kw["http_client"] is not None:
+            client_kwargs["http_client"] = kw["http_client"]
+
+        ids: list[str] = []
+        try:
+            client = anthropic.AsyncAnthropic(**client_kwargs)
+            try:
+                async for model in client.models.list():
+                    ids.append(model.id)
+            finally:
+                await client.close()
+        except anthropic.AnthropicError as err:
+            logger.warning("AnthropicAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
             raise CatalogFetchError(_safe_detail(err)) from err
 
         return sorted(ids)

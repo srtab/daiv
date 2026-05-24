@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import SecretStr
 
-from automation.agent.model_catalog.adapters import OpenAIAdapter
+from automation.agent.model_catalog.adapters import AnthropicAdapter, OpenAIAdapter
 from automation.agent.model_catalog.exceptions import CatalogFetchError, MissingApiKeyError
 from core.models import Provider, ProviderType
 
@@ -129,3 +129,68 @@ class TestOpenAIAdapter:
             await OpenAIAdapter().list_models(_row(base_url=""))
             _, kwargs = ctor.call_args
             assert kwargs["base_url"] == "https://api.openai.com/v1"
+
+
+class TestAnthropicAdapter:
+    async def test_returns_sorted_ids(self):
+        items = [
+            SimpleNamespace(id="claude-sonnet-4.6"),
+            SimpleNamespace(id="claude-opus-4.6"),
+            SimpleNamespace(id="claude-haiku-4.5"),
+        ]
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
+        mock_client.close = AsyncMock()
+
+        with patch("automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client):
+            result = await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
+
+        assert result == ["claude-haiku-4.5", "claude-opus-4.6", "claude-sonnet-4.6"]
+
+    async def test_no_filter_applied(self):
+        """Anthropic ships chat models only; we don't drop anything."""
+        items = [SimpleNamespace(id="claude-experimental-embedding")]
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
+        mock_client.close = AsyncMock()
+
+        with patch("automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client):
+            result = await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
+
+        assert result == ["claude-experimental-embedding"]
+
+    async def test_sdk_error_wrapped(self):
+        import anthropic
+
+        class _Boom(anthropic.AnthropicError):
+            pass
+
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(side_effect=_Boom("nope"))
+        mock_client.close = AsyncMock()
+
+        with (
+            patch("automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client),
+            pytest.raises(CatalogFetchError),
+        ):
+            await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
+
+    async def test_missing_api_key_raises(self):
+        with patch("automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic") as ctor:
+            with pytest.raises(MissingApiKeyError):  # noqa: SIM117
+                await AnthropicAdapter().list_models(
+                    _row(slug="anthropic", provider_type=ProviderType.ANTHROPIC, api_key=None)
+                )
+            ctor.assert_not_called()
+
+    async def test_default_base_url(self):
+        mock_client = MagicMock()
+        mock_client.models.list = MagicMock(return_value=_async_list_iter([]))
+        mock_client.close = AsyncMock()
+
+        with patch(
+            "automation.agent.model_catalog.adapters.anthropic.AsyncAnthropic", return_value=mock_client
+        ) as ctor:
+            await AnthropicAdapter().list_models(_row(slug="anthropic", provider_type=ProviderType.ANTHROPIC))
+            _, kwargs = ctor.call_args
+            assert kwargs["base_url"] == "https://api.anthropic.com"
