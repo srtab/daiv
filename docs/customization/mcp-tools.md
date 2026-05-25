@@ -49,88 +49,46 @@ MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp  # Default; set to None to disable
 
 Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` container. Add them to your secrets env file.
 
-## User-defined MCP servers
+## Configuring outbound MCP servers
 
-DAIV can connect to any MCP server that implements the [Model Context Protocol](https://modelcontextprotocol.io/). If you need to build a custom server, see the [MCP server documentation](https://modelcontextprotocol.io/docs/concepts/servers). This section covers how to connect an existing server to DAIV.
+MCP servers are managed via the admin UI at **Dashboard → MCP Servers**
+(`/dashboard/mcp-servers/`). From there an administrator can:
 
-Provide a JSON config file following the [Claude Code `.mcp.json` standard](https://docs.anthropic.com/en/docs/claude-code/mcp). Set the file path via the `MCP_SERVERS_CONFIG_FILE` environment variable.
+- Add a new MCP server (HTTP or SSE transport).
+- Provide headers either as **literal values** (encrypted at rest with the
+  same key used elsewhere in DAIV — see `DAIV_ENCRYPTION_KEY`) or as
+  **environment variable references** (entered by name, resolved at runtime).
+- Configure a per-server tool filter (`allow` or `block` list). When the
+  server is reachable, the filter UI shows the currently-exposed tools as
+  checkboxes; otherwise it falls back to a free-text list.
+- Test a connection before saving (a transient handshake is opened against
+  the configured URL with a 5-second timeout).
+- Enable or disable any server, including built-in ones (Sentry, Context7),
+  without removing their code-defined configuration.
 
-Only `sse` and `http` (streamable HTTP) transport types are supported, since user MCP servers must be network-accessible.
+The DB is the source of truth — changes apply on the next agent turn; no
+restart required.
 
-!!! note
-    When running in Docker, the config file must be accessible inside the container. Mount it as a volume and set `MCP_SERVERS_CONFIG_FILE` to the container path:
+### Legacy `MCP_SERVERS_CONFIG_FILE`
 
-    ```yaml
-    # docker-compose.yml
-    app:
-      volumes:
-        - ./mcp.json:/home/app/mcp.json:ro
-      environment:
-        MCP_SERVERS_CONFIG_FILE: /home/app/mcp.json
-    ```
+The `MCP_SERVERS_CONFIG_FILE` environment variable is **deprecated**. If
+set, its contents are imported once into the new database table during the
+`mcp_servers` 0002 migration. After that import the file is no longer
+read; the env var should be unset.
 
-### Config file format
+Two compatibility notes for the import:
 
-```json
-{
-  "mcpServers": {
-    "my-internal-api": {
-      "type": "sse",
-      "url": "http://my-mcp-host:8080/sse",
-      "headers": {
-        "Authorization": "Bearer ${MY_API_TOKEN}"
-      }
-    },
-    "another-service": {
-      "type": "http",
-      "url": "http://another-host:9000/mcp",
-      "headers": {
-        "X-Api-Key": "${ANOTHER_API_KEY}"
-      },
-      "toolFilter": {
-        "mode": "allow",
-        "list": ["search", "get_document"]
-      }
-    }
-  }
-}
-```
-
-Each server entry supports:
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `type` | Yes | Transport type: `sse` or `http` (streamable HTTP) |
-| `url` | Yes | URL of the MCP server |
-| `headers` | No | HTTP headers (supports env var expansion) |
-| `toolFilter` | No | Restrict which tools are exposed (see below) |
-
-### Tool filtering
-
-Use `toolFilter` to control which tools from a server are available to the agent:
-
-- **`mode: "allow"`** — only tools in the `list` are exposed
-- **`mode: "block"`** — all tools except those in the `list` are exposed
-
-```json
-{
-  "toolFilter": {
-    "mode": "allow",
-    "list": ["tool_a", "tool_b"]
-  }
-}
-```
-
-If `toolFilter` is omitted, all tools from the server are available.
-
-### Environment variable expansion
-
-The `url` and `headers` values support environment variable expansion:
-
-- `${VAR}` — replaced with the value of `VAR`, kept as-is if unset
-- `${VAR:-default}` — replaced with the value of `VAR`, or `default` if unset
-
-This allows you to keep secrets out of the config file and inject them via environment variables.
+- `${VAR}` references are converted to environment-variable headers; the
+  variable name is preserved.
+- `${VAR:-default}` syntax is partially supported — the variable name is
+  kept but the **fallback default value is dropped** (the new model does not
+  support fallback defaults). The migration logs a warning naming any
+  entries affected.
+- Mixed-content header values like `"Bearer ${TOKEN}"` are imported as an
+  environment-variable header pointing at `TOKEN` — the surrounding
+  `Bearer ` prefix is **not** preserved. If your existing config relies on
+  this pattern, review the imported `Authorization` headers in the UI after
+  upgrade and adjust as needed.
 
 ## Running custom MCP servers
 
@@ -168,23 +126,12 @@ mcp-my-tool:
     start_period: 30s
 ```
 
-Then reference it in your config file:
-
-```json
-{
-  "mcpServers": {
-    "my-tool": {
-      "type": "http",
-      "url": "http://mcp-my-tool:8000/mcp"
-    }
-  }
-}
-```
+Then register it in the UI at **Dashboard → MCP Servers** (`/dashboard/mcp-servers/`) using transport type `http` and URL `http://mcp-my-tool:8000/mcp`.
 
 ## Security considerations
 
 - **One container per MCP server** — each MCP runs in its own isolated container, so a vulnerability in one cannot compromise others
-- **Environment variable expansion** — use `${VAR}` syntax to inject secrets from the environment instead of hardcoding them in config files
+- **Environment variable references** — use environment-variable header references in the MCP Servers UI to inject secrets at runtime instead of storing them as plaintext
 - **Store tokens securely** — use Docker secrets for sensitive values like access tokens
 - **Network segmentation** — MCP containers only need to reach the services they interact with; consider restricting their network access
 - **Review server permissions** — MCP servers may require network access to external services
