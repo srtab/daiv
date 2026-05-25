@@ -1,0 +1,27 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "MCP Servers" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "MCP Servers" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "MCP servers provide tools and context to the agent." %}
+        </p>
+    </div>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "Custom servers" %}</h2>
+    {% include "mcp_servers/_custom_servers.html" %}
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Built-in servers" %}</h2>
+    {% include "mcp_servers/_builtin_servers.html" %}
+</section>
+{% endblock app_content %}

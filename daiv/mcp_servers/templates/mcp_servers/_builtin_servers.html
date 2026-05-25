@@ -1,0 +1,10 @@
+{% load i18n %}
+<div id="builtin-servers" class="mt-3">
+    {% if builtin_servers %}
+    <ul>{% for s in builtin_servers %}<li>{{ s.name }} ({{ s.enabled|yesno }})</li>{% endfor %}</ul>
+    {% else %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
+        <p class="text-[15px] text-gray-400">{% translate "No built-in servers registered." %}</p>
+    </div>
+    {% endif %}
+</div>
