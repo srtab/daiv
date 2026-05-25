@@ -141,7 +141,7 @@ class _AgentPickerWidget(forms.Widget):
             "field_name_model": name,
             "field_name_thinking": self.paired_thinking_field or "",
             "initial_agent_model": value or "",
-            "initial_model_display": "",
+            "initial_model_display": _shorten_model_spec(value) if value else "",
             "initial_thinking_level": self.initial_thinking,
             "default_model": self.default_model,
             "default_thinking": self.default_thinking,
