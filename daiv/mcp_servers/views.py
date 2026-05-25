@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from django.contrib import messages
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
@@ -49,3 +49,59 @@ class MCPServerCreateView(AdminRequiredMixin, View):
 
     def _render(self, request, form, formset, *, status=200):
         return render(request, self.template_name, {"form": form, "formset": formset, "mode": "create"}, status=status)
+
+
+class MCPServerEditView(AdminRequiredMixin, View):
+    http_method_names = ["get", "post"]
+    template_name = "mcp_servers/form.html"
+
+    def get(self, request, name):
+        obj = get_object_or_404(MCPServer, name=name)
+        form = MCPServerForm(instance=obj)
+        formset = MCPServerHeaderFormSet(initial=_existing_headers_for_formset(obj), prefix="headers")
+        return render(request, self.template_name, {"form": form, "formset": formset, "mode": "edit", "object": obj})
+
+    def post(self, request, name):
+        obj = get_object_or_404(MCPServer, name=name)
+        if obj.source == MCPServer.Source.BUILTIN:
+            # Only ``enabled`` may change. Apply it directly and ignore everything else.
+            obj.enabled = request.POST.get("enabled") == "on"
+            obj.save(update_fields=["enabled", "modified"])
+            messages.success(request, _("MCP server '%(name)s' updated.") % {"name": obj.name})
+            return redirect(reverse("mcp_servers:list"))
+
+        existing_headers = obj.headers or []
+        form = MCPServerForm(request.POST, instance=obj)
+        formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
+        if not (form.is_valid() and formset.is_valid()):
+            return render(
+                request,
+                self.template_name,
+                {"form": form, "formset": formset, "mode": "edit", "object": obj},
+                status=400,
+            )
+        saved = form.save(commit=False)
+        saved.headers = build_headers_from_formset(formset, existing=existing_headers)
+        saved.save()
+        messages.success(request, _("MCP server '%(name)s' updated.") % {"name": obj.name})
+        return redirect(reverse("mcp_servers:list"))
+
+
+def _existing_headers_for_formset(obj: MCPServer) -> list[dict]:
+    """Build the formset's ``initial`` data from a server's stored headers.
+
+    Literal values are blanked out for display — the form's preserve-blank
+    logic round-trips them. (Mask only if you later add a 'hint' column —
+    the empty initial input means 'preserve on POST'.)
+    """
+    try:
+        rows = obj.headers or []
+    except Exception:  # noqa: BLE001 — degrade gracefully on DecryptionError
+        return []
+    out: list[dict] = []
+    for h in rows:
+        value = h.get("value", "")
+        if h.get("mode") == "literal" and value:
+            value = ""  # blank means "preserve" on POST
+        out.append({"name": h.get("name", ""), "mode": h.get("mode", "literal"), "value": value})
+    return out

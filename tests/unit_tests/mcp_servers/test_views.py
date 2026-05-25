@@ -63,3 +63,61 @@ def test_create_post_member_denied(client, member_user):
     client.force_login(member_user)
     resp = client.post(reverse("mcp_servers:create"), data={})
     assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_edit_custom_updates_fields(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(name="ed", transport="http", url="http://old.test")
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:edit", args=[obj.name]),
+        data={
+            "name": "ed",
+            "transport": "http",
+            "url": "http://new.test",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+    obj.refresh_from_db()
+    assert obj.url == "http://new.test"
+
+
+@pytest.mark.django_db
+def test_edit_builtin_only_enabled_is_editable(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi", enabled=True
+    )
+    client.force_login(admin_user)
+    # Attempt to change url + flip enabled
+    resp = client.post(
+        reverse("mcp_servers:edit", args=[obj.name]),
+        data={
+            "name": "bi",
+            "transport": "sse",  # smuggled
+            "url": "http://attacker.test",  # smuggled
+            # enabled deliberately omitted -> should disable
+            "tool_filter_mode": "block",  # smuggled
+            "tool_filter_items": "x",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+    obj.refresh_from_db()
+    assert obj.enabled is False  # the one editable field changed
+    assert obj.url == "builtin://bi"  # smuggled URL ignored
+    assert obj.transport == "http"  # smuggled transport ignored
+    assert obj.tool_filter_mode == "none"  # smuggled filter ignored
