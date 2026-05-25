@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from typing import Any
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.sessions import SSEConnection, StreamableHttpConnection
 
 from automation.agent.mcp.schemas import UserMcpServer
 from core.encryption import DecryptionError
 from mcp_servers.models import MCPServer
 
 logger = logging.getLogger("daiv.mcp_servers")
+
+_TEST_CONNECTION_TIMEOUT = 5.0  # seconds
 
 
 def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
@@ -58,3 +65,60 @@ def _resolve_headers(row: MCPServer) -> dict[str, str]:
                 continue
             resolved[name] = env_value
     return resolved
+
+
+def _build_client(payload: dict[str, Any]) -> MultiServerMCPClient:
+    """Build a transient ``MultiServerMCPClient`` from a form-shaped payload.
+
+    ``payload`` is ``{"transport": "http"|"sse", "url": str, "headers":
+    [{"name", "mode", "value"}, ...]}``. ``mode=env_ref`` values are
+    resolved against ``os.environ``; missing ones are dropped.
+    """
+    resolved: dict[str, str] = {}
+    for entry in payload.get("headers", []) or []:
+        name = entry.get("name")
+        mode = entry.get("mode")
+        value = entry.get("value", "")
+        if not name:
+            continue
+        if mode == "literal":
+            resolved[name] = value
+        elif mode == "env_ref":
+            env_value = os.environ.get(value)
+            if env_value is not None:
+                resolved[name] = env_value
+
+    headers = resolved or None
+    transport = payload.get("transport")
+    url = payload.get("url")
+    if transport == "http":
+        connection = StreamableHttpConnection(transport="streamable_http", url=url, headers=headers)
+    elif transport == "sse":
+        connection = SSEConnection(transport="sse", url=url, headers=headers)
+    else:
+        raise ValueError(f"Unsupported transport: {transport!r}")
+
+    return MultiServerMCPClient({"__probe__": connection})
+
+
+async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
+    """Open a transient MCP session against ``payload`` and return either
+    ``{ok: True, tools: [...]}`` or ``{ok: False, error: ...}``."""
+    try:
+        client = _build_client(payload)
+        tools = await asyncio.wait_for(client.get_tools(), timeout=_TEST_CONNECTION_TIMEOUT)
+    except Exception as err:  # noqa: BLE001 — surface any failure to the UI
+        return {"ok": False, "error": str(err)}
+    return {"ok": True, "tools": [{"name": t.name, "description": getattr(t, "description", "")} for t in tools]}
+
+
+async def discover_tools(server: MCPServer) -> list[dict[str, str]]:
+    """Discover the tools exposed by a saved server. Headers are decrypted
+    and env-refs resolved before the handshake; on failure, returns an empty
+    list (the caller already shows the row, just without tool browser data)."""
+    payload = {"transport": server.transport, "url": server.url, "headers": server.headers or []}
+    result = await test_connection(payload)
+    if not result.get("ok"):
+        logger.warning("Tool discovery failed for MCP server '%s': %s", server.name, result.get("error"))
+        return []
+    return result["tools"]
