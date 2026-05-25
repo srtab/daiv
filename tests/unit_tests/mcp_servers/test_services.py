@@ -174,3 +174,106 @@ async def test_test_connection_reports_error(monkeypatch):
     result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
     assert result["ok"] is False
     assert "connect refused" in result["error"]
+    assert "RuntimeError" in result["error"]
+
+
+async def test_test_connection_reports_blank_exception_with_class_name(monkeypatch):
+    """str(err) is empty for many httpx/asyncio exceptions — error must still surface the class name."""
+    from mcp_servers.services import test_connection
+
+    class _SilentError(Exception):
+        def __str__(self) -> str:
+            return ""
+
+    def _fail(payload):
+        raise _SilentError
+
+    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
+    result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
+    assert result["ok"] is False
+    assert result["error"]
+    assert "_SilentError" in result["error"]
+
+
+async def test_discover_tools_returns_empty_on_failure(monkeypatch, caplog):
+    from mcp_servers.models import MCPServer
+    from mcp_servers.services import discover_tools
+
+    async def _fail(payload):
+        return {"ok": False, "error": "boom"}
+
+    monkeypatch.setattr("mcp_servers.services.test_connection", _fail)
+    server = MCPServer(name="x", transport=MCPServer.Transport.HTTP, url="http://x.test")
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        tools = await discover_tools(server)
+    assert tools == []
+    assert "Tool discovery failed" in caplog.text
+
+
+async def test_discover_tools_propagates_decryption_error(monkeypatch):
+    """Propagated so views can show a key-rotation error instead of 500-ing."""
+    from mcp_servers.services import discover_tools
+
+    from core.encryption import DecryptionError
+
+    class _Stub:
+        name = "broken"
+        transport = "http"
+        url = "http://broken.test"
+
+        @property
+        def headers(self):
+            raise DecryptionError("key rotated")
+
+    with pytest.raises(DecryptionError):
+        await discover_tools(_Stub())
+
+
+@pytest.mark.django_db
+def test_server_health_ok_for_resolved_env_ref(monkeypatch):
+    from mcp_servers.models import MCPServer
+    from mcp_servers.services import server_health
+
+    monkeypatch.setenv("PRESENT_VAR", "v")
+    s = MCPServer.objects.create(
+        name="a",
+        transport=MCPServer.Transport.HTTP,
+        url="http://a.test",
+        headers=[{"name": "X-T", "mode": "env_ref", "value": "PRESENT_VAR"}],
+    )
+    assert server_health(s) == {"ok": True, "reason": None}
+
+
+@pytest.mark.django_db
+def test_server_health_flags_missing_env_ref(monkeypatch):
+    from mcp_servers.models import MCPServer
+    from mcp_servers.services import server_health
+
+    monkeypatch.delenv("MISSING_VAR", raising=False)
+    s = MCPServer.objects.create(
+        name="b",
+        transport=MCPServer.Transport.HTTP,
+        url="http://b.test",
+        headers=[{"name": "X-T", "mode": "env_ref", "value": "MISSING_VAR"}],
+    )
+    health = server_health(s)
+    assert health["ok"] is False
+    assert "MISSING_VAR" in health["reason"]
+
+
+@pytest.mark.django_db
+def test_server_health_flags_undecryptable_headers():
+    from mcp_servers.models import MCPServer
+    from mcp_servers.services import server_health
+
+    s = MCPServer.objects.create(
+        name="c",
+        transport=MCPServer.Transport.HTTP,
+        url="http://c.test",
+        headers=[{"name": "X-T", "mode": "literal", "value": "secret"}],
+    )
+    MCPServer.objects.filter(pk=s.pk).update(_headers_encrypted="not-a-fernet-token")
+    s.refresh_from_db()
+    health = server_health(s)
+    assert health["ok"] is False
+    assert "decrypt" in health["reason"].lower()

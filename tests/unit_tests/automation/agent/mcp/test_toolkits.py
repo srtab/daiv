@@ -1,4 +1,7 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from automation.agent.mcp.schemas import ToolFilter
 from automation.agent.mcp.toolkits import MCPToolkit, _apply_tool_filters
@@ -100,6 +103,69 @@ class TestMCPToolkitGetTools:
 
         assert result == []
 
+    async def test_one_failing_server_does_not_blank_the_others(self, monkeypatch):
+        """A single broken endpoint must not remove tools from healthy peers."""
+        good_tool = MagicMock()
+        good_tool.name = "good_t"
+        good_tool.tags = []
+        good_tool.metadata = {}
+
+        bad_conn = {"transport": "streamable_http", "url": "http://bad/mcp"}
+        good_conn = {"transport": "streamable_http", "url": "http://good/mcp"}
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            lambda user_servers: ({"bad": bad_conn, "good": good_conn}, {}),
+        )
+
+        def _client_factory(connections, **kwargs):
+            client = MagicMock()
+            name = next(iter(connections))
+            if name == "bad":
+                client.get_tools = AsyncMock(side_effect=RuntimeError("dns fail"))
+            else:
+                client.get_tools = AsyncMock(return_value=[good_tool])
+            return client
+
+        with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory):
+            result = await MCPToolkit.get_tools()
+
+        assert [t.name for t in result] == ["good_t"]
+
+    async def test_hanging_server_times_out_without_blanking_peers(self, monkeypatch):
+        """A server that hangs must time out (not freeze) and not blank tools from healthy peers."""
+        good_tool = MagicMock()
+        good_tool.name = "good_t"
+        good_tool.tags = []
+        good_tool.metadata = {}
+
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            lambda user_servers: ({"slow": {"url": "http://slow/mcp"}, "good": {"url": "http://good/mcp"}}, {}),
+        )
+
+        async def _hang():
+            await asyncio.sleep(10)  # never returns within the timeout
+            return [good_tool]
+
+        def _client_factory(connections, **kwargs):
+            client = MagicMock()
+            if next(iter(connections)) == "slow":
+                client.get_tools = _hang
+            else:
+                client.get_tools = AsyncMock(return_value=[good_tool])
+            return client
+
+        with (
+            patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory),
+            patch("automation.agent.mcp.toolkits.settings") as mcp_settings,
+        ):
+            mcp_settings.TOOL_LOAD_TIMEOUT = 0.05
+            result = await MCPToolkit.get_tools()
+
+        assert [t.name for t in result] == ["good_t"]
+
     async def test_passes_user_servers_to_registry(self, monkeypatch):
         captured = {}
 
@@ -160,3 +226,37 @@ class TestMCPToolkitGetTools:
             result = await MCPToolkit.get_tools()
 
         assert result == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_end_to_end_db_row_yields_tool():
+    """Exercise the full DB → build_runtime_servers → registry → client chain so a rename of any
+    boundary symbol breaks this test instead of slipping through the mocked happy path."""
+    from asgiref.sync import sync_to_async
+    from mcp_servers.models import MCPServer
+
+    @sync_to_async
+    def _create():
+        MCPServer.objects.create(
+            name="acme", transport=MCPServer.Transport.HTTP, url="http://acme.test/mcp", enabled=True
+        )
+
+    await _create()
+
+    def _client_factory(connections, **kwargs):
+        name = next(iter(connections))
+        client = MagicMock()
+        if name == "acme":
+            tool = MagicMock()
+            tool.name = "acme_search"
+            tool.tags = []
+            tool.metadata = {}
+            client.get_tools = AsyncMock(return_value=[tool])
+        else:
+            client.get_tools = AsyncMock(return_value=[])
+        return client
+
+    with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory):
+        result = await MCPToolkit.get_tools()
+
+    assert "acme_search" in [t.name for t in result]

@@ -36,8 +36,7 @@ class MCPRegistry:
         self._registry.append(server)
 
     def builtin_names(self) -> list[str]:
-        """Return the names of registered built-in server classes (used by
-        the upsert on app ready)."""
+        """Return the names of registered built-in server classes."""
         return [cls.name for cls in self._registry]
 
     def get_connections_and_filters(

@@ -39,3 +39,25 @@ def test_defaults():
     assert server.tool_filter_mode == MCPServer.FilterMode.NONE
     assert server.tool_filter_items == []
     assert server.headers is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("mode", [MCPServer.FilterMode.ALLOW, MCPServer.FilterMode.BLOCK])
+def test_check_constraint_rejects_empty_items_when_mode_set(mode):
+    """Empty items with allow/block silently inverts intent (allow-nothing / block-nothing)."""
+    with pytest.raises(IntegrityError):
+        MCPServer.objects.create(
+            name="bad", transport=MCPServer.Transport.HTTP, url="http://x", tool_filter_mode=mode, tool_filter_items=[]
+        )
+
+
+@pytest.mark.django_db
+def test_check_constraint_allows_none_mode_with_empty_items():
+    obj = MCPServer.objects.create(
+        name="ok",
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        tool_filter_mode=MCPServer.FilterMode.NONE,
+        tool_filter_items=[],
+    )
+    assert obj.pk is not None

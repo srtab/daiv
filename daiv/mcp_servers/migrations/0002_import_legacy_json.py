@@ -9,7 +9,7 @@ from django.db import migrations
 
 logger = logging.getLogger("daiv.mcp_servers.migrations")
 
-_ENV_REF_RE = re.compile(r"\$\{([^}]+)\}")
+_ENV_REF_FULL_RE = re.compile(r"^\$\{([^}]+)\}$")
 
 
 def _convert_headers(name: str, raw_headers: dict | None) -> list[dict]:
@@ -17,8 +17,19 @@ def _convert_headers(name: str, raw_headers: dict | None) -> list[dict]:
         return []
     out: list[dict] = []
     for header_name, value in raw_headers.items():
-        match = _ENV_REF_RE.search(value)
+        if not isinstance(value, str):
+            continue
+        # Mixed strings like "Bearer ${TOKEN}" stay literal: the new model can't preserve the "Bearer " prefix.
+        match = _ENV_REF_FULL_RE.match(value)
         if not match:
+            if "${" in value:
+                logger.warning(
+                    "MCP server %r header %r mixes literal text with an env-var reference (%r); "
+                    "imported as a literal — the env var will not be expanded.",
+                    name,
+                    header_name,
+                    value,
+                )
             out.append({"name": header_name, "mode": "literal", "value": value})
             continue
         expr = match.group(1)

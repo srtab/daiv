@@ -14,10 +14,9 @@ _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$")
 class MCPServerForm(forms.ModelForm):
     """Create/edit a custom MCP server.
 
-    Headers are managed via a separate formset (added in Task 12). On edit,
-    ``name`` is immutable (added in Task 13). Tool filter items can come
-    either as a list of strings (when checkbox UI is used) or as a
-    newline-separated textarea (the offline fallback).
+    Tool-filter items render as a checkbox list when the view passes a
+    non-empty ``discovered_tools`` list; otherwise as a textarea (one tool
+    name per line). On edit, ``name`` is immutable.
     """
 
     tool_filter_items = forms.CharField(
@@ -37,9 +36,8 @@ class MCPServerForm(forms.ModelForm):
         if self.instance.pk is not None:
             self.fields["tool_filter_items"].initial = "\n".join(self.instance.tool_filter_items or [])
 
-        # Dynamic field swap: when the view passes ``discovered_tools``,
-        # render a checkbox list of those tools (plus any persisted-but-
-        # not-discovered tools, flagged) instead of the free textarea.
+        # Empty/None keeps the textarea — a transient discovery failure must not silently wipe the
+        # persisted filter (block-mode would otherwise degrade to "block none").
         if discovered_tools:
             discovered_names = [t.get("name") for t in discovered_tools if t.get("name")]
             persisted = list(self.instance.tool_filter_items or []) if self.instance.pk is not None else []
@@ -52,6 +50,7 @@ class MCPServerForm(forms.ModelForm):
                 desc = t.get("description") or ""
                 label = f"{t['name']} — {desc}" if desc else t["name"]
                 choices.append((t["name"], label))
+            # Keep persisted-but-not-discovered names as choices so an unchecked save can't drop them.
             for n in extra:
                 choices.append((n, _("%(name)s (not in current tool list)") % {"name": n}))
 

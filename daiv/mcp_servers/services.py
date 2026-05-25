@@ -114,15 +114,39 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         client = _build_client(payload)
         tools = await asyncio.wait_for(client.get_tools(), timeout=_TEST_CONNECTION_TIMEOUT)
+    except TimeoutError:
+        logger.warning("MCP test_connection timed out for url=%s", payload.get("url"))
+        return {"ok": False, "error": f"Connection timed out after {_TEST_CONNECTION_TIMEOUT:g}s"}
     except Exception as err:  # noqa: BLE001 — surface any failure to the UI
-        return {"ok": False, "error": str(err)}
+        logger.exception("MCP test_connection failed for url=%s", payload.get("url"))
+        # str(err) is empty for many httpx/asyncio exceptions; class name keeps the message greppable.
+        detail = str(err) or type(err).__name__
+        return {"ok": False, "error": f"{type(err).__name__}: {detail}"}
     return {"ok": True, "tools": [{"name": t.name, "description": getattr(t, "description", "")} for t in tools]}
 
 
+def server_health(server: MCPServer) -> dict[str, Any]:
+    """Synchronous decryption + env-ref check, no network. Flags rows that
+    look enabled but would be silently skipped by ``build_runtime_servers``."""
+    try:
+        raw = server.headers or []
+    except DecryptionError:
+        return {"ok": False, "reason": "headers cannot be decrypted"}
+    missing = [
+        entry.get("value") or "(empty)"
+        for entry in raw
+        if entry.get("mode") == "env_ref" and os.environ.get(entry.get("value") or "") is None
+    ]
+    if missing:
+        return {"ok": False, "reason": "missing env var(s): " + ", ".join(missing)}
+    return {"ok": True, "reason": None}
+
+
 async def discover_tools(server: MCPServer) -> list[dict[str, str]]:
-    """Discover the tools exposed by a saved server. Headers are decrypted
-    and env-refs resolved before the handshake; on failure, returns an empty
-    list (the caller already shows the row, just without tool browser data)."""
+    """Discover tools exposed by a saved server. Returns ``[]`` on handshake
+    failure. Propagates :class:`core.encryption.DecryptionError` so views
+    can surface a key-rotation error instead of 500-ing.
+    """
     payload = {"transport": server.transport, "url": server.url, "headers": server.headers or []}
     result = await test_connection(payload)
     if not result.get("ok"):

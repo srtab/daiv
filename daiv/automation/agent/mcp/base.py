@@ -23,15 +23,17 @@ class MCPServer(ABC):
     @classmethod
     def _db_enabled(cls) -> bool:
         try:
-            from django.db.utils import OperationalError, ProgrammingError
+            from django.db.utils import ProgrammingError
 
             from mcp_servers.models import MCPServer as DBModel
         except ImportError:
             return True
         try:
             return DBModel.objects.filter(name=cls.name, enabled=True).exists()
-        except OperationalError, ProgrammingError:
-            return True  # before migrations have run; fall back to "enabled"
+        except ProgrammingError:
+            # Table missing (pre-migration) → enabled. OperationalError is NOT caught:
+            # swallowing it would flip every disabled built-in back on during a DB outage.
+            return True
 
     @abstractmethod
     def get_connection(self) -> Connection: ...

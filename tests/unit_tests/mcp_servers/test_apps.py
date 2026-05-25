@@ -1,17 +1,15 @@
 from __future__ import annotations
 
+from django.db.utils import OperationalError, ProgrammingError
+
 import pytest
 from mcp_servers.apps import upsert_builtin_rows
 from mcp_servers.models import MCPServer
 
 
-class _Stub:
-    name = "stub"
-
-
 @pytest.mark.django_db
 def test_first_run_creates_row():
-    upsert_builtin_rows([_Stub])
+    upsert_builtin_rows(["stub"])
     row = MCPServer.objects.get(name="stub")
     assert row.source == MCPServer.Source.BUILTIN
     assert row.enabled is True
@@ -19,22 +17,38 @@ def test_first_run_creates_row():
 
 @pytest.mark.django_db
 def test_subsequent_run_preserves_enabled_flag():
-    upsert_builtin_rows([_Stub])
+    upsert_builtin_rows(["stub"])
     MCPServer.objects.filter(name="stub").update(enabled=False)
-    upsert_builtin_rows([_Stub])  # second pass
+    upsert_builtin_rows(["stub"])  # second pass
     assert MCPServer.objects.get(name="stub").enabled is False
 
 
 @pytest.mark.django_db
-def test_handles_missing_table_gracefully(monkeypatch):
-    from django.db.utils import OperationalError
-
+@pytest.mark.parametrize("exc_cls", [OperationalError, ProgrammingError])
+def test_handles_missing_table_gracefully(monkeypatch, exc_cls):
     def boom(*args, **kwargs):
-        raise OperationalError("no such table")
+        raise exc_cls("no such table")
 
     monkeypatch.setattr(MCPServer.objects, "filter", boom)
-    # Should not raise — startup must not crash if migrations haven't run yet.
-    upsert_builtin_rows([_Stub])
+    upsert_builtin_rows(["stub"])
+
+
+@pytest.mark.django_db
+def test_db_enabled_propagates_operational_error(monkeypatch):
+    """OperationalError must propagate — swallowing it would flip every disabled built-in on during an outage."""
+    from automation.agent.mcp.base import MCPServer as Base
+
+    class _Sub(Base):
+        name = "outage-stub"
+
+        def get_connection(self): ...
+
+    def boom(*args, **kwargs):
+        raise OperationalError("connection refused")
+
+    monkeypatch.setattr(MCPServer.objects, "filter", boom)
+    with pytest.raises(OperationalError):
+        _Sub._db_enabled()
 
 
 @pytest.mark.django_db

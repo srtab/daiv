@@ -7,6 +7,7 @@
             <th>{% translate "URL" %}</th>
             <th>{% translate "Transport" %}</th>
             <th>{% translate "Enabled" %}</th>
+            <th>{% translate "Health" %}</th>
             <th>{% translate "Actions" %}</th>
         </tr>
     </thead>
@@ -17,6 +18,13 @@
             <td>{{ s.url }}</td>
             <td>{{ s.get_transport_display }}</td>
             <td>{{ s.enabled|yesno }}</td>
+            <td>
+                {% if s.health.ok %}
+                    <span class="text-emerald-400">{% translate "OK" %}</span>
+                {% else %}
+                    <span class="text-amber-400" title="{{ s.health.reason }}">{% translate "Broken" %}: {{ s.health.reason }}</span>
+                {% endif %}
+            </td>
             <td>
                 <form method="post" action="{% url 'mcp_servers:toggle' s.name %}" style="display:inline">
                     {% csrf_token %}
