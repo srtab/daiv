@@ -171,7 +171,10 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
 
         {% if with_effort|default_if_none:True %}
         <div class="agent-popover__section agent-popover__effort">
-            <span class="text-gray-400">{% translate "Effort" %}</span>
+            <span class="agent-popover__effort-label text-gray-400">
+                {% icon "bolt" "agent-pill__effort-icon" %}
+                {% translate "Effort" %}
+            </span>
             <div class="agent-popover__effort-dots">
                 <template x-for="(lvl, idx) in LEVELS" :key="lvl">
                     <button type="button" @click="selectEffort(lvl)"
