@@ -945,6 +945,22 @@ class TestAgentPickerWidget:
         assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
         assert config.agent_thinking_level == "high"
 
+    def test_max_paired_model_field_submits_thinking_under_partner_name(self, client, admin_user, group_url):
+        """The second paired pair (``agent_max_*``) shares the same submission contract
+        as ``agent_*`` — both POST keys land from one popover. Pinning this guards against
+        a partial revert of ``_PAIRED_THINKING_FIELDS`` that would leave one pair behind."""
+        _enable_seed_provider("anthropic")
+        client.force_login(admin_user)
+        response = client.post(
+            group_url("agent"),
+            {"agent_max_model_name": "anthropic:claude-sonnet-4-6", "agent_max_thinking_level": "medium"},
+        )
+        assert response.status_code == 302
+
+        config = SiteConfiguration.objects.get_instance()
+        assert config.agent_max_model_name == "anthropic:claude-sonnet-4-6"
+        assert config.agent_max_thinking_level == "medium"
+
     def test_paired_thinking_field_is_skipped_in_render_loop(self, client, admin_user, group_url):
         """The standalone Select for the paired thinking-level must not render —
         the picker's effort dots are the sole UI. ``id_agent_thinking_level``
@@ -973,6 +989,25 @@ class TestAgentPickerWidget:
         assert widget.default_model == "openrouter:anthropic/claude-haiku-4.5"
         ctx = widget.get_context("agent_fallback_model_name", None, {})
         assert ctx["widget"]["picker"]["placeholder_label"] == "Default (claude-haiku-4.5)"
+
+    @pytest.mark.parametrize(
+        ("spec", "expected"),
+        [
+            ("", ""),  # empty input → empty output (early-return guard)
+            ("anthropic:claude-sonnet-4-6", "claude-sonnet-4-6"),  # provider + bare model
+            ("openrouter:anthropic/claude-haiku-4.5", "claude-haiku-4.5"),  # provider + org/model
+            ("bare-model-name", "bare-model-name"),  # no provider prefix at all
+            ("provider:", ""),  # provider with empty tail — degenerate
+            ("provider:org/", "org/"),  # trailing slash falls through to the ``or name`` branch
+        ],
+    )
+    def test_shorten_model_spec(self, spec, expected):
+        """Pure-Python coverage of ``_shorten_model_spec``'s five branches:
+        the ``or name`` fallback at the end is only reached by the trailing-slash
+        case, so removing it would silently return ``""`` for that input — caught here."""
+        from core.forms import _shorten_model_spec
+
+        assert _shorten_model_spec(spec) == expected
 
     def test_paired_widget_receives_thinking_default_and_initial(self, db):
         """Paired pickers must also carry the thinking default + the form's
@@ -1013,9 +1048,10 @@ class TestAgentPickerWidget:
 
     def test_clear_persists_null_for_paired_picker(self, client, admin_user, group_url):
         """The "Use default" button posts empty strings for both keys. The form
-        must persist NULL on both — not "" — because the runtime resolver in
-        ``automation/agent/utils.py`` distinguishes empty string ("stored
-        explicit empty") from NULL ("fall back to system default")."""
+        must persist NULL on both — not "" — because the field's ``CharField(null=True)``
+        formfield sets ``empty_value=None``, so an empty submission goes to the DB
+        as NULL rather than empty string. The ORM then reads back ``None``, which
+        ``get_daiv_agent_kwargs`` falls back from to the system default."""
         _enable_seed_provider("anthropic")
         config = SiteConfiguration.objects.get_instance()
         config.agent_model_name = "anthropic:claude-sonnet-4-6"
