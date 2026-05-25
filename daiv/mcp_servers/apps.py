@@ -64,15 +64,23 @@ def warn_legacy_env_if_present() -> None:
     _LEGACY_WARNED = True
 
 
+def _on_post_migrate(sender, **kwargs):
+    if sender.name != "mcp_servers":
+        return
+    # Defer to post_migrate so the queries don't run during app init or
+    # break in-memory test DBs that have a pre-app-ready connection.
+    from automation.agent.mcp.registry import mcp_registry
+
+    upsert_builtin_rows(mcp_registry._registry)
+    warn_legacy_env_if_present()
+
+
 class MCPServersConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "mcp_servers"
     verbose_name = "MCP Servers"
 
     def ready(self) -> None:
-        # Lazy import: the registry must finish collecting @mcp_server
-        # classes from other apps' import-time decorators before we read it.
-        from automation.agent.mcp.registry import mcp_registry
+        from django.db.models.signals import post_migrate
 
-        upsert_builtin_rows(mcp_registry._registry)
-        warn_legacy_env_if_present()
+        post_migrate.connect(_on_post_migrate, sender=self)
