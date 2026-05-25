@@ -62,7 +62,17 @@ document.addEventListener("alpine:init", () => {
             this.selectedId = normalised;
             this.close();
             if (this.onChangeEvent) {
-                window.dispatchEvent(new CustomEvent(this.onChangeEvent, {detail: {id: this.selectedId}}));
+                // Carry display fields so listeners can mirror the selection without
+                // re-resolving by id. Auto pick → empty name/scope. An id that no longer
+                // matches a row (env removed mid-session) also lands here with empty
+                // name/scope; consumers must distinguish that from a valid Auto pick
+                // (id === "") by branching on the id, not the name.
+                const env = this.selectedId ? this.envs.find(e => e.id === this.selectedId) : null;
+                window.dispatchEvent(new CustomEvent(this.onChangeEvent, {detail: {
+                    id: this.selectedId,
+                    name: env?.name || "",
+                    scope: env?.scope || "",
+                }}));
             }
         },
 

@@ -300,3 +300,31 @@ def test_initial_model_display_passes_bare_name_through(providers):
 def test_initial_model_display_empty_when_no_initial(providers):
     ctx = agent_picker_context()
     assert ctx["agent_picker_initial_model_display"] == ""
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ("openrouter:anthropic/claude-haiku-4.5", "claude-haiku-4.5"),
+        ("anthropic:claude-opus-4-6", "claude-opus-4-6"),
+        ("claude-opus-4-5", "claude-opus-4-5"),
+        ("openrouter:meta-llama/llama-3.3-70b-instruct", "llama-3.3-70b-instruct"),
+        ("", ""),
+        # Empty model name after the colon — trailing-slash fallback keeps both sides
+        # returning "" rather than the raw "provider:" prefix.
+        ("provider:", ""),
+        # Trailing slash with empty leaf — the `or name` fallback in the helper means
+        # we return the un-split remainder ("org/") rather than "", and the JS mirror
+        # must do the same.
+        ("provider:org/", "org/"),
+    ],
+)
+def test_display_model_name_normalisation(spec, expected):
+    """Pin the exact spec→display normalisation. The JS picker mirrors this in
+    ``daiv/chat/static/chat/js/chat-stream.js`` (``displayFromSpec``) so the locked
+    pill shows the same name whether it was server-rendered from a persisted thread
+    or pinned client-side from the just-submitted hidden input. Update both sides
+    together when this table changes."""
+    from automation.agent.picker_context import _display_model_name
+
+    assert _display_model_name(spec) == expected

@@ -31,6 +31,11 @@
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
 
+  {# Translation lookups for the locked-pill fallbacks in chat({…}) below. #}
+  {# Tag→variable lets us pipe them through ``|escapejs`` for safe quoting in JS. #}
+  {% translate "Pick a model" as locked_agent_fallback %}
+  {% translate "Auto" as locked_env_fallback %}
+
   <div x-data='chat({
          endpoint: "/api/chat/completions",
          statusEndpoint: {% if thread %}"/api/chat/threads/{{ thread.thread_id|escapejs }}/status"{% else %}""{% endif %},
@@ -42,7 +47,11 @@
            ref: "{{ thread.ref|escapejs }}",
            merge_request: null
          }{% else %}null{% endif %},
-         selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}"
+         selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}",
+         initialAgentLabel: "{{ agent_picker_initial_model_display|default:agent_picker_initial_model|default:locked_agent_fallback|escapejs }}",
+         initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
+         initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
+         envAutoLabel: "{{ locked_env_fallback|escapejs }}"
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"

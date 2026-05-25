@@ -59,6 +59,13 @@ Parameters:
                                        activity) leave the default; settings env-locked fields
                                        pass "Locked by environment variable" so the tooltip
                                        reflects the actual reason the field is read-only.
+- dynamic_label_expr (default "")    — Alpine expression read via ``x-text`` to override the locked
+                                       pill's name. Set by callers whose surrounding scope tracks the
+                                       just-committed selection (e.g. the chat composer, where the
+                                       partial first renders before the thread exists, so the static
+                                       initial value is empty until a page refresh). The expression
+                                       must resolve to a non-empty string in the parent Alpine scope;
+                                       contributing a fallback there is the caller's job.
 
 The caller is responsible for loading ``automation/js/agent-picker.js`` (deferred).
 {% endcomment %}
@@ -68,7 +75,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
       title="{% if stale %}{% translate 'This model is no longer available — start a new thread to pick another.' %}{% elif locked_title %}{{ locked_title }}{% else %}{% translate 'Locked for this conversation' %}{% endif %}"
       aria-disabled="true">
     {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
-    <span class="agent-pill__name">{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
+    <span class="agent-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
     {% if stale %}
         <span class="agent-pill__stale-marker" aria-hidden="true">!</span>
     {% else %}

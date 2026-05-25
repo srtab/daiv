@@ -114,6 +114,16 @@
   const bashFilesChanged = (resultStr) =>
     (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
 
+  // Mirror of Python ``automation.agent.picker_context._display_model_name``: strip the
+  // ``provider:`` prefix and any ``org/`` path so a freshly committed agent spec collapses
+  // to the same compact form the server uses for the locked pill on a refresh
+  // (``openrouter:anthropic/claude-haiku-4.5`` → ``claude-haiku-4.5``).
+  const displayFromSpec = (spec) => {
+    if (!spec) return "";
+    const afterProvider = spec.includes(":") ? spec.slice(spec.indexOf(":") + 1) : spec;
+    return afterProvider.split("/").pop() || afterProvider;
+  };
+
   const chat = (config) => ({
     endpoint: config.endpoint,
     statusEndpoint: config.statusEndpoint || "",
@@ -124,6 +134,18 @@
     // proxy after init doesn't always re-render templates.
     thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
     selectedSandboxEnvId: config.selectedSandboxEnvId || "",
+    // Locked-pill labels for the composer chips. Server-side ``_composer.html`` renders
+    // the static text at template time, which on a brand-new chat is the empty-thread
+    // fallback ("Pick a model" / "Auto") — by the time those pills become visible
+    // (``x-show="thread"``) the user has already picked something the server hasn't seen
+    // yet. The locked pills read these via ``x-text`` so the picker keeps its selection
+    // visible during the hero→composer transition, with no page refresh needed.
+    lockedAgentLabel: config.initialAgentLabel || "",
+    lockedEnvLabel: config.initialEnvLabel || "",
+    lockedEnvScope: config.initialEnvScope || "",
+    // Server-translated "Auto" so re-picking Auto after a real env reverts the
+    // locked pill text correctly (the JS itself has no i18n surface).
+    _envAutoLabel: config.envAutoLabel || "Auto",
     turns: loadInitialTurns(),
     draftMessage: "",
     draftRepoId: "",
@@ -158,6 +180,22 @@
 
     applySandboxEnvSelection(detail) {
       this.selectedSandboxEnvId = detail?.id || "";
+      // ``daiv:env-changed`` payload is {id, name, scope}; empty id = Auto pick. An id
+      // with empty name means the picker couldn't resolve the id against its envs list
+      // (env removed mid-session, or the picker was mounted with a stale id) — surface
+      // it via warn so the staleness is debuggable rather than blanking the pill, and
+      // visually treat it as Auto so the locked label never renders empty.
+      if (!detail?.id) {
+        this.lockedEnvLabel = this._envAutoLabel;
+        this.lockedEnvScope = "";
+      } else if (!detail?.name) {
+        console.warn("daiv:env-changed: id %o has no matching env; falling back to Auto label", detail.id);
+        this.lockedEnvLabel = this._envAutoLabel;
+        this.lockedEnvScope = "";
+      } else {
+        this.lockedEnvLabel = detail.name;
+        this.lockedEnvScope = detail.scope || "";
+      }
     },
 
     init() {
@@ -491,6 +529,11 @@
       const agentThinkingLevel = agentThinkingInput?.value || "";
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
+
+      // Pin the locked composer pill's label to what we're about to commit, so the
+      // hero→composer transition doesn't flash the empty-thread fallback ("Pick a
+      // model") between now and the next page refresh.
+      if (agentModel) this.lockedAgentLabel = displayFromSpec(agentModel);
 
       const body = {
         threadId: this.thread.thread_id,
