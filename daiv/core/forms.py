@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 from urllib.parse import urlparse
 
 from django import forms
@@ -43,6 +43,10 @@ _PAIRED_THINKING_FIELDS: dict[str, str] = {
     "agent_max_model_name": "agent_max_thinking_level",
 }
 
+assert set(_PAIRED_THINKING_FIELDS).issubset(SiteConfiguration.MODEL_NAME_FIELDS), (
+    "_PAIRED_THINKING_FIELDS keys must be MODEL_NAME_FIELDS members"
+)
+
 
 def _shorten_model_spec(spec: str) -> str:
     """Strip ``provider:`` prefix and any ``org/`` path so the placeholder pill
@@ -51,6 +55,27 @@ def _shorten_model_spec(spec: str) -> str:
         return ""
     name = spec.split(":", 1)[1] if ":" in spec else spec
     return name.rsplit("/", 1)[-1] or name
+
+
+class _PickerContext(TypedDict):
+    """Shape of the per-widget context blob the settings widget passes into
+    ``automation/_agent_picker.html``. Defined here so renaming a key trips
+    the type checker rather than silently leaving the template fallback path."""
+
+    providers: str  # JSON-serialised list of {slug, label}
+    field_name_model: str
+    field_name_thinking: str
+    initial_agent_model: str
+    initial_model_display: str
+    initial_thinking_level: str
+    default_model: str
+    default_thinking: str
+    placeholder_label: str
+    with_effort: bool
+    disabled: bool
+    locked_title: str
+    seed_default: bool
+    required: bool
 
 
 class _AgentPickerWidget(forms.Widget):
@@ -111,11 +136,12 @@ class _AgentPickerWidget(forms.Widget):
         # view is in ``widget_ctx["attrs"]`` via the parent's ``build_attrs``.
         merged_attrs = widget_ctx.get("attrs") or {}
         is_disabled = bool(merged_attrs.get("disabled"))
-        widget_ctx["picker"] = {
+        picker: _PickerContext = {
             "providers": json.dumps(providers),
             "field_name_model": name,
             "field_name_thinking": self.paired_thinking_field or "",
             "initial_agent_model": value or "",
+            "initial_model_display": "",
             "initial_thinking_level": self.initial_thinking,
             "default_model": self.default_model,
             "default_thinking": self.default_thinking,
@@ -132,6 +158,7 @@ class _AgentPickerWidget(forms.Widget):
             "seed_default": False,
             "required": False,
         }
+        widget_ctx["picker"] = picker
         return context
 
     def value_from_datadict(self, data: dict[str, Any], files: dict[str, Any], name: str) -> str:
