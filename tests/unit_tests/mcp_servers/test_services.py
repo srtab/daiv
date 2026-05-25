@@ -114,3 +114,33 @@ def test_disabled_builtin_row_excluded():
     )
     out = build_runtime_servers()
     assert out == []
+
+
+async def test_test_connection_returns_tools_on_success(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from mcp_servers.services import test_connection
+
+    fake_client = MagicMock()
+    fake_tool = MagicMock()
+    fake_tool.name = "demo_tool"
+    fake_tool.description = "demo"
+    fake_client.get_tools = AsyncMock(return_value=[fake_tool])
+
+    monkeypatch.setattr("mcp_servers.services._build_client", lambda payload: fake_client)
+
+    result = await test_connection({"transport": "http", "url": "http://demo.test/mcp", "headers": []})
+    assert result["ok"] is True
+    assert [t["name"] for t in result["tools"]] == ["demo_tool"]
+
+
+async def test_test_connection_reports_error(monkeypatch):
+    from mcp_servers.services import test_connection
+
+    def _fail(payload):
+        raise RuntimeError("connect refused")
+
+    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
+    result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
+    assert result["ok"] is False
+    assert "connect refused" in result["error"]
