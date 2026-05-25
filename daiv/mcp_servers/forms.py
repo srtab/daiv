@@ -33,9 +33,31 @@ class MCPServerForm(forms.ModelForm):
 
     def __init__(self, *args, discovered_tools=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.discovered_tools = discovered_tools  # consumed in Task 14
+        self.discovered_tools = discovered_tools
         if self.instance.pk is not None:
             self.fields["tool_filter_items"].initial = "\n".join(self.instance.tool_filter_items or [])
+
+        # Dynamic field swap: when the view passes ``discovered_tools``,
+        # render a checkbox list of those tools (plus any persisted-but-
+        # not-discovered tools, flagged) instead of the free textarea.
+        if discovered_tools:
+            discovered_names = [t.get("name") for t in discovered_tools if t.get("name")]
+            persisted = list(self.instance.tool_filter_items or []) if self.instance.pk is not None else []
+            extra = [n for n in persisted if n not in discovered_names]
+
+            choices: list[tuple[str, str]] = []
+            for t in discovered_tools:
+                if not t.get("name"):
+                    continue
+                desc = t.get("description") or ""
+                label = f"{t['name']} — {desc}" if desc else t["name"]
+                choices.append((t["name"], label))
+            for n in extra:
+                choices.append((n, _("%(name)s (not in current tool list)") % {"name": n}))
+
+            self.fields["tool_filter_items"] = forms.MultipleChoiceField(
+                choices=choices, widget=forms.CheckboxSelectMultiple, required=False, initial=persisted
+            )
 
     def clean_name(self):
         name = self.cleaned_data["name"]
@@ -46,9 +68,10 @@ class MCPServerForm(forms.ModelForm):
         return name
 
     def clean_tool_filter_items(self):
-        raw = self.cleaned_data.get("tool_filter_items") or ""
-        items = [line.strip() for line in raw.splitlines() if line.strip()]
-        return items
+        raw = self.cleaned_data.get("tool_filter_items") or []
+        if isinstance(raw, str):
+            return [line.strip() for line in raw.splitlines() if line.strip()]
+        return list(raw)
 
     def clean(self):
         cleaned = super().clean()

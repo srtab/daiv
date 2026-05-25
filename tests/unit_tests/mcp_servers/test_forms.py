@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from django import forms
+
 import pytest
 from mcp_servers.forms import MCPServerForm
 
@@ -144,3 +146,74 @@ def test_name_cannot_change_on_edit():
     )
     assert not form.is_valid()
     assert "name" in form.errors
+
+
+@pytest.mark.django_db
+def test_form_renders_textarea_when_no_discovered_tools():
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(name="demo", transport="http", url="http://demo.test")
+    form = MCPServerForm(instance=obj)
+    assert isinstance(form.fields["tool_filter_items"], forms.CharField)
+    assert isinstance(form.fields["tool_filter_items"].widget, forms.Textarea)
+
+
+@pytest.mark.django_db
+def test_form_renders_checkboxes_when_tools_discovered():
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(name="demo", transport="http", url="http://demo.test")
+    form = MCPServerForm(
+        instance=obj,
+        discovered_tools=[
+            {"name": "search_events", "description": "Find events"},
+            {"name": "find_orgs", "description": "Look up orgs"},
+        ],
+    )
+    field = form.fields["tool_filter_items"]
+    assert isinstance(field, forms.MultipleChoiceField)
+    assert isinstance(field.widget, forms.CheckboxSelectMultiple)
+    choices_map = dict(field.choices)
+    assert "search_events" in choices_map
+    assert "find_orgs" in choices_map
+
+
+@pytest.mark.django_db
+def test_form_with_checkboxes_saves_selected_items():
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(name="demo", transport="http", url="http://demo.test")
+    form = MCPServerForm(
+        instance=obj,
+        data={
+            "name": "demo",
+            "transport": "http",
+            "url": "http://demo.test",
+            "enabled": "on",
+            "tool_filter_mode": "allow",
+            "tool_filter_items": ["search_events"],
+        },
+        discovered_tools=[{"name": "search_events", "description": "x"}, {"name": "find_orgs", "description": "y"}],
+    )
+    assert form.is_valid(), form.errors
+    obj = form.save()
+    assert obj.tool_filter_items == ["search_events"]
+
+
+@pytest.mark.django_db
+def test_form_persisted_not_discovered_item_still_listed():
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(
+        name="demo",
+        transport="http",
+        url="http://demo.test",
+        tool_filter_mode="allow",
+        tool_filter_items=["renamed_tool"],
+    )
+    form = MCPServerForm(instance=obj, discovered_tools=[{"name": "current_tool", "description": ""}])
+    choices_map = dict(form.fields["tool_filter_items"].choices)
+    # The persisted tool still appears so the admin can un-check it.
+    assert "renamed_tool" in choices_map
+    # And the label hints that it isn't currently available.
+    assert "not in current tool list" in choices_map["renamed_tool"]
