@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.mcp_servers")
 
+_LEGACY_WARNED = False
+
 
 def upsert_builtin_rows(builtin_classes: Iterable[type]) -> None:
     """Ensure each registered built-in MCP server has a DB row.
@@ -40,6 +42,28 @@ def upsert_builtin_rows(builtin_classes: Iterable[type]) -> None:
         )
 
 
+def warn_legacy_env_if_present() -> None:
+    global _LEGACY_WARNED
+    if _LEGACY_WARNED:
+        return
+    from automation.agent.mcp.conf import settings as mcp_conf
+    from mcp_servers.models import MCPServer
+
+    if not mcp_conf.SERVERS_CONFIG_FILE:
+        return
+    try:
+        any_rows = MCPServer.objects.exists()
+    except OperationalError, ProgrammingError:
+        return
+    if not any_rows:
+        return
+    logger.warning(
+        "MCP_SERVERS_CONFIG_FILE is deprecated; servers are now managed via the UI at "
+        "/dashboard/mcp-servers/. Unset MCP_SERVERS_CONFIG_FILE to silence this warning."
+    )
+    _LEGACY_WARNED = True
+
+
 class MCPServersConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "mcp_servers"
@@ -51,3 +75,4 @@ class MCPServersConfig(AppConfig):
         from automation.agent.mcp.registry import mcp_registry
 
         upsert_builtin_rows(mcp_registry._registry)
+        warn_legacy_env_if_present()
