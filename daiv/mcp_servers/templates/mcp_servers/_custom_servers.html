@@ -1,0 +1,10 @@
+{% load i18n %}
+<div id="custom-servers" class="mt-3">
+    {% if custom_servers %}
+    <ul>{% for s in custom_servers %}<li>{{ s.name }}</li>{% endfor %}</ul>
+    {% else %}
+    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
+        <p class="text-[15px] text-gray-400">{% translate "No custom servers configured." %}</p>
+    </div>
+    {% endif %}
+</div>

@@ -34,6 +34,7 @@ urlpatterns = [
     path("dashboard/sandbox-envs/", include("sandbox_envs.urls", namespace="sandbox_envs")),
     path("dashboard/schedules/", include("schedules.urls")),
     path("dashboard/skills/", include("skills.urls", namespace="skills")),
+    path("dashboard/mcp-servers/", include("mcp_servers.urls", namespace="mcp_servers")),
     path("codebase/", include("codebase.urls")),
     path("api/", api.urls),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
