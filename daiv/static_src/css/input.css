@@ -1758,7 +1758,7 @@ main:has(.chat-shell) {
   }
   .agent-pill__effort-dot--on { @apply bg-white; }
 
-  .agent-pill__caret { @apply text-[10px] opacity-50 ml-px; }
+  .agent-pill__caret { @apply h-2.5 w-2.5 opacity-50 ml-px; }
 
   .agent-pill--locked {
     @apply opacity-75 pointer-events-none;
