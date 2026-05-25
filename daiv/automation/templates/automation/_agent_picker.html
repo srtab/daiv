@@ -138,10 +138,6 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
                  class="text-xs text-gray-500 mb-1"
                  x-text="providerHint" x-cloak></div>
 
-            <div x-show="freeTextHint" role="status" aria-live="polite"
-                 class="text-xs text-amber-400 mb-1"
-                 x-text="freeTextHint" x-cloak></div>
-
             <input type="search" x-ref="search" x-model="query"
                    @keydown.enter.prevent="submitFreeText()"
                    placeholder="{% translate 'Model name…' %}"

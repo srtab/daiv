@@ -67,7 +67,6 @@ document.addEventListener("alpine:init", () => {
         defaultThinkingLevel,
         placeholderLabel,
         LEVELS: EFFORT_LEVELS,
-        freeTextHint: "",
 
         init() {
             // Stored spec always wins. The system default is only seeded into the
@@ -90,12 +89,6 @@ document.addEventListener("alpine:init", () => {
             // template is rendered (i.e. ``required`` is true).
             this.$watch("agentModelValue", (val) => {
                 if (val) this.$refs.modelInput?.setCustomValidity("");
-            });
-
-            // Stale ``freeTextHint`` should disappear as soon as the user types,
-            // even if they haven't yet selected a provider or pressed Enter.
-            this.$watch("query", () => {
-                if (this.freeTextHint) this.freeTextHint = "";
             });
         },
 
@@ -147,13 +140,11 @@ document.addEventListener("alpine:init", () => {
             // simply won't highlight a row until the user picks one explicitly.
             this.selectedProvider = slug;
             this.query = "";
-            this.freeTextHint = "";
         },
 
         selectModel(name) {
             this.modelName = name;
             this.query = "";
-            this.freeTextHint = "";
         },
 
         selectEffort(level) {
@@ -199,13 +190,14 @@ document.addEventListener("alpine:init", () => {
             } else if (this.selectedProvider) {
                 this.modelName = raw;
             } else {
-                // No provider yet and no ``slug:`` prefix. Tell the user what to do
-                // instead of silently swallowing the Enter press.
-                this.freeTextHint = "Pick a provider first, or type provider:model-name.";
+                // Defensive: the search input and "Use exact name" button both
+                // live inside ``x-show="selectedProvider"`` in the template, so
+                // this branch is unreachable from the current UI. Kept as a
+                // no-op guard against future template restructuring that would
+                // expose those controls before a provider is picked.
                 return;
             }
             this.query = "";
-            this.freeTextHint = "";
         },
 
         get filteredModels() {
