@@ -26,8 +26,8 @@
  *   seedDefault:          bool   — see ``defaultAgentModel``. Defaults to ``true`` so
  *                                  existing run-time callers behave identically; settings
  *                                  pass ``false``.
- *   required:             bool   — when ``true`` the template renders the sr-only
- *                                  required input that gates form submission on an empty
+ *   required:             bool   — when ``true`` Alpine renders an sr-only required
+ *                                  input that gates form submission on an empty
  *                                  selection. Defaults to ``true``; settings pass ``false``
  *                                  because an empty save is meaningful ("use default").
  */
@@ -67,6 +67,7 @@ document.addEventListener("alpine:init", () => {
         defaultThinkingLevel,
         placeholderLabel,
         LEVELS: EFFORT_LEVELS,
+        freeTextHint: "",
 
         init() {
             // Stored spec always wins. The system default is only seeded into the
@@ -90,6 +91,12 @@ document.addEventListener("alpine:init", () => {
             this.$watch("agentModelValue", (val) => {
                 if (val) this.$refs.modelInput?.setCustomValidity("");
             });
+
+            // Stale ``freeTextHint`` should disappear as soon as the user types,
+            // even if they haven't yet selected a provider or pressed Enter.
+            this.$watch("query", () => {
+                if (this.freeTextHint) this.freeTextHint = "";
+            });
         },
 
         toggle() {
@@ -106,22 +113,31 @@ document.addEventListener("alpine:init", () => {
         },
 
         async ensureCatalogLoaded() {
-            if (this.catalog.status !== "idle") return;
+            // Re-fetch on subsequent opens after an error so transient failures
+            // (brief network glitch, server restart) self-heal next time the user
+            // opens the popover. "loading" and "loaded" still short-circuit.
+            if (this.catalog.status === "loading" || this.catalog.status === "loaded") return;
             if (!this.catalogUrl) {
                 this.catalog.status = "error";
                 this.catalog.error = "No catalog URL configured";
                 return;
             }
             this.catalog.status = "loading";
+            this.catalog.error = null;
             try {
                 const res = await fetch(this.catalogUrl, {credentials: "same-origin"});
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
-                this.catalog.byProvider = data.catalog || {};
+                if (!data || typeof data.catalog !== "object" || data.catalog === null) {
+                    throw new Error("Unexpected catalog response shape");
+                }
+                this.catalog.byProvider = data.catalog;
                 this.catalog.status = "loaded";
             } catch (err) {
                 this.catalog.status = "error";
                 this.catalog.error = (err && err.message) || "Network error";
+                // Surface in devtools — the in-UI hint is dismissable and easy to miss.
+                console.error("agent picker: catalog fetch failed", err);
             }
         },
 
@@ -131,11 +147,13 @@ document.addEventListener("alpine:init", () => {
             // simply won't highlight a row until the user picks one explicitly.
             this.selectedProvider = slug;
             this.query = "";
+            this.freeTextHint = "";
         },
 
         selectModel(name) {
             this.modelName = name;
             this.query = "";
+            this.freeTextHint = "";
         },
 
         selectEffort(level) {
@@ -146,19 +164,22 @@ document.addEventListener("alpine:init", () => {
             // Revert to the "no explicit pick" state. The pill then renders
             // ``placeholderLabel`` (typically "Default (…)" in settings) and the
             // hidden input goes empty so save persists NULL — i.e. "use the
-            // configured default" rather than "no model".
+            // configured default" rather than "no model". Close the popover too:
+            // the "Use default" button hides itself once the picker is empty,
+            // leaving the open popover otherwise actionless.
             this.selectedProvider = "";
             this.modelName = "";
             this.thinkingLevel = "";
             this.query = "";
+            this.open = false;
         },
 
         handleInvalidModel(event) {
             // Browser refused to submit because the sr-only model input is required+empty.
             // Set a friendly validity message and open the popover so the user can act —
             // the browser's default "Please fill out this field" is meaningless when the
-            // field itself is invisible. The validity is cleared automatically as soon as
-            // ``agentModelValue`` flips to a non-empty spec (via the ``:value`` binding).
+            // field itself is invisible. The ``$watch`` set up in ``init()`` clears the
+            // validity message as soon as ``agentModelValue`` flips to a non-empty spec.
             event.target.setCustomValidity(
                 "Pick a model — no system default is configured, so a model must be selected explicitly."
             );
@@ -178,11 +199,13 @@ document.addEventListener("alpine:init", () => {
             } else if (this.selectedProvider) {
                 this.modelName = raw;
             } else {
-                // No provider yet and the typed value has no colon — refuse silently;
-                // user must pick a provider tab first.
+                // No provider yet and no ``slug:`` prefix. Tell the user what to do
+                // instead of silently swallowing the Enter press.
+                this.freeTextHint = "Pick a provider first, or type provider:model-name.";
                 return;
             }
             this.query = "";
+            this.freeTextHint = "";
         },
 
         get filteredModels() {
