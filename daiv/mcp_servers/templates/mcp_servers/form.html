@@ -7,7 +7,20 @@
 <h1>{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}</h1>
 <form method="post">
   {% csrf_token %}
-  {{ form.as_p }}
+
+  <p>{{ form.name.label_tag }} {{ form.name }}{% for e in form.name.errors %}<span class="error">{{ e }}</span>{% endfor %}</p>
+  <p>{{ form.description.label_tag }} {{ form.description }}</p>
+  <p>{{ form.transport.label_tag }} {{ form.transport }}</p>
+  <p>{{ form.url.label_tag }} {{ form.url }}</p>
+  <p>{{ form.enabled.label_tag }} {{ form.enabled }}</p>
+
+  <fieldset>
+    <legend>{% translate "Tool filter" %}</legend>
+    <p>{{ form.tool_filter_mode.label_tag }} {{ form.tool_filter_mode }}</p>
+    <p>{{ form.tool_filter_items.label_tag }} {{ form.tool_filter_items }}</p>
+    {% for e in form.tool_filter_items.errors %}<p class="error">{{ e }}</p>{% endfor %}
+  </fieldset>
+
   <fieldset>
     <legend>{% translate "Headers" %}</legend>
     {{ formset.management_form }}
@@ -15,6 +28,7 @@
       {{ header_form.as_p }}
     {% endfor %}
   </fieldset>
+
   <button type="submit">{% translate "Save" %}</button>
   <a href="{% url 'mcp_servers:list' %}">{% translate "Cancel" %}</a>
 </form>

@@ -260,6 +260,30 @@ def test_member_forbidden_across_all_endpoints(client, member_user, method, url_
 
 
 @pytest.mark.django_db
+def test_edit_get_passes_discovered_tools_into_form(client, admin_user, monkeypatch):
+    from django.core.cache import cache
+
+    cache.clear()
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(
+        name="dt3", transport="http", url="http://x.test", tool_filter_mode="allow", tool_filter_items=["alpha"]
+    )
+
+    async def fake_discover(server):
+        return [{"name": "alpha", "description": "the first letter"}, {"name": "beta", "description": "the second"}]
+
+    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:edit", args=["dt3"]))
+    assert resp.status_code == 200
+    # The form rendered checkboxes (multi-choice), not a textarea.
+    assert b'type="checkbox"' in resp.content
+    assert b"alpha" in resp.content
+    assert b"beta" in resp.content
+
+
+@pytest.mark.django_db
 def test_detail_renders_tools_when_discovered(client, admin_user, monkeypatch):
     from django.core.cache import cache
 
