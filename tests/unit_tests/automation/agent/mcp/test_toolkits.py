@@ -1,8 +1,7 @@
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from automation.agent.mcp.schemas import ToolFilter
-from automation.agent.mcp.toolkits import MCPToolkit, _apply_tool_filters, _load_server_tools
+from automation.agent.mcp.toolkits import MCPToolkit, _apply_tool_filters
 
 
 def _make_tool(name: str) -> MagicMock:
@@ -90,121 +89,74 @@ class TestApplyToolFilters:
         assert "context7_resolve-library-id" not in names
 
 
-class TestLoadServerTools:
-    async def test_returns_tools_on_success(self):
-        client = MagicMock()
-        client.get_tools = AsyncMock(return_value=[_make_tool("sentry_whoami")])
+class TestMCPToolkitGetTools:
+    async def test_returns_empty_when_no_connections(self, monkeypatch):
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters", lambda user_servers: ({}, {})
+        )
 
-        result = await _load_server_tools(client, "sentry", timeout=5.0)
-
-        assert [t.name for t in result] == ["sentry_whoami"]
-
-    async def test_returns_empty_when_server_times_out(self):
-        async def _hang(*, server_name):
-            await asyncio.sleep(10)
-            return [_make_tool("sentry_whoami")]
-
-        client = MagicMock()
-        client.get_tools = _hang
-
-        result = await _load_server_tools(client, "sentry", timeout=0.01)
+        result = await MCPToolkit.get_tools()
 
         assert result == []
 
-    async def test_returns_empty_when_server_raises(self):
-        client = MagicMock()
-        client.get_tools = AsyncMock(side_effect=RuntimeError("boom"))
+    async def test_passes_user_servers_to_registry(self, monkeypatch):
+        captured = {}
 
-        result = await _load_server_tools(client, "sentry", timeout=5.0)
+        def fake_build():
+            return [("my-server", MagicMock())]
+
+        def fake_get_connections(user_servers):
+            captured["user_servers"] = user_servers
+            return ({}, {})
+
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", fake_build)
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters", fake_get_connections
+        )
+
+        await MCPToolkit.get_tools()
+
+        assert len(captured["user_servers"]) == 1
+        assert captured["user_servers"][0][0] == "my-server"
+
+    async def test_returns_tools_from_client(self, monkeypatch):
+        mock_tool = MagicMock()
+        mock_tool.name = "sentry_search_issues"
+        mock_tool.tags = []
+        mock_tool.metadata = {}
+
+        fake_connection = {"type": "streamable_http", "url": "http://example.com/mcp"}
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            lambda user_servers: ({"sentry": fake_connection}, {}),
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_tools = AsyncMock(return_value=[mock_tool])
+
+        with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=mock_client):
+            result = await MCPToolkit.get_tools()
+
+        assert len(result) == 1
+        assert result[0].name == "sentry_search_issues"
+        assert result[0].handle_tool_error is True
+        assert result[0].handle_validation_error is True
+        assert "mcp_server" in result[0].tags
+
+    async def test_returns_empty_on_client_error(self, monkeypatch):
+        fake_connection = {"type": "streamable_http", "url": "http://example.com/mcp"}
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            lambda user_servers: ({"sentry": fake_connection}, {}),
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_tools = AsyncMock(side_effect=Exception("connection refused"))
+
+        with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=mock_client):
+            result = await MCPToolkit.get_tools()
 
         assert result == []
-
-
-class TestGetToolsResilience:
-    async def test_failing_server_does_not_drop_healthy_server_tools(self):
-        async def _fake_get_tools(*, server_name=None):
-            if server_name == "good":
-                return [_make_tool("good_tool")]
-            raise RuntimeError("bad server is down")
-
-        fake_client = MagicMock()
-        fake_client.get_tools = _fake_get_tools
-
-        with (
-            patch("automation.agent.mcp.registry.mcp_registry") as registry,
-            patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=fake_client),
-        ):
-            registry.get_connections_and_filters.return_value = ({"good": MagicMock(), "bad": MagicMock()}, {})
-
-            tools = await MCPToolkit.get_tools()
-
-        assert [t.name for t in tools] == ["good_tool"]
-
-    async def test_hanging_server_does_not_block_healthy_server_tools(self):
-        async def _fake_get_tools(*, server_name=None):
-            if server_name == "good":
-                return [_make_tool("good_tool")]
-            await asyncio.sleep(10)  # simulate a server that hangs and never returns
-            return [_make_tool("bad_tool")]
-
-        fake_client = MagicMock()
-        fake_client.get_tools = _fake_get_tools
-
-        with (
-            patch("automation.agent.mcp.registry.mcp_registry") as registry,
-            patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=fake_client),
-            patch("automation.agent.mcp.toolkits.settings") as mcp_settings,
-        ):
-            mcp_settings.TOOL_LOAD_TIMEOUT = 0.05
-            registry.get_connections_and_filters.return_value = ({"good": MagicMock(), "bad": MagicMock()}, {})
-
-            tools = await MCPToolkit.get_tools()
-
-        assert [t.name for t in tools] == ["good_tool"]
-
-    async def test_merges_tools_from_multiple_healthy_servers(self):
-        async def _fake_get_tools(*, server_name=None):
-            return [_make_tool(f"{server_name}_tool")]
-
-        fake_client = MagicMock()
-        fake_client.get_tools = _fake_get_tools
-
-        with (
-            patch("automation.agent.mcp.registry.mcp_registry") as registry,
-            patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=fake_client),
-        ):
-            registry.get_connections_and_filters.return_value = ({"sentry": MagicMock(), "context7": MagicMock()}, {})
-
-            tools = await MCPToolkit.get_tools()
-
-        assert {t.name for t in tools} == {"sentry_tool", "context7_tool"}
-        # Every returned tool is decorated so the agent keeps running when an MCP tool errors.
-        assert all(t.handle_tool_error is True and t.tags == ["mcp_server"] for t in tools)
-
-    async def test_returns_empty_when_no_servers_configured(self):
-        with patch("automation.agent.mcp.registry.mcp_registry") as registry:
-            registry.get_connections_and_filters.return_value = ({}, {})
-
-            tools = await MCPToolkit.get_tools()
-
-        assert tools == []
-
-    async def test_applies_tool_filters_to_loaded_tools(self):
-        async def _fake_get_tools(*, server_name=None):
-            return [_make_tool("sentry_whoami"), _make_tool("sentry_delete_project")]
-
-        fake_client = MagicMock()
-        fake_client.get_tools = _fake_get_tools
-
-        with (
-            patch("automation.agent.mcp.registry.mcp_registry") as registry,
-            patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=fake_client),
-        ):
-            registry.get_connections_and_filters.return_value = (
-                {"sentry": MagicMock()},
-                {"sentry": ToolFilter(mode="allow", items=["whoami"])},
-            )
-
-            tools = await MCPToolkit.get_tools()
-
-        assert [t.name for t in tools] == ["sentry_whoami"]

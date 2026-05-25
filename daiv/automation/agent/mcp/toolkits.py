@@ -45,9 +45,13 @@ async def _load_server_tools(client: MultiServerMCPClient, server_name: str, tim
 class MCPToolkit(BaseToolkit):
     @classmethod
     async def get_tools(cls) -> list[BaseTool]:
+        from asgiref.sync import sync_to_async
+        from mcp_servers.services import build_runtime_servers
+
         from automation.agent.mcp.registry import mcp_registry
 
-        connections, tool_filters = mcp_registry.get_connections_and_filters()
+        user_servers = await sync_to_async(build_runtime_servers)()
+        connections, tool_filters = mcp_registry.get_connections_and_filters(user_servers)
 
         if not connections:
             return []
