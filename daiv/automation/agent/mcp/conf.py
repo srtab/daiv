@@ -18,6 +18,10 @@ class MCPSettings(BaseSettings):
         default="http://mcp_context7:8000/mcp",
         description="The streamable HTTP URL of the Context7 supergateway container",
     )
+    PLAYWRIGHT_URL: str | None = Field(
+        default="http://mcp_playwright:8931/mcp",
+        description="The streamable HTTP URL of the Playwright browser MCP container",
+    )
 
 
 settings = MCPSettings()
