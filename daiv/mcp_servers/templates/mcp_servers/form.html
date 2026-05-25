@@ -1,0 +1,21 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %} — DAIV{% endblock %}
+
+{% block app_content %}
+<h1>{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}</h1>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <fieldset>
+    <legend>{% translate "Headers" %}</legend>
+    {{ formset.management_form }}
+    {% for header_form in formset %}
+      {{ header_form.as_p }}
+    {% endfor %}
+  </fieldset>
+  <button type="submit">{% translate "Save" %}</button>
+  <a href="{% url 'mcp_servers:list' %}">{% translate "Cancel" %}</a>
+</form>
+{% endblock app_content %}
