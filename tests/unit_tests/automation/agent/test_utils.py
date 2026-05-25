@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from automation.agent.base import ThinkingLevel
 from automation.agent.schemas import Image
 from automation.agent.utils import (
     extract_images_from_text,
@@ -11,6 +10,7 @@ from automation.agent.utils import (
     get_daiv_agent_kwargs,
     images_to_content_blocks,
 )
+from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform
 from codebase.repo_config import AgentModelConfig, Models
 from core.models import ThinkingLevelChoices
@@ -137,20 +137,6 @@ class TestGetDaivAgentKwargs:
         # Note: skip_approval is not in kwargs as it's handled elsewhere
         assert "skip_approval" not in kwargs
 
-    def test_get_daiv_agent_kwargs_with_yaml_model_config(self):
-        """Test that get_daiv_agent_kwargs uses YAML model config when available."""
-        # Set up YAML model config
-        model_config = AgentModelConfig(
-            model="openrouter:anthropic/claude-haiku-4.5",
-            fallback_model="openrouter:openai/gpt-4.1-mini",
-            thinking_level="low",
-        )
-        models_config = Models(agent=model_config)
-        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
-
-        assert kwargs["model_names"] == ["openrouter:anthropic/claude-haiku-4.5", "openrouter:openai/gpt-4.1-mini"]
-        assert kwargs["thinking_level"] == ThinkingLevel.LOW
-
     def test_get_daiv_agent_kwargs_use_max_overrides_yaml_config(self):
         """Test that use_max=True overrides YAML config."""
         # Set up YAML model config
@@ -162,17 +148,14 @@ class TestGetDaivAgentKwargs:
         assert kwargs["model_names"][0] == site_settings.agent_max_model_name
         assert kwargs["thinking_level"] == site_settings.agent_max_thinking_level
 
-    def test_get_daiv_agent_kwargs_partial_yaml_config(self):
-        """Test that partial YAML config merges with environment defaults."""
-        # Set up partial YAML model config (only model)
-        model_config = AgentModelConfig(model="openrouter:anthropic/claude-haiku-4.5")
-        models_config = Models(agent=model_config)
-        kwargs = get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
-
-        # model should come from YAML
-        assert kwargs["model_names"][0] == "openrouter:anthropic/claude-haiku-4.5"
-        # fallback_model should come from env vars
-        assert kwargs["model_names"][1] == site_settings.agent_fallback_model_name
+    def test_no_override_raises_when_system_default_unset(self, monkeypatch):
+        """The Auto branch was removed: when no override is supplied and no system
+        default is configured, ``get_daiv_agent_kwargs`` must refuse rather than
+        silently falling back to the repo-config model."""
+        monkeypatch.setattr(site_settings, "agent_model_name", "")
+        models_config = Models()
+        with pytest.raises(AgentConfigurationError):
+            get_daiv_agent_kwargs(model_config=models_config.agent, use_max=False)
 
 
 @pytest.fixture
@@ -184,15 +167,21 @@ def base_config():
     )
 
 
-def test_auto_branch_uses_repo_config(base_config):
+def test_system_default_branch_uses_site_settings(base_config):
+    """When no override is supplied, the model + fallback come from ``site_settings`` —
+    not from ``model_config`` (the repo .daiv.yml). The Auto-via-repo-config branch
+    was removed; repo config now only matters when an override is set (its values
+    become the ``with_fallbacks`` chain in that branch)."""
     out = get_daiv_agent_kwargs(model_config=base_config)
-    assert out["model_names"] == ["openrouter:anthropic/claude-sonnet-4.6", "openrouter:openai/gpt-5.4"]
-    assert out["thinking_level"] == ThinkingLevelChoices.MEDIUM
+    assert out["model_names"] == [site_settings.agent_model_name, site_settings.agent_fallback_model_name]
+    assert out["thinking_level"] == site_settings.agent_thinking_level
 
 
-def test_auto_branch_with_explicit_thinking_only(base_config):
+def test_system_default_branch_respects_explicit_thinking(base_config):
+    """``agent_thinking_level`` still overrides the system-default effort when supplied
+    without a model override."""
     out = get_daiv_agent_kwargs(model_config=base_config, agent_thinking_level=ThinkingLevelChoices.LOW)
-    assert out["model_names"][0] == base_config.model
+    assert out["model_names"][0] == site_settings.agent_model_name
     assert out["thinking_level"] == ThinkingLevelChoices.LOW
 
 

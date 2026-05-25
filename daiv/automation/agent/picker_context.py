@@ -14,7 +14,7 @@ import logging
 from typing import Any
 
 from automation.agent.base import parse_model_spec
-from core.models import Provider
+from core.models import Provider, ThinkingLevelChoices
 from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.automation")
@@ -103,6 +103,18 @@ def agent_picker_context(
                 )
                 default_model = ""
 
+    # Mirror of the model branch for thinking effort: an env-locked admin can
+    # set ``DAIV_AGENT_THINKING_LEVEL`` to anything string-y (``_parse_env_value``
+    # doesn't validate enum membership), so gate the seed against the enum and
+    # log on drop. No "stale" affordance for effort — it's a free-floating
+    # selector, not pinned to provider state.
+    default_thinking = site_settings.agent_thinking_level or ""
+    if default_thinking and default_thinking not in ThinkingLevelChoices.values:
+        logger.warning(
+            "DAIV_AGENT_THINKING_LEVEL=%r is not a valid effort level; picker will render unselected.", default_thinking
+        )
+        default_thinking = ""
+
     return {
         "agent_picker_providers": json.dumps(providers),
         "agent_picker_initial_model": resolved_model,
@@ -111,7 +123,11 @@ def agent_picker_context(
         "agent_picker_stale_model": stale_model,
         # Full ``provider:model`` spec the picker pre-selects when nothing is
         # stored. Empty when no admin default is configured OR the configured
-        # default was gated above as unparseable / disabled — the JS then falls
-        # back to the unselected "Auto" pill.
+        # default was gated above as unparseable / disabled — the JS then renders
+        # the unselected "Pick a model" pill and the form refuses to submit until
+        # the user chooses one.
         "agent_picker_default_model": default_model,
+        # Effort level the picker pre-selects when nothing is stored. Empty
+        # when unset or gated out — the JS leaves the effort dots blank.
+        "agent_picker_default_thinking": default_thinking,
     }

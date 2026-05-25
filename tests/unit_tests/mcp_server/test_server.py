@@ -164,6 +164,20 @@ async def test_submit_job_rejects_unknown_provider():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_when_no_model_and_no_system_default(monkeypatch):
+    """The Auto fallback is gone: when the caller omits ``agent_model`` AND the admin
+    hasn't configured a system default, the MCP tool refuses at submit time instead
+    of letting the run reach the agent kickoff and explode with ``AgentConfigurationError``."""
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_model_name", "")
+    with _patch_acreate():
+        payload = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix it")
+    body = json.loads(payload)
+    assert "system default" in body["error"].lower()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider):
     """The MCP tool's direct (in-process) call path bypasses FastMCP's protocol-layer
     Pydantic validation, so the explicit ``validate_agent_override`` call inside the

@@ -20,6 +20,8 @@ Parameters:
                                        the locked pill (provider prefix and ``org/`` stripped).
 - default_model (default "")          — full ``provider:model`` spec the picker pre-selects
                                        when no value is stored.
+- default_thinking (default "")       — effort level the picker pre-selects when no value is
+                                       stored: ``minimal|low|medium|high``.
 - stale (default False)              — when True, the pre-selected model references a
                                        provider that is no longer enabled. Renders a
                                        muted hint so users notice the value is dead.
@@ -34,7 +36,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
 <span class="agent-pill{% if stale %} agent-pill--stale{% endif %}"
       title="{% if stale %}{% translate 'This model is no longer available — start a new thread to pick another.' %}{% else %}{% translate 'Locked for this conversation' %}{% endif %}"
       aria-disabled="true">
-    <span class="agent-pill__name">{{ initial_model_display|default:initial_agent_model|default:"Auto" }}</span>
+    <span class="agent-pill__name">{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
     {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
 </span>
 {% else %}
@@ -43,7 +45,8 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         catalogUrl: "{% url 'automation:agent_models' %}",
         initialAgentModel: "{{ initial_agent_model|default:''|escapejs }}",
         initialThinkingLevel: "{{ initial_thinking_level|default:''|escapejs }}",
-        defaultAgentModel: "{{ default_model|default:''|escapejs }}"
+        defaultAgentModel: "{{ default_model|default:''|escapejs }}",
+        defaultThinkingLevel: "{{ default_thinking|default:''|escapejs }}"
      })'
      class="relative inline-flex">
 
@@ -129,8 +132,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
             </div>
         </div>
 
-        <div class="agent-popover__section agent-popover__effort"
-             x-show="selectedProvider && modelName" x-cloak>
+        <div class="agent-popover__section agent-popover__effort">
             <span class="text-gray-400">{% translate "Effort" %}</span>
             <div class="agent-popover__effort-dots">
                 <template x-for="(lvl, idx) in LEVELS" :key="lvl">
@@ -144,7 +146,19 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         </div>
     </div>
 
-    <input type="hidden" name="{{ field_name_model|default:'agent_model' }}" :value="agentModelValue">
+    {% comment %}
+    The model input is sr-only rather than ``type="hidden"`` because the HTML5
+    constraint-validation spec bars hidden inputs from validation — ``required``
+    on a hidden input is silently ignored. The sr-only pattern keeps the field
+    out of the visual layout while leaving it in the validation flow so the
+    browser refuses to submit an empty selection.
+    {% endcomment %}
+    <input type="text" class="sr-only" tabindex="-1" aria-hidden="true"
+           x-ref="modelInput"
+           name="{{ field_name_model|default:'agent_model' }}"
+           :value="agentModelValue"
+           :required="!agentModelValue"
+           @invalid="handleInvalidModel($event)">
     <input type="hidden" name="{{ field_name_thinking|default:'agent_thinking_level' }}" :value="thinkingLevel">
 </div>
 {% endif %}

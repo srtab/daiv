@@ -15,12 +15,16 @@
  *                                  admin default was unset/invalid). Falls back to
  *                                  ``defaultAgentModel``.
  *   initialThinkingLevel: string — ``"minimal" | "low" | "medium" | "high"``; ``""`` = unset.
+ *                                  Falls back to ``defaultThinkingLevel``.
  *   defaultAgentModel:    string — system default ``provider:model`` spec used to seed
  *                                  the picker when ``initialAgentModel`` is empty. May
  *                                  itself be ``""`` if the server has no usable default
  *                                  (unset, or gated out as unparseable / provider
  *                                  disabled) — in that case the picker renders the
- *                                  unselected "Auto" pill.
+ *                                  unselected "Pick a model" pill and the hidden input
+ *                                  is left empty so the form's submit validation fires.
+ *   defaultThinkingLevel: string — system default effort used to seed the picker when
+ *                                  ``initialThinkingLevel`` is empty; ``""`` when unset.
  */
 const EFFORT_LEVELS = ["minimal", "low", "medium", "high"];
 
@@ -31,6 +35,7 @@ document.addEventListener("alpine:init", () => {
         initialAgentModel = "",
         initialThinkingLevel = "",
         defaultAgentModel = "",
+        defaultThinkingLevel = "",
     } = {}) => ({
         providers: [...providers],
         catalogUrl,
@@ -52,7 +57,15 @@ document.addEventListener("alpine:init", () => {
                 this.selectedProvider = seed.slice(0, idx);
                 this.modelName = seed.slice(idx + 1);
             }
-            this.thinkingLevel = initialThinkingLevel || "";
+            this.thinkingLevel = initialThinkingLevel || defaultThinkingLevel || "";
+
+            // ``setCustomValidity`` is sticky — once set, it persists until cleared even
+            // after ``agentModelValue`` flips to a valid spec. Watch the computed and
+            // clear the message on transition to non-empty so the form submits cleanly
+            // once the user picks something.
+            this.$watch("agentModelValue", (val) => {
+                if (val) this.$refs.modelInput?.setCustomValidity("");
+            });
         },
 
         toggle() {
@@ -89,11 +102,9 @@ document.addEventListener("alpine:init", () => {
         },
 
         selectProvider(slug) {
-            // Switching provider invalidates the model — clear it so the popover
-            // forces a re-pick from the new provider's list.
-            if (this.selectedProvider !== slug) {
-                this.modelName = "";
-            }
+            // Keep the previously selected ``modelName`` so the pill doesn't fall
+            // back to the "Pick a model" prompt mid-edit; the new provider's list
+            // simply won't highlight a row until the user picks one explicitly.
             this.selectedProvider = slug;
             this.query = "";
         },
@@ -105,6 +116,19 @@ document.addEventListener("alpine:init", () => {
 
         selectEffort(level) {
             this.thinkingLevel = level;
+        },
+
+        handleInvalidModel(event) {
+            // Browser refused to submit because the sr-only model input is required+empty.
+            // Set a friendly validity message and open the popover so the user can act —
+            // the browser's default "Please fill out this field" is meaningless when the
+            // field itself is invisible. The validity is cleared automatically as soon as
+            // ``agentModelValue`` flips to a non-empty spec (via the ``:value`` binding).
+            event.target.setCustomValidity(
+                "Pick a model — no system default is configured, so a model must be selected explicitly."
+            );
+            this.open = true;
+            this.$nextTick(() => this.$refs.search?.focus());
         },
 
         submitFreeText() {
@@ -155,17 +179,20 @@ document.addEventListener("alpine:init", () => {
             // Hidden-input value. The picker is seeded with the system default at init
             // when one is configured, so this is usually a concrete ``provider:model``
             // spec. Empty when no usable default reached the client AND the user hasn't
-            // picked one — server falls through to ``model_config.model`` in that case.
+            // picked one — the form's ``required`` validation refuses to submit in that
+            // state (server-side ``ensure_agent_model_available`` is the backstop).
             return this.selectedProvider && this.modelName
                 ? `${this.selectedProvider}:${this.modelName}`
                 : "";
         },
 
         get pillLabel() {
-            // Unselected fallback (no usable default reached the client): show "Auto"
-            // so the pill never renders blank. The dot meter is hidden in this state.
+            // Unselected fallback (no usable default reached the client): show a
+            // "pick a model" prompt so the pill never renders blank AND the user
+            // understands the form won't submit until they choose. The dot meter
+            // is hidden in this state.
             if (!this.selectedProvider || !this.modelName) {
-                return {name: "Auto", effortDots: 0};
+                return {name: "Pick a model", effortDots: 0};
             }
             const effortIdx = EFFORT_LEVELS.indexOf(this.thinkingLevel);
             // Strip any ``org/`` path segment from the model name (e.g.

@@ -1,7 +1,8 @@
 import pytest
 
-from automation.agent.validators import AgentOverrideError, validate_agent_override
+from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from core.models import Provider, ProviderType, ThinkingLevelChoices
+from core.site_settings import site_settings
 
 
 @pytest.fixture
@@ -69,3 +70,25 @@ def test_rejects_disabled_provider(db):
         assert "disabled" in str(err.value).lower()
     finally:
         Provider.invalidate_cache()
+
+
+class TestEnsureAgentModelAvailable:
+    """Submit-time gate that refuses calls when no model can be resolved at runtime.
+
+    Catches the configuration gap at the boundary (MCP, API, form) instead of
+    surfacing it as a deferred failure inside the async agent kickoff.
+    """
+
+    def test_passes_when_override_supplied(self):
+        # No system default needed when the caller is explicit.
+        ensure_agent_model_available("openrouter:anthropic/claude-haiku-4.5")
+
+    def test_passes_when_system_default_configured(self, monkeypatch):
+        monkeypatch.setattr(site_settings, "agent_model_name", "openrouter:anthropic/claude-sonnet-4.6")
+        ensure_agent_model_available("")
+
+    def test_raises_when_both_unset(self, monkeypatch):
+        monkeypatch.setattr(site_settings, "agent_model_name", "")
+        with pytest.raises(AgentOverrideError) as err:
+            ensure_agent_model_available("")
+        assert "system default" in str(err.value).lower()

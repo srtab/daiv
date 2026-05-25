@@ -9,7 +9,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
 
-from automation.agent.validators import AgentOverrideError, validate_agent_override
+from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from chat.models import ChatThread
 from core.api.throttling import JobsRateThrottle
 
@@ -113,6 +113,16 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         raise HttpError(
             400, f"The model pinned to this thread is no longer available: {err}. Start a new thread to pick another."
         ) from err
+
+    # Submit-time gate: refuse the call when no model can be resolved at runtime.
+    # On a freshly created thread this catches "client omitted the override + admin
+    # never set a system default"; on resume it catches threads pinned to "" back
+    # when the now-removed Auto fallback supplied the model. Either way, surface
+    # the configuration gap here instead of letting it explode mid-stream.
+    try:
+        ensure_agent_model_available(thread.agent_model)
+    except AgentOverrideError as err:
+        raise HttpError(400, str(err)) from err
 
     # First-turn pin: an existing thread keeps the override that was set on creation.
     # If the client supplies a divergent override (e.g. a bot bypassing the locked

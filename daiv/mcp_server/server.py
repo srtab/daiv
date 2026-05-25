@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 
-from automation.agent.validators import AgentOverrideError, validate_agent_override
+from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.clients import RepoClient
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
@@ -97,15 +97,18 @@ async def submit_job(
         str | None,
         Field(
             description=(
-                "Optional model override as 'provider_slug:model_name' (e.g. "
+                "Model override as 'provider_slug:model_name' (e.g. "
                 "'openrouter:anthropic/claude-sonnet-4.6'). Provider slug must match "
-                "an enabled Provider row. Omit to use the repo / site default."
+                "an enabled Provider row. Omit to use the system default; the call is "
+                "refused when no system default is configured."
             )
         ),
     ] = None,
     agent_thinking_level: Annotated[
         ThinkingLevelChoices | None,
-        Field(description=("Optional thinking effort: minimal/low/medium/high. Omit to inherit from the repo config.")),
+        Field(
+            description="Optional thinking effort: minimal/low/medium/high. Omit to inherit from the system default."
+        ),
     ] = None,
     notify_on: Annotated[
         NotifyOn | None,
@@ -185,6 +188,7 @@ async def submit_job(
 
     try:
         agent_model, agent_thinking_level = validate_agent_override(agent_model, agent_thinking_level)
+        ensure_agent_model_available(agent_model)
     except AgentOverrideError as err:
         return json.dumps({"error": str(err)})
 

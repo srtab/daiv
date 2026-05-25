@@ -234,6 +234,45 @@ def test_default_model_dropped_when_unparseable(providers, monkeypatch):
     assert ctx["agent_picker_default_model"] == ""
 
 
+def test_default_thinking_seeded_from_site_settings(providers, monkeypatch):
+    """The picker pre-selects the system default effort, mirroring the model branch."""
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_thinking_level", "high")
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_default_thinking"] == "high"
+
+
+def test_default_thinking_empty_when_unset(providers, monkeypatch):
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_thinking_level", "")
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_default_thinking"] == ""
+
+
+def test_default_thinking_dropped_when_invalid(providers, monkeypatch):
+    """Env-locked admin can stuff anything into ``DAIV_AGENT_THINKING_LEVEL``;
+    a non-enum value must be dropped, not pre-selected as an unselectable string."""
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_thinking_level", "ludicrous")
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_default_thinking"] == ""
+
+
+def test_initial_thinking_does_not_suppress_default_seed(providers, monkeypatch):
+    """Stored thinking value and system default are independent — the default
+    must still flow through so a different surface rendering the same partial
+    sees both."""
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_thinking_level", "high")
+    ctx = agent_picker_context(initial_thinking_level="low")
+    assert ctx["agent_picker_initial_thinking"] == "low"
+    assert ctx["agent_picker_default_thinking"] == "high"
+
+
 def test_initial_model_display_strips_provider_and_org_prefix(providers):
     """The locked pill renders ``initial_model_display`` — names are normalised
     by stripping ``provider:`` and any ``org/`` path."""

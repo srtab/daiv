@@ -15,6 +15,7 @@ from core.site_settings import site_settings
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
 from .schemas import Image
+from .validators import AgentConfigurationError
 
 if TYPE_CHECKING:
     from langchain_core.messages import ImageContentBlock
@@ -228,7 +229,11 @@ def get_daiv_agent_kwargs(
        if set, else from the repo config.
     2. ``use_max`` (webhook-only, ``daiv-max`` label) → ``site_settings.agent_max_*``.
        ``agent_thinking_level`` is ignored on this branch.
-    3. Auto → repo config; ``agent_thinking_level`` may still override effort.
+    3. No override and not ``use_max`` → ``site_settings.agent_model_name`` (system
+       default) with ``site_settings.agent_fallback_model_name`` as the provider-outage
+       safety net. Raises :class:`AgentConfigurationError` when no system default is
+       configured — callers are expected to either supply ``agent_model`` or surface
+       the error so an admin sees the missing configuration.
     """
     if agent_model:
         return {
@@ -240,9 +245,15 @@ def get_daiv_agent_kwargs(
             "model_names": [site_settings.agent_max_model_name, model_config.model, model_config.fallback_model],
             "thinking_level": site_settings.agent_max_thinking_level,
         }
+    default_model = site_settings.agent_model_name
+    if not default_model:
+        raise AgentConfigurationError(
+            "No agent model configured. Set the system default (DAIV_AGENT_MODEL_NAME / "
+            "site settings) or pass an explicit `agent_model` override."
+        )
     return {
-        "model_names": [model_config.model, model_config.fallback_model],
-        "thinking_level": agent_thinking_level or model_config.thinking_level,
+        "model_names": [default_model, site_settings.agent_fallback_model_name],
+        "thinking_level": agent_thinking_level or site_settings.agent_thinking_level,
     }
 
 

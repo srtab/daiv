@@ -123,6 +123,19 @@ class TestAgentOverrideField:
         assert not form.is_valid()
         assert "agent_thinking_level" in form.errors
 
+    @pytest.mark.django_db
+    def test_form_rejects_empty_override_when_no_system_default(self, monkeypatch):
+        """Server-side backstop for the picker's HTML5 ``required``: when no system
+        default is configured AND the client posts an empty ``agent_model``, the
+        form must refuse rather than letting the run reach the agent kickoff and
+        explode at ``get_daiv_agent_kwargs``."""
+        from core.site_settings import site_settings
+
+        monkeypatch.setattr(site_settings, "agent_model_name", "")
+        form = AgentRunCreateForm(data=_valid())
+        assert not form.is_valid()
+        assert "agent_model" in form.errors
+
 
 class _OptionalRepoForm(forms.Form):
     """Tiny harness — exercises RepoListField(required=False) in isolation."""
