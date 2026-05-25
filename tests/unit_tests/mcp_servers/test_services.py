@@ -30,3 +30,59 @@ def test_literal_headers_decrypt_into_dto():
     assert dto.headers == {"Authorization": "Bearer abc"}
     assert dto.type == "http"
     assert dto.url == "http://srv"
+
+
+@pytest.mark.django_db
+def test_env_ref_resolves_from_environment(monkeypatch):
+    monkeypatch.setenv("MY_TOKEN", "abc-from-env")
+    MCPServer.objects.create(
+        name="srv",
+        transport=MCPServer.Transport.HTTP,
+        url="http://srv",
+        headers=[{"name": "X-Token", "mode": "env_ref", "value": "MY_TOKEN"}],
+    )
+    [(_, dto)] = build_runtime_servers()
+    assert dto.headers == {"X-Token": "abc-from-env"}
+
+
+@pytest.mark.django_db
+def test_missing_env_ref_drops_one_header_keeps_others(caplog, monkeypatch):
+    monkeypatch.delenv("MISSING_VAR", raising=False)
+    MCPServer.objects.create(
+        name="srv",
+        transport=MCPServer.Transport.HTTP,
+        url="http://srv",
+        headers=[
+            {"name": "X-Keep", "mode": "literal", "value": "kept"},
+            {"name": "X-Drop", "mode": "env_ref", "value": "MISSING_VAR"},
+        ],
+    )
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        [(_, dto)] = build_runtime_servers()
+    assert dto.headers == {"X-Keep": "kept"}
+    assert "MISSING_VAR" in caplog.text
+
+
+@pytest.mark.django_db
+def test_decryption_error_skips_row_keeps_others(caplog):
+    # Build two rows; corrupt the ciphertext of the first.
+    bad = MCPServer.objects.create(
+        name="bad",
+        transport=MCPServer.Transport.HTTP,
+        url="http://bad",
+        headers=[{"name": "X", "mode": "literal", "value": "secret"}],
+    )
+    MCPServer.objects.create(
+        name="good",
+        transport=MCPServer.Transport.HTTP,
+        url="http://good",
+        headers=[{"name": "Y", "mode": "literal", "value": "ok"}],
+    )
+    MCPServer.objects.filter(pk=bad.pk).update(_headers_encrypted="not-a-valid-fernet-token")
+
+    with caplog.at_level("ERROR"):
+        out = dict(build_runtime_servers())
+
+    assert "bad" not in out
+    assert "good" in out
+    assert out["good"].headers == {"Y": "ok"}
