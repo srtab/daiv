@@ -179,3 +179,74 @@ def test_stale_model_flag_set_for_unparseable_spec(providers):
     Provider.invalidate_cache()
     ctx = agent_picker_context(initial_model="totally:not-a-real-provider")
     assert ctx["agent_picker_stale_model"] is True
+
+
+def test_default_model_is_full_spec(providers, monkeypatch):
+    """The picker pre-selects the system default — Alpine needs the full
+    ``provider:model`` spec to seed ``selectedProvider`` / ``modelName``."""
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_model_name", "openrouter:anthropic/claude-sonnet-4.6")
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_default_model"] == "openrouter:anthropic/claude-sonnet-4.6"
+
+
+def test_default_model_empty_when_unset(providers, monkeypatch):
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_model_name", "")
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_default_model"] == ""
+
+
+def test_default_model_dropped_when_provider_disabled(providers, monkeypatch):
+    """An admin-misconfigured default (provider disabled after the value was set)
+    must not pre-select an unselectable spec — the seed is dropped so the picker
+    falls back to the unselected ``Auto`` pill instead of silently submitting
+    a value the server will reject."""
+    from core.models import Provider
+    from core.site_settings import site_settings
+
+    Provider.invalidate_cache()
+    monkeypatch.setattr(site_settings, "agent_model_name", "anthropic:claude-sonnet-4.6")
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_default_model"] == ""
+
+
+def test_default_model_dropped_when_unparseable(providers, monkeypatch):
+    from core.models import Provider
+    from core.site_settings import site_settings
+
+    Provider.invalidate_cache()
+    monkeypatch.setattr(site_settings, "agent_model_name", "totally:not-a-real-provider")
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_default_model"] == ""
+
+
+def test_initial_model_display_strips_provider_and_org_prefix(providers):
+    """The locked pill renders ``initial_model_display`` — names are normalised
+    by stripping ``provider:`` and any ``org/`` path."""
+    ctx = agent_picker_context(initial_model="openrouter:anthropic/claude-haiku-4.5")
+    assert ctx["agent_picker_initial_model_display"] == "claude-haiku-4.5"
+
+
+def test_initial_model_display_strips_colon_without_org(providers):
+    """Anthropic-direct specs are ``provider:model`` with no ``org/`` segment —
+    the helper must still strip the prefix without choking on the missing slash."""
+    ctx = agent_picker_context(initial_model="anthropic:claude-opus-4-6")
+    assert ctx["agent_picker_initial_model_display"] == "claude-opus-4-6"
+
+
+def test_initial_model_display_passes_bare_name_through(providers):
+    """Bare-name specs (no colon, no slash) are valid via ``_BARE_NAME_HEURISTICS``
+    — the locked pill should render the name unchanged for these."""
+    # ``claude-opus-4-5`` resolves via the bare-name heuristic to the disabled
+    # ``anthropic`` row in the fixture; stale-flag handling is exercised in a
+    # separate test. Here we only care that the display passes through verbatim.
+    ctx = agent_picker_context(initial_model="claude-opus-4-5")
+    assert ctx["agent_picker_initial_model_display"] == "claude-opus-4-5"
+
+
+def test_initial_model_display_empty_when_no_initial(providers):
+    ctx = agent_picker_context()
+    assert ctx["agent_picker_initial_model_display"] == ""

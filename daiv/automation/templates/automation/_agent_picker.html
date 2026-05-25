@@ -7,11 +7,19 @@ Parameters:
                                        (the model catalog itself is fetched dynamically
                                        on first popover open via ``automation:agent_models``)
 - field_name_model (default          — name of the hidden input mirroring the selected
-  "agent_model")                       ``provider:model`` spec; empty string = Auto.
+  "agent_model")                       ``provider:model`` spec. The picker pre-selects
+                                       ``default_model`` when nothing is stored, so the
+                                       value is usually a concrete spec at submit time —
+                                       still empty when no usable default was supplied
+                                       AND the user didn't pick a model.
 - field_name_thinking (default       — name of the hidden input mirroring the chosen
   "agent_thinking_level")              effort level; empty string = unset.
 - initial_agent_model (default "")   — pre-selected spec, e.g. ``openrouter:anthropic/claude-haiku-4.5``
 - initial_thinking_level (default "") — pre-selected effort: ``minimal|low|medium|high``
+- initial_model_display (default "")  — display-only form of ``initial_agent_model`` used in
+                                       the locked pill (provider prefix and ``org/`` stripped).
+- default_model (default "")          — full ``provider:model`` spec the picker pre-selects
+                                       when no value is stored.
 - stale (default False)              — when True, the pre-selected model references a
                                        provider that is no longer enabled. Renders a
                                        muted hint so users notice the value is dead.
@@ -26,7 +34,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
 <span class="agent-pill{% if stale %} agent-pill--stale{% endif %}"
       title="{% if stale %}{% translate 'This model is no longer available — start a new thread to pick another.' %}{% else %}{% translate 'Locked for this conversation' %}{% endif %}"
       aria-disabled="true">
-    <span class="agent-pill__name">{{ initial_agent_model|default:"Auto" }}</span>
+    <span class="agent-pill__name">{{ initial_model_display|default:initial_agent_model|default:"Auto" }}</span>
     {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
 </span>
 {% else %}
@@ -34,7 +42,8 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         providers: {{ providers|safe }},
         catalogUrl: "{% url 'automation:agent_models' %}",
         initialAgentModel: "{{ initial_agent_model|default:''|escapejs }}",
-        initialThinkingLevel: "{{ initial_thinking_level|default:''|escapejs }}"
+        initialThinkingLevel: "{{ initial_thinking_level|default:''|escapejs }}",
+        defaultAgentModel: "{{ default_model|default:''|escapejs }}"
      })'
      class="relative inline-flex">
 
@@ -58,19 +67,6 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
          @click.outside="close()"
          @keydown.escape.window="close()"
          class="picker-popover left-0 w-[320px]">
-
-        <button type="button" @click="selectAuto()"
-                class="env-popover__row env-popover__row--auto"
-                :class="{ 'env-popover__row--selected': !selectedProvider && !modelName }">
-            <div class="env-popover__row-body">
-                <div class="env-popover__row-head">
-                    <span class="env-popover__row-name">{% translate "Auto (default)" %}</span>
-                </div>
-                <div class="env-popover__row-subtitle">
-                    {% translate "Use the server-configured default model" %}
-                </div>
-            </div>
-        </button>
 
         <div class="agent-popover__section">
             <div class="text-gray-500 mb-1 uppercase tracking-wider text-[10px]">{% translate "Provider" %}</div>

@@ -77,19 +77,64 @@ def test_existing_thread_renders_locked_agent_pill(member_client, member_user, e
 
     assert resp.status_code == 200
     body = resp.content.decode()
-    # The pinned spec lands in the locked pill's label (it's the literal ``initial_agent_model``
-    # rendered inside ``<span class="agent-pill__name">``). The same string also lands as
-    # the hero picker's ``initialAgentModel``, but the locked-pill copy is the one the
-    # composer chip surfaces on subsequent turns.
-    assert "openrouter:anthropic/claude-haiku-4.5" in body
+    # The locked pill renders the stripped display form (provider prefix and ``org/``
+    # stripped) so the chip stays compact — same normalisation the editable picker
+    # applies to pinned models via ``pillLabel``.
+    assert "claude-haiku-4.5" in body
     # The locked-mode partial emits an ``aria-disabled`` pill (no Alpine root). The hero
     # picker still renders unconditionally inside its ``<template x-if>`` (Alpine hides
     # it client-side); both share the same partial, so we look for the locked sentinel
     # to confirm at least one render took the disabled branch.
     assert 'aria-disabled="true"' in body
-    # Context still carries the initial values so they're available to the partial.
+    # Context still carries the raw spec (used to seed the editable picker) plus the
+    # pre-computed display form (used by the locked pill).
     assert resp.context["agent_picker_initial_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert resp.context["agent_picker_initial_model_display"] == "claude-haiku-4.5"
     assert resp.context["agent_picker_initial_thinking"] == "medium"
+
+
+@pytest.mark.django_db
+def test_hero_picker_seeds_default_agent_model_from_site_settings(member_client, enabled_provider, monkeypatch):
+    """The hero picker pre-selects the system default — Alpine reads
+    ``defaultAgentModel`` and seeds ``selectedProvider`` / ``modelName`` from it
+    when nothing is stored. The wiring is what makes the "Auto row removal"
+    change non-broken; without it the picker would render unselected and submit
+    an empty spec."""
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_model_name", "openrouter:anthropic/claude-sonnet-4.6")
+    resp = member_client.get(reverse("chat_new"))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    # ``escapejs`` escapes hyphens to ``-``; assert on the head + tail so the
+    # test isn't coupled to Django's escape format.
+    assert "defaultAgentModel:" in body
+    assert "openrouter:anthropic/claude" in body
+    assert resp.context["agent_picker_default_model"] == "openrouter:anthropic/claude-sonnet-4.6"
+
+
+@pytest.mark.django_db
+def test_hero_picker_omits_default_when_provider_disabled(member_client, enabled_provider, monkeypatch):
+    """If the system default points at a disabled provider, the seed is dropped
+    so the picker falls back to the unselected ``Auto`` pill — see the matching
+    unit test in ``test_picker_context``."""
+    from core.site_settings import site_settings
+
+    # Force ``anthropic`` into a disabled state — seed migrations leave it
+    # enabled, so the default would otherwise be accepted.
+    Provider.objects.filter(slug="anthropic").delete()
+    Provider.objects.create(
+        slug="anthropic",
+        display_name="Anthropic",
+        provider_type=ProviderType.ANTHROPIC,
+        api_key="sk-x",
+        is_enabled=False,
+    )
+    Provider.invalidate_cache()
+    monkeypatch.setattr(site_settings, "agent_model_name", "anthropic:claude-sonnet-4.6")
+    resp = member_client.get(reverse("chat_new"))
+    assert resp.status_code == 200
+    assert resp.context["agent_picker_default_model"] == ""
 
 
 @pytest.mark.django_db

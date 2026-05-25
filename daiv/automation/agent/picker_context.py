@@ -10,10 +10,24 @@ page (or pickers alongside other widgets) don't collide on the bare ``providers`
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from automation.agent.base import parse_model_spec
 from core.models import Provider
+from core.site_settings import site_settings
+
+logger = logging.getLogger("daiv.automation")
+
+
+def _display_model_name(spec: str) -> str:
+    """Strip ``provider:`` prefix and any ``org/`` path so the locked pill
+    (``_agent_picker.html``, ``disabled`` branch) renders a compact name
+    instead of the raw ``provider:org/model`` spec."""
+    if not spec:
+        return ""
+    name = spec.split(":", 1)[1] if ":" in spec else spec
+    return name.rsplit("/", 1)[-1] or name
 
 
 def agent_picker_context(
@@ -63,6 +77,30 @@ def agent_picker_context(
         else:
             stale_model = not resolved.row.is_enabled
 
+    # The system default seeds the picker pre-selection; gate it through the same
+    # parse-and-enabled check so an admin-misconfigured default (provider disabled
+    # or row removed) doesn't render a normal-looking pill pinned to an
+    # unselectable spec. Empty seed leaves the picker unselected, matching the
+    # "no default configured" branch in the JS. Log when we drop — this is admin
+    # misconfiguration, not user input, and would otherwise be invisible (the
+    # user-stored equivalent surfaces via the stale-pill UI; the default has no
+    # equivalent affordance, so the log is the only operator signal).
+    default_model = site_settings.agent_model_name or ""
+    if default_model:
+        try:
+            resolved_default = parse_model_spec(default_model)
+        except ValueError:
+            logger.warning("DAIV_AGENT_MODEL_NAME=%r is unparseable; picker will render unselected.", default_model)
+            default_model = ""
+        else:
+            if not resolved_default.row.is_enabled:
+                logger.warning(
+                    "DAIV_AGENT_MODEL_NAME=%r points to disabled provider %r; picker will render unselected.",
+                    default_model,
+                    resolved_default.row.slug,
+                )
+                default_model = ""
+
     return {
         "agent_picker_providers": json.dumps(providers),
         # Kept as an empty JSON object for backwards-compatibility with templates
@@ -70,6 +108,12 @@ def agent_picker_context(
         # populates the live catalog via the ``catalogUrl`` prop instead.
         "agent_picker_models": "{}",
         "agent_picker_initial_model": resolved_model,
+        "agent_picker_initial_model_display": _display_model_name(resolved_model),
         "agent_picker_initial_thinking": resolved_thinking,
         "agent_picker_stale_model": stale_model,
+        # Full ``provider:model`` spec the picker pre-selects when nothing is
+        # stored. Empty when no admin default is configured OR the configured
+        # default was gated above as unparseable / disabled — the JS then falls
+        # back to the unselected "Auto" pill.
+        "agent_picker_default_model": default_model,
     }

@@ -10,8 +10,17 @@
  * Constructor args (passed via x-data):
  *   providers:            Array<{slug, label}> — enabled providers.
  *   catalogUrl:           string — fetched lazily on first popover open.
- *   initialAgentModel:    string — e.g. ``"openrouter:anthropic/claude-haiku-4.5"``; ``""`` = Auto.
+ *   initialAgentModel:    string — stored ``provider:model`` spec; ``""`` when no value
+ *                                  was stored (legacy threads, or new threads where the
+ *                                  admin default was unset/invalid). Falls back to
+ *                                  ``defaultAgentModel``.
  *   initialThinkingLevel: string — ``"minimal" | "low" | "medium" | "high"``; ``""`` = unset.
+ *   defaultAgentModel:    string — system default ``provider:model`` spec used to seed
+ *                                  the picker when ``initialAgentModel`` is empty. May
+ *                                  itself be ``""`` if the server has no usable default
+ *                                  (unset, or gated out as unparseable / provider
+ *                                  disabled) — in that case the picker renders the
+ *                                  unselected "Auto" pill.
  */
 const EFFORT_LEVELS = ["minimal", "low", "medium", "high"];
 
@@ -21,6 +30,7 @@ document.addEventListener("alpine:init", () => {
         catalogUrl = "",
         initialAgentModel = "",
         initialThinkingLevel = "",
+        defaultAgentModel = "",
     } = {}) => ({
         providers: [...providers],
         catalogUrl,
@@ -33,12 +43,14 @@ document.addEventListener("alpine:init", () => {
         LEVELS: EFFORT_LEVELS,
 
         init() {
-            // Pinned model is encoded as ``provider_slug:model_name``; split on the
-            // FIRST colon so model names containing ``:`` (rare but valid) survive.
-            if (initialAgentModel && initialAgentModel.includes(":")) {
-                const idx = initialAgentModel.indexOf(":");
-                this.selectedProvider = initialAgentModel.slice(0, idx);
-                this.modelName = initialAgentModel.slice(idx + 1);
+            // Stored spec wins; otherwise pre-select the system default so the form
+            // always submits a concrete ``provider:model`` value. Split on the FIRST
+            // colon so model names containing ``:`` (rare but valid) survive.
+            const seed = initialAgentModel || defaultAgentModel;
+            if (seed && seed.includes(":")) {
+                const idx = seed.indexOf(":");
+                this.selectedProvider = seed.slice(0, idx);
+                this.modelName = seed.slice(idx + 1);
             }
             this.thinkingLevel = initialThinkingLevel || "";
         },
@@ -74,13 +86,6 @@ document.addEventListener("alpine:init", () => {
                 this.catalog.status = "error";
                 this.catalog.error = (err && err.message) || "Network error";
             }
-        },
-
-        selectAuto() {
-            this.selectedProvider = "";
-            this.modelName = "";
-            this.thinkingLevel = "";
-            this.query = "";
         },
 
         selectProvider(slug) {
@@ -147,17 +152,18 @@ document.addEventListener("alpine:init", () => {
         },
 
         get agentModelValue() {
-            // Hidden-input value: empty string means "Auto" (server reads this as
-            // "no override" and falls back to the default model).
+            // Hidden-input value. The picker is seeded with the system default at init
+            // when one is configured, so this is usually a concrete ``provider:model``
+            // spec. Empty when no usable default reached the client AND the user hasn't
+            // picked one — server falls through to ``model_config.model`` in that case.
             return this.selectedProvider && this.modelName
                 ? `${this.selectedProvider}:${this.modelName}`
                 : "";
         },
 
         get pillLabel() {
-            // Auto state: dot meter is hidden (effortDots === 0). When a model is
-            // pinned, ``effortDots`` indexes into [minimal, low, medium, high] +1
-            // so the meter is always at least one dot when an effort is set.
+            // Unselected fallback (no usable default reached the client): show "Auto"
+            // so the pill never renders blank. The dot meter is hidden in this state.
             if (!this.selectedProvider || !this.modelName) {
                 return {name: "Auto", effortDots: 0};
             }
