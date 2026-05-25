@@ -1,6 +1,6 @@
 # MCP Tools
 
-[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with access to external services. Each MCP server runs in its own isolated container via [supergateway](https://github.com/supercorp-ai/supergateway), ensuring that a compromised or misbehaving server cannot affect others.
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with access to external services. Each MCP server runs in its own isolated container — most are wrapped by [supergateway](https://github.com/supercorp-ai/supergateway) to bridge stdio servers to streamable HTTP; servers that speak HTTP natively (like Playwright) run directly. Either way, a compromised or misbehaving server cannot affect others.
 
 ## Built-in MCP servers
 
@@ -48,6 +48,35 @@ MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp  # Default; set to None to disable
 ```
 
 Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` container. Add them to your secrets env file.
+
+### Playwright
+
+The [Playwright MCP Server](https://github.com/microsoft/playwright-mcp) gives DAIV a headless Chromium browser for inspecting web pages, capturing screenshots, reading the console, and driving UI interactions. Each agent session gets a fresh, isolated browser context.
+
+**Available tools** (selected — the full surface is exposed, ~23 tools prefixed `playwright_browser_*`):
+
+| Tool | Description |
+|------|-------------|
+| `browser_navigate` | Open a URL in the browser |
+| `browser_take_screenshot` | Capture a screenshot of the current page |
+| `browser_snapshot` | Get an accessibility-tree snapshot of the page |
+| `browser_console_messages` | Read messages logged to the JavaScript console |
+| `browser_network_requests` | Read network requests made by the page |
+| `browser_click` / `browser_type` / `browser_fill_form` | Interact with form elements and controls |
+| `browser_run_code_unsafe` | Evaluate arbitrary JavaScript in the page context |
+
+**Use cases:** Verifying a frontend change by loading the running app and screenshotting the result; reproducing UI bug reports against a live URL to inspect console and network state; exercising end-to-end flows the agent is building.
+
+**Configuration:**
+
+```bash
+MCP_PLAYWRIGHT_URL=http://mcp_playwright:8931/mcp  # Default; set to None to disable
+```
+
+No credentials required. The container runs `mcr.microsoft.com/playwright/mcp` with `--headless --isolated --browser chromium` and exposes the MCP endpoint on port `8931`.
+
+!!! warning
+    Unlike Sentry and Context7, the Playwright server exposes its **full tool surface** with no filter — including `browser_run_code_unsafe` (arbitrary JavaScript execution). The agent can navigate to any URL reachable from the container. Enable the `mcp` compose profile only when you accept this trust boundary.
 
 ## User-defined MCP servers
 
