@@ -3,13 +3,17 @@ from __future__ import annotations
 import logging
 
 from django.contrib import messages
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
+from asgiref.sync import async_to_sync
+
 from accounts.mixins import AdminRequiredMixin
+from mcp_servers import services
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset
 from mcp_servers.models import MCPServer
 
@@ -117,6 +121,19 @@ class MCPServerToggleView(AdminRequiredMixin, View):
         obj.enabled = not obj.enabled
         obj.save(update_fields=["enabled", "modified"])
         return redirect(reverse("mcp_servers:list"))
+
+
+class MCPServerTestView(AdminRequiredMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request):
+        formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
+        if not formset.is_valid():
+            return JsonResponse({"ok": False, "error": "invalid headers"}, status=400)
+        headers = build_headers_from_formset(formset, existing=None)
+        payload = {"transport": request.POST.get("transport"), "url": request.POST.get("url"), "headers": headers}
+        result = async_to_sync(services.test_connection)(payload)
+        return JsonResponse(result, status=200 if result.get("ok") else 502)
 
 
 def _existing_headers_for_formset(obj: MCPServer) -> list[dict]:
