@@ -71,12 +71,17 @@ The [Playwright MCP Server](https://github.com/microsoft/playwright-mcp) gives D
 
 ```bash
 MCP_PLAYWRIGHT_URL=http://mcp_playwright:8931/mcp  # Default; set to None to disable
+
+# Optional: restrict where the browser may navigate. Semicolon-separated.
+# Empty = no restriction. The blocklist is evaluated before the allowlist.
+MCP_PLAYWRIGHT_ALLOWED_ORIGINS=https://app.example.com;https://docs.example.com
+MCP_PLAYWRIGHT_BLOCKED_ORIGINS=https://ads.example.com
 ```
 
 No credentials required. The container runs `mcr.microsoft.com/playwright/mcp` with `--headless --isolated --browser chromium` and exposes the MCP endpoint on port `8931`.
 
 !!! warning
-    Unlike Sentry and Context7, the Playwright server exposes its **full tool surface** with no filter — including `browser_run_code_unsafe` (arbitrary JavaScript execution). The agent can navigate to any URL reachable from the container. Enable the `mcp` compose profile only when you accept this trust boundary.
+    Unlike Sentry and Context7, the Playwright server exposes its **full tool surface** with no filter — including `browser_run_code_unsafe` (arbitrary JavaScript execution). The agent can navigate to any URL reachable from the container. The origin allow/block lists above are a usability guardrail (the upstream docs explicitly call out that they are *not* a security boundary and *do not* affect redirects); if you need real network isolation, deploy the container behind an egress proxy. Enable the `mcp` compose profile only when you accept this trust boundary.
 
 ## User-defined MCP servers
 

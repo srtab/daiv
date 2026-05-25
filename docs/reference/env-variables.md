@@ -270,6 +270,8 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 | `MCP_SENTRY_URL`                | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable) | `http://mcp-sentry:8000/mcp`   | `http://localhost:8001/mcp` |
 | `MCP_CONTEXT7_URL`              | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp-context7:8000/mcp` | `http://localhost:8002/mcp` |
 | `MCP_PLAYWRIGHT_URL`            | Streamable HTTP URL for the Playwright browser MCP container (set to `None` to disable) | `http://mcp_playwright:8931/mcp` | `http://localhost:8931/mcp` |
+| `MCP_PLAYWRIGHT_ALLOWED_ORIGINS` | Semicolon-separated origins the browser is allowed to navigate to. Empty = allow all. Not a security boundary; redirects bypass it. | *(empty)* | `https://app.example.com;https://docs.example.com` |
+| `MCP_PLAYWRIGHT_BLOCKED_ORIGINS` | Semicolon-separated origins the browser is blocked from. Evaluated before the allowlist. | *(empty)* | `https://ads.example.com;https://tracker.test` |
 
 !!! info
     For detailed MCP server configuration including user-defined servers, see [MCP Tools](../customization/mcp-tools.md).
