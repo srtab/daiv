@@ -98,13 +98,6 @@ def test_none_field_values_normalised_to_empty(providers):
     assert ctx["agent_picker_initial_thinking"] == ""
 
 
-def test_models_dict_is_empty_after_dynamic_catalog(providers):
-    """The picker no longer ships server-rendered model suggestions; the
-    frontend fetches them on demand via ``automation:agent_models``."""
-    ctx = agent_picker_context()
-    assert json.loads(ctx["agent_picker_models"]) == {}
-
-
 def test_provider_uses_display_name_as_label(providers):
     form = _StubForm([], {})
     ctx = agent_picker_context(form)
@@ -197,6 +190,24 @@ def test_default_model_empty_when_unset(providers, monkeypatch):
     monkeypatch.setattr(site_settings, "agent_model_name", "")
     ctx = agent_picker_context()
     assert ctx["agent_picker_default_model"] == ""
+
+
+def test_stale_initial_does_not_suppress_default_seed(providers, monkeypatch):
+    """Stale-detection and default-gating are independent code paths. A stale
+    user-stored spec (rendered with the ``!`` marker) must NOT also swap the
+    seed in — the stale pill itself is the migration prompt, and silently
+    pre-selecting a different model would hide it. Regression guard against
+    a future refactor that conflates the two."""
+    from core.models import Provider
+    from core.site_settings import site_settings
+
+    # ``anthropic:...`` is stale per the fixture (anthropic row is disabled).
+    Provider.invalidate_cache()
+    monkeypatch.setattr(site_settings, "agent_model_name", "openrouter:anthropic/claude-sonnet-4.6")
+    ctx = agent_picker_context(initial_model="anthropic:claude-sonnet-4.6")
+    assert ctx["agent_picker_stale_model"] is True
+    assert ctx["agent_picker_default_model"] == "openrouter:anthropic/claude-sonnet-4.6"
+    assert ctx["agent_picker_initial_model"] == "anthropic:claude-sonnet-4.6"
 
 
 def test_default_model_dropped_when_provider_disabled(providers, monkeypatch):

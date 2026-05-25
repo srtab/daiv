@@ -21,9 +21,8 @@ logger = logging.getLogger("daiv.automation")
 
 
 def _display_model_name(spec: str) -> str:
-    """Strip ``provider:`` prefix and any ``org/`` path so the locked pill
-    (``_agent_picker.html``, ``disabled`` branch) renders a compact name
-    instead of the raw ``provider:org/model`` spec."""
+    """Strip ``provider:`` prefix and any ``org/`` path so the locked-pill
+    rendering path shows a compact name instead of the raw spec."""
     if not spec:
         return ""
     name = spec.split(":", 1)[1] if ":" in spec else spec
@@ -89,6 +88,9 @@ def agent_picker_context(
     if default_model:
         try:
             resolved_default = parse_model_spec(default_model)
+        # ``ValueError`` is the narrow, parse-only failure mode. Don't broaden:
+        # DB errors on the ``.row.is_enabled`` access below should propagate
+        # rather than be silenced as "picker unselected".
         except ValueError:
             logger.warning("DAIV_AGENT_MODEL_NAME=%r is unparseable; picker will render unselected.", default_model)
             default_model = ""
@@ -103,10 +105,6 @@ def agent_picker_context(
 
     return {
         "agent_picker_providers": json.dumps(providers),
-        # Kept as an empty JSON object for backwards-compatibility with templates
-        # that haven't migrated to the dynamic fetch URL yet. The Alpine component
-        # populates the live catalog via the ``catalogUrl`` prop instead.
-        "agent_picker_models": "{}",
         "agent_picker_initial_model": resolved_model,
         "agent_picker_initial_model_display": _display_model_name(resolved_model),
         "agent_picker_initial_thinking": resolved_thinking,

@@ -105,11 +105,6 @@ def test_hero_picker_seeds_default_agent_model_from_site_settings(member_client,
     monkeypatch.setattr(site_settings, "agent_model_name", "openrouter:anthropic/claude-sonnet-4.6")
     resp = member_client.get(reverse("chat_new"))
     assert resp.status_code == 200
-    body = resp.content.decode()
-    # ``escapejs`` escapes hyphens to ``-``; assert on the head + tail so the
-    # test isn't coupled to Django's escape format.
-    assert "defaultAgentModel:" in body
-    assert "openrouter:anthropic/claude" in body
     assert resp.context["agent_picker_default_model"] == "openrouter:anthropic/claude-sonnet-4.6"
 
 

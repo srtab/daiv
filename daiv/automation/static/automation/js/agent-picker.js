@@ -168,8 +168,10 @@ document.addEventListener("alpine:init", () => {
                 return {name: "Auto", effortDots: 0};
             }
             const effortIdx = EFFORT_LEVELS.indexOf(this.thinkingLevel);
-            // Strip the provider prefix (e.g. ``anthropic/claude-haiku-4.5`` →
-            // ``claude-haiku-4.5``) so the pill stays compact next to the env pill.
+            // Strip any ``org/`` path segment from the model name (e.g.
+            // ``anthropic/claude-haiku-4.5`` → ``claude-haiku-4.5``) so the pill
+            // stays compact next to the env pill. The ``provider:`` prefix was
+            // already split off into ``selectedProvider`` at init time.
             const display = this.modelName.split("/").pop() || this.modelName;
             return {
                 name: display,
