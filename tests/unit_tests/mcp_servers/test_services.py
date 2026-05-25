@@ -86,3 +86,31 @@ def test_decryption_error_skips_row_keeps_others(caplog):
     assert "bad" not in out
     assert "good" in out
     assert out["good"].headers == {"Y": "ok"}
+
+
+@pytest.mark.django_db
+def test_builtin_row_excluded_from_user_servers():
+    # Built-ins are passed through the registry's own code path, not as
+    # user-server DTOs. ``build_runtime_servers`` returns only ``source=custom``.
+    MCPServer.objects.create(
+        name="fake-builtin",
+        source=MCPServer.Source.BUILTIN,
+        transport=MCPServer.Transport.HTTP,
+        url="http://db-stale-url",
+        enabled=True,
+    )
+    out = build_runtime_servers()
+    assert out == []
+
+
+@pytest.mark.django_db
+def test_disabled_builtin_row_excluded():
+    MCPServer.objects.create(
+        name="fake-builtin",
+        source=MCPServer.Source.BUILTIN,
+        transport=MCPServer.Transport.HTTP,
+        url="http://db",
+        enabled=False,
+    )
+    out = build_runtime_servers()
+    assert out == []
