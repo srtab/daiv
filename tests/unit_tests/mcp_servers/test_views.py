@@ -284,6 +284,49 @@ def test_edit_get_passes_discovered_tools_into_form(client, admin_user, monkeypa
 
 
 @pytest.mark.django_db
+def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user, monkeypatch):
+    from django.core.cache import cache
+
+    cache.clear()
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(
+        name="multi", transport="http", url="http://multi.test", tool_filter_mode="allow", tool_filter_items=[]
+    )
+
+    async def fake_discover(server):
+        return [
+            {"name": "alpha", "description": ""},
+            {"name": "beta", "description": ""},
+            {"name": "gamma", "description": ""},
+        ]
+
+    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
+    client.force_login(admin_user)
+
+    resp = client.post(
+        reverse("mcp_servers:edit", args=["multi"]),
+        data={
+            "name": "multi",
+            "transport": "http",
+            "url": "http://multi.test",
+            "enabled": "on",
+            "tool_filter_mode": "allow",
+            # Multiple values for the same name — the bug was collapsing to ['gamma'] only.
+            "tool_filter_items": ["alpha", "beta", "gamma"],
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+
+    obj = MCPServer.objects.get(name="multi")
+    assert sorted(obj.tool_filter_items) == ["alpha", "beta", "gamma"]
+
+
+@pytest.mark.django_db
 def test_detail_renders_tools_when_discovered(client, admin_user, monkeypatch):
     from django.core.cache import cache
 

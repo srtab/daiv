@@ -116,6 +116,36 @@ def test_disabled_builtin_row_excluded():
     assert out == []
 
 
+@pytest.mark.django_db
+def test_tool_filter_round_trips_through_dto():
+    from automation.agent.mcp.schemas import ToolFilter
+
+    MCPServer.objects.create(
+        name="srv",
+        transport=MCPServer.Transport.HTTP,
+        url="http://srv.test",
+        tool_filter_mode=MCPServer.FilterMode.ALLOW,
+        tool_filter_items=["alpha", "beta"],
+    )
+    [(_, dto)] = build_runtime_servers()
+    assert isinstance(dto.tool_filter, ToolFilter)
+    assert dto.tool_filter.mode == "allow"
+    assert dto.tool_filter.items == ["alpha", "beta"]
+
+
+@pytest.mark.django_db
+def test_tool_filter_none_when_mode_is_none():
+    MCPServer.objects.create(
+        name="srv2",
+        transport=MCPServer.Transport.HTTP,
+        url="http://srv2.test",
+        tool_filter_mode=MCPServer.FilterMode.NONE,
+        tool_filter_items=["foo"],  # ignored when mode is NONE
+    )
+    [(_, dto)] = build_runtime_servers()
+    assert dto.tool_filter is None
+
+
 async def test_test_connection_returns_tools_on_success(monkeypatch):
     from unittest.mock import AsyncMock, MagicMock
 
