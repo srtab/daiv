@@ -89,7 +89,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
             :aria-expanded="open"
             :title="{% if stale %}'{% translate "This model is no longer available — pick another."|escapejs %}'{% else %}pillLabel.name{% endif %}"
             class="agent-pill{% if stale %} agent-pill--stale{% endif %}">
-        {% icon "cpu-chip" "agent-pill__icon" %}
+        {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
         <span class="agent-pill__name" x-text="pillLabel.name"></span>
         {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
         <span class="agent-pill__effort" x-show="pillLabel.effortDots > 0" x-cloak>
