@@ -1,0 +1,16 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block app_content %}
+<h1>{{ object.name }}</h1>
+<dl>
+  <dt>{% translate "Source" %}</dt><dd>{{ object.get_source_display }}</dd>
+  <dt>{% translate "Transport" %}</dt><dd>{{ object.get_transport_display }}</dd>
+  <dt>{% translate "URL" %}</dt><dd>{{ object.url }}</dd>
+  <dt>{% translate "Enabled" %}</dt><dd>{{ object.enabled|yesno }}</dd>
+</dl>
+{% if object.source == "custom" %}
+  <a href="{% url 'mcp_servers:edit' object.name %}">{% translate "Edit" %}</a>
+  <a href="{% url 'mcp_servers:delete' object.name %}">{% translate "Delete" %}</a>
+{% endif %}
+{% endblock app_content %}
