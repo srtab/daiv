@@ -239,6 +239,7 @@ services:
     entrypoint: ["sh", "-c"]
     command:
       - >-
+        set -eu;
         exec node /app/cli.js --headless --isolated --browser chromium --host 0.0.0.0 --port 8931
         $${MCP_PLAYWRIGHT_ALLOWED_ORIGINS:+--allowed-origins "$$MCP_PLAYWRIGHT_ALLOWED_ORIGINS"}
         $${MCP_PLAYWRIGHT_BLOCKED_ORIGINS:+--blocked-origins "$$MCP_PLAYWRIGHT_BLOCKED_ORIGINS"}
