@@ -173,31 +173,24 @@ class GoogleGenAIAdapter(ModelCatalogAdapter):
         return sorted(ids)
 
 
-# OpenRouter ids are formatted as ``provider/model``; the ``^`` anchor in
-# ``_OPENAI_NON_CHAT_PATTERNS`` would never match a slash-prefixed id, so we use
-# a ``(?:^|/)`` boundary that matches at the model-segment start. The picker's
-# free-text input is the safety valve for over-filtered ids.
-_OPENROUTER_NON_CHAT_PATTERNS = (
-    re.compile(r"embedding", re.IGNORECASE),
-    re.compile(r"(?:^|/)whisper-", re.IGNORECASE),
-    re.compile(r"(?:^|/)tts-", re.IGNORECASE),
-    re.compile(r"(?:^|/)dall-e-", re.IGNORECASE),
-    re.compile(r"moderation", re.IGNORECASE),
-    re.compile(r"(?:^|/)text-davinci-", re.IGNORECASE),
-    re.compile(r"(?:^|/)gpt-image-", re.IGNORECASE),
-    re.compile(r"-search-", re.IGNORECASE),
-    re.compile(r"image", re.IGNORECASE),
-)
-
-
-def _is_openrouter_chat_capable(model_id: str) -> bool:
-    return not any(pat.search(model_id) for pat in _OPENROUTER_NON_CHAT_PATTERNS)
-
-
 class OpenRouterAdapter(ModelCatalogAdapter):
     """OpenAI-compatible over the wire — reuse the openai SDK with a different base URL."""
 
     _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
+    # OpenRouter's ``/models`` supports two capability filters we care about:
+    #   - ``output_modalities=text`` — drops embeddings, image-generation, TTS,
+    #     etc. (defaults to ``text`` upstream, but pass explicitly so behaviour
+    #     survives any future default change).
+    #   - ``supported_parameters=tools`` — drops models without tool-calling
+    #     support. The deep agent's middleware stack (Skills, Sandbox, MCP,
+    #     WebSearch, …) is tool-driven, so a non-tools model is unusable here.
+    # Reasoning / structured_outputs are intentionally NOT filtered: reasoning
+    # is opt-in via thinking level, and structured outputs are only used by
+    # ``diff_to_metadata`` / ``titling``, which read admin-configured models
+    # instead of the picker. The picker's free-text input is the safety valve
+    # for the rare case the server filter is too aggressive.
+    _MODELS_QUERY = {"output_modalities": "text", "supported_parameters": "tools"}
 
     async def list_models(self, row: Provider.Cached) -> list[str]:
         kw = build_sdk_client_kwargs(row)
@@ -214,9 +207,8 @@ class OpenRouterAdapter(ModelCatalogAdapter):
         client = None
         try:
             client = openai.AsyncOpenAI(**client_kwargs)
-            async for model in client.models.list():
-                if _is_openrouter_chat_capable(model.id):
-                    ids.append(model.id)
+            async for model in client.models.list(extra_query=self._MODELS_QUERY):
+                ids.append(model.id)
         except openai.OpenAIError as err:
             logger.warning("OpenRouterAdapter failed for provider %r: %s", row.slug, err.__class__.__name__)
             raise CatalogFetchError(_safe_detail(err)) from err

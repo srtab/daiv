@@ -356,14 +356,16 @@ class TestGoogleGenAIAdapter:
 
 
 class TestOpenRouterAdapter:
-    async def test_returns_sorted_filtered_ids(self):
+    async def test_returns_sorted_ids_and_filters_server_side(self):
+        """OpenRouter's ``/models`` is filtered server-side via the
+        ``output_modalities=text`` query param — chat-incompatible variants
+        (embeddings, image, TTS, …) never reach us. The adapter only sorts and
+        forwards what the server returns; assert both the upstream query param
+        and the sort order."""
         items = [
+            SimpleNamespace(id="z-ai/glm-5"),
             SimpleNamespace(id="anthropic/claude-haiku-4.5"),
             SimpleNamespace(id="anthropic/claude-opus-4.6"),
-            SimpleNamespace(id="openai/text-embedding-3-large"),
-            SimpleNamespace(id="openai/whisper-1"),
-            SimpleNamespace(id="black-forest-labs/flux-image"),
-            SimpleNamespace(id="z-ai/glm-5"),
         ]
         mock_client = MagicMock()
         mock_client.models.list = MagicMock(return_value=_async_list_iter(items))
@@ -375,6 +377,14 @@ class TestOpenRouterAdapter:
             )
 
         assert result == ["anthropic/claude-haiku-4.5", "anthropic/claude-opus-4.6", "z-ai/glm-5"]
+        # The query params are what make the server filter chat-incompatible
+        # variants: ``output_modalities=text`` drops embeddings / image / TTS;
+        # ``supported_parameters=tools`` drops models without tool-calling
+        # support (the deep agent requires tools). Without these the catalog
+        # would pollute the picker with unusable ids.
+        mock_client.models.list.assert_called_once_with(
+            extra_query={"output_modalities": "text", "supported_parameters": "tools"}
+        )
 
     async def test_default_base_url_is_openrouter(self):
         mock_client = MagicMock()
