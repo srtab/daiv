@@ -87,7 +87,8 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         {% icon "cpu-chip" "agent-pill__icon" %}
         <span class="agent-pill__name" x-text="pillLabel.name"></span>
         {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
-        <span class="agent-popover__effort-dots" x-show="pillLabel.effortDots > 0" x-cloak>
+        <span class="agent-pill__effort" x-show="pillLabel.effortDots > 0" x-cloak>
+            {% icon "bolt" "agent-pill__effort-icon" %}
             <template x-for="i in 4" :key="i">
                 <span class="agent-pill__effort-dot"
                       :class="i <= pillLabel.effortDots ? 'agent-pill__effort-dot--on' : ''"></span>
