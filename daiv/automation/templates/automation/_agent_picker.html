@@ -59,11 +59,16 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
 {% endcomment %}
 
 {% if disabled %}
-<span class="agent-pill{% if stale %} agent-pill--stale{% endif %}"
+<span class="agent-pill{% if stale %} agent-pill--stale{% else %} agent-pill--locked{% endif %}"
       title="{% if stale %}{% translate 'This model is no longer available — start a new thread to pick another.' %}{% elif locked_title %}{{ locked_title }}{% else %}{% translate 'Locked for this conversation' %}{% endif %}"
       aria-disabled="true">
+    {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
     <span class="agent-pill__name">{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
-    {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
+    {% if stale %}
+        <span class="agent-pill__stale-marker" aria-hidden="true">!</span>
+    {% else %}
+        {% icon "lock-closed" "agent-pill__lock" %}
+    {% endif %}
 </span>
 {% else %}
 <div x-data='agentPicker({
