@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from django.contrib import messages
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -14,6 +15,7 @@ from asgiref.sync import async_to_sync
 
 from accounts.mixins import AdminRequiredMixin
 from mcp_servers import services
+from mcp_servers.constants import TOOLS_CACHE_KEY, TOOLS_CACHE_TIMEOUT
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset
 from mcp_servers.models import MCPServer
 
@@ -134,6 +136,21 @@ class MCPServerTestView(AdminRequiredMixin, View):
         payload = {"transport": request.POST.get("transport"), "url": request.POST.get("url"), "headers": headers}
         result = async_to_sync(services.test_connection)(payload)
         return JsonResponse(result, status=200 if result.get("ok") else 502)
+
+
+class MCPServerToolsView(AdminRequiredMixin, View):
+    http_method_names = ["get"]
+
+    def get(self, request, name):
+        obj = get_object_or_404(MCPServer, name=name)
+        stamp = int(obj.modified.timestamp())
+        cache_key = TOOLS_CACHE_KEY.format(name=obj.name, stamp=stamp)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return JsonResponse({"tools": cached, "cached": True})
+        tools = async_to_sync(services.discover_tools)(obj)
+        cache.set(cache_key, tools, TOOLS_CACHE_TIMEOUT)
+        return JsonResponse({"tools": tools, "cached": False})
 
 
 def _existing_headers_for_formset(obj: MCPServer) -> list[dict]:

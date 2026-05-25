@@ -205,6 +205,33 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
 
 
 @pytest.mark.django_db
+def test_tools_endpoint_returns_discovered(client, admin_user, monkeypatch):
+    from django.core.cache import cache
+
+    cache.clear()
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="t", transport="http", url="http://x.test")
+
+    calls = {"n": 0}
+
+    async def fake_discover(server):
+        calls["n"] += 1
+        return [{"name": "tool_a", "description": "A"}]
+
+    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
+    client.force_login(admin_user)
+
+    r1 = client.get(reverse("mcp_servers:tools", args=["t"]))
+    r2 = client.get(reverse("mcp_servers:tools", args=["t"]))
+    assert r1.status_code == 200
+    assert r1.json()["tools"][0]["name"] == "tool_a"
+    # Second call within 60s is cached → discover_tools not invoked again
+    assert calls["n"] == 1
+    assert r2.json()["tools"] == r1.json()["tools"]
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "method,url_name,kwargs",
     [
@@ -218,6 +245,7 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
         ("post", "delete", {"name": "demo"}),
         ("post", "toggle", {"name": "demo"}),
         ("post", "test", {}),
+        ("get", "tools", {"name": "demo"}),
     ],
 )
 def test_member_forbidden_across_all_endpoints(client, member_user, method, url_name, kwargs):
