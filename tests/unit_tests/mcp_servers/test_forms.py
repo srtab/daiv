@@ -124,3 +124,23 @@ def test_header_formset_invalid_header_name_rejected():
     formset_data = _formset_data([{"name": "bad header!", "mode": "literal", "value": "x"}])
     formset = MCPServerHeaderFormSet(formset_data, prefix="headers")
     assert not formset.is_valid()
+
+
+@pytest.mark.django_db
+def test_name_cannot_change_on_edit():
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(name="orig", transport="http", url="http://x.test")
+    form = MCPServerForm(
+        instance=obj,
+        data={
+            "name": "renamed",
+            "transport": "http",
+            "url": "http://x.test",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+        },
+    )
+    assert not form.is_valid()
+    assert "name" in form.errors

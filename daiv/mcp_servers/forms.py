@@ -37,6 +37,14 @@ class MCPServerForm(forms.ModelForm):
         if self.instance.pk is not None:
             self.fields["tool_filter_items"].initial = "\n".join(self.instance.tool_filter_items or [])
 
+    def clean_name(self):
+        name = self.cleaned_data["name"]
+        if self.instance.pk is not None and name != self.instance.name:
+            raise forms.ValidationError(
+                _("Renaming an existing MCP server is not supported. Delete and re-create instead.")
+            )
+        return name
+
     def clean_tool_filter_items(self):
         raw = self.cleaned_data.get("tool_filter_items") or ""
         items = [line.strip() for line in raw.splitlines() if line.strip()]
