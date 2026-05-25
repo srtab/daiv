@@ -172,6 +172,39 @@ def test_toggle_flips_enabled(client, admin_user):
 
 
 @pytest.mark.django_db
+def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeypatch):
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": [{"name": "x", "description": ""}]}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "transport": "http",
+            "url": "http://demo.test",
+            "headers-TOTAL_FORMS": "1",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+            "headers-0-name": "X",
+            "headers-0-mode": "literal",
+            "headers-0-value": "v",
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["payload"]["transport"] == "http"
+    assert captured["payload"]["url"] == "http://demo.test"
+    assert captured["payload"]["headers"] == [{"name": "X", "mode": "literal", "value": "v"}]
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["tools"][0]["name"] == "x"
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "method,url_name,kwargs",
     [
@@ -184,6 +217,7 @@ def test_toggle_flips_enabled(client, admin_user):
         ("get", "delete", {"name": "demo"}),
         ("post", "delete", {"name": "demo"}),
         ("post", "toggle", {"name": "demo"}),
+        ("post", "test", {}),
     ],
 )
 def test_member_forbidden_across_all_endpoints(client, member_user, method, url_name, kwargs):

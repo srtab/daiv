@@ -6,6 +6,7 @@ from mcp_servers.views import (
     MCPServerDetailView,
     MCPServerEditView,
     MCPServerListView,
+    MCPServerTestView,
     MCPServerToggleView,
 )
 
@@ -14,6 +15,7 @@ app_name = "mcp_servers"
 urlpatterns = [
     path("", MCPServerListView.as_view(), name="list"),
     path("new/", MCPServerCreateView.as_view(), name="create"),
+    path("test/", MCPServerTestView.as_view(), name="test"),
     path("<slug:name>/", MCPServerDetailView.as_view(), name="detail"),
     path("<slug:name>/edit/", MCPServerEditView.as_view(), name="edit"),
     path("<slug:name>/delete/", MCPServerDeleteView.as_view(), name="delete"),
