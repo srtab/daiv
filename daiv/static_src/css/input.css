@@ -1731,6 +1731,8 @@ main:has(.chat-shell) {
      and ``.env-popover__*`` from the env picker; the rules below add the pill
      itself plus the effort-dot meter that doubles as the popover's effort
      selector. */
+  /* `shrink-0` diverges from .env-pill on purpose: model names can be long
+     enough to compress this pill inside its flex parent; env names are short. */
   .agent-pill {
     @apply inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1
            text-[13px] font-medium text-[#d8dcec];
@@ -1747,7 +1749,7 @@ main:has(.chat-shell) {
   }
 
   .agent-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
-  .agent-pill__name { @apply truncate max-w-[18ch]; }
+  .agent-pill__name { @apply max-w-[18ch] truncate; }
 
   .agent-pill__effort { @apply inline-flex items-center gap-1; }
   .agent-pill__effort-icon { @apply h-3 w-3 opacity-70; }
