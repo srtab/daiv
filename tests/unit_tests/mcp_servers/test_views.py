@@ -169,3 +169,29 @@ def test_toggle_flips_enabled(client, admin_user):
     client.post(reverse("mcp_servers:toggle", args=["t"]))
     obj.refresh_from_db()
     assert obj.enabled is True
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "method,url_name,kwargs",
+    [
+        ("get", "list", {}),
+        ("get", "create", {}),
+        ("post", "create", {}),
+        ("get", "detail", {"name": "demo"}),
+        ("get", "edit", {"name": "demo"}),
+        ("post", "edit", {"name": "demo"}),
+        ("get", "delete", {"name": "demo"}),
+        ("post", "delete", {"name": "demo"}),
+        ("post", "toggle", {"name": "demo"}),
+    ],
+)
+def test_member_forbidden_across_all_endpoints(client, member_user, method, url_name, kwargs):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="demo", transport="http", url="http://x.test")
+    client.force_login(member_user)
+    url = reverse(f"mcp_servers:{url_name}", kwargs=kwargs)
+    fn = getattr(client, method)
+    resp = fn(url)
+    assert resp.status_code == 403, f"{method.upper()} {url} should be forbidden for members"
