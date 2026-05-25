@@ -63,7 +63,8 @@ class MCPServerEditView(AdminRequiredMixin, View):
 
     def get(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
-        form = MCPServerForm(instance=obj)
+        discovered = MCPServerDetailView._tools_or_empty(obj)
+        form = MCPServerForm(instance=obj, discovered_tools=discovered or None)
         formset = MCPServerHeaderFormSet(initial=_existing_headers_for_formset(obj), prefix="headers")
         return render(request, self.template_name, {"form": form, "formset": formset, "mode": "edit", "object": obj})
 
