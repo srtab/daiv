@@ -78,7 +78,8 @@ class MCPServerEditView(AdminRequiredMixin, View):
             return redirect(reverse("mcp_servers:list"))
 
         existing_headers = obj.headers or []
-        form = MCPServerForm(request.POST, instance=obj)
+        discovered = MCPServerDetailView._tools_or_empty(obj)
+        form = MCPServerForm(request.POST, instance=obj, discovered_tools=discovered or None)
         formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
         if not (form.is_valid() and formset.is_valid()):
             return render(

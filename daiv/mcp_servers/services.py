@@ -8,7 +8,7 @@ from typing import Any
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.sessions import SSEConnection, StreamableHttpConnection
 
-from automation.agent.mcp.schemas import UserMcpServer
+from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
 from mcp_servers.models import MCPServer
 
@@ -34,7 +34,14 @@ def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
         except DecryptionError:
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
-        out.append((row.name, UserMcpServer(type=row.transport, url=row.url, headers=headers or None)))
+        tool_filter = None
+        if row.tool_filter_mode != MCPServer.FilterMode.NONE and row.tool_filter_items:
+            tool_filter = ToolFilter(mode=row.tool_filter_mode, items=list(row.tool_filter_items))
+
+        out.append((
+            row.name,
+            UserMcpServer(type=row.transport, url=row.url, headers=headers or None, tool_filter=tool_filter),
+        ))
     return out
 
 
