@@ -87,6 +87,38 @@ class MCPServerEditView(AdminRequiredMixin, View):
         return redirect(reverse("mcp_servers:list"))
 
 
+class MCPServerDetailView(AdminRequiredMixin, View):
+    http_method_names = ["get"]
+
+    def get(self, request, name):
+        obj = get_object_or_404(MCPServer, name=name)
+        return render(request, "mcp_servers/detail.html", {"object": obj})
+
+
+class MCPServerDeleteView(AdminRequiredMixin, View):
+    http_method_names = ["get", "post"]
+
+    def get(self, request, name):
+        obj = get_object_or_404(MCPServer, name=name, source=MCPServer.Source.CUSTOM)
+        return render(request, "mcp_servers/confirm_delete.html", {"object": obj})
+
+    def post(self, request, name):
+        obj = get_object_or_404(MCPServer, name=name, source=MCPServer.Source.CUSTOM)
+        obj.delete()
+        messages.success(request, _("MCP server '%(name)s' deleted.") % {"name": name})
+        return redirect(reverse("mcp_servers:list"))
+
+
+class MCPServerToggleView(AdminRequiredMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request, name):
+        obj = get_object_or_404(MCPServer, name=name)
+        obj.enabled = not obj.enabled
+        obj.save(update_fields=["enabled", "modified"])
+        return redirect(reverse("mcp_servers:list"))
+
+
 def _existing_headers_for_formset(obj: MCPServer) -> list[dict]:
     """Build the formset's ``initial`` data from a server's stored headers.
 

@@ -121,3 +121,51 @@ def test_edit_builtin_only_enabled_is_editable(client, admin_user):
     assert obj.url == "builtin://bi"  # smuggled URL ignored
     assert obj.transport == "http"  # smuggled transport ignored
     assert obj.tool_filter_mode == "none"  # smuggled filter ignored
+
+
+@pytest.mark.django_db
+def test_detail_renders(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="dt", transport="http", url="http://x.test")
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:detail", args=["dt"]))
+    assert resp.status_code == 200
+    assert b"dt" in resp.content
+
+
+@pytest.mark.django_db
+def test_delete_custom_succeeds(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="del", transport="http", url="http://x.test")
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:delete", args=["del"]))
+    assert resp.status_code == 302
+    assert not MCPServer.objects.filter(name="del").exists()
+
+
+@pytest.mark.django_db
+def test_delete_builtin_returns_404(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi")
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:delete", args=["bi"]))
+    assert resp.status_code == 404
+    assert MCPServer.objects.filter(name="bi").exists()
+
+
+@pytest.mark.django_db
+def test_toggle_flips_enabled(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(name="t", transport="http", url="http://x.test", enabled=True)
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:toggle", args=["t"]))
+    assert resp.status_code == 302
+    obj.refresh_from_db()
+    assert obj.enabled is False
+    client.post(reverse("mcp_servers:toggle", args=["t"]))
+    obj.refresh_from_db()
+    assert obj.enabled is True

@@ -1,0 +1,10 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block app_content %}
+<h1>{% blocktranslate with name=object.name %}Delete {{ name }}?{% endblocktranslate %}</h1>
+<form method="post">{% csrf_token %}
+  <button type="submit">{% translate "Confirm delete" %}</button>
+  <a href="{% url 'mcp_servers:detail' object.name %}">{% translate "Cancel" %}</a>
+</form>
+{% endblock app_content %}
