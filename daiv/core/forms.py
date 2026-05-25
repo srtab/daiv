@@ -364,7 +364,7 @@ class SiteConfigurationForm(forms.ModelForm):
             if model_field not in self.fields:
                 continue
             widget = self.fields[model_field].widget
-            if isinstance(widget, _AgentPickerWidget) and widget.paired_thinking_field:
+            if isinstance(widget, _AgentPickerWidget):
                 widget.initial_thinking = str(source.get(thinking_field, "") or "")
 
     def _mark_paired_thinking_fields(self) -> None:

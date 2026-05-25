@@ -80,7 +80,7 @@ document.addEventListener("alpine:init", () => {
                 this.selectedProvider = seed.slice(0, idx);
                 this.modelName = seed.slice(idx + 1);
             }
-            this.thinkingLevel = initialThinkingLevel || (seedDefault ? defaultThinkingLevel : "") || "";
+            this.thinkingLevel = initialThinkingLevel || (seedDefault ? defaultThinkingLevel : "");
 
             // ``setCustomValidity`` is sticky — once set, it persists until cleared even
             // after ``agentModelValue`` flips to a valid spec. Watch the computed and
