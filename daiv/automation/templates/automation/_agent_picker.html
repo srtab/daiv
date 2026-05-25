@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 {% comment %}
 Reusable agent model + thinking-effort pill + popover.
 
@@ -92,7 +92,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
                       :class="i <= pillLabel.effortDots ? 'agent-pill__effort-dot--on' : ''"></span>
             </template>
         </span>
-        <span aria-hidden="true" class="text-[10px] opacity-50">▾</span>
+        {% icon "chevron-down" "agent-pill__caret" %}
     </button>
 
     <div x-show="open" x-cloak
