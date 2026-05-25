@@ -98,7 +98,19 @@ class MCPServerDetailView(AdminRequiredMixin, View):
 
     def get(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
-        return render(request, "mcp_servers/detail.html", {"object": obj})
+        tools = self._tools_or_empty(obj)
+        return render(request, "mcp_servers/detail.html", {"object": obj, "tools": tools})
+
+    @staticmethod
+    def _tools_or_empty(obj):
+        stamp = int(obj.modified.timestamp())
+        cache_key = TOOLS_CACHE_KEY.format(name=obj.name, stamp=stamp)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        tools = async_to_sync(services.discover_tools)(obj)
+        cache.set(cache_key, tools, TOOLS_CACHE_TIMEOUT)
+        return tools
 
 
 class MCPServerDeleteView(AdminRequiredMixin, View):

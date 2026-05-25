@@ -13,4 +13,6 @@
   <a href="{% url 'mcp_servers:edit' object.name %}">{% translate "Edit" %}</a>
   <a href="{% url 'mcp_servers:delete' object.name %}">{% translate "Delete" %}</a>
 {% endif %}
+<h2>{% translate "Discovered tools" %}</h2>
+{% include "mcp_servers/_tools_table.html" %}
 {% endblock app_content %}

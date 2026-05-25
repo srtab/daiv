@@ -257,3 +257,23 @@ def test_member_forbidden_across_all_endpoints(client, member_user, method, url_
     fn = getattr(client, method)
     resp = fn(url)
     assert resp.status_code == 403, f"{method.upper()} {url} should be forbidden for members"
+
+
+@pytest.mark.django_db
+def test_detail_renders_tools_when_discovered(client, admin_user, monkeypatch):
+    from django.core.cache import cache
+
+    cache.clear()
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="dt2", transport="http", url="http://x.test")
+
+    async def fake_discover(server):
+        return [{"name": "alpha", "description": "the first letter"}]
+
+    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:detail", args=["dt2"]))
+    assert resp.status_code == 200
+    assert b"alpha" in resp.content
+    assert b"the first letter" in resp.content
