@@ -83,13 +83,16 @@ class _AgentPickerWidget(forms.Widget):
     Renders the shared ``automation/_agent_picker.html`` partial in settings
     mode (no seed-from-default, optional submission, "Use default" affordance).
 
-    The widget produces a single hidden ``provider:model`` value for the bound
-    field. For paired (model, thinking) fields where the picker's effort dots
-    should drive the thinking field, set ``paired_thinking_field`` and the
-    partial will additionally render a hidden input under that field's name —
-    populating ``cleaned_data`` for the thinking field on the same submit. The
-    form is responsible for hiding the paired thinking field from the render
-    loop so it doesn't double up as a standalone Select.
+    Settings always hardcode ``required=False``, so the partial renders the
+    model field as a plain ``<input type="hidden">`` — never the sr-only
+    variant used at run time. The widget produces a ``provider:model`` spec
+    on the bound field. For paired (model, thinking) fields where the
+    picker's effort dots should drive the thinking field, set
+    ``paired_thinking_field`` and the partial will additionally render a
+    hidden input under that field's name — populating ``cleaned_data`` for
+    the thinking field on the same submit. The form is responsible for
+    hiding the paired thinking field from the render loop so it doesn't
+    double up as a standalone Select.
     """
 
     template_name = "core/fields/agent_picker_widget.html"
