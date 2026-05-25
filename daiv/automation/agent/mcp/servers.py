@@ -33,7 +33,7 @@ class SentryMCPServer(MCPServer):
     )
 
     def is_enabled(self) -> bool:
-        return settings.SENTRY_URL is not None
+        return settings.SENTRY_URL is not None and super().is_enabled()
 
     def get_connection(self) -> StreamableHttpConnection:
         assert settings.SENTRY_URL is not None  # guaranteed by is_enabled()
@@ -46,7 +46,7 @@ class Context7MCPServer(MCPServer):
     tool_filter = ToolFilter(mode="allow", items=["resolve-library-id", "query-docs"])
 
     def is_enabled(self) -> bool:
-        return settings.CONTEXT7_URL is not None
+        return settings.CONTEXT7_URL is not None and super().is_enabled()
 
     def get_connection(self) -> StreamableHttpConnection:
         assert settings.CONTEXT7_URL is not None  # guaranteed by is_enabled()

@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from langchain_mcp_adapters.sessions import SSEConnection
 
@@ -51,10 +53,11 @@ class TestMCPServer:
         assert server.name == "concrete_server"
 
     def test_default_is_enabled_returns_true(self):
-        """Test that the default is_enabled method returns True."""
+        """Test that the default is_enabled method returns True when the DB row is enabled."""
         server = ConcreteMCPServer()
 
-        assert server.is_enabled() is True
+        with patch.object(ConcreteMCPServer, "_db_enabled", return_value=True):
+            assert server.is_enabled() is True
 
     def test_is_enabled_can_be_overridden(self):
         """Test that the is_enabled method can be overridden in subclasses."""
