@@ -11,22 +11,36 @@
  *   providers:            Array<{slug, label}> — enabled providers.
  *   catalogUrl:           string — fetched lazily on first popover open.
  *   initialAgentModel:    string — stored ``provider:model`` spec; ``""`` when no value
- *                                  was stored (legacy threads, or new threads where the
- *                                  admin default was unset/invalid). Falls back to
- *                                  ``defaultAgentModel``.
+ *                                  was stored.
  *   initialThinkingLevel: string — ``"minimal" | "low" | "medium" | "high"``; ``""`` = unset.
- *                                  Falls back to ``defaultThinkingLevel``.
- *   defaultAgentModel:    string — system default ``provider:model`` spec used to seed
- *                                  the picker when ``initialAgentModel`` is empty. May
- *                                  itself be ``""`` if the server has no usable default
- *                                  (unset, or gated out as unparseable / provider
- *                                  disabled) — in that case the picker renders the
- *                                  unselected "Pick a model" pill and the hidden input
- *                                  is left empty so the form's submit validation fires.
- *   defaultThinkingLevel: string — system default effort used to seed the picker when
- *                                  ``initialThinkingLevel`` is empty; ``""`` when unset.
+ *   defaultAgentModel:    string — system default ``provider:model`` spec. In
+ *                                  ``seedDefault=true`` mode it acts as a seed value for
+ *                                  the picker (so submission is always concrete). In
+ *                                  ``seedDefault=false`` mode (settings) it is only used
+ *                                  to render the placeholder pill label ("Default (…)")
+ *                                  when nothing is selected — the input value stays empty.
+ *   defaultThinkingLevel: string — effort analogue of ``defaultAgentModel``.
+ *   placeholderLabel:     string — pill label when the picker is unselected. ``""`` falls
+ *                                  back to "Default (…)" if a default is configured, else
+ *                                  to "Pick a model".
+ *   seedDefault:          bool   — see ``defaultAgentModel``. Defaults to ``true`` so
+ *                                  existing run-time callers behave identically; settings
+ *                                  pass ``false``.
+ *   required:             bool   — when ``true`` the template renders the sr-only
+ *                                  required input that gates form submission on an empty
+ *                                  selection. Defaults to ``true``; settings pass ``false``
+ *                                  because an empty save is meaningful ("use default").
  */
 const EFFORT_LEVELS = ["minimal", "low", "medium", "high"];
+
+function shortenModel(spec) {
+    // Strip the ``provider:`` prefix and any ``org/`` path so the placeholder pill
+    // stays compact ("Default (claude-haiku-4.5)" rather than
+    // "Default (openrouter:anthropic/claude-haiku-4.5)"). Mirrors the run-time
+    // pillLabel rendering for consistency.
+    const afterProvider = spec.includes(":") ? spec.slice(spec.indexOf(":") + 1) : spec;
+    return afterProvider.split("/").pop() || afterProvider;
+}
 
 document.addEventListener("alpine:init", () => {
     Alpine.data("agentPicker", ({
@@ -36,6 +50,9 @@ document.addEventListener("alpine:init", () => {
         initialThinkingLevel = "",
         defaultAgentModel = "",
         defaultThinkingLevel = "",
+        placeholderLabel = "",
+        seedDefault = true,
+        required = true,
     } = {}) => ({
         providers: [...providers],
         catalogUrl,
@@ -45,24 +62,31 @@ document.addEventListener("alpine:init", () => {
         thinkingLevel: "",
         query: "",
         open: false,
+        required,
+        defaultAgentModel,
+        defaultThinkingLevel,
+        placeholderLabel,
         LEVELS: EFFORT_LEVELS,
 
         init() {
-            // Stored spec wins; otherwise pre-select the system default so the form
-            // always submits a concrete ``provider:model`` value. Split on the FIRST
-            // colon so model names containing ``:`` (rare but valid) survive.
-            const seed = initialAgentModel || defaultAgentModel;
+            // Stored spec always wins. The system default is only seeded into the
+            // picker state when ``seedDefault`` is true (run-time pickers) — in
+            // settings we leave the input empty so an unchanged form persists
+            // NULL ("use the configured default"). Split on the FIRST colon so
+            // model names containing ``:`` (rare but valid) survive.
+            const seed = initialAgentModel || (seedDefault ? defaultAgentModel : "");
             if (seed && seed.includes(":")) {
                 const idx = seed.indexOf(":");
                 this.selectedProvider = seed.slice(0, idx);
                 this.modelName = seed.slice(idx + 1);
             }
-            this.thinkingLevel = initialThinkingLevel || defaultThinkingLevel || "";
+            this.thinkingLevel = initialThinkingLevel || (seedDefault ? defaultThinkingLevel : "") || "";
 
             // ``setCustomValidity`` is sticky — once set, it persists until cleared even
             // after ``agentModelValue`` flips to a valid spec. Watch the computed and
             // clear the message on transition to non-empty so the form submits cleanly
-            // once the user picks something.
+            // once the user picks something. Only relevant when the required input
+            // template is rendered (i.e. ``required`` is true).
             this.$watch("agentModelValue", (val) => {
                 if (val) this.$refs.modelInput?.setCustomValidity("");
             });
@@ -116,6 +140,17 @@ document.addEventListener("alpine:init", () => {
 
         selectEffort(level) {
             this.thinkingLevel = level;
+        },
+
+        clearSelection() {
+            // Revert to the "no explicit pick" state. The pill then renders
+            // ``placeholderLabel`` (typically "Default (…)" in settings) and the
+            // hidden input goes empty so save persists NULL — i.e. "use the
+            // configured default" rather than "no model".
+            this.selectedProvider = "";
+            this.modelName = "";
+            this.thinkingLevel = "";
+            this.query = "";
         },
 
         handleInvalidModel(event) {
@@ -176,25 +211,44 @@ document.addEventListener("alpine:init", () => {
         },
 
         get agentModelValue() {
-            // Hidden-input value. The picker is seeded with the system default at init
-            // when one is configured, so this is usually a concrete ``provider:model``
-            // spec. Empty when no usable default reached the client AND the user hasn't
-            // picked one — the form's ``required`` validation refuses to submit in that
-            // state (server-side ``ensure_agent_model_available`` is the backstop).
+            // Submitted input value. In ``seedDefault=true`` mode (run-time pickers)
+            // the picker is seeded with the system default at init when one is
+            // configured, so this is usually a concrete ``provider:model`` spec.
+            // In ``seedDefault=false`` mode (settings), an empty value is a
+            // meaningful "use the configured default" save — the picker is
+            // deliberately not seeded with the default. Empty also occurs at
+            // run time when no usable default reached the client AND the user
+            // hasn't picked one; the form's ``required`` validation refuses
+            // submission in that state (server-side ``ensure_agent_model_available``
+            // is the backstop).
             return this.selectedProvider && this.modelName
                 ? `${this.selectedProvider}:${this.modelName}`
                 : "";
         },
 
         get pillLabel() {
-            // Unselected fallback (no usable default reached the client): show a
-            // "pick a model" prompt so the pill never renders blank AND the user
-            // understands the form won't submit until they choose. The dot meter
-            // is hidden in this state.
+            // Unselected fallback. The label and dot meter both depend on
+            // whether a configured default exists:
+            //   - explicit ``placeholderLabel`` (settings pass "Default (env-value)")
+            //   - else "Default (short-name)" derived from ``defaultAgentModel``
+            //   - else the run-time "Pick a model" prompt
+            // In the "Default (…)" cases we still light the dots for the default
+            // effort so the empty-state pill shows what would be sent.
             if (!this.selectedProvider || !this.modelName) {
+                if (this.placeholderLabel) {
+                    return {
+                        name: this.placeholderLabel,
+                        effortDots: this.dotsFor(this.defaultThinkingLevel),
+                    };
+                }
+                if (this.defaultAgentModel) {
+                    return {
+                        name: `Default (${shortenModel(this.defaultAgentModel)})`,
+                        effortDots: this.dotsFor(this.defaultThinkingLevel),
+                    };
+                }
                 return {name: "Pick a model", effortDots: 0};
             }
-            const effortIdx = EFFORT_LEVELS.indexOf(this.thinkingLevel);
             // Strip any ``org/`` path segment from the model name (e.g.
             // ``anthropic/claude-haiku-4.5`` → ``claude-haiku-4.5``) so the pill
             // stays compact next to the env pill. The ``provider:`` prefix was
@@ -202,8 +256,13 @@ document.addEventListener("alpine:init", () => {
             const display = this.modelName.split("/").pop() || this.modelName;
             return {
                 name: display,
-                effortDots: effortIdx >= 0 ? effortIdx + 1 : 0,
+                effortDots: this.dotsFor(this.thinkingLevel),
             };
+        },
+
+        dotsFor(level) {
+            const idx = EFFORT_LEVELS.indexOf(level);
+            return idx >= 0 ? idx + 1 : 0;
         },
     }));
 });

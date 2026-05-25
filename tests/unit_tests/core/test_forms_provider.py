@@ -118,10 +118,7 @@ def test_site_form_flags_model_with_keyless_provider():
 
     cfg = SiteConfiguration.objects.get_instance()
     form = SiteConfigurationForm(
-        instance=cfg,
-        env_locked_fields=set(),
-        field_defaults={},
-        data={"agent_model_name_provider": "openai", "agent_model_name_model": "gpt-5.4"},
+        instance=cfg, env_locked_fields=set(), field_defaults={}, data={"agent_model_name": "openai:gpt-5.4"}
     )
     form.is_valid()
     assert any("API key" in str(e) for e in form.errors.get("agent_model_name", []))
@@ -136,10 +133,7 @@ def test_site_form_flags_model_with_disabled_provider():
 
     cfg = SiteConfiguration.objects.get_instance()
     form = SiteConfigurationForm(
-        instance=cfg,
-        env_locked_fields=set(),
-        field_defaults={},
-        data={"agent_model_name_provider": "openai", "agent_model_name_model": "gpt-5.4"},
+        instance=cfg, env_locked_fields=set(), field_defaults={}, data={"agent_model_name": "openai:gpt-5.4"}
     )
     form.is_valid()
     assert any("disabled" in str(e) for e in form.errors.get("agent_model_name", []))

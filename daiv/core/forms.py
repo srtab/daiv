@@ -34,52 +34,109 @@ class _SecretFormField(forms.CharField):
         self.template_name = "core/fields/secret.html"
 
 
-class _ModelSpecWidget(forms.Widget):
+# Model-name fields whose paired effort dots drive a separate thinking_level
+# field. The picker partial submits both inputs from one popover; the form must
+# then hide the paired thinking-level field from the standard render loop so it
+# doesn't double up as a Select dropdown.
+_PAIRED_THINKING_FIELDS: dict[str, str] = {
+    "agent_model_name": "agent_thinking_level",
+    "agent_max_model_name": "agent_max_thinking_level",
+}
+
+
+def _shorten_model_spec(spec: str) -> str:
+    """Strip ``provider:`` prefix and any ``org/`` path so the placeholder pill
+    label ("Default (...)") stays compact."""
+    if not spec:
+        return ""
+    name = spec.split(":", 1)[1] if ":" in spec else spec
+    return name.rsplit("/", 1)[-1] or name
+
+
+class _AgentPickerWidget(forms.Widget):
     """
-    Composite widget that renders a provider ``<select>`` and a model name
-    ``<input>`` side by side. The two parts are stored as a single
-    ``provider:model_name`` string in the database.
+    Renders the shared ``automation/_agent_picker.html`` partial in settings
+    mode (no seed-from-default, optional submission, "Use default" affordance).
+
+    The widget produces a single hidden ``provider:model`` value for the bound
+    field. For paired (model, thinking) fields where the picker's effort dots
+    should drive the thinking field, set ``paired_thinking_field`` and the
+    partial will additionally render a hidden input under that field's name —
+    populating ``cleaned_data`` for the thinking field on the same submit. The
+    form is responsible for hiding the paired thinking field from the render
+    loop so it doesn't double up as a standalone Select.
     """
 
-    template_name = "core/fields/model_spec_widget.html"
+    template_name = "core/fields/agent_picker_widget.html"
 
-    def __init__(self, *, default_provider: str = "openrouter", attrs: dict | None = None):
+    def __init__(self, *, paired_thinking_field: str | None = None, attrs: dict | None = None):
         super().__init__(attrs)
-        self.default_provider = default_provider
+        self.paired_thinking_field = paired_thinking_field
+        # Set by ``SiteConfigurationForm._apply_defaults`` so the placeholder
+        # pill can render "Default (env-value)". Empty when no default is
+        # configured for this field.
+        self.default_model: str = ""
+        # For paired widgets only — env default for the thinking level, used to
+        # light the effort dots in the unselected ("Default (…)") state.
+        self.default_thinking: str = ""
+        # Populated by the form so the partial can seed the effort dots from
+        # the paired field's stored value. Standalone widgets leave it empty.
+        self.initial_thinking: str = ""
 
     def get_context(self, name: str, value: Any, attrs: dict | None) -> dict[str, Any]:
         context = super().get_context(name, value, attrs)
-        if value:
-            try:
-                resolved = parse_model_spec(value)
-                context["widget"]["provider"] = resolved.row.slug
-                context["widget"]["model_name"] = resolved.model_name
-            except ValueError:
-                context["widget"]["provider"] = ""
-                context["widget"]["model_name"] = value
-        else:
-            context["widget"]["provider"] = ""
-            context["widget"]["model_name"] = ""
-        rows = Provider.get_cached_rows()
-        context["widget"]["providers"] = [
-            ("", self.default_provider_label),
-            *[(r.slug, f"{r.display_name}{'' if r.is_enabled else ' (disabled)'}") for r in rows if r.is_enabled],
+        widget_ctx = context["widget"]
+
+        # Use the cached snapshot so the agent settings group (10 model fields)
+        # doesn't re-run the same provider query 10x per GET. ``get_cached_rows``
+        # also wraps the DB query in a try/except + empty-list fallback so a
+        # transient DB hiccup renders an empty popover (with the hint below)
+        # rather than 500ing the settings page.
+        providers = [
+            {"slug": row.slug, "label": row.display_name or row.slug.replace("_", " ").title()}
+            for row in Provider.get_cached_rows()
+            if row.is_enabled
         ]
+
+        with_effort = self.paired_thinking_field is not None
+        placeholder = (
+            _("Default (%(name)s)") % {"name": _shorten_model_spec(self.default_model)}
+            if self.default_model
+            else _("Pick a model")
+        )
+
+        # ``attrs`` here is the per-render arg from ``BoundField`` (carries
+        # ``disabled`` for env-locked fields). ``self.attrs`` is the widget's
+        # own dict (carries ``title`` set by ``_apply_env_locks``). The merged
+        # view is in ``widget_ctx["attrs"]`` via the parent's ``build_attrs``.
+        merged_attrs = widget_ctx.get("attrs") or {}
+        is_disabled = bool(merged_attrs.get("disabled"))
+        widget_ctx["picker"] = {
+            "providers": json.dumps(providers),
+            "field_name_model": name,
+            "field_name_thinking": self.paired_thinking_field or "",
+            "initial_agent_model": value or "",
+            "initial_thinking_level": self.initial_thinking,
+            "default_model": self.default_model,
+            "default_thinking": self.default_thinking,
+            "placeholder_label": placeholder,
+            "with_effort": with_effort,
+            "disabled": is_disabled,
+            # ``_apply_env_locks`` is the only path that sets ``title`` in the
+            # settings flow, so we surface its value as the locked-pill tooltip
+            # — making env-locked fields show "Locked by environment variable"
+            # instead of the run-time default "Locked for this conversation".
+            "locked_title": merged_attrs.get("title", "") if is_disabled else "",
+            # Settings never seed the picker with the env default — an empty
+            # save is a meaningful "use the configured default" state.
+            "seed_default": False,
+            "required": False,
+        }
         return context
 
-    @property
-    def default_provider_label(self) -> str:
-        """Label for the empty/default provider option."""
-        label = self.default_provider.replace("_", " ").title()
-        return f"Default ({label})"
-
     def value_from_datadict(self, data: dict[str, Any], files: dict[str, Any], name: str) -> str:
-        provider = data.get(f"{name}_provider", "").strip()
-        model_name = data.get(f"{name}_model", "").strip()
-        if not model_name:
-            return ""
-        effective_provider = provider or self.default_provider
-        return f"{effective_provider}:{model_name}"
+        """The picker submits the full ``provider:model`` spec under ``name``."""
+        return (data.get(name) or "").strip()
 
 
 class SiteConfigurationForm(forms.ModelForm):
@@ -150,6 +207,8 @@ class SiteConfigurationForm(forms.ModelForm):
         # env-locked fields; _apply_defaults must run after and skip them.
         self._apply_env_locks()
         self._apply_defaults(field_defaults or {})
+        self._seed_paired_thinking_initials()
+        self._mark_paired_thinking_fields()
         self._hide_inapplicable_auth_fields()
         self._restrict_to_group()
 
@@ -193,8 +252,9 @@ class SiteConfigurationForm(forms.ModelForm):
                 continue
 
             widget = field_obj.widget
-            if isinstance(widget, (forms.TextInput, forms.NumberInput)) and "model_name" in name:
-                field_obj.widget = _ModelSpecWidget()
+            if isinstance(widget, (forms.TextInput, forms.NumberInput)) and name in SiteConfiguration.MODEL_NAME_FIELDS:
+                paired = _PAIRED_THINKING_FIELDS.get(name)
+                field_obj.widget = _AgentPickerWidget(paired_thinking_field=paired)
             elif isinstance(widget, forms.NumberInput):
                 widget.attrs.setdefault("min", "0")
 
@@ -235,13 +295,14 @@ class SiteConfigurationForm(forms.ModelForm):
                 continue
             field_obj = self.fields[name]
             widget = field_obj.widget
-            if isinstance(widget, _ModelSpecWidget):
-                try:
-                    resolved = parse_model_spec(default_str)
-                    widget.default_provider = resolved.row.slug
-                    widget.attrs.setdefault("placeholder", resolved.model_name)
-                except ValueError:
-                    widget.attrs.setdefault("placeholder", default_str)
+            if isinstance(widget, _AgentPickerWidget):
+                widget.default_model = default_str
+                if widget.paired_thinking_field:
+                    # The placeholder pill lights the effort dots from the
+                    # default; ``initial_thinking`` is seeded separately in
+                    # ``_seed_paired_thinking_initials`` so it runs even when
+                    # the model field has no entry in ``field_defaults``.
+                    widget.default_thinking = field_defaults.get(widget.paired_thinking_field, "")
             elif isinstance(widget, (forms.TextInput, forms.NumberInput)):
                 widget.attrs.setdefault("placeholder", default_str)
             elif isinstance(widget, forms.Select) and hasattr(field_obj, "choices"):
@@ -254,6 +315,41 @@ class SiteConfigurationForm(forms.ModelForm):
             ):
                 # When DB value is NULL, show the checkbox with the default state
                 self.initial[name] = default_str.lower() in ("true", "1", "yes", "on")
+
+    def _seed_paired_thinking_initials(self) -> None:
+        """Populate each paired picker's ``initial_thinking`` from the right source.
+
+        On a bound form (POST) we MUST read from ``self.data`` so a validation-
+        failure re-render shows the just-submitted effort dot — not the stored
+        DB value. The model-name field already flows through ``BoundField.value()``
+        which has the same bound-prefers-data semantics; the effort dots would
+        silently revert without this mirror.
+
+        Decoupled from ``_apply_defaults`` because the seed must run for *every*
+        paired widget, not only the ones that happen to have an entry in
+        ``field_defaults``.
+        """
+        source = self.data if self.is_bound else self.initial
+        for model_field, thinking_field in _PAIRED_THINKING_FIELDS.items():
+            if model_field not in self.fields:
+                continue
+            widget = self.fields[model_field].widget
+            if isinstance(widget, _AgentPickerWidget) and widget.paired_thinking_field:
+                widget.initial_thinking = str(source.get(thinking_field, "") or "")
+
+    def _mark_paired_thinking_fields(self) -> None:
+        """Flag paired thinking-level fields so the render loop skips them.
+
+        The picker bound to the partner model field already renders the hidden
+        ``<input>`` for the thinking value, so showing the standalone Select on
+        top of that would duplicate the POST key and confuse the UI. The form
+        field stays in ``cleaned_data`` (and ``save`` still writes it) — only
+        the rendering is suppressed.
+        """
+        for model_field, thinking_field in _PAIRED_THINKING_FIELDS.items():
+            if model_field not in self.fields or thinking_field not in self.fields:
+                continue
+            self.fields[thinking_field].is_rendered_inline = True  # type: ignore[attr-defined]
 
     def _hide_inapplicable_auth_fields(self) -> None:
         """Remove auth fields that don't apply to the current CODEBASE_CLIENT."""
