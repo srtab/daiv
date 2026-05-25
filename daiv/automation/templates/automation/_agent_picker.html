@@ -16,7 +16,9 @@ Parameters:
                                        (settings) an empty submission is a meaningful
                                        "use the configured default" save.
 - field_name_thinking (default       — name of the hidden input mirroring the chosen
-  "agent_thinking_level")              effort level; empty string = unset.
+  "agent_thinking_level")              effort level; empty string = unset. Only rendered
+                                       when ``with_effort=True``; passing ``False``
+                                       suppresses the input entirely.
 - initial_agent_model (default "")   — pre-selected spec, e.g. ``openrouter:anthropic/claude-haiku-4.5``
 - initial_thinking_level (default "") — pre-selected effort: ``minimal|low|medium|high``
 - initial_model_display (default "")  — display-only form of ``initial_agent_model`` used in
@@ -29,9 +31,12 @@ Parameters:
                                        a hint only — the input stays empty so save persists
                                        "use the configured default".
 - default_thinking (default "")       — effort level analogue of ``default_model``.
-- placeholder_label (default          — pill label when the picker is unselected. Defaults
-  "Pick a model")                      to the run-time prompt; settings pass a "Default (…)"
-                                       hint derived from the env / Pydantic default.
+- placeholder_label (default "")     — pill label when the picker is unselected. Empty
+                                       string falls through to JS-derived labels: a
+                                       ``Default (…)`` form derived from ``default_model``,
+                                       or ``Pick a model`` if no default is configured.
+                                       Settings pass a pre-computed ``Default (env-value)``
+                                       hint when an env / Pydantic default exists.
 - with_effort (default True)         — render the thinking-effort row inside the popover.
                                        Standalone model_name fields in settings pass False.
 - required (default True)            — when True, the sr-only model input is ``required``
@@ -133,6 +138,10 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
                  class="text-xs text-gray-500 mb-1"
                  x-text="providerHint" x-cloak></div>
 
+            <div x-show="freeTextHint" role="status" aria-live="polite"
+                 class="text-xs text-amber-400 mb-1"
+                 x-text="freeTextHint" x-cloak></div>
+
             <input type="search" x-ref="search" x-model="query"
                    @keydown.enter.prevent="submitFreeText()"
                    placeholder="{% translate 'Model name…' %}"
@@ -156,7 +165,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
                         </div>
                     </button>
                 </template>
-                <div x-show="filteredModels.length === 0 && !query.trim()" class="env-popover__empty">
+                <div x-show="filteredModels.length === 0 && !query.trim() && !providerHint" class="env-popover__empty">
                     {% translate "No models match" %}
                 </div>
                 <button type="button" x-show="query.trim()" x-cloak
