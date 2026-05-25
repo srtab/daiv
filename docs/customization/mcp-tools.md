@@ -53,17 +53,17 @@ Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` con
 
 The [Playwright MCP Server](https://github.com/microsoft/playwright-mcp) gives DAIV a headless Chromium browser for inspecting web pages, capturing screenshots, reading the console, and driving UI interactions. Each agent session gets a fresh, isolated browser context.
 
-**Available tools** (selected — the full surface is exposed, ~23 tools prefixed `playwright_browser_*`):
+**Available tools** (selected — the full surface is exposed, ~23 tools). Names below are what the agent sees: the upstream server emits `browser_*` tool names; DAIV prefixes them with the server name (`playwright`) so the agent calls them as `playwright_browser_*`.
 
 | Tool | Description |
 |------|-------------|
-| `browser_navigate` | Open a URL in the browser |
-| `browser_take_screenshot` | Capture a screenshot of the current page |
-| `browser_snapshot` | Get an accessibility-tree snapshot of the page |
-| `browser_console_messages` | Read messages logged to the JavaScript console |
-| `browser_network_requests` | Read network requests made by the page |
-| `browser_click` / `browser_type` / `browser_fill_form` | Interact with form elements and controls |
-| `browser_run_code_unsafe` | Evaluate arbitrary JavaScript in the page context |
+| `playwright_browser_navigate` | Open a URL in the browser |
+| `playwright_browser_take_screenshot` | Capture a screenshot of the current page |
+| `playwright_browser_snapshot` | Get an accessibility-tree snapshot of the page |
+| `playwright_browser_console_messages` | Read messages logged to the JavaScript console |
+| `playwright_browser_network_requests` | Read network requests made by the page |
+| `playwright_browser_click` / `playwright_browser_type` / `playwright_browser_fill_form` | Interact with form elements and controls |
+| `playwright_browser_run_code_unsafe` | Evaluate arbitrary JavaScript in the page context |
 
 **Use cases:** Verifying a frontend change by loading the running app and screenshotting the result; reproducing UI bug reports against a live URL to inspect console and network state; exercising end-to-end flows the agent is building.
 

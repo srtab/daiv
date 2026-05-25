@@ -58,8 +58,8 @@ class PlaywrightMCPServer(MCPServer):
     """
     Full Playwright MCP tool surface exposed (no tool_filter). The container
     runs headless Chromium with --isolated, so each MCP session gets a fresh
-    browser context. See docs/superpowers/specs/2026-05-25-browser-mcp-design.md
-    for the trust-boundary discussion.
+    browser context. See docs/customization/mcp-tools.md for the trust-boundary
+    discussion.
     """
 
     name = "playwright"
