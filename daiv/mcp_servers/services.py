@@ -19,7 +19,7 @@ def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
     other rows still load. Errors in the DB layer itself propagate to the
     caller (``MCPToolkit.get_tools`` already swallows them).
     """
-    rows = MCPServer.objects.filter(enabled=True).order_by("name")
+    rows = MCPServer.objects.filter(enabled=True, source=MCPServer.Source.CUSTOM).order_by("name")
     out: list[tuple[str, UserMcpServer]] = []
     for row in rows:
         try:
