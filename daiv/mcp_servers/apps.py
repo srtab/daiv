@@ -14,7 +14,7 @@ logger = logging.getLogger("daiv.mcp_servers")
 _LEGACY_WARNED = False
 
 
-def upsert_builtin_rows(builtin_classes: Iterable[type]) -> None:
+def upsert_builtin_rows(builtin_names: Iterable[str]) -> None:
     """Ensure each registered built-in MCP server has a DB row.
 
     Existing rows are not touched (preserves the admin's ``enabled`` choice).
@@ -22,6 +22,8 @@ def upsert_builtin_rows(builtin_classes: Iterable[type]) -> None:
     DB-exception catch so the app starts cleanly when migrations haven't
     run yet.
     """
+    from django.db import IntegrityError
+
     from mcp_servers.models import MCPServer
 
     try:
@@ -30,16 +32,20 @@ def upsert_builtin_rows(builtin_classes: Iterable[type]) -> None:
         logger.warning("mcp_servers table not ready; skipping built-in upsert (run migrations).")
         return
 
-    for cls in builtin_classes:
-        if cls.name in existing:
+    for name in builtin_names:
+        if name in existing:
             continue
-        MCPServer.objects.create(
-            name=cls.name,
-            source=MCPServer.Source.BUILTIN,
-            transport=MCPServer.Transport.HTTP,  # placeholder; overridden at runtime by the registry
-            url="builtin://" + cls.name,  # placeholder; the runtime never reads this for built-ins
-            enabled=True,
-        )
+        try:
+            # transport/url are schema-required but unused for built-ins (they supply their own Connection).
+            MCPServer.objects.create(
+                name=name,
+                source=MCPServer.Source.BUILTIN,
+                transport=MCPServer.Transport.HTTP,
+                url="builtin://" + name,
+                enabled=True,
+            )
+        except IntegrityError:
+            logger.exception("Failed to upsert built-in MCP server row %r", name)
 
 
 def warn_legacy_env_if_present() -> None:
@@ -67,11 +73,9 @@ def warn_legacy_env_if_present() -> None:
 def _on_post_migrate(sender, **kwargs):
     if sender.name != "mcp_servers":
         return
-    # Defer to post_migrate so the queries don't run during app init or
-    # break in-memory test DBs that have a pre-app-ready connection.
     from automation.agent.mcp.registry import mcp_registry
 
-    upsert_builtin_rows(mcp_registry._registry)
+    upsert_builtin_rows(mcp_registry.builtin_names())
     warn_legacy_env_if_present()
 
 

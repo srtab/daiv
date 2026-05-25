@@ -49,6 +49,14 @@ class MCPServer(TimeStampedModel):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            # Empty items with allow/block silently inverts the admin's intent
+            # (allow-nothing / block-nothing); reject at the DB layer.
+            models.CheckConstraint(
+                condition=models.Q(tool_filter_mode="none") | ~models.Q(tool_filter_items=[]),
+                name="mcp_tool_filter_items_required_when_mode_set",
+            )
+        ]
 
     def __init__(self, *args, **kwargs) -> None:
         # Mirror SandboxEnvironment: route ``headers`` through the descriptor so

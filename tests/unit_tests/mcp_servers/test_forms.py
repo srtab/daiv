@@ -217,3 +217,18 @@ def test_form_persisted_not_discovered_item_still_listed():
     assert "renamed_tool" in choices_map
     # And the label hints that it isn't currently available.
     assert "not in current tool list" in choices_map["renamed_tool"]
+
+
+@pytest.mark.django_db
+def test_form_falls_back_to_textarea_when_discovery_returns_empty():
+    """Empty discovered_tools must keep the textarea — a transient discovery failure must not wipe the filter."""
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(
+        name="demo", transport="http", url="http://demo.test", tool_filter_mode="allow", tool_filter_items=["t1", "t2"]
+    )
+    form = MCPServerForm(instance=obj, discovered_tools=[])
+    assert isinstance(form.fields["tool_filter_items"], forms.CharField)
+    assert isinstance(form.fields["tool_filter_items"].widget, forms.Textarea)
+    assert "t1" in form.fields["tool_filter_items"].initial
+    assert "t2" in form.fields["tool_filter_items"].initial

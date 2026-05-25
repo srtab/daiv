@@ -14,6 +14,7 @@ from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
 
 from accounts.mixins import AdminRequiredMixin
+from core.encryption import DecryptionError
 from mcp_servers import services
 from mcp_servers.constants import TOOLS_CACHE_KEY, TOOLS_CACHE_TIMEOUT
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset
@@ -27,9 +28,10 @@ class MCPServerListView(AdminRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["custom_servers"] = list(
-            MCPServer.objects.filter(source=MCPServer.Source.CUSTOM).select_related("created_by")
-        )
+        custom = list(MCPServer.objects.filter(source=MCPServer.Source.CUSTOM).select_related("created_by"))
+        for s in custom:
+            s.health = services.server_health(s) if s.enabled else {"ok": True, "reason": None}
+        ctx["custom_servers"] = custom
         ctx["builtin_servers"] = list(MCPServer.objects.filter(source=MCPServer.Source.BUILTIN))
         return ctx
 
@@ -63,10 +65,31 @@ class MCPServerEditView(AdminRequiredMixin, View):
 
     def get(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
+        initial, headers_locked = _existing_headers_for_formset(obj)
+        if headers_locked:
+            messages.error(
+                request,
+                _(
+                    "Stored headers for '%(name)s' could not be decrypted (encryption key changed?). "
+                    "Saving from here is disabled until you reset them manually."
+                )
+                % {"name": obj.name},
+            )
         discovered = MCPServerDetailView._tools_or_empty(obj)
         form = MCPServerForm(instance=obj, discovered_tools=discovered or None)
-        formset = MCPServerHeaderFormSet(initial=_existing_headers_for_formset(obj), prefix="headers")
-        return render(request, self.template_name, {"form": form, "formset": formset, "mode": "edit", "object": obj})
+        formset = MCPServerHeaderFormSet(initial=initial, prefix="headers")
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "formset": formset,
+                "mode": "edit",
+                "object": obj,
+                "builtin": obj.source == MCPServer.Source.BUILTIN,
+                "headers_locked": headers_locked,
+            },
+        )
 
     def post(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
@@ -77,7 +100,20 @@ class MCPServerEditView(AdminRequiredMixin, View):
             messages.success(request, _("MCP server '%(name)s' updated.") % {"name": obj.name})
             return redirect(reverse("mcp_servers:list"))
 
-        existing_headers = obj.headers or []
+        try:
+            existing_headers = obj.headers or []
+        except DecryptionError:
+            # build_headers_from_formset would otherwise overwrite the unreadable ciphertext with [].
+            messages.error(
+                request,
+                _(
+                    "Cannot save '%(name)s': existing headers could not be decrypted. "
+                    "Delete the server and re-create it, or rotate the encryption key back."
+                )
+                % {"name": obj.name},
+            )
+            return redirect(reverse("mcp_servers:edit", args=[obj.name]))
+
         discovered = MCPServerDetailView._tools_or_empty(obj)
         form = MCPServerForm(request.POST, instance=obj, discovered_tools=discovered or None)
         formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
@@ -110,7 +146,11 @@ class MCPServerDetailView(AdminRequiredMixin, View):
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-        tools = async_to_sync(services.discover_tools)(obj)
+        try:
+            tools = async_to_sync(services.discover_tools)(obj)
+        except DecryptionError:
+            logger.warning("Cannot discover tools for %r: header decryption failed.", obj.name)
+            tools = []
         cache.set(cache_key, tools, TOOLS_CACHE_TIMEOUT)
         return tools
 
@@ -167,21 +207,23 @@ class MCPServerToolsView(AdminRequiredMixin, View):
         return JsonResponse({"tools": tools, "cached": False})
 
 
-def _existing_headers_for_formset(obj: MCPServer) -> list[dict]:
-    """Build the formset's ``initial`` data from a server's stored headers.
+def _existing_headers_for_formset(obj: MCPServer) -> tuple[list[dict], bool]:
+    """Return ``(initial, headers_locked)`` for the headers formset.
 
-    Literal values are blanked out for display — the form's preserve-blank
-    logic round-trips them. (Mask only if you later add a 'hint' column —
-    the empty initial input means 'preserve on POST'.)
+    Literal values are blanked: ``build_headers_from_formset`` treats blank
+    on POST as "preserve existing". ``headers_locked`` is True when the
+    ciphertext can't be decoded — callers must refuse the POST so the
+    recoverable ciphertext isn't overwritten with [].
     """
     try:
         rows = obj.headers or []
-    except Exception:  # noqa: BLE001 — degrade gracefully on DecryptionError
-        return []
+    except DecryptionError:
+        logger.warning("Headers for MCP server %r could not be decrypted.", obj.name)
+        return [], True
     out: list[dict] = []
     for h in rows:
         value = h.get("value", "")
         if h.get("mode") == "literal" and value:
-            value = ""  # blank means "preserve" on POST
+            value = ""
         out.append({"name": h.get("name", ""), "mode": h.get("mode", "literal"), "value": value})
-    return out
+    return out, False

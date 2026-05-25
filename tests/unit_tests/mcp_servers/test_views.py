@@ -291,7 +291,7 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user, mo
     from mcp_servers.models import MCPServer
 
     MCPServer.objects.create(
-        name="multi", transport="http", url="http://multi.test", tool_filter_mode="allow", tool_filter_items=[]
+        name="multi", transport="http", url="http://multi.test", tool_filter_mode="allow", tool_filter_items=["seed"]
     )
 
     async def fake_discover(server):
@@ -344,3 +344,113 @@ def test_detail_renders_tools_when_discovered(client, admin_user, monkeypatch):
     assert resp.status_code == 200
     assert b"alpha" in resp.content
     assert b"the first letter" in resp.content
+
+
+@pytest.mark.django_db
+def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
+    """POST on a row whose ciphertext can't be decoded must not overwrite it with an empty list."""
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(
+        name="locked",
+        transport="http",
+        url="http://locked.test",
+        headers=[{"name": "X-T", "mode": "literal", "value": "secret"}],
+    )
+    MCPServer.objects.filter(pk=obj.pk).update(_headers_encrypted="not-a-fernet-token")
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:edit", args=["locked"]),
+        data={
+            "name": "locked",
+            "transport": "http",
+            "url": "http://new.test",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+        follow=False,
+    )
+    assert resp.status_code == 302
+    assert reverse("mcp_servers:edit", args=["locked"]) in resp["Location"]
+    obj.refresh_from_db()
+    assert obj.url == "http://locked.test"
+    assert obj._headers_encrypted == "not-a-fernet-token"
+
+
+@pytest.mark.django_db
+def test_tools_endpoint_cache_busted_on_modify(client, admin_user, monkeypatch):
+    """A save must invalidate the cached tools snapshot via the ``modified`` stamp in the key."""
+    import time
+
+    from django.core.cache import cache
+
+    cache.clear()
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(name="cb", transport="http", url="http://x.test")
+    calls = {"n": 0}
+
+    async def fake_discover(server):
+        calls["n"] += 1
+        return [{"name": f"t{calls['n']}", "description": ""}]
+
+    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
+    client.force_login(admin_user)
+
+    r1 = client.get(reverse("mcp_servers:tools", args=["cb"]))
+    assert r1.status_code == 200
+    assert calls["n"] == 1
+
+    # int(timestamp()) has 1s resolution; sleep ensures ``modified`` crosses it.
+    time.sleep(1.05)
+    obj.url = "http://x2.test"
+    obj.save()
+
+    r2 = client.get(reverse("mcp_servers:tools", args=["cb"]))
+    assert r2.status_code == 200
+    assert calls["n"] == 2
+    assert r2.json()["tools"][0]["name"] == "t2"
+
+
+@pytest.mark.django_db
+def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeypatch):
+    """Enabled row with a missing env-ref must render a 'Broken' badge."""
+    from mcp_servers.models import MCPServer
+
+    monkeypatch.delenv("DEFINITELY_NOT_SET", raising=False)
+    MCPServer.objects.create(
+        name="broken",
+        transport="http",
+        url="http://broken.test",
+        headers=[{"name": "Authorization", "mode": "env_ref", "value": "DEFINITELY_NOT_SET"}],
+        enabled=True,
+    )
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"Broken" in resp.content
+    assert b"DEFINITELY_NOT_SET" in resp.content
+
+
+@pytest.mark.django_db
+def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
+    """Disabled rows are intentionally idle — no broken badge."""
+    from mcp_servers.models import MCPServer
+
+    monkeypatch.delenv("ALSO_NOT_SET", raising=False)
+    MCPServer.objects.create(
+        name="sleeping",
+        transport="http",
+        url="http://x.test",
+        headers=[{"name": "X", "mode": "env_ref", "value": "ALSO_NOT_SET"}],
+        enabled=False,
+    )
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"Broken" not in resp.content
