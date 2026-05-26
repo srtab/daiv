@@ -1,5 +1,7 @@
+import os
 from typing import TYPE_CHECKING
 
+import pytest
 from langchain.messages import AIMessage
 
 from automation.agent.constants import ModelName
@@ -67,6 +69,21 @@ def _resolve_provider_slug(model_spec: str) -> str:
         if model_spec.startswith(prefixes):
             return slug
     return model_spec
+
+
+def require_provider_for_model(model_spec: str) -> None:
+    """Skip the current test if the provider for ``model_spec`` has no API key.
+
+    Built-in providers map to the canonical env vars (OPENROUTER_API_KEY, etc.).
+    Custom providers use the DAIV_TEST_PROVIDER_<SLUG>_API_KEY convention from
+    conftest._provision_providers; both must be set for the row to exist.
+    """
+    slug = _resolve_provider_slug(model_spec)
+    env_var = _PROVIDER_ENV_VAR.get(slug)
+    if env_var is None:
+        env_var = f"DAIV_TEST_PROVIDER_{slug.upper()}_API_KEY"
+    if not os.environ.get(env_var):
+        pytest.skip(f"{env_var} not set; cannot run against {model_spec!r}.")
 
 
 def extract_tool_calls(messages: list[BaseMessage]) -> list[ToolCall]:
