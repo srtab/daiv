@@ -56,6 +56,7 @@
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
+       @daiv:agent-changed.window="applyAgentSelection($event.detail)"
        x-cloak
        class="chat-shell"
        :class="{ 'chat-shell--empty': !thread && turns.length === 0 }">

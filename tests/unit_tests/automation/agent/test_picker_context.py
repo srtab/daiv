@@ -321,10 +321,11 @@ def test_initial_model_display_empty_when_no_initial(providers):
 )
 def test_display_model_name_normalisation(spec, expected):
     """Pin the exact spec→display normalisation. The JS picker mirrors this in
-    ``daiv/chat/static/chat/js/chat-stream.js`` (``displayFromSpec``) so the locked
-    pill shows the same name whether it was server-rendered from a persisted thread
-    or pinned client-side from the just-submitted hidden input. Update both sides
-    together when this table changes."""
+    ``automation/static/automation/js/agent-picker.js`` (``shortenModel`` and the
+    inline ``modelName.split('/').pop()`` in ``pillLabel``) so the locked composer
+    pill — driven by the picker's ``daiv:agent-changed`` event — shows the same
+    name as a server-rendered persisted thread. Update both sides together when
+    this table changes."""
     from automation.agent.picker_context import _display_model_name
 
     assert _display_model_name(spec) == expected
@@ -346,9 +347,9 @@ def test_display_model_name_normalisation(spec, expected):
 )
 def test_effort_dots_for_level_normalisation(level, expected):
     """Pin the level→dots mapping. The JS picker mirrors this in
-    ``daiv/chat/static/chat/js/chat-stream.js`` (``effortDotsForLevel``) so the locked
-    pill lights the same dots whether they were server-rendered from a persisted thread
-    or pinned client-side from the just-submitted hidden input. Update both sides
+    ``automation/static/automation/js/agent-picker.js`` (``EFFORT_LEVELS`` + ``dotsFor``)
+    so the locked composer pill — driven by the picker's ``daiv:agent-changed`` event —
+    lights the same dots as a server-rendered persisted thread. Update both sides
     together when ``ThinkingLevelChoices`` gains or loses a level."""
     from core.models import ThinkingLevelChoices
 

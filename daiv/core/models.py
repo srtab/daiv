@@ -54,10 +54,9 @@ class ThinkingLevelChoices(models.TextChoices):
         """1-based position of ``level`` in the choices order; 0 for unknown.
 
         Drives the locked agent pill's effort meter. The JS picker mirrors this via
-        ``EFFORT_LEVELS`` + ``effortDotsForLevel`` in ``chat/static/chat/js/chat-stream.js``
-        and ``dotsFor`` in ``automation/static/automation/js/agent-picker.js``; if the
-        levels here change order, the JS arrays must be updated to match. The parity
-        test in ``test_picker_context`` pins the contract.
+        ``EFFORT_LEVELS`` + ``dotsFor`` in ``automation/static/automation/js/agent-picker.js``;
+        if the levels here change order, the JS array must be updated to match. The
+        parity test in ``test_picker_context`` pins the contract.
         """
         try:
             return cls.values.index(level) + 1

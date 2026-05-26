@@ -81,7 +81,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     # Auto: snapshot the resolved env at thread creation so the stored env matches what ran.
     # Existing threads keep their original env (get_or_create_for_user only applies on create);
     # this resolution still runs on every request but is discarded for existing threads.
-    if env_obj is None:
+    auto_resolved = env_obj is None
+    if auto_resolved:
         env_obj = await resolve_env_for_run(user=user, repo_id=repo_id)
         logger.debug(
             "chat: auto-resolved env=%s for repo=%s user=%s", env_obj.id if env_obj else None, repo_id, user.pk
@@ -141,6 +142,15 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if not await ChatThreadService.try_claim_run(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
 
+    # Only emit the resolved-env hint when:
+    # - The client sent Auto (empty/missing header) AND we resolved something for them, AND
+    # - This is a newly-created thread (so the resolved env *is* what the run is using —
+    #   on an existing-thread Auto submit, the resolved env_obj is discarded in favour of
+    #   the thread's stored env, and lying about it would mis-stamp the locked pill).
+    auto_resolved_env: dict[str, str] | None = None
+    if auto_resolved and created and env_obj is not None:
+        auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
+
     encoder = EventEncoder(accept=request.headers.get("accept"))
     streamer = ChatRunStreamer(
         repo_id=repo_id,
@@ -152,5 +162,6 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         sandbox_environment_id=(str(thread.sandbox_environment_id) if thread.sandbox_environment_id else None),
         agent_model=thread.agent_model or None,
         agent_thinking_level=thread.agent_thinking_level or None,
+        auto_resolved_env=auto_resolved_env,
     )
     return StreamingHttpResponse(streamer.events(), content_type=encoder.get_content_type())

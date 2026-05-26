@@ -15,6 +15,7 @@
     REASONING_MESSAGE_CONTENT: "REASONING_MESSAGE_CONTENT",
     REASONING_END: "REASONING_END",
     STATE_SNAPSHOT: "STATE_SNAPSHOT",
+    CUSTOM: "CUSTOM",
   };
 
   // Normalize a raw GitState.merge_request snapshot (snake_case Pydantic dump)
@@ -114,26 +115,6 @@
   const bashFilesChanged = (resultStr) =>
     (window.parseBashSuccess ? window.parseBashSuccess(resultStr) : null)?.files_changed ?? [];
 
-  // Mirror of Python ``automation.agent.picker_context._display_model_name``: strip the
-  // ``provider:`` prefix and any ``org/`` path so a freshly committed agent spec collapses
-  // to the same compact form the server uses for the locked pill on a refresh
-  // (``openrouter:anthropic/claude-haiku-4.5`` → ``claude-haiku-4.5``).
-  const displayFromSpec = (spec) => {
-    if (!spec) return "";
-    const afterProvider = spec.includes(":") ? spec.slice(spec.indexOf(":") + 1) : spec;
-    return afterProvider.split("/").pop() || afterProvider;
-  };
-
-  // Mirror of Python ``_effort_dots_for_level`` in ``automation/agent/picker_context.py``:
-  // 1-based position in the ``ThinkingLevelChoices`` order; 0 for unknown (effort block
-  // stays hidden via the x-show gate). Re-order ``EFFORT_LEVELS`` if the choices class
-  // gains or shuffles levels — the Python-side parity test pins the contract.
-  const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh"];
-  const effortDotsForLevel = (level) => {
-    const idx = EFFORT_LEVELS.indexOf(level);
-    return idx >= 0 ? idx + 1 : 0;
-  };
-
   const chat = (config) => ({
     endpoint: config.endpoint,
     statusEndpoint: config.statusEndpoint || "",
@@ -150,10 +131,19 @@
     // (``x-show="thread"``) the user has already picked something the server hasn't seen
     // yet. The locked pills read these via ``x-text`` so the picker keeps its selection
     // visible during the hero→composer transition, with no page refresh needed.
+    // Refreshed reactively by the ``daiv:agent-changed`` / ``daiv:env-changed`` listeners
+    // (see chat_detail.html). The agent picker dispatches its own pillLabel so the locked
+    // pill stays in sync without re-deriving the label from the raw model spec.
     lockedAgentLabel: config.initialAgentLabel || "",
     lockedAgentEffortDots: config.initialAgentEffortDots || 0,
     lockedEnvLabel: config.initialEnvLabel || "",
     lockedEnvScope: config.initialEnvScope || "",
+    // Current agent-picker selection, kept in sync via ``daiv:agent-changed``. Forwarded
+    // to the server on submit; empty when the user hasn't touched the picker yet (the
+    // first event fires only on actual change). Submit() then falls back to reading the
+    // picker's hidden inputs so a no-touch submit still carries the seeded spec.
+    _agentModel: "",
+    _agentThinkingLevel: "",
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
@@ -187,6 +177,15 @@
       if (this.draftRepoId) {
         this.$nextTick(() => this.$refs.prompt?.focus());
       }
+    },
+
+    applyAgentSelection(detail) {
+      // The agent picker is the single source of truth for the pill label, effort
+      // dots, and the spec submit() forwards — we just stamp whatever it dispatched.
+      this._agentModel = detail?.model || "";
+      this._agentThinkingLevel = detail?.thinking_level || "";
+      this.lockedAgentLabel = detail?.label || "";
+      this.lockedAgentEffortDots = detail?.effort_dots || 0;
     },
 
     applySandboxEnvSelection(detail) {
@@ -528,24 +527,20 @@
         }))
         .filter((m) => m.content);
 
-      // Read the agent picker's selection straight from its hidden inputs (rendered
-      // in the hero on a brand-new thread, absent in the locked composer pill).
-      // The server pins these to ``ChatThread.agent_model`` /
-      // ``agent_thinking_level`` on first sight of the thread and ignores them on
-      // subsequent turns, mirroring the env-pinning contract.
-      const agentModelInput = this.$root?.querySelector?.('input[name="agent_model"]');
-      const agentThinkingInput = this.$root?.querySelector?.('input[name="agent_thinking_level"]');
+      // Use whatever the agent picker last dispatched (it dispatches both on user change
+      // and once on init for the seeded default). The hidden-input fallback covers the
+      // edge case where the picker hasn't dispatched yet at submit time (very fast first
+      // click). The server pins these to ``ChatThread.agent_model`` / ``agent_thinking_level``
+      // on first sight of the thread and ignores them on subsequent turns.
+      const agentModel = this._agentModel
+        || this.$root?.querySelector?.('input[name="agent_model"]')?.value
+        || "";
+      const agentThinkingLevel = this._agentThinkingLevel
+        || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
+        || "";
       const forwardedProps = {};
-      const agentModel = agentModelInput?.value || "";
-      const agentThinkingLevel = agentThinkingInput?.value || "";
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-
-      // Pin the locked composer pill's label + effort meter to what we're about to commit,
-      // so the hero→composer transition doesn't flash the empty-thread fallback ("Pick a
-      // model" / no dots) between now and the next page refresh.
-      if (agentModel) this.lockedAgentLabel = displayFromSpec(agentModel);
-      this.lockedAgentEffortDots = effortDotsForLevel(agentThinkingLevel);
 
       const body = {
         threadId: this.thread.thread_id,
@@ -761,6 +756,16 @@
             s.status = "error";
           }
         });
+      } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
+        // Server resolved Auto → real env for this run. Swap the locked pill text in
+        // place when the user is still on Auto client-side; an explicit mid-flight
+        // pick wins and we log the drop so client/server divergence stays debuggable.
+        const v = evt.value || {};
+        if (!this.selectedSandboxEnvId && v.id) {
+          this.applySandboxEnvSelection({id: v.id, name: v.name || "", scope: v.scope || ""});
+        } else if (this.selectedSandboxEnvId) {
+          console.debug("chat: ignored resolved_env (user picked %o)", this.selectedSandboxEnvId, v);
+        }
       } else if (type === AGUI.STATE_SNAPSHOT) {
         // Snapshots fire on every node exit and almost always carry an
         // unchanged merge_request. Dedupe on identity so we don't churn

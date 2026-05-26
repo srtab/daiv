@@ -7,6 +7,13 @@
  * "Use exact name" affordance) so users can always type a model even when
  * the catalog is empty or the endpoint failed.
  *
+ * Selection changes fire ``daiv:agent-changed`` on ``window`` so listeners
+ * (e.g. the chat composer's locked pill) can mirror the picker's current state
+ * without re-deriving labels or effort dots from the raw spec. Payload:
+ * ``{model, thinking_level, label, effort_dots}`` — ``label`` matches
+ * ``pillLabel.name`` and ``effort_dots`` matches ``pillLabel.effortDots`` so
+ * the picker remains the single source of truth client-side.
+ *
  * Constructor args (passed via x-data):
  *   providers:            Array<{slug, label}> — enabled providers.
  *   catalogUrl:           string — fetched lazily on first popover open.
@@ -30,6 +37,9 @@
  *                                  input that gates form submission on an empty
  *                                  selection. Defaults to ``true``; settings pass ``false``
  *                                  because an empty save is meaningful ("use default").
+ *   changeEvent:          string — window event name fired on selection change.
+ *                                  Defaults to ``"daiv:agent-changed"``; pass ``""`` to
+ *                                  disable (settings form has no consumer).
  */
 const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh"];
 
@@ -53,6 +63,7 @@ document.addEventListener("alpine:init", () => {
         placeholderLabel = "",
         seedDefault = true,
         required = true,
+        changeEvent = "daiv:agent-changed",
     } = {}) => ({
         providers: [...providers],
         catalogUrl,
@@ -66,6 +77,7 @@ document.addEventListener("alpine:init", () => {
         defaultAgentModel,
         defaultThinkingLevel,
         placeholderLabel,
+        changeEvent,
         LEVELS: EFFORT_LEVELS,
 
         init() {
@@ -89,7 +101,41 @@ document.addEventListener("alpine:init", () => {
             // template is rendered (i.e. ``required`` is true).
             this.$watch("agentModelValue", (val) => {
                 if (val) this.$refs.modelInput?.setCustomValidity("");
+                this._dispatchChange();
             });
+            this.$watch("thinkingLevel", () => this._dispatchChange());
+
+            // Propagate the seeded default to listeners. Alpine ``$watch`` does not fire
+            // on init, so a user who submits without touching the picker would otherwise
+            // leave consumers (chat composer's locked pill) stuck on the empty-thread
+            // fallback ("Pick a model") while submit() forwards the seeded default spec
+            // from the hidden inputs. ``$nextTick`` defers until window listeners on
+            // ``daiv:agent-changed`` are wired.
+            this.$nextTick(() => this._dispatchChange());
+        },
+
+        _dispatchChange() {
+            // Surface the picker's current pill state so listeners stay in sync without
+            // re-deriving labels from the raw spec. Fires on every selection change
+            // and once on init (via ``$nextTick``) so the seeded default reaches
+            // consumers — Alpine ``$watch`` does not fire on initial assignments.
+            // Empty ``changeEvent`` opts out (settings form has no consumer).
+            // The try/catch isolates a misbehaving listener: ``dispatchEvent`` is
+            // synchronous, so a listener that throws would otherwise abort the
+            // ``$watch`` callback mid-tick and could leave the hidden inputs updated
+            // without the locked pill catching up.
+            if (!this.changeEvent) return;
+            try {
+                const pill = this.pillLabel;
+                window.dispatchEvent(new CustomEvent(this.changeEvent, {detail: {
+                    model: this.agentModelValue,
+                    thinking_level: this.thinkingLevel,
+                    label: pill.name,
+                    effort_dots: pill.effortDots,
+                }}));
+            } catch (err) {
+                console.error("agent picker: listener for", this.changeEvent, "threw", err);
+            }
         },
 
         toggle() {

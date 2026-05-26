@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
-from ag_ui.core.events import EventType, RunErrorEvent
+from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 
@@ -86,6 +86,11 @@ class ChatRunStreamer:
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
+    # When set, ``{id, name, scope}`` of the env the view auto-resolved for this run.
+    # The chat composer's locked pill is still showing "Auto" on the client; the
+    # streamer's first emit swaps it to the real name without waiting for a page
+    # refresh. ``None`` skips the emit — the view decides when emission is meaningful.
+    auto_resolved_env: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         # The view passes thread_id/run_id alongside input_data; a future refactor
@@ -100,6 +105,15 @@ class ChatRunStreamer:
         clean_run = False
         last_heartbeat = time.monotonic()
         try:
+            # Surface the auto-resolved env before any agent output so the locked composer
+            # pill swaps "Auto" → real env name as early as possible. Kept inside the
+            # ``try`` so an encode failure still routes through RUN_ERROR + ``release_run``
+            # in ``finally``; the emit precedes ``set_runtime_ctx`` so the user still sees
+            # what would have run even if agent setup fails.
+            if self.auto_resolved_env is not None:
+                yield self.encoder.encode(
+                    CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
+                )
             async with (
                 open_checkpointer() as checkpointer,
                 set_runtime_ctx(
