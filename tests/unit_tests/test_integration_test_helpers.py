@@ -53,3 +53,14 @@ def test_require_provider_uses_bare_name_heuristic(monkeypatch: pytest.MonkeyPat
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(pytest.skip.Exception, match="ANTHROPIC_API_KEY not set"):
         require_provider_for_model("claude-haiku-4-5")
+
+
+def test_discover_custom_slugs_finds_eurotux() -> None:
+    from tests.integration_tests.conftest import _discover_custom_slugs
+
+    slugs = _discover_custom_slugs()
+    # All ModelName.* specs are openrouter:..., which is built-in and excluded.
+    # The only non-built-in slug in FAST_MODEL_NAMES today is "eurotux".
+    assert "eurotux" in slugs
+    assert "openrouter" not in slugs  # built-in
+    assert "anthropic" not in slugs  # built-in
