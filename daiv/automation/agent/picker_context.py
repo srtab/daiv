@@ -36,7 +36,7 @@ def agent_picker_context(
 
     Providers come from ``Provider.objects.filter(is_enabled=True)``. The model
     catalog itself is no longer rendered server-side: the Alpine component
-    fetches it from ``automation:agent_models`` on first popover open. We still
+    fetches it from ``api:agent_models`` on first popover open. We still
     ship the enabled providers (label + slug) and the stale-model flag — both
     are cheap to compute synchronously.
 

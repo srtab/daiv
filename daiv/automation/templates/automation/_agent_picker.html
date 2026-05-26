@@ -5,7 +5,7 @@ Reusable agent model + thinking-effort pill + popover.
 Parameters:
 - providers (required)               — JSON string of [{slug, label}] for enabled providers
                                        (the model catalog itself is fetched dynamically
-                                       on first popover open via ``automation:agent_models``)
+                                       on first popover open via ``api:agent_models``)
 - field_name_model (default          — name of the model input mirroring the selected
   "agent_model")                       ``provider:model`` spec. Rendered sr-only when
                                        ``required=True`` (so HTML5 validation fires on
@@ -115,7 +115,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
 {% else %}
 <div x-data='agentPicker({
         providers: {{ providers|safe }},
-        catalogUrl: "{% url 'automation:agent_models' %}",
+        catalogUrl: "{% url 'api:agent_models' %}",
         initialAgentModel: "{{ initial_agent_model|default:''|escapejs }}",
         initialThinkingLevel: "{{ initial_thinking_level|default:''|escapejs }}",
         defaultAgentModel: "{{ default_model|default:''|escapejs }}",
