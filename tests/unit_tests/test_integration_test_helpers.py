@@ -11,7 +11,7 @@ from tests.integration_tests.utils import _resolve_provider_slug, require_provid
         ("anthropic:claude-sonnet-4-6", "anthropic"),
         ("google:gemini-2.5-pro", "google"),
         ("openai:gpt-5.4", "openai"),
-        ("eurotux:qwen36", "eurotux"),
+        ("customprovider:model-x", "customprovider"),
         # Bare-name heuristics
         ("gpt-5.4", "openai"),
         ("gpt-4-turbo", "openai"),
@@ -39,14 +39,14 @@ def test_require_provider_runs_when_built_in_env_set(monkeypatch: pytest.MonkeyP
 
 
 def test_require_provider_skips_when_custom_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DAIV_TEST_PROVIDER_EUROTUX_API_KEY", raising=False)
-    with pytest.raises(pytest.skip.Exception, match="DAIV_TEST_PROVIDER_EUROTUX_API_KEY not set"):
-        require_provider_for_model("eurotux:qwen36")
+    monkeypatch.delenv("DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY", raising=False)
+    with pytest.raises(pytest.skip.Exception, match="DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY not set"):
+        require_provider_for_model("customprovider:model-x")
 
 
 def test_require_provider_runs_when_custom_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DAIV_TEST_PROVIDER_EUROTUX_API_KEY", "real-key")
-    require_provider_for_model("eurotux:qwen36")  # no raise
+    monkeypatch.setenv("DAIV_TEST_PROVIDER_CUSTOMPROVIDER_API_KEY", "real-key")
+    require_provider_for_model("customprovider:model-x")  # no raise
 
 
 def test_require_provider_uses_bare_name_heuristic(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,12 +55,12 @@ def test_require_provider_uses_bare_name_heuristic(monkeypatch: pytest.MonkeyPat
         require_provider_for_model("claude-haiku-4-5")
 
 
-def test_discover_custom_slugs_finds_eurotux() -> None:
+def test_discover_custom_slugs_extracts_non_builtin(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.integration_tests import utils as integration_utils
     from tests.integration_tests.conftest import _discover_custom_slugs
 
+    monkeypatch.setattr(integration_utils, "CODING_MODEL_NAMES", ["openrouter:anthropic/claude-sonnet-4.6"])
+    monkeypatch.setattr(integration_utils, "FAST_MODEL_NAMES", ["customprovider:model-x", "anthropic:claude-haiku-4-5"])
+
     slugs = _discover_custom_slugs()
-    # All ModelName.* specs are openrouter:..., which is built-in and excluded.
-    # The only non-built-in slug in FAST_MODEL_NAMES today is "eurotux".
-    assert "eurotux" in slugs
-    assert "openrouter" not in slugs  # built-in
-    assert "anthropic" not in slugs  # built-in
+    assert slugs == {"customprovider"}
