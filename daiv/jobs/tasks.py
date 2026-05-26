@@ -20,7 +20,8 @@ async def run_job_task(
     prompt: str,
     thread_id: str,
     ref: str | None = None,
-    use_max: bool = False,
+    agent_model: str | None = None,
+    agent_thinking_level: str | None = None,
     sandbox_environment_id: str | None = None,
 ) -> AgentResult:
     """Run the DAIV agent for a submitted job and return a standardized result.
@@ -30,17 +31,19 @@ async def run_job_task(
     on the assumption that the activity row and the checkpointer share the same key.
     A silent UUID fallback here would break that contract on the resume path.
 
-    ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``;
-    see that function for the sandbox merge precedence.
+    ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``.
+    Webhook callers (issue/review addressors) bypass this task and call
+    ``create_daiv_agent`` directly; ``use_max`` is therefore not accepted here.
     """
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
 
     logger.info(
-        "Starting job for repo_id=%s, ref=%s, use_max=%s, thread_id=%s, sandbox_env_id=%s",
+        "Starting job for repo_id=%s, ref=%s, agent_model=%s, agent_thinking_level=%s, thread_id=%s, sandbox_env_id=%s",
         repo_id,
         ref,
-        use_max,
+        agent_model or "<auto>",
+        agent_thinking_level or "<auto>",
         thread_id,
         sandbox_environment_id,
     )
@@ -54,20 +57,24 @@ async def run_job_task(
             ) as runtime_ctx,
             open_checkpointer() as checkpointer,
         ):
-            agent_kwargs = get_daiv_agent_kwargs(model_config=runtime_ctx.config.models.agent, use_max=use_max)
+            agent_kwargs = get_daiv_agent_kwargs(
+                model_config=runtime_ctx.config.models.agent,
+                agent_model=agent_model,
+                agent_thinking_level=agent_thinking_level,
+            )
             config = build_langsmith_config(
                 runtime_ctx,
                 trigger="job",
                 model=agent_kwargs["model_names"][0],
                 thinking_level=agent_kwargs["thinking_level"],
-                extra_metadata={"ref": ref},
+                extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
                 configurable={"thread_id": thread_id},
             )
             daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
             with track_usage_metadata() as usage_handler:
                 result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
     except Exception:
-        logger.exception("Job failed for repo_id=%s, ref=%s, use_max=%s", repo_id, ref, use_max)
+        logger.exception("Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>")
         raise
 
     messages = result.get("messages")

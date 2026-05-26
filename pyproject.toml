@@ -25,7 +25,7 @@ dependencies = [
   "ddgs==9.14.4",
   "deepagents==0.5.9",
   "django==6.0.5",
-  "django-allauth[socialaccount]==65.16.1",
+  "django-allauth[socialaccount]==65.17.0",
   "django-crontask==1.2.0",
   "django-extensions==4.1.0",
   "django-filter==25.2",
@@ -34,7 +34,7 @@ dependencies = [
   "django-split-settings==1.3.2",
   "django-tasks==0.12.0",
   "django-tasks-db==0.12.0",
-  "genai-prices==0.0.61",
+  "genai-prices==0.0.62",
   "get-docker-secret==2.0.0",
   "gitpython==3.1.50",
   "httpx==0.28.1",
@@ -63,7 +63,7 @@ dependencies = [
   "redis==7.4.0",
   "sentry-sdk==2.60.0",
   "unidiff==0.7.5",
-  "uvicorn[standard]==0.47.0",
+  "uvicorn[standard]==0.48.0",
   "whitenoise==6.12.0",
 ]
 urls.changelog = "https://github.com/srtab/daiv/blob/main/CHANGELOG.md"
@@ -87,8 +87,8 @@ dev = [
   "pytest-mock==3.15.1",
   "pytest-xdist==3.8.0",
   "python-dotenv==1.2.2",
-  "ruff==0.15.13",
-  "ty==0.0.38",
+  "ruff==0.15.14",
+  "ty==0.0.39",
   "types-pyyaml==6.0.12.20260518",
   "watchdog==6.0.0",
 ]
@@ -183,7 +183,7 @@ rules.unresolved-import = "ignore"
 
 [tool.pytest]
 ini_options.DJANGO_SETTINGS_MODULE = "daiv.settings.test"
-ini_options.pythonpath = "daiv"
+ini_options.pythonpath = [ "daiv", "." ]
 ini_options.python_files = "test_*.py"
 ini_options.python_classes = "Test *Test"
 ini_options.testpaths = [ "tests" ]

@@ -1,5 +1,5 @@
 <div>
-    <label for="id_{{ field.name }}" class="flex items-center gap-1 text-[15px] font-medium text-gray-400">
+    <label{% if field.id_for_label %} for="{{ field.id_for_label }}"{% endif %} class="flex items-center gap-1 text-[15px] font-medium text-gray-400">
         {{ field.label }}
         {% if field.field.is_env_locked %}
         {% include "core/_env_lock_badge.html" %}

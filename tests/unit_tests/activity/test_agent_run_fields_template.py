@@ -46,22 +46,6 @@ def test_renders_textarea_with_prompt_value():
     assert ">hello world</textarea>" in html
 
 
-def test_renders_use_max_hidden_false_and_checkbox_checked_when_set():
-    form = AgentRunCreateForm(initial={"prompt": "p", "use_max": True})
-    html = _render(form)
-    assert '<input type="hidden" name="use_max" value="false"' in html
-    assert 'name="use_max" value="true"' in html
-    assert "checked" in html
-
-
-def test_renders_use_max_checkbox_unchecked_when_not_set():
-    form = AgentRunCreateForm(initial={"prompt": "p", "use_max": False})
-    html = _render(form)
-    assert '<input type="hidden" name="use_max" value="false"' in html
-    assert 'name="use_max" value="true"' in html
-    assert " checked" not in html
-
-
 def test_required_guard_has_value_when_repos_present():
     form = AgentRunCreateForm(initial={"prompt": "p", "repos": [{"repo_id": "x/y", "ref": ""}]})
     html = _render(form)

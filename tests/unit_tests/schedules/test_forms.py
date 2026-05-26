@@ -7,8 +7,17 @@ import pytest
 from notifications.choices import NotifyOn
 
 from accounts.models import User
+from core.models import Provider, ProviderType
 from schedules.forms import ScheduledJobCreateForm
 from schedules.models import Frequency
+
+
+@pytest.fixture
+def openrouter_provider(db):
+    Provider.objects.filter(slug="openrouter").delete()
+    return Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=True
+    )
 
 
 def _valid_data(**overrides):
@@ -19,7 +28,6 @@ def _valid_data(**overrides):
         "frequency": "daily",
         "cron_expression": "",
         "time": "12:00",
-        "use_max": False,
         "notify_on": NotifyOn.NEVER,
     }
     data.update(overrides)
@@ -114,7 +122,6 @@ def _once_data(_run_at, **overrides):
         "cron_expression": "",
         "time": "",
         "run_at": _run_at.strftime("%Y-%m-%dT%H:%M"),
-        "use_max": False,
         "notify_on": NotifyOn.NEVER,
     }
     data.update(overrides)
@@ -151,3 +158,45 @@ class TestScheduledJobCreateFormOnce:
         form = ScheduledJobCreateForm(data=_once_data(future, run_at=""), owner=member_user)
         assert not form.is_valid()
         assert "run_at" in form.errors
+
+
+@pytest.mark.django_db
+class TestScheduledJobCreateFormAgentOverride:
+    """``agent_model`` / ``agent_thinking_level`` validate via ``validate_agent_override``."""
+
+    def test_form_accepts_valid_pair(self, openrouter_provider, member_user):
+        form = ScheduledJobCreateForm(
+            data=_valid_data(agent_model="openrouter:anthropic/claude-haiku-4.5", agent_thinking_level="low"),
+            owner=member_user,
+            user=member_user,
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+        assert form.cleaned_data["agent_thinking_level"] == "low"
+
+    def test_form_rejects_unknown_provider(self, member_user):
+        form = ScheduledJobCreateForm(data=_valid_data(agent_model="bogus:nope"), owner=member_user, user=member_user)
+        assert not form.is_valid()
+        assert "agent_model" in form.errors
+
+    def test_form_accepts_empty_override(self, member_user):
+        # Both fields empty: validator returns ("", "") without touching Provider.
+        form = ScheduledJobCreateForm(data=_valid_data(), owner=member_user, user=member_user)
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["agent_model"] == ""
+        assert form.cleaned_data["agent_thinking_level"] == ""
+
+    def test_form_save_persists_override(self, openrouter_provider, member_user):
+        form = ScheduledJobCreateForm(
+            data=_valid_data(agent_model="openrouter:anthropic/claude-haiku-4.5", agent_thinking_level="high"),
+            owner=member_user,
+            user=member_user,
+        )
+        assert form.is_valid(), form.errors
+        job = form.save(commit=False)
+        job.user = member_user
+        job.save()
+        form.save_m2m()
+        job.refresh_from_db()
+        assert job.agent_model == "openrouter:anthropic/claude-haiku-4.5"
+        assert job.agent_thinking_level == "high"

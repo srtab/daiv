@@ -6,7 +6,7 @@ from automation.agent.graph import create_daiv_agent
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 
-from .utils import CODING_MODEL_NAMES, INTERRUPT_ALL_TOOLS_CONFIG, extract_tool_calls
+from .utils import CODING_MODEL_NAMES, INTERRUPT_ALL_TOOLS_CONFIG, extract_tool_calls, require_provider_for_model
 
 TEST_SUITE = "DAIV: Skills"
 
@@ -28,6 +28,8 @@ TEST_SUITE = "DAIV: Skills"
     ],
 )
 async def test_skill_activated(model_name, user_message, skill):
+    require_provider_for_model(model_name)
+
     t.log_inputs({"model_name": model_name, "user_message": user_message, "skill": skill})
 
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:

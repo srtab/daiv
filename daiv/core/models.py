@@ -47,6 +47,21 @@ class ThinkingLevelChoices(models.TextChoices):
     LOW = "low", _("Low")
     MEDIUM = "medium", _("Medium")
     HIGH = "high", _("High")
+    XHIGH = "xhigh", _("Extra high")
+
+    @classmethod
+    def dots_for(cls, level: str) -> int:
+        """1-based position of ``level`` in the choices order; 0 for unknown.
+
+        Drives the locked agent pill's effort meter. The JS picker mirrors this via
+        ``EFFORT_LEVELS`` + ``dotsFor`` in ``automation/static/automation/js/agent-picker.js``;
+        if the levels here change order, the JS array must be updated to match. The
+        parity test in ``test_picker_context`` pins the contract.
+        """
+        try:
+            return cls.values.index(level) + 1
+        except ValueError:
+            return 0
 
 
 class WebSearchEngineChoices(models.TextChoices):
@@ -185,6 +200,14 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         help_text=_("Fallback model when the primary model fails."),
+    )
+    agent_fallback_thinking_level = models.CharField(
+        _("fallback thinking level"),
+        max_length=10,
+        blank=True,
+        null=True,
+        choices=ThinkingLevelChoices.choices,
+        help_text=_("Thinking depth applied to the fallback model. Independent of the primary thinking level."),
     )
     agent_thinking_level = models.CharField(
         _("thinking level"),
@@ -817,15 +840,19 @@ class Provider(models.Model):
             if original.slug != self.slug or original.provider_type != self.provider_type:
                 raise ValueError(f"Provider {original.slug!r} is locked; slug and provider_type cannot change.")
         super().save(*args, **kwargs)
+        slug = str(self.slug)
         # Defer invalidation to commit so concurrent readers can't repopulate the
         # cache with pre-commit data and mask the new row for the 5-min TTL.
         transaction.on_commit(type(self).invalidate_cache)
+        transaction.on_commit(lambda: type(self).invalidate_model_catalog_cache(slug))
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         if self.is_locked:
             raise ValueError(f"Provider {self.slug!r} is locked and cannot be deleted.")
+        slug = str(self.slug)
         result = super().delete(*args, **kwargs)
         transaction.on_commit(type(self).invalidate_cache)
+        transaction.on_commit(lambda: type(self).invalidate_model_catalog_cache(slug))
         return result
 
     def get_secret_hint(self) -> str | None:
@@ -924,3 +951,10 @@ class Provider(models.Model):
     @classmethod
     def invalidate_cache(cls) -> None:
         cache.delete(PROVIDERS_CACHE_KEY)
+
+    @classmethod
+    def invalidate_model_catalog_cache(cls, slug: str) -> None:
+        # Local import to avoid circular import: model_catalog imports from this module.
+        from automation.agent.model_catalog.service import MODEL_CATALOG_CACHE_KEY_FMT
+
+        cache.delete(MODEL_CATALOG_CACHE_KEY_FMT.format(slug=slug))

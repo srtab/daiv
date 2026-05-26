@@ -42,7 +42,7 @@ async def _amake_task_result() -> MagicMock:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_dispatch_single_repo_persists_use_max_true(member_user):
+def test_dispatch_single_repo_propagates_agent_override(member_user):
     past = datetime.now(tz=UTC) - timedelta(minutes=1)
     schedule = ScheduledJob.objects.create(
         user=member_user,
@@ -51,7 +51,8 @@ def test_dispatch_single_repo_persists_use_max_true(member_user):
         repos=[{"repo_id": "acme/repo", "ref": ""}],
         frequency="daily",
         time="09:00",
-        use_max=True,
+        agent_model="openrouter:anthropic/claude-opus-4.6",
+        agent_thinking_level="high",
         is_enabled=True,
         next_run_at=past,
     )
@@ -66,12 +67,13 @@ def test_dispatch_single_repo_persists_use_max_true(member_user):
 
     activity = Activity.objects.get(scheduled_job=schedule)
     assert activity.trigger_type == TriggerType.SCHEDULE
-    assert activity.use_max is True
+    assert activity.agent_model == "openrouter:anthropic/claude-opus-4.6"
+    assert activity.agent_thinking_level == "high"
     assert activity.batch_id is not None
 
 
 @pytest.mark.django_db(transaction=True)
-def test_dispatch_single_repo_persists_use_max_false(member_user):
+def test_dispatch_single_repo_auto_override(member_user):
     past = datetime.now(tz=UTC) - timedelta(minutes=1)
     schedule = ScheduledJob.objects.create(
         user=member_user,
@@ -80,7 +82,6 @@ def test_dispatch_single_repo_persists_use_max_false(member_user):
         repos=[{"repo_id": "acme/repo", "ref": ""}],
         frequency="daily",
         time="09:00",
-        use_max=False,
         is_enabled=True,
         next_run_at=past,
     )
@@ -94,7 +95,8 @@ def test_dispatch_single_repo_persists_use_max_false(member_user):
         dispatch_scheduled_jobs_cron_task.func()
 
     activity = Activity.objects.get(scheduled_job=schedule)
-    assert activity.use_max is False
+    assert activity.agent_model == ""
+    assert activity.agent_thinking_level == ""
 
 
 @pytest.mark.django_db(transaction=True)
@@ -107,7 +109,6 @@ def test_dispatch_three_repos_creates_three_activities_sharing_batch(member_user
         repos=[{"repo_id": "o/a", "ref": ""}, {"repo_id": "o/b", "ref": "dev"}, {"repo_id": "o/c", "ref": ""}],
         frequency="daily",
         time="09:00",
-        use_max=False,
         is_enabled=True,
         next_run_at=past,
     )

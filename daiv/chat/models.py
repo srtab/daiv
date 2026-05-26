@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from automation.titling.services import TitlerService
 from automation.titling.tasks import generate_title_task
 from chat.managers import ChatThreadManager
+from core.models import ThinkingLevelChoices
 
 logger = logging.getLogger("daiv.chat")
 
@@ -37,6 +38,10 @@ class ChatThread(models.Model):
         blank=True,
         related_name="chat_threads",
         verbose_name=_("sandbox environment"),
+    )
+    agent_model = models.CharField(_("agent model"), max_length=255, blank=True, default="")
+    agent_thinking_level = models.CharField(
+        _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
 
     objects = ChatThreadManager()
@@ -68,6 +73,8 @@ class ChatThread(models.Model):
                 "repo_id": activity.repo_id,
                 "ref": activity.ref or "",
                 "title": existing_title or TitlerService.heuristic(activity.prompt or ""),
+                "agent_model": activity.agent_model or "",
+                "agent_thinking_level": activity.agent_thinking_level or "",
             },
         )
         if created and not existing_title and activity.prompt:

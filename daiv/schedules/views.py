@@ -20,6 +20,7 @@ from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.templatetags.avatar_tags import user_color_index, user_initials
+from automation.agent.picker_context import agent_picker_context
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import ScheduledJob, ScheduleTemplate
 
@@ -132,6 +133,7 @@ class ScheduleCreateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         tpl = self._get_template()
         context["selected_template_id"] = str(tpl.pk) if tpl is not None else ""
         context.update(env_picker_context(context["form"]))
+        context.update(agent_picker_context(context["form"]))
         return context
 
     def form_valid(self, form):
@@ -159,6 +161,7 @@ class ScheduleUpdateView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMix
         context = super().get_context_data(**kwargs)
         context["subscriber_initial_json"] = _subscriber_initial_json(self.object)
         context.update(env_picker_context(context["form"]))
+        context.update(agent_picker_context(context["form"]))
         return context
 
     def get_breadcrumbs(self):
@@ -230,7 +233,8 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 user=request.user,
                 prompt=schedule.prompt,
                 repos=repos,
-                use_max=schedule.use_max,
+                agent_model=schedule.agent_model,
+                agent_thinking_level=schedule.agent_thinking_level,
                 notify_on=None,
                 trigger_type=TriggerType.SCHEDULE,
                 scheduled_job=schedule,
@@ -310,6 +314,11 @@ class ScheduleTemplateCreateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
         {"label": "New template", "url": None},
     ]
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(agent_picker_context(context["form"]))
+        return context
+
     def form_valid(self, form):
         form.instance.created_by = self.request.user
         return super().form_valid(form)
@@ -321,6 +330,11 @@ class ScheduleTemplateUpdateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
     template_name = "schedules/template_form.html"
     success_url = reverse_lazy("schedule_template_list")
     success_message = "Template '%(name)s' updated."
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(agent_picker_context(context["form"]))
+        return context
 
     def get_breadcrumbs(self):
         return [

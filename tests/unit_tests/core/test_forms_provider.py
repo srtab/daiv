@@ -118,10 +118,7 @@ def test_site_form_flags_model_with_keyless_provider():
 
     cfg = SiteConfiguration.objects.get_instance()
     form = SiteConfigurationForm(
-        instance=cfg,
-        env_locked_fields=set(),
-        field_defaults={},
-        data={"agent_model_name_provider": "openai", "agent_model_name_model": "gpt-5.4"},
+        instance=cfg, env_locked_fields=set(), field_defaults={}, data={"agent_model_name": "openai:gpt-5.4"}
     )
     form.is_valid()
     assert any("API key" in str(e) for e in form.errors.get("agent_model_name", []))
@@ -136,10 +133,7 @@ def test_site_form_flags_model_with_disabled_provider():
 
     cfg = SiteConfiguration.objects.get_instance()
     form = SiteConfigurationForm(
-        instance=cfg,
-        env_locked_fields=set(),
-        field_defaults={},
-        data={"agent_model_name_provider": "openai", "agent_model_name_model": "gpt-5.4"},
+        instance=cfg, env_locked_fields=set(), field_defaults={}, data={"agent_model_name": "openai:gpt-5.4"}
     )
     form.is_valid()
     assert any("disabled" in str(e) for e in form.errors.get("agent_model_name", []))
@@ -235,7 +229,7 @@ def test_form_rejects_slug_rename_on_saved_custom_row():
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "base_url", ["https://qwen.ai.eurotux.pt", "https://api.example.com/", "https://api.example.com/openai"]
+    "base_url", ["https://llm.example.com", "https://api.example.com/", "https://api.example.com/openai"]
 )
 def test_form_warns_on_openai_base_url_missing_version_segment(base_url):
     form = ProviderForm(data=_data(base_url=base_url, provider_type=ProviderType.OPENAI))
