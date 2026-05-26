@@ -59,16 +59,21 @@ def _provision_providers(django_db_setup, django_db_blocker):
             api_key = os.environ.get(f"{prefix}_API_KEY")
             if not base_url or not api_key:
                 continue
-            Provider.objects.update_or_create(
-                slug=slug,
-                defaults={
-                    "display_name": os.environ.get(f"{prefix}_DISPLAY_NAME", slug.title()),
-                    "provider_type": os.environ.get(f"{prefix}_TYPE", "openai"),
-                    "base_url": base_url,
-                    "api_key": api_key,
-                    "is_enabled": True,
-                },
-            )
+            # api_key is an EncryptedFieldDescriptor, not a real field, so it
+            # can't go in update_or_create's defaults — set it on the instance.
+            row, _ = Provider.objects.get_or_create(slug=slug, defaults={"provider_type": "openai"})
+            row.display_name = os.environ.get(f"{prefix}_DISPLAY_NAME", slug.title())
+            row.provider_type = os.environ.get(f"{prefix}_TYPE", "openai")
+            row.base_url = base_url
+            row.api_key = api_key
+            row.verify_ssl = os.environ.get(f"{prefix}_VERIFY_SSL", "true").strip().lower() not in {
+                "0",
+                "false",
+                "no",
+                "off",
+            }
+            row.is_enabled = True
+            row.save()
 
         Provider.invalidate_cache()
 
