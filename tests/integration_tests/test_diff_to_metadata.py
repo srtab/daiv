@@ -8,7 +8,7 @@ from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_grap
 from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 
-from .evaluators import correctness_evaluator
+from .evaluators import get_correctness_evaluator
 from .utils import FAST_MODEL_NAMES
 
 DATA_DIR = Path(__file__).parent / "data" / "diff_to_metadata"
@@ -69,5 +69,5 @@ async def test_diff_to_metadata(model_name, inputs, reference_outputs):
 
     t.log_outputs(outputs)
 
-    result = await correctness_evaluator(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
+    result = await get_correctness_evaluator()(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
     assert result["score"] is True, result["comment"]
