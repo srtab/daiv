@@ -266,7 +266,7 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 
 | Variable                        | Description                                                    | Default                        | Example |
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
-| `MCP_SERVERS_CONFIG_FILE`       | **Deprecated** since the MCP Servers UI was introduced (see `/dashboard/mcp-servers/`). Read once on the next deployment to import any existing entries into the DB, then ignored. Unset after the deployment to silence the startup warning. | *(none)* | `/path/to/mcp.json` |
+| `MCP_SERVERS_CONFIG_FILE`       | Path to user-defined MCP servers JSON config file              | *(none)*                       | `/path/to/mcp.json` |
 | `MCP_SENTRY_URL`                | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable) | `http://mcp-sentry:8000/mcp`   | `http://localhost:8001/mcp` |
 | `MCP_CONTEXT7_URL`              | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp-context7:8000/mcp` | `http://localhost:8002/mcp` |
 
