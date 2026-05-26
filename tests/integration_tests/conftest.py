@@ -73,6 +73,18 @@ def _provision_providers(django_db_setup, django_db_blocker):
         Provider.invalidate_cache()
 
 
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Mark every integration test as needing DB access.
+
+    Required so pytest-django's ``django_db_setup`` actually creates the test
+    schema: by default it skips DB creation when no test asks for DB access
+    via a marker or fixture, and our session-scoped ``_provision_providers``
+    fixture's DB queries don't trigger the check.
+    """
+    for item in items:
+        item.add_marker(pytest.mark.django_db)
+
+
 @pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def runtime_ctx():
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
