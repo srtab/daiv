@@ -49,7 +49,7 @@ CODING_MODEL_NAMES = [
     ModelName.MOONSHOTAI_KIMI_K2_5,
 ]
 
-FAST_MODEL_NAMES = [ModelName.CLAUDE_HAIKU_4_5, ModelName.GPT_5_4_MINI, "eurotux:qwen36"]
+FAST_MODEL_NAMES = [ModelName.CLAUDE_HAIKU_4_5, ModelName.GPT_5_4_MINI]
 
 _PROVIDER_ENV_VAR = {
     "anthropic": "ANTHROPIC_API_KEY",
