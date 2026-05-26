@@ -49,6 +49,7 @@
          }{% else %}null{% endif %},
          selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}",
          initialAgentLabel: "{{ agent_picker_initial_model_display|default:agent_picker_initial_model|default:locked_agent_fallback|escapejs }}",
+         initialAgentEffortDots: {{ agent_picker_initial_effort_dots|default:0 }},
          initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
          initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
          envAutoLabel: "{{ locked_env_fallback|escapejs }}"

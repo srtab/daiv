@@ -328,3 +328,78 @@ def test_display_model_name_normalisation(spec, expected):
     from automation.agent.picker_context import _display_model_name
 
     assert _display_model_name(spec) == expected
+
+
+@pytest.mark.parametrize(
+    ("level", "expected"),
+    [
+        ("minimal", 1),
+        ("low", 2),
+        ("medium", 3),
+        ("high", 4),
+        # Empty or unknown level → 0 dots (the partial hides the block via x-show / the
+        # ``{% elif initial_effort_dots %}`` gate; both branches treat 0 as "no meter").
+        ("", 0),
+        ("absurd", 0),
+    ],
+)
+def test_effort_dots_for_level_normalisation(level, expected):
+    """Pin the level→dots mapping. The JS picker mirrors this in
+    ``daiv/chat/static/chat/js/chat-stream.js`` (``effortDotsForLevel``) so the locked
+    pill lights the same dots whether they were server-rendered from a persisted thread
+    or pinned client-side from the just-submitted hidden input. Update both sides
+    together when ``ThinkingLevelChoices`` gains or loses a level."""
+    from core.models import ThinkingLevelChoices
+
+    assert ThinkingLevelChoices.dots_for(level) == expected
+
+
+@pytest.mark.parametrize(("dots", "expected_on_count"), [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4)])
+def test_locked_partial_renders_static_effort_dots(providers, dots, expected_on_count):
+    """The locked-pill static branch (no ``dynamic_effort_dots_expr``) emits exactly
+    four dot spans and lights the leading ``initial_effort_dots`` of them. Used by
+    any caller that omits the Alpine expression — typically the env-locked settings
+    widget; the chat composer takes the Alpine branch instead."""
+    from django.template.loader import render_to_string
+
+    html = render_to_string(
+        "automation/_agent_picker.html",
+        {
+            "disabled": True,
+            "initial_agent_model": "openrouter:anthropic/claude-haiku-4.5",
+            "initial_model_display": "claude-haiku-4.5",
+            "initial_effort_dots": dots,
+            "providers": "[]",
+        },
+    )
+    # Total dot spans is always either 4 (effort > 0 → block rendered) or 0 (block omitted).
+    expected_dot_spans = 4 if dots else 0
+    assert html.count('class="agent-pill__effort-dot') == expected_dot_spans
+    # Only the leading ``initial_effort_dots`` of those four get the ``--on`` suffix; the
+    # remainder render with the bare base class.
+    assert html.count("agent-pill__effort-dot--on") == expected_on_count
+
+
+def test_locked_partial_renders_effort_dots_alongside_stale_marker(providers):
+    """A stale (provider-disabled) locked pill must still show the effort the user picked
+    — only the *model* is no longer valid, the effort selection is still informative.
+    The stale marker sits at the trailing slot replacing the lock icon; effort dots stay
+    in their slot between the name and the trailing diagnostic."""
+    from django.template.loader import render_to_string
+
+    html = render_to_string(
+        "automation/_agent_picker.html",
+        {
+            "disabled": True,
+            "stale": True,
+            "initial_agent_model": "removed:org/model",
+            "initial_model_display": "model",
+            "initial_effort_dots": 3,
+            "providers": "[]",
+        },
+    )
+    assert html.count("agent-pill__effort-dot--on") == 3
+    assert "agent-pill__stale-marker" in html
+    # Stale variant suppresses the cpu-chip icon (the model is unreachable) but keeps the
+    # effort meter — the effort row is independent of model validity.
+    assert "agent-pill__icon" not in html

@@ -124,6 +124,16 @@
     return afterProvider.split("/").pop() || afterProvider;
   };
 
+  // Mirror of Python ``_effort_dots_for_level`` in ``automation/agent/picker_context.py``:
+  // 1-based position in the ``ThinkingLevelChoices`` order; 0 for unknown (effort block
+  // stays hidden via the x-show gate). Re-order ``EFFORT_LEVELS`` if the choices class
+  // gains or shuffles levels — the Python-side parity test pins the contract.
+  const EFFORT_LEVELS = ["minimal", "low", "medium", "high"];
+  const effortDotsForLevel = (level) => {
+    const idx = EFFORT_LEVELS.indexOf(level);
+    return idx >= 0 ? idx + 1 : 0;
+  };
+
   const chat = (config) => ({
     endpoint: config.endpoint,
     statusEndpoint: config.statusEndpoint || "",
@@ -141,6 +151,7 @@
     // yet. The locked pills read these via ``x-text`` so the picker keeps its selection
     // visible during the hero→composer transition, with no page refresh needed.
     lockedAgentLabel: config.initialAgentLabel || "",
+    lockedAgentEffortDots: config.initialAgentEffortDots || 0,
     lockedEnvLabel: config.initialEnvLabel || "",
     lockedEnvScope: config.initialEnvScope || "",
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
@@ -530,10 +541,11 @@
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
 
-      // Pin the locked composer pill's label to what we're about to commit, so the
-      // hero→composer transition doesn't flash the empty-thread fallback ("Pick a
-      // model") between now and the next page refresh.
+      // Pin the locked composer pill's label + effort meter to what we're about to commit,
+      // so the hero→composer transition doesn't flash the empty-thread fallback ("Pick a
+      // model" / no dots) between now and the next page refresh.
       if (agentModel) this.lockedAgentLabel = displayFromSpec(agentModel);
+      this.lockedAgentEffortDots = effortDotsForLevel(agentThinkingLevel);
 
       const body = {
         threadId: this.thread.thread_id,

@@ -48,6 +48,21 @@ class ThinkingLevelChoices(models.TextChoices):
     MEDIUM = "medium", _("Medium")
     HIGH = "high", _("High")
 
+    @classmethod
+    def dots_for(cls, level: str) -> int:
+        """1-based position of ``level`` in the choices order; 0 for unknown.
+
+        Drives the locked agent pill's effort meter. The JS picker mirrors this via
+        ``EFFORT_LEVELS`` + ``effortDotsForLevel`` in ``chat/static/chat/js/chat-stream.js``
+        and ``dotsFor`` in ``automation/static/automation/js/agent-picker.js``; if the
+        levels here change order, the JS arrays must be updated to match. The parity
+        test in ``test_picker_context`` pins the contract.
+        """
+        try:
+            return cls.values.index(level) + 1
+        except ValueError:
+            return 0
+
 
 class WebSearchEngineChoices(models.TextChoices):
     DUCKDUCKGO = "duckduckgo", _("DuckDuckGo")

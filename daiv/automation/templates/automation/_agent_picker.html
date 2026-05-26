@@ -66,6 +66,15 @@ Parameters:
                                        initial value is empty until a page refresh). The expression
                                        must resolve to a non-empty string in the parent Alpine scope;
                                        contributing a fallback there is the caller's job.
+- dynamic_effort_dots_expr           — Alpine expression resolving to a 0..4 dot count, used to
+  (default "")                         drive the locked pill's effort meter when the surrounding
+                                       scope can change after first render (chat composer first-turn
+                                       flow). Falls back to the server-rendered static dot pattern
+                                       (driven by ``initial_effort_dots``) when omitted.
+- initial_effort_dots                — Number of lit dots in the locked pill's effort meter when
+  (default 0)                          rendering statically. Computed by ``agent_picker_context`` from
+                                       ``initial_thinking_level``; the partial accepts the raw int so
+                                       callers without the context helper can still drive the meter.
 
 The caller is responsible for loading ``automation/js/agent-picker.js`` (deferred).
 {% endcomment %}
@@ -76,6 +85,27 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
       aria-disabled="true">
     {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
     <span class="agent-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
+    {% if dynamic_effort_dots_expr %}
+        {# Chat composer first-turn flow: Alpine drives visibility and dot highlighting from the parent #}
+        {# scope, so the just-submitted effort survives the hero→composer transition before any refresh. #}
+        <span class="agent-pill__effort" x-show="({{ dynamic_effort_dots_expr }}) > 0" x-cloak>
+            {% icon "bolt" "agent-pill__effort-icon" %}
+            <template x-for="i in 4" :key="i">
+                <span class="agent-pill__effort-dot"
+                      :class="i <= ({{ dynamic_effort_dots_expr }}) ? 'agent-pill__effort-dot--on' : ''"></span>
+            </template>
+        </span>
+    {% elif initial_effort_dots %}
+        {# Static render — used by callers that omit ``dynamic_effort_dots_expr`` (no parent Alpine scope #}
+        {# to mutate the dots post-render). Mirrors the Alpine x-for loop above; the ``"1234"`` literal is #}
+        {# the standard Django idiom for a fixed-count loop where the value isn't read. #}
+        <span class="agent-pill__effort">
+            {% icon "bolt" "agent-pill__effort-icon" %}
+            {% for _ in "1234" %}
+                <span class="agent-pill__effort-dot{% if forloop.counter <= initial_effort_dots %} agent-pill__effort-dot--on{% endif %}"></span>
+            {% endfor %}
+        </span>
+    {% endif %}
     {% if stale %}
         <span class="agent-pill__stale-marker" aria-hidden="true">!</span>
     {% else %}

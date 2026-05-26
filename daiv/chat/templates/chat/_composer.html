@@ -40,7 +40,7 @@
         {# partial with the now-persisted thread row. The parent ``chat()`` Alpine scope owns #}
         {# the ``locked*`` fields these expressions resolve against. #}
         {% include "sandbox_envs/_env_picker.html" with disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
-        {% include "automation/_agent_picker.html" with disabled=True initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model dynamic_label_expr="lockedAgentLabel" %}
+        {% include "automation/_agent_picker.html" with disabled=True initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking initial_effort_dots=agent_picker_initial_effort_dots stale=agent_picker_stale_model dynamic_label_expr="lockedAgentLabel" dynamic_effort_dots_expr="lockedAgentEffortDots" %}
         <span class="repo-chip">
           <span class="repo-chip__btn">
             {% icon "repo" "h-3.5 w-3.5" %}

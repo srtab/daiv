@@ -92,6 +92,15 @@ def test_existing_thread_renders_locked_agent_pill(member_client, member_user, e
     assert resp.context["agent_picker_initial_model"] == "openrouter:anthropic/claude-haiku-4.5"
     assert resp.context["agent_picker_initial_model_display"] == "claude-haiku-4.5"
     assert resp.context["agent_picker_initial_thinking"] == "medium"
+    assert resp.context["agent_picker_initial_effort_dots"] == 3
+    # The composer's locked pill takes the Alpine-driven branch (``dynamic_effort_dots_expr``
+    # set), so on first render the dots are seeded from ``lockedAgentEffortDots`` in the
+    # parent ``chat({…})`` scope. Without this binding, the dots never appear on either
+    # the first-turn flow or after a refresh.
+    assert 'x-show="(lockedAgentEffortDots) > 0"' in body
+    assert 'x-for="i in 4"' in body
+    assert "lockedAgentEffortDots" in body
+    assert f"initialAgentEffortDots: {resp.context['agent_picker_initial_effort_dots']}" in body
 
 
 @pytest.mark.django_db
@@ -166,6 +175,8 @@ def test_composer_locked_pill_wires_dynamic_label_for_first_turn(member_client, 
     assert 'initialAgentLabel: "Pick a model"' in body
     assert 'initialEnvLabel: "Auto"' in body
     assert 'envAutoLabel: "Auto"' in body
+    # 0 keeps the locked pill's effort wrapper hidden until the user submits an effort.
+    assert "initialAgentEffortDots: 0" in body
 
 
 @override_settings(LANGUAGE_CODE="en")
@@ -209,6 +220,7 @@ def test_composer_locked_pill_seeds_from_pinned_thread(member_client, member_use
     assert f'initialAgentLabel: "claude{escape}haiku{escape}4.5"' in body
     assert f'initialEnvLabel: "payments{escape}prod"' in body
     assert 'initialEnvScope: "user"' in body
+    assert "initialAgentEffortDots: 3" in body
 
 
 @pytest.mark.django_db

@@ -11,7 +11,7 @@ from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.base import parse_model_spec
-from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+from core.models import Provider, ProviderType, SiteConfiguration, ThinkingLevelChoices, WebFetchAuthHeader
 
 if TYPE_CHECKING:
     from core.models import FieldGroup
@@ -68,6 +68,7 @@ class _PickerContext(TypedDict):
     initial_agent_model: str
     initial_model_display: str
     initial_thinking_level: str
+    initial_effort_dots: int
     default_model: str
     default_thinking: str
     placeholder_label: str
@@ -146,6 +147,7 @@ class _AgentPickerWidget(forms.Widget):
             "initial_agent_model": value or "",
             "initial_model_display": _shorten_model_spec(value) if value else "",
             "initial_thinking_level": self.initial_thinking,
+            "initial_effort_dots": ThinkingLevelChoices.dots_for(self.initial_thinking),
             "default_model": self.default_model,
             "default_thinking": self.default_thinking,
             "placeholder_label": placeholder,
