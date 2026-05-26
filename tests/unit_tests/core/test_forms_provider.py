@@ -229,7 +229,7 @@ def test_form_rejects_slug_rename_on_saved_custom_row():
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "base_url", ["https://qwen.ai.eurotux.pt", "https://api.example.com/", "https://api.example.com/openai"]
+    "base_url", ["https://llm.example.com", "https://api.example.com/", "https://api.example.com/openai"]
 )
 def test_form_warns_on_openai_base_url_missing_version_segment(base_url):
     form = ProviderForm(data=_data(base_url=base_url, provider_type=ProviderType.OPENAI))
