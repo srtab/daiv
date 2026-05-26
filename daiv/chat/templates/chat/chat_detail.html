@@ -37,8 +37,8 @@
   {% translate "Auto" as locked_env_fallback %}
 
   <div x-data='chat({
-         endpoint: "/api/chat/completions",
-         statusEndpoint: {% if thread %}"/api/chat/threads/{{ thread.thread_id|escapejs }}/status"{% else %}""{% endif %},
+         endpoint: "{% url 'api:completions' %}",
+         statusEndpoint: {% if thread %}"{% url 'api:thread_status' thread.thread_id %}"{% else %}""{% endif %},
          activeRunId: "{{ active_run_id|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if thread %}{

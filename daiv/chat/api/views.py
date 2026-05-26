@@ -26,7 +26,7 @@ HEADER_SANDBOX_ENV = "X-Sandbox-Env"
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
 
 
-@chat_router.get("/threads/{thread_id}/status", response=dict)
+@chat_router.get("/threads/{thread_id}/status", response=dict, url_name="thread_status")
 async def thread_status(request: HttpRequest, thread_id: str):
     """Cheap probe so a reloaded page can detect when its in-flight run has released
     the per-thread slot and trigger a rehydration from the checkpointer.
@@ -42,6 +42,7 @@ async def thread_status(request: HttpRequest, thread_id: str):
     "/completions",
     response=dict,
     throttle=[JobsRateThrottle()],
+    url_name="completions",
     openapi_extra={
         "parameters": [
             {"in": "header", "name": HEADER_REPO_ID, "schema": {"type": "string"}, "required": True},
