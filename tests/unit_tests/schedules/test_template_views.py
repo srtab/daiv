@@ -217,6 +217,39 @@ class TestScheduleTemplateFormConditionalClean:
 
 
 @pytest.mark.django_db
+class TestTemplateFormAgentPickerContext:
+    """Regression for the empty-providers Alpine crash on the template form.
+
+    Without ``agent_picker_context`` in ``get_context_data``, the picker partial
+    rendered ``x-data="agentPicker({ providers: , ... })"`` and the whole Alpine
+    scope errored out. These tests pin the wiring on both Create and Update.
+    """
+
+    def test_create_exposes_providers_payload(self, admin_client):
+        response = admin_client.get(reverse("schedule_template_create"))
+        assert response.status_code == 200
+        payload = response.context["agent_picker_providers"]
+        assert isinstance(json.loads(payload), list)
+
+    def test_update_reflects_saved_model_in_initial_display(self, admin_client, admin_user):
+        tpl = ScheduleTemplate.objects.create(
+            name="Audit",
+            prompt="p",
+            frequency=Frequency.DAILY,
+            time=time(2, 0),
+            notify_on=NotifyOn.NEVER,
+            agent_model="openrouter:anthropic/claude-opus-4.6",
+            agent_thinking_level="high",
+            created_by=admin_user,
+        )
+        response = admin_client.get(reverse("schedule_template_update", kwargs={"pk": tpl.pk}))
+        assert response.status_code == 200
+        assert response.context["agent_picker_initial_model"] == "openrouter:anthropic/claude-opus-4.6"
+        assert response.context["agent_picker_initial_model_display"] == "claude-opus-4.6"
+        assert response.context["agent_picker_initial_thinking"] == "high"
+
+
+@pytest.mark.django_db
 class TestScheduleCreateViewTemplateContext:
     """`ScheduleCreateView` serializes templates via `to_picker_dict`."""
 

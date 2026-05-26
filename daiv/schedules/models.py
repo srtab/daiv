@@ -15,6 +15,7 @@ from croniter import croniter
 from django_extensions.db.models import TimeStampedModel
 from notifications.choices import NotifyOn
 
+from automation.agent.display import MODEL_NAME_MAX_LEN, display_model_name, display_thinking_level
 from core.models import ThinkingLevelChoices
 
 if TYPE_CHECKING:
@@ -399,5 +400,7 @@ class ScheduleTemplate(TimeStampedModel):
             "frequency_summary": self.frequency_summary,
             "notify_on_display": self.get_notify_on_display(),
             "agent_model": self.agent_model,
+            "agent_model_display": display_model_name(str(self.agent_model), max_len=MODEL_NAME_MAX_LEN),
             "agent_thinking_level": self.agent_thinking_level,
+            "agent_thinking_level_display": display_thinking_level(str(self.agent_thinking_level)),
         }

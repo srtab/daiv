@@ -14,19 +14,11 @@ import logging
 from typing import Any
 
 from automation.agent.base import parse_model_spec
+from automation.agent.display import display_model_name
 from core.models import Provider, ThinkingLevelChoices
 from core.site_settings import site_settings
 
 logger = logging.getLogger("daiv.automation")
-
-
-def _display_model_name(spec: str) -> str:
-    """Strip ``provider:`` prefix and any ``org/`` path so the locked-pill
-    rendering path shows a compact name instead of the raw spec."""
-    if not spec:
-        return ""
-    name = spec.split(":", 1)[1] if ":" in spec else spec
-    return name.rsplit("/", 1)[-1] or name
 
 
 def agent_picker_context(
@@ -118,7 +110,7 @@ def agent_picker_context(
     return {
         "agent_picker_providers": json.dumps(providers),
         "agent_picker_initial_model": resolved_model,
-        "agent_picker_initial_model_display": _display_model_name(resolved_model),
+        "agent_picker_initial_model_display": display_model_name(resolved_model),
         "agent_picker_initial_thinking": resolved_thinking,
         # Pre-computed dot count for the locked pill's effort meter — the partial would
         # otherwise need template arithmetic to translate level → 1..5. Mirrors the JS

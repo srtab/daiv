@@ -314,6 +314,11 @@ class ScheduleTemplateCreateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
         {"label": "New template", "url": None},
     ]
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(agent_picker_context(context["form"]))
+        return context
+
     def form_valid(self, form):
         form.instance.created_by = self.request.user
         return super().form_valid(form)
@@ -325,6 +330,11 @@ class ScheduleTemplateUpdateView(BreadcrumbMixin, AdminRequiredMixin, SuccessMes
     template_name = "schedules/template_form.html"
     success_url = reverse_lazy("schedule_template_list")
     success_message = "Template '%(name)s' updated."
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(agent_picker_context(context["form"]))
+        return context
 
     def get_breadcrumbs(self):
         return [

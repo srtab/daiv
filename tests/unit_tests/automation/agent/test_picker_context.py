@@ -326,9 +326,40 @@ def test_display_model_name_normalisation(spec, expected):
     pill — driven by the picker's ``daiv:agent-changed`` event — shows the same
     name as a server-rendered persisted thread. Update both sides together when
     this table changes."""
-    from automation.agent.picker_context import _display_model_name
+    from automation.agent.display import display_model_name
 
-    assert _display_model_name(spec) == expected
+    assert display_model_name(spec) == expected
+
+
+def test_display_model_name_truncates_when_max_len_set():
+    """``max_len`` is opt-in; consumers that render in tight layouts (gallery, pill)
+    pass ``MODEL_NAME_MAX_LEN`` to share the cap. Without the kwarg, the full
+    normalised name flows through so callers can format their own."""
+    from automation.agent.display import MODEL_NAME_MAX_LEN, display_model_name
+
+    long_spec = "provider:vendor/" + "x" * 50
+    assert display_model_name(long_spec) == "x" * 50
+    assert display_model_name(long_spec, max_len=MODEL_NAME_MAX_LEN) == "x" * MODEL_NAME_MAX_LEN
+
+
+@pytest.mark.parametrize(
+    ("level", "expected"),
+    [
+        ("minimal", "Minimal"),
+        ("low", "Low"),
+        ("medium", "Medium"),
+        ("high", "High"),
+        ("xhigh", "Extra high"),
+        ("", ""),
+        ("bogus", ""),
+    ],
+)
+def test_display_thinking_level(level, expected):
+    """Translation-aware label lookup. Unknown values (renamed enum members,
+    legacy data) must fall back to empty rather than leaking the raw key."""
+    from automation.agent.display import display_thinking_level
+
+    assert display_thinking_level(level) == expected
 
 
 @pytest.mark.parametrize(

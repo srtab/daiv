@@ -1,4 +1,4 @@
-{% load i18n l10n %}
+{% load agent_tags i18n l10n %}
 <section class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
     <h5 class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Context</h5>
     <dl class="mt-3 space-y-1.5 text-sm">
@@ -78,12 +78,7 @@
         <div class="flex justify-between gap-2">
             <dt class="text-gray-500">Model</dt>
             <dd class="min-w-0 text-right">
-                <span class="meta-pill" title="{{ activity.agent_model }}{% if activity.agent_thinking_level %} · {{ activity.get_agent_thinking_level_display }}{% endif %}">
-                    {{ activity.agent_model|cut:":"|slice:":24" }}
-                    {% if activity.agent_thinking_level %}
-                    · {{ activity.get_agent_thinking_level_display }}
-                    {% endif %}
-                </span>
+                {% agent_model_pill activity.agent_model activity.agent_thinking_level %}
             </dd>
         </div>
         {% elif activity.use_max %}
