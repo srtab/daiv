@@ -13,9 +13,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 blank=True,
                 choices=[("minimal", "Minimal"), ("low", "Low"), ("medium", "Medium"), ("high", "High")],
-                help_text=(
-                    "Thinking depth applied to the fallback model. Leave empty to reuse the primary thinking level."
-                ),
+                help_text="Thinking depth applied to the fallback model. Independent of the primary thinking level.",
                 max_length=10,
                 null=True,
                 verbose_name="fallback thinking level",

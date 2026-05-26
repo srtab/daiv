@@ -207,7 +207,7 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         choices=ThinkingLevelChoices.choices,
-        help_text=_("Thinking depth applied to the fallback model. Leave empty to reuse the primary thinking level."),
+        help_text=_("Thinking depth applied to the fallback model. Independent of the primary thinking level."),
     )
     agent_thinking_level = models.CharField(
         _("thinking level"),

@@ -184,8 +184,9 @@ async def create_daiv_agent(
         thinking_level = site_settings.agent_thinking_level
 
     model = BaseAgent.get_model(model=model_names[0], thinking_level=thinking_level)
-    # Fallback effort is an admin-only policy; per-turn overrides only touch the primary.
-    fallback_thinking_level = site_settings.agent_fallback_thinking_level or thinking_level
+    # Read straight from settings — do not reuse ``thinking_level`` here, it may carry a per-turn
+    # override of the primary that must not leak into the fallback.
+    fallback_thinking_level = site_settings.agent_fallback_thinking_level
     fallback_models = [
         BaseAgent.get_model(model=model_name, thinking_level=fallback_thinking_level) for model_name in model_names[1:]
     ]

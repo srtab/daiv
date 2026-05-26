@@ -31,11 +31,12 @@ def test_general_purpose_subagent_passes_backend_and_agent_root_to_sandbox_middl
     assert "if sandbox_enabled:" in src, "subagents.py must gate SandboxMiddleware on sandbox_enabled"
 
 
-def test_graph_coalesces_fallback_thinking_level_to_primary():
+def test_graph_uses_fallback_thinking_level_standalone():
     src = inspect.getsource(graph_module)
-    assert "site_settings.agent_fallback_thinking_level or thinking_level" in src, (
-        "graph.py must coalesce empty agent_fallback_thinking_level to the primary thinking_level"
+    assert "fallback_thinking_level = site_settings.agent_fallback_thinking_level" in src, (
+        "graph.py must bind fallback_thinking_level directly from site_settings — no coalesce "
+        "to the runtime thinking_level, which may carry a per-turn primary override"
     )
-    assert "thinking_level=fallback_thinking_level" in src, (
-        "graph.py must apply the coalesced level (not the primary) when building fallback models"
+    assert "site_settings.agent_fallback_thinking_level or" not in src, (
+        "graph.py must NOT coalesce agent_fallback_thinking_level to another value"
     )
