@@ -5,16 +5,15 @@ import time
 from dataclasses import dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
-from ag_ui.core.events import EventType, RunErrorEvent
+from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 
 from automation.agent.graph import create_daiv_agent
-from automation.agent.utils import build_langsmith_config
+from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
-from core.site_settings import site_settings
 
 from .event_filter import SubagentEventFilter
 from .threads import ChatThreadService
@@ -85,6 +84,13 @@ class ChatRunStreamer:
     input_data: RunAgentInput
     encoder: EventEncoder
     sandbox_environment_id: str | None = None
+    agent_model: str | None = None
+    agent_thinking_level: str | None = None
+    # When set, ``{id, name, scope}`` of the env the view auto-resolved for this run.
+    # The chat composer's locked pill is still showing "Auto" on the client; the
+    # streamer's first emit swaps it to the real name without waiting for a page
+    # refresh. ``None`` skips the emit — the view decides when emission is meaningful.
+    auto_resolved_env: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         # The view passes thread_id/run_id alongside input_data; a future refactor
@@ -99,18 +105,35 @@ class ChatRunStreamer:
         clean_run = False
         last_heartbeat = time.monotonic()
         try:
+            # Surface the auto-resolved env before any agent output so the locked composer
+            # pill swaps "Auto" → real env name as early as possible. Kept inside the
+            # ``try`` so an encode failure still routes through RUN_ERROR + ``release_run``
+            # in ``finally``; the emit precedes ``set_runtime_ctx`` so the user still sees
+            # what would have run even if agent setup fails.
+            if self.auto_resolved_env is not None:
+                yield self.encoder.encode(
+                    CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
+                )
             async with (
                 open_checkpointer() as checkpointer,
                 set_runtime_ctx(
                     repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref, sandbox_env_id=self.sandbox_environment_id
                 ) as runtime_ctx,
             ):
-                agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore())
+                agent_kwargs = get_daiv_agent_kwargs(
+                    model_config=runtime_ctx.config.models.agent,
+                    agent_model=self.agent_model,
+                    agent_thinking_level=self.agent_thinking_level,
+                )
+                agent = await create_daiv_agent(
+                    ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore(), **agent_kwargs
+                )
                 langsmith_config = build_langsmith_config(
                     runtime_ctx,
                     trigger="chat",
-                    model=site_settings.agent_model_name,
-                    thinking_level=site_settings.agent_thinking_level,
+                    model=agent_kwargs["model_names"][0],
+                    thinking_level=agent_kwargs["thinking_level"],
+                    extra_metadata={"override_source": "explicit" if self.agent_model else None},
                 )
                 langgraph_agent = RuntimeContextLangGraphAGUIAgent(
                     name="DAIV",

@@ -23,7 +23,6 @@ def _valid_data(**overrides):
         "frequency": "daily",
         "cron_expression": "",
         "time": "12:00",
-        "use_max": False,
         "notify_on": NotifyOn.NEVER,
     }
     data.update(overrides)

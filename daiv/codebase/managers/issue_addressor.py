@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
+from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
 from codebase.utils import compute_thread_id
 from core.checkpointer import open_checkpointer
@@ -106,9 +107,17 @@ class IssueAddressorManager(BaseManager):
             )
 
         async with open_checkpointer() as checkpointer:
-            agent_kwargs = get_daiv_agent_kwargs(
-                model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()
-            )
+            try:
+                agent_kwargs = get_daiv_agent_kwargs(
+                    model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()
+                )
+            except AgentConfigurationError as err:
+                logger.warning("issue_addressor: %s", err)
+                self._leave_comment(
+                    f"@{self.issue.author.username} I can't run yet: {err}",
+                    reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,
+                )
+                return
             daiv_agent = await create_daiv_agent(
                 ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
             )

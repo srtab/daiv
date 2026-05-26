@@ -67,7 +67,7 @@
             <div class="flex flex-wrap items-center gap-3">
                 <!-- Repository async search -->
                 <div class="combobox-sm relative w-96" x-data="{
-                    ...repoSearch('{{ current_repo }}'),
+                    ...repoSearch('{{ current_repo }}', '{% url 'api:search_repositories' %}'),
                     _initial: '{{ current_repo }}' || null,
                     init() {
                         this.$watch('selected', (value) => {

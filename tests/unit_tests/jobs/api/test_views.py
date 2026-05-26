@@ -9,6 +9,7 @@ from jobs.tasks import run_job_task
 from ninja.testing import TestAsyncClient
 
 from accounts.models import APIKey, User
+from core.models import Provider, ProviderType
 from daiv.api import api
 
 
@@ -27,6 +28,14 @@ def api_key(db):
 @pytest.fixture
 def authenticated_client(api_key):
     return TestAsyncClient(api, headers={"Authorization": f"Bearer {api_key}"})
+
+
+@pytest.fixture
+def openrouter_provider(db):
+    Provider.objects.filter(slug="openrouter").delete()
+    return Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=True
+    )
 
 
 def _single_repo_body(**overrides):
@@ -158,7 +167,9 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     assert kwargs["repo_id"] == "group/project"
     assert kwargs["prompt"] == "List all files"
     assert kwargs["ref"] is None
-    assert kwargs["use_max"] is False
+    assert kwargs["agent_model"] is None
+    assert kwargs["agent_thinking_level"] is None
+    assert "use_max" not in kwargs
     assert kwargs["thread_id"]
 
 
@@ -180,39 +191,58 @@ async def test_submit_job_multi_repo(authenticated_client: TestAsyncClient):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_with_use_max(authenticated_client: TestAsyncClient):
-    async def _aenq(**kwargs):
-        return await _make_task_row()
-
-    with patch("activity.services.run_job_task") as mock_task:
-        mock_task.aenqueue.side_effect = _aenq
-        mock_task.module_path = run_job_task.module_path
-        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="Fix the bug", use_max=True))
-
-    assert response.status_code == 202
-    mock_task.aenqueue.assert_called_once()
-    kwargs = mock_task.aenqueue.call_args.kwargs
-    assert kwargs["repo_id"] == "group/project"
-    assert kwargs["prompt"] == "Fix the bug"
-    assert kwargs["ref"] is None
-    assert kwargs["use_max"] is True
-    assert kwargs["thread_id"]
+async def test_submit_job_rejects_unknown_provider(authenticated_client: TestAsyncClient):
+    response = await authenticated_client.post(
+        "/jobs", json={"repos": [{"repo_id": "group/project"}], "prompt": "Fix it", "agent_model": "bogus:nope"}
+    )
+    assert response.status_code == 400
+    assert "Unknown provider prefix" in response.json()["detail"]
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_use_max_to_activity(authenticated_client: TestAsyncClient):
-    """Verify the submit endpoint threads ``use_max`` into ``acreate_activity``."""
+async def test_submit_job_rejects_invalid_thinking_level(authenticated_client: TestAsyncClient):
+    """``agent_thinking_level`` outside the enum returns a clear 4xx instead of a silent
+    accept. Ninja/Pydantic catches the enum mismatch at the protocol layer (422)."""
+    response = await authenticated_client.post(
+        "/jobs", json={"repos": [{"repo_id": "group/project"}], "prompt": "Fix it", "agent_thinking_level": "extreme"}
+    )
+    assert response.status_code == 422
 
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_extra_field(authenticated_client: TestAsyncClient):
+    """``JobSubmitRequest`` is locked to ``extra='forbid'`` so a stale client still
+    sending the dropped ``use_max`` field gets a 422 instead of a silent strip+202."""
+    response = await authenticated_client.post(
+        "/jobs", json={"repos": [{"repo_id": "group/project"}], "prompt": "Fix it", "use_max": True}
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_agent_override(authenticated_client: TestAsyncClient, openrouter_provider):
     async def _aenq(**kwargs):
         return await _make_task_row()
 
     with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
-        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="Fix the bug", use_max=True))
+        response = await authenticated_client.post(
+            "/jobs",
+            json={
+                "repos": [{"repo_id": "group/project"}],
+                "prompt": "Fix the bug",
+                "agent_model": "openrouter:anthropic/claude-haiku-4.5",
+                "agent_thinking_level": "low",
+            },
+        )
 
     assert response.status_code == 202
-    assert mock_create.await_args.kwargs["use_max"] is True
+    assert mock_create.await_args.kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert mock_create.await_args.kwargs["agent_thinking_level"] == "low"
+    enqueue_kwargs = mock_task.aenqueue.call_args.kwargs
+    assert enqueue_kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert enqueue_kwargs["agent_thinking_level"] == "low"
 
 
 @pytest.mark.django_db(transaction=True)

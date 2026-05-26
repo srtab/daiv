@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -9,6 +11,8 @@ from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
 
+from automation.agent.model_catalog.exceptions import MissingApiKeyError
+from automation.agent.provider_clients import build_sdk_client_kwargs
 from core.constants import BOT_NAME
 from core.models import Provider, ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
@@ -49,7 +53,9 @@ def _anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int
         return max_tokens + 4_096, 4_096
     if thinking_level == ThinkingLevel.MEDIUM:
         return max_tokens + 25_600, 25_600
-    if thinking_level == ThinkingLevel.HIGH:
+    if thinking_level in (ThinkingLevel.HIGH, ThinkingLevel.XHIGH):
+        # Sonnet/Haiku cap output at 64K without the ``output-128k`` beta; XHIGH
+        # differentiates from HIGH on OpenRouter, not here.
         return 64_000, 64_000 - max_tokens
     raise ValueError(f"Unsupported thinking level: {thinking_level}")
 
@@ -73,7 +79,29 @@ def _apply_anthropic_thinking(kw: dict, thinking_level: ThinkingLevel | None, mo
 def _apply_openai_reasoning(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
     if thinking_level and model_name.startswith(OPENAI_THINKING_MODELS):
         kw["temperature"] = 1
-        kw["reasoning_effort"] = thinking_level
+        # OpenAI's native ``reasoning_effort`` accepts minimal/low/medium/high but
+        # not xhigh — downmap to high, matching OpenRouter's documented Gemini
+        # behaviour for the same level.
+        kw["reasoning_effort"] = ThinkingLevel.HIGH if thinking_level == ThinkingLevel.XHIGH else thinking_level
+
+
+# OpenRouter derives ``budget_tokens`` server-side from ``max_tokens`` for Anthropic
+# models. Capped at 64K — Sonnet/Haiku reject larger outputs without the ``output-128k`` beta.
+_OPENROUTER_ANTHROPIC_MAX_TOKENS = {
+    ThinkingLevel.MINIMAL: 10_240,
+    ThinkingLevel.LOW: 20_480,
+    ThinkingLevel.MEDIUM: 51_200,
+    ThinkingLevel.HIGH: 64_000,
+    ThinkingLevel.XHIGH: 64_000,
+}
+
+# Import-time parity guard: every ThinkingLevel must have a max_tokens entry, or
+# OpenRouter Anthropic requests would crash with a bare KeyError mid-request when
+# a new level is added without updating the table.
+assert set(ThinkingLevel) == _OPENROUTER_ANTHROPIC_MAX_TOKENS.keys(), (
+    f"_OPENROUTER_ANTHROPIC_MAX_TOKENS missing entries for "
+    f"{set(ThinkingLevel) - _OPENROUTER_ANTHROPIC_MAX_TOKENS.keys()}"
+)
 
 
 def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
@@ -82,17 +110,16 @@ def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, m
             kw["max_tokens"] = CLAUDE_MAX_TOKENS
             kw["model_kwargs"].setdefault("extra_headers", {})["anthropic-beta"] = ANTHROPIC_STRUCTURED_OUTPUTS_BETA
         return
+    # ``enabled: true`` is the universal switch on OpenRouter; some providers
+    # (notably z.ai's GLM family) ignore ``effort`` and require the explicit flag.
+    # OpenRouter converts ``effort`` to ``budget_tokens`` server-side for Anthropic
+    # models, so we no longer compute the budget ourselves on this path.
+    kw["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
     if model_name.startswith(CLAUDE_THINKING_MODELS):
-        max_tokens, budget = _anthropic_thinking_tokens(
-            thinking_level=thinking_level, max_tokens=kw.get("max_tokens", CLAUDE_MAX_TOKENS)
-        )
-        kw["max_tokens"] = max_tokens
-        kw["extra_body"] = {"reasoning": {"max_tokens": budget}}
+        # Anthropic requires temperature=1 when thinking is enabled; OpenRouter
+        # passes the kwarg through to the upstream Anthropic API.
         kw["temperature"] = 1
-    else:
-        # ``enabled: true`` is the universal switch on OpenRouter; some providers
-        # (notably z.ai's GLM family) ignore ``effort`` and require the explicit flag.
-        kw["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
+        kw["max_tokens"] = _OPENROUTER_ANTHROPIC_MAX_TOKENS[thinking_level]
 
 
 @dataclass(frozen=True)
@@ -109,24 +136,41 @@ class ResolvedProvider:
 _HTTPX_CLIENT_PROVIDER_TYPES = frozenset({ProviderType.OPENAI, ProviderType.OPENROUTER})
 
 
+_PENDING_ACLOSE_TASKS: set[asyncio.Task] = set()
+
+
 def _close_insecure_http_clients(kw: dict) -> None:
     """Close httpx clients attached by :func:`_apply_insecure_http_clients` when the
     downstream :func:`init_chat_model` call fails — prevents ``ResourceWarning`` and
-    connection-pool retention under retry loops. The async client is closed
-    best-effort: if no event loop is available we drop the reference and rely on GC."""
-    import asyncio
-
+    connection-pool retention under retry loops."""
     sync_client = kw.pop("http_client", None)
     async_client = kw.pop("http_async_client", None)
+
     if sync_client is not None:
-        sync_client.close()
-    if async_client is not None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop is not None:
-            loop.create_task(async_client.aclose())
+        # The sync transport can raise on already-closed pools / interpreter shutdown
+        # — suppress so we don't mask the original init_chat_model exception.
+        with contextlib.suppress(Exception):
+            sync_client.close()
+
+    if async_client is None:
+        return
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop — we cannot await aclose() from sync context. Surface this
+        # so operators can correlate ResourceWarnings with the call site.
+        logger.warning(
+            "Cannot close insecure httpx.AsyncClient: no running event loop. "
+            "Expect a ResourceWarning; the underlying connection pool will be released by GC."
+        )
+        return
+
+    # Retain a reference until done so Python's GC doesn't drop the task before
+    # aclose() completes (RUF006 / fire-and-forget asyncio task pitfall).
+    task = loop.create_task(async_client.aclose())
+    _PENDING_ACLOSE_TASKS.add(task)
+    task.add_done_callback(_PENDING_ACLOSE_TASKS.discard)
 
 
 def _apply_insecure_http_clients(kw: dict, row: Provider.Cached) -> None:
@@ -244,42 +288,46 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         row = resolved.row
         if not row.is_enabled:
             raise RuntimeError(f"Provider '{row.slug}' is disabled. Enable it in the configuration.")
-        if row.api_key is None:
-            raise RuntimeError(f"Provider '{row.slug}' has no API key configured.")
+
+        # Shared primitive: api_key plaintext, base_url, default_headers.
+        # LangChain needs both sync and async httpx clients when verify_ssl=False
+        # — those are constructed below via _apply_insecure_http_clients, so we
+        # skip the helper's AsyncClient here to avoid leaking it.
+        try:
+            sdk_kw = build_sdk_client_kwargs(row, with_http_client=False)
+        except MissingApiKeyError as err:
+            raise RuntimeError(f"Provider '{row.slug}' has no API key configured.") from err
 
         kw: dict = {"temperature": 0, "model_kwargs": {}, "model": resolved.model_name, **kwargs}
+        kw["api_key"] = sdk_kw["api_key"]
 
         if row.provider_type == ProviderType.ANTHROPIC:
             kw["model_provider"] = ProviderType.ANTHROPIC.value
-            kw["api_key"] = row.api_key.get_secret_value()
             kw["betas"] = [ANTHROPIC_STRUCTURED_OUTPUTS_BETA]
-            if row.base_url:
-                kw["base_url"] = row.base_url
+            if sdk_kw["base_url"]:
+                kw["base_url"] = sdk_kw["base_url"]
             _apply_anthropic_thinking(kw, thinking_level, resolved.model_name)
 
         elif row.provider_type == ProviderType.OPENAI:
             kw["model_provider"] = ProviderType.OPENAI.value
-            kw["api_key"] = row.api_key.get_secret_value()
             if row.use_responses_api:
                 kw["use_responses_api"] = True
-            if row.base_url:
-                kw["openai_api_base"] = row.base_url
+            if sdk_kw["base_url"]:
+                kw["openai_api_base"] = sdk_kw["base_url"]
             _apply_openai_reasoning(kw, thinking_level, resolved.model_name)
 
         elif row.provider_type == ProviderType.OPENROUTER:
             # OpenRouter is OpenAI-compatible over the wire.
             kw["model_provider"] = ProviderType.OPENAI.value
-            kw["api_key"] = row.api_key.get_secret_value()
-            kw["openai_api_base"] = row.base_url or "https://openrouter.ai/api/v1"
+            kw["openai_api_base"] = sdk_kw["base_url"] or "https://openrouter.ai/api/v1"
             kw["model_kwargs"]["extra_headers"] = {"HTTP-Referer": "https://srtab.github.io/daiv", "X-Title": BOT_NAME}
             _apply_openrouter_thinking(kw, thinking_level, resolved.model_name)
 
         elif row.provider_type == ProviderType.GOOGLE_GENAI:
             kw["model_provider"] = ProviderType.GOOGLE_GENAI.value
-            kw["api_key"] = row.api_key.get_secret_value()
             kw["include_thoughts"] = True
-            if row.base_url:
-                kw["base_url"] = row.base_url
+            if sdk_kw["base_url"]:
+                kw["base_url"] = sdk_kw["base_url"]
 
         else:
             raise RuntimeError(f"Unknown provider_type {row.provider_type!r} on slug {row.slug!r}")
@@ -287,11 +335,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         if not row.verify_ssl:
             _apply_insecure_http_clients(kw, row)
 
-        if row.extra_headers:
+        if sdk_kw["default_headers"]:
             # User-supplied headers don't override agent-managed ones (HTTP-Referer,
             # X-Title, anthropic-beta); admins customise via the agent code, not the row.
             existing = kw["model_kwargs"].setdefault("extra_headers", {})
-            for name, value in row.extra_headers.items():
+            for name, value in sdk_kw["default_headers"].items():
                 existing.setdefault(name, value)
 
         return kw

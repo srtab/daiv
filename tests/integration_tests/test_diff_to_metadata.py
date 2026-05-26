@@ -8,8 +8,8 @@ from automation.agent.diff_to_metadata.graph import create_diff_to_metadata_grap
 from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 
-from .evaluators import correctness_evaluator
-from .utils import FAST_MODEL_NAMES
+from .evaluators import get_correctness_evaluator
+from .utils import FAST_MODEL_NAMES, require_provider_for_model
 
 DATA_DIR = Path(__file__).parent / "data" / "diff_to_metadata"
 TEST_SUITE = "DAIV: Diff to Metadata"
@@ -45,6 +45,8 @@ def load_cases() -> list[pytest.param]:
 @pytest.mark.parametrize("model_name", FAST_MODEL_NAMES)
 @pytest.mark.parametrize("inputs,reference_outputs", load_cases())
 async def test_diff_to_metadata(model_name, inputs, reference_outputs):
+    require_provider_for_model(model_name)
+
     t.log_inputs(inputs)
     t.log_reference_outputs(reference_outputs)
 
@@ -69,5 +71,5 @@ async def test_diff_to_metadata(model_name, inputs, reference_outputs):
 
     t.log_outputs(outputs)
 
-    result = await correctness_evaluator(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
+    result = await get_correctness_evaluator()(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
     assert result["score"] is True, result["comment"]
