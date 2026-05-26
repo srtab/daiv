@@ -98,7 +98,7 @@ def test_existing_thread_renders_locked_agent_pill(member_client, member_user, e
     # parent ``chat({…})`` scope. Without this binding, the dots never appear on either
     # the first-turn flow or after a refresh.
     assert 'x-show="(lockedAgentEffortDots) > 0"' in body
-    assert 'x-for="i in 4"' in body
+    assert 'x-for="i in 5"' in body
     assert "lockedAgentEffortDots" in body
     assert f"initialAgentEffortDots: {resp.context['agent_picker_initial_effort_dots']}" in body
 

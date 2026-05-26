@@ -31,7 +31,7 @@
  *                                  selection. Defaults to ``true``; settings pass ``false``
  *                                  because an empty save is meaningful ("use default").
  */
-const EFFORT_LEVELS = ["minimal", "low", "medium", "high"];
+const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh"];
 
 function shortenModel(spec) {
     // Strip the ``provider:`` prefix and any ``org/`` path so the placeholder pill

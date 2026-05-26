@@ -53,7 +53,9 @@ def _anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int
         return max_tokens + 4_096, 4_096
     if thinking_level == ThinkingLevel.MEDIUM:
         return max_tokens + 25_600, 25_600
-    if thinking_level == ThinkingLevel.HIGH:
+    if thinking_level in (ThinkingLevel.HIGH, ThinkingLevel.XHIGH):
+        # Sonnet/Haiku cap output at 64K without the ``output-128k`` beta; XHIGH
+        # differentiates from HIGH on OpenRouter, not here.
         return 64_000, 64_000 - max_tokens
     raise ValueError(f"Unsupported thinking level: {thinking_level}")
 
@@ -77,7 +79,29 @@ def _apply_anthropic_thinking(kw: dict, thinking_level: ThinkingLevel | None, mo
 def _apply_openai_reasoning(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
     if thinking_level and model_name.startswith(OPENAI_THINKING_MODELS):
         kw["temperature"] = 1
-        kw["reasoning_effort"] = thinking_level
+        # OpenAI's native ``reasoning_effort`` accepts minimal/low/medium/high but
+        # not xhigh — downmap to high, matching OpenRouter's documented Gemini
+        # behaviour for the same level.
+        kw["reasoning_effort"] = ThinkingLevel.HIGH if thinking_level == ThinkingLevel.XHIGH else thinking_level
+
+
+# OpenRouter derives ``budget_tokens`` server-side from ``max_tokens`` for Anthropic
+# models. Capped at 64K — Sonnet/Haiku reject larger outputs without the ``output-128k`` beta.
+_OPENROUTER_ANTHROPIC_MAX_TOKENS = {
+    ThinkingLevel.MINIMAL: 10_240,
+    ThinkingLevel.LOW: 20_480,
+    ThinkingLevel.MEDIUM: 51_200,
+    ThinkingLevel.HIGH: 64_000,
+    ThinkingLevel.XHIGH: 64_000,
+}
+
+# Import-time parity guard: every ThinkingLevel must have a max_tokens entry, or
+# OpenRouter Anthropic requests would crash with a bare KeyError mid-request when
+# a new level is added without updating the table.
+assert set(ThinkingLevel) == _OPENROUTER_ANTHROPIC_MAX_TOKENS.keys(), (
+    f"_OPENROUTER_ANTHROPIC_MAX_TOKENS missing entries for "
+    f"{set(ThinkingLevel) - _OPENROUTER_ANTHROPIC_MAX_TOKENS.keys()}"
+)
 
 
 def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
@@ -86,17 +110,16 @@ def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, m
             kw["max_tokens"] = CLAUDE_MAX_TOKENS
             kw["model_kwargs"].setdefault("extra_headers", {})["anthropic-beta"] = ANTHROPIC_STRUCTURED_OUTPUTS_BETA
         return
+    # ``enabled: true`` is the universal switch on OpenRouter; some providers
+    # (notably z.ai's GLM family) ignore ``effort`` and require the explicit flag.
+    # OpenRouter converts ``effort`` to ``budget_tokens`` server-side for Anthropic
+    # models, so we no longer compute the budget ourselves on this path.
+    kw["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
     if model_name.startswith(CLAUDE_THINKING_MODELS):
-        max_tokens, budget = _anthropic_thinking_tokens(
-            thinking_level=thinking_level, max_tokens=kw.get("max_tokens", CLAUDE_MAX_TOKENS)
-        )
-        kw["max_tokens"] = max_tokens
-        kw["extra_body"] = {"reasoning": {"max_tokens": budget}}
+        # Anthropic requires temperature=1 when thinking is enabled; OpenRouter
+        # passes the kwarg through to the upstream Anthropic API.
         kw["temperature"] = 1
-    else:
-        # ``enabled: true`` is the universal switch on OpenRouter; some providers
-        # (notably z.ai's GLM family) ignore ``effort`` and require the explicit flag.
-        kw["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
+        kw["max_tokens"] = _OPENROUTER_ANTHROPIC_MAX_TOKENS[thinking_level]
 
 
 @dataclass(frozen=True)

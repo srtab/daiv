@@ -47,6 +47,7 @@ class ThinkingLevelChoices(models.TextChoices):
     LOW = "low", _("Low")
     MEDIUM = "medium", _("Medium")
     HIGH = "high", _("High")
+    XHIGH = "xhigh", _("Extra high")
 
     @classmethod
     def dots_for(cls, level: str) -> int:

@@ -121,7 +121,7 @@ def agent_picker_context(
         "agent_picker_initial_model_display": _display_model_name(resolved_model),
         "agent_picker_initial_thinking": resolved_thinking,
         # Pre-computed dot count for the locked pill's effort meter — the partial would
-        # otherwise need template arithmetic to translate level → 1..4. Mirrors the JS
+        # otherwise need template arithmetic to translate level → 1..5. Mirrors the JS
         # ``dotsFor`` helper so server-rendered (refresh) and client-pinned (first turn)
         # paths produce the same dot pattern.
         "agent_picker_initial_effort_dots": ThinkingLevelChoices.dots_for(resolved_thinking),

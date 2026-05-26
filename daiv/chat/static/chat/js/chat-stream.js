@@ -128,7 +128,7 @@
   // 1-based position in the ``ThinkingLevelChoices`` order; 0 for unknown (effort block
   // stays hidden via the x-show gate). Re-order ``EFFORT_LEVELS`` if the choices class
   // gains or shuffles levels — the Python-side parity test pins the contract.
-  const EFFORT_LEVELS = ["minimal", "low", "medium", "high"];
+  const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh"];
   const effortDotsForLevel = (level) => {
     const idx = EFFORT_LEVELS.indexOf(level);
     return idx >= 0 ? idx + 1 : 0;

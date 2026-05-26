@@ -66,7 +66,7 @@ Parameters:
                                        initial value is empty until a page refresh). The expression
                                        must resolve to a non-empty string in the parent Alpine scope;
                                        contributing a fallback there is the caller's job.
-- dynamic_effort_dots_expr           — Alpine expression resolving to a 0..4 dot count, used to
+- dynamic_effort_dots_expr           — Alpine expression resolving to a 0..5 dot count, used to
   (default "")                         drive the locked pill's effort meter when the surrounding
                                        scope can change after first render (chat composer first-turn
                                        flow). Falls back to the server-rendered static dot pattern
@@ -90,7 +90,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         {# scope, so the just-submitted effort survives the hero→composer transition before any refresh. #}
         <span class="agent-pill__effort" x-show="({{ dynamic_effort_dots_expr }}) > 0" x-cloak>
             {% icon "bolt" "agent-pill__effort-icon" %}
-            <template x-for="i in 4" :key="i">
+            <template x-for="i in 5" :key="i">
                 <span class="agent-pill__effort-dot"
                       :class="i <= ({{ dynamic_effort_dots_expr }}) ? 'agent-pill__effort-dot--on' : ''"></span>
             </template>
@@ -101,7 +101,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         {# the standard Django idiom for a fixed-count loop where the value isn't read. #}
         <span class="agent-pill__effort">
             {% icon "bolt" "agent-pill__effort-icon" %}
-            {% for _ in "1234" %}
+            {% for _ in "12345" %}
                 <span class="agent-pill__effort-dot{% if forloop.counter <= initial_effort_dots %} agent-pill__effort-dot--on{% endif %}"></span>
             {% endfor %}
         </span>
@@ -136,7 +136,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
         <span class="agent-pill__effort" x-show="pillLabel.effortDots > 0" x-cloak>
             {% icon "bolt" "agent-pill__effort-icon" %}
-            <template x-for="i in 4" :key="i">
+            <template x-for="i in 5" :key="i">
                 <span class="agent-pill__effort-dot"
                       :class="i <= pillLabel.effortDots ? 'agent-pill__effort-dot--on' : ''"></span>
             </template>

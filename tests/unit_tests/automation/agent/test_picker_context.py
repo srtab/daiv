@@ -337,6 +337,7 @@ def test_display_model_name_normalisation(spec, expected):
         ("low", 2),
         ("medium", 3),
         ("high", 4),
+        ("xhigh", 5),
         # Empty or unknown level → 0 dots (the partial hides the block via x-show / the
         # ``{% elif initial_effort_dots %}`` gate; both branches treat 0 as "no meter").
         ("", 0),
@@ -354,10 +355,10 @@ def test_effort_dots_for_level_normalisation(level, expected):
     assert ThinkingLevelChoices.dots_for(level) == expected
 
 
-@pytest.mark.parametrize(("dots", "expected_on_count"), [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4)])
+@pytest.mark.parametrize(("dots", "expected_on_count"), [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)])
 def test_locked_partial_renders_static_effort_dots(providers, dots, expected_on_count):
     """The locked-pill static branch (no ``dynamic_effort_dots_expr``) emits exactly
-    four dot spans and lights the leading ``initial_effort_dots`` of them. Used by
+    five dot spans and lights the leading ``initial_effort_dots`` of them. Used by
     any caller that omits the Alpine expression — typically the env-locked settings
     widget; the chat composer takes the Alpine branch instead."""
     from django.template.loader import render_to_string
@@ -372,10 +373,10 @@ def test_locked_partial_renders_static_effort_dots(providers, dots, expected_on_
             "providers": "[]",
         },
     )
-    # Total dot spans is always either 4 (effort > 0 → block rendered) or 0 (block omitted).
-    expected_dot_spans = 4 if dots else 0
+    # Total dot spans is always either 5 (effort > 0 → block rendered) or 0 (block omitted).
+    expected_dot_spans = 5 if dots else 0
     assert html.count('class="agent-pill__effort-dot') == expected_dot_spans
-    # Only the leading ``initial_effort_dots`` of those four get the ``--on`` suffix; the
+    # Only the leading ``initial_effort_dots`` of those five get the ``--on`` suffix; the
     # remainder render with the bare base class.
     assert html.count("agent-pill__effort-dot--on") == expected_on_count
 
