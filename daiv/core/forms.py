@@ -171,6 +171,14 @@ class _AgentPickerWidget(forms.Widget):
         """The picker submits the full ``provider:model`` spec under ``name``."""
         return (data.get(name) or "").strip()
 
+    def id_for_label(self, id_: str) -> str:
+        # The widget renders no single labelable element: the model input is hidden (settings)
+        # or sr-only (run-time), the paired thinking input is always hidden, and the popover
+        # trigger is a ``<button>``. Suppress the label-id binding so the surrounding template
+        # drops the ``for`` attribute — pointing it at a hidden input would mislead autofill
+        # heuristics and accessibility tools.
+        return ""
+
 
 class SiteConfigurationForm(forms.ModelForm):
     """

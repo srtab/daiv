@@ -1046,6 +1046,15 @@ class TestAgentPickerWidget:
             == "openai:gpt-5.4"
         )
 
+    def test_widget_suppresses_label_for_attribute(self):
+        """The widget renders no single labelable input (hidden/sr-only inputs + a popover
+        trigger button), so ``id_for_label`` must return empty so the surrounding template
+        drops ``for=`` — pointing a label at a hidden input fools browser autofill and a11y
+        tools into thinking the field is reachable."""
+        from core.forms import _AgentPickerWidget
+
+        assert _AgentPickerWidget().id_for_label("id_agent_model_name") == ""
+
     def test_clear_persists_null_for_paired_picker(self, client, admin_user, group_url):
         """The "Use default" button posts empty strings for both keys. The form
         must persist NULL on both — not "" — because the field's ``CharField(null=True)``
