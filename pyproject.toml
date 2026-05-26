@@ -183,7 +183,7 @@ rules.unresolved-import = "ignore"
 
 [tool.pytest]
 ini_options.DJANGO_SETTINGS_MODULE = "daiv.settings.test"
-ini_options.pythonpath = "daiv"
+ini_options.pythonpath = [ "daiv", "." ]
 ini_options.python_files = "test_*.py"
 ini_options.python_classes = "Test *Test"
 ini_options.testpaths = [ "tests" ]
