@@ -40,6 +40,7 @@ class _SecretFormField(forms.CharField):
 # doesn't double up as a Select dropdown.
 _PAIRED_THINKING_FIELDS: dict[str, str] = {
     "agent_model_name": "agent_thinking_level",
+    "agent_fallback_model_name": "agent_fallback_thinking_level",
     "agent_max_model_name": "agent_max_thinking_level",
 }
 
@@ -187,8 +188,9 @@ class SiteConfigurationForm(forms.ModelForm):
         model = SiteConfiguration
         fields = [
             "agent_model_name",
-            "agent_fallback_model_name",
             "agent_thinking_level",
+            "agent_fallback_model_name",
+            "agent_fallback_thinking_level",
             "agent_max_model_name",
             "agent_max_thinking_level",
             "agent_explore_model_name",

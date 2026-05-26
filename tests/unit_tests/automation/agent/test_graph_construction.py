@@ -29,3 +29,13 @@ def test_general_purpose_subagent_passes_backend_and_agent_root_to_sandbox_middl
     )
     assert 'agent_root=f"/{agent_path.name}"' in src, "subagents.py must pass agent_root to SandboxMiddleware"
     assert "if sandbox_enabled:" in src, "subagents.py must gate SandboxMiddleware on sandbox_enabled"
+
+
+def test_graph_coalesces_fallback_thinking_level_to_primary():
+    src = inspect.getsource(graph_module)
+    assert "site_settings.agent_fallback_thinking_level or thinking_level" in src, (
+        "graph.py must coalesce empty agent_fallback_thinking_level to the primary thinking_level"
+    )
+    assert "thinking_level=fallback_thinking_level" in src, (
+        "graph.py must apply the coalesced level (not the primary) when building fallback models"
+    )

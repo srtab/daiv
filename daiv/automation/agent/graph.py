@@ -184,8 +184,10 @@ async def create_daiv_agent(
         thinking_level = site_settings.agent_thinking_level
 
     model = BaseAgent.get_model(model=model_names[0], thinking_level=thinking_level)
+    # Fallback effort is an admin-only policy; per-turn overrides only touch the primary.
+    fallback_thinking_level = site_settings.agent_fallback_thinking_level or thinking_level
     fallback_models = [
-        BaseAgent.get_model(model=model_name, thinking_level=thinking_level) for model_name in model_names[1:]
+        BaseAgent.get_model(model=model_name, thinking_level=fallback_thinking_level) for model_name in model_names[1:]
     ]
 
     _sandbox_enabled = sandbox_enabled if sandbox_enabled is not None else ctx.sandbox.enabled

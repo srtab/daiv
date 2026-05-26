@@ -201,6 +201,14 @@ class SiteConfiguration(models.Model):
         null=True,
         help_text=_("Fallback model when the primary model fails."),
     )
+    agent_fallback_thinking_level = models.CharField(
+        _("fallback thinking level"),
+        max_length=10,
+        blank=True,
+        null=True,
+        choices=ThinkingLevelChoices.choices,
+        help_text=_("Thinking depth applied to the fallback model. Leave empty to reuse the primary thinking level."),
+    )
     agent_thinking_level = models.CharField(
         _("thinking level"),
         max_length=10,

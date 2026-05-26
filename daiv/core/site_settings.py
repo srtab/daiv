@@ -61,6 +61,7 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_model_name": ModelName.CLAUDE_SONNET_4_6,
         "agent_fallback_model_name": ModelName.GPT_5_3_CODEX,
         "agent_thinking_level": ThinkingLevelChoices.MEDIUM,
+        "agent_fallback_thinking_level": None,
         "agent_max_model_name": ModelName.CLAUDE_OPUS_4_6,
         "agent_max_thinking_level": ThinkingLevelChoices.HIGH,
         "agent_explore_model_name": ModelName.CLAUDE_HAIKU_4_5,
