@@ -27,7 +27,7 @@ Dead lines are statements reachable by no execution path and declarations whose 
 ```python
 def summarise_report(records: list[dict]) -> str:
     total = len(records)
-    user_count = 0          # assigned but never used
+    user_count = 0  # assigned but never used
     lines = []
     for rec in records:
         lines.append(f"{rec['name']}: {rec['value']}")
@@ -148,6 +148,7 @@ def config_path(base_dir: str, env: str, filename: str) -> str:
 
 ```python
 import os
+
 
 def config_path(base_dir: str, env: str, filename: str) -> str:
     return os.path.join(base_dir, env, filename)
@@ -316,6 +317,7 @@ def is_session_expired(last_active: datetime) -> bool:
     delta = datetime.utcnow() - last_active
     return delta.total_seconds() > 86400
 
+
 def expire_old_sessions(sessions: list[Session]) -> None:
     for session in sessions:
         if (datetime.utcnow() - session.last_active).total_seconds() > 86400:
@@ -327,9 +329,11 @@ def expire_old_sessions(sessions: list[Session]) -> None:
 ```python
 SESSION_EXPIRY_SECONDS = 86400  # 24 hours
 
+
 def is_session_expired(last_active: datetime) -> bool:
     delta = datetime.utcnow() - last_active
     return delta.total_seconds() > SESSION_EXPIRY_SECONDS
+
 
 def expire_old_sessions(sessions: list[Session]) -> None:
     for session in sessions:
@@ -433,11 +437,9 @@ A call to a standard-library or well-known library function that is technically 
 ```python
 from datetime import datetime
 
+
 def record_event(name: str) -> dict:
-    return {
-        "event": name,
-        "recorded_at": datetime.utcnow().isoformat(),
-    }
+    return {"event": name, "recorded_at": datetime.utcnow().isoformat()}
 ```
 
 **After:**
@@ -445,11 +447,9 @@ def record_event(name: str) -> dict:
 ```python
 from datetime import datetime, timezone
 
+
 def record_event(name: str) -> dict:
-    return {
-        "event": name,
-        "recorded_at": datetime.now(timezone.utc).isoformat(),
-    }
+    return {"event": name, "recorded_at": datetime.now(timezone.utc).isoformat()}
 ```
 
 ### Example B — Go
@@ -550,6 +550,7 @@ def order_summary(request, order_id):
 ```python
 class Order(models.Model):
     ...
+
     def calculate_total(self) -> Decimal:
         subtotal = sum(item.unit_price * item.quantity for item in self.items.all())
         discount = subtotal * Decimal("0.10") if self.customer.is_vip else Decimal("0")
@@ -709,14 +710,7 @@ def handle_forbidden(resource_id: str) -> dict:
 
 ```python
 def _error_response(code: str, detail: str) -> dict:
-    return {
-        "ok": False,
-        "error": {
-            "code": code,
-            "detail": detail,
-            "timestamp": datetime.utcnow().isoformat(),
-        },
-    }
+    return {"ok": False, "error": {"code": code, "detail": detail, "timestamp": datetime.utcnow().isoformat()}}
 
 
 def handle_not_found(resource_id: str) -> dict:
@@ -1034,11 +1028,7 @@ def import_csv(path: str, session: Session) -> int:
     records = []
     for row in rows:
         records.append(
-            Record(
-                name=row["name"].strip(),
-                value=Decimal(row["value"]),
-                active=row["active"].lower() == "true",
-            )
+            Record(name=row["name"].strip(), value=Decimal(row["value"]), active=row["active"].lower() == "true")
         )
 
     session.bulk_save_objects(records)
@@ -1056,11 +1046,7 @@ def read_csv_rows(path: str) -> list[dict]:
 
 def parse_rows(rows: list[dict]) -> list[Record]:
     return [
-        Record(
-            name=row["name"].strip(),
-            value=Decimal(row["value"]),
-            active=row["active"].lower() == "true",
-        )
+        Record(name=row["name"].strip(), value=Decimal(row["value"]), active=row["active"].lower() == "true")
         for row in rows
     ]
 
@@ -1346,9 +1332,7 @@ def transfer_funds(amount: Decimal, to_account_id: int) -> None:
     # Middleware guarantees current_user is set before this handler runs
     current_user = get_current_user()
     if current_user is None:
-        raise RuntimeError(
-            "Invariant violated: current_user is None inside an authenticated handler"
-        )
+        raise RuntimeError("Invariant violated: current_user is None inside an authenticated handler")
     if amount <= 0:
         raise ValueError("amount must be positive")
     ledger.debit(current_user.account_id, amount)
