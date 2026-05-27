@@ -110,3 +110,22 @@ class TestToolSearch:
 
         assert isinstance(result, Command)
         assert len(result.update["loaded_tool_names"]) <= 3
+
+    async def test_select_accepts_json_string_list(self):
+        # Qwen 3.x has been observed to JSON-stringify the `select` array.
+        tools = [_make_tool("github_create_issue", "Create a GitHub issue")]
+        tool_search = make_tool_search(lambda: DeferredToolsIndex(tools), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": '["github_create_issue"]', "runtime": _runtime()})
+
+        assert isinstance(result, Command)
+        assert result.update["loaded_tool_names"] == {"github_create_issue"}
+
+    async def test_select_accepts_bare_string_name(self):
+        tools = [_make_tool("github_create_issue", "Create a GitHub issue")]
+        tool_search = make_tool_search(lambda: DeferredToolsIndex(tools), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": "github_create_issue", "runtime": _runtime()})
+
+        assert isinstance(result, Command)
+        assert result.update["loaded_tool_names"] == {"github_create_issue"}

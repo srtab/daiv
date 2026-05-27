@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Annotated
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
+from pydantic import BeforeValidator
 
 from automation.agent.deferred.state import DeferredToolsState  # noqa: TC001
 
@@ -17,6 +19,21 @@ if TYPE_CHECKING:
 
 TOOL_SEARCH_NAME = "tool_search"
 
+
+def _coerce_select(value: object) -> object:
+    # Some models (observed: Qwen 3.x) JSON-stringify array parameters, sending
+    # `'["gitlab"]'` instead of `["gitlab"]`. Pydantic rejects the string and the
+    # model burns 4+ retries before recovering. Parse a JSON-encoded list back to
+    # a list; treat any other string as a single-name shorthand.
+    if not isinstance(value, str):
+        return value
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError, ValueError:
+        return [value]
+    return parsed if isinstance(parsed, list) else [value]
+
+
 TOOL_SEARCH_DESCRIPTION = """\
 Load deferred tools by exact name or, as a fallback, by keyword search.
 
@@ -24,20 +41,27 @@ Tool names listed in <available-deferred-tools> are deferred — their schemas
 are not loaded by default. Loaded tools remain available for the rest of this
 session.
 
-Prefer `select=[<name>, ...]` with exact names from <available-deferred-tools>
-— that is faster and more precise than a query. Use `query=` only when you
-cannot identify the right tool from the list and want to search by capability.
+Prefer `select` (a JSON array of exact names from <available-deferred-tools>)
+— that is faster and more precise than a query. Use `query` (a keyword string)
+only when you cannot identify the right tool from the list.
 
-Examples:
-  - tool_search(select=["gitlab"])              # preferred when the name is known
-  - tool_search(select=["sentry_find_organizations", "sentry_list_issues"])
-  - tool_search(query="open pull request")      # only when browsing for capability"""
+`select` is an array, never a string. Pass `["gitlab"]`, not `"[\"gitlab\"]"`
+or `"gitlab"` — a string value will be rejected with a validation error.
+
+Examples (parameter values shown in JSON form):
+  - select: ["gitlab"]                                        # preferred when the name is known
+  - select: ["sentry_find_organizations", "sentry_list_issues"]
+  - query: "open pull request"                                # only when browsing by capability"""
 
 
 def make_tool_search(get_index: Callable[[], DeferredToolsIndex], *, top_k_default: int, top_k_max: int) -> BaseTool:
     async def tool_search(
         runtime: ToolRuntime[object, DeferredToolsState],
-        select: Annotated[list[str] | None, "Exact tool names to load. Preferred when the name is known."] = None,
+        select: Annotated[
+            list[str] | None,
+            BeforeValidator(_coerce_select),
+            'JSON array of exact tool names — e.g. ["gitlab"]. Preferred when names are known.',
+        ] = None,
         query: Annotated[str, "Keywords describing the capability. Use only when `select` cannot be used."] = "",
         top_k: Annotated[int | None, "Number of search results to return."] = None,
     ) -> Command:

@@ -86,6 +86,8 @@ SKILLS_SYSTEM_PROMPT = f"""\
 - Only use skills listed in <available_skills> below, but creation is possible
 - Do not invoke a skill that is already running.
 
+**Skill assets:** Each skill lives at `<location>/<skill-name>/` under one of the locations below — **never under the repository working directory**. When a SKILL.md references a relative path like `scripts/foo.py` or `references/bar.md`, the absolute form is `<location>/<skill-name>/scripts/foo.py`. Invoke by that absolute path directly; do not probe the repository for skill assets.
+
 {{skills_locations}}{{skills_load_warnings}}
 
 {{skills_list}}"""  # noqa: E501

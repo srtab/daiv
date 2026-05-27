@@ -625,7 +625,7 @@ async def gitlab_tool(
 
     output = stdout.decode("utf-8").strip()
     if not output:
-        return "Command executed successfully but returned no data"
+        return "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
 
     if resource == "project-job" and splitted_subcommand[1] == "trace":
         # TODO: evict the output to the file system if it's too long
@@ -772,7 +772,7 @@ async def github_tool(
 
     output = stdout.decode("utf-8").strip()
     if not output:
-        output = "Command executed successfully but returned no data"
+        output = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
     elif resource == "run" and action == "view" and "--log" in splitted_subcommand:
         # TODO: evict the output to the file system if it's too long
         output = clean_job_logs(output, runtime.context.git_platform)

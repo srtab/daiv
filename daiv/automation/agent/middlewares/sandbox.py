@@ -150,6 +150,10 @@ Environment awareness:
 - If a command fails with "command not found", do NOT search for the binary (e.g., with `which`, `find`, or `type`) or retry with a different package manager or runner (e.g., switching from `uv` to `pipenv` to raw `python`). Accept the tool is unavailable and verify your changes using other means (linting, type-checking, code review).
 - If a command runs but fails due to missing infrastructure (database connection refused, environment variables, ModuleNotFoundError after dependency install), do not retry with a different approach. The sandbox lacks the required runtime environment — fall back to static verification instead.
 
+Git repository layout:
+- Only the source branch is checked out locally; target branches (e.g., `main`) exist as remote-tracking refs only. Use `origin/<branch>` for any target — `git diff origin/main...HEAD`, not `git diff main...HEAD`. The bare-name form fails with `fatal: ambiguous argument`.
+- Run `git branch -a` if you need to confirm what refs are available.
+
 Safety / boundaries (never do these):
 - Do not access or print secrets/credentials.
 - Do not run destructive or system-level commands.
