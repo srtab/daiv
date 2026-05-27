@@ -2,6 +2,14 @@
 
 @theme {
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+
+  /* Skill usage chart palette — tuned for the dark body background (#030712). */
+  --chart-bar: rgba(255, 255, 255, 0.18);
+  --chart-bar-hover: rgba(255, 255, 255, 0.42);
+  --chart-tick: rgba(255, 255, 255, 0.35);
+  --chart-grid: rgba(255, 255, 255, 0.04);
+  --chart-tooltip-bg: rgba(15, 23, 42, 0.95);
+  --chart-tooltip-fg: rgba(255, 255, 255, 0.92);
 }
 
 @keyframes fade-up {
@@ -1850,12 +1858,24 @@ main:has(.chat-shell) {
   }
 
   .card__title       { @apply block min-w-0 break-words pr-10 text-[15px] font-medium text-white; }
+  .card__count-badge { @apply inline-flex items-center gap-1 self-start text-xs text-gray-500; }
   .card__description { @apply mt-2 text-sm text-gray-400 line-clamp-2; }
   .card__description--lg { @apply line-clamp-4; }
   .card__footer      { @apply mt-auto pt-3 text-xs text-gray-500; }
 
   .card__corner-badge {
-    @apply absolute right-3 top-3 inline-flex items-center rounded-md
+    @apply absolute right-3 top-5 inline-flex items-center rounded-md
            bg-gray-800/50 px-2 py-0.5 text-xs text-gray-400;
+  }
+
+  .skill-usage-chart {
+    @apply relative w-full;
+    min-height: 140px;
+  }
+  .skill-usage-chart canvas {
+    @apply block w-full;
+  }
+  .skill-usage-chart-fallback {
+    @apply mt-3 text-sm text-gray-400;
   }
 }

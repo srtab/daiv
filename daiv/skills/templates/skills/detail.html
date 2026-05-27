@@ -1,9 +1,19 @@
 {% extends "base_app.html" %}
-{% load i18n icon_tags %}
+{% load i18n icon_tags static %}
 
 {% block title %}{{ skill.name }} — {% translate "Skills" %} — DAIV{% endblock %}
 
 {% block container_width %}max-w-4xl{% endblock %}
+
+{% block alpine_plugins %}
+{% if usage.last_30_total > 0 %}
+<script defer
+        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"
+        integrity="sha384-b0GXujLkk9eYYSmcSfoyZbfyElGAQnDyY0skCHSG6w3JgTMFnz11ggrTAr7seu9f"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'skills/js/usage_chart.js' %}"></script>
+{% endif %}
+{% endblock alpine_plugins %}
 
 {% block breadcrumb %}
 {% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
@@ -13,6 +23,7 @@
 <div class="animate-fade-up">
     <div class="flex items-start justify-between gap-4">
         <h1 class="text-2xl font-bold tracking-tight">{{ skill.name }}</h1>
+        {% if source == "global" %}
         <div class="flex shrink-0 items-center gap-2">
             <a href="{% url 'skills:download' skill.name %}"
                class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
@@ -25,8 +36,10 @@
                 {% translate "Delete skill" %}
             </a>
         </div>
+        {% endif %}
     </div>
     <p class="mt-1.5 text-[15px] font-light text-gray-400">{{ skill.description }}</p>
+    {% if source == "global" %}
     <div class="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-500">
         <span>{% translate "Uploaded by" %}</span>
         {% if skill.uploaded_by %}
@@ -37,6 +50,11 @@
         <span>&middot; {{ skill.created|date:"Y-m-d H:i" }}</span>
         <span>&middot; {{ skill.size_bytes|filesizeformat }}</span>
     </div>
+    {% else %}
+    <div class="mt-2 text-xs text-gray-500">
+        <span class="card__corner-badge inline-block">{% translate "Built-in" %}</span>
+    </div>
+    {% endif %}
 </div>
 
 <section x-data="{ expanded: false, overflows: false }"
@@ -70,4 +88,6 @@
         {% endfor %}
     </ul>
 </section>
+
+{% include "skills/_skill_usage.html" %}
 {% endblock app_content %}

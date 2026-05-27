@@ -1,13 +1,17 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 <div class="mt-3">
     {% if builtin_skills %}
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {% for skill in builtin_skills %}
-        <div class="card">
+        <a href="{% url 'skills:detail' skill.name %}" class="card block">
             <span class="card__corner-badge">{% translate "Built-in" %}</span>
             <span class="card__title">{{ skill.name }}</span>
+            <span class="card__count-badge mt-1.5" title="{% translate 'Lifetime invocations' %}">
+                {% icon "bolt" "h-3 w-3" %}
+                {% blocktranslate count counter=skill.invocations_count %}{{ counter }} invocation{% plural %}{{ counter }} invocations{% endblocktranslate %}
+            </span>
             <p class="card__description card__description--lg">{{ skill.description }}</p>
-        </div>
+        </a>
         {% endfor %}
     </div>
     {% else %}
