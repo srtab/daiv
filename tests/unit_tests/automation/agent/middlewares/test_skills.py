@@ -1129,8 +1129,15 @@ class TestSkillToolRecordsInvocation:
         }
 
         skill_tool = middleware.tools[0]
+        # _classify_source consults GlobalSkill.aexists() to disambiguate an
+        # override from a built-in of the same name; stub it so this test does
+        # not require DB access.
+        from unittest.mock import MagicMock
+
+        no_override = MagicMock(aexists=AsyncMock(return_value=False))
         with (
             patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"code-review"})),
+            patch("skills.services.GlobalSkill.objects.filter", return_value=no_override),
             patch("skills.services.SkillInvocation.objects.acreate", new=AsyncMock(return_value=None)) as mock_acreate,
         ):
             # The deepagents backend's adownload_files needs a stub since we never wrote the

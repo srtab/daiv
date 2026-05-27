@@ -27,7 +27,15 @@
                 </div>
             </div>
 
-            <span class="card__title">{{ skill.name }}</span>
+            <span class="card__title flex items-center gap-1.5">
+                <span class="min-w-0 break-words">{{ skill.name }}</span>
+                {% if skill.overrides_builtin %}
+                <span class="inline-flex shrink-0 text-amber-400"
+                      title="{% translate 'Overrides built-in' %}">
+                    {% icon "exclamation-triangle" "h-4 w-4" %}
+                </span>
+                {% endif %}
+            </span>
             <span class="card__count-badge mt-1.5" title="{% translate 'Lifetime invocations' %}">
                 {% icon "bolt" "h-3 w-3" %}
                 {% blocktranslate count counter=skill.invocations_count %}{{ counter }} invocation{% plural %}{{ counter }} invocations{% endblocktranslate %}

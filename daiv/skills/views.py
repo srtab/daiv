@@ -41,8 +41,13 @@ class SkillListView(AdminRequiredMixin, TemplateView):
             for row in (SkillInvocation.objects.values("name", "source").annotate(c=Count("id")))
         }
 
+        custom_names = {skill.name for skill in custom_skills}
         for skill in custom_skills:
             skill.invocations_count = counts.get((skill.name, SkillInvocation.Source.GLOBAL), 0)
+            skill.overrides_builtin = skill.name in BUILTIN_SKILL_NAMES
+        # A custom upload shadows the built-in of the same name; drop the
+        # shadowed entry so the list shows only the active skill.
+        builtin_skills = [entry for entry in builtin_skills if entry["name"] not in custom_names]
         for entry in builtin_skills:
             entry["invocations_count"] = counts.get((entry["name"], SkillInvocation.Source.BUILTIN), 0)
 
@@ -109,9 +114,13 @@ class SkillDetailView(AdminRequiredMixin, View):
     http_method_names = ["get"]
 
     def get(self, request, name):
+        # Custom global skills shadow built-ins of the same name at runtime;
+        # render the override so admins see the skill actually being invoked.
+        if GlobalSkill.objects.filter(name=name).exists():
+            return self._render_global(request, name)
         if name in BUILTIN_SKILL_NAMES:
             return self._render_builtin(request, name)
-        return self._render_global(request, name)
+        raise Http404("skill not found")
 
     def _render_builtin(self, request, name):
         root = BUILTIN_SKILLS_PATH / name

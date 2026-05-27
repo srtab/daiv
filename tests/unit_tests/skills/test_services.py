@@ -4,7 +4,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from skills.models import SkillInvocation
+from skills.models import GlobalSkill, SkillInvocation
 from skills.services import _classify_source, list_builtins
 
 
@@ -21,21 +21,39 @@ def test_list_builtins_returns_dicts_with_name_and_description():
         assert isinstance(entry["description"], str)
 
 
-def test_classify_source_builtin_takes_priority():
-    # Even when the path is under /skills/, a name in BUILTIN_SKILL_NAMES is built-in.
+@pytest.mark.django_db(transaction=True)
+async def test_classify_source_builtin_when_no_override_row():
+    # No GlobalSkill row for this name → built-in resolution wins.
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"code-review"})):
-        assert _classify_source("code-review", "/skills/code-review/SKILL.md") == SkillInvocation.Source.BUILTIN
+        assert await _classify_source("code-review", "/skills/code-review/SKILL.md") == SkillInvocation.Source.BUILTIN
 
 
-def test_classify_source_global_when_path_under_global_skills_path():
+@pytest.mark.django_db(transaction=True)
+async def test_classify_source_global_overrides_builtin_when_row_exists():
+    """When a custom global skill shadows a built-in of the same name, the
+    invocation must be classified GLOBAL — that's the version the agent actually
+    ran. Classifying as BUILTIN here would split the counts and hide overrides
+    from telemetry."""
+    await GlobalSkill.objects.acreate(name="code-review", description="x", size_bytes=1, file_count=1, checksum="c")
+    with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"code-review"})):
+        assert await _classify_source("code-review", "/skills/code-review/SKILL.md") == SkillInvocation.Source.GLOBAL
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_classify_source_global_when_path_under_global_skills_path():
+    await GlobalSkill.objects.acreate(name="custom-thing", description="x", size_bytes=1, file_count=1, checksum="c")
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()):
-        assert _classify_source("custom-thing", "/skills/custom-thing/SKILL.md") == SkillInvocation.Source.GLOBAL
+        assert await _classify_source("custom-thing", "/skills/custom-thing/SKILL.md") == SkillInvocation.Source.GLOBAL
 
 
-def test_classify_source_repo_when_path_outside_global_skills_path():
-    with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()):
+@pytest.mark.django_db(transaction=True)
+async def test_classify_source_repo_when_path_outside_global_skills_path():
+    # Pin the invariant that GLOBAL_SKILLS_PATH is the only gate to BUILTIN —
+    # a per-repo skill whose name happens to match a built-in must still be
+    # classified REPO, so per-repo overrides aren't mis-attributed in telemetry.
+    with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"repo-skill"})):
         assert (
-            _classify_source("repo-skill", "/workspace/repo/.agents/skills/repo-skill/SKILL.md")
+            await _classify_source("repo-skill", "/workspace/repo/.agents/skills/repo-skill/SKILL.md")
             == SkillInvocation.Source.REPO
         )
 
