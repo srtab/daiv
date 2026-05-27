@@ -242,16 +242,19 @@ def test_download_404_when_zip_missing(client, admin_user, storage):
 
 
 @pytest.mark.django_db
-def test_upload_refuses_builtin_name(client, admin_user, storage, build_skill_zip, monkeypatch):
-    """Uploading a skill whose name collides with a built-in must be rejected with an inline error."""
+def test_upload_allows_overriding_builtin(client, admin_user, storage, build_skill_zip, monkeypatch):
+    """Uploading a skill with the same name as a built-in must succeed — the custom
+    upload shadows the built-in at runtime, matching how per-repo skills already
+    override builtins."""
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
     client.force_login(admin_user)
-    data = build_skill_zip(skill_name="demo")
+    data = build_skill_zip(skill_name="demo", description="my override")
     uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
     resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
-    assert resp.status_code == 200
-    assert b"built-in" in resp.content.lower()
-    assert not GlobalSkill.objects.filter(name="demo").exists()
+    assert resp.status_code == 302
+    assert resp.url == reverse("skills:list")
+    assert GlobalSkill.objects.get(name="demo").description == "my override"
 
 
 @pytest.mark.django_db
@@ -472,6 +475,48 @@ def test_detail_view_builtin_missing_skill_md_logs_and_404s(admin_client, tmp_pa
     response = admin_client.get(reverse("skills:detail", args=["broken"]))
     assert response.status_code == 404
     assert any("missing SKILL.md" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.django_db
+def test_detail_view_prefers_global_override_over_builtin(
+    admin_client, admin_user, storage, build_skill_zip, monkeypatch
+):
+    """When a custom global skill shadows a built-in, the detail page must render the
+    custom one — that's the skill the agent actually runs."""
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    data = build_skill_zip(skill_name="plan", description="my override")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    response = admin_client.get(reverse("skills:detail", args=["plan"]))
+    assert response.status_code == 200
+    assert response.context["source"] == "global"
+    assert response.context["skill"].description == "my override"
+
+
+@pytest.mark.django_db
+def test_list_hides_shadowed_builtin_and_marks_override(
+    admin_client, admin_user, storage, build_skill_zip, monkeypatch, request
+):
+    """A custom upload that shadows a built-in must (1) drop the built-in entry from
+    the built-in list so only the active skill is shown, and (2) flag the custom row
+    so the template can render an 'Overrides built-in' badge."""
+    from skills.services import list_builtins
+
+    list_builtins.cache_clear()
+    request.addfinalizer(list_builtins.cache_clear)
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+
+    data = build_skill_zip(skill_name="plan", description="override")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    response = admin_client.get(reverse("skills:list"))
+    builtin_names = [entry["name"] for entry in response.context["builtin_skills"]]
+    assert "plan" not in builtin_names
+
+    custom_row = next(s for s in response.context["custom_skills"] if s.name == "plan")
+    assert custom_row.overrides_builtin is True
 
 
 @pytest.mark.django_db
