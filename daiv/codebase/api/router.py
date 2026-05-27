@@ -9,7 +9,9 @@ from codebase.clients import RepoClient
 router = Router(tags=["codebase"])
 
 
-@router.get("/repositories/search", response=list[RepositorySearchResult], auth=django_auth)
+@router.get(
+    "/repositories/search", response=list[RepositorySearchResult], auth=django_auth, url_name="search_repositories"
+)
 def search_repositories(request: HttpRequest, q: str = "") -> list[RepositorySearchResult]:
     """Search repositories by name for autocomplete."""
     if len(q) < 2:

@@ -50,7 +50,6 @@ class TestSubmitBatchRunsSync:
                 user=member_user,
                 prompt="do it",
                 repos=[RepoTarget(repo_id="a/b", ref="")],
-                use_max=False,
                 notify_on=None,
                 trigger_type=TriggerType.UI_JOB,
             )
@@ -65,7 +64,9 @@ class TestSubmitBatchRunsSync:
         assert enqueue_kwargs["repo_id"] == "a/b"
         assert enqueue_kwargs["prompt"] == "do it"
         assert enqueue_kwargs["ref"] is None
-        assert enqueue_kwargs["use_max"] is False
+        assert enqueue_kwargs["agent_model"] is None
+        assert enqueue_kwargs["agent_thinking_level"] is None
+        assert "use_max" not in enqueue_kwargs
         assert enqueue_kwargs["thread_id"] == result.activities[0].thread_id
 
     def test_five_repos_creates_five_activities_sharing_batch_id(self, member_user):
@@ -79,12 +80,7 @@ class TestSubmitBatchRunsSync:
             m_task.aenqueue = _aenqueue
             repos = [RepoTarget(repo_id=f"o/r{i}", ref="dev" if i % 2 else "") for i in range(5)]
             result = submit_batch_runs(
-                user=member_user,
-                prompt="p",
-                repos=repos,
-                use_max=False,
-                notify_on=None,
-                trigger_type=TriggerType.UI_JOB,
+                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=TriggerType.UI_JOB
             )
 
         assert len(result.activities) == 5
@@ -103,12 +99,7 @@ class TestSubmitBatchRunsSync:
         repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(21)]
         with pytest.raises(ValueError):
             submit_batch_runs(
-                user=member_user,
-                prompt="p",
-                repos=repos,
-                use_max=False,
-                notify_on=None,
-                trigger_type=TriggerType.UI_JOB,
+                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=TriggerType.UI_JOB
             )
 
     def test_partial_enqueue_failure_is_best_effort(self, member_user):
@@ -128,12 +119,7 @@ class TestSubmitBatchRunsSync:
                 RepoTarget(repo_id="o/c", ref=""),
             ]
             result = submit_batch_runs(
-                user=member_user,
-                prompt="p",
-                repos=repos,
-                use_max=False,
-                notify_on=None,
-                trigger_type=TriggerType.UI_JOB,
+                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=TriggerType.UI_JOB
             )
 
         assert len(result.activities) == 2
@@ -174,12 +160,7 @@ class TestSubmitBatchRunsSync:
                 RepoTarget(repo_id="o/c", ref=""),
             ]
             result = submit_batch_runs(
-                user=member_user,
-                prompt="p",
-                repos=repos,
-                use_max=False,
-                notify_on=None,
-                trigger_type=TriggerType.UI_JOB,
+                user=member_user, prompt="p", repos=repos, notify_on=None, trigger_type=TriggerType.UI_JOB
             )
 
         assert len(result.activities) == 2
@@ -205,7 +186,6 @@ class TestSubmitBatchRunsSync:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="x/y", ref="")],
-                use_max=False,
                 notify_on=None,
                 trigger_type=TriggerType.SCHEDULE,
                 scheduled_job=schedule,
@@ -227,7 +207,6 @@ class TestAsubmitBatchRuns:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="a/b", ref="")],
-                use_max=False,
                 notify_on=None,
                 trigger_type=TriggerType.API_JOB,
             )
@@ -248,12 +227,7 @@ class TestBatchTitleEnqueue:
             m_task.aenqueue = _aenqueue
             repos = [RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(4)]
             result = submit_batch_runs(
-                user=member_user,
-                prompt="add login",
-                repos=repos,
-                use_max=False,
-                notify_on=None,
-                trigger_type=TriggerType.UI_JOB,
+                user=member_user, prompt="add login", repos=repos, notify_on=None, trigger_type=TriggerType.UI_JOB
             )
 
         assert len(result.activities) == 4
@@ -280,7 +254,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="x/y", ref="")],
-                use_max=False,
                 notify_on=None,
                 trigger_type=TriggerType.SCHEDULE,
                 scheduled_job=schedule,
@@ -297,7 +270,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="p",
                 repos=[RepoTarget(repo_id="o/r", ref="")],
-                use_max=False,
                 notify_on=None,
                 trigger_type=TriggerType.UI_JOB,
             )
@@ -318,7 +290,6 @@ class TestBatchTitleEnqueue:
                 user=member_user,
                 prompt="add login",
                 repos=[RepoTarget(repo_id=f"o/r{i}", ref="") for i in range(3)],
-                use_max=False,
                 notify_on=None,
                 trigger_type=TriggerType.UI_JOB,
             )

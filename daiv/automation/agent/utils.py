@@ -15,6 +15,7 @@ from core.site_settings import site_settings
 from core.utils import extract_valid_image_mimetype, is_valid_url
 
 from .schemas import Image
+from .validators import AgentConfigurationError
 
 if TYPE_CHECKING:
     from langchain_core.messages import ImageContentBlock
@@ -211,27 +212,49 @@ def extract_text_content(content: str | list) -> str:
     return str(content)
 
 
-def get_daiv_agent_kwargs(*, model_config: AgentModelConfig, use_max: bool = False) -> dict[str, Any]:
+def get_daiv_agent_kwargs(
+    *,
+    model_config: AgentModelConfig,
+    agent_model: str | None = None,
+    agent_thinking_level: str | None = None,
+    use_max: bool = False,
+) -> dict[str, Any]:
+    """Resolve model + thinking config for an agent run.
+
+    Precedence (highest to lowest):
+
+    1. ``agent_model`` (user override) → primary model is the override; the repo's
+       configured model is prepended to the fallback chain so the run degrades to
+       the repo default on provider outage. Thinking comes from ``agent_thinking_level``
+       if set, else from the repo config.
+    2. ``use_max`` (webhook-only, ``daiv-max`` label) → ``site_settings.agent_max_*``.
+       ``agent_thinking_level`` is ignored on this branch.
+    3. No override and not ``use_max`` → ``site_settings.agent_model_name`` (system
+       default) with ``site_settings.agent_fallback_model_name`` as the provider-outage
+       safety net. Raises :class:`AgentConfigurationError` when no system default is
+       configured — callers are expected to either supply ``agent_model`` or surface
+       the error so an admin sees the missing configuration.
     """
-    Get DAIV agent configuration based on models configuration and use max models configuration.
-
-    Args:
-        model_config (DAIVModelConfig): The models configuration.
-        use_max (bool): Whether to use the max models configuration.
-
-    Returns:
-        dict[str, Any]: Configuration kwargs for DAIVAgent.
-    """
-    model = model_config.model
-    fallback_models = [model_config.fallback_model]
-    thinking_level = model_config.thinking_level
-
+    if agent_model:
+        return {
+            "model_names": [agent_model, model_config.model, model_config.fallback_model],
+            "thinking_level": agent_thinking_level or model_config.thinking_level,
+        }
     if use_max:
-        model = site_settings.agent_max_model_name
-        fallback_models = [model_config.model, model_config.fallback_model]
-        thinking_level = site_settings.agent_max_thinking_level
-
-    return {"model_names": [model] + fallback_models, "thinking_level": thinking_level}
+        return {
+            "model_names": [site_settings.agent_max_model_name, model_config.model, model_config.fallback_model],
+            "thinking_level": site_settings.agent_max_thinking_level,
+        }
+    default_model = site_settings.agent_model_name
+    if not default_model:
+        raise AgentConfigurationError(
+            "No agent model configured. Set the system default (DAIV_AGENT_MODEL_NAME / "
+            "site settings) or pass an explicit `agent_model` override."
+        )
+    return {
+        "model_names": [default_model, site_settings.agent_fallback_model_name],
+        "thinking_level": agent_thinking_level or site_settings.agent_thinking_level,
+    }
 
 
 def build_langsmith_config(

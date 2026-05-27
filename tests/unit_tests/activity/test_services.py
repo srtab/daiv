@@ -247,6 +247,51 @@ class TestThreadContinuation:
         assert activity.task_result_id is None
         mock_task.aenqueue.assert_not_called()
 
+    async def test_asubmit_batch_runs_stores_and_forwards_overrides(self, member_user):
+        """The override pair must round-trip onto Activity and onto run_job_task.aenqueue.
+
+        Empty-string defaults are converted to ``None`` at the ``run_job_task.aenqueue``
+        boundary (matching its ``str | None`` signature); explicit values flow through
+        unchanged and ``use_max`` must NOT be forwarded.
+        """
+        fake_task = await _make_db_task_result()
+        patcher, mock_task = _patch_run_job_task()
+        mock_task.aenqueue.return_value = fake_task
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="do thing",
+                repos=[RepoTarget(repo_id="acme/x", ref="main")],
+                agent_model="openrouter:anthropic/claude-haiku-4.5",
+                agent_thinking_level="low",
+                trigger_type=TriggerType.UI_JOB,
+            )
+
+        assert result.activities[0].agent_model == "openrouter:anthropic/claude-haiku-4.5"
+        assert result.activities[0].agent_thinking_level == "low"
+        enqueue_kwargs = mock_task.aenqueue.call_args.kwargs
+        assert enqueue_kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+        assert enqueue_kwargs["agent_thinking_level"] == "low"
+        assert "use_max" not in enqueue_kwargs
+
+    async def test_asubmit_batch_runs_empty_overrides_pass_none_to_aenqueue(self, member_user):
+        """Default empty-string overrides must surface as ``None`` at the task boundary."""
+        fake_task = await _make_db_task_result()
+        patcher, mock_task = _patch_run_job_task()
+        mock_task.aenqueue.return_value = fake_task
+        with patcher:
+            await asubmit_batch_runs(
+                user=member_user,
+                prompt="do thing",
+                repos=[RepoTarget(repo_id="acme/x", ref="")],
+                trigger_type=TriggerType.UI_JOB,
+            )
+
+        enqueue_kwargs = mock_task.aenqueue.call_args.kwargs
+        assert enqueue_kwargs["agent_model"] is None
+        assert enqueue_kwargs["agent_thinking_level"] is None
+        assert "use_max" not in enqueue_kwargs
+
     async def test_enqueue_failure_marks_failed_with_audit_and_releases_queued_sibling(self, member_user):
         """When the new READY row's enqueue raises, the row must transition to FAILED with
         ``finished_at`` and a ``enqueue_failed:`` error_message, and an existing QUEUED sibling

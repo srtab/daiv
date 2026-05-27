@@ -2,7 +2,7 @@
  * Shared Alpine.js component for async repository search via x-combobox.
  *
  * Usage:
- *   <div x-data="repoSearch('initial/value')">
+ *   <div x-data="repoSearch('initial/value', '{% url 'api:search_repositories' %}')">
  *     <div x-combobox x-model="selected" @change="..." nullable>
  *       <input type="text" x-combobox:input
  *              :display-value="v => v || ''"
@@ -12,8 +12,9 @@
  *   </div>
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("repoSearch", (initial = "") => ({
+    Alpine.data("repoSearch", (initial = "", searchUrl = "") => ({
         selected: initial || null,
+        searchUrl,
         results: [],
         isLoading: false,
         _timer: null,
@@ -34,7 +35,7 @@ document.addEventListener("alpine:init", () => {
             this.isLoading = true;
             try {
                 const resp = await fetch(
-                    "/api/codebase/repositories/search?q=" + encodeURIComponent(query),
+                    this.searchUrl + "?q=" + encodeURIComponent(query),
                     { signal: this._controller.signal }
                 );
                 this.results = resp.ok ? await resp.json() : [];

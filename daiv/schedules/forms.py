@@ -35,7 +35,8 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
             "cron_expression",
             "time",
             "run_at",
-            "use_max",
+            "agent_model",
+            "agent_thinking_level",
             "notify_on",
             "subscribers",
             "sandbox_environment",
@@ -86,7 +87,8 @@ class ScheduleTemplateForm(forms.ModelForm):
             "frequency",
             "cron_expression",
             "time",
-            "use_max",
+            "agent_model",
+            "agent_thinking_level",
             "notify_on",
         ]
 

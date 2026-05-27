@@ -14,6 +14,7 @@ from unidiff.patch import Line
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
+from automation.agent.validators import AgentConfigurationError
 from codebase.base import (
     GitPlatform,
     MergeRequest,
@@ -249,6 +250,13 @@ class CommentsAddressorManager(BaseManager):
 
         try:
             return await manager._address_comments()
+        except AgentConfigurationError as err:
+            logger.warning("review_addressor: %s", err)
+            manager._leave_comment(
+                f"@{manager.merge_request.author.username} I can't run yet: {err}",
+                reply_to_id=manager.mention_comment_id if manager.ctx.git_platform == GitPlatform.GITLAB else None,
+            )
+            raise
         except Exception:
             manager._add_unable_to_address_review_note()
             raise

@@ -4,6 +4,9 @@ from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
 from ninja import Field, Schema
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime by Pydantic
+from pydantic import ConfigDict
+
+from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
 
 
 class RepoSubmitItem(Schema):
@@ -12,9 +15,15 @@ class RepoSubmitItem(Schema):
 
 
 class JobSubmitRequest(Schema):
+    # ``extra="forbid"`` so a stale client that still sends ``use_max`` (or any
+    # other dropped field) gets a clear 422 instead of a silent strip and a
+    # 202 that runs on the default model.
+    model_config = ConfigDict(extra="forbid")
+
     repos: list[RepoSubmitItem] = Field(min_length=1, max_length=20)
     prompt: str = Field(min_length=1)
-    use_max: bool = False
+    agent_model: str | None = None
+    agent_thinking_level: ThinkingLevelChoices | None = None
     notify_on: NotifyOn | None = None
     environment: str | None = None
     thread_id: UUID | None = None

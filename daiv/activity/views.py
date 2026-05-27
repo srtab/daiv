@@ -27,6 +27,7 @@ from activity.filters import ActivityFilter
 from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import RepoTarget, submit_batch_runs
+from automation.agent.picker_context import agent_picker_context
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.activity")
@@ -280,7 +281,8 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             initial.update({
                 "prompt": source.prompt,
                 "repos": [{"repo_id": source.repo_id, "ref": source.ref}],
-                "use_max": source.use_max,
+                "agent_model": source.agent_model,
+                "agent_thinking_level": source.agent_thinking_level,
             })
         return initial
 
@@ -288,6 +290,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         ctx = super().get_context_data(**kwargs)
         ctx["source_activity"] = self._get_source_activity()
         ctx.update(env_picker_context(ctx["form"]))
+        ctx.update(agent_picker_context(ctx["form"]))
         return ctx
 
     def get_form_kwargs(self):
@@ -304,7 +307,8 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 user=self.request.user,
                 prompt=form.cleaned_data["prompt"],
                 repos=repos,
-                use_max=form.cleaned_data["use_max"],
+                agent_model=form.cleaned_data["agent_model"],
+                agent_thinking_level=form.cleaned_data["agent_thinking_level"],
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=TriggerType.UI_JOB,
             )

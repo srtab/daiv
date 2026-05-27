@@ -16,6 +16,15 @@ Parameters:
                                   first turn). Caller must pass `selected_env` (the resolved env object,
                                   or None for Auto) since the locked render doesn't ship the envs list.
 - selected_env (default None)   — pre-resolved env object for the locked render only.
+- dynamic_label_expr (default "") — Alpine expression read via ``x-text`` to override the locked pill's
+                                  name. Set by callers whose surrounding scope tracks the just-committed
+                                  selection (e.g. the chat composer, where the partial first renders
+                                  before the thread exists, so the static "Auto" sticks even after the
+                                  user picked an env). The expression must resolve to a non-empty string;
+                                  contributing a fallback ("Auto") is the caller's job.
+- dynamic_scope_expr (default "") — Alpine expression read via ``x-text``/``x-show``/``:class`` for the
+                                  scope tag next to the name. Resolves to the env's scope ("user" /
+                                  "shared" / "global"), or "" to hide the tag.
 {% endcomment %}
 
 {% if disabled %}
@@ -28,8 +37,13 @@ Parameters:
             <path d="M3.27 6.96L12 12.01l8.73-5.05"/>
             <path d="M12 22.08V12"/>
         </svg>
-        <span class="env-pill__name">{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
-        {% if selected_env %}
+        <span class="env-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if selected_env %}{{ selected_env.name }}{% else %}{% translate "Auto" %}{% endif %}</span>
+        {% if dynamic_scope_expr %}
+        <span class="env-pill__scope-tag"
+              x-show="{{ dynamic_scope_expr }}" x-cloak
+              :class="{{ dynamic_scope_expr }} ? 'env-pill__scope-tag--' + {{ dynamic_scope_expr }} : ''"
+              x-text="{{ dynamic_scope_expr }}"></span>
+        {% elif selected_env %}
         <span class="env-pill__scope-tag env-pill__scope-tag--{{ selected_env.scope }}">{{ selected_env.scope }}</span>
         {% endif %}
         <svg class="env-pill__lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

@@ -15,8 +15,10 @@ from pydantic import BaseModel, Field
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 
+from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.clients import RepoClient
 from core.conf import settings as core_settings
+from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
 from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
 
 if TYPE_CHECKING:
@@ -91,9 +93,23 @@ async def submit_job(
             )
         ),
     ],
-    use_max: Annotated[
-        bool, Field(description="Use the max model configuration (more capable model with thinking set to high).")
-    ] = False,
+    agent_model: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Model override as 'provider_slug:model_name' (e.g. "
+                "'openrouter:anthropic/claude-sonnet-4.6'). Provider slug must match "
+                "an enabled Provider row. Omit to use the system default; the call is "
+                "refused when no system default is configured."
+            )
+        ),
+    ] = None,
+    agent_thinking_level: Annotated[
+        ThinkingLevelChoices | None,
+        Field(
+            description="Optional thinking effort: minimal/low/medium/high. Omit to inherit from the system default."
+        ),
+    ] = None,
     notify_on: Annotated[
         NotifyOn | None,
         Field(
@@ -170,6 +186,12 @@ async def submit_job(
             )
         })
 
+    try:
+        agent_model, agent_thinking_level = validate_agent_override(agent_model, agent_thinking_level)
+        ensure_agent_model_available(agent_model)
+    except AgentOverrideError as err:
+        return json.dumps({"error": str(err)})
+
     thread_id_str: str | None = None
     if thread_id is not None:
         # FastMCP's protocol layer coerces to UUID via Pydantic; direct callers (tests, in-process
@@ -198,7 +220,8 @@ async def submit_job(
         user=mcp_user,
         prompt=prompt,
         repos=targets,
-        use_max=use_max,
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
         notify_on=notify_on,
         trigger_type=TriggerType.MCP_JOB,
         thread_id=thread_id_str,

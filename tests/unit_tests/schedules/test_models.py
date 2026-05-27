@@ -222,7 +222,8 @@ class TestScheduledJobToScheduleKwargs:
             repos=[{"repo_id": "x/y", "ref": ""}],
             frequency=Frequency.ONCE,
             run_at=future,
-            use_max=True,
+            agent_model="openrouter:anthropic/claude-opus-4.6",
+            agent_thinking_level="high",
             notify_on=NotifyOn.ALWAYS,
         )
         kwargs = job.to_schedule_kwargs()
@@ -234,7 +235,8 @@ class TestScheduledJobToScheduleKwargs:
             "cron_expression": "",
             "time": None,
             "run_at": future,
-            "use_max": True,
+            "agent_model": "openrouter:anthropic/claude-opus-4.6",
+            "agent_thinking_level": "high",
             "notify_on": NotifyOn.ALWAYS,
         }
 

@@ -14,6 +14,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
+from skills.services import _record_invocation
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
@@ -441,6 +442,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             }
             if skill_mode:
                 update["active_skill_mode"] = skill_mode
+
+            await _record_invocation(name=skill, skill_path=loaded_skill["path"], runtime=runtime)
 
             return Command(update=update)
 
