@@ -1858,13 +1858,13 @@ main:has(.chat-shell) {
   }
 
   .card__title       { @apply block min-w-0 break-words pr-10 text-[15px] font-medium text-white; }
-  .card__count-badge { @apply inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-xs text-gray-300; }
+  .card__count-badge { @apply inline-flex items-center gap-1 self-start text-xs text-gray-500; }
   .card__description { @apply mt-2 text-sm text-gray-400 line-clamp-2; }
   .card__description--lg { @apply line-clamp-4; }
   .card__footer      { @apply mt-auto pt-3 text-xs text-gray-500; }
 
   .card__corner-badge {
-    @apply absolute right-3 top-3 inline-flex items-center rounded-md
+    @apply absolute right-3 top-5 inline-flex items-center rounded-md
            bg-gray-800/50 px-2 py-0.5 text-xs text-gray-400;
   }
 

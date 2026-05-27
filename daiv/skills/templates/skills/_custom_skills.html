@@ -27,12 +27,11 @@
                 </div>
             </div>
 
-            <div class="flex items-baseline gap-1.5">
-                <span class="card__title">{{ skill.name }}</span>
-                <span class="card__count-badge" title="{% translate 'Lifetime invocations' %}">
-                    {{ skill.invocations_count }}
-                </span>
-            </div>
+            <span class="card__title">{{ skill.name }}</span>
+            <span class="card__count-badge mt-1.5" title="{% translate 'Lifetime invocations' %}">
+                {% icon "bolt" "h-3 w-3" %}
+                {% blocktranslate count counter=skill.invocations_count %}{{ counter }} invocation{% plural %}{{ counter }} invocations{% endblocktranslate %}
+            </span>
             <p class="card__description">{{ skill.description }}</p>
 
             <div class="mt-3">
