@@ -91,7 +91,7 @@ Fields:
 ### Step 1 — Acquire context and dedup state
 
 - Read `merge_request_id`, project, and the SHA triplet from the runtime merge-request context. If any field is missing, demote to interactive mode and return markdown.
-- List existing discussions on the MR with `gitlab project-merge-request-discussion list --mr-iid <iid>` and pipe the JSON into `scripts/marker.py parse-notes`. It returns:
+- Call the `gitlab` tool with `project-merge-request-discussion list --mr-iid <iid>` to list existing discussions on the MR. Then, in a separate `bash` call, feed that JSON to `scripts/marker.py parse-notes` on stdin (e.g. `echo '<json>' | python3 scripts/marker.py parse-notes`). The `gitlab` tool is not callable from `bash`, so you cannot compose the two with a shell pipe in a single call. `parse-notes` accepts no flags — its sole input is the discussion JSON on stdin. It returns:
   ```json
   {"inline_fingerprints": [["inline", "<archetype>", "<file>", "<anchor>"], ...],
    "summary": {"discussion_id": "...", "note_id": ...} | null,
