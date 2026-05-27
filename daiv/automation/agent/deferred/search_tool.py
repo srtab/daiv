@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING, Annotated
 
 from langchain.tools import ToolRuntime, tool
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
 
     from automation.agent.deferred.index import DeferredToolsIndex
 
+logger = logging.getLogger("daiv.tools")
+
 TOOL_SEARCH_NAME = "tool_search"
 
 
@@ -25,13 +28,22 @@ def _coerce_select(value: object) -> object:
     # `'["gitlab"]'` instead of `["gitlab"]`. Pydantic rejects the string and the
     # model burns 4+ retries before recovering. Parse a JSON-encoded list back to
     # a list; treat any other string as a single-name shorthand.
+    #
+    # The shorthand path emits a debug log so operators can spot a model that
+    # routinely mis-serializes — the downstream "None of the requested names
+    # are deferred tools" branch is the user-facing signal, but it doesn't
+    # distinguish "asked for a name that doesn't exist" from "model sent garbage".
     if not isinstance(value, str):
         return value
     try:
         parsed = json.loads(value)
-    except json.JSONDecodeError, ValueError:
+    except json.JSONDecodeError:
+        logger.debug("tool_search: coercing non-JSON `select=%r` to single-name list", value)
         return [value]
-    return parsed if isinstance(parsed, list) else [value]
+    if isinstance(parsed, list):
+        return parsed
+    logger.debug("tool_search: coercing non-list JSON `select=%r` (parsed=%r) to single-name list", value, parsed)
+    return [value]
 
 
 TOOL_SEARCH_DESCRIPTION = """\

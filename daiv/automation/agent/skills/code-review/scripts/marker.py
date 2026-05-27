@@ -53,7 +53,7 @@ def build_marker(
             "kind": "inline",
             "archetype": archetype,
             "file": file,
-            "line": int(line),
+            "line": line,
             "anchor": anchor,
             "sha": sha,
         }
@@ -77,7 +77,12 @@ def parse_marker(body: str) -> dict | None:
     json_str = first_line[len(MARKER_PREFIX) : -len(MARKER_SUFFIX)]
     try:
         payload = json.loads(json_str)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        # Prefix matched but JSON is malformed — surface the corruption rather
+        # than silently dropping the marker; otherwise the same finding would
+        # be re-posted on the next review (no fingerprint match against a
+        # corrupted prior note).
+        sys.stderr.write(f"warning: corrupt daiv-cr marker, skipping: {exc}\n")
         return None
     if not isinstance(payload, dict) or payload.get("v") != 1:
         return None
