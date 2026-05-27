@@ -145,7 +145,9 @@ For each candidate finding, classify the fix as one of these **inline-eligible**
 - `replace_with_constant`
 - `swap_library_call`
 
-If the fix is one of those AND fits in one or a few contiguous lines AND has a concrete suggested replacement, it's **inline**. Anything else (structural concerns spanning multiple lines or files, questions, renames that propagate to call sites, anything that needs prose to land) is **discussion-only**.
+If the fix is one of those AND can be expressed as a `suggestion` block replacing a contiguous range of new-side lines within a single hunk, it's **inline**. The range may cover several lines (use `suggestion:-N+M`) — what matters is that it's one contiguous hunk replacement, not that only one line changes. Lines inside the range that don't change are restated verbatim in the suggestion. For example, a finding that the same expression is computed twice across a 4-line block is still inline: the suggestion replaces all 4 lines, restating the ones that stay.
+
+Demote to **discussion-only** only when no clean inline patch exists: the change spans multiple files or non-adjacent hunks, requires prose to land (e.g., "this module needs restructuring"), is a question, or is a rename that propagates to call sites.
 
 A rename is *not* inline-eligible: a `suggestion` block can only patch the declaration, not the call sites, so a rename-as-inline ships a half-truth. Renames go in the summary.
 
