@@ -376,6 +376,22 @@ class TestActivityDetailView:
         assert ">Model<" in body_max
         assert ">Max<" in body_max
 
+    def test_rail_context_shows_agent_model_pill_when_override_set(self, logged_in_client, user):
+        """When ``agent_model`` is set, the badge takes precedence over the legacy
+        ``use_max`` flag and surfaces the chosen model (provider prefix stripped)
+        plus the human label of ``agent_thinking_level``."""
+        activity = _create_activity(
+            user=user, use_max=False, agent_model="anthropic:claude-opus-4-5", agent_thinking_level="high"
+        )
+        body = self._get(logged_in_client, activity).content.decode()
+        assert ">Model<" in body
+        # Provider prefix is stripped by the ``|cut:":"`` filter.
+        assert "claude-opus-4-5" in body
+        # Effort uses the choice label ("High"), not the raw value.
+        assert "High" in body
+        # Legacy ``Max`` text must NOT appear when ``agent_model`` wins.
+        assert ">Max<" not in body
+
     def test_rail_context_hides_owner_for_non_admin(self, logged_in_client, user):
         activity = _create_activity(user=user)
         body = self._get(logged_in_client, activity).content.decode()

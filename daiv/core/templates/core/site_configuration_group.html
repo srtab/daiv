@@ -50,7 +50,9 @@
             {% for field_name in active_group.fields %}
                 {% if field_name != active_group.toggle_field %}
                 {% with bf=form|get_field:field_name %}
-                {% if bf %}
+                {# ``is_rendered_inline`` is set by the form for thinking-level fields whose UI #}
+                {# is provided by the paired model picker's effort dots — skip the loop's row. #}
+                {% if bf and not bf.field.is_rendered_inline %}
                 {% include bf.field.template_name with field=bf %}
                 {% endif %}
                 {% endwith %}

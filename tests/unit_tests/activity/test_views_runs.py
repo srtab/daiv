@@ -52,12 +52,7 @@ async def _amake_task_result(task_id: uuid.UUID) -> mock.Mock:
 
 
 def _single_repo_post_data(repo_id="acme/repo", ref=""):
-    return {
-        "prompt": "go",
-        "repos": json.dumps([{"repo_id": repo_id, "ref": ref}]),
-        "use_max": "on",
-        "notify_on": "never",
-    }
+    return {"prompt": "go", "repos": json.dumps([{"repo_id": repo_id, "ref": ref}]), "notify_on": "never"}
 
 
 @pytest.mark.django_db
@@ -87,7 +82,8 @@ def test_get_retry_prefills_fields(member_client, member_user):
         repo_id="a/b",
         ref="develop",
         prompt="P",
-        use_max=True,
+        agent_model="openrouter:anthropic/claude-opus-4.6",
+        agent_thinking_level="high",
     )
     resp = member_client.get(reverse("runs:agent_run_new") + f"?from={source.pk}")
     assert resp.status_code == 200
@@ -95,7 +91,8 @@ def test_get_retry_prefills_fields(member_client, member_user):
         "notify_on": member_user.notify_on_jobs,
         "prompt": "P",
         "repos": [{"repo_id": "a/b", "ref": "develop"}],
-        "use_max": True,
+        "agent_model": "openrouter:anthropic/claude-opus-4.6",
+        "agent_thinking_level": "high",
     }
     assert resp.context["source_activity"].pk == source.pk
 
@@ -139,7 +136,9 @@ def test_post_single_repo_redirects_to_activity_detail(member_client):
     created = Activity.objects.get(task_result_id=task_id)
     assert resp["Location"] == reverse("activity_detail", args=[created.pk])
     assert created.trigger_type == TriggerType.UI_JOB
-    assert created.use_max is True
+    assert created.use_max is False
+    assert created.agent_model == ""
+    assert created.agent_thinking_level == ""
     assert created.batch_id is not None
 
 
@@ -199,3 +198,15 @@ def test_post_django_control_flow_exceptions_propagate(member_client, monkeypatc
     resp = member_client.post(reverse("runs:agent_run_new"), data=_single_repo_post_data())
     # Django middleware renders these as 404/403/400 — not swallowed as "submit failed".
     assert resp.status_code in {400, 403, 404}
+
+
+@pytest.mark.django_db
+def test_post_invalid_agent_model_renders_field_error(member_client):
+    """A malformed ``agent_model`` posted via raw form data must surface as a visible
+    error on the page, not silently re-render with no message.
+    """
+    data = {**_single_repo_post_data(), "agent_model": "bogus:nope"}
+    resp = member_client.post(reverse("runs:agent_run_new"), data=data)
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Unknown provider prefix" in body

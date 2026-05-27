@@ -9,6 +9,7 @@ from ninja.errors import HttpError
 from ninja.security import django_auth
 from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
 
+from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from chat.models import ChatThread
 from core.api.throttling import JobsRateThrottle
 
@@ -25,7 +26,7 @@ HEADER_SANDBOX_ENV = "X-Sandbox-Env"
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
 
 
-@chat_router.get("/threads/{thread_id}/status", response=dict)
+@chat_router.get("/threads/{thread_id}/status", response=dict, url_name="thread_status")
 async def thread_status(request: HttpRequest, thread_id: str):
     """Cheap probe so a reloaded page can detect when its in-flight run has released
     the per-thread slot and trigger a rehydration from the checkpointer.
@@ -41,6 +42,7 @@ async def thread_status(request: HttpRequest, thread_id: str):
     "/completions",
     response=dict,
     throttle=[JobsRateThrottle()],
+    url_name="completions",
     openapi_extra={
         "parameters": [
             {"in": "header", "name": HEADER_REPO_ID, "schema": {"type": "string"}, "required": True},
@@ -64,6 +66,14 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
+    forwarded = getattr(input_data, "forwarded_props", None) or {}
+    try:
+        agent_model, agent_thinking_level = validate_agent_override(
+            forwarded.get("agent_model"), forwarded.get("agent_thinking_level")
+        )
+    except AgentOverrideError as err:
+        raise HttpError(400, str(err)) from err
+
     env_header = request.headers.get(HEADER_SANDBOX_ENV)
     try:
         env_obj = await resolve_env_for_user(user, env_header)
@@ -72,20 +82,75 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     # Auto: snapshot the resolved env at thread creation so the stored env matches what ran.
     # Existing threads keep their original env (get_or_create_for_user only applies on create);
     # this resolution still runs on every request but is discarded for existing threads.
-    if env_obj is None:
+    auto_resolved = env_obj is None
+    if auto_resolved:
         env_obj = await resolve_env_for_run(user=user, repo_id=repo_id)
         logger.debug(
             "chat: auto-resolved env=%s for repo=%s user=%s", env_obj.id if env_obj else None, repo_id, user.pk
         )
 
-    thread = await ChatThreadService.get_or_create_for_user(
-        user=user, thread_id=thread_id, repo_id=repo_id, ref=ref, input_data=input_data, sandbox_environment=env_obj
+    thread, created = await ChatThreadService.get_or_create_for_user(
+        user=user,
+        thread_id=thread_id,
+        repo_id=repo_id,
+        ref=ref,
+        input_data=input_data,
+        sandbox_environment=env_obj,
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
     )
     if thread.user_id != user.id:
         raise HttpError(403, "Thread not found")
 
+    # Re-validate the pinned override before any other gate: a Provider row may
+    # have been disabled or renamed since the thread was created, OR a thinking
+    # level enum value may have been dropped. Surface a typed 400 first so the
+    # user gets the actionable "start a new thread" hint — even when they also
+    # tried to send a divergent override, the pinned model is the blocker.
+    # ``validate_agent_override`` is a no-op when both fields are empty, so the
+    # call is unconditional.
+    try:
+        validate_agent_override(thread.agent_model, thread.agent_thinking_level)
+    except AgentOverrideError as err:
+        raise HttpError(
+            400, f"The model pinned to this thread is no longer available: {err}. Start a new thread to pick another."
+        ) from err
+
+    # Submit-time gate: refuse the call when no model can be resolved at runtime.
+    # On a freshly created thread this catches "client omitted the override + admin
+    # never set a system default"; on resume it catches threads pinned to "" back
+    # when the now-removed Auto fallback supplied the model. Either way, surface
+    # the configuration gap here instead of letting it explode mid-stream.
+    try:
+        ensure_agent_model_available(thread.agent_model)
+    except AgentOverrideError as err:
+        raise HttpError(400, str(err)) from err
+
+    # First-turn pin: an existing thread keeps the override that was set on creation.
+    # If the client supplies a divergent override (e.g. a bot bypassing the locked
+    # composer pill), reject with 409 rather than silently running the pinned value.
+    # Empty client values mean "no override supplied" and never count as a divergence.
+    if not created and (
+        (agent_model and agent_model != thread.agent_model)
+        or (agent_thinking_level and agent_thinking_level != thread.agent_thinking_level)
+    ):
+        raise HttpError(
+            409,
+            "Agent override is pinned for this thread; remove agent_model / agent_thinking_level"
+            " from forwarded_props or start a new thread to change it.",
+        )
+
     if not await ChatThreadService.try_claim_run(thread_id, run_id):
         raise HttpError(409, "A run is already in progress for this thread")
+
+    # Only emit the resolved-env hint when:
+    # - The client sent Auto (empty/missing header) AND we resolved something for them, AND
+    # - This is a newly-created thread (so the resolved env *is* what the run is using —
+    #   on an existing-thread Auto submit, the resolved env_obj is discarded in favour of
+    #   the thread's stored env, and lying about it would mis-stamp the locked pill).
+    auto_resolved_env: dict[str, str] | None = None
+    if auto_resolved and created and env_obj is not None:
+        auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
 
     encoder = EventEncoder(accept=request.headers.get("accept"))
     streamer = ChatRunStreamer(
@@ -96,5 +161,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         input_data=input_data,
         encoder=encoder,
         sandbox_environment_id=(str(thread.sandbox_environment_id) if thread.sandbox_environment_id else None),
+        agent_model=thread.agent_model or None,
+        agent_thinking_level=thread.agent_thinking_level or None,
+        auto_resolved_env=auto_resolved_env,
     )
     return StreamingHttpResponse(streamer.events(), content_type=encoder.get_content_type())

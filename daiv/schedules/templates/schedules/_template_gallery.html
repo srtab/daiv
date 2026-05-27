@@ -44,8 +44,15 @@
                     <div class="min-w-0 flex-1">
                         <div class="flex flex-wrap items-center gap-2">
                             <span class="font-medium text-white" x-text="tpl.name"></span>
-                            <template x-if="tpl.use_max">
-                                <span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-[11px] font-medium text-amber-300">{% translate "max" %}</span>
+                            {# Alpine x-for can't {% include %}; mirrors _agent_model_pill.html. #}
+                            <template x-if="tpl.agent_model">
+                                <span class="meta-pill"
+                                      :title="tpl.agent_model + (tpl.agent_thinking_level_display ? ' · ' + tpl.agent_thinking_level_display : '')">
+                                    <span x-text="tpl.agent_model_display"></span>
+                                    <template x-if="tpl.agent_thinking_level_display">
+                                        <span>· <span x-text="tpl.agent_thinking_level_display"></span></span>
+                                    </template>
+                                </span>
                             </template>
                         </div>
                         <p class="mt-1.5 whitespace-pre-wrap text-sm text-gray-300" x-text="tpl.description"></p>

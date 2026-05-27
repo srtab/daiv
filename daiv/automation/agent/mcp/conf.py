@@ -6,7 +6,12 @@ class MCPSettings(BaseSettings):
     model_config = SettingsConfigDict(secrets_dir="/run/secrets", env_prefix="MCP_", env_parse_none_str="None")
 
     SERVERS_CONFIG_FILE: str | None = Field(
-        default=None, description="Path to the user MCP servers JSON config file (.mcp.json format)"
+        default=None,
+        description=(
+            "Deprecated: legacy path to the user MCP servers JSON config. "
+            "Servers are now managed via the UI at /dashboard/mcp-servers/. "
+            "Read once on first migration (0002_import_legacy_json) and ignored thereafter."
+        ),
     )
 
     # Built-in MCP server URLs (each runs in a dedicated container). Set to None to disable.

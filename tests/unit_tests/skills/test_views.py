@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import io
+import uuid
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
-from skills.models import GlobalSkill
+from skills.models import GlobalSkill, SkillInvocation
 from skills.services import SkillPackage, SkillStorage
 
 
@@ -239,16 +242,19 @@ def test_download_404_when_zip_missing(client, admin_user, storage):
 
 
 @pytest.mark.django_db
-def test_upload_refuses_builtin_name(client, admin_user, storage, build_skill_zip, monkeypatch):
-    """Uploading a skill whose name collides with a built-in must be rejected with an inline error."""
+def test_upload_allows_overriding_builtin(client, admin_user, storage, build_skill_zip, monkeypatch):
+    """Uploading a skill with the same name as a built-in must succeed — the custom
+    upload shadows the built-in at runtime, matching how per-repo skills already
+    override builtins."""
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
     client.force_login(admin_user)
-    data = build_skill_zip(skill_name="demo")
+    data = build_skill_zip(skill_name="demo", description="my override")
     uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
     resp = client.post(reverse("skills:upload"), data={"zip": uploaded})
-    assert resp.status_code == 200
-    assert b"built-in" in resp.content.lower()
-    assert not GlobalSkill.objects.filter(name="demo").exists()
+    assert resp.status_code == 302
+    assert resp.url == reverse("skills:list")
+    assert GlobalSkill.objects.get(name="demo").description == "my override"
 
 
 @pytest.mark.django_db
@@ -271,6 +277,56 @@ def test_detail_404_when_disk_missing(client, admin_user, storage):
     client.force_login(admin_user)
     resp = client.get(reverse("skills:detail", args=["orphan"]))
     assert resp.status_code == 404
+
+
+class _SqlCounter:
+    def __init__(self, table: str):
+        self.table = table
+        self.matched = 0
+
+    def __call__(self, execute, sql, params, many, context):
+        if self.table in sql:
+            self.matched += 1
+        return execute(sql, params, many, context)
+
+
+@pytest.mark.django_db
+def test_list_view_annotates_invocations_count(admin_client):
+    from skills.models import SkillInvocation
+
+    custom = GlobalSkill.objects.create(name="custom-one", description="x", size_bytes=10, file_count=1, checksum="c")
+    # 2 invocations for the custom skill, 3 for a built-in named "plan".
+    for _ in range(2):
+        SkillInvocation.objects.create(
+            name=custom.name, source=SkillInvocation.Source.GLOBAL, repo_slug="r", thread_id=uuid.uuid4()
+        )
+    for _ in range(3):
+        SkillInvocation.objects.create(
+            name="plan", source=SkillInvocation.Source.BUILTIN, repo_slug="r", thread_id=uuid.uuid4()
+        )
+
+    response = admin_client.get(reverse("skills:list"))
+    assert response.status_code == 200
+
+    custom_rows = response.context["custom_skills"]
+    builtin_rows = response.context["builtin_skills"]
+
+    assert next(s for s in custom_rows if s.name == "custom-one").invocations_count == 2
+    assert next(s for s in builtin_rows if s["name"] == "plan")["invocations_count"] == 3
+
+
+@pytest.mark.django_db
+def test_list_view_aggregate_runs_once(admin_client):
+    from django.db import connection
+
+    GlobalSkill.objects.create(name="a", description="x", size_bytes=1, file_count=1, checksum="c")
+    GlobalSkill.objects.create(name="b", description="x", size_bytes=1, file_count=1, checksum="c")
+
+    # One aggregate query for invocations, on top of the existing list queries.
+    _count_invocation_queries = _SqlCounter("skills_skillinvocation")
+    with connection.execute_wrapper(_count_invocation_queries):
+        admin_client.get(reverse("skills:list"))
+    assert _count_invocation_queries.matched == 1
 
 
 @pytest.mark.django_db
@@ -326,3 +382,158 @@ def test_full_admin_journey(client, admin_user, storage, build_skill_zip):
     assert resp.status_code == 302
     assert resp.url == reverse("skills:list")
     assert not GlobalSkill.objects.filter(name="journey").exists()
+
+
+@pytest.mark.django_db
+def test_detail_view_renders_builtin_without_global_skill_row(admin_client, tmp_path, monkeypatch, request):
+    builtin = tmp_path / "builtin_skills"
+    (builtin / "plan").mkdir(parents=True)
+    (builtin / "plan" / "SKILL.md").write_text("---\nname: plan\ndescription: plan stuff\n---\n# plan\n")
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILLS_PATH", builtin)
+    # list_builtins is lru_cached: clear before populating it against tmp_path,
+    # and register a teardown so the next test doesn't see entries pointing at
+    # a now-deleted tmp dir.
+    from skills.services import list_builtins
+
+    list_builtins.cache_clear()
+    request.addfinalizer(list_builtins.cache_clear)
+
+    response = admin_client.get(reverse("skills:detail", args=["plan"]))
+    assert response.status_code == 200
+    assert response.context["source"] == "builtin"
+    assert response.context["skill"]["name"] == "plan"
+    assert "plan stuff" in response.context["skill"]["description"]
+    # No GlobalSkill row exists; the view must not raise 404.
+    assert not GlobalSkill.objects.filter(name="plan").exists()
+
+
+@pytest.mark.django_db
+def test_detail_view_renders_global_skill_with_usage_block(admin_client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="custom-one", description="x")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    now = timezone.now()
+    for offset in (0, 1, 1, 5, 31):  # 31 is older than the 30-day window
+        inv = SkillInvocation.objects.create(
+            name="custom-one", source=SkillInvocation.Source.GLOBAL, repo_slug="org/repo", thread_id=uuid.uuid4()
+        )
+        SkillInvocation.objects.filter(pk=inv.pk).update(created=now - timedelta(days=offset))
+
+    response = admin_client.get(reverse("skills:detail", args=["custom-one"]))
+    assert response.status_code == 200
+    assert response.context["source"] == "global"
+
+    usage = response.context["usage"]
+    assert usage["total"] == 5
+    # Daily series always has exactly 30 entries, oldest first.
+    assert len(usage["daily_series"]) == 30
+    assert usage["daily_series"][-1]["day"] == timezone.localdate()
+    # Today has 1, yesterday has 2 (offset 1 twice), 5 days ago has 1, 31 days ago is dropped.
+    counts = {entry["day"]: entry["count"] for entry in usage["daily_series"]}
+    today = timezone.localdate()
+    assert counts[today] == 1
+    assert counts[today - timedelta(days=1)] == 2
+    assert counts[today - timedelta(days=5)] == 1
+    # Recent is capped at 20, newest first.
+    assert len(usage["recent"]) == 5
+    assert usage["recent"][0].created >= usage["recent"][-1].created
+
+
+@pytest.mark.django_db
+def test_detail_view_empty_usage(admin_client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="quiet", description="x")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    response = admin_client.get(reverse("skills:detail", args=["quiet"]))
+    usage = response.context["usage"]
+    assert usage["total"] == 0
+    assert usage["last_30_total"] == 0
+    assert all(entry["count"] == 0 for entry in usage["daily_series"])
+    assert usage["recent"] == []
+
+
+@pytest.mark.django_db
+def test_detail_view_builtin_missing_skill_md_logs_and_404s(admin_client, tmp_path, monkeypatch, request, caplog):
+    """If a built-in's SKILL.md is missing on disk the response is still 404
+    (to the user) but a logger.error must fire so Sentry catches the
+    deployment defect."""
+    import logging
+
+    builtin = tmp_path / "builtin_skills"
+    (builtin / "broken").mkdir(parents=True)  # directory exists but no SKILL.md
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"broken"}))
+    monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"broken"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILLS_PATH", builtin)
+    from skills.services import list_builtins
+
+    list_builtins.cache_clear()
+    request.addfinalizer(list_builtins.cache_clear)
+
+    caplog.set_level(logging.ERROR, logger="daiv.skills")
+    response = admin_client.get(reverse("skills:detail", args=["broken"]))
+    assert response.status_code == 404
+    assert any("missing SKILL.md" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.django_db
+def test_detail_view_prefers_global_override_over_builtin(
+    admin_client, admin_user, storage, build_skill_zip, monkeypatch
+):
+    """When a custom global skill shadows a built-in, the detail page must render the
+    custom one — that's the skill the agent actually runs."""
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    data = build_skill_zip(skill_name="plan", description="my override")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    response = admin_client.get(reverse("skills:detail", args=["plan"]))
+    assert response.status_code == 200
+    assert response.context["source"] == "global"
+    assert response.context["skill"].description == "my override"
+
+
+@pytest.mark.django_db
+def test_list_hides_shadowed_builtin_and_marks_override(
+    admin_client, admin_user, storage, build_skill_zip, monkeypatch, request
+):
+    """A custom upload that shadows a built-in must (1) drop the built-in entry from
+    the built-in list so only the active skill is shown, and (2) flag the custom row
+    so the template can render an 'Overrides built-in' badge."""
+    from skills.services import list_builtins
+
+    list_builtins.cache_clear()
+    request.addfinalizer(list_builtins.cache_clear)
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
+
+    data = build_skill_zip(skill_name="plan", description="override")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    response = admin_client.get(reverse("skills:list"))
+    builtin_names = [entry["name"] for entry in response.context["builtin_skills"]]
+    assert "plan" not in builtin_names
+
+    custom_row = next(s for s in response.context["custom_skills"] if s.name == "plan")
+    assert custom_row.overrides_builtin is True
+
+
+@pytest.mark.django_db
+def test_detail_view_only_old_invocations_shows_empty_state(admin_client, admin_user, storage, build_skill_zip):
+    """All invocations older than 30 days: lifetime total > 0, but last-30 is 0
+    so the empty-state placeholder renders instead of an all-zero chart."""
+    data = build_skill_zip(skill_name="stale", description="x")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    now = timezone.now()
+    for offset in (45, 60, 100):
+        inv = SkillInvocation.objects.create(
+            name="stale", source=SkillInvocation.Source.GLOBAL, repo_slug="org/repo", thread_id=uuid.uuid4()
+        )
+        SkillInvocation.objects.filter(pk=inv.pk).update(created=now - timedelta(days=offset))
+
+    response = admin_client.get(reverse("skills:detail", args=["stale"]))
+    usage = response.context["usage"]
+    assert usage["total"] == 3
+    assert usage["last_30_total"] == 0
+    assert all(entry["count"] == 0 for entry in usage["daily_series"])

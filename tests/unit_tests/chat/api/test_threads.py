@@ -10,6 +10,15 @@ import pytest
 from accounts.models import User
 from chat.api.threads import STALE_RUN_MINUTES, ChatThreadService, _extract_first_user_message
 from chat.models import ChatThread
+from core.models import Provider, ProviderType
+
+
+@pytest.fixture
+def openrouter_provider(db):
+    Provider.objects.filter(slug="openrouter").delete()
+    return Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=True
+    )
 
 
 def _fake_input(messages, *, role="user"):
@@ -182,4 +191,58 @@ async def test_heartbeat_only_bumps_when_caller_holds_slot():
     await ChatThreadService.heartbeat("t-hb", "r-current")
     refreshed = await ChatThread.objects.aget(thread_id="t-hb")
     assert (timezone.now() - refreshed.last_active_at).total_seconds() < 5
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_override_pinned_on_thread_creation(openrouter_provider):
+    user = await User.objects.acreate_user(username="u-ov-1", email="ov1@x.com", password="x")  # noqa: S106
+    input_data = _fake_input(["hello"])
+
+    thread, created = await ChatThreadService.get_or_create_for_user(
+        user=user,
+        thread_id="t-ov-1",
+        repo_id="acme/x",
+        ref="main",
+        input_data=input_data,
+        agent_model="openrouter:anthropic/claude-haiku-4.5",
+        agent_thinking_level="low",
+    )
+
+    assert created is True
+    assert thread.agent_model == "openrouter:anthropic/claude-haiku-4.5"
+    assert thread.agent_thinking_level == "low"
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_override_ignored_on_existing_thread(openrouter_provider):
+    # First turn pins the override; the second turn supplies different values
+    # but ``aget_or_create`` ignores defaults on hit, so the pinned values stand.
+    user = await User.objects.acreate_user(username="u-ov-2", email="ov2@x.com", password="x")  # noqa: S106
+    input_data = _fake_input(["hello"])
+
+    _, first_created = await ChatThreadService.get_or_create_for_user(
+        user=user,
+        thread_id="t-ov-2",
+        repo_id="acme/x",
+        ref="main",
+        input_data=input_data,
+        agent_model="openrouter:anthropic/claude-haiku-4.5",
+        agent_thinking_level="low",
+    )
+    thread, created = await ChatThreadService.get_or_create_for_user(
+        user=user,
+        thread_id="t-ov-2",
+        repo_id="acme/x",
+        ref="main",
+        input_data=input_data,
+        agent_model="openrouter:anthropic/claude-opus-4.6",
+        agent_thinking_level="high",
+    )
+
+    assert first_created is True
+    assert created is False
+    assert thread.agent_model == "openrouter:anthropic/claude-haiku-4.5"
+    assert thread.agent_thinking_level == "low"
     await user.adelete()

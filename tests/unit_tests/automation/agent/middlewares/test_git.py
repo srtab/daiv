@@ -18,6 +18,20 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     return runtime
 
 
+def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
+    """Runtime mock with concrete strings so ``GIT_SYSTEM_PROMPT.format`` can render."""
+    runtime = Mock()
+    runtime.context = Mock()
+    runtime.context.scope = scope
+    runtime.context.merge_request = None
+    runtime.context.issue = None
+    runtime.context.repository = Mock(slug="a/b")
+    runtime.context.config = Mock(default_branch="main")
+    runtime.context.gitrepo = Mock()
+    runtime.context.git_platform = Mock(value="gitlab")
+    return runtime
+
+
 class TestGitMiddleware:
     async def test_aafter_agent_propagates_push_permission_error(self):
         middleware = GitMiddleware()
@@ -171,6 +185,108 @@ class TestGitMiddleware:
         assert result["merge_request"] is new_mr
         assert result["code_changes"] is True
         assert result["protected_branch_fallback_source"] == "feature"
+
+    async def test_awrap_model_call_uses_state_mr_when_context_mr_missing(self):
+        """Chat triggers run with ``scope=Global`` and ``context.merge_request=None``
+        even when the current branch has an open MR. The id discovered by
+        ``abefore_agent`` (stored in state) must surface in the system prompt;
+        otherwise the agent re-discovers via ``project-merge-request list`` every
+        turn and may pick a different MR than the publisher will write to."""
+        middleware = GitMiddleware()
+        runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
+        state_mr = MagicMock(merge_request_id=42, source_branch="feature-x")
+
+        captured = {}
+
+        async def fake_handler(req):
+            captured["system_prompt"] = req.system_prompt
+            return MagicMock()
+
+        request = MagicMock()
+        request.runtime = runtime
+        request.state = {"merge_request": state_mr}
+        request.system_prompt = ""
+        request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
+
+        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"):
+            await middleware.awrap_model_call(request, fake_handler)
+
+        assert "merge request #42" in captured["system_prompt"]
+
+    async def test_awrap_model_call_drops_state_mr_when_branch_diverged(self):
+        """If the working tree was checked out off the source branch between
+        ``abefore_agent`` and this hop, the state MR is stale — don't advertise
+        it to the model on subsequent turns."""
+        middleware = GitMiddleware()
+        runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
+        state_mr = MagicMock(merge_request_id=42, source_branch="feature-x")
+
+        captured = {}
+
+        async def fake_handler(req):
+            captured["system_prompt"] = req.system_prompt
+            return MagicMock()
+
+        request = MagicMock()
+        request.runtime = runtime
+        request.state = {"merge_request": state_mr}
+        request.system_prompt = ""
+        request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
+
+        # Current ref now differs from the state MR's source_branch.
+        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="other-branch"):
+            await middleware.awrap_model_call(request, fake_handler)
+
+        assert "merge request #42" not in captured["system_prompt"]
+
+    async def test_awrap_model_call_no_mr_at_all_omits_section(self):
+        """Chat default: no context MR, no state MR. The ``{{#merge_request_iid}}``
+        block must not render — otherwise the prompt could leak a ``merge request
+        #None`` artefact on a future template tweak."""
+        middleware = GitMiddleware()
+        runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
+
+        captured = {}
+
+        async def fake_handler(req):
+            captured["system_prompt"] = req.system_prompt
+            return MagicMock()
+
+        request = MagicMock()
+        request.runtime = runtime
+        request.state = {}
+        request.system_prompt = ""
+        request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
+
+        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"):
+            await middleware.awrap_model_call(request, fake_handler)
+
+        assert "merge request #" not in captured["system_prompt"]
+
+    async def test_awrap_model_call_prefers_context_mr_over_state(self):
+        """When ``context.merge_request`` is set (true MR-scoped trigger), it
+        wins — the publisher and the prompt agree on the same id."""
+        middleware = GitMiddleware()
+        runtime = _build_runtime_for_prompt(scope=Scope.MERGE_REQUEST)
+        runtime.context.merge_request = MagicMock(merge_request_id=7)
+
+        captured = {}
+
+        async def fake_handler(req):
+            captured["system_prompt"] = req.system_prompt
+            return MagicMock()
+
+        request = MagicMock()
+        request.runtime = runtime
+        request.state = {"merge_request": MagicMock(merge_request_id=999)}  # stale
+        request.system_prompt = ""
+        request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
+
+        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"):
+            await middleware.awrap_model_call(request, fake_handler)
+
+        assert "merge request #7" in captured["system_prompt"]
+        assert "merge request #999" not in captured["system_prompt"]
 
     async def test_aafter_agent_passes_through_none_when_no_fallback(self):
         """When publish completes without protection fallback, the value stays None

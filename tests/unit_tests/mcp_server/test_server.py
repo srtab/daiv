@@ -137,18 +137,78 @@ async def test_submit_job_passes_ref():
         assert kwargs["repo_id"] == "group/project"
         assert kwargs["prompt"] == "Fix the bug"
         assert kwargs["ref"] == "feature-branch"
-        assert kwargs["use_max"] is False
+        assert kwargs["agent_model"] is None
+        assert kwargs["agent_thinking_level"] is None
+        assert "use_max" not in kwargs
         assert kwargs["thread_id"]
 
 
+@pytest.fixture
+def openrouter_provider(db):
+    from core.models import Provider, ProviderType
+
+    Provider.objects.filter(slug="openrouter").delete()
+    return Provider.objects.create(
+        slug="openrouter", provider_type=ProviderType.OPENROUTER, api_key="sk-test", is_enabled=True
+    )
+
+
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_use_max_to_activity():
-    """MCP submit tool threads ``use_max`` into ``acreate_activity``."""
+async def test_submit_job_rejects_unknown_provider():
+    with _patch_acreate():
+        payload = await submit_job(
+            repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix it", agent_model="bogus:nope"
+        )
+    body = json.loads(payload)
+    assert "Unknown provider prefix" in body["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_when_no_model_and_no_system_default(monkeypatch):
+    """The Auto fallback is gone: when the caller omits ``agent_model`` AND the admin
+    hasn't configured a system default, the MCP tool refuses at submit time instead
+    of letting the run reach the agent kickoff and explode with ``AgentConfigurationError``."""
+    from core.site_settings import site_settings
+
+    monkeypatch.setattr(site_settings, "agent_model_name", "")
+    with _patch_acreate():
+        payload = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix it")
+    body = json.loads(payload)
+    assert "system default" in body["error"].lower()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider):
+    """The MCP tool's direct (in-process) call path bypasses FastMCP's protocol-layer
+    Pydantic validation, so the explicit ``validate_agent_override`` call inside the
+    tool must catch out-of-enum thinking levels."""
+    with _patch_acreate():
+        payload = await submit_job(
+            repos=[{"repo_id": "group/project", "ref": None}],
+            prompt="Fix it",
+            agent_model="openrouter:anthropic/claude-haiku-4.5",
+            agent_thinking_level="extreme",  # ty: ignore[invalid-argument-type]
+        )
+    body = json.loads(payload)
+    assert "thinking level" in body["error"].lower()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_agent_override(openrouter_provider):
     with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
-        await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug", use_max=True)
+        await submit_job(
+            repos=[{"repo_id": "group/project", "ref": None}],
+            prompt="Fix the bug",
+            agent_model="openrouter:anthropic/claude-haiku-4.5",
+            agent_thinking_level="low",
+        )
 
-    assert mock_create.await_args.kwargs["use_max"] is True
+    assert mock_create.await_args.kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert mock_create.await_args.kwargs["agent_thinking_level"] == "low"
+    enqueue_kwargs = mock_task.aenqueue.call_args.kwargs
+    assert enqueue_kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
+    assert enqueue_kwargs["agent_thinking_level"] == "low"
 
 
 @pytest.mark.django_db(transaction=True)

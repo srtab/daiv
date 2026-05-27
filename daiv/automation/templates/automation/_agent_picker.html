@@ -1,0 +1,280 @@
+{% load i18n icon_tags %}
+{% comment %}
+Reusable agent model + thinking-effort pill + popover.
+
+Parameters:
+- providers (required)               — JSON string of [{slug, label}] for enabled providers
+                                       (the model catalog itself is fetched dynamically
+                                       on first popover open via ``api:agent_models``)
+- field_name_model (default          — name of the model input mirroring the selected
+  "agent_model")                       ``provider:model`` spec. Rendered sr-only when
+                                       ``required=True`` (so HTML5 validation fires on
+                                       empty submit), otherwise ``type=hidden``. In
+                                       ``seed_default=True`` mode the picker pre-selects
+                                       ``default_model`` so the value is usually a
+                                       concrete spec at submit time; in ``seed_default=False``
+                                       (settings) an empty submission is a meaningful
+                                       "use the configured default" save.
+- field_name_thinking (default       — name of the hidden input mirroring the chosen
+  "agent_thinking_level")              effort level; empty string = unset. Only rendered
+                                       when ``with_effort=True``; passing ``False``
+                                       suppresses the input entirely.
+- initial_agent_model (default "")   — pre-selected spec, e.g. ``openrouter:anthropic/claude-haiku-4.5``
+- initial_thinking_level (default "") — pre-selected effort: ``minimal|low|medium|high``
+- initial_model_display (default "")  — display-only form of ``initial_agent_model`` used in
+                                       the locked pill (provider prefix and ``org/`` stripped).
+- default_model (default "")          — full ``provider:model`` spec the picker pre-selects
+                                       when no value is stored. In ``seed_default=True`` mode
+                                       (the run-time pickers) the default also becomes the
+                                       submitted value when the user doesn't pick. In
+                                       ``seed_default=False`` mode (settings) it is shown as
+                                       a hint only — the input stays empty so save persists
+                                       "use the configured default".
+- default_thinking (default "")       — effort level analogue of ``default_model``.
+- placeholder_label (default "")     — pill label when the picker is unselected. Empty
+                                       string falls through to JS-derived labels: a
+                                       ``Default (…)`` form derived from ``default_model``,
+                                       or ``Pick a model`` if no default is configured.
+                                       Settings pass a pre-computed ``Default (env-value)``
+                                       hint when an env / Pydantic default exists.
+- with_effort (default True)         — render the thinking-effort row inside the popover.
+                                       Standalone model_name fields in settings pass False.
+- required (default True)            — when True, the sr-only model input is ``required``
+                                       while empty, so HTML5 validation refuses submission
+                                       with no model. Settings pass False because an empty
+                                       value is a meaningful "use configured default" save.
+- seed_default (default True)        — when True (run-time pickers), seed the picker with
+                                       ``default_model`` / ``default_thinking`` so the
+                                       submitted value is non-empty at first turn. When False
+                                       (settings), don't seed — keep the input empty so the
+                                       form can persist NULL ("use default").
+- stale (default False)              — when True, the pre-selected model references a
+                                       provider that is no longer enabled. Renders a
+                                       muted hint so users notice the value is dead.
+- disabled (default False)           — render a static, locked pill (no popover) when the value
+                                       cannot be changed (e.g. mid-conversation, where the backend
+                                       ignores agent overrides after the first turn).
+- locked_title (default              — tooltip used on the locked pill when ``disabled=True``
+  "Locked for this conversation")     and the pill is not ``stale``. Run-time callers (chat,
+                                       activity) leave the default; settings env-locked fields
+                                       pass "Locked by environment variable" so the tooltip
+                                       reflects the actual reason the field is read-only.
+- dynamic_label_expr (default "")    — Alpine expression read via ``x-text`` to override the locked
+                                       pill's name. Set by callers whose surrounding scope tracks the
+                                       just-committed selection (e.g. the chat composer, where the
+                                       partial first renders before the thread exists, so the static
+                                       initial value is empty until a page refresh). The expression
+                                       must resolve to a non-empty string in the parent Alpine scope;
+                                       contributing a fallback there is the caller's job.
+- dynamic_effort_dots_expr           — Alpine expression resolving to a 0..5 dot count, used to
+  (default "")                         drive the locked pill's effort meter when the surrounding
+                                       scope can change after first render (chat composer first-turn
+                                       flow). Falls back to the server-rendered static dot pattern
+                                       (driven by ``initial_effort_dots``) when omitted.
+- initial_effort_dots                — Number of lit dots in the locked pill's effort meter when
+  (default 0)                          rendering statically. Computed by ``agent_picker_context`` from
+                                       ``initial_thinking_level``; the partial accepts the raw int so
+                                       callers without the context helper can still drive the meter.
+
+The caller is responsible for loading ``automation/js/agent-picker.js`` (deferred).
+{% endcomment %}
+
+{% if disabled %}
+<span class="agent-pill{% if stale %} agent-pill--stale{% else %} agent-pill--locked{% endif %}"
+      title="{% if stale %}{% translate 'This model is no longer available — start a new thread to pick another.' %}{% elif locked_title %}{{ locked_title }}{% else %}{% translate 'Locked for this conversation' %}{% endif %}"
+      aria-disabled="true">
+    {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
+    <span class="agent-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
+    {% if dynamic_effort_dots_expr %}
+        {# Chat composer first-turn flow: Alpine drives visibility and dot highlighting from the parent #}
+        {# scope, so the just-submitted effort survives the hero→composer transition before any refresh. #}
+        <span class="agent-pill__effort" x-show="({{ dynamic_effort_dots_expr }}) > 0" x-cloak>
+            {% icon "bolt" "agent-pill__effort-icon" %}
+            <template x-for="i in 5" :key="i">
+                <span class="agent-pill__effort-dot"
+                      :class="i <= ({{ dynamic_effort_dots_expr }}) ? 'agent-pill__effort-dot--on' : ''"></span>
+            </template>
+        </span>
+    {% elif initial_effort_dots %}
+        {# Static render — used by callers that omit ``dynamic_effort_dots_expr`` (no parent Alpine scope #}
+        {# to mutate the dots post-render). Mirrors the Alpine x-for loop above; the ``"1234"`` literal is #}
+        {# the standard Django idiom for a fixed-count loop where the value isn't read. #}
+        <span class="agent-pill__effort">
+            {% icon "bolt" "agent-pill__effort-icon" %}
+            {% for _ in "12345" %}
+                <span class="agent-pill__effort-dot{% if forloop.counter <= initial_effort_dots %} agent-pill__effort-dot--on{% endif %}"></span>
+            {% endfor %}
+        </span>
+    {% endif %}
+    {% if stale %}
+        <span class="agent-pill__stale-marker" aria-hidden="true">!</span>
+    {% else %}
+        {% icon "lock-closed" "agent-pill__lock" %}
+    {% endif %}
+</span>
+{% else %}
+<div x-data='agentPicker({
+        providers: {{ providers|safe }},
+        catalogUrl: "{% url 'api:agent_models' %}",
+        initialAgentModel: "{{ initial_agent_model|default:''|escapejs }}",
+        initialThinkingLevel: "{{ initial_thinking_level|default:''|escapejs }}",
+        defaultAgentModel: "{{ default_model|default:''|escapejs }}",
+        defaultThinkingLevel: "{{ default_thinking|default:''|escapejs }}",
+        placeholderLabel: "{{ placeholder_label|default:''|escapejs }}",
+        seedDefault: {% if seed_default|default_if_none:True %}true{% else %}false{% endif %},
+        required: {% if required|default_if_none:True %}true{% else %}false{% endif %}
+     })'
+     class="relative inline-flex">
+
+    <button type="button"
+            @click.stop="toggle()"
+            :aria-expanded="open"
+            :title="{% if stale %}'{% translate "This model is no longer available — pick another."|escapejs %}'{% else %}pillLabel.name{% endif %}"
+            class="agent-pill{% if stale %} agent-pill--stale{% endif %}">
+        {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
+        <span class="agent-pill__name" x-text="pillLabel.name"></span>
+        {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
+        <span class="agent-pill__effort" x-show="pillLabel.effortDots > 0" x-cloak>
+            {% icon "bolt" "agent-pill__effort-icon" %}
+            <template x-for="i in 5" :key="i">
+                <span class="agent-pill__effort-dot"
+                      :class="i <= pillLabel.effortDots ? 'agent-pill__effort-dot--on' : ''"></span>
+            </template>
+        </span>
+        {% icon "chevron-down" "agent-pill__caret" %}
+    </button>
+
+    <div x-show="open" x-cloak
+         @click.outside="close()"
+         @keydown.escape.window="close()"
+         class="picker-popover left-0 w-[320px]">
+
+        <div class="agent-popover__section">
+            <div class="text-gray-500 mb-1 uppercase tracking-wider text-[10px]">{% translate "Provider" %}</div>
+            <template x-for="p in providers" :key="p.slug">
+                <button type="button" @click="selectProvider(p.slug)"
+                        class="env-popover__row"
+                        :class="{ 'env-popover__row--selected': selectedProvider === p.slug }">
+                    <div class="env-popover__row-body">
+                        <div class="env-popover__row-head">
+                            <span class="env-popover__row-name" x-text="p.label"></span>
+                        </div>
+                    </div>
+                </button>
+            </template>
+            {# Fresh installs, an all-disabled provider table, or a DB outage that drained #}
+            {# the cached snapshot all surface here. Without this hint the popover looks #}
+            {# broken (provider list empty, no model picker, no diagnostic). #}
+            <div x-show="providers.length === 0" class="env-popover__empty" x-cloak>
+                {% translate "No enabled providers — configure one in the Providers section." %}
+            </div>
+        </div>
+
+        <div class="agent-popover__section" x-show="selectedProvider" x-cloak>
+            <div x-show="providerHint" role="note"
+                 class="text-xs text-gray-500 mb-1"
+                 x-text="providerHint" x-cloak></div>
+
+            <input type="search" x-ref="search" x-model="query"
+                   @keydown.enter.prevent="submitFreeText()"
+                   placeholder="{% translate 'Model name…' %}"
+                   class="picker-popover__search mb-1">
+
+            <div x-show="catalog.status === 'loading'" aria-live="polite"
+                 class="env-popover__empty" x-cloak>
+                {% translate "Loading models…" %}
+            </div>
+
+            <div class="max-h-48 overflow-auto scrollbar-thin"
+                 x-show="catalog.status !== 'loading'" x-cloak>
+                <template x-for="m in filteredModels" :key="m">
+                    <button type="button" @click="selectModel(m)"
+                            class="env-popover__row"
+                            :class="{ 'env-popover__row--selected': modelName === m }">
+                        <div class="env-popover__row-body">
+                            <div class="env-popover__row-head">
+                                <span class="env-popover__row-name" x-text="m"></span>
+                            </div>
+                        </div>
+                    </button>
+                </template>
+                <div x-show="filteredModels.length === 0 && !query.trim() && !providerHint" class="env-popover__empty">
+                    {% translate "No models match" %}
+                </div>
+                <button type="button" x-show="query.trim()" x-cloak
+                        @click="submitFreeText()"
+                        class="env-popover__row env-popover__row--auto">
+                    <div class="env-popover__row-body">
+                        <div class="env-popover__row-head">
+                            <span class="env-popover__row-name">
+                                {% translate "Use exact name:" %}
+                                <span class="font-mono" x-text="query"></span>
+                            </span>
+                        </div>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        {% if with_effort|default_if_none:True %}
+        <div class="agent-popover__section agent-popover__effort">
+            <span class="agent-popover__effort-label text-gray-400">
+                {% icon "bolt" "agent-pill__effort-icon" %}
+                {% translate "Effort" %}
+            </span>
+            <div class="agent-popover__effort-dots">
+                <template x-for="(lvl, idx) in LEVELS" :key="lvl">
+                    <button type="button" @click="selectEffort(lvl)"
+                            :title="lvl"
+                            :aria-label="lvl"
+                            class="agent-pill__effort-dot h-2.5 w-2.5"
+                            :class="{ 'agent-pill__effort-dot--on': LEVELS.indexOf(thinkingLevel) >= idx }"></button>
+                </template>
+            </div>
+        </div>
+        {% endif %}
+
+        {# "Use default" reverts to the empty (= configured default) state. Only rendered #}
+        {# in settings (``seed_default=False``); run-time pickers always submit a concrete #}
+        {# value, so an "unset" affordance there would silently break the form. #}
+        {% if not seed_default|default_if_none:True %}
+        <div class="agent-popover__section">
+            <button type="button"
+                    @click="clearSelection()"
+                    x-show="agentModelValue || thinkingLevel"
+                    x-cloak
+                    class="text-xs text-gray-400 hover:text-gray-200">
+                {% translate "Use default" %}
+            </button>
+        </div>
+        {% endif %}
+    </div>
+
+    {% comment %}
+    The model input is sr-only rather than ``type="hidden"`` because the HTML5
+    constraint-validation spec bars hidden inputs from validation — ``required``
+    on a hidden input is silently ignored. The sr-only pattern keeps the field
+    out of the visual layout while leaving it in the validation flow so the
+    browser refuses to submit an empty selection. Settings pickers pass
+    ``required=False`` because an empty submission is a meaningful save state
+    ("use the configured default"), so the input is rendered ``type="hidden"``
+    instead — keeping it out of the validation flow entirely.
+    {% endcomment %}
+    <template x-if="required">
+        <input type="text" class="sr-only" tabindex="-1" aria-hidden="true"
+               x-ref="modelInput"
+               name="{{ field_name_model|default:'agent_model' }}"
+               :value="agentModelValue"
+               :required="!agentModelValue"
+               @invalid="handleInvalidModel($event)">
+    </template>
+    <template x-if="!required">
+        <input type="hidden"
+               name="{{ field_name_model|default:'agent_model' }}"
+               :value="agentModelValue">
+    </template>
+    {% if with_effort|default_if_none:True %}
+    <input type="hidden" name="{{ field_name_thinking|default:'agent_thinking_level' }}" :value="thinkingLevel">
+    {% endif %}
+</div>
+{% endif %}

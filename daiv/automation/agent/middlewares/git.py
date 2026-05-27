@@ -184,15 +184,39 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         """
         Update the system prompt with the git system prompt.
         """
+        # Prefer the MR resolved by ``abefore_agent`` (in state) — for chat triggers
+        # ``context.merge_request`` is unset even when the current branch has an open
+        # MR. Without this fallback the agent re-discovers via
+        # ``project-merge-request list --source-branch ...`` on every turn and may
+        # pick a different MR than the publisher will write to.
+        #
+        # The state branch validates ``source_branch`` against the current ref —
+        # ``abefore_agent`` populated state once at run start, but the branch
+        # could have been checked out from under us mid-run (or the MR closed).
+        # A stale id would then advertise the wrong MR on every subsequent turn.
+        mr_iid: int | None = None
+        if (ctx_mr := request.runtime.context.merge_request) is not None:
+            mr_iid = ctx_mr.merge_request_id
+        elif (state_mr := request.state.get("merge_request")) is not None:
+            current_ref = get_repo_ref(request.runtime.context.gitrepo)
+            if state_mr.source_branch == current_ref:
+                mr_iid = state_mr.merge_request_id
+            else:
+                logger.warning(
+                    "[%s] Ignoring stale state MR #%s: source_branch=%r != current ref=%r",
+                    self.name,
+                    state_mr.merge_request_id,
+                    state_mr.source_branch,
+                    current_ref,
+                )
+
         context = {
             "git_platform": request.runtime.context.git_platform.value,
             "repository": request.runtime.context.repository.slug,
             "current_branch": get_repo_ref(request.runtime.context.gitrepo),
             "default_branch": request.runtime.context.config.default_branch,
             "issue_iid": request.runtime.context.issue.iid if request.runtime.context.issue else None,
-            "merge_request_iid": request.runtime.context.merge_request.merge_request_id
-            if request.runtime.context.merge_request
-            else None,
+            "merge_request_iid": mr_iid,
         }
 
         system_prompt = ""

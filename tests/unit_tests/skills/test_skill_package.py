@@ -149,12 +149,20 @@ def test_disallowed_suffix_rejected():
     assert exc.value.code == "disallowed_suffix"
 
 
-def test_forbidden_path_part_rejected():
-    data = _raw_zip([_valid_skill_md(), ("demo/__pycache__/foo.pyc", b"x")])
-    with pytest.raises(SkillValidationError) as exc:
-        SkillPackage.inspect(io.BytesIO(data))
-    # FORBIDDEN_PATH_PARTS is checked before suffix, so __pycache__ wins over .pyc
-    assert exc.value.code == "forbidden_path_part"
+def test_forbidden_path_part_skipped():
+    """``__pycache__`` and ``.pyc`` files are hygiene noise — silently dropped
+    instead of rejecting the whole zip. The remaining content must validate
+    normally and the file_count must exclude the dropped entries."""
+    data = _raw_zip([
+        _valid_skill_md(),
+        ("demo/scripts/foo.py", b"print('ok')\n"),
+        ("demo/scripts/__pycache__/foo.cpython-314.pyc", b"\x00bytecode"),
+        ("demo/scripts/bar.pyc", b"\x00bytecode"),
+    ])
+    pkg = SkillPackage.inspect(io.BytesIO(data))
+    assert pkg.name == "demo"
+    # SKILL.md + scripts/foo.py — the two noise entries dropped.
+    assert pkg.file_count == 2
 
 
 @pytest.mark.parametrize(

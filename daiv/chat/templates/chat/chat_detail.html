@@ -20,6 +20,7 @@
   <script defer src="{% static 'chat/js/markdown.js' %}"></script>
   <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
   <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+  <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
   {% include "sandbox_envs/_scripts.html" %}
 {% endblock alpine_plugins %}
@@ -30,9 +31,14 @@
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
 
+  {# Translation lookups for the locked-pill fallbacks in chat({…}) below. #}
+  {# Tag→variable lets us pipe them through ``|escapejs`` for safe quoting in JS. #}
+  {% translate "Pick a model" as locked_agent_fallback %}
+  {% translate "Auto" as locked_env_fallback %}
+
   <div x-data='chat({
-         endpoint: "/api/chat/completions",
-         statusEndpoint: {% if thread %}"/api/chat/threads/{{ thread.thread_id|escapejs }}/status"{% else %}""{% endif %},
+         endpoint: "{% url 'api:completions' %}",
+         statusEndpoint: {% if thread %}"{% url 'api:thread_status' thread.thread_id %}"{% else %}""{% endif %},
          activeRunId: "{{ active_run_id|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if thread %}{
@@ -41,10 +47,16 @@
            ref: "{{ thread.ref|escapejs }}",
            merge_request: null
          }{% else %}null{% endif %},
-         selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}"
+         selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}",
+         initialAgentLabel: "{{ agent_picker_initial_model_display|default:agent_picker_initial_model|default:locked_agent_fallback|escapejs }}",
+         initialAgentEffortDots: {{ agent_picker_initial_effort_dots|default:0 }},
+         initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
+         initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
+         envAutoLabel: "{{ locked_env_fallback|escapejs }}"
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
+       @daiv:agent-changed.window="applyAgentSelection($event.detail)"
        x-cloak
        class="chat-shell"
        :class="{ 'chat-shell--empty': !thread && turns.length === 0 }">
@@ -87,6 +99,7 @@
             </div>
             <div class="chat-hero__picker">
               {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
+              {% include "automation/_agent_picker.html" with providers=agent_picker_providers initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model default_model=agent_picker_default_model default_thinking=agent_picker_default_thinking %}
               {% include "codebase/_repo_picker.html" with max_repos=1 initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
             </div>
           </div>

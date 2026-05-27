@@ -14,6 +14,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 from langchain_core.prompts import PromptTemplate
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
+from skills.services import _record_invocation
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
@@ -84,6 +85,8 @@ SKILLS_SYSTEM_PROMPT = f"""\
 - CRITICAL: The `{SKILLS_TOOL_NAME}` tool MUST be the ONLY tool call in its assistant turn. NEVER call `{SKILLS_TOOL_NAME}` in parallel with other tools (e.g., do NOT call `{SKILLS_TOOL_NAME}` and `gitlab` at the same time). Other tools can be called in subsequent turns after the skill has been processed.
 - Only use skills listed in <available_skills> below, but creation is possible
 - Do not invoke a skill that is already running.
+
+**Skill assets:** Each skill lives at `<location>/<skill-name>/` under one of the locations below. The bash working directory is the repository checkout, **not** the skill's root, so a SKILL.md reference to `scripts/foo.py` is `<location>/<skill-name>/scripts/foo.py` (per-repo skills resolve under their `.agents/skills` / `.claude/skills` / `.cursor/skills` source root, not under the bash CWD). Invoke by absolute path; do not probe the bash CWD for skill assets.
 
 {{skills_locations}}{{skills_load_warnings}}
 
@@ -441,6 +444,8 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             }
             if skill_mode:
                 update["active_skill_mode"] = skill_mode
+
+            await _record_invocation(name=skill, skill_path=loaded_skill["path"], runtime=runtime)
 
             return Command(update=update)
 

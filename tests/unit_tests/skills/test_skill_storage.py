@@ -10,7 +10,7 @@ from django.db import DatabaseError
 import pytest
 from skills.constants import TRASH_TTL_SECONDS
 from skills.models import GlobalSkill
-from skills.services import SkillPackage, SkillStorage, SkillStorageError
+from skills.services import SkillPackage, SkillStorage
 
 
 @pytest.fixture
@@ -24,6 +24,26 @@ def storage(tmp_path, monkeypatch):
     monkeypatch.setattr("skills.services.agent_settings.CUSTOM_SKILLS_PATH", custom)
     monkeypatch.setattr("skills.services.SKILLS_CACHE_PATH", cache)
     return SkillStorage()
+
+
+@pytest.mark.django_db
+def test_replace_skips_pycache_and_pyc_noise(storage, admin_user, build_skill_zip):
+    """``__pycache__`` and ``.pyc`` entries must be filtered from the unpacked
+    tree on disk — they ride along in the stored zip but never extracted."""
+    data = build_skill_zip(
+        skill_name="demo",
+        extra_files={
+            "scripts/foo.py": b"print('ok')\n",
+            "scripts/__pycache__/foo.cpython-314.pyc": b"\x00bc",
+            "scripts/bar.pyc": b"\x00bc",
+        },
+    )
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+
+    base = storage.root
+    assert (base / "demo" / "scripts" / "foo.py").exists()
+    assert not (base / "demo" / "scripts" / "__pycache__").exists()
+    assert not (base / "demo" / "scripts" / "bar.pyc").exists()
 
 
 @pytest.mark.django_db
@@ -163,23 +183,30 @@ def test_delete_moves_tree_and_zip_to_trash_and_removes_row(storage, admin_user,
 
 
 @pytest.mark.django_db
-def test_delete_refuses_builtin_name(storage, monkeypatch):
-    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan", "init"}))
-    with pytest.raises(SkillStorageError, match="built-in"):
-        storage.delete("plan")
+def test_replace_allows_overriding_builtin(storage, admin_user, build_skill_zip, monkeypatch):
+    """A custom global skill is allowed to shadow a built-in: per-repo skills can already
+    override builtins at runtime, and the storage layer must not be stricter than the
+    middleware that actually serves skills to the agent."""
+    monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
+    data = build_skill_zip(skill_name="demo", description="override")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    assert (storage.root / "demo" / "SKILL.md").exists()
+    assert GlobalSkill.objects.get(name="demo").description == "override"
 
 
 @pytest.mark.django_db
-def test_replace_refuses_builtin_name(storage, admin_user, build_skill_zip, monkeypatch):
-    """Uploads must not be allowed to shadow a built-in skill (it would become un-deletable)."""
+def test_delete_allows_removing_override_of_builtin(storage, admin_user, build_skill_zip, monkeypatch):
+    """Deleting a custom override must remove only the custom row + tree;
+    the built-in underneath is untouched on disk (it lives at BUILTIN_SKILLS_PATH,
+    not under CUSTOM_SKILLS_PATH)."""
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"demo"}))
     data = build_skill_zip(skill_name="demo")
-    pkg = SkillPackage.inspect(io.BytesIO(data))
-    with pytest.raises(SkillStorageError, match="built-in"):
-        storage.replace(pkg, uploaded_by=admin_user)
-    # No tree, no zip, no DB row left behind.
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    assert (storage.root / "demo").exists()
+
+    storage.delete("demo")
+
     assert not (storage.root / "demo").exists()
-    assert not (storage.root / ".zips" / "demo.zip").exists()
     assert not GlobalSkill.objects.filter(name="demo").exists()
 
 

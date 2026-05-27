@@ -110,3 +110,35 @@ class TestToolSearch:
 
         assert isinstance(result, Command)
         assert len(result.update["loaded_tool_names"]) <= 3
+
+    async def test_select_accepts_json_string_list(self):
+        # Qwen 3.x has been observed to JSON-stringify the `select` array.
+        tools = [_make_tool("github_create_issue", "Create a GitHub issue")]
+        tool_search = make_tool_search(lambda: DeferredToolsIndex(tools), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": '["github_create_issue"]', "runtime": _runtime()})
+
+        assert isinstance(result, Command)
+        assert result.update["loaded_tool_names"] == {"github_create_issue"}
+
+    async def test_select_accepts_bare_string_name(self):
+        tools = [_make_tool("github_create_issue", "Create a GitHub issue")]
+        tool_search = make_tool_search(lambda: DeferredToolsIndex(tools), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": "github_create_issue", "runtime": _runtime()})
+
+        assert isinstance(result, Command)
+        assert result.update["loaded_tool_names"] == {"github_create_issue"}
+
+    async def test_select_non_list_json_falls_back_to_single_name(self):
+        # ``json.loads("42")`` succeeds but returns an int, not a list. The coercion
+        # wraps the raw string as a single-name shorthand — the downstream "unknown
+        # name" branch then gives the model a clean signal instead of looping on
+        # validation errors.
+        tool_search = make_tool_search(lambda: DeferredToolsIndex([]), top_k_default=5, top_k_max=10)
+
+        result = await tool_search.ainvoke({"query": "", "select": "42", "runtime": _runtime()})
+
+        assert isinstance(result, Command)
+        assert "loaded_tool_names" not in result.update
+        assert "42" in result.update["messages"][0].content

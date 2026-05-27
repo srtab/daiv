@@ -15,6 +15,9 @@ from croniter import croniter
 from django_extensions.db.models import TimeStampedModel
 from notifications.choices import NotifyOn
 
+from automation.agent.display import MODEL_NAME_MAX_LEN, display_model_name, display_thinking_level
+from core.models import ThinkingLevelChoices
+
 if TYPE_CHECKING:
     from accounts.models import User
 
@@ -28,7 +31,17 @@ class Frequency(models.TextChoices):
     ONCE = "once", _("Once")
 
 
-_USER_FACING_FIELDS = ("name", "prompt", "repos", "frequency", "cron_expression", "time", "use_max", "notify_on")
+_USER_FACING_FIELDS = (
+    "name",
+    "prompt",
+    "repos",
+    "frequency",
+    "cron_expression",
+    "time",
+    "agent_model",
+    "agent_thinking_level",
+    "notify_on",
+)
 
 
 def _coerce_repos(repos, *, allow_empty: bool) -> list[dict]:
@@ -127,6 +140,10 @@ class ScheduledJob(TimeStampedModel):
     )
     use_max = models.BooleanField(
         _("max mode"), default=False, help_text=_("Use the more capable model with thinking set to high.")
+    )
+    agent_model = models.CharField(_("agent model"), max_length=255, blank=True, default="")
+    agent_thinking_level = models.CharField(
+        _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
     is_enabled = models.BooleanField(_("enabled"), default=True)
     next_run_at = models.DateTimeField(_("next run at"), null=True, blank=True, db_index=True)
@@ -281,7 +298,8 @@ class ScheduleTemplate(TimeStampedModel):
         "frequency",
         "cron_expression",
         "time",
-        "use_max",
+        "agent_model",
+        "agent_thinking_level",
         "notify_on",
     )
 
@@ -300,6 +318,10 @@ class ScheduleTemplate(TimeStampedModel):
     cron_expression = models.CharField(_("cron expression"), max_length=100, blank=True, default="")
     time = models.TimeField(_("time"), null=True, blank=True)
     use_max = models.BooleanField(_("max mode"), default=False)
+    agent_model = models.CharField(_("agent model"), max_length=255, blank=True, default="")
+    agent_thinking_level = models.CharField(
+        _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
+    )
     notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -377,5 +399,8 @@ class ScheduleTemplate(TimeStampedModel):
             "frequency_display": self.get_frequency_display(),
             "frequency_summary": self.frequency_summary,
             "notify_on_display": self.get_notify_on_display(),
-            "use_max": self.use_max,
+            "agent_model": self.agent_model,
+            "agent_model_display": display_model_name(str(self.agent_model), max_len=MODEL_NAME_MAX_LEN),
+            "agent_thinking_level": self.agent_thinking_level,
+            "agent_thinking_level_display": display_thinking_level(str(self.agent_thinking_level)),
         }
