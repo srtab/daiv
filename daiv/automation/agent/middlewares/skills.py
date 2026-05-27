@@ -86,6 +86,8 @@ SKILLS_SYSTEM_PROMPT = f"""\
 - Only use skills listed in <available_skills> below, but creation is possible
 - Do not invoke a skill that is already running.
 
+**Skill assets:** Each skill lives at `<location>/<skill-name>/` under one of the locations below. The bash working directory is the repository checkout, **not** the skill's root, so a SKILL.md reference to `scripts/foo.py` is `<location>/<skill-name>/scripts/foo.py` (per-repo skills resolve under their `.agents/skills` / `.claude/skills` / `.cursor/skills` source root, not under the bash CWD). Invoke by absolute path; do not probe the bash CWD for skill assets.
+
 {{skills_locations}}{{skills_load_warnings}}
 
 {{skills_list}}"""  # noqa: E501
