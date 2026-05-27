@@ -13,6 +13,7 @@ from asgiref.sync import async_to_sync
 from sandbox_envs.models import SandboxEnvironment
 
 from accounts.mixins import BreadcrumbMixin
+from automation.agent.picker_context import agent_picker_context
 from chat.models import ChatThread
 from chat.repo_state import aget_existing_mr_payload, mr_to_payload
 from chat.turns import build_turns
@@ -72,6 +73,16 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         )
         ctx["selected_sandbox_env"] = next(
             (e for e in ctx["sandbox_envs"] if str(e.id) == ctx["selected_sandbox_env_id"]), None
+        )
+        # The chat composer has no Django form — the agent picker reads its initial
+        # state straight from the thread row (empty strings mean Auto). On an
+        # existing thread we render the picker locked to mirror the env-pill, since
+        # the backend ignores agent overrides after the first turn.
+        ctx.update(
+            agent_picker_context(
+                initial_model=thread.agent_model if thread is not None else "",
+                initial_thinking_level=thread.agent_thinking_level if thread is not None else "",
+            )
         )
         if thread is None:
             ctx.update({"turns": [], "expired": False, "active_run_id": "", "merge_request": None})

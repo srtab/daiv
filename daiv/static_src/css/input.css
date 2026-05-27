@@ -274,6 +274,14 @@ main:has(.chat-shell) {
   .status-badge-pending {
     @apply bg-gray-800/60 text-gray-400;
   }
+
+  /* Subtle inline chip used to surface per-run metadata (e.g., the agent
+     model + thinking-effort override) next to a heading or in dense lists.
+     Neutral palette — competes less for attention than `.status-badge*`. */
+  .meta-pill {
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.08]
+      bg-white/[0.02] px-2 py-0.5 text-[11px] text-gray-300;
+  }
 }
 
 /* -- Status dot variants -------------------------------------------------- */
@@ -1714,6 +1722,73 @@ main:has(.chat-shell) {
 
   .env-popover__row--auto {
     @apply border-b border-white/[0.06];
+  }
+
+  /* Agent picker — model + thinking-effort pill rendered next to the env pill on
+     the run composer and chat composer. Visually a sibling of ``.env-pill`` (same
+     metrics, same icon/caret/lock idiom) but tinted cooler grey-blue so the two
+     pills are distinguishable side by side. The popover reuses ``.picker-popover``
+     and ``.env-popover__*`` from the env picker; the rules below add the pill
+     itself plus the effort-dot meter that doubles as the popover's effort
+     selector. */
+  /* `shrink-0` diverges from .env-pill on purpose: model names can be long
+     enough to compress this pill inside its flex parent; env names are short. */
+  .agent-pill {
+    @apply inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1
+           text-[13px] font-medium text-[#d8dcec];
+    background-color: rgba(120, 140, 180, 0.14);
+    border: 1px solid rgba(120, 140, 180, 0.30);
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .agent-pill:hover {
+    background-color: rgba(120, 140, 180, 0.22);
+  }
+  .agent-pill:focus-visible {
+    outline: 2px solid rgba(180, 195, 230, 0.5);
+    outline-offset: 2px;
+  }
+
+  .agent-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
+  .agent-pill__name { @apply max-w-[18ch] truncate; }
+
+  .agent-pill__effort { @apply inline-flex items-center gap-1; }
+  .agent-pill__effort-icon { @apply h-3 w-3 opacity-70; }
+  .agent-pill__effort-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-white/[0.25];
+  }
+  .agent-pill__effort-dot--on { @apply bg-white; }
+
+  .agent-pill__caret { @apply h-2.5 w-2.5 opacity-50 ml-px; }
+
+  .agent-pill--locked {
+    @apply opacity-75 pointer-events-none;
+    background-color: rgba(120, 140, 180, 0.08);
+  }
+  .agent-pill__lock { @apply h-3 w-3 opacity-60 ml-px; }
+
+  /* Persisted model spec references a provider that is no longer enabled. The
+     pill still shows the stored value so users see what was selected, but the
+     amber tint + marker invites them to pick a fresh model. Stale takes
+     precedence over --locked in the template. */
+  .agent-pill--stale {
+    @apply border-amber-500/40 bg-amber-500/5 text-amber-300;
+  }
+  .agent-pill__stale-marker {
+    @apply ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full
+           bg-amber-500/20 text-[10px] font-semibold text-amber-300;
+  }
+
+  .agent-popover__section {
+    @apply border-t border-white/[0.05] px-3 py-2 text-[12px];
+  }
+  .agent-popover__effort {
+    @apply flex items-center justify-between gap-3;
+  }
+  .agent-popover__effort-dots {
+    @apply inline-flex items-center gap-1;
+  }
+  .agent-popover__effort-label {
+    @apply inline-flex items-center gap-1.5;
   }
 
   .repo-id-chip {

@@ -77,6 +77,32 @@ class TestParseModelSpec:
     def test_parse_bare_o4(self):
         assert parse_model_spec("o4-mini").row.slug == "openai"
 
+    @pytest.mark.parametrize(
+        "model_spec",
+        [
+            "anthropic:claude-sonnet-4-6",
+            "openai:gpt-5.4",
+            "google_genai:gemini-2.5-pro",
+            "openrouter:anthropic/claude-sonnet-4.6",
+            "claude-haiku-4-5",
+            "gpt-5.4",
+            "gemini-2.5-pro",
+            "o4-mini",
+        ],
+    )
+    def test_resolve_provider_slug_matches_parse_model_spec(self, model_spec: str) -> None:
+        """The integration-test helper must resolve to the same row parse_model_spec picks.
+
+        If a future change adds a new built-in slug or bare-name heuristic to
+        parse_model_spec, the helper in tests/integration_tests/utils.py must
+        be updated in lockstep. This test makes drift visible.
+        """
+        from tests.integration_tests.utils import _resolve_provider_slug
+
+        expected_row = parse_model_spec(model_spec).row
+        helper_slug = _resolve_provider_slug(model_spec)
+        assert expected_row.slug == helper_slug
+
 
 @pytest.mark.django_db
 class TestGetModelKwargs:
@@ -241,8 +267,21 @@ class TestGetModelKwargs:
         assert "openai_api_key" not in kw
         assert kw["model_kwargs"]["extra_headers"]["HTTP-Referer"]
         assert kw["temperature"] == 1
-        assert "max_tokens" in kw
-        assert kw["extra_body"]["reasoning"]["max_tokens"] >= 1024
+        assert kw["max_tokens"] == 51_200
+        assert kw["extra_body"]["reasoning"]["enabled"] is True
+        assert kw["extra_body"]["reasoning"]["effort"] == ThinkingLevelChoices.MEDIUM
+        assert "max_tokens" not in kw["extra_body"]["reasoning"]
+
+    def test_openrouter_anthropic_xhigh(self):
+        """xhigh on Anthropic-via-OpenRouter passes the effort string straight through;
+        ``max_tokens`` stays inside Anthropic's per-model cap (64K)."""
+        self._enable_seed("openrouter", "sk-or")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec("openrouter:anthropic/claude-sonnet-4.6"),
+            thinking_level=ThinkingLevelChoices.XHIGH,
+        )
+        assert kw["extra_body"]["reasoning"]["effort"] == ThinkingLevelChoices.XHIGH
+        assert kw["max_tokens"] == 64_000
 
     def test_openrouter_generic_thinking(self):
         self._enable_seed("openrouter", "sk-or")
@@ -251,6 +290,17 @@ class TestGetModelKwargs:
         )
         assert kw["extra_body"]["reasoning"]["enabled"] is True
         assert kw["extra_body"]["reasoning"]["effort"] == ThinkingLevelChoices.HIGH
+
+    def test_openrouter_generic_xhigh_passthrough(self):
+        self._enable_seed("openrouter", "sk-or")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec("openrouter:z-ai/glm-5"), thinking_level=ThinkingLevelChoices.XHIGH
+        )
+        assert kw["extra_body"]["reasoning"]["enabled"] is True
+        assert kw["extra_body"]["reasoning"]["effort"] == ThinkingLevelChoices.XHIGH
+        # Generic models bypass the per-level max_tokens table; the Anthropic-only
+        # path is what sets max_tokens, so confirm it doesn't leak here.
+        assert "max_tokens" not in kw
 
     def test_google_genai(self):
         self._enable_seed("google_genai", "sk-g")
@@ -271,3 +321,24 @@ class TestGetModelKwargs:
         )
         assert kw["temperature"] == 1
         assert kw["reasoning_effort"] == ThinkingLevelChoices.LOW
+
+    def test_openai_xhigh_downmap_to_high(self):
+        """OpenAI's native ``reasoning_effort`` rejects ``xhigh``; we downmap to ``high``
+        rather than surfacing a 4xx from the upstream call."""
+        self._enable_seed("openai", "sk-o")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec("openai:gpt-5.3-codex"), thinking_level=ThinkingLevelChoices.XHIGH
+        )
+        assert kw["reasoning_effort"] == ThinkingLevelChoices.HIGH
+
+    def test_anthropic_xhigh_budget(self):
+        """xhigh on direct Anthropic stays at the Sonnet/Haiku 64K cap — the level
+        differentiates from HIGH only on OpenRouter, where the ratio formula applies."""
+        self._enable_seed("anthropic", "sk-a")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec("anthropic:claude-sonnet-4-6"), thinking_level=ThinkingLevelChoices.XHIGH
+        )
+        assert kw["temperature"] == 1
+        assert kw["max_tokens"] == 64_000
+        assert kw["thinking"]["type"] == "enabled"
+        assert kw["thinking"]["budget_tokens"] == 64_000 - 16_384

@@ -5,7 +5,7 @@ from langsmith import testing as t
 from automation.agent.graph import create_daiv_agent
 from core.site_settings import site_settings
 
-from .utils import CODING_MODEL_NAMES, INTERRUPT_ALL_TOOLS_CONFIG, extract_tool_calls
+from .utils import CODING_MODEL_NAMES, INTERRUPT_ALL_TOOLS_CONFIG, extract_tool_calls, require_provider_for_model
 
 TEST_SUITE = "DAIV: Sandbox"
 
@@ -77,6 +77,7 @@ def _extract_bash_tool_messages(messages: list) -> list[str]:
     ],
 )
 async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx):
+    require_provider_for_model(model_name)
     if site_settings.sandbox_api_key is None:
         pytest.skip("SANDBOX_API_KEY is not configured.")
 
@@ -134,6 +135,7 @@ async def test_sandbox_policy_blocks_forbidden_commands(model_name, user_message
     reach the sandbox, and that the agent receives a policy-denial error response.
     The agent should NOT execute the forbidden command successfully.
     """
+    require_provider_for_model(model_name)
     if site_settings.sandbox_api_key is None:
         pytest.skip("SANDBOX_API_KEY is not configured.")
 

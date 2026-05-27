@@ -10,6 +10,7 @@ from activity.services import RepoTarget, asubmit_batch_runs
 from ninja import Router
 from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 
+from automation.agent.validators import AgentOverrideError, validate_agent_override
 from chat.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
 
@@ -53,6 +54,11 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         if not ok:
             return 400, {"detail": err}
 
+    try:
+        agent_model, agent_thinking_level = validate_agent_override(payload.agent_model, payload.agent_thinking_level)
+    except AgentOverrideError as err:
+        return 400, {"detail": str(err)}
+
     explicit_env_id = None
     if payload.environment:
         try:
@@ -67,7 +73,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         user=request.auth,
         prompt=payload.prompt,
         repos=targets,
-        use_max=payload.use_max,
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
         notify_on=payload.notify_on,
         trigger_type=TriggerType.API_JOB,
         thread_id=str(payload.thread_id) if payload.thread_id is not None else None,

@@ -140,7 +140,8 @@ class TestScheduleTemplateToPickerDict:
             "frequency": Frequency.DAILY,
             "time": time(2, 0),
             "notify_on": NotifyOn.ALWAYS,
-            "use_max": True,
+            "agent_model": "openrouter:anthropic/claude-opus-4.6",
+            "agent_thinking_level": "high",
         }
         defaults.update(kwargs)
         return ScheduleTemplate.objects.create(**defaults)
@@ -157,7 +158,10 @@ class TestScheduleTemplateToPickerDict:
             "frequency_display",
             "frequency_summary",
             "notify_on_display",
-            "use_max",
+            "agent_model",
+            "agent_model_display",
+            "agent_thinking_level",
+            "agent_thinking_level_display",
         }
 
     def test_excludes_prompt(self):
@@ -165,13 +169,29 @@ class TestScheduleTemplateToPickerDict:
         assert "prompt" not in tpl.to_picker_dict()
 
     def test_values(self):
-        tpl = self._make_tpl(name="Weekly audit", repos=[], use_max=False)
+        tpl = self._make_tpl(name="Weekly audit", repos=[], agent_model="", agent_thinking_level="")
         row = tpl.to_picker_dict()
         assert row["id"] == tpl.id
         assert row["name"] == "Weekly audit"
         assert row["repos"] == []
         assert row["repos_summary"] == "Any repo"
-        assert row["use_max"] is False
+        assert row["agent_model"] == ""
+        assert row["agent_model_display"] == ""
+        assert row["agent_thinking_level"] == ""
+        assert row["agent_thinking_level_display"] == ""
         assert row["frequency_display"] == "Daily"
         assert row["frequency_summary"] == "Daily at 02:00"
         assert row["notify_on_display"] == "Always"
+
+    def test_display_strips_provider_prefix(self):
+        tpl = self._make_tpl(agent_model="openrouter:anthropic/claude-opus-4.6", agent_thinking_level="high")
+        row = tpl.to_picker_dict()
+        assert row["agent_model_display"] == "claude-opus-4.6"
+        assert row["agent_thinking_level_display"] == "High"
+
+    def test_display_caps_long_model_name(self):
+        from automation.agent.display import MODEL_NAME_MAX_LEN
+
+        tpl = self._make_tpl(agent_model="openrouter:vendor/" + "x" * 50, agent_thinking_level="")
+        row = tpl.to_picker_dict()
+        assert row["agent_model_display"] == "x" * MODEL_NAME_MAX_LEN

@@ -7,6 +7,8 @@
 
 {% block alpine_plugins %}
 <script defer src="{% static 'core/js/django-formset.js' %}"></script>
+{# All model_name settings render the shared agent picker, so load the bundle on every group. #}
+<script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
 {% if active_group.key == "providers" %}
 <script defer src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"
         integrity="sha384-HZZ/fukV+9G8gwTNjN7zQDG0Sp7MsZy5DDN6VfY3Be7V9dvQpEpR2jF2HlyFUUjU"

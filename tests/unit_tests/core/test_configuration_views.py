@@ -140,12 +140,7 @@ class TestPostSave:
 
         client.force_login(admin_user)
         response = client.post(
-            group_url("agent"),
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                "agent_recursion_limit": 100,
-            },
+            group_url("agent"), {"agent_model_name": "anthropic:claude-sonnet-4-6", "agent_recursion_limit": 100}
         )
         assert response.status_code == 302
 
@@ -177,10 +172,7 @@ class TestPostSave:
 
     def test_member_cannot_post(self, client, member_user, group_url):
         client.force_login(member_user)
-        response = client.post(
-            group_url("agent"),
-            {"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
-        )
+        response = client.post(group_url("agent"), {"agent_model_name": "anthropic:claude-sonnet-4-6"})
         assert response.status_code == 403
 
     def test_error_banner_renders_when_slug_invalid(self, client, admin_user, group_url):
@@ -391,10 +383,7 @@ class TestModelApiKeyValidation:
         p.save()
 
         config = SiteConfiguration.objects.get_instance()
-        form = SiteConfigurationForm(
-            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
-            instance=config,
-        )
+        form = SiteConfigurationForm(data={"agent_model_name": "anthropic:claude-sonnet-4-6"}, instance=config)
         assert not form.is_valid()
         assert "agent_model_name" in form.errors
         assert "API key" in str(form.errors["agent_model_name"][0])
@@ -408,10 +397,7 @@ class TestModelApiKeyValidation:
         p.save()
 
         config = SiteConfiguration.objects.get_instance()
-        form = SiteConfigurationForm(
-            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
-            instance=config,
-        )
+        form = SiteConfigurationForm(data={"agent_model_name": "anthropic:claude-sonnet-4-6"}, instance=config)
         assert not form.is_valid()
         assert "agent_model_name" in form.errors
         assert "disabled" in str(form.errors["agent_model_name"][0])
@@ -422,10 +408,7 @@ class TestModelApiKeyValidation:
         _enable_seed_provider("anthropic")
 
         config = SiteConfiguration.objects.get_instance()
-        form = SiteConfigurationForm(
-            data={"agent_model_name_provider": "anthropic", "agent_model_name_model": "claude-sonnet-4-6"},
-            instance=config,
-        )
+        form = SiteConfigurationForm(data={"agent_model_name": "anthropic:claude-sonnet-4-6"}, instance=config)
         assert form.is_valid(), f"Form errors: {form.errors}"
 
     def test_empty_model_name_skips_validation(self, db):
@@ -446,10 +429,8 @@ class TestModelApiKeyValidation:
         config = SiteConfiguration.objects.get_instance()
         form = SiteConfigurationForm(
             data={
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                "agent_fallback_model_name_provider": "anthropic",
-                "agent_fallback_model_name_model": "claude-haiku-4-5",
+                "agent_model_name": "anthropic:claude-sonnet-4-6",
+                "agent_fallback_model_name": "anthropic:claude-haiku-4-5",
             },
             instance=config,
         )
@@ -461,10 +442,7 @@ class TestModelApiKeyValidation:
         from core.forms import SiteConfigurationForm
 
         config = SiteConfiguration.objects.get_instance()
-        form = SiteConfigurationForm(
-            data={"agent_model_name_provider": "no-such-provider", "agent_model_name_model": "some-model"},
-            instance=config,
-        )
+        form = SiteConfigurationForm(data={"agent_model_name": "no-such-provider:some-model"}, instance=config)
         assert not form.is_valid()
         assert "agent_model_name" in form.errors
 
@@ -746,12 +724,7 @@ class TestPerGroupSaveIsolation:
         _enable_seed_provider("anthropic")
         client.force_login(admin_user)
         response = client.post(
-            group_url("agent"),
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                "agent_recursion_limit": 250,
-            },
+            group_url("agent"), {"agent_model_name": "anthropic:claude-sonnet-4-6", "agent_recursion_limit": 250}
         )
         assert response.status_code == 302
 
@@ -828,12 +801,7 @@ class TestPerGroupSaveIsolation:
 
         # Step 2: select that provider's model on the agent page
         r2 = client.post(
-            group_url("agent"),
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                "agent_recursion_limit": 200,
-            },
+            group_url("agent"), {"agent_model_name": "anthropic:claude-sonnet-4-6", "agent_recursion_limit": 200}
         )
         assert r2.status_code == 302
 
@@ -864,12 +832,7 @@ class TestPerGroupSaveIsolation:
         _enable_seed_provider("anthropic")
         client.force_login(admin_user)
         response = client.post(
-            group_url("agent"),
-            {
-                "agent_model_name_provider": "anthropic",
-                "agent_model_name_model": "claude-sonnet-4-6",
-                "clear_rocketchat_auth_token": "on",
-            },
+            group_url("agent"), {"agent_model_name": "anthropic:claude-sonnet-4-6", "clear_rocketchat_auth_token": "on"}
         )
         assert response.status_code == 302
 
@@ -956,6 +919,228 @@ def test_providers_view_persists_new_sort_order(client, admin_user):
     assert response.status_code == 302
     assert Provider.objects.get(slug="anthropic").sort_order == 999
     assert Provider.objects.get(slug="openai").sort_order == 0
+
+
+class TestAgentPickerWidget:
+    """The shared agent picker now backs every ``MODEL_NAME_FIELDS`` entry in
+    settings. These tests pin the contract that distinguishes its settings mode
+    from the run-time mode (the latter is covered by the picker-context tests):
+
+      - one POST key per field, carrying the full ``provider:model`` spec
+      - paired model+thinking fields submit *both* values from one popover
+      - the partner thinking field is suppressed from the standard render loop
+      - the placeholder pill shows the env default as a hint
+    """
+
+    def test_paired_model_field_submits_thinking_under_partner_name(self, client, admin_user, group_url):
+        """One picker submits both agent_model_name and agent_thinking_level."""
+        _enable_seed_provider("anthropic")
+        client.force_login(admin_user)
+        response = client.post(
+            group_url("agent"), {"agent_model_name": "anthropic:claude-sonnet-4-6", "agent_thinking_level": "high"}
+        )
+        assert response.status_code == 302
+
+        config = SiteConfiguration.objects.get_instance()
+        assert config.agent_model_name == "anthropic:claude-sonnet-4-6"
+        assert config.agent_thinking_level == "high"
+
+    def test_max_paired_model_field_submits_thinking_under_partner_name(self, client, admin_user, group_url):
+        """The second paired pair (``agent_max_*``) shares the same submission contract
+        as ``agent_*`` — both POST keys land from one popover. Pinning this guards against
+        a partial revert of ``_PAIRED_THINKING_FIELDS`` that would leave one pair behind."""
+        _enable_seed_provider("anthropic")
+        client.force_login(admin_user)
+        response = client.post(
+            group_url("agent"),
+            {"agent_max_model_name": "anthropic:claude-sonnet-4-6", "agent_max_thinking_level": "medium"},
+        )
+        assert response.status_code == 302
+
+        config = SiteConfiguration.objects.get_instance()
+        assert config.agent_max_model_name == "anthropic:claude-sonnet-4-6"
+        assert config.agent_max_thinking_level == "medium"
+
+    def test_paired_thinking_field_is_skipped_in_render_loop(self, client, admin_user, group_url):
+        """The standalone Select for the paired thinking-level must not render —
+        the picker's effort dots are the sole UI. ``id_agent_thinking_level``
+        belongs to Django's auto-generated Select; if it appears in the rendered
+        HTML, two inputs would submit the same POST key."""
+        _enable_seed_provider("anthropic")
+        client.force_login(admin_user)
+        response = client.get(group_url("agent"))
+        content = response.content.decode()
+        assert 'id="id_agent_thinking_level"' not in content
+        assert 'id="id_agent_max_thinking_level"' not in content
+        # Sanity: the model field still renders.
+        assert "agent_model_name" in content
+
+    def test_placeholder_shows_pydantic_default_short_name(self, db):
+        """``_apply_defaults`` plumbs the Pydantic / env default into the widget
+        so the unselected pill can render "Default (short-name)". This pins
+        ``_shorten_model_spec`` collapsing of provider + org/ prefixes."""
+        from core.forms import SiteConfigurationForm
+
+        form = SiteConfigurationForm(
+            instance=SiteConfiguration.objects.get_instance(),
+            field_defaults={"agent_fallback_model_name": "openrouter:anthropic/claude-haiku-4.5"},
+        )
+        widget = form.fields["agent_fallback_model_name"].widget
+        assert widget.default_model == "openrouter:anthropic/claude-haiku-4.5"
+        ctx = widget.get_context("agent_fallback_model_name", None, {})
+        assert ctx["widget"]["picker"]["placeholder_label"] == "Default (claude-haiku-4.5)"
+
+    @pytest.mark.parametrize(
+        ("spec", "expected"),
+        [
+            ("", ""),  # empty input → empty output (early-return guard)
+            ("anthropic:claude-sonnet-4-6", "claude-sonnet-4-6"),  # provider + bare model
+            ("openrouter:anthropic/claude-haiku-4.5", "claude-haiku-4.5"),  # provider + org/model
+            ("bare-model-name", "bare-model-name"),  # no provider prefix at all
+            ("provider:", ""),  # provider with empty tail — degenerate
+            ("provider:org/", "org/"),  # trailing slash falls through to the ``or name`` branch
+        ],
+    )
+    def test_shorten_model_spec(self, spec, expected):
+        """Pure-Python coverage of ``_shorten_model_spec``'s five branches:
+        the ``or name`` fallback at the end is only reached by the trailing-slash
+        case, so removing it would silently return ``""`` for that input — caught here."""
+        from core.forms import _shorten_model_spec
+
+        assert _shorten_model_spec(spec) == expected
+
+    def test_paired_widget_receives_thinking_default_and_initial(self, db):
+        """Paired pickers must also carry the thinking default + the form's
+        initial thinking value so the popover seeds the effort dots correctly."""
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_thinking_level = "low"
+        config.save()
+
+        form = SiteConfigurationForm(
+            instance=config,
+            field_defaults={
+                "agent_model_name": "openrouter:anthropic/claude-sonnet-4.6",
+                "agent_thinking_level": "medium",
+            },
+        )
+        widget = form.fields["agent_model_name"].widget
+        assert widget.paired_thinking_field == "agent_thinking_level"
+        assert widget.default_thinking == "medium"
+        assert widget.initial_thinking == "low"
+
+    def test_widget_value_from_datadict_returns_single_spec(self):
+        """Submission carries the full spec under the field name (no _provider/_model split).
+        Pure-Python — no DB fixture needed."""
+        from core.forms import _AgentPickerWidget
+
+        widget = _AgentPickerWidget()
+        assert (
+            widget.value_from_datadict({"agent_model_name": "openai:gpt-5.4"}, {}, "agent_model_name")
+            == "openai:gpt-5.4"
+        )
+        # Whitespace is stripped to mirror Django's standard text-input cleaning.
+        assert (
+            widget.value_from_datadict({"agent_model_name": "  openai:gpt-5.4  "}, {}, "agent_model_name")
+            == "openai:gpt-5.4"
+        )
+
+    def test_widget_suppresses_label_for_attribute(self):
+        """The widget renders no single labelable input (hidden/sr-only inputs + a popover
+        trigger button), so ``id_for_label`` must return empty so the surrounding template
+        drops ``for=`` — pointing a label at a hidden input fools browser autofill and a11y
+        tools into thinking the field is reachable."""
+        from core.forms import _AgentPickerWidget
+
+        assert _AgentPickerWidget().id_for_label("id_agent_model_name") == ""
+
+    def test_clear_persists_null_for_paired_picker(self, client, admin_user, group_url):
+        """The "Use default" button posts empty strings for both keys. The form
+        must persist NULL on both — not "" — because the field's ``CharField(null=True)``
+        formfield sets ``empty_value=None``, so an empty submission goes to the DB
+        as NULL rather than empty string. The ORM then reads back ``None``, which
+        ``get_daiv_agent_kwargs`` falls back from to the system default."""
+        _enable_seed_provider("anthropic")
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_model_name = "anthropic:claude-sonnet-4-6"
+        config.agent_thinking_level = "high"
+        config.save()
+        client.force_login(admin_user)
+        response = client.post(group_url("agent"), {"agent_model_name": "", "agent_thinking_level": ""})
+        assert response.status_code == 302
+
+        config.refresh_from_db()
+        assert config.agent_model_name is None
+        assert config.agent_thinking_level is None
+
+    def test_clear_persists_null_for_standalone_picker(self, db):
+        """Same as above for a non-paired model field — ``"" → NULL`` save semantics
+        must hold uniformly across the 10 ``MODEL_NAME_FIELDS``. Goes through the
+        form layer directly to avoid pulling in the web_fetch headers formset
+        management data (the e2e flow is covered for the paired case)."""
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.web_fetch_model_name = "openai:gpt-5.4"
+        config.save()
+
+        form = SiteConfigurationForm(data={"web_fetch_model_name": ""}, instance=config)
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        assert saved.web_fetch_model_name is None
+
+    def test_env_locked_model_field_renders_locked_pill_with_correct_tooltip(self, db):
+        """Env-locked model fields must render the static locked pill (no Alpine
+        popover) AND use the env-var tooltip — not the run-time "Locked for
+        this conversation" text. The latter is the default in the partial; if
+        the widget stops threading ``locked_title``, this regresses silently."""
+        from core.forms import SiteConfigurationForm
+
+        form = SiteConfigurationForm(
+            instance=SiteConfiguration.objects.get_instance(), env_locked_fields={"agent_model_name"}
+        )
+        html = str(form["agent_model_name"])
+        assert 'aria-disabled="true"' in html
+        # The interactive popover root must not render — otherwise an admin
+        # could open the popover and "override" an env-locked value (the env
+        # value still wins server-side, but the UI would lie).
+        assert "agentPicker(" not in html
+        assert "Locked by environment variable" in html
+        assert "Locked for this conversation" not in html
+
+    def test_standalone_picker_does_not_carry_paired_thinking_state(self, db):
+        """A non-paired field must not pick up a thinking-level partner. Pins
+        the ``_PAIRED_THINKING_FIELDS.get(name)`` branch that returns None for
+        all 8 standalone model fields."""
+        from core.forms import SiteConfigurationForm
+
+        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance())
+        widget = form.fields["web_fetch_model_name"].widget
+        assert widget.paired_thinking_field is None
+        ctx = widget.get_context("web_fetch_model_name", None, {})
+        # ``with_effort=False`` means the partial omits the thinking input AND
+        # the effort dots — a standalone picker can never accidentally write
+        # to a thinking_level POST key.
+        assert ctx["widget"]["picker"]["with_effort"] is False
+        assert ctx["widget"]["picker"]["field_name_thinking"] == ""
+
+    def test_paired_widget_initial_thinking_reads_post_on_bound_form(self, db):
+        """On a validation-failure re-render, ``initial_thinking`` must reflect
+        what the user submitted — not the DB-stored value. Otherwise the effort
+        dots silently revert to the pre-submit state and the user can't tell
+        why their pick keeps being lost."""
+        from core.forms import SiteConfigurationForm
+
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_thinking_level = "low"
+        config.save()
+
+        form = SiteConfigurationForm(
+            data={"agent_model_name": "openrouter:bogus", "agent_thinking_level": "high"}, instance=config
+        )
+        widget = form.fields["agent_model_name"].widget
+        assert widget.initial_thinking == "high"
 
 
 @pytest.mark.django_db
