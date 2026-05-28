@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from langchain.agents.middleware.types import ToolCallRequest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command
 
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
@@ -303,6 +304,51 @@ class TestSkillsMiddleware:
         assert result["jump_to"] == "end"
         assert isinstance(result["messages"][0], AIMessage)
         assert result["messages"][0].content == "arg1|101|202|skill-one"
+
+    async def test_apply_builtin_slash_commands_drops_history_when_command_resets_thread(self):
+        """Commands flagged ``resets_thread`` must emit ``RemoveMessage(REMOVE_ALL_MESSAGES)``
+        ahead of the result so the turn-final checkpoint write doesn't re-persist prior
+        messages under the same thread_id (regression for /clear)."""
+
+        class ResettingSlashCommand(SlashCommand):
+            description = "reset"
+            resets_thread = True
+
+            async def execute_for_agent(
+                self,
+                *,
+                args: str,
+                issue_iid: int | None = None,
+                merge_request_id: int | None = None,
+                available_skills: list | None = None,
+                available_subagents: list | None = None,
+            ) -> str:
+                return "done"
+
+        registry = SlashCommandRegistry()
+        registry.register(ResettingSlashCommand, "reset", [Scope.GLOBAL])
+
+        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
+        context = Mock()
+        context.bot_username = "daiv"
+        context.scope = Scope.GLOBAL
+        context.repository = Mock(slug="repo-1")
+        context.issue = None
+        context.merge_request = None
+
+        with patch("automation.agent.middlewares.skills.slash_command_registry", registry):
+            result = await middleware._apply_builtin_slash_commands(
+                [HumanMessage(content="/reset"), AIMessage(content="prior"), HumanMessage(content="/reset")],
+                context,
+                [],
+            )
+
+        assert result is not None
+        assert result["jump_to"] == "end"
+        assert isinstance(result["messages"][0], RemoveMessage)
+        assert result["messages"][0].id == REMOVE_ALL_MESSAGES
+        assert isinstance(result["messages"][1], AIMessage)
+        assert result["messages"][1].content == "done"
 
     async def test_apply_builtin_slash_commands_returns_error_message_on_failure(self):
         class FailingSlashCommand(SlashCommand):

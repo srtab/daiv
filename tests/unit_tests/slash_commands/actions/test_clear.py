@@ -32,6 +32,9 @@ def test_clear_command_has_correct_attributes():
     assert Scope.ISSUE in ClearSlashCommand.scopes
     assert Scope.MERGE_REQUEST in ClearSlashCommand.scopes
     assert Scope.GLOBAL not in ClearSlashCommand.scopes
+    # The middleware relies on this flag to drop in-memory messages on /clear; otherwise the
+    # turn-final checkpoint write re-persists the prior history under the same thread_id.
+    assert ClearSlashCommand.resets_thread is True
 
 
 @override_settings(DJANGO_REDIS_CHECKPOINT_URL="redis://localhost:6379")

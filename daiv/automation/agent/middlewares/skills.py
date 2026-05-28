@@ -10,8 +10,9 @@ from deepagents.middleware.skills import SkillsMiddleware as DeepAgentsSkillsMid
 from langchain.agents.middleware import hook_config
 from langchain.agents.middleware.types import PrivateStateAttr
 from langchain.tools import ToolRuntime, tool  # noqa: TC002
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 from skills.services import _record_invocation
@@ -362,10 +363,18 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
         except Exception:
             logger.exception("[%s] Failed to execute `%s` slash command", self.name, slash_command.raw)
+            # Intentionally do not honor ``resets_thread`` here: if ``execute_for_agent`` raised,
+            # any checkpointer-side wipe (e.g. ``/clear``'s ``delete_thread``) may not have run,
+            # so keeping in-memory history avoids diverging state from the still-populated Redis
+            # checkpoint.
             return {"messages": [AIMessage(content=f"Failed to execute `{slash_command.raw}`.")], "jump_to": "end"}
         else:
             logger.info("[%s] `%s` slash command completed", self.name, slash_command.raw)
-            return {"messages": [AIMessage(content=result)], "jump_to": "end"}
+            # ``resets_thread`` commands (e.g. ``/clear``) must drop the in-memory history;
+            # otherwise the final checkpoint write of this turn re-persists every prior message
+            # under the same ``thread_id``, resurrecting messages the command just deleted.
+            reset_prefix: list = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] if command.resets_thread else []
+            return {"messages": [*reset_prefix, AIMessage(content=result)], "jump_to": "end"}
 
     def _extract_slash_command(self, messages: list[AnyMessage], bot_username: str) -> SlashCommandCommand | None:
         """

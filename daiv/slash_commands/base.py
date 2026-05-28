@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 from codebase.base import Scope
 
@@ -13,6 +14,11 @@ class SlashCommand(ABC):
     command: str
     scopes: list[Scope]
     description: str
+
+    resets_thread: ClassVar[bool] = False
+    """When ``True``, the middleware will drop the conversation history from agent state on
+    return — required because deleting the Redis checkpoint alone is undone when the same
+    turn writes its final checkpoint back under the same ``thread_id``."""
 
     def __init__(self, *, scope: Scope, repo_id: str, bot_username: str | None = None):
         self.scope = scope
