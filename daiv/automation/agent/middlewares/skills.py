@@ -446,6 +446,14 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     else f"{body}\n\n{SKILL_ARGUMENTS_PLACEHOLDER}: {arg_str}"
                 )
 
+            # Skill names can collide between the global tree and per-repo .agents/skills/,
+            # so inject the resolved root for relative references inside SKILL.md.
+            skill_root = str(Path(loaded_skill["path"]).parent)
+            body = (
+                f"<skill_root>{skill_root}</skill_root>\n"
+                f"Relative paths in this skill resolve under the skill root above.\n\n{body}"
+            )
+
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
             update: dict = {
                 "messages": [
