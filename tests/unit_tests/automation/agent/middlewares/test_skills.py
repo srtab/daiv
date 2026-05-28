@@ -81,8 +81,10 @@ class TestSkillsMiddleware:
         assert skills["skill-one"]["path"] == "/skills/skill-one/SKILL.md"
         assert skills["skill-two"]["path"] == "/skills/skill-two/SKILL.md"
 
-    async def test_skips_copy_global_skills_when_metadata_already_cached(self, tmp_path: Path):
-        """Once skills_metadata is in state, abefore_agent must not re-walk the filesystem."""
+    async def test_recopies_global_skills_when_metadata_already_cached(self, tmp_path: Path):
+        """``_copy_global_skills`` must run every turn so a resume on a fresh worker (Redis
+        checkpoint carries ``skills_metadata``, but ``/tmp/daiv-skills`` is empty on this
+        container) rematerializes SKILL.md files the ``skill`` tool needs to read from disk."""
         from deepagents.backends.filesystem import FilesystemBackend
 
         builtin = tmp_path / "builtin_skills"
@@ -103,11 +105,11 @@ class TestSkillsMiddleware:
 
         with (
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock) as mock_copy,
+            patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock, return_value=[]) as mock_copy,
         ):
             await middleware.abefore_agent(state, runtime, Mock())
 
-        mock_copy.assert_not_called()
+        mock_copy.assert_awaited_once()
 
     async def test_preserves_user_supplied_metadata(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
