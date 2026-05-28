@@ -472,7 +472,45 @@ class TestSkillsMiddleware:
         assert isinstance(messages[0], ToolMessage)
         assert messages[0].content == "Launching skill 'demo'..."
         assert isinstance(messages[1], HumanMessage)
-        assert messages[1].content == "First alpha, second beta, all: alpha beta"
+        assert messages[1].content.endswith("First alpha, second beta, all: alpha beta")
+
+    async def test_skill_tool_anchors_body_to_skill_root(self):
+        backend = Mock()
+        backend.adownload_files = AsyncMock(
+            return_value=[Mock(error=None, content=b"---\nname: demo\ndescription: Demo\n---\nRun this.")]
+        )
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        tool = middleware._skill_tool_generator()
+
+        runtime = Mock()
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.tool_call_id = "call_1"
+
+        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+            result = await tool.coroutine(skill="demo", runtime=runtime)
+
+        assert result.update["messages"][1].content == (
+            "<skill_root>/skills/demo</skill_root>\n"
+            "Relative paths in this skill resolve under the skill root above.\n\n"
+            "Run this."
+        )
+
+    async def test_skill_tool_anchors_per_repo_skill_to_its_source_root(self):
+        backend = Mock()
+        backend.adownload_files = AsyncMock(
+            return_value=[Mock(error=None, content=b"---\nname: demo\ndescription: Demo\n---\nBody.")]
+        )
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills", "/myrepo/.agents/skills"])
+        tool = middleware._skill_tool_generator()
+
+        runtime = Mock()
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/myrepo/.agents/skills/demo/SKILL.md"}]}
+        runtime.tool_call_id = "call_1"
+
+        with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
+            result = await tool.coroutine(skill="demo", runtime=runtime)
+
+        assert result.update["messages"][1].content.startswith("<skill_root>/myrepo/.agents/skills/demo</skill_root>\n")
 
     async def test_skill_tool_appends_named_arguments_when_missing_placeholder(self):
         backend = Mock()
