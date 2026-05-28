@@ -19,6 +19,7 @@ class ClearSlashCommand(SlashCommand):
     """
 
     description: str = "Clear the conversation context and start fresh."
+    resets_thread = True
 
     async def execute_for_agent(
         self, *, args: str, issue_iid: int | None = None, merge_request_id: int | None = None, **kwargs
