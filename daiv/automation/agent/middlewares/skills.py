@@ -136,11 +136,13 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # Skip the filesystem walk once skills_metadata is in state — upstream `abefore_agent` also
-        # short-circuits on the same condition, so re-walking is pure waste on turns 2+.
-        local_load_errors: list[str] = []
-        if "skills_metadata" not in state:
-            local_load_errors = await self._copy_global_skills()
+        # Materialize on every turn, not just when ``skills_metadata`` is unset: ``SKILLS_CACHE_PATH``
+        # is per-container (``/tmp``) while ``skills_metadata`` is persisted in the Redis checkpoint,
+        # so a turn that resumes on a fresh worker (rolling deploy, scale-up, pod restart) would
+        # otherwise hit ``file_not_found`` when the ``skill`` tool downloads ``SKILL.md`` from disk.
+        # ``_collect_skill_files`` is idempotent via a per-file existence check, so warm containers
+        # only pay an ``iterdir`` + per-file ``stat``.
+        local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
