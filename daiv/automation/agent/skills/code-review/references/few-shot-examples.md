@@ -1,16 +1,21 @@
 # Code Review — Few-Shot Examples
 
-Each section shows one fix archetype rendered in three different languages.
-Treat these as *shape* references: the archetype generalizes; the syntax is
-language-specific. Use them to calibrate how short an inline review comment
-can be, what a suggestion block typically replaces, and how the same defect
-manifests across stacks. These are not templates to copy verbatim.
+Each section shows one archetype rendered in several languages — comment / fix
+pairs for fix archetypes, or comment-only snippets for the `question`
+archetype (which carries no fix). Treat these as *shape* references: the
+archetype generalizes; the syntax is language-specific. Use them to calibrate
+how short an inline review comment can be, what a suggestion block typically
+replaces, what a yes/no question looks like, and how the same defect manifests
+across stacks. These are not templates to copy verbatim.
 
-Inline-eligible archetypes (the skill posts these as inline suggestion blocks):
-`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`,
-`swap_library_call`. Everything else — including `rename`, which propagates to
-call sites that a single-line suggestion can't patch — goes in the summary
-discussion.
+Inline-eligible archetypes come in two shapes. **Fix archetypes** ship a
+`suggestion` block: `remove_dead_lines`, `use_framework_idiom`,
+`replace_with_constant`, `swap_library_call`. The **question archetype**
+(`question`) is also inline-eligible: it anchors on a specific new-side line
+but carries no `suggestion` block — just the question. Everything else —
+including `rename`, which propagates to call sites that a single-line
+suggestion can't patch, and cross-file or un-anchored questions — goes in
+the summary discussion.
 
 ---
 
@@ -521,6 +526,88 @@ function getTopScorers(players: Player[]): Player[] {
 
 renderLeaderboard(getTopScorers(roster));
 renderRoster(roster); // roster order is preserved
+```
+
+---
+
+## `question` (inline-eligible)
+
+A targeted question anchored on a single new-side line or a contiguous
+new-side range within one hunk. The reader needs the author's *intent*, not
+a fix — does the diff really do what it looks like it does, or is there a
+hidden constraint the comment doesn't capture? Inline delivery puts the
+question on the exact line(s) in the diff view, so the author can answer
+with context instead of hunting through a summary. The body is marker + one
+or two sentences ending in `?` — no `suggestion` block. When the question
+is about a multi-line block, scope the discussion position to the full range
+and compute the anchor on the first new-side line of that range.
+
+The bar is high: don't ask curiosity questions, don't paraphrase the code,
+don't ask things the diff itself already answers. The hypothesis must be
+concrete and yes/no-answerable.
+
+### Example A — config file
+
+**Reviewer comment:** `The migration notes call for "fake|alloy" during cutover, but this default is "fake" only. Is "alloy" intentionally omitted here (environment-specific override), or should the default match the documented cutover list?`
+
+**Code:**
+
+```bash
+# env_files/all/grafana.env
+GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET__FILE=/run/secrets/keycloak_client_secret
+
+# Pipe-joined list of Loki tenant ids the single Loki datasource is allowed
+# to query (see configs/all/grafana/provisioning/datasources/loki.yml).
+LOKI_TENANT_IDS=fake
+```
+
+### Example B — Python
+
+**Reviewer comment:** `signal.connect with weak=False is called on every form __init__ — does this leak a handler per form instance, or is the signal expected to be re-registered on each request?`
+
+**Code:**
+
+```python
+class OrderForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        post_save.connect(self._update_inventory, sender=Order, weak=False)
+```
+
+### Example C — Go
+
+**Reviewer comment:** `ctx is constructed with context.Background() inside the goroutine — should this inherit from the request context so cancellation propagates, or is the goroutine intentionally detached from the caller's lifetime?`
+
+**Code:**
+
+```go
+func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
+    go func() {
+        ctx := context.Background()
+        if err := h.processor.Enqueue(ctx, payload); err != nil {
+            log.Error(err)
+        }
+    }()
+    w.WriteHeader(http.StatusAccepted)
+}
+```
+
+### Example D — multi-line block (TypeScript)
+
+The question is about the block as a whole, not a single line. Scope the discussion position to the contiguous range; the anchor is computed on the first new-side line of the range (`try {` here).
+
+**Reviewer comment:** `This catch swallows network errors, parse errors, and validation errors under one branch and returns the same fallback. Is collapsing all three intentional, or should at least validation errors surface to the caller?`
+
+**Code (lines 24–31, single hunk):**
+
+```typescript
+try {
+    const resp = await fetch(url);
+    const json = await resp.json();
+    return schema.parse(json);
+} catch {
+    return DEFAULT_CONFIG;
+}
 ```
 
 ---

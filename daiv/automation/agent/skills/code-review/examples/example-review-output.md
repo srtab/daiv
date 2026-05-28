@@ -86,6 +86,18 @@ return strings.Join(parts, ":")
 
 ---
 
+## Delivery mode — inline body (example C: `question`, env file)
+
+A targeted question — anchored on one new-side line, no `suggestion` block, just a concrete hypothesis the author can answer yes/no.
+
+````markdown
+<!-- daiv-cr {"v":1,"kind":"inline","archetype":"question","file":"env_files/all/grafana.env","line":9,"anchor":"b2c3d4e5","sha":"abc1234"} -->
+
+The migration notes call for `fake|alloy` during cutover, but this default is `fake` only. Is `alloy` intentionally omitted here (environment-specific override), or should the default match the documented cutover list?
+````
+
+---
+
 ## Delivery mode — summary discussion body
 
 The summary collects every **discussion-only** finding plus a one-line index of the inline findings posted this run. On re-review, this exact body is updated in place — never appended.
@@ -119,25 +131,29 @@ Move the uniqueness check into the model's `validate()`.
 
 ## Questions
 
-**3. Does this hook fire on every product edit, or only on approval?** — `inbound/views.go:81`
+**3. Does the new ingestion pipeline preserve ordering across the three modules, or is reordering OK?** — multiple files
 
 <details>
 <summary>Details</summary>
 
-The new branch in `CanPublish` triggers `submitForReviewEmail` whenever `canSubmit()` is true. A seller editing the product description after approval would re-trigger the email. Intended, or should the trigger guard on a state transition?
+The refactor moves dedup into `ingest/wavecom.py` and removes the explicit sort step from two callers. The change spans more than one file, so it can't anchor on a single diff line. Is the looser ordering intentional, or did the dedup move accidentally drop the sort?
 
 </details>
 
-## Inline suggestions posted (2)
+## Inline findings posted (3)
 
 - `services/api.py:42` — drop explicit default `timeout=30` *(remove_dead_lines)*
 - `internal/cache/key.go:18` — use `strings.Join` instead of manual loop *(use_framework_idiom)*
+- `env_files/all/grafana.env:9` — is `alloy` intentionally omitted from the default tenant list? *(question)*
 ````
 
 ---
 
 ## What goes inline vs in the summary
 
-Inline body is for **one- or two-line fixes** that map cleanly to a `suggestion` block — fix archetypes `remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`. The body is the suggestion; the prose is one or two sentences of justification, no more.
+Two inline shapes:
 
-Everything else goes in the summary: findings spanning multiple lines or files, architectural / placement concerns, **renames** (a `suggestion` block can only patch the declaration, not the call sites), questions, anything that needs prose to land. If a finding's diff position can't be reliably constructed (renamed file, line moved, hunk anchor unclear), demote it to the summary — never post a misaligned inline suggestion.
+- **Fix archetypes** — one- or two-line fixes that map cleanly to a `suggestion` block: `remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`. The body is the suggestion; the prose is one or two sentences of justification, no more.
+- **Question archetype** — targeted questions anchored on a single new-side line or a contiguous new-side range within one hunk. No `suggestion` block — just marker + one or two sentences ending in `?`. The reader sees the question on the exact line(s) in the diff view. When the question is about a multi-line block, scope the position to the full range and compute the anchor on the first new-side line of that range.
+
+Everything else goes in the summary: findings spanning multiple lines or files, architectural / placement concerns, **renames** (a `suggestion` block can only patch the declaration, not the call sites), questions without a single-line anchor (cross-cutting concerns), anything that needs prose to land. If a finding's diff position can't be reliably constructed (renamed file, line moved, hunk anchor unclear), demote it to the summary — never post a misaligned inline suggestion or misanchored question.

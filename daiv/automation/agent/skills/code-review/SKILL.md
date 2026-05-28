@@ -2,7 +2,7 @@
 name: code-review
 description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, tests, performance, security, structural concerns, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
 metadata:
-  version: 2.0.0
+  version: 2.1.0
 ---
 
 # Code Review
@@ -77,7 +77,7 @@ Fields:
 
 **Implementation.** `scripts/marker.py` is the canonical implementation of the marker contract — never compute anchors or assemble markers by hand. The script's `anchor`, `build`, and `parse-notes` subcommands are deterministic and version-stable; paraphrasing the rules into ad-hoc Python or prose silently breaks dedup across reruns. Run `scripts/marker.py <cmd> --help` for argument details.
 
-**Anchor target.** Inline findings anchor on **added or context** lines on the new side of the diff. A pure-deletion finding (no `new_line`) is not inline-eligible — demote it to the summary. For a single-line suggestion, the target line is `new_line` from the diff position. For a multi-line suggestion (`suggestion:-N+M` covering several lines), the target is the **first** new-side line of the replacement window. The model picks the line; the script computes the anchor.
+**Anchor target.** Inline findings anchor on **added or context** lines on the new side of the diff. A pure-deletion finding (no `new_line`) is not inline-eligible — demote it to the summary. For a single-line finding (suggestion or question), the target line is `new_line` from the diff position. For a multi-line finding — `suggestion:-N+M` covering several lines, or a question scoped to a contiguous block — the target is the **first** new-side line of the range. The model picks the line; the script computes the anchor.
 
 **Daiv-authored detection.** A note is treated as daiv-posted **iff** its body begins with the literal prefix `<!-- daiv-cr ` followed by a parseable JSON payload terminating in ` -->`. Author username is *not* used. `parse-notes` applies this rule; do not reimplement it.
 
@@ -138,20 +138,24 @@ After addressing all pending replies, continue to bucketing new findings. A repl
 
 ### Step 3 — Bucket findings
 
-For each candidate finding, classify the fix as one of these **inline-eligible** archetypes:
+Inline delivery comes in two shapes — both anchor on a single new-side line (or contiguous new-side range) and both dedup by `(inline, archetype, file, anchor)`.
+
+**Fix archetypes** — the finding ships a concrete code change expressible as a `suggestion` block replacing a contiguous range of new-side lines within a single hunk:
 
 - `remove_dead_lines`
 - `use_framework_idiom`
 - `replace_with_constant`
 - `swap_library_call`
 
-If the fix is one of those AND can be expressed as a `suggestion` block replacing a contiguous range of new-side lines within a single hunk, it's **inline**. The range may cover several lines (use `suggestion:-N+M`) — what matters is that it's one contiguous hunk replacement, not that only one line changes. Lines inside the range that don't change are restated verbatim in the suggestion. For example, a finding that the same expression is computed twice across a 4-line block is still inline: the suggestion replaces all 4 lines, restating the ones that stay.
+The range may cover several lines (use `suggestion:-N+M`) — what matters is that it's one contiguous hunk replacement, not that only one line changes. Lines inside the range that don't change are restated verbatim in the suggestion. For example, a finding that the same expression is computed twice across a 4-line block is still inline: the suggestion replaces all 4 lines, restating the ones that stay.
 
-Demote to **discussion-only** only when no clean inline patch exists: the change spans multiple files or non-adjacent hunks, requires prose to land (e.g., "this module needs restructuring"), is a question, or is a rename that propagates to call sites.
+**Question archetype** — `question`. A targeted question that anchors on a single new-side line or a contiguous new-side range within a single hunk, and poses a concrete hypothesis the author can answer yes/no. No `suggestion` block — just marker + one or two sentences ending in `?`. Use this for every finding that meets the Signal filter's *Question* bar; the reader sees the question on the exact line(s) in the diff view instead of hunting for it in the summary. When anchoring on a range, follow the same rule as multi-line suggestions: post the discussion against the full range, and compute the anchor on the **first** new-side line of the range. Pure-deletion questions (no new-side line) demote to summary, same rule as fix archetypes.
+
+Demote to **discussion-only** only when no clean inline shape exists: the finding spans multiple files or non-adjacent hunks, requires prose to land (e.g., "this module needs restructuring"), is a question with no single-line anchor (e.g., a cross-cutting concern about a refactor), is a question whose subject is a rename (the question is about call-site impact the anchor can't show), or is a rename that propagates to call sites.
 
 A rename is *not* inline-eligible: a `suggestion` block can only patch the declaration, not the call sites, so a rename-as-inline ships a half-truth. Renames go in the summary.
 
-If an inline finding's diff position cannot be constructed reliably (file renamed across the diff, line moved within a hunk, anchor ambiguous), **demote it to discussion-only**. Never post a misaligned suggestion.
+If an inline finding's diff position cannot be constructed reliably (file renamed across the diff, line moved within a hunk, anchor ambiguous), **demote it to discussion-only**. Never post a misaligned suggestion or a misanchored question.
 
 ### Step 4 — Apply dedup
 
@@ -164,10 +168,16 @@ For each surviving inline finding:
 1. Build the marker line with `scripts/marker.py build --kind inline --sha <head_sha> --archetype <X> --file <new_path> --line <new_line> --anchor <anchor>`. Capture the output verbatim — it is the first physical line of the note body.
 2. Post via `gitlab project-merge-request-discussion create` with `--position`. Follow the position-construction and suggestion-block guidance already documented on the `gitlab` tool — do not invent your own conventions.
 
-Body shape: marker line, then a short comment (one or two sentences), then — when the fix is a literal line replacement — a `suggestion` block. Keep bodies tight; the suggestion block IS the value, not the prose around it. Example marker line:
+Body shape depends on the archetype:
+
+- **Fix archetype** (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`): marker line, then a short comment (one or two sentences), then a `suggestion` block replacing the target range. The suggestion block IS the value.
+- **Question archetype** (`question`): marker line, then one or two sentences ending in `?`. No `suggestion` block. The question itself IS the value.
+
+Keep bodies tight; the prose around it is justification, not filler. Example marker lines:
 
 ```
 <!-- daiv-cr {"v":1,"kind":"inline","archetype":"remove_dead_lines","file":"services/api.py","line":42,"anchor":"a1b2c3d4","sha":"abc1234"} -->
+<!-- daiv-cr {"v":1,"kind":"inline","archetype":"question","file":"env_files/all/grafana.env","line":9,"anchor":"b2c3d4e5","sha":"abc1234"} -->
 ```
 
 ### Step 6 — Post or update the summary discussion
@@ -175,7 +185,7 @@ Body shape: marker line, then a short comment (one or two sentences), then — w
 Compose **one** top-level summary containing:
 
 - All discussion-only findings, grouped by severity (High / Medium / Low). Same shape as Interactive mode below: one-line summary + `<details>` block.
-- A short **Questions** section, if any.
+- A short **Questions** section for discussion-only questions (cross-file or un-anchored). Targeted questions go inline (see Step 3), not here.
 - A one-line index of the inline findings posted this run (filename + line + archetype), so a reviewer skimming the thread sees the full picture without expanding diffs.
 
 Build the marker with `scripts/marker.py build --kind summary --sha <head_sha>` and place its output as the first physical line of the body. Example:
@@ -189,6 +199,8 @@ If `summary` from Step 1 was non-null, **update the existing note in place** (`g
 If `summary` was null, create a fresh top-level discussion (`project-merge-request-discussion create --mr-iid <iid> --body "..."` with no `--position`).
 
 If there are zero discussion-only findings AND zero inline findings AND no prior summary, write **nothing** — don't post an empty summary.
+
+A question previously embedded in an older summary's *Questions* section has no `(inline, question, file, anchor)` fingerprint — only the summary's `kind=summary` fingerprint exists. So on re-review the agent posts the question inline (new fingerprint, not deduped) AND rewrites the summary in place to drop the prose copy. Both happen in one run; convergence is single-pass.
 
 ### Step 7 — Return status to the harness
 
