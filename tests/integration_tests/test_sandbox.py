@@ -85,6 +85,7 @@ async def test_sandbox_bash_tool_activated(model_name, inputs, runtime_ctx):
 
     agent = await create_daiv_agent(
         ctx=runtime_ctx,
+        mcp_tools=[],
         model_names=[model_name],
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,
@@ -147,6 +148,7 @@ async def test_sandbox_policy_blocks_forbidden_commands(model_name, user_message
 
     agent = await create_daiv_agent(
         ctx=runtime_ctx,
+        mcp_tools=[],
         model_names=[model_name],
         auto_commit_changes=False,
         interrupt_on=INTERRUPT_ALL_TOOLS_CONFIG,

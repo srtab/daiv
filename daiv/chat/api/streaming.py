@@ -10,6 +10,8 @@ from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.mcp.toolkits import MCPToolkit
+from automation.agent.middlewares.mcp_session import MCPSessionStateMiddleware
 from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
@@ -35,6 +37,23 @@ STREAMED_STATE_KEYS = ("merge_request",)
 
 # Bump ``last_active_at`` at most this often while the stream is alive.
 HEARTBEAT_INTERVAL_S = 5.0
+
+
+async def _aread_mcp_session_ids(checkpointer: Any, thread_id: str) -> dict[str, str]:
+    """Return the previous turn's MCP session ids from the checkpointer, or empty.
+
+    Loaded once at stream start so ``MCPToolkit.aopen`` can resume stateful MCP
+    sessions (Playwright browser context) instead of opening fresh ones.
+    """
+    try:
+        tup = await checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
+    except Exception:
+        logger.warning("chat: failed to load checkpoint for thread_id=%s", thread_id, exc_info=True)
+        return {}
+    if tup is None:
+        return {}
+    ids = (tup.checkpoint or {}).get("channel_values", {}).get("mcp_session_ids") or {}
+    return {str(k): str(v) for k, v in ids.items()} if isinstance(ids, dict) else {}
 
 
 class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
@@ -120,14 +139,25 @@ class ChatRunStreamer:
                     repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref, sandbox_env_id=self.sandbox_environment_id
                 ) as runtime_ctx,
             ):
-                agent_kwargs = get_daiv_agent_kwargs(
-                    model_config=runtime_ctx.config.models.agent,
-                    agent_model=self.agent_model,
-                    agent_thinking_level=self.agent_thinking_level,
-                )
-                agent = await create_daiv_agent(
-                    ctx=runtime_ctx, checkpointer=checkpointer, store=InMemoryStore(), **agent_kwargs
-                )
+                # Load MCP session ids from the previous turn's checkpoint so
+                # stateful servers (Playwright above all) resume their browser
+                # context instead of starting fresh; the middleware below writes
+                # the current ids back to state for the next turn.
+                prev_session_ids = await _aread_mcp_session_ids(checkpointer, self.thread_id)
+                async with MCPToolkit.aopen(session_ids=prev_session_ids) as (mcp_tools, current_session_ids):
+                    agent_kwargs = get_daiv_agent_kwargs(
+                        model_config=runtime_ctx.config.models.agent,
+                        agent_model=self.agent_model,
+                        agent_thinking_level=self.agent_thinking_level,
+                    )
+                    agent = await create_daiv_agent(
+                        ctx=runtime_ctx,
+                        mcp_tools=mcp_tools,
+                        checkpointer=checkpointer,
+                        store=InMemoryStore(),
+                        middleware=[MCPSessionStateMiddleware(current_session_ids)],
+                        **agent_kwargs,
+                    )
                 langsmith_config = build_langsmith_config(
                     runtime_ctx,
                     trigger="chat",

@@ -4,6 +4,7 @@ from django_tasks import task
 from langchain_core.messages import HumanMessage
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.results import AgentResult, build_agent_result
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
@@ -56,6 +57,7 @@ async def run_job_task(
                 repo_id=repo_id, scope=Scope.GLOBAL, ref=ref, sandbox_env_id=sandbox_environment_id
             ) as runtime_ctx,
             open_checkpointer() as checkpointer,
+            MCPToolkit.aopen() as mcp_tools,
         ):
             agent_kwargs = get_daiv_agent_kwargs(
                 model_config=runtime_ctx.config.models.agent,
@@ -70,7 +72,9 @@ async def run_job_task(
                 extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
                 configurable={"thread_id": thread_id},
             )
-            daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
+            daiv_agent = await create_daiv_agent(
+                ctx=runtime_ctx, mcp_tools=mcp_tools, checkpointer=checkpointer, **agent_kwargs
+            )
             with track_usage_metadata() as usage_handler:
                 result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
     except Exception:

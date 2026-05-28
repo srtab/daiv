@@ -6,6 +6,7 @@ from django.template.loader import render_to_string
 from langchain_core.messages import HumanMessage
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
@@ -106,7 +107,7 @@ class IssueAddressorManager(BaseManager):
                 HumanMessage(name=self.issue.author.username, id=str(self.issue.iid), content=message_content)
             )
 
-        async with open_checkpointer() as checkpointer:
+        async with open_checkpointer() as checkpointer, MCPToolkit.aopen() as mcp_tools:
             try:
                 agent_kwargs = get_daiv_agent_kwargs(
                     model_config=self.ctx.config.models.agent, use_max=self.issue.has_max_label()
@@ -119,7 +120,7 @@ class IssueAddressorManager(BaseManager):
                 )
                 return
             daiv_agent = await create_daiv_agent(
-                ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
+                ctx=self.ctx, mcp_tools=mcp_tools, checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
             agent_config = build_langsmith_config(
                 self.ctx,

@@ -237,10 +237,14 @@ services:
       MCP_PLAYWRIGHT_ALLOWED_ORIGINS: ${MCP_PLAYWRIGHT_ALLOWED_ORIGINS:-}
       MCP_PLAYWRIGHT_BLOCKED_ORIGINS: ${MCP_PLAYWRIGHT_BLOCKED_ORIGINS:-}
     entrypoint: ["sh", "-c"]
+    # --allowed-hosts is DNS-rebinding protection (Host header allowlist, exact host:port match).
+    # Default is just the bound host, which excludes the docker service name `mcp_playwright`
+    # used by the daiv app — must enumerate it here. Includes `localhost:8931` for the healthcheck.
     command:
       - >-
         set -eu;
         exec node /app/cli.js --headless --isolated --browser chromium --host 0.0.0.0 --port 8931
+        --allowed-hosts mcp_playwright:8931,localhost:8931
         $${MCP_PLAYWRIGHT_ALLOWED_ORIGINS:+--allowed-origins "$$MCP_PLAYWRIGHT_ALLOWED_ORIGINS"}
         $${MCP_PLAYWRIGHT_BLOCKED_ORIGINS:+--blocked-origins "$$MCP_PLAYWRIGHT_BLOCKED_ORIGINS"}
     healthcheck:
