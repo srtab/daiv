@@ -2,7 +2,7 @@
 name: code-review
 description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, tests, performance, security, structural concerns, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
 metadata:
-  version: 3.0.0
+  version: 3.1.0
 ---
 
 # Code Review
@@ -31,21 +31,21 @@ Before detecting, check which rule sources the repo actually has on disk: `.agen
 
 ## Stage 1 — Detect (fan-out)
 
-Dispatch the detectors **in parallel** with the `task` tool — one `task` call per detector, all issued in a single turn, `subagent_type=general-purpose`. Each detector owns a focused slice of the review and returns a JSON array of findings (schema below) **and nothing else**. The full charters — what each detector owns and the `principles.md` sections behind them — are in `references/detectors.md`. In summary:
+Dispatch the detectors **in parallel** with the `task` tool — one `task` call per detector, all issued in a single turn — selecting each by its **subagent type**: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, and (conditionally) `cr-custom-rules`. Each detector is a pre-defined subagent whose charter is its own system prompt, so you do **not** restate the charter. Each returns a structured object `{"findings": [...]}` conforming to the finding schema below — and nothing else.
 
-- `correctness` — logic/parse defects, breaking schema/contract changes, concurrency, error handling, side effects, absent-value, config/env.
-- `security` — input validation at trust boundaries, authz/authn, secrets exposure.
-- `performance` — N+1 / repeated calls or lookups in loops, obvious inefficiencies.
-- `structure` — dead lines, unused framework idioms, misplaced logic, missed reuse, misleading naming, magic values, typing, logging, i18n, a11y.
-- `custom-rules` — enforces the repo's review rules. **Dispatch if any rule source exists** (Stage 0: `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md`); pass it the paths of the ones present to read (see below).
+- `cr-correctness` — logic/parse defects, breaking schema/contract changes, concurrency, error handling, side effects, absent-value, config/env.
+- `cr-security` — input validation at trust boundaries, authz/authn, secrets exposure.
+- `cr-performance` — N+1 / repeated calls or lookups in loops, obvious inefficiencies.
+- `cr-structure` — dead lines, unused framework idioms, misplaced logic, missed reuse, misleading naming, magic values, typing, logging, i18n, a11y.
+- `cr-custom-rules` — enforces the repo's review rules. **Dispatch only if a rule source exists** (Stage 0: `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md`); pass it the paths of the ones present.
 
-Pass into every detector's `task` prompt the change under review as the source/target refs + SHA triplet and the changed-file list — **not the diff itself** (it can be long; the detector runs git commands to fetch the hunks it needs) — plus the new-side path scope, so all detectors review the same change. The `custom-rules` detector additionally receives the **paths** of the rule sources that exist (not their contents — it opens them itself); see `references/detectors.md` for which source is authoritative vs supplementary.
+Pass into every detector's `task` prompt only the **scope**: the change under review as source/target refs + the SHA triplet and the changed-file list — **not the diff itself** (it can be long; the detector runs git commands to fetch the hunks it needs) — plus the new-side path scope, so all detectors review the same change. The `cr-custom-rules` detector additionally receives the **paths** of the rule sources that exist (not their contents — it opens them itself).
 
-Tell each detector to read surrounding code for context before deciding, to apply the Signal-filter bars (Stage 2) when forming a finding, and to never flag style, formatting, whitespace, or import ordering.
+The detectors already carry their charter, the Signal-filter bars, and the never-flag rules (style, formatting, whitespace, import ordering) in their system prompts; your prompt supplies only the scope.
 
 ### Finding schema
 
-Every detector returns a JSON array of objects in this exact shape:
+Each detector returns a structured object `{"findings": [ ... ]}` whose items are objects in this exact shape:
 
 ```json
 {"detector":"correctness|security|performance|structure|custom-rules","file":"<new_path>","line":42,"bar":"defect|structural|question","archetype":"remove_dead_lines|use_framework_idiom|replace_with_constant|swap_library_call|question|discussion","title":"<one line>","rationale":"<why it's a problem>","suggestion":"<optional, fix archetypes only>","source":"<custom-rules only: the rule enforced>"}
@@ -55,7 +55,7 @@ Every detector returns a JSON array of objects in this exact shape:
 
 ## Stage 2 — Verify (adjudicate)
 
-Collect the JSON arrays the detectors returned, concatenate them into one JSON array, and run the deterministic merge:
+Collect each detector's `findings` array (from its returned `{"findings": [...]}` object), concatenate them into one JSON array, and run the deterministic merge:
 
 ```
 echo '<combined findings JSON array>' | python3 scripts/findings.py merge
@@ -290,7 +290,6 @@ For a complete example of well-formed inline and summary output, see `examples/e
 
 When a finding's framing is unclear, open the relevant section of:
 
-- `references/detectors.md` — the five detector charters: what each detector owns and the JSON it returns. Backs Stage 1 dispatch.
 - `references/principles.md` — generic, code-agnostic principles per category, derived from a corpus of human reviews. The *why* behind a finding's body.
 - `references/few-shot-examples.md` — real comment→fix pairs per archetype, with before/after code. Use to calibrate how short a useful comment can be and what a suggestion block typically replaces.
 - `examples/example-review-output.md` — a complete, well-formed example of inline + summary delivery output. The shape to match in delivery mode.
