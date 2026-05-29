@@ -166,12 +166,18 @@ class TestMergeCli:
 
 class TestSchemaSingleSource:
     def test_constants_derived_from_schema(self):
+        # Guards against anyone replacing the schema-driven derivation with hardcoded values.
         schema = json.loads((_FINDINGS_PATH.parent / "finding.schema.json").read_text(encoding="utf-8"))
         props = schema["properties"]
         assert tuple(props["detector"]["enum"]) == findings.DETECTORS
         assert tuple(props["bar"]["enum"]) == findings.BARS
         assert tuple(props["archetype"]["enum"]) == findings.ARCHETYPES
         assert tuple(schema["required"]) == findings.REQUIRED_FIELDS
+
+    def test_bar_rank_orders_defect_highest(self):
+        # Independent guard: a schema edit that reorders the `bar` enum would silently
+        # invert dedupe severity. Lock the semantic invariant here, not via the schema.
+        assert findings._BAR_RANK["defect"] > findings._BAR_RANK["structural"] > findings._BAR_RANK["question"]
 
     def test_valid_finding_has_every_required_schema_field(self):
         schema = json.loads((_FINDINGS_PATH.parent / "finding.schema.json").read_text(encoding="utf-8"))
