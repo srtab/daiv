@@ -14,18 +14,16 @@ already-posted notes) stays in marker.py; this is the pre-delivery merge.
 import argparse
 import json
 import sys
+from pathlib import Path
 
-DETECTORS = ("correctness", "security", "performance", "structure", "custom-rules")
-BARS = ("defect", "structural", "question")
-ARCHETYPES = (
-    "remove_dead_lines",
-    "use_framework_idiom",
-    "replace_with_constant",
-    "swap_library_call",
-    "question",
-    "discussion",
-)
-REQUIRED_FIELDS = ("detector", "file", "line", "bar", "archetype", "title", "rationale")
+_SCHEMA_PATH = Path(__file__).resolve().parent / "finding.schema.json"
+_SCHEMA = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+_PROPS = _SCHEMA["properties"]
+
+DETECTORS = tuple(_PROPS["detector"]["enum"])
+BARS = tuple(_PROPS["bar"]["enum"])
+ARCHETYPES = tuple(_PROPS["archetype"]["enum"])
+REQUIRED_FIELDS = tuple(_SCHEMA["required"])
 # Derived from BARS so a new bar can't be accepted by is_valid yet KeyError in dedupe.
 _BAR_RANK = {bar: rank for rank, bar in enumerate(reversed(BARS), start=1)}
 
