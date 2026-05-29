@@ -27,7 +27,7 @@ Delivery mode requires the `gitlab` tool. If it's not loaded, `tool_search` for 
 
 ### Check for per-repo review rules (Stage 0)
 
-Before detecting, check which rule sources the repo actually has on disk: `.agents/review-rules.md` (authoritative) and `AGENTS.md` / `.agents/AGENTS.md` (supplementary). If **any** of them exists, the `custom-rules` detector runs in Stage 1 against the ones present; if **none** exists, **skip the `custom-rules` detector**.
+Before detecting, check which rule sources the repo actually has on disk: `.agents/review-rules.md` (authoritative) and `AGENTS.md` / `.agents/AGENTS.md` (supplementary). If **any** of them exists, the `cr-custom-rules` detector runs in Stage 1 against the ones present; if **none** exists, **skip the `cr-custom-rules` detector**.
 
 ## Stage 1 — Detect (fan-out)
 
