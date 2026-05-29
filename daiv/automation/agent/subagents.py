@@ -214,7 +214,9 @@ def load_builtin_code_review_detectors(
             logger.warning("Could not read detector charter %s; skipping", md_file)
             continue
 
-        parsed = _parse_subagent_frontmatter(content, str(md_file), allow_reserved_names=True)
+        parsed = _parse_subagent_frontmatter(
+            content, str(md_file), permitted_reserved_names=frozenset(CODE_REVIEW_DETECTOR_NAMES)
+        )
         if parsed is None:
             continue
 
@@ -408,7 +410,7 @@ FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 def _parse_subagent_frontmatter(
-    content: str, file_path: str, *, allow_reserved_names: bool = False
+    content: str, file_path: str, *, permitted_reserved_names: frozenset[str] = frozenset()
 ) -> tuple[dict, str] | None:
     """
     Parse YAML frontmatter and body from a subagent markdown file.
@@ -416,6 +418,9 @@ def _parse_subagent_frontmatter(
     Args:
         content: The full file content.
         file_path: Path to the file (for logging).
+        permitted_reserved_names: Built-in subagent names this caller is allowed to load
+            despite the reservation. Empty by default (per-repo subagents reject every
+            reserved name); the builtin detector loader passes the cr-* names.
 
     Returns:
         Tuple of (frontmatter dict, body string), or None if parsing fails.
@@ -441,7 +446,7 @@ def _parse_subagent_frontmatter(
         logger.warning("Skipping %s: missing required 'name' or 'description'", file_path)
         return None
 
-    if not allow_reserved_names and name in BUILTIN_SUBAGENT_NAMES:
+    if name in BUILTIN_SUBAGENT_NAMES - permitted_reserved_names:
         logger.warning("Skipping %s: name '%s' conflicts with a built-in subagent", file_path, name)
         return None
 
