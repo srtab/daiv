@@ -32,6 +32,7 @@ Before detecting, resolve the repo's custom review rules so Stage 1 knows whethe
 - Run `python3 scripts/rules.py resolve --root . --context-file <repo context file name, default AGENTS.md>`.
 - If `has_rules` is `true`, keep the returned `rules_document` for the `custom-rules` detector.
 - If `has_rules` is `false`, **skip the `custom-rules` detector** — the repo hasn't opted in.
+- If `unreadable` lists any path, a rule source exists but couldn't be read (bad encoding or permissions). Don't treat that as opted-out: note it in the Step 7 status line so the author knows their rules weren't applied.
 
 `scripts/rules.py` reads ordinary repo files only and never changes config. It treats `.agents/review-rules.md` as authoritative and `AGENTS.md` / `.agents/AGENTS.md` as supplementary. Run `scripts/rules.py resolve --help` for details.
 
@@ -67,7 +68,7 @@ Collect the JSON arrays the detectors returned, concatenate them into one JSON a
 echo '<combined findings JSON array>' | python3 scripts/findings.py merge
 ```
 
-`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. It returns `{"findings":[...], "candidates":N, "dropped":M}`, where `candidates` is the count of distinct findings after cross-detector dedup (before adversarial verification) — keep it for the Step 7 status line. Note this `(file, line, archetype)` dedup is the pre-delivery cross-detector merge; delivery dedup against already-posted notes (Stage 3) is anchor-based `(file, anchor, archetype)` — two different stages, two different keys.
+`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. It returns `{"findings":[...], "candidates":N, "dropped":M, "merged":K}`, where `candidates` is the count of distinct findings after cross-detector dedup (before adversarial verification) — keep it for the Step 7 status line — and `merged` counts findings absorbed by that dedup — the surplus beyond the one kept per key, so two findings collapsing into one is `merged: 1`. When `merged` is nonzero, note it in the Step 7 status line so a reviewer knows findings sharing a `(file, line, archetype)` key were collapsed. Note this `(file, line, archetype)` dedup is the pre-delivery cross-detector merge; delivery dedup against already-posted notes (Stage 3) is anchor-based `(kind, archetype, file, anchor)` — two different stages, two different keys.
 
 Then **adversarially verify** each surviving finding. For each one, build the strongest case that it is a false positive and **discard it unless it clearly survives**. Drop it if any of these hold:
 

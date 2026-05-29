@@ -56,6 +56,11 @@ class TestValidate:
         assert valid == []
         assert dropped == 3
 
+    def test_whitespace_only_required_field_dropped(self):
+        valid, dropped = findings.validate([_f(title="   "), _f(rationale="\t\n")])
+        assert valid == []
+        assert dropped == 2
+
     def test_custom_rules_without_source_dropped(self):
         f = _f(detector="custom-rules", source=None)
         valid, dropped = findings.validate([f])
@@ -94,6 +99,24 @@ class TestDedupe:
         out = findings.dedupe([a, b])
         assert [x["title"] for x in out] == ["first", "second"]
 
+    def test_same_key_same_bar_keeps_first_seen(self):
+        # Equal bar must NOT override: strict precedence keeps the first-seen finding so the
+        # posted comment is stable across reruns. A `>` -> `>=` regression would flip this.
+        a = _f(detector="correctness", bar="defect", title="first")
+        b = _f(detector="structure", bar="defect", title="second")
+        out = findings.dedupe([a, b])
+        assert len(out) == 1
+        assert out[0]["title"] == "first"
+
+    def test_out_of_enum_bar_does_not_crash(self):
+        # dedupe is module-public; a caller that skips validate (or BARS/_BAR_RANK drift) must
+        # not trigger a KeyError on a bar outside _BAR_RANK — it sorts lowest instead.
+        a = _f(bar="nonsense", title="a")
+        b = _f(bar="nonsense", title="b")
+        out = findings.dedupe([a, b])
+        assert len(out) == 1
+        assert out[0]["title"] == "a"
+
 
 class TestMerge:
     def test_merge_happy_path(self):
@@ -102,7 +125,22 @@ class TestMerge:
         # _f() and is collapsed by dedupe -> NOT counted in `dropped`. So one
         # distinct valid finding survives: candidates == len(findings) == 1.
         result = findings.merge([_f(), _f(bar="question"), _f(detector="bogus")])
-        assert result == {"findings": [_f()], "candidates": 1, "dropped": 1}
+        assert result == {"findings": [_f()], "candidates": 1, "dropped": 1, "merged": 1}
+
+    def test_merge_reports_merged_count_for_distinct_collisions(self):
+        # Two genuinely different findings colliding on (file, line, archetype) collapse to one;
+        # the loss is surfaced via `merged` (not hidden, and not counted as a schema `dropped`).
+        a = _f(detector="security", title="sqli")
+        b = _f(detector="performance", title="n+1")
+        result = findings.merge([a, b])
+        assert result["candidates"] == 1
+        assert result["dropped"] == 0
+        assert result["merged"] == 1
+
+    def test_suggestion_field_survives_merge(self):
+        f = _f(archetype="remove_dead_lines", suggestion="del x")
+        result = findings.merge([f])
+        assert result["findings"][0]["suggestion"] == "del x"
 
 
 class TestMergeCli:
@@ -123,7 +161,7 @@ class TestMergeCli:
         monkeypatch.setattr(sys, "argv", ["findings.py", "merge"])
         assert findings.main() == 0
         out = json.loads(capsys.readouterr().out)
-        assert out == {"findings": [_f()], "candidates": 1, "dropped": 0}
+        assert out == {"findings": [_f()], "candidates": 1, "dropped": 0, "merged": 0}
 
 
 class _StringIOStdin:

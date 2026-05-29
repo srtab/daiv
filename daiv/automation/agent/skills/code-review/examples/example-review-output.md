@@ -158,7 +158,7 @@ The refactor moves dedup into `ingest/wavecom.py` and removes the explicit sort 
 - `internal/cache/key.go:18` — use `strings.Join` instead of manual loop *(use_framework_idiom)*
 - `env_files/all/grafana.env:9` — is `alloy` intentionally omitted from the default tenant list? *(question)*
 
-_Detectors: 5/5 completed · 3 of 11 candidates posted._
+_Detectors: 5/5 completed · 3 of 11 candidates posted (2 merged across detectors)._
 ````
 
 ---

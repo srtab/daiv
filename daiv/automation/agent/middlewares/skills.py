@@ -141,15 +141,31 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         # so a turn that resumes on a fresh worker (rolling deploy, scale-up, pod restart) would
         # otherwise hit ``file_not_found`` when the ``skill`` tool downloads ``SKILL.md`` from disk.
         # ``_collect_skill_files`` is idempotent via a per-file existence check, so warm containers
-        # only pay an ``iterdir`` + per-file ``stat``.
+        # only pay a directory walk + one ``stat`` per skill file (no uploads, no file reads).
         local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
-        if local_load_errors and skills_update is not None:
-            skills_update.setdefault("skills_load_errors", []).extend(local_load_errors)
+        # ``_copy_global_skills`` runs every turn now, so a SKILL.md load error can first arise on
+        # a fresh-worker resume — a turn where ``super().abefore_agent`` returns ``None`` because
+        # ``skills_metadata`` is already in state. The old ``skills_update is not None`` guard
+        # dropped those. ``skills_load_errors`` has a replace reducer (no append), so we emit the
+        # full union of already-known and freshly-collected errors, and only when it actually
+        # changes — keeping ``<skill_load_warnings>`` stable across turns instead of churning.
+        if local_load_errors:
+            from_super = skills_update.get("skills_load_errors", []) if skills_update else []
+            baseline = list(dict.fromkeys([*state.get("skills_load_errors", []), *from_super]))
+            merged = list(dict.fromkeys([*baseline, *local_load_errors]))
+            if merged != baseline:
+                if skills_update is None:
+                    skills_update = {}
+                skills_update["skills_load_errors"] = merged
 
-        skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
+        skills_metadata = (
+            skills_update["skills_metadata"]
+            if skills_update and "skills_metadata" in skills_update
+            else state["skills_metadata"]
+        )
 
         builtin_slash_commands = None
         if runtime.context.config.slash_commands.enabled:
