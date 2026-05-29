@@ -2,7 +2,7 @@
 name: code-review
 description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, tests, performance, security, structural concerns, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
 metadata:
-  version: 2.1.0
+  version: 2.2.0
 ---
 
 # Code Review
@@ -38,10 +38,12 @@ Five patterns produce most of the value in human review — scan the diff for ea
 Beyond those, also check:
 
 - Correctness defects (compile/parse errors, clearly wrong logic).
+- Breaking changes to data schemas or public contracts (a removed/renamed column, field, or endpoint still read by deployed code or downstream consumers; a non-nullable column added without a default).
 - Input validation gaps at trust boundaries.
 - Security exposures (secrets in code, broken authz).
 - Concurrency hazards (locking missing on contested writes, races).
 - Unintended side effects (a hook now firing in paths it didn't before).
+- Repeated queries, remote calls, or lookups inside a loop where one batched call before the loop would do (N+1).
 
 Do **not** flag style, formatting, whitespace, or import ordering — tooling handles those. Don't flag naming unless the name materially misleads.
 
