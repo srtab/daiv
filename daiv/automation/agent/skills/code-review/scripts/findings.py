@@ -24,6 +24,7 @@ DETECTORS = tuple(_PROPS["detector"]["enum"])
 BARS = tuple(_PROPS["bar"]["enum"])
 ARCHETYPES = tuple(_PROPS["archetype"]["enum"])
 REQUIRED_FIELDS = tuple(_SCHEMA["required"])
+# reversed(BARS): the schema lists bars highest-severity-first, so reversed() makes rank 1 the lowest.
 # Derived from BARS so a new bar can't be accepted by is_valid yet KeyError in dedupe.
 _BAR_RANK = {bar: rank for rank, bar in enumerate(reversed(BARS), start=1)}
 
