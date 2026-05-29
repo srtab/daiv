@@ -45,6 +45,8 @@ Dispatch the detectors **in parallel** with the `task` tool — one `task` call 
 - `structure` — dead lines, unused framework idioms, misplaced logic, missed reuse, misleading naming, magic values, typing, logging, i18n, a11y.
 - `custom-rules` — evaluates the Stage 0 `rules_document`. **Dispatch only if `has_rules` was true**, and pass `rules_document` into the task prompt.
 
+Pass into every detector's `task` prompt the change under review — the diff itself, or the source/target refs + SHA triplet and the changed-file list — plus the new-side path scope, so all detectors review the same change. (The `custom-rules` detector additionally receives `rules_document` from Stage 0.)
+
 Tell each detector to read surrounding code for context before deciding, to apply the Signal-filter bars (Stage 2) when forming a finding, and to never flag style, formatting, whitespace, or import ordering.
 
 ### Finding schema
@@ -55,7 +57,7 @@ Every detector returns a JSON array of objects in this exact shape:
 {"detector":"correctness|security|performance|structure|custom-rules","file":"<new_path>","line":42,"bar":"defect|structural|question","archetype":"remove_dead_lines|use_framework_idiom|replace_with_constant|swap_library_call|question|discussion","title":"<one line>","rationale":"<why it's a problem>","suggestion":"<optional, fix archetypes only>","source":"<custom-rules only: the rule enforced>"}
 ```
 
-`archetype` is the delivery archetype (the five inline-eligible ones, or `discussion` for summary-only); `bar` is the Signal-filter class; `source` is required only on `custom-rules` findings so the posted comment can cite the rule. `scripts/findings.py` is the canonical schema — Stage 2 validates against it.
+`bar` is the Signal-filter class. Choose `archetype` from the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else — renames, cross-file or structural findings, and anything that needs prose. The named discussion patterns in `references/few-shot-examples.md` Part 2 (e.g. `rename`, `move_to_other_module`) are documentation labels, not schema values — they all serialize as `archetype: "discussion"`; the parent finalizes inline-eligibility during Stage 3 bucketing. `source` is required on `custom-rules` findings (enforced by `findings.py`) so the posted comment can cite the rule. `scripts/findings.py merge` validates against this schema and is its canonical definition.
 
 ## Stage 2 — Verify (adjudicate)
 
@@ -65,7 +67,7 @@ Collect the JSON arrays the detectors returned, concatenate them into one JSON a
 echo '<combined findings JSON array>' | python3 scripts/findings.py merge
 ```
 
-`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. It returns `{"findings":[...], "candidates":N, "dropped":M}`. Keep `candidates` for the Step 7 status line.
+`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. It returns `{"findings":[...], "candidates":N, "dropped":M}`, where `candidates` is the count of distinct findings after cross-detector dedup (before adversarial verification) — keep it for the Step 7 status line. Note this `(file, line, archetype)` dedup is the pre-delivery cross-detector merge; delivery dedup against already-posted notes (Stage 3) is anchor-based `(file, anchor, archetype)` — two different stages, two different keys.
 
 Then **adversarially verify** each surviving finding. For each one, build the strongest case that it is a false positive and **discard it unless it clearly survives**. Drop it if any of these hold:
 
@@ -285,5 +287,6 @@ When a finding's framing is unclear, open the relevant section of:
 - `references/detectors.md` — the five detector charters: what each detector owns and the JSON it returns. Backs Stage 1 dispatch.
 - `references/principles.md` — generic, code-agnostic principles per category, derived from a corpus of human reviews. The *why* behind a finding's body.
 - `references/few-shot-examples.md` — real comment→fix pairs per archetype, with before/after code. Use to calibrate how short a useful comment can be and what a suggestion block typically replaces.
+- `examples/example-review-output.md` — a complete, well-formed example of inline + summary delivery output. The shape to match in delivery mode.
 
 Read only the section you need. These are not required reading on every review.

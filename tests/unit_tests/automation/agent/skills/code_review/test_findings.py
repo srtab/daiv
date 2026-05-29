@@ -56,6 +56,23 @@ class TestValidate:
         assert valid == []
         assert dropped == 3
 
+    def test_custom_rules_without_source_dropped(self):
+        f = _f(detector="custom-rules", source=None)
+        valid, dropped = findings.validate([f])
+        assert valid == []
+        assert dropped == 1
+
+    def test_custom_rules_with_source_kept(self):
+        f = _f(detector="custom-rules", source="review-rules.md: payments calls need a timeout")
+        valid, dropped = findings.validate([f])
+        assert valid == [f]
+        assert dropped == 0
+
+    def test_non_custom_rules_without_source_kept(self):
+        # source is only required for custom-rules; built-in detectors don't need it
+        valid, dropped = findings.validate([_f(detector="correctness")])
+        assert dropped == 0
+
 
 class TestDedupe:
     def test_same_key_collapses_to_strongest_bar(self):

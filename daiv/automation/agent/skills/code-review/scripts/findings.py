@@ -40,6 +40,8 @@ def is_valid(finding: object) -> bool:
         return False
     if finding["archetype"] not in ARCHETYPES:
         return False
+    if finding["detector"] == "custom-rules" and not finding.get("source"):
+        return False
     line = finding["line"]
     return not isinstance(line, bool) and isinstance(line, int) and line >= 1
 
