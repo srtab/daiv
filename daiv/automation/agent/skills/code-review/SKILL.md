@@ -2,7 +2,7 @@
 name: code-review
 description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, tests, performance, security, structural concerns, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
 metadata:
-  version: 2.2.0
+  version: 3.0.0
 ---
 
 # Code Review
@@ -25,39 +25,68 @@ Delivery mode requires the `gitlab` tool. If it's not loaded, `tool_search` for 
 - If a diff is already provided, review it directly.
 - If scope is ambiguous, infer from conversation history and available artifacts. Otherwise, ask the user.
 
-## What to look for
+### Read per-repo review rules (Stage 0)
 
-Five patterns produce most of the value in human review — scan the diff for each:
+Before detecting, resolve the repo's custom review rules so Stage 1 knows whether to run the `custom-rules` detector:
 
-1. **Dead lines** — overridden defaults equal to the default, unused parameters, commented-out blocks, leftover instrumentation, branches with no reachable consumer.
-2. **Framework idioms not used** — the library/framework already provides this; the diff reimplements it. Inline custom code where a one-line built-in would replace it.
-3. **Misplaced logic** — code added in a layer that doesn't own it (business rules in a template, validation done in a view that has a model layer, container config in an orchestration file that belongs in the image).
-4. **Reuse missed** — the same shape appears elsewhere in the diff or surrounding code. Point at the existing target.
-5. **Naming that misleads** — type/variable/function names that describe a smaller, larger, or different concept than the code actually does.
+- Run `python3 scripts/rules.py resolve --root . --context-file <repo context file name, default AGENTS.md>`.
+- If `has_rules` is `true`, keep the returned `rules_document` for the `custom-rules` detector.
+- If `has_rules` is `false`, **skip the `custom-rules` detector** — the repo hasn't opted in.
 
-Beyond those, also check:
+`scripts/rules.py` reads ordinary repo files only and never changes config. It treats `.agents/review-rules.md` as authoritative and `AGENTS.md` / `.agents/AGENTS.md` as supplementary. Run `scripts/rules.py resolve --help` for details.
 
-- Correctness defects (compile/parse errors, clearly wrong logic).
-- Breaking changes to data schemas or public contracts (a removed/renamed column, field, or endpoint still read by deployed code or downstream consumers; a non-nullable column added without a default).
-- Input validation gaps at trust boundaries.
-- Security exposures (secrets in code, broken authz).
-- Concurrency hazards (locking missing on contested writes, races).
-- Unintended side effects (a hook now firing in paths it didn't before).
-- Repeated queries, remote calls, or lookups inside a loop where one batched call before the loop would do (N+1).
+## Stage 1 — Detect (fan-out)
 
-Do **not** flag style, formatting, whitespace, or import ordering — tooling handles those. Don't flag naming unless the name materially misleads.
+Dispatch the detectors **in parallel** with the `task` tool — one `task` call per detector, all issued in a single turn, `subagent_type=general-purpose`. Each detector owns a focused slice of the review and returns a JSON array of findings (schema below) **and nothing else**. The full charters — what each detector owns and the `principles.md` sections behind them — are in `references/detectors.md`. In summary:
 
-## Signal filter
+- `correctness` — logic/parse defects, breaking schema/contract changes, concurrency, error handling, side effects, absent-value, config/env.
+- `security` — input validation at trust boundaries, authz/authn, secrets exposure.
+- `performance` — N+1 / repeated calls or lookups in loops, obvious inefficiencies.
+- `structure` — dead lines, unused framework idioms, misplaced logic, missed reuse, misleading naming, magic values, typing, logging, i18n, a11y.
+- `custom-rules` — evaluates the Stage 0 `rules_document`. **Dispatch only if `has_rules` was true**, and pass `rules_document` into the task prompt.
 
-A finding must meet one of three bars to ship:
+Tell each detector to read surrounding code for context before deciding, to apply the Signal-filter bars (Stage 2) when forming a finding, and to never flag style, formatting, whitespace, or import ordering.
+
+### Finding schema
+
+Every detector returns a JSON array of objects in this exact shape:
+
+```json
+{"detector":"correctness|security|performance|structure|custom-rules","file":"<new_path>","line":42,"bar":"defect|structural|question","archetype":"remove_dead_lines|use_framework_idiom|replace_with_constant|swap_library_call|question|discussion","title":"<one line>","rationale":"<why it's a problem>","suggestion":"<optional, fix archetypes only>","source":"<custom-rules only: the rule enforced>"}
+```
+
+`archetype` is the delivery archetype (the five inline-eligible ones, or `discussion` for summary-only); `bar` is the Signal-filter class; `source` is required only on `custom-rules` findings so the posted comment can cite the rule. `scripts/findings.py` is the canonical schema — Stage 2 validates against it.
+
+## Stage 2 — Verify (adjudicate)
+
+Collect the JSON arrays the detectors returned, concatenate them into one JSON array, and run the deterministic merge:
+
+```
+echo '<combined findings JSON array>' | python3 scripts/findings.py merge
+```
+
+`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. It returns `{"findings":[...], "candidates":N, "dropped":M}`. Keep `candidates` for the Step 7 status line.
+
+Then **adversarially verify** each surviving finding. For each one, build the strongest case that it is a false positive and **discard it unless it clearly survives**. Drop it if any of these hold:
+
+- it's a pre-existing issue not introduced by this diff;
+- it looks like a bug but isn't (you misread the control flow or context);
+- it's a pedantic nitpick or pure style;
+- it's a linter's or formatter's job;
+- there's a lint-ignore or an intentional marker nearby;
+- the code path isn't actually reachable or triggered.
+
+A finding that survives refutation must also meet one of three bars (this is the Signal filter):
 
 - **Defect** — the code will fail to compile/parse or produce wrong results on common inputs. You could write the failing test without knowing the runtime environment.
-- **Structural concern** — points at a specific line and proposes, in the next sentence, a concrete change: `use X instead of Y`, `move to file Z`, `delete lines L-M`, `extract to helper at A`. If the recommendation is vague ("consider cleaning this up"), the finding isn't ready.
-- **Question** — points at a specific line with a concrete hypothesis ("does this trigger an email on every save, not just on create?"). The answer needs the author's intent, not the diff. Don't ask curiosity questions, don't paraphrase the code as a question.
+- **Structural concern** — points at a specific line and proposes, in the next sentence, a concrete change: `use X instead of Y`, `move to file Z`, `delete lines L-M`, `extract to helper at A`. Vague ("consider cleaning this up") doesn't ship.
+- **Question** — points at a specific line with a concrete hypothesis ("does this trigger an email on every save, not just on create?"). The answer needs the author's intent, not the diff. No curiosity questions, no paraphrasing the code.
 
-If you reconsider a finding during analysis and conclude it isn't a real issue, drop it entirely. Never include self-corrected findings, strikethrough text, or "on closer reading this is fine" in the output. Reason internally, present only confirmed findings.
+Never include self-corrected findings, strikethrough, or "on closer reading this is fine" in the output. Reason internally, present only confirmed survivors. Over-pruning is acceptable — precision first. The survivors are what Stage 3 delivers.
 
-## Delivery mode protocol
+## Stage 3 — Deliver (delivery mode)
+
+Deliver the Stage 2 survivors. The marker/anchor machinery below is unchanged — it owns dedup against already-posted notes, the summary, and reply handling.
 
 ### Marker format
 
@@ -209,7 +238,7 @@ A question previously embedded in an older summary's *Questions* section has no 
 Final assistant message in delivery mode: one short line, e.g.
 
 ```
-Posted 3 inline + updated summary on MR !128 (skipped 1 duplicate, demoted 1 to summary).
+Posted 3 inline + updated summary on MR !128 — 5/5 detectors, 3 of 11 candidates posted (skipped 1 duplicate, demoted 1 to summary).
 ```
 
 Do **not** return the review markdown when delivery succeeded — the comments are the deliverable.
@@ -253,6 +282,7 @@ For a complete example of well-formed inline and summary output, see `examples/e
 
 When a finding's framing is unclear, open the relevant section of:
 
+- `references/detectors.md` — the five detector charters: what each detector owns and the JSON it returns. Backs Stage 1 dispatch.
 - `references/principles.md` — generic, code-agnostic principles per category, derived from a corpus of human reviews. The *why* behind a finding's body.
 - `references/few-shot-examples.md` — real comment→fix pairs per archetype, with before/after code. Use to calibrate how short a useful comment can be and what a suggestion block typically replaces.
 
