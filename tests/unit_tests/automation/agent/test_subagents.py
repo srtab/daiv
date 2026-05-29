@@ -501,7 +501,7 @@ class TestCustomSubagents:
 
         assert result == []
 
-    @pytest.mark.parametrize("reserved_name", ["general-purpose", "explore"])
+    @pytest.mark.parametrize("reserved_name", ["general-purpose", "explore", "cr-security"])
     async def test_skips_builtin_name_collision(self, tmp_path: Path, mock_model, mock_runtime_ctx, reserved_name):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
@@ -640,3 +640,96 @@ class TestShippedDetectorCharters:
             assert body.strip()
             names.add(frontmatter["name"])
         assert names == set(CODE_REVIEW_DETECTOR_NAMES)
+
+
+class TestBuiltinCodeReviewDetectors:
+    @pytest.fixture
+    def mock_backend(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_model(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_runtime_ctx(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(repo_dir)
+        return ctx
+
+    def test_response_format_wraps_finding_schema(self):
+        from automation.agent.subagents import _load_detector_response_format
+
+        rf = _load_detector_response_format()
+        assert rf["type"] == "object"
+        assert rf["required"] == ["findings"]
+        assert rf["properties"]["findings"]["type"] == "array"
+        item = rf["properties"]["findings"]["items"]
+        assert item["properties"]["detector"]["enum"] == [
+            "correctness",
+            "security",
+            "performance",
+            "structure",
+            "custom-rules",
+        ]
+
+    def test_loads_detectors_from_dir(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Correctness detector", body="Find correctness bugs.")
+        )
+        (agents_dir / "cr-security.md").write_text(
+            _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
+        )
+
+        result = load_builtin_code_review_detectors(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            working_directory="/workspace/repo/",
+            sandbox_enabled=False,
+            agents_dir=agents_dir,
+        )
+
+        names = {s["name"] for s in result}
+        assert names == {"cr-correctness", "cr-security"}
+        assert all("runnable" in s for s in result)
+
+    def test_returns_empty_when_dir_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        result = load_builtin_code_review_detectors(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            working_directory="/workspace/repo/",
+            sandbox_enabled=False,
+            agents_dir=tmp_path / "missing",
+        )
+        assert result == []
+
+    def test_skips_invalid_model_detector(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Bad model", body="x", model="totally-invalid-model")
+        )
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        result = load_builtin_code_review_detectors(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            working_directory="/workspace/repo/",
+            sandbox_enabled=False,
+            agents_dir=agents_dir,
+        )
+        names = {s["name"] for s in result}
+        assert names == {"cr-security"}

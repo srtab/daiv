@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -12,7 +13,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
 
 from automation.agent import BaseAgent
-from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, WORKSPACE_PATH
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
     WORKSPACE_ARTIFACT_SUBTREES,
@@ -38,6 +39,12 @@ if TYPE_CHECKING:
 
 GENERAL_PURPOSE_NAME = "general-purpose"
 EXPLORE_NAME = "explore"
+
+CODE_REVIEW_DETECTOR_NAMES = ("cr-correctness", "cr-security", "cr-performance", "cr-structure", "cr-custom-rules")
+
+_CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / "code-review"
+CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"
+CODE_REVIEW_FINDING_SCHEMA_PATH = _CODE_REVIEW_SKILL_PATH / "scripts" / "finding.schema.json"
 
 logger = logging.getLogger("daiv.agent")
 
@@ -156,6 +163,86 @@ def _build_detector_middleware(
         middleware.append(ModelFallbackMiddleware(*fallback_models))
 
     return middleware
+
+
+def _load_detector_response_format(schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH) -> dict:
+    """Wrap the canonical per-finding schema into the object schema a detector returns.
+
+    Detectors emit ``{"findings": [<finding>, ...]}``; deepagents serializes the
+    ``structured_response`` into the task ToolMessage for the orchestrator.
+    """
+    finding_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    return {
+        "type": "object",
+        "title": "DetectorFindings",
+        "properties": {"findings": {"type": "array", "items": finding_schema}},
+        "required": ["findings"],
+        "additionalProperties": False,
+    }
+
+
+def load_builtin_code_review_detectors(
+    model: BaseChatModel,
+    backend: BackendProtocol,
+    runtime: RuntimeCtx,
+    working_directory: str,
+    sandbox_enabled: bool = True,
+    fallback_models: list[BaseChatModel] | None = None,
+    *,
+    agents_dir: Path = CODE_REVIEW_AGENTS_PATH,
+    schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH,
+) -> list[CompiledSubAgent]:
+    """Compile the code-review detector subagents from their charter markdown files.
+
+    Each ``*.md`` under ``agents_dir`` (shipped inside the code-review skill) becomes a
+    detector subagent whose body is its system prompt, with a read-only middleware stack
+    and a ``response_format`` derived from the canonical finding schema. A charter that
+    fails to parse (or names an invalid model) is skipped and logged — the review then
+    runs with the detectors that loaded, which the skill surfaces in its status line.
+    """
+    if not agents_dir.is_dir():
+        logger.warning("Code-review detector dir %s not found; skipping detector subagents", agents_dir)
+        return []
+
+    response_format = _load_detector_response_format(schema_path)
+    detectors: list[CompiledSubAgent] = []
+
+    for md_file in sorted(agents_dir.glob("*.md")):
+        try:
+            content = md_file.read_text(encoding="utf-8")
+        except OSError:
+            logger.warning("Could not read detector charter %s; skipping", md_file)
+            continue
+
+        parsed = _parse_subagent_frontmatter(content, str(md_file), allow_reserved_names=True)
+        if parsed is None:
+            continue
+
+        frontmatter, body = parsed
+
+        detector_model = model
+        if frontmatter_model := str(frontmatter.get("model", "")).strip():
+            try:
+                detector_model = BaseAgent.get_model(model=frontmatter_model)
+            except Exception:
+                logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
+                continue
+
+        middleware = _build_detector_middleware(detector_model, backend, runtime, sandbox_enabled, fallback_models)
+        detectors.append(
+            _compile_subagent(
+                name=frontmatter["name"],
+                description=frontmatter["description"],
+                model=detector_model,
+                body=body,
+                middleware=middleware,
+                working_directory=working_directory,
+                response_format=response_format,
+            )
+        )
+        logger.info("Loaded code-review detector '%s' from %s", frontmatter["name"], md_file)
+
+    return detectors
 
 
 def create_general_purpose_subagent(
@@ -314,13 +401,15 @@ def create_explore_subagent(
     return CompiledSubAgent(name=EXPLORE_NAME, description=EXPLORE_SUBAGENT_DESCRIPTION, runnable=runnable)
 
 
-# Names reserved for built-in subagents. Custom subagents may not use these names.
-BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({GENERAL_PURPOSE_NAME, EXPLORE_NAME})
+# Names reserved for built-in subagents. Custom (per-repo) subagents may not use these names.
+BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({GENERAL_PURPOSE_NAME, EXPLORE_NAME, *CODE_REVIEW_DETECTOR_NAMES})
 
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
-def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str] | None:
+def _parse_subagent_frontmatter(
+    content: str, file_path: str, *, allow_reserved_names: bool = False
+) -> tuple[dict, str] | None:
     """
     Parse YAML frontmatter and body from a subagent markdown file.
 
@@ -352,7 +441,7 @@ def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str
         logger.warning("Skipping %s: missing required 'name' or 'description'", file_path)
         return None
 
-    if name in BUILTIN_SUBAGENT_NAMES:
+    if not allow_reserved_names and name in BUILTIN_SUBAGENT_NAMES:
         logger.warning("Skipping %s: name '%s' conflicts with a built-in subagent", file_path, name)
         return None
 
