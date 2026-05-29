@@ -46,7 +46,12 @@ from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
-from automation.agent.subagents import create_explore_subagent, create_general_purpose_subagent, load_custom_subagents
+from automation.agent.subagents import (
+    create_explore_subagent,
+    create_general_purpose_subagent,
+    load_builtin_code_review_detectors,
+    load_custom_subagents,
+)
 from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
 from codebase.utils import get_repo_ref
@@ -254,6 +259,9 @@ async def create_daiv_agent(
             sandbox_backend=sandbox_backend,
         ),
         create_explore_subagent(backend, working_directory, sandbox_enabled=_sandbox_enabled),
+        *load_builtin_code_review_detectors(
+            model, backend, ctx, working_directory, sandbox_enabled=_sandbox_enabled, fallback_models=fallback_models
+        ),
     ]
 
     custom_subagents = await load_custom_subagents(

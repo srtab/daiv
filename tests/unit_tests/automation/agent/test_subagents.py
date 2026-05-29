@@ -735,3 +735,9 @@ class TestBuiltinCodeReviewDetectors:
         )
         names = {s["name"] for s in result}
         assert names == {"cr-security"}
+
+    def test_real_shipped_charters_load_all_five(self, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES, load_builtin_code_review_detectors
+
+        result = load_builtin_code_review_detectors(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False)
+        assert {s["name"] for s in result} == set(CODE_REVIEW_DETECTOR_NAMES)
