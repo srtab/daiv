@@ -597,6 +597,8 @@ class TestDetectorMiddleware:
         assert fs._permissions == READ_ONLY_PERMISSIONS
 
     def test_includes_sandbox_but_not_git_platform_or_web(self, mock_model, mock_backend, mock_runtime_ctx):
+        from langchain.agents.middleware import TodoListMiddleware
+
         from automation.agent.middlewares.git_platform import GitPlatformMiddleware
         from automation.agent.middlewares.sandbox import SandboxMiddleware
         from automation.agent.middlewares.web_fetch import WebFetchMiddleware
@@ -608,6 +610,7 @@ class TestDetectorMiddleware:
         assert not any(isinstance(m, GitPlatformMiddleware) for m in middleware)
         assert not any(isinstance(m, WebSearchMiddleware) for m in middleware)
         assert not any(isinstance(m, WebFetchMiddleware) for m in middleware)
+        assert not any(isinstance(m, TodoListMiddleware) for m in middleware)
 
     def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend, mock_runtime_ctx):
         from automation.agent.middlewares.sandbox import SandboxMiddleware
