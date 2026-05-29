@@ -455,6 +455,53 @@ class TestCustomSubagents:
         assert "good" in names
 
 
+class TestDetectorMiddleware:
+    @pytest.fixture
+    def mock_backend(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_model(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_runtime_ctx(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(repo_dir)
+        return ctx
+
+    def test_filesystem_is_read_only(self, mock_model, mock_backend, mock_runtime_ctx):
+        from deepagents.middleware.filesystem import FilesystemMiddleware
+
+        from automation.agent.subagents import READ_ONLY_PERMISSIONS, _build_detector_middleware
+
+        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True)
+        fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
+        assert fs._permissions == READ_ONLY_PERMISSIONS
+
+    def test_includes_sandbox_but_not_git_platform_or_web(self, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.middlewares.git_platform import GitPlatformMiddleware
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+        from automation.agent.middlewares.web_fetch import WebFetchMiddleware
+        from automation.agent.middlewares.web_search import WebSearchMiddleware
+        from automation.agent.subagents import _build_detector_middleware
+
+        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True)
+        assert any(isinstance(m, SandboxMiddleware) for m in middleware)
+        assert not any(isinstance(m, GitPlatformMiddleware) for m in middleware)
+        assert not any(isinstance(m, WebSearchMiddleware) for m in middleware)
+        assert not any(isinstance(m, WebFetchMiddleware) for m in middleware)
+
+    def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+        from automation.agent.subagents import _build_detector_middleware
+
+        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False)
+        assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
+
+
 class TestShippedDetectorCharters:
     """Lock the five detector charter files that ship inside the code-review skill."""
 
