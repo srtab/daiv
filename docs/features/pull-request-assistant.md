@@ -90,8 +90,8 @@ Define team-specific review rules in `.agents/review-rules.md` at the repository
 - *Never log request or response bodies.*
 - *New Celery tasks must be idempotent.*
 
-The code review agent reads this file as the first step of every review and runs a dedicated `custom-rules` detector against the diff; each violation it posts cites the rule it enforces. If the file is absent, the detector is skipped and review behaves exactly as before.
+The code review agent checks for rule sources at the start of every review and, when any exist, runs a dedicated `custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
 
-Rules already written in your repository's `AGENTS.md` (or the file named by `context_file_name` in `.daiv.yml`) are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When the two disagree, `.agents/review-rules.md` wins.
+You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` (or the file named by `context_file_name` in `.daiv.yml`) and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped only when none of these files exist.
 
 Every custom-rule finding passes the same false-positive checks as built-in findings, so a noisy `AGENTS.md` will not flood the review.
