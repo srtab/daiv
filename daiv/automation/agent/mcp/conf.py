@@ -14,7 +14,7 @@ class MCPSettings(BaseSettings):
         ),
     )
 
-    # Built-in MCP server URLs (supergateway containers). Set to None to disable.
+    # Built-in MCP server URLs (each runs in a dedicated container). Set to None to disable.
     # Note: Docker Swarm normalizes service names with dashes to underscores.
     SENTRY_URL: str | None = Field(
         default="http://mcp_sentry:8000/mcp", description="The streamable HTTP URL of the Sentry supergateway container"
@@ -22,6 +22,10 @@ class MCPSettings(BaseSettings):
     CONTEXT7_URL: str | None = Field(
         default="http://mcp_context7:8000/mcp",
         description="The streamable HTTP URL of the Context7 supergateway container",
+    )
+    PLAYWRIGHT_URL: str | None = Field(
+        default="http://mcp_playwright:8931/mcp",
+        description="The streamable HTTP URL of the Playwright browser MCP container",
     )
 
 

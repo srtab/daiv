@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, Mock, patch
@@ -81,6 +81,24 @@ def mock_settings(monkeypatch):
         patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
     ):
         yield codebase_settings
+
+
+@pytest.fixture(autouse=True)
+def mock_mcp_toolkit_aopen():
+    """Stub ``MCPToolkit.aopen`` so unit tests never reach real MCP servers.
+
+    Production wraps every agent run with ``async with MCPToolkit.aopen() as mcp_tools:``;
+    without this fixture the real classmethod would try to open sessions against
+    ``mcp_sentry`` / ``mcp_context7`` / ``mcp_playwright`` and hang or error out.
+    Tests that specifically exercise the MCP pool override this fixture locally.
+    """
+
+    @asynccontextmanager
+    async def _aopen_empty(*, session_ids=None):
+        yield [], dict(session_ids or {})
+
+    with patch("automation.agent.mcp.toolkits.MCPToolkit.aopen", _aopen_empty):
+        yield
 
 
 @pytest.fixture(autouse=True)

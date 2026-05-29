@@ -12,6 +12,7 @@ from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
 from automation.agent.validators import AgentConfigurationError
@@ -269,10 +270,10 @@ class CommentsAddressorManager(BaseManager):
             self.ctx.repository.slug, self.merge_request.merge_request_id, self.mention_comment_id
         )
 
-        async with open_checkpointer() as checkpointer:
+        async with open_checkpointer() as checkpointer, MCPToolkit.aopen() as mcp_tools:
             agent_kwargs = get_daiv_agent_kwargs(model_config=self.ctx.config.models.agent)
             daiv_agent = await create_daiv_agent(
-                ctx=self.ctx, checkpointer=checkpointer, store=self.store, **agent_kwargs
+                ctx=self.ctx, mcp_tools=mcp_tools, checkpointer=checkpointer, store=self.store, **agent_kwargs
             )
             agent_config = build_langsmith_config(
                 self.ctx,

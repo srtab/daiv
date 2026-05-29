@@ -35,6 +35,7 @@ async def test_skill_activated(model_name, user_message, skill):
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main") as ctx:
         agent = await create_daiv_agent(
             ctx=ctx,
+            mcp_tools=[],
             model_names=[model_name],
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),

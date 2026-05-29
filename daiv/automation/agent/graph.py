@@ -25,7 +25,6 @@ from automation.agent.constants import (
     ModelName,
 )
 from automation.agent.deferred.conf import settings as deferred_settings
-from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
@@ -52,6 +51,7 @@ from core.site_settings import site_settings
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from langchain_core.tools.base import BaseTool
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
@@ -147,6 +147,7 @@ async def create_daiv_agent(
     thinking_level: ThinkingLevel | None | type[_Unset] = _Unset,
     *,
     ctx: RuntimeCtx,
+    mcp_tools: Sequence[BaseTool],
     auto_commit_changes: bool = True,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
@@ -165,6 +166,10 @@ async def create_daiv_agent(
         model_names: The model names to use for the agent.
         thinking_level: The thinking level to use for the agent.
         ctx: The runtime context.
+        mcp_tools: MCP tools bound to persistent sessions for the agent run's
+            lifetime. Callers must obtain these from ``MCPToolkit.aopen()`` so
+            stateful servers (e.g. Playwright) share a single session across
+            tool calls; passing freshly-discovered tools here breaks that.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
@@ -228,8 +233,6 @@ async def create_daiv_agent(
         fallback_models=fallback_models,
     )
     subagents.extend(custom_subagents)
-
-    mcp_tools = await MCPToolkit.get_tools()
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),

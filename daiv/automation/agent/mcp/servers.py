@@ -51,3 +51,22 @@ class Context7MCPServer(MCPServer):
     def get_connection(self) -> StreamableHttpConnection:
         assert settings.CONTEXT7_URL is not None  # guaranteed by is_enabled()
         return StreamableHttpConnection(transport="streamable_http", url=settings.CONTEXT7_URL)
+
+
+@mcp_server
+class PlaywrightMCPServer(MCPServer):
+    """
+    Full Playwright MCP tool surface exposed (no tool_filter). The container
+    runs headless Chromium with --isolated, so each MCP session gets a fresh
+    browser context. See docs/customization/mcp-tools.md for the trust-boundary
+    discussion.
+    """
+
+    name = "playwright"
+
+    def is_enabled(self) -> bool:
+        return settings.PLAYWRIGHT_URL is not None
+
+    def get_connection(self) -> StreamableHttpConnection:
+        assert settings.PLAYWRIGHT_URL is not None  # guaranteed by is_enabled()
+        return StreamableHttpConnection(transport="streamable_http", url=settings.PLAYWRIGHT_URL)
