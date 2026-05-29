@@ -164,6 +164,23 @@ class TestMergeCli:
         assert out == {"findings": [_f()], "candidates": 1, "dropped": 0, "merged": 0}
 
 
+class TestSchemaSingleSource:
+    def test_constants_derived_from_schema(self):
+        schema = json.loads((_FINDINGS_PATH.parent / "finding.schema.json").read_text(encoding="utf-8"))
+        props = schema["properties"]
+        assert tuple(props["detector"]["enum"]) == findings.DETECTORS
+        assert tuple(props["bar"]["enum"]) == findings.BARS
+        assert tuple(props["archetype"]["enum"]) == findings.ARCHETYPES
+        assert tuple(schema["required"]) == findings.REQUIRED_FIELDS
+
+    def test_valid_finding_has_every_required_schema_field(self):
+        schema = json.loads((_FINDINGS_PATH.parent / "finding.schema.json").read_text(encoding="utf-8"))
+        sample = _f()
+        assert findings.is_valid(sample)
+        for field in schema["required"]:
+            assert field in sample
+
+
 class _StringIOStdin:
     # ``sys.stdin`` replacement that returns a fixed string. ``json.load`` needs
     # a ``.read()`` method, and pytest's capsys doesn't replace stdin for us.
