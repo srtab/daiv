@@ -17,7 +17,50 @@ class TestResolve:
         out = rules.resolve(str(tmp_path))
         assert out["has_rules"] is False
         assert out["found"] == []
+        assert out["unreadable"] == []
         assert out["rules_document"] == ""
+
+    def test_unreadable_file_reported_not_silently_absent(self, tmp_path):
+        # A present-but-undecodable rule source must surface in `unreadable` (so the skill can
+        # warn) rather than masquerade as absent — and must not crash resolve. UnicodeDecodeError
+        # is a ValueError, not an OSError, so the old `except OSError` let it escape.
+        (tmp_path / ".agents").mkdir()
+        (tmp_path / ".agents" / "review-rules.md").write_bytes(b"\xff\xfe not utf-8")
+        out = rules.resolve(str(tmp_path))
+        assert out["unreadable"] == [".agents/review-rules.md"]
+        assert out["found"] == []
+        assert out["has_rules"] is False
+
+    def test_unreadable_supplementary_source_reported(self, tmp_path):
+        # The supplementary branch is structurally separate from the primary one; an undecodable
+        # AGENTS.md must land in `unreadable` too, not be silently skipped.
+        (tmp_path / "AGENTS.md").write_bytes(b"\xff\xfe not utf-8")
+        out = rules.resolve(str(tmp_path))
+        assert out["unreadable"] == ["AGENTS.md"]
+        assert out["found"] == []
+        assert out["has_rules"] is False
+
+    def test_mixed_readable_and_unreadable_sources(self, tmp_path):
+        # `found` and `unreadable` populate independently: one unreadable source must not suppress
+        # a readable one, and a readable primary still yields has_rules True.
+        (tmp_path / ".agents").mkdir()
+        (tmp_path / ".agents" / "review-rules.md").write_text("No logging of request bodies.")
+        (tmp_path / "AGENTS.md").write_bytes(b"\xff\xfe not utf-8")
+        out = rules.resolve(str(tmp_path))
+        assert out["found"] == [".agents/review-rules.md"]
+        assert out["unreadable"] == ["AGENTS.md"]
+        assert out["has_rules"] is True
+
+    def test_broken_symlink_reported_as_unreadable(self, tmp_path):
+        # A dangling symlink resolves to nothing, so Path.exists() is False — but it's a committed
+        # file the maintainer expects read, so report it as unreadable rather than silently absent
+        # (the same silent-skip class as a permission/encoding failure).
+        (tmp_path / ".agents").mkdir()
+        (tmp_path / ".agents" / "review-rules.md").symlink_to(tmp_path / "missing-target.md")
+        out = rules.resolve(str(tmp_path))
+        assert out["unreadable"] == [".agents/review-rules.md"]
+        assert out["found"] == []
+        assert out["has_rules"] is False
 
     def test_primary_only(self, tmp_path):
         (tmp_path / ".agents").mkdir()

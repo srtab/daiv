@@ -26,14 +26,17 @@ ARCHETYPES = (
     "discussion",
 )
 REQUIRED_FIELDS = ("detector", "file", "line", "bar", "archetype", "title", "rationale")
-_BAR_RANK = {"defect": 3, "structural": 2, "question": 1}
+# Derived from BARS so a new bar can't be accepted by is_valid yet KeyError in dedupe.
+_BAR_RANK = {bar: rank for rank, bar in enumerate(reversed(BARS), start=1)}
 
 
 def is_valid(finding: object) -> bool:
     if not isinstance(finding, dict):
         return False
-    if any(finding.get(k) in (None, "") for k in REQUIRED_FIELDS):
-        return False
+    for k in REQUIRED_FIELDS:
+        value = finding.get(k)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return False
     if finding["detector"] not in DETECTORS:
         return False
     if finding["bar"] not in BARS:
@@ -63,7 +66,7 @@ def dedupe(findings: list) -> list:
         if k not in best:
             order.append(k)
             best[k] = f
-        elif _BAR_RANK[f["bar"]] > _BAR_RANK[best[k]["bar"]]:
+        elif _BAR_RANK.get(f["bar"], 0) > _BAR_RANK.get(best[k]["bar"], 0):
             best[k] = f
     return [best[k] for k in order]
 
@@ -71,7 +74,10 @@ def dedupe(findings: list) -> list:
 def merge(raw: list) -> dict:
     valid, dropped = validate(raw)
     deduped = dedupe(valid)
-    return {"findings": deduped, "candidates": len(deduped), "dropped": dropped}
+    # `merged` counts findings absorbed by the (file, line, archetype) dedup — the surplus beyond
+    # the one kept per key (two findings collapsing into one is `merged: 1`) — so the skill can
+    # surface a collapse rather than silently shipping one of several findings.
+    return {"findings": deduped, "candidates": len(deduped), "dropped": dropped, "merged": len(valid) - len(deduped)}
 
 
 def main() -> int:

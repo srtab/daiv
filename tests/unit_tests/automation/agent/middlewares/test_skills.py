@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -13,9 +13,6 @@ from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SkillsMidd
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _make_runtime(
@@ -112,6 +109,76 @@ class TestSkillsMiddleware:
             await middleware.abefore_agent(state, runtime, Mock())
 
         mock_copy.assert_awaited_once()
+
+    async def test_surfaces_load_error_first_seen_on_resume(self, tmp_path: Path):
+        """A SKILL.md load error that first arises on a fresh-worker resume (``skills_metadata``
+        already cached, so ``super().abefore_agent`` returns ``None``) must still reach
+        ``skills_load_errors`` instead of being silently dropped."""
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / "repoX"))
+        runtime.context.config = RepositoryConfig(slash_commands=SlashCommands(enabled=False))
+
+        err = "Cannot load skill 'broken': No such file or directory"
+        state = {
+            "messages": [HumanMessage(content="hello")],
+            "skills_metadata": [
+                {"name": "skill-one", "description": "ok", "path": "/skills/skill-one/SKILL.md", "metadata": {}}
+            ],
+        }
+
+        with patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock, return_value=[err]):
+            result = await middleware.abefore_agent(state, runtime, Mock())
+
+        assert result is not None
+        assert result["skills_load_errors"] == [err]
+
+    async def test_does_not_resurface_already_known_load_error_on_resume(self, tmp_path: Path):
+        """When the recomputed load error is already persisted in state, emit nothing — the
+        replace-reducer ``skills_load_errors`` stays stable and the prompt doesn't churn."""
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / "repoX"))
+        runtime.context.config = RepositoryConfig(slash_commands=SlashCommands(enabled=False))
+
+        err = "Cannot load skill 'broken': No such file or directory"
+        state = {
+            "messages": [HumanMessage(content="hello")],
+            "skills_metadata": [
+                {"name": "skill-one", "description": "ok", "path": "/skills/skill-one/SKILL.md", "metadata": {}}
+            ],
+            "skills_load_errors": [err],
+        }
+
+        with patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock, return_value=[err]):
+            result = await middleware.abefore_agent(state, runtime, Mock())
+
+        assert result is None
+
+    def test_collect_skill_files_skips_already_cached_files(self, tmp_path: Path):
+        """The per-file existence check makes per-turn re-materialization a no-op once the disk
+        cache is populated — cold cache collects the file for upload, warm cache skips it. This
+        is what makes running ``_copy_global_skills`` every turn cheap; a regression checking the
+        wrong path would re-upload every skill file on every turn with no other test failing."""
+        source = tmp_path / "src"
+        (source / "skill-one").mkdir(parents=True)
+        (source / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+        cache = tmp_path / "cache"
+
+        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache):
+            cold: list[tuple[str, bytes]] = []
+            SkillsMiddleware._collect_skill_files(source, Path("/skills"), cold, [])
+            assert [dest for dest, _ in cold] == ["/skills/skill-one/SKILL.md"]
+
+            (cache / "skill-one").mkdir(parents=True)
+            (cache / "skill-one" / "SKILL.md").write_text("cached")
+            warm: list[tuple[str, bytes]] = []
+            SkillsMiddleware._collect_skill_files(source, Path("/skills"), warm, [])
+            assert warm == []
 
     async def test_preserves_user_supplied_metadata(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -359,11 +426,11 @@ class TestSkillsMiddleware:
         with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
             result = await tool.coroutine(skill="demo", runtime=runtime)
 
-        assert result.update["messages"][1].content == (
-            "<skill_root>/skills/demo</skill_root>\n"
-            "Relative paths in this skill resolve under the skill root above.\n\n"
-            "Run this."
-        )
+        content = result.update["messages"][1].content
+        # Lock the load-bearing parts (the resolved root tag and that the body follows it)
+        # without coupling to the exact wording of the guidance sentence.
+        assert content.startswith("<skill_root>/skills/demo</skill_root>\n")
+        assert content.endswith("Run this.")
 
     async def test_skill_tool_anchors_per_repo_skill_to_its_source_root(self):
         backend = Mock()
