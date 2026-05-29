@@ -30,15 +30,17 @@ c.checkRouting(routing, isProvider)
 
 ### Medium
 
-**2. Loop uses `=` where it should accumulate** — [reports/aggregate.py:72](https://example.org/repo/-/blob/feature-branch/reports/aggregate.py#L72)
+**2. Re-implements `slugify()` instead of calling the shared helper** — [content/models.py:48](https://example.org/repo/-/blob/feature-branch/content/models.py#L48)
 
 <details>
 <summary>Details</summary>
 
-`count = len(batch)` resets the counter each iteration. The outer loop currently runs once so the bug is latent, but it will silently miscount as soon as a second iteration is added.
+This inlines lowercasing, whitespace-to-dash, and stripping — exactly what `utils.text.slugify()` already does and what three sibling models call. Duplicating it means the slug rules drift the moment one copy changes.
 
 ```python
-count += len(batch)
+from utils.text import slugify
+
+slug = slugify(title)
 ```
 
 </details>
@@ -141,9 +143,18 @@ Move the uniqueness check into the model's `validate()`.
 
 </details>
 
+**3. N+1: seller lookup runs once per order row** — `api/orders.py:90`
+
+<details>
+<summary>Details</summary>
+
+`serialize_order` calls `Seller.objects.get(...)` inside the per-order loop, so a page of N orders issues N+1 queries. The fix spans the serializer and the queryset — add `select_related("seller")` on the orders queryset in the viewset — so it can't anchor on a single diff line.
+
+</details>
+
 ## Questions
 
-**3. Does the new ingestion pipeline preserve ordering across the three modules, or is reordering OK?** — multiple files
+**4. Does the new ingestion pipeline preserve ordering across the three modules, or is reordering OK?** — multiple files
 
 <details>
 <summary>Details</summary>
@@ -158,7 +169,7 @@ The refactor moves dedup into `ingest/wavecom.py` and removes the explicit sort 
 - `internal/cache/key.go:18` — use `strings.Join` instead of manual loop *(use_framework_idiom)*
 - `env_files/all/grafana.env:9` — is `alloy` intentionally omitted from the default tenant list? *(question)*
 
-_Detectors: 5/5 completed · 3 of 11 candidates posted (2 merged across detectors)._
+_5/5 detectors · 11 candidates (2 others merged pre-count) → 3 inline, 4 in summary (rest refuted)._
 ````
 
 ---

@@ -25,16 +25,9 @@ Delivery mode requires the `gitlab` tool. If it's not loaded, `tool_search` for 
 - If a diff is already provided, review it directly.
 - If scope is ambiguous, infer from conversation history and available artifacts. Otherwise, ask the user.
 
-### Read per-repo review rules (Stage 0)
+### Check for per-repo review rules (Stage 0)
 
-Before detecting, resolve the repo's custom review rules so Stage 1 knows whether to run the `custom-rules` detector:
-
-- Run `python3 scripts/rules.py resolve --root . --context-file <repo context file name, default AGENTS.md>`.
-- If `has_rules` is `true`, keep the returned `rules_document` for the `custom-rules` detector.
-- If `has_rules` is `false`, **skip the `custom-rules` detector** — the repo hasn't opted in.
-- If `unreadable` lists any path, a rule source exists but couldn't be read (bad encoding or permissions). Don't treat that as opted-out: note it in the Step 7 status line so the author knows their rules weren't applied.
-
-`scripts/rules.py` reads ordinary repo files only and never changes config. It treats `.agents/review-rules.md` as authoritative and `AGENTS.md` / `.agents/AGENTS.md` as supplementary. Run `scripts/rules.py resolve --help` for details.
+Before detecting, check which rule sources the repo actually has on disk: `.agents/review-rules.md` (authoritative) and `AGENTS.md` / `.agents/AGENTS.md` (supplementary). If **any** of them exists, the `custom-rules` detector runs in Stage 1 against the ones present; if **none** exists, **skip the `custom-rules` detector**.
 
 ## Stage 1 — Detect (fan-out)
 
@@ -44,9 +37,9 @@ Dispatch the detectors **in parallel** with the `task` tool — one `task` call 
 - `security` — input validation at trust boundaries, authz/authn, secrets exposure.
 - `performance` — N+1 / repeated calls or lookups in loops, obvious inefficiencies.
 - `structure` — dead lines, unused framework idioms, misplaced logic, missed reuse, misleading naming, magic values, typing, logging, i18n, a11y.
-- `custom-rules` — evaluates the Stage 0 `rules_document`. **Dispatch only if `has_rules` was true**, and pass `rules_document` into the task prompt.
+- `custom-rules` — enforces the repo's review rules. **Dispatch if any rule source exists** (Stage 0: `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md`); pass it the paths of the ones present to read (see below).
 
-Pass into every detector's `task` prompt the change under review — the diff itself, or the source/target refs + SHA triplet and the changed-file list — plus the new-side path scope, so all detectors review the same change. (The `custom-rules` detector additionally receives `rules_document` from Stage 0.)
+Pass into every detector's `task` prompt the change under review as the source/target refs + SHA triplet and the changed-file list — **not the diff itself** (it can be long; the detector runs git commands to fetch the hunks it needs) — plus the new-side path scope, so all detectors review the same change. The `custom-rules` detector additionally receives the **paths** of the rule sources that exist (not their contents — it opens them itself); see `references/detectors.md` for which source is authoritative vs supplementary.
 
 Tell each detector to read surrounding code for context before deciding, to apply the Signal-filter bars (Stage 2) when forming a finding, and to never flag style, formatting, whitespace, or import ordering.
 
@@ -58,7 +51,7 @@ Every detector returns a JSON array of objects in this exact shape:
 {"detector":"correctness|security|performance|structure|custom-rules","file":"<new_path>","line":42,"bar":"defect|structural|question","archetype":"remove_dead_lines|use_framework_idiom|replace_with_constant|swap_library_call|question|discussion","title":"<one line>","rationale":"<why it's a problem>","suggestion":"<optional, fix archetypes only>","source":"<custom-rules only: the rule enforced>"}
 ```
 
-`bar` is the Signal-filter class. Choose `archetype` from the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else — renames, cross-file or structural findings, and anything that needs prose. The named discussion patterns in `references/few-shot-examples.md` Part 2 (e.g. `rename`, `move_to_other_module`) are documentation labels, not schema values — they all serialize as `archetype: "discussion"`; the parent finalizes inline-eligibility during Stage 3 bucketing. `source` is required on `custom-rules` findings (enforced by `findings.py`) so the posted comment can cite the rule. `scripts/findings.py merge` validates against this schema and is its canonical definition.
+`bar` is the Signal-filter class. Choose `archetype` from the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else — renames, cross-file or structural findings, and anything that needs prose. The named discussion patterns in `references/few-shot-examples.md` Part 2 (e.g. `rename`, `move_to_other_module`) are documentation labels, not schema values — they all serialize as `archetype: "discussion"`; the parent finalizes inline-eligibility during Stage 3 bucketing. `source` is required on `custom-rules` findings (enforced by `findings.py`) so the posted comment can cite the rule. `scripts/findings.py merge` validates the required fields, the enums, and the `custom-rules` `source` rule — not the `suggestion`/archetype coupling, which Stage 3 handles.
 
 ## Stage 2 — Verify (adjudicate)
 
@@ -87,6 +80,15 @@ A finding that survives refutation must also meet one of three bars (this is the
 
 Never include self-corrected findings, strikethrough, or "on closer reading this is fine" in the output. Reason internally, present only confirmed survivors. Over-pruning is acceptable — precision first. The survivors are what Stage 3 delivers.
 
+### Severity
+
+The High / Medium / Low grouping used in the summary (Stage 3, Step 6) and interactive output follows from `bar` and detector — assign it deterministically:
+
+- **High** — a `defect` from `correctness`, `security`, or `custom-rules` (wrong results, broken authz, data loss, a violated binding rule).
+- **Medium** — a `defect` from `performance`, or a `structural` concern that spans files or changes a behavior/contract.
+- **Low** — a local `structural` concern (dead lines, magic values, a single-spot idiom, misleading naming).
+- `question` findings are **not** severity-graded — they go in the *Questions* section, never a High/Medium/Low bucket.
+
 ## Stage 3 — Deliver (delivery mode)
 
 Deliver the Stage 2 survivors. The marker/anchor machinery below is unchanged — it owns dedup against already-posted notes, the summary, and reply handling.
@@ -106,7 +108,7 @@ Fields:
 - `archetype` — inline-eligible archetype name (inline only).
 - `file` — `new_path` from the diff (inline only).
 - `line` — `new_line` from the diff (inline only). **Diagnostic only — not used in dedup**, because line numbers shift on unrelated commits.
-- `anchor` — stable 8-hex identity for inline findings, computed as the first 8 hex chars of `sha256` over the stripped target line (with a short-line/separator disambiguator that appends the next non-blank new-side line). Only the line content feeds the anchor — diagnostic fields don't.
+- `anchor` — stable 8-hex identity for inline findings, computed as the first 8 hex chars of `sha256` over the stripped target line (with a disambiguator that appends the next non-blank new-side line **when the target is under 16 chars or all-separators**). Only the line content feeds the anchor — diagnostic fields don't.
 - `sha` — `head_sha` at posting time (all kinds). Diagnostic only.
 
 **Implementation.** `scripts/marker.py` is the canonical implementation of the marker contract — never compute anchors or assemble markers by hand. The script's `anchor`, `build`, and `parse-notes` subcommands are deterministic and version-stable; paraphrasing the rules into ad-hoc Python or prose silently breaks dedup across reruns. Run `scripts/marker.py <cmd> --help` for argument details.
@@ -136,11 +138,11 @@ Fields:
      ...
    ]}
   ```
-  Keep all three: `inline_fingerprints` is the **dedup set** for Step 4; `summary` tells Step 6 whether to update in place or create a fresh discussion; `pending_replies` lists unresolved daiv threads whose last note is from a human (handled in Step 2). The script projects each note down to `author` / `body` / `system` — that is all the model needs to choose a Step 2 outcome.
+  Keep all three: `inline_fingerprints` is the **dedup set** for Step 4; `summary` tells Step 6 whether to update in place or create a fresh discussion; `pending_replies` lists unresolved daiv threads with at least one note after daiv's last — usually a human reply, but the trailing note can be a system event (flagged `system: true`), handled in Step 2. The script projects each note down to `author` / `body` / `system` — that is all the model needs to choose a Step 2 outcome.
 
 ### Step 2 — Address pending replies
 
-For each discussion in `pending_replies`, read the conversation (the full `notes` array is included) and decide the outcome:
+For each discussion in `pending_replies`, read the conversation (the full `notes` array is included) and decide the outcome. Skip any thread where the only notes after daiv's last are `system: true` (e.g. a label change or resolve event) — there's nothing to respond to.
 
 | Outcome | Action |
 |---|---|
@@ -193,7 +195,7 @@ If an inline finding's diff position cannot be constructed reliably (file rename
 
 ### Step 4 — Apply dedup
 
-For each candidate, compute the anchor with `scripts/marker.py anchor --target "<target line>" [--next "<next non-blank new-side line>"]` and form the fingerprint `["inline", archetype, file, anchor]`. Always pass `--next` when the target line might be short or all-separators — the script decides whether to use it. **Skip if the fingerprint matches the dedup set** — do not rephrase, do not "post a stronger version." Only surface fingerprints not already present.
+For each candidate, compute the anchor with `scripts/marker.py anchor --target "<target line>" --next "<next non-blank new-side line>"` and form the fingerprint `["inline", archetype, file, anchor]`. Always pass `--next` (the next non-blank new-side line) on every call — the script ignores it unless the target is under 16 chars or all-separators, so there's no judgment call about when it's needed. **Skip if the fingerprint matches the dedup set** — do not rephrase, do not "post a stronger version." Only surface fingerprints not already present.
 
 ### Step 5 — Post inline findings
 
@@ -218,7 +220,7 @@ Keep bodies tight; the prose around it is justification, not filler. Example mar
 
 Compose **one** top-level summary containing:
 
-- All discussion-only findings, grouped by severity (High / Medium / Low). Same shape as Interactive mode below: one-line summary + `<details>` block.
+- All discussion-only findings, grouped by severity (High / Medium / Low — map from `bar`/detector per Stage 2 → Severity). Same shape as Interactive mode below: one-line summary + `<details>` block.
 - A short **Questions** section for discussion-only questions (cross-file or un-anchored). Targeted questions go inline (see Step 3), not here.
 - A one-line index of the inline findings posted this run (filename + line + archetype), so a reviewer skimming the thread sees the full picture without expanding diffs.
 
@@ -238,11 +240,13 @@ A question previously embedded in an older summary's *Questions* section has no 
 
 ### Step 7 — Return status to the harness
 
-Final assistant message in delivery mode: one short line, e.g.
+Final assistant message in delivery mode: one short line. Use the shape below. The summary-body footer (the index line in Step 6) may carry the same shape, but the two are **distinct strings** — this one is the harness message; that one lives inside the summary discussion.
 
 ```
-Posted 3 inline + updated summary on MR !128 — 5/5 detectors, 3 of 11 candidates posted (skipped 1 duplicate, demoted 1 to summary).
+Posted 3 inline + updated summary on MR !128 — 5/5 detectors · 11 candidates → 3 inline, 1 demoted to summary, 1 duplicate skipped (rest refuted).
 ```
+
+The candidate count is `merge.candidates` (the pre-refutation count from Stage 2, after cross-detector dedup); account for the gap between it and what shipped — demoted to summary, duplicates skipped, refuted — so the line reads cleanly.
 
 Do **not** return the review markdown when delivery succeeded — the comments are the deliverable.
 
@@ -252,7 +256,7 @@ Use the markdown format below. Return the review as the final assistant message;
 
 ### Findings
 
-Numbered list grouped by severity (High / Medium / Low). Each finding has a one-line summary with the file reference, and a collapsible `<details>` block for the explanation and fix.
+Numbered list grouped by severity (High / Medium / Low — map from `bar`/detector per Stage 2 → Severity). Each finding has a one-line summary with the file reference, and a collapsible `<details>` block for the explanation and fix. When the finding is a fix archetype, include the concrete fix as a fenced code block inside the `<details>`.
 
 ```
 **1. Summary of the issue** — [path/to/file.py:42](link)
@@ -276,6 +280,7 @@ Same shape as Findings. Each question must anchor on a specific file:line and po
 ## Error recovery
 
 - If a tool call fails, switch to an alternative (e.g. platform tool instead of `bash git diff`) and continue. Never re-invoke the `skill` tool to restart the review.
+- If the `task` tool can't fan out the detectors in parallel (rejected, or a detector `task` errors), fall back to dispatching them sequentially, or run the detection inline yourself — don't abort the review.
 - In delivery mode, if posting a specific inline finding fails (HTTP error, invalid position, etc.), demote that finding to discussion-only and continue with the rest. If the summary post also fails, return the full review as markdown so the harness can deliver it; surface the posting error in your final message.
 - If the `gitlab` tool isn't loadable or returns 403s for the discussion endpoint, demote to interactive mode and return markdown.
 
