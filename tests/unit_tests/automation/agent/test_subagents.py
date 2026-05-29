@@ -568,3 +568,25 @@ class TestExplorePermissions:
         # offloaded-artifact dirs are readable (eviction read-back) but stay write-denied (read-only agent)
         assert _check_fs_permission(perms, "read", "/workspace/large_tool_results/x") == "allow"
         assert _check_fs_permission(perms, "write", "/workspace/large_tool_results/x") == "deny"
+
+
+class TestShippedDetectorCharters:
+    """Lock the five detector charter files that ship inside the code-review skill."""
+
+    def test_all_five_detectors_present_and_wellformed(self):
+        from automation.agent.subagents import (
+            CODE_REVIEW_AGENTS_PATH,
+            CODE_REVIEW_DETECTOR_NAMES,
+            _parse_subagent_frontmatter,
+        )
+
+        md_files = sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md"))
+        names = set()
+        for md in md_files:
+            parsed = _parse_subagent_frontmatter(md.read_text(encoding="utf-8"), str(md), allow_reserved_names=True)
+            assert parsed is not None, f"{md.name} failed frontmatter parse"
+            frontmatter, body = parsed
+            assert frontmatter["description"].strip()
+            assert body.strip()
+            names.add(frontmatter["name"])
+        assert names == set(CODE_REVIEW_DETECTOR_NAMES)
