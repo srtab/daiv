@@ -71,11 +71,26 @@ def dedupe(findings: list) -> list:
 
 
 def merge(raw: list) -> dict:
+    """Validate findings against the schema and collapse cross-detector duplicates.
+
+    Drops malformed findings, then dedupes survivors on the ``(file, line, archetype)`` key,
+    keeping the strongest ``bar`` per key. Returns ``{"findings", "candidates", "dropped", "merged"}``:
+
+    - ``findings`` — the deduped, schema-valid findings the review carries into adversarial
+      verification (Stage 2) and delivery.
+    - ``candidates`` — count of distinct findings after dedup (== ``len(findings)``); the
+      pre-refutation total the skill reports in its Step 7 status line.
+    - ``dropped`` — count of findings that failed schema validation (a detector emitting
+      invalid findings is a real signal worth surfacing, not hiding).
+    - ``merged`` — findings absorbed by the ``(file, line, archetype)`` dedup: the surplus
+      beyond the one kept per key, so two findings collapsing into one is ``merged: 1``.
+
+    Note this ``(file, line, archetype)`` dedup is the pre-delivery cross-detector merge; the
+    separate delivery dedup against already-posted notes (Stage 3) is anchor-based on
+    ``(kind, archetype, file, anchor)``.
+    """
     valid, dropped = validate(raw)
     deduped = dedupe(valid)
-    # `merged` counts findings absorbed by the (file, line, archetype) dedup — the surplus beyond
-    # the one kept per key (two findings collapsing into one is `merged: 1`) — so the skill can
-    # surface a collapse rather than silently shipping one of several findings.
     return {"findings": deduped, "candidates": len(deduped), "dropped": dropped, "merged": len(valid) - len(deduped)}
 
 

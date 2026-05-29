@@ -178,6 +178,37 @@ class TestSkillsMiddleware:
             SkillsMiddleware._collect_skill_files(source, Path("/skills"), warm, [])
             assert warm == []
 
+    def test_collect_skill_files_surfaces_incomplete_skill_for_broken_asset(self, tmp_path: Path, monkeypatch):
+        """A non-SKILL.md asset (scripts/, references/) that fails to read must surface an
+        ``incomplete`` warning — the code-review skill depends on scripts/findings.py at runtime, so a
+        silently-dropped asset would otherwise only surface mid-review. The manifest itself loads, so
+        this is distinct from the SKILL.md-missing error."""
+        source = tmp_path / "src"
+        (source / "skill-one").mkdir(parents=True)
+        (source / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+        (source / "skill-one" / "scripts").mkdir()
+        (source / "skill-one" / "scripts" / "helper.py").write_text("print('hi')")
+        cache = tmp_path / "cache"  # cold cache so every file is collected
+
+        real_read_bytes = Path.read_bytes
+
+        def fake_read_bytes(self):
+            if self.name == "helper.py":
+                raise OSError(2, "No such file or directory")
+            return real_read_bytes(self)
+
+        monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
+
+        errors: list[str] = []
+        files: list[tuple[str, bytes]] = []
+        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache):
+            SkillsMiddleware._collect_skill_files(source, Path("/skills"), files, errors)
+
+        # SKILL.md still collected; the broken asset is reported as incomplete, not as a load failure.
+        assert "/skills/skill-one/SKILL.md" in [dest for dest, _ in files]
+        assert any("may be incomplete" in e and "helper.py" in e for e in errors)
+        assert not any(e.startswith("Cannot load skill") for e in errors)
+
     async def test_preserves_user_supplied_metadata(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
@@ -754,6 +785,55 @@ class TestSkillsMiddleware:
             "skills_metadata": [
                 {"name": "skill-one", "description": "ok", "path": "/skills/skill-one/SKILL.md", "metadata": {}}
             ],
+        }
+
+        with (
+            patch("automation.agent.middlewares.skills.slash_command_registry", registry),
+            patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock, return_value=[err]),
+        ):
+            result = await middleware.abefore_agent(state, runtime, Mock())
+
+        assert result is not None
+        assert result["jump_to"] == "end"
+        assert result["skills_load_errors"] == [err]
+
+    async def test_abefore_agent_forwards_already_known_load_error_through_slash_command_branch(self, tmp_path: Path):
+        """A load error that is *already* in state (merge produces no change) must still reach the
+        terminal slash-command return. This is the edge the unconditional forward closes: the prior
+        ``"skills_load_errors" in skills_update`` guard dropped it when nothing changed this turn."""
+        from deepagents.backends.filesystem import FilesystemBackend
+
+        class DemoSlashCommand(SlashCommand):
+            description = "demo"
+
+            async def execute_for_agent(
+                self,
+                *,
+                args: str,
+                issue_iid: int | None = None,
+                merge_request_id: int | None = None,
+                available_skills: list | None = None,
+                available_subagents: list | None = None,
+            ) -> str:
+                return "ran"
+
+        registry = SlashCommandRegistry()
+        registry.register(DemoSlashCommand, "demo", [Scope.GLOBAL])
+
+        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        runtime = _make_runtime(repo_working_dir=str(tmp_path / "repoX"))
+        runtime.context.config = RepositoryConfig()
+
+        err = "Cannot load skill 'broken': No such file or directory"
+        # The error is in state AND re-collected locally this turn -> merge == baseline (no change),
+        # so without the unconditional forward it would not be re-emitted onto the jump-to-end update.
+        state = {
+            "messages": [HumanMessage(content="@daiv-bot /demo")],
+            "skills_metadata": [
+                {"name": "skill-one", "description": "ok", "path": "/skills/skill-one/SKILL.md", "metadata": {}}
+            ],
+            "skills_load_errors": [err],
         }
 
         with (

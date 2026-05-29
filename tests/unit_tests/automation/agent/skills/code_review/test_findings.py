@@ -123,7 +123,7 @@ class TestMerge:
         # _f(detector="bogus") fails validation -> counted in `dropped` (1).
         # _f(bar="question") shares the dedup key (file, line, archetype) with
         # _f() and is collapsed by dedupe -> NOT counted in `dropped`. So one
-        # distinct valid finding survives: candidates == len(findings) == 1.
+        # distinct valid finding survives: candidates == 1 (candidates = len(deduped)).
         result = findings.merge([_f(), _f(bar="question"), _f(detector="bogus")])
         assert result == {"findings": [_f()], "candidates": 1, "dropped": 1, "merged": 1}
 

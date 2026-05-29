@@ -129,8 +129,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
         to make them available to the agent.
 
-        ``skills_load_errors`` are captured once per session and persist through subsequent turns;
-        a misconfig fixed mid-session will continue surfacing in ``<skill_load_warnings>`` until restart.
+        ``skills_load_errors`` accumulate across turns — the materialize step (``_copy_global_skills``)
+        re-runs every turn and reports any newly-seen errors, which are unioned with prior ones here —
+        and are never cleared mid-session, so a misconfig fixed mid-session keeps surfacing in
+        ``<skill_load_warnings>`` until restart.
         """
         clear_skill_mode = state.get("active_skill_mode") is not None and self._has_user_followup(state["messages"])
         if clear_skill_mode:
@@ -149,17 +151,19 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         # ``_copy_global_skills`` runs every turn now, so a SKILL.md load error can first arise on
         # a fresh-worker resume — a turn where ``super().abefore_agent`` returns ``None`` because
         # ``skills_metadata`` is already in state. The old ``skills_update is not None`` guard
-        # dropped those. ``skills_load_errors`` has a replace reducer (no append), so we emit the
-        # full union of already-known and freshly-collected errors, and only when it actually
-        # changes — keeping ``<skill_load_warnings>`` stable across turns instead of churning.
+        # dropped those. ``skills_load_errors`` has no reducer, so writes replace (not append) — we
+        # emit the full union of already-known and freshly-collected errors ourselves, and only when
+        # it actually changes — keeping ``<skill_load_warnings>`` stable across turns instead of churning.
+        from_super = skills_update.get("skills_load_errors", []) if skills_update else []
+        all_known_errors = list(dict.fromkeys([*state.get("skills_load_errors", []), *from_super, *local_load_errors]))
         if local_load_errors:
-            from_super = skills_update.get("skills_load_errors", []) if skills_update else []
+            # Plain (continuing-turn) path: only write when the value actually changed vs what
+            # state already holds, so the replace channel doesn't churn ``<skill_load_warnings>``.
             baseline = list(dict.fromkeys([*state.get("skills_load_errors", []), *from_super]))
-            merged = list(dict.fromkeys([*baseline, *local_load_errors]))
-            if merged != baseline:
+            if all_known_errors != baseline:
                 if skills_update is None:
                     skills_update = {}
-                skills_update["skills_load_errors"] = merged
+                skills_update["skills_load_errors"] = all_known_errors
 
         skills_metadata = (
             skills_update["skills_metadata"]
@@ -174,8 +178,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
         if builtin_slash_commands:
-            if skills_update is not None and "skills_load_errors" in skills_update:
-                builtin_slash_commands["skills_load_errors"] = skills_update["skills_load_errors"]
+            # ``builtin_slash_commands`` is a fresh dict that jumps to end, so forward the full known
+            # error set unconditionally — not just when it changed this turn. A degraded skill known
+            # only from prior state (merge produced no change) must still reach this terminal update.
+            if all_known_errors:
+                builtin_slash_commands["skills_load_errors"] = all_known_errors
             if clear_skill_mode:
                 builtin_slash_commands["active_skill_mode"] = None
             return builtin_slash_commands
@@ -233,8 +240,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     ) -> None:
         """
         Walk skill directories under ``source_root``, appending uploadable files to
-        ``files_to_upload`` and ``SKILL.md`` read failures to ``errors`` so a broken
-        manifest is not silently dropped from the agent's view.
+        ``files_to_upload`` and read failures to ``errors`` so nothing is silently dropped
+        from the agent's view: a broken ``SKILL.md`` as a ``Cannot load skill`` error (the
+        skill won't load at all), a broken asset (``scripts/``, ``references/``) as a
+        ``may be incomplete`` warning (the skill loads but is missing a runtime dependency).
         """
         for skill_dir in source_root.iterdir():
             if not skill_dir.is_dir() or skill_dir.name == "__pycache__" or skill_dir.name.startswith("."):
@@ -260,12 +269,21 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                         logger.warning(
                             "Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name
                         )
-                        # Surface broken SKILL.md by skill name so the agent can warn a user
-                        # who invokes the skill. Host paths stay in the log only — ``exc.strerror``
-                        # is the OS message without the path (which lives in ``exc.filename``).
+                        # Surface read failures by skill name so the agent can warn a user who invokes
+                        # the skill. A broken SKILL.md means the skill won't load at all; a broken
+                        # asset (scripts/, references/) means the skill loads but is incomplete — the
+                        # code-review skill, e.g., depends on scripts/findings.py and scripts/marker.py
+                        # at runtime, so a missing one would otherwise only surface mid-review. Host
+                        # paths stay in the log only — ``exc.strerror`` is the OS message without the
+                        # path (which lives in ``exc.filename``).
+                        reason = exc.strerror or type(exc).__name__
                         if source_path.name == "SKILL.md":
-                            reason = exc.strerror or type(exc).__name__
                             errors.append(f"Cannot load skill '{skill_dir.name}': {reason}")
+                        else:
+                            errors.append(
+                                f"Skill '{skill_dir.name}' may be incomplete: failed to load "
+                                f"'{source_path.name}' ({reason})"
+                            )
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:

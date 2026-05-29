@@ -1,8 +1,8 @@
 ---
 name: code-review
-description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, tests, performance, security, structural concerns, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
+description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, performance, security, structural concerns, repo-specific review rules, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
 metadata:
-  version: 3.1.0
+  version: 3.2.0
 ---
 
 # Code Review
@@ -31,13 +31,19 @@ Before detecting, check which rule sources the repo actually has on disk: `.agen
 
 ## Stage 1 — Detect (fan-out)
 
-Dispatch the detectors **in parallel** with the `task` tool — one `task` call per detector, all issued in a single turn — selecting each by its **subagent type**: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, and (conditionally) `cr-custom-rules`. Each detector is a pre-defined subagent whose charter is its own system prompt, so you do **not** restate the charter. Each returns a structured object `{"findings": [...]}` conforming to the finding schema below — and nothing else.
+Dispatch the detectors **in parallel** with the `task` tool — one `task` call per detector, all issued in a single turn. Set each call's **`subagent_type`** to the detector's name: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, and (conditionally) `cr-custom-rules`. These are pre-defined subagents whose charter is their own system prompt, so you do **not** restate the charter.
+
+**Never dispatch the detection to `general-purpose`** (or any other agent) with the dimension described in the prompt. The `cr-*` subagents carry their charter *and* a structured `response_format` — a `general-purpose` dispatch returns free-form prose with no `findings` array, which breaks the Stage 2 merge. If a `cr-*` type is not in the `task` tool's agent list it failed to load; skip it and report the gap (below) — do **not** substitute `general-purpose`. Each detector returns a structured object `{"findings": [...]}` conforming to the finding schema below — and nothing else.
+
+**Reconcile against what's actually available.** The detectors that loaded successfully are the `cr-*` subagent types the `task` tool lists. Before dispatching, work out your *expected* set — the four built-ins plus `cr-custom-rules` when Stage 0 found a rule source — and note any expected detector that the `task` tool does **not** offer: it failed to load, so its dimension won't be covered this run. Carry both numbers (dispatched / expected) into the Step 7 status line so a missing dimension is reported, not silently absent. If a `cr-*` type is unavailable, dispatch the rest; never abort the review over one missing detector.
 
 - `cr-correctness` — logic/parse defects, breaking schema/contract changes, concurrency, error handling, side effects, absent-value, config/env.
 - `cr-security` — input validation at trust boundaries, authz/authn, secrets exposure.
 - `cr-performance` — N+1 / repeated calls or lookups in loops, obvious inefficiencies.
 - `cr-structure` — dead lines, unused framework idioms, misplaced logic, missed reuse, misleading naming, magic values, typing, logging, i18n, a11y.
 - `cr-custom-rules` — enforces the repo's review rules. **Dispatch only if a rule source exists** (Stage 0: `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md`); pass it the paths of the ones present.
+
+Two naming registers, don't conflate them: the **subagent type** you pass to `task` is `cr-<dimension>` (e.g. `cr-custom-rules`), while the `detector` field each finding carries is the bare `<dimension>` (e.g. `custom-rules`). Subagent `cr-correctness` → `detector: "correctness"`, and so on.
 
 Pass into every detector's `task` prompt only the **scope**: the change under review as source/target refs + the SHA triplet and the changed-file list — **not the diff itself** (it can be long; the detector runs git commands to fetch the hunks it needs) — plus the new-side path scope, so all detectors review the same change. The `cr-custom-rules` detector additionally receives the **paths** of the rule sources that exist (not their contents — it opens them itself).
 
@@ -55,13 +61,13 @@ Each detector returns a structured object `{"findings": [ ... ]}` whose items ar
 
 ## Stage 2 — Verify (adjudicate)
 
-Collect each detector's `findings` array (from its returned `{"findings": [...]}` object), concatenate them into one JSON array, and run the deterministic merge:
+Collect each detector's `findings` array (from its returned `{"findings": [...]}` object) and concatenate them into one JSON array. **If every detector returned an empty array, skip the merge entirely** — there is nothing to validate or dedup; treat `candidates`, `dropped`, and `merged` as `0`. In **interactive mode** this means "No findings." In **delivery mode** it does *not* mean skip Stage 3: still run Step 1 (`parse-notes`) and Step 2 (address any pending replies on prior daiv threads) and the Step 6 summary reconciliation (update an existing summary in place; write nothing new if none exists) — only the new-finding bucketing and posting (Steps 3–5) are skipped. Run the merge only when at least one finding exists:
 
 ```
 echo '<combined findings JSON array>' | python3 scripts/findings.py merge
 ```
 
-`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. It returns `{"findings":[...], "candidates":N, "dropped":M, "merged":K}`, where `candidates` is the count of distinct findings after cross-detector dedup (before adversarial verification) — keep it for the Step 7 status line — and `merged` counts findings absorbed by that dedup — the surplus beyond the one kept per key, so two findings collapsing into one is `merged: 1`. When `merged` is nonzero, note it in the Step 7 status line so a reviewer knows findings sharing a `(file, line, archetype)` key were collapsed. Note this `(file, line, archetype)` dedup is the pre-delivery cross-detector merge; delivery dedup against already-posted notes (Stage 3) is anchor-based `(kind, archetype, file, anchor)` — two different stages, two different keys.
+`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. It returns `{"findings":[...], "candidates":N, "dropped":M, "merged":K}`; the `merge()` docstring in `scripts/findings.py` defines each field. Carry `candidates` (the pre-refutation count) into the Step 7 status line, and note `merged` there when nonzero so a reviewer knows findings sharing a `(file, line, archetype)` key were collapsed. This is the pre-delivery cross-detector dedup — distinct from Stage 3's anchor-based delivery dedup on `(kind, archetype, file, anchor)`.
 
 Then **adversarially verify** each surviving finding. For each one, build the strongest case that it is a false positive and **discard it unless it clearly survives**. Drop it if any of these hold:
 
@@ -101,28 +107,11 @@ Every note daiv posts begins with a single-line HTML comment carrying a JSON pay
 <!-- daiv-cr {"v":1,"kind":"inline","archetype":"...","file":"...","line":42,"anchor":"a1b2c3d4","sha":"abc1234"} -->
 ```
 
-Fields:
-
-- `v` — marker schema version (currently `1`). Markers with an unknown `v` are ignored entirely — `parse-notes` drops them, so they don't dedup against current findings and they don't surface as `pending_replies` either.
-- `kind` — `inline`, `summary`, or `reply`. Reply markers carry only `v`, `kind`, and `sha` — no archetype/file/line/anchor, since replies inherit their thread from the discussion they're posted to. They exist so daiv-authored detection stays uniform (one prefix rule for findings and replies, no author-username lookup).
-- `archetype` — inline-eligible archetype name (inline only).
-- `file` — `new_path` from the diff (inline only).
-- `line` — `new_line` from the diff (inline only). **Diagnostic only — not used in dedup**, because line numbers shift on unrelated commits.
-- `anchor` — stable 8-hex identity for inline findings, computed as the first 8 hex chars of `sha256` over the stripped target line (with a disambiguator that appends the next non-blank new-side line **when the target is under 16 chars or all-separators**). Only the line content feeds the anchor — diagnostic fields don't.
-- `sha` — `head_sha` at posting time (all kinds). Diagnostic only.
-
-**Implementation.** `scripts/marker.py` is the canonical implementation of the marker contract — never compute anchors or assemble markers by hand. The script's `anchor`, `build`, and `parse-notes` subcommands are deterministic and version-stable; paraphrasing the rules into ad-hoc Python or prose silently breaks dedup across reruns. Run `scripts/marker.py <cmd> --help` for argument details.
+**Implementation.** `scripts/marker.py` is the canonical implementation of the marker contract — never compute anchors or assemble markers by hand. The script's `anchor`, `build`, and `parse-notes` subcommands are deterministic and version-stable; paraphrasing the rules into ad-hoc Python or prose silently breaks dedup across reruns. Run `scripts/marker.py <cmd> --help` for argument details. The per-field meanings (`v`, `kind`, `archetype`, `file`, `line`, `anchor`, `sha`), the daiv-authored detection rule, and resolution semantics live in `references/marker-format.md` — open it when a field's purpose is unclear.
 
 **Anchor target.** Inline findings anchor on **added or context** lines on the new side of the diff. A pure-deletion finding (no `new_line`) is not inline-eligible — demote it to the summary. For a single-line finding (suggestion or question), the target line is `new_line` from the diff position. For a multi-line finding — `suggestion:-N+M` covering several lines, or a question scoped to a contiguous block — the target is the **first** new-side line of the range. The model picks the line; the script computes the anchor.
 
-**Daiv-authored detection.** A note is treated as daiv-posted **iff** its body begins with the literal prefix `<!-- daiv-cr ` followed by a parseable JSON payload terminating in ` -->`. Author username is *not* used. `parse-notes` applies this rule; do not reimplement it.
-
-**Dedup fingerprint:**
-
-- Inline: `(kind, archetype, file, anchor)`.
-- Summary: `kind=summary` — exactly one summary daiv note may exist per MR.
-
-**Resolution semantics.** A discussion's `resolved` state does not affect dedup. If the user resolves a thread without applying the suggestion (or with any other outcome), the marker stays on the resolved note, so `parse-notes` still surfaces its fingerprint on the next review and the same finding is skipped. Resolution is a UX signal between humans, not an instruction to forget. The one thing `resolved` *does* affect is reply handling (Step 2): resolved threads are dropped from `pending_replies` since the conversation is closed.
+**Dedup fingerprint:** inline findings dedup on `(kind, archetype, file, anchor)`; the summary on `kind=summary` (exactly one summary daiv note per MR). `parse-notes` detects daiv-authored notes by the `<!-- daiv-cr … -->` prefix (not author username) and treats a thread's `resolved` state as a UX signal that does **not** affect dedup — see `references/marker-format.md` for both rules in full.
 
 ### Step 1 — Acquire context and dedup state
 
@@ -246,7 +235,7 @@ Final assistant message in delivery mode: one short line. Use the shape below. T
 Posted 3 inline + updated summary on MR !128 — 5/5 detectors · 11 candidates → 3 inline, 1 demoted to summary, 1 duplicate skipped (rest refuted).
 ```
 
-The candidate count is `merge.candidates` (the pre-refutation count from Stage 2, after cross-detector dedup); account for the gap between it and what shipped — demoted to summary, duplicates skipped, refuted — so the line reads cleanly.
+The `N/M detectors` field is **dispatched / expected** from the Stage 1 reconciliation, not a hardcoded `5/5`: if a `cr-*` detector failed to load (absent from the `task` tool's agent list), report e.g. `4/5 detectors (cr-security unavailable)` so the missing dimension is visible. The candidate count is `merge.candidates` (the pre-refutation count from Stage 2, after cross-detector dedup); account for the gap between it and what shipped — demoted to summary, duplicates skipped, refuted — so the line reads cleanly. When `merge.dropped` is nonzero, note it too (e.g. `2 malformed dropped`) — a detector emitting schema-invalid findings is a real signal worth surfacing, not hiding. When the Stage 2 merge was short-circuited (every detector empty), `candidates`/`dropped`/`merged` are all `0`; report the detector count and a `0 findings` tail.
 
 Do **not** return the review markdown when delivery succeeded — the comments are the deliverable.
 
@@ -292,6 +281,7 @@ When a finding's framing is unclear, open the relevant section of:
 
 - `references/principles.md` — generic, code-agnostic principles per category, derived from a corpus of human reviews. The *why* behind a finding's body.
 - `references/few-shot-examples.md` — real comment→fix pairs per archetype, with before/after code. Use to calibrate how short a useful comment can be and what a suggestion block typically replaces.
+- `references/marker-format.md` — per-field meaning of the `<!-- daiv-cr … -->` marker, daiv-authored detection, and resolution semantics. Open when a marker field's purpose is unclear in Stage 3.
 - `examples/example-review-output.md` — a complete, well-formed example of inline + summary delivery output. The shape to match in delivery mode.
 
 Read only the section you need. These are not required reading on every review.
