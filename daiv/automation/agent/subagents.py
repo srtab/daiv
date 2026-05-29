@@ -133,8 +133,9 @@ def _build_detector_middleware(
     """Build the middleware stack for a code-review detector subagent.
 
     Narrower than the general-purpose stack: filesystem is read-only (detectors only
-    read the diff + surrounding code), the sandbox is kept for ``git`` reads, and there
-    is no git-platform middleware (detectors never post) and no web tools.
+    read the diff + surrounding code), the sandbox is kept so detectors can run ``git``
+    reads (it's a full bash sandbox, not git-restricted), and there is no git-platform
+    middleware (detectors never post), no web tools, and no ``TodoListMiddleware``.
     """
     _summarization_defaults = compute_summarization_defaults(model)
 
@@ -198,7 +199,10 @@ def load_builtin_code_review_detectors(
     detector subagent whose body is its system prompt, with a read-only middleware stack
     and a ``response_format`` derived from the canonical finding schema. A charter that
     fails to parse (or names an invalid model) is skipped and logged — the review then
-    runs with the detectors that loaded, which the skill surfaces in its status line.
+    runs with the detectors that loaded. The loaded detectors appear in the ``task``
+    tool's available-agents list, which the skill reconciles against its expected set to
+    report a truthful "loaded/expected detectors" status; any shortfall is logged at
+    ERROR here with the missing names so a degraded deploy is visible server-side too.
     """
     if not agents_dir.is_dir():
         logger.warning("Code-review detector dir %s not found; skipping detector subagents", agents_dir)
@@ -206,18 +210,21 @@ def load_builtin_code_review_detectors(
 
     response_format = _load_detector_response_format(schema_path)
     detectors: list[CompiledSubAgent] = []
+    failed: list[str] = []  # charter file stems that were present but didn't compile
 
     for md_file in sorted(agents_dir.glob("*.md")):
         try:
             content = md_file.read_text(encoding="utf-8")
         except OSError:
             logger.warning("Could not read detector charter %s; skipping", md_file)
+            failed.append(md_file.stem)
             continue
 
         parsed = _parse_subagent_frontmatter(
             content, str(md_file), permitted_reserved_names=frozenset(CODE_REVIEW_DETECTOR_NAMES)
         )
         if parsed is None:
+            failed.append(md_file.stem)
             continue
 
         frontmatter, body = parsed
@@ -226,8 +233,18 @@ def load_builtin_code_review_detectors(
         if frontmatter_model := str(frontmatter.get("model", "")).strip():
             try:
                 detector_model = BaseAgent.get_model(model=frontmatter_model)
-            except Exception:
+            except ValueError:
+                # Unknown/empty model spec — a charter config typo. Skip just this detector.
                 logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
+                failed.append(md_file.stem)
+                continue
+            except Exception:
+                # Anything else (disabled provider, missing API key, SDK init failure) is an
+                # environment problem, not a bad charter. Don't mislabel it "invalid model" —
+                # log the full traceback so it's distinguishable, then skip rather than abort
+                # the whole agent build over one detector.
+                logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, frontmatter_model)
+                failed.append(md_file.stem)
                 continue
 
         middleware = _build_detector_middleware(detector_model, backend, runtime, sandbox_enabled, fallback_models)
@@ -243,6 +260,15 @@ def load_builtin_code_review_detectors(
             )
         )
         logger.info("Loaded code-review detector '%s' from %s", frontmatter["name"], md_file)
+
+    # Ground-truth reconciliation: a charter that was present but didn't compile is a degraded
+    # review (a whole dimension silently absent). Surface the shortfall at ERROR with names so
+    # it's actionable from logs, independent of the model-authored status line.
+    if failed:
+        total = len(detectors) + len(failed)
+        logger.error(
+            "Code-review detectors failed to load: %s (loaded %d/%d)", ", ".join(failed), len(detectors), total
+        )
 
     return detectors
 

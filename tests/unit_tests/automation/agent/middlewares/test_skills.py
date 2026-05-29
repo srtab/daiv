@@ -180,6 +180,37 @@ class TestSkillsMiddleware:
             SkillsMiddleware._collect_skill_files(source, Path("/skills"), warm, [])
             assert warm == []
 
+    def test_collect_skill_files_surfaces_incomplete_skill_for_broken_asset(self, tmp_path: Path, monkeypatch):
+        """A non-SKILL.md asset (scripts/, references/) that fails to read must surface an
+        ``incomplete`` warning — the code-review skill depends on scripts/findings.py at runtime, so a
+        silently-dropped asset would otherwise only surface mid-review. The manifest itself loads, so
+        this is distinct from the SKILL.md-missing error."""
+        source = tmp_path / "src"
+        (source / "skill-one").mkdir(parents=True)
+        (source / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
+        (source / "skill-one" / "scripts").mkdir()
+        (source / "skill-one" / "scripts" / "helper.py").write_text("print('hi')")
+        cache = tmp_path / "cache"  # cold cache so every file is collected
+
+        real_read_bytes = Path.read_bytes
+
+        def fake_read_bytes(self):
+            if self.name == "helper.py":
+                raise OSError(2, "No such file or directory")
+            return real_read_bytes(self)
+
+        monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
+
+        errors: list[str] = []
+        files: list[tuple[str, bytes]] = []
+        with patch("automation.agent.middlewares.skills.SKILLS_CACHE_PATH", cache):
+            SkillsMiddleware._collect_skill_files(source, Path("/skills"), files, errors)
+
+        # SKILL.md still collected; the broken asset is reported as incomplete, not as a load failure.
+        assert "/skills/skill-one/SKILL.md" in [dest for dest, _ in files]
+        assert any("may be incomplete" in e and "helper.py" in e for e in errors)
+        assert not any(e.startswith("Cannot load skill") for e in errors)
+
     async def test_preserves_user_supplied_metadata(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
