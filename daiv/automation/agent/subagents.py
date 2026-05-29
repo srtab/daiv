@@ -116,6 +116,48 @@ def _build_general_purpose_middleware(
     return middleware
 
 
+def _build_detector_middleware(
+    model: BaseChatModel,
+    backend: BackendProtocol,
+    runtime: RuntimeCtx,
+    sandbox_enabled: bool = True,
+    fallback_models: list[BaseChatModel] | None = None,
+) -> list:
+    """Build the middleware stack for a code-review detector subagent.
+
+    Narrower than the general-purpose stack: filesystem is read-only (detectors only
+    read the diff + surrounding code), the sandbox is kept for ``git`` reads, and there
+    is no git-platform middleware (detectors never post) and no web tools.
+    """
+    _summarization_defaults = compute_summarization_defaults(model)
+
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        FilesystemMiddleware(
+            backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS, _permissions=READ_ONLY_PERMISSIONS
+        ),
+        SummarizationMiddleware(
+            model=model,
+            backend=backend,
+            trigger=_summarization_defaults["trigger"],
+            keep=_summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
+        ),
+        AnthropicPromptCachingMiddleware(),
+        ToolCallLoggingMiddleware(),
+        PatchToolCallsMiddleware(),
+    ]
+
+    if sandbox_enabled:
+        agent_path = Path(runtime.gitrepo.working_dir)
+        middleware.append(SandboxMiddleware(backend=backend, agent_root=f"/{agent_path.name}", close_session=False))
+
+    if fallback_models:
+        middleware.append(ModelFallbackMiddleware(*fallback_models))
+
+    return middleware
+
+
 def create_general_purpose_subagent(
     model: BaseChatModel,
     backend: BackendProtocol,
