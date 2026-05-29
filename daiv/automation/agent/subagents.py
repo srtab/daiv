@@ -265,6 +265,31 @@ def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str
     return frontmatter, body
 
 
+def _compile_subagent(
+    *,
+    name: str,
+    description: str,
+    model: BaseChatModel,
+    body: str,
+    middleware: list,
+    response_format: dict | type | None = None,
+) -> CompiledSubAgent:
+    """Compile a system-prompt body + middleware stack into a ``CompiledSubAgent``.
+
+    Shared by ``load_custom_subagents`` (per-repo markdown subagents) and
+    ``load_builtin_code_review_detectors`` (skill-shipped detector charters).
+    """
+    runnable = create_agent(
+        model=model,
+        tools=[],
+        system_prompt=f"{body}\n\n{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}",
+        middleware=middleware,
+        name=name,
+        response_format=response_format,
+    )
+    return CompiledSubAgent(name=name, description=description, runnable=runnable)
+
+
 async def load_custom_subagents(
     model: BaseChatModel,
     backend: BackendProtocol,
@@ -337,23 +362,23 @@ async def load_custom_subagents(
                     logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
                     continue
 
-            runnable = create_agent(
-                model=subagent_model,
-                tools=[],
-                system_prompt=f"{body}\n\n{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}",
-                middleware=_build_general_purpose_middleware(
-                    subagent_model,
-                    backend,
-                    runtime,
-                    sandbox_enabled,
-                    web_search_enabled,
-                    web_fetch_enabled,
-                    fallback_models,
-                ),
-                name=frontmatter["name"],
+            middleware = _build_general_purpose_middleware(
+                subagent_model,
+                backend,
+                runtime,
+                sandbox_enabled,
+                web_search_enabled,
+                web_fetch_enabled,
+                fallback_models,
             )
             subagents.append(
-                CompiledSubAgent(name=frontmatter["name"], description=frontmatter["description"], runnable=runnable)
+                _compile_subagent(
+                    name=frontmatter["name"],
+                    description=frontmatter["description"],
+                    model=subagent_model,
+                    body=body,
+                    middleware=middleware,
+                )
             )
 
             logger.info("Loaded custom subagent '%s' from %s", frontmatter["name"], file_path)
