@@ -98,6 +98,18 @@ The migration notes call for `fake|alloy` during cutover, but this default is `f
 
 ---
 
+## Delivery mode — inline body (example D: custom-rule, Python)
+
+A `custom-rules` finding cites the rule it enforces in the prose, so the author sees *why* it was flagged. It still uses one of the standard archetypes (here `question`) and goes through the same dedup + adjudication as built-in findings.
+
+````markdown
+<!-- daiv-cr {"v":1,"kind":"inline","archetype":"question","file":"payments/client.py","line":34,"anchor":"c4d5e6f7","sha":"abc1234"} -->
+
+Per your `.agents/review-rules.md` ("every external call in `payments/` must set an explicit timeout"): this `httpx.get` has no `timeout`. Intentional (inheriting a client default), or should it set one?
+````
+
+---
+
 ## Delivery mode — summary discussion body
 
 The summary collects every **discussion-only** finding plus a one-line index of the inline findings posted this run. On re-review, this exact body is updated in place — never appended.
@@ -145,6 +157,8 @@ The refactor moves dedup into `ingest/wavecom.py` and removes the explicit sort 
 - `services/api.py:42` — drop explicit default `timeout=30` *(remove_dead_lines)*
 - `internal/cache/key.go:18` — use `strings.Join` instead of manual loop *(use_framework_idiom)*
 - `env_files/all/grafana.env:9` — is `alloy` intentionally omitted from the default tenant list? *(question)*
+
+_Detectors: 5/5 completed · 3 of 11 candidates posted._
 ````
 
 ---
