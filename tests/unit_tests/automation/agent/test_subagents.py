@@ -518,7 +518,9 @@ class TestShippedDetectorCharters:
         md_files = sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md"))
         names = set()
         for md in md_files:
-            parsed = _parse_subagent_frontmatter(md.read_text(encoding="utf-8"), str(md), allow_reserved_names=True)
+            parsed = _parse_subagent_frontmatter(
+                md.read_text(encoding="utf-8"), str(md), permitted_reserved_names=frozenset(CODE_REVIEW_DETECTOR_NAMES)
+            )
             assert parsed is not None, f"{md.name} failed frontmatter parse"
             frontmatter, body = parsed
             assert frontmatter["description"].strip()
