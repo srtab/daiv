@@ -2,7 +2,7 @@
 name: code-review
 description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, performance, security, structural concerns, repo-specific review rules, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
 metadata:
-  version: 3.3.0
+  version: 3.4.0
 ---
 
 # Code Review

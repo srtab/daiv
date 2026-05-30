@@ -114,7 +114,7 @@ Per your `.agents/review-rules.md` ("every external call in `payments/` must set
 
 ## Delivery mode — summary discussion body
 
-The summary collects every **discussion-only** finding plus a one-line index of the inline findings posted this run. On re-review, this exact body is updated in place — never appended.
+The summary collects every **discussion-only** finding plus a one-line index of the inline findings posted this run. On re-review, this body is updated in place — never appended (one summary note per MR). "Updated in place" replaces the *note*, not the *findings*: a delta-only re-review must carry forward still-valid prior discussion-only findings rather than drop the ones it didn't recheck (`references/gitlab-delivery.md` Step 6).
 
 ````markdown
 <!-- daiv-cr {"v":1,"kind":"summary","sha":"abc1234"} -->
@@ -169,7 +169,7 @@ The refactor moves dedup into `ingest/wavecom.py` and removes the explicit sort 
 - `internal/cache/key.go:18` — use `strings.Join` instead of manual loop *(use_framework_idiom)*
 - `env_files/all/grafana.env:9` — is `alloy` intentionally omitted from the default tenant list? *(question)*
 
-_5/5 detectors · 11 candidates (2 others merged pre-count) → 3 inline, 4 in summary (rest refuted)._
+_5/5 detectors · 9 candidates · 2 merged → 3 inline, 4 in summary (rest refuted)._
 ````
 
 ---

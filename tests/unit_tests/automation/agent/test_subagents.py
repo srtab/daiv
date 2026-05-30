@@ -528,6 +528,28 @@ class TestShippedDetectorCharters:
             names.add(frontmatter["name"])
         assert names == set(CODE_REVIEW_DETECTOR_NAMES)
 
+    def test_charters_carry_read_only_bash_directive(self):
+        # The detector sandbox is a full bash shell — no read-only mount and no per-subagent
+        # command policy (SandboxMiddleware.__init__ takes no policy arg; _check_command_policy
+        # reads only global settings + repo config). So read-only is enforced at the prompt
+        # layer: every shipped charter must carry the read-only bash directive. Locked so a
+        # charter edit can't silently drop it and let a detector mutate the workspace via bash.
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+
+        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
+            body = md.read_text(encoding="utf-8").lower()
+            assert "read-only" in body, f"{md.name} is missing the read-only directive"
+            assert "sed -i" in body, f"{md.name} is missing the no-mutation command guidance"
+
+    def test_agents_dir_holds_exactly_the_five_cr_charters(self):
+        # review-workflow.md's inline-detection fallback tells the parent to read
+        # `agents/cr-*.md`. Lock that this literal glob resolves to exactly the five detector
+        # charters, so renaming the dir or a file (silently breaking that reference) is caught.
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH, CODE_REVIEW_DETECTOR_NAMES
+
+        stems = {p.stem for p in CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")}
+        assert stems == set(CODE_REVIEW_DETECTOR_NAMES)
+
     def test_principle_citations_resolve_to_existing_sections(self):
         # The charters cite principles.md sections as ``§N``; those numbers are coupled to the
         # ``## N.`` headings by convention only. Reordering/inserting a section in principles.md

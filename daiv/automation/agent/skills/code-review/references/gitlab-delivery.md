@@ -96,6 +96,11 @@ If an inline finding's diff position cannot be constructed reliably (file rename
 
 For each candidate, compute the anchor with `scripts/marker.py anchor --target "<target line>" --next "<next non-blank new-side line>"` and form the fingerprint `["inline", archetype, file, anchor]`. Always pass `--next` (the next non-blank new-side line) on every call — the script uses it only when it needs to disambiguate a short or all-separator target (`references/marker-format.md` has the exact rule), so there's no judgment call about when to pass it. **Skip if the fingerprint matches the dedup set** — do not rephrase, do not "post a stronger version." Only surface fingerprints not already present.
 
+The fingerprint is anchored on line *content*, so two distinct findings on byte-identical target lines in different hunks of the same file (same archetype) collide on one fingerprint (`references/marker-format.md` documents why). Two cases, opposite handling:
+
+- **Collision against the dedup set (a prior run posted it):** skip, as above — that's the dedup working.
+- **Collision against a candidate you've already posted *this run*:** do **not** silently skip the second — it is a different, valid finding. Demote it to discussion-only (Step 6) so it still lands in the summary. Silently dropping it would lose a real finding.
+
 ## Step 5 — Post inline findings
 
 For each surviving inline finding:
@@ -123,13 +128,15 @@ Compose **one** top-level summary containing:
 - A short **Questions** section for discussion-only questions (cross-file or un-anchored). Targeted questions go inline (see Step 3), not here.
 - A one-line index of the inline findings posted this run (filename + line + archetype), so a reviewer skimming the thread sees the full picture without expanding diffs.
 
+**Delta-only re-reviews must not shrink the summary.** When this run only re-examined a delta (`review-workflow.md` scope rule), its discussion-only findings cover only the changed area. A discussion-only finding has **no** inline fingerprint — only the single `kind=summary` marker exists — so `parse-notes` cannot recover it; the prior summary body is the only record, and you already have it in the Step 1 `discussion list` output (the JSON you fed to `parse-notes`). Re-read that body and **carry forward every discussion-only finding whose subject lies outside this run's delta**: it was not rechecked, so it is neither confirmed nor disproved, and rewriting the note without it would silently erase a still-valid finding. Drop a prior finding only when this run actively disproves it, or reposts it inline (the inline copy supersedes the summary prose). The body you post is the **union** of carried-forward prior findings and this run's new findings — never this run's findings alone. On a *full* re-review (every hunk re-detected) there is nothing outside the delta, so the union reduces to this run's findings and no special handling is needed.
+
 Build the marker with `scripts/marker.py build --kind summary --sha <head_sha>` and place its output as the first physical line of the body. Example:
 
 ```
 <!-- daiv-cr {"v":1,"kind":"summary","sha":"abc1234"} -->
 ```
 
-If `summary` from Step 1 was non-null, **update the existing note in place** (`gitlab project-merge-request-discussion-note update --mr-iid <iid> --discussion-id <discussion_id> --id <note_id> --body "..."`). Recall the `--id` overloading from Step 2: on `discussion-note update` it is the **note** id — pass `summary.note_id` from Step 1 here, not the discussion id. The summary always reflects the current review state, not history. Inline discussions are never updated or deleted — the dedup set prevents reposts.
+If `summary` from Step 1 was non-null, **update the existing note in place** (`gitlab project-merge-request-discussion-note update --mr-iid <iid> --discussion-id <discussion_id> --id <note_id> --body "..."`). Recall the `--id` overloading from Step 2: on `discussion-note update` it is the **note** id — pass `summary.note_id` from Step 1 here, not the discussion id. The summary always reflects the current review state — every finding that still holds (this run's, plus the carried-forward prior findings from the rule above), not an append-only log of past reviews. "Update in place, not appended" governs the *note*: one summary discussion per MR, never a second; it does not license dropping still-valid findings. Inline discussions are never updated or deleted — the dedup set prevents reposts.
 
 If `summary` was null, create a fresh top-level discussion (`project-merge-request-discussion create --mr-iid <iid> --body "..."` with no `--position`).
 
