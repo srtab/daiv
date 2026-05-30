@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Base64Bytes, Base64Str, BaseModel, Field, field_validator, model_validator
 
 MAX_OUTPUT_LENGTH = 2000
@@ -79,3 +81,103 @@ class MutationResult(BaseModel):
 
 class ApplyMutationsResponse(BaseModel):
     results: list[MutationResult]
+
+
+# --- /scratch file-op wire schemas -----------------------------------------
+#
+# Mirror of the daiv-sandbox ``Fs*`` schemas. Kept byte-identical (field
+# names/types/defaults/constraints) to the sandbox side so the schema-drift CI
+# test (tests/unit_tests/core/sandbox/test_schema_consistency.py) passes.
+
+
+class FsLsRequest(BaseModel):
+    path: str = Field(description="Absolute directory path under /scratch.")
+
+
+class FsEntry(BaseModel):
+    path: str = Field(description="Absolute path of the entry.")
+    is_dir: bool = Field(description="Whether the entry is a directory.")
+
+
+class FsLsResponse(BaseModel):
+    entries: list[FsEntry] = Field(default_factory=list, description="Directory entries (empty on error).")
+    error: str | None = Field(default=None, description="Error message when the listing failed.")
+
+
+class FsReadRequest(BaseModel):
+    path: str = Field(description="Absolute file path under /scratch.")
+    offset: int = Field(default=0, ge=0, description="0-indexed start line (text files only).")
+    limit: int = Field(default=2000, ge=1, description="Maximum number of lines (text files only).")
+
+
+class FsReadResponse(BaseModel):
+    content: str | None = Field(
+        default=None,
+        description=(
+            "File content (utf-8 text or base64 binary). For an empty file this is a human-readable "
+            "sentinel string (with encoding 'utf-8'), not the file's bytes."
+        ),
+    )
+    encoding: Literal["utf-8", "base64"] | None = Field(
+        default=None, description="Encoding of `content`: 'utf-8' for text, 'base64' for binary."
+    )
+    error: str | None = Field(default=None, description="Error message when the read failed.")
+
+
+class FsGrepRequest(BaseModel):
+    pattern: str = Field(description="Literal substring to search for (not a regex).")
+    path: str = Field(description="Absolute directory/file path under /scratch.")
+    glob: str | None = Field(default=None, description="Optional filename glob to restrict the search.")
+
+
+class FsGrepMatch(BaseModel):
+    path: str = Field(description="Absolute path of the matching file.")
+    line: int = Field(description="1-indexed line number of the match.")
+    text: str = Field(description="Text of the matching line.")
+
+
+class FsGrepResponse(BaseModel):
+    matches: list[FsGrepMatch] = Field(default_factory=list, description="Matches found (empty on error).")
+    error: str | None = Field(default=None, description="Error message when the search failed.")
+
+
+class FsGlobRequest(BaseModel):
+    pattern: str = Field(description="Glob pattern (supports *, **, ?, [abc]).")
+    path: str = Field(description="Absolute base directory under /scratch.")
+
+
+class FsGlobResponse(BaseModel):
+    matches: list[FsEntry] = Field(default_factory=list, description="Matching entries (empty on error).")
+    error: str | None = Field(default=None, description="Error message when the glob failed.")
+
+
+class FsWriteRequest(BaseModel):
+    path: str = Field(description="Absolute file path under /scratch.")
+    content: Base64Bytes = Field(description="Base64-encoded full file content.")
+    mode: int = Field(default=0o644, ge=0, le=0o7777, description="POSIX mode bits to set on the file.")
+
+
+class FsWriteResponse(BaseModel):
+    ok: bool
+    error: str | None = None
+
+
+class FsEditRequest(BaseModel):
+    path: str = Field(description="Absolute file path under /scratch.")
+    old: str = Field(description="Exact substring to replace.")
+    new: str = Field(description="Replacement string.")
+    replace_all: bool = Field(default=False, description="Replace every occurrence.")
+
+
+class FsEditResponse(BaseModel):
+    occurrences: int | None = Field(default=None, description="Number of replacements made.")
+    error: str | None = Field(default=None, description="Error code/message on failure.")
+
+
+class FsDeleteRequest(BaseModel):
+    path: str = Field(description="Absolute file path under /scratch.")
+
+
+class FsDeleteResponse(BaseModel):
+    ok: bool
+    error: str | None = None
