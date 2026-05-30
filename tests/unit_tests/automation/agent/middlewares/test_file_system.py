@@ -532,3 +532,37 @@ async def test_abefore_agent_registers_scratch_route(working_repo, fake_client):
     mw._maybe_register_scratch("sid-123")
     assert SCRATCH_ROUTE in composite.routes
     assert isinstance(composite.routes[SCRATCH_ROUTE], fs_module.SandboxFileBackend)
+
+
+async def test_scratch_write_bypasses_mirror(setup, fake_client):
+    """A write to /scratch must NOT hit the repo mirror: the scratch backend writes
+    directly via the composite route. ``awrap_tool_call`` dispatches straight to the
+    handler — no ``apply_file_mutations``, no gitignore/outside-root refusal.
+    """
+    runtime = _runtime(state={"session_id": "sid"}, working_dir=setup.repo)
+    tool = setup.tools["write_file"]
+    # Same ToolCallRequest shape ``_invoke`` builds, but with a custom handler so we
+    # can assert dispatch reached it instead of being refused/mirrored.
+    request = ToolCallRequest(
+        tool_call={
+            "name": tool.name,
+            "args": {"file_path": "/scratch/x", "content": "hi\n"},
+            "id": runtime.tool_call_id,
+            "type": "tool_call",
+        },
+        tool=tool,
+        state=runtime.state,
+        runtime=runtime,
+    )
+
+    called = {"handler": False}
+
+    async def handler(_req):
+        called["handler"] = True
+        return ToolMessage(content="Updated file /scratch/x", tool_call_id=runtime.tool_call_id, name=tool.name)
+
+    result = await setup.middleware.awrap_tool_call(request, handler)
+
+    assert called["handler"] is True
+    fake_client.apply_file_mutations.assert_not_awaited()
+    assert _content(result) == "Updated file /scratch/x"

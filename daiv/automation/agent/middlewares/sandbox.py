@@ -292,6 +292,15 @@ def _agent_root_prefix(agent_root: str) -> str:
     return agent_root.rstrip("/") + "/"
 
 
+def _is_under_scratch(file_path: str) -> bool:
+    """True iff ``file_path`` resolves to ``/scratch`` itself or anything under it."""
+    try:
+        vpath = validate_path(file_path)
+    except ValueError:
+        return False
+    return vpath == SCRATCH_ROUTE.rstrip("/") or vpath.startswith(SCRATCH_ROUTE)
+
+
 def _resolve_repo_backend(backend: BackendProtocol, agent_root: str) -> BackendProtocol:
     """Return the backend that owns ``agent_root``.
 
@@ -607,6 +616,12 @@ class SandboxMiddleware(AgentMiddleware):
             The tool result, or a replacement ``ToolMessage`` describing a sync error.
         """
         if request.tool is None or request.tool.name not in WRITE_TOOL_NAMES or self._syncer is None:
+            return await handler(request)
+
+        # /scratch is sandbox-authoritative: the composite routes the write straight
+        # to SandboxFileBackend (one RPC). No disk mirror, gitignore guard, or
+        # outside-root refusal applies — let the handler dispatch unmodified.
+        if _is_under_scratch(request.tool_call["args"].get("file_path", "")):
             return await handler(request)
 
         if request.tool.name == EDIT_FILE_TOOL:
