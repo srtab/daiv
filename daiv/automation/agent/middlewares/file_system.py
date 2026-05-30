@@ -369,7 +369,11 @@ class SandboxFileBackend(BackendProtocol):
             resp = await self._client.fs_write(
                 self._session_id, FsWriteRequest(path=self._abs(path), content=base64.b64encode(data), mode=0o644)
             )
-            out.append(FileUploadResponse(path=path, error=None if resp.ok else resp.error))
+            # deepagents annotates ``error`` as the narrow ``FileOperationError`` literal but
+            # documents accepting backend-specific strings; the sandbox returns its own messages.
+            out.append(
+                FileUploadResponse(path=path, error=None if resp.ok else resp.error)  # ty: ignore[invalid-argument-type]
+            )
         return out
 
     async def adownload_files(self, paths: list[str]) -> list[FileDownloadResponse]:
@@ -379,7 +383,10 @@ class SandboxFileBackend(BackendProtocol):
             if resp.error == FILE_NOT_FOUND:
                 out.append(FileDownloadResponse(path=path, error=FILE_NOT_FOUND))
             elif resp.error is not None:
-                out.append(FileDownloadResponse(path=path, error=resp.error))
+                # See ``aupload_files``: deepagents accepts backend-specific error strings.
+                out.append(
+                    FileDownloadResponse(path=path, error=resp.error)  # ty: ignore[invalid-argument-type]
+                )
             elif resp.encoding == "base64":
                 out.append(FileDownloadResponse(path=path, content=base64.b64decode(resp.content or "")))
             else:
