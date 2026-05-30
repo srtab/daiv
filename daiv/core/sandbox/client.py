@@ -11,6 +11,20 @@ from core.site_settings import site_settings
 from .schemas import (
     ApplyMutationsRequest,
     ApplyMutationsResponse,
+    FsDeleteRequest,
+    FsDeleteResponse,
+    FsEditRequest,
+    FsEditResponse,
+    FsGlobRequest,
+    FsGlobResponse,
+    FsGrepRequest,
+    FsGrepResponse,
+    FsLsRequest,
+    FsLsResponse,
+    FsReadRequest,
+    FsReadResponse,
+    FsWriteRequest,
+    FsWriteResponse,
     RunCommandsRequest,
     RunCommandsResponse,
     StartSessionRequest,
@@ -101,6 +115,48 @@ class DAIVSandboxClient:
         response = await self._client.post(f"session/{session_id}/files/", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return ApplyMutationsResponse.model_validate(response.json())
+
+    async def fs_ls(self, session_id: str, request: FsLsRequest) -> FsLsResponse:
+        """List a directory under ``/scratch`` on the sandbox session."""
+        response = await self._client.post(f"session/{session_id}/fs/ls", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return FsLsResponse.model_validate(response.json())
+
+    async def fs_read(self, session_id: str, request: FsReadRequest) -> FsReadResponse:
+        """Read a file under ``/scratch`` on the sandbox session."""
+        response = await self._client.post(f"session/{session_id}/fs/read", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return FsReadResponse.model_validate(response.json())
+
+    async def fs_grep(self, session_id: str, request: FsGrepRequest) -> FsGrepResponse:
+        """Search file contents under ``/scratch`` on the sandbox session."""
+        response = await self._client.post(f"session/{session_id}/fs/grep", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return FsGrepResponse.model_validate(response.json())
+
+    async def fs_glob(self, session_id: str, request: FsGlobRequest) -> FsGlobResponse:
+        """Glob for files under ``/scratch`` on the sandbox session."""
+        response = await self._client.post(f"session/{session_id}/fs/glob", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return FsGlobResponse.model_validate(response.json())
+
+    async def fs_write(self, session_id: str, request: FsWriteRequest) -> FsWriteResponse:
+        """Write a file under ``/scratch`` on the sandbox session."""
+        response = await self._client.post(f"session/{session_id}/fs/write", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return FsWriteResponse.model_validate(response.json())
+
+    async def fs_edit(self, session_id: str, request: FsEditRequest) -> FsEditResponse:
+        """Edit a file under ``/scratch`` on the sandbox session."""
+        response = await self._client.post(f"session/{session_id}/fs/edit", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return FsEditResponse.model_validate(response.json())
+
+    async def fs_delete(self, session_id: str, request: FsDeleteRequest) -> FsDeleteResponse:
+        """Delete a file under ``/scratch`` on the sandbox session."""
+        response = await self._client.post(f"session/{session_id}/fs/delete", json=request.model_dump(mode="json"))
+        response.raise_for_status()
+        return FsDeleteResponse.model_validate(response.json())
 
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         """
