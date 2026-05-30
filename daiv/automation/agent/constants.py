@@ -13,6 +13,12 @@ BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 GLOBAL_SKILLS_PATH = "/skills"
 GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
 
+# Virtual path + composite route for the per-run scratchpad. Sandbox-backed and
+# never committed (lives outside /repo). The absolute path inside the sandbox
+# container is the same string (``/scratch``).
+SCRATCH_PATH = "/scratch"
+SCRATCH_ROUTE = f"{SCRATCH_PATH}/"
+
 # On-disk root the composite backend mounts at ``GLOBAL_SKILLS_PATH``. Created at module
 # import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup
 # ImportError on production, or a confusing pytest collection error locally).
