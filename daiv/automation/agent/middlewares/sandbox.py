@@ -18,7 +18,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.constants import SCRATCH_ROUTE, SKILLS_CACHE_PATH
+from automation.agent.constants import SCRATCH_PATH, SCRATCH_ROUTE, SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import (
     EDIT_FILE_TOOL,
     EDIT_SUCCESS_PREFIX,
@@ -301,7 +301,7 @@ def _is_under_scratch(file_path: str) -> bool:
         vpath = validate_path(file_path)
     except ValueError:
         return False
-    return vpath == SCRATCH_ROUTE.rstrip("/") or vpath.startswith(SCRATCH_ROUTE)
+    return vpath == SCRATCH_PATH or vpath.startswith(SCRATCH_ROUTE)
 
 
 def _resolve_repo_backend(backend: BackendProtocol, agent_root: str) -> BackendProtocol:

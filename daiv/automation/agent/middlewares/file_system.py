@@ -238,6 +238,19 @@ class DAIVBackendProtocol(Protocol):
     async def stat_mode(self, virtual_path: str) -> int: ...
 
 
+def _require_daiv_backend(backend: BackendProtocol, label: str) -> None:
+    """Raise ``TypeError`` unless ``backend`` implements ``DAIVBackendProtocol``.
+
+    A silent ``AttributeError`` on the first ``delete``/``stat_mode`` is worse than a
+    loud failure at wiring time, so both the constructor and ``add_route`` gate on this.
+    """
+    if not isinstance(backend, DAIVBackendProtocol):
+        raise TypeError(
+            f"{label} requires a backend implementing DAIVBackendProtocol (delete + stat_mode); "
+            f"{type(backend).__name__} does not."
+        )
+
+
 class DAIVCompositeBackend(CompositeBackend):
     """``CompositeBackend`` with the two DAIV extensions (``delete``/``stat_mode``) and a
     ``resolve_backend_for`` helper for callers that need to dispatch on the underlying
@@ -255,12 +268,7 @@ class DAIVCompositeBackend(CompositeBackend):
         self, default: BackendProtocol, routes: dict[str, BackendProtocol], *, artifacts_root: str = "/"
     ) -> None:
         for label, backend in (("default", default), *routes.items()):
-            if not isinstance(backend, DAIVBackendProtocol):
-                raise TypeError(
-                    f"DAIVCompositeBackend requires every backend to implement "
-                    f"DAIVBackendProtocol (delete + stat_mode); "
-                    f"{label!r} ({type(backend).__name__}) does not."
-                )
+            _require_daiv_backend(backend, f"DAIVCompositeBackend route {label!r}")
         super().__init__(default=default, routes=routes, artifacts_root=artifacts_root)
 
     async def delete(self, virtual_path: str) -> bool:
@@ -283,11 +291,7 @@ class DAIVCompositeBackend(CompositeBackend):
     def add_route(self, prefix: str, backend: BackendProtocol) -> None:
         """Register a route after construction (used to mount ``/scratch`` once the
         sandbox session exists). Re-asserts the DAIV protocol and re-sorts routes."""
-        if not isinstance(backend, DAIVBackendProtocol):
-            raise TypeError(
-                f"add_route requires a backend implementing DAIVBackendProtocol "
-                f"(delete + stat_mode); {type(backend).__name__} does not."
-            )
+        _require_daiv_backend(backend, "add_route")
         self.routes[prefix] = backend
         self.sorted_routes = sorted(self.routes.items(), key=lambda x: len(x[0]), reverse=True)
 
@@ -319,8 +323,7 @@ class SandboxFileBackend(BackendProtocol):
         return f"{SCRATCH_PATH}{bp}" if bp.startswith("/") else f"{SCRATCH_PATH}/{bp}"
 
     def _rel(self, abs_path: str) -> str:
-        if abs_path == SCRATCH_PATH:
-            return "/"
+        # Strip the /scratch prefix; the bare root (/scratch) and any empty remainder map to "/".
         return abs_path[len(SCRATCH_PATH) :] or "/"
 
     # -- async protocol methods ---------------------------------------------
