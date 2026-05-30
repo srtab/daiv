@@ -164,7 +164,10 @@ Git safety (highest priority):
 - NEVER update git config.
 - NEVER commit or push, even if the user asks.
 - NEVER run destructive git commands (e.g., push --force, reset --hard, checkout ., restore ., clean -f, branch -D), even if the user asks.
-- VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash."""  # noqa: E501
+- VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash.
+
+## Scratchpad (`/scratch`)
+`/scratch` is an ephemeral per-run scratchpad shared between your file tools and bash. Use it for temporary scripts, generated data, fetched inputs, and intermediate step outputs. Files under `/scratch` are NEVER committed and are discarded when the run ends. Anything that must reach the merge/pull request must be written under the repository working directory instead, never `/scratch`."""  # noqa: E501
 
 
 def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:
