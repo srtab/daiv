@@ -621,10 +621,17 @@ class SandboxMiddleware(AgentMiddleware):
         if request.tool is None or request.tool.name not in WRITE_TOOL_NAMES or self._syncer is None:
             return await handler(request)
 
-        # /scratch is sandbox-authoritative: the composite routes the write straight
-        # to SandboxFileBackend (one RPC). No disk mirror, gitignore guard, or
-        # outside-root refusal applies — let the handler dispatch unmodified.
-        if _is_under_scratch(request.tool_call["args"].get("file_path", "")):
+        # /scratch is sandbox-authoritative: when the composite has the /scratch route
+        # mounted, the write is routed straight to SandboxFileBackend (one RPC), so no
+        # disk mirror, gitignore guard, or outside-root refusal applies — dispatch
+        # unmodified. Gate on the route actually being registered: if it is not (e.g. a
+        # non-composite backend), fall through so the normal guard refuses the write
+        # instead of silently letting it resolve to a stray on-disk path.
+        if (
+            isinstance(self._backend, DAIVCompositeBackend)
+            and SCRATCH_ROUTE in self._backend.routes
+            and _is_under_scratch(request.tool_call["args"].get("file_path", ""))
+        ):
             return await handler(request)
 
         if request.tool.name == EDIT_FILE_TOOL:
