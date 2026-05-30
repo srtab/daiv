@@ -53,8 +53,23 @@ def validate(findings: list) -> tuple[list, int]:
     return valid, len(findings) - len(valid)
 
 
+# Prose archetypes are catch-alls (review-workflow.md: "discussion for everything else").
+# Two genuinely distinct findings from different detectors legitimately share one
+# (file, line, "discussion"|"question") — e.g. a security concern and a custom-rules
+# violation on the same line — so collapsing them on (file, line, archetype) alone would
+# silently drop one (and a custom-rules `source` with it). Key those on `detector` too so
+# they survive; downstream they demote to the summary, where both are visible. The four
+# inline fix archetypes keep the bare (file, line, archetype) key: there, same line + same
+# archetype means the same concrete fix, so collapsing genuine cross-detector duplicates
+# (strongest bar wins) is correct, and delivery's anchor dedup catches any that reach posting.
+_PROSE_ARCHETYPES = frozenset({"discussion", "question"})
+
+
 def _key(finding: dict) -> tuple:
-    return (finding["file"], finding["line"], finding["archetype"])
+    base = (finding["file"], finding["line"], finding["archetype"])
+    if finding["archetype"] in _PROSE_ARCHETYPES:
+        return (*base, finding["detector"])
+    return base
 
 
 def dedupe(findings: list) -> list:
@@ -73,7 +88,8 @@ def dedupe(findings: list) -> list:
 def merge(raw: list) -> dict:
     """Validate findings against the schema and collapse cross-detector duplicates.
 
-    Drops malformed findings, then dedupes survivors on the ``(file, line, archetype)`` key,
+    Drops malformed findings, then dedupes survivors on the ``(file, line, archetype)`` key
+    (prose archetypes — ``discussion`` / ``question`` — key on ``detector`` as well; see ``_key``),
     keeping the strongest ``bar`` per key. Returns ``{"findings", "candidates", "dropped", "merged"}``:
 
     - ``findings`` — the deduped, schema-valid findings the review carries into adversarial
@@ -82,11 +98,11 @@ def merge(raw: list) -> dict:
       pre-refutation total the skill reports in its Step 7 status line.
     - ``dropped`` — count of findings that failed schema validation (a detector emitting
       invalid findings is a real signal worth surfacing, not hiding).
-    - ``merged`` — findings absorbed by the ``(file, line, archetype)`` dedup: the surplus
-      beyond the one kept per key, so two findings collapsing into one is ``merged: 1``.
+    - ``merged`` — findings absorbed by the dedup: the surplus beyond the one kept per key,
+      so two findings collapsing into one is ``merged: 1``.
 
-    Note this ``(file, line, archetype)`` dedup is the pre-delivery cross-detector merge; the
-    separate delivery dedup against already-posted notes (Stage 3) is anchor-based on
+    Note this is the pre-delivery cross-detector merge; the separate delivery dedup against
+    already-posted notes (``gitlab-delivery.md`` Step 4) is anchor-based on
     ``(kind, archetype, file, anchor)``.
     """
     valid, dropped = validate(raw)

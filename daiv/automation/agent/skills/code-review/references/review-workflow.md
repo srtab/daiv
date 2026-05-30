@@ -2,15 +2,15 @@
 
 The review itself: establish scope, detect, and verify. This produces the **verified findings** both modes consume. `SKILL.md` routes you here; follow it top to bottom. Delivery mechanics (posting to GitLab) live in `references/gitlab-delivery.md` — not here.
 
-Relative paths (`scripts/…`, `references/…`, `examples/…`) resolve under the skill root injected in `SKILL.md`.
+Relative paths (`scripts/…`, `references/…`, `examples/…`, `agents/…`) resolve under the skill root injected in `SKILL.md`.
 
 ## Establish scope and inputs
 
-- If you already reviewed this branch earlier in this conversation, do not start from scratch. Identify what changed since (new commits, force-pushed changes), and focus only on the delta. Do not re-fetch MR metadata or re-explore unchanged files.
+- If you already reviewed this branch earlier in this conversation, do not start from scratch. **Refresh the cheap MR metadata and the SHA triplet** (`base_sha`, `start_sha`, `head_sha`): they move on new commits / force-push, and delivery positions are built from them (`gitlab-delivery.md` Step 5), so a stale triplet makes inline posts misalign or fail. With the fresh head, identify what changed since and focus *detection* on the delta — do **not** re-explore unchanged files or re-review unchanged hunks. But the delta scope governs which *new* findings you detect, **not** which prior findings survive: carry every prior verified finding outside the delta forward unless this run disproves it — `gitlab-delivery.md` Step 6 is authoritative on how this keeps a delta re-review from silently erasing the summary.
 - If a merge/pull request is referenced:
   1. fetch the MR/PR to determine source/target branches and the SHA triplet (`base_sha`, `start_sha`, `head_sha`) needed for inline anchors;
   2. fetch the diffs using `git diff <target>...<source>`. If `bash` fails, fall back to the platform tool.
-- If a diff is already provided, review it directly.
+- If a diff is already provided in the conversation, treat it only as a scope aid (which files and lines changed): every detector reconstructs the diff itself from refs via `git diff <target>...<source>` (Stage 1), so a pasted diff is never an input the detectors consume — you must still derive source/target refs from the checked-out repo, and the change must be reachable from them. If the pasted diff does **not** correspond to the checked-out branch (e.g. it is from an unrelated branch or PR not present locally), say so and ask the user for the branch/refs rather than fanning out detectors that would diff the wrong refs.
 - If scope is ambiguous, infer from conversation history and available artifacts. Otherwise, ask the user.
 
 ## Stage 0 — Check for per-repo review rules
@@ -60,7 +60,7 @@ Collect each detector's `findings` array (from its returned `{"findings": [...]}
 echo '<combined findings JSON array>' | python3 scripts/findings.py merge
 ```
 
-`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. It returns `{"findings":[...], "candidates":N, "dropped":M, "merged":K}`; the `merge()` docstring in `scripts/findings.py` defines each field. Carry `candidates` (the pre-refutation count) into the status line, and note `merged` there when nonzero so a reviewer knows findings sharing a `(file, line, archetype)` key were collapsed. This is the pre-delivery cross-detector dedup — distinct from the anchor-based delivery dedup on `(kind, archetype, file, anchor)` in `gitlab-delivery.md` Step 4.
+`merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. The prose archetypes (`discussion`, `question`) key on `detector` **as well**: they are catch-alls, so two genuinely distinct findings can share one line (e.g. a `security` concern and a `custom-rules` violation), and keying them apart stops one — along with a `custom-rules` `source` — from being silently dropped. The four inline fix archetypes keep the bare `(file, line, archetype)` key, where the same line + archetype really is the same concrete fix. It returns `{"findings":[...], "candidates":N, "dropped":M, "merged":K}`; the `merge()` docstring in `scripts/findings.py` defines each field. Carry `candidates` (the pre-refutation count) into the status line, and note `merged` there when nonzero so a reviewer knows findings sharing a dedup key were collapsed. This is the pre-delivery cross-detector dedup — distinct from the anchor-based delivery dedup on `(kind, archetype, file, anchor)` in `gitlab-delivery.md` Step 4.
 
 Then **adversarially verify** each surviving finding. For each one, build the strongest case that it is a false positive and **discard it unless it clearly survives**. Drop it if any of these hold:
 
@@ -131,7 +131,7 @@ Same shape as Findings. Each question must anchor on a specific file:line and po
 ## Workflow-phase error recovery
 
 - If a tool call fails, switch to an alternative (e.g. platform tool instead of `bash git diff`) and continue. Never re-invoke the `skill` tool to restart the review.
-- If the `task` tool can't fan out the detectors in parallel (rejected, or a detector `task` errors), fall back to dispatching them sequentially, or run the detection inline yourself — don't abort the review.
+- If the `task` tool can't fan out the detectors in parallel (rejected, or a detector `task` errors), fall back to dispatching them sequentially. If you must run detection inline yourself, first **read the relevant `agents/cr-*.md` charter(s)** — each carries its dimension's `principles.md` section map, Signal-filter bars, never-flag rules, and calibration that this file deliberately does not restate — then apply those slices manually. Don't abort the review.
 
 ## Reference material (optional)
 

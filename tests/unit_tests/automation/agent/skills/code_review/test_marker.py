@@ -52,6 +52,19 @@ class TestComputeAnchor:
         assert len(anchor) == 8
         assert all(c in "0123456789abcdef" for c in anchor)
 
+    def test_identical_long_lines_collide_by_design(self):
+        # KNOWN LIMITATION (marker-format.md): the anchor hashes line content only, so two
+        # byte-identical long target lines in different hunks produce the SAME anchor — and
+        # hence the same (kind, archetype, file, anchor) fingerprint. This is the deliberate
+        # trade for cross-commit stability (the anchor ignores line numbers, which shift on
+        # unrelated commits); delivery (gitlab-delivery.md Step 4) demotes the second
+        # within-run colliding finding to the summary rather than dropping it. Locked here so
+        # a future change to compute_anchor is a conscious decision that rides a marker `v` bump.
+        line = "result = compute_expensive_value(payload, options)"
+        assert marker.compute_anchor(line, next_line="log.info('done')") == marker.compute_anchor(
+            line, next_line="return result"
+        )
+
 
 class TestBuildMarker:
     def test_inline_payload_field_order_is_stable(self):

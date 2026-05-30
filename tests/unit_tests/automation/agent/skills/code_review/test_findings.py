@@ -81,8 +81,10 @@ class TestValidate:
 
 class TestDedupe:
     def test_same_key_collapses_to_strongest_bar(self):
-        a = _f(detector="structure", bar="question", title="weak")
-        b = _f(detector="correctness", bar="defect", title="strong")
+        # Fix archetypes key on (file, line, archetype) only, so two detectors flagging the
+        # same concrete fix on one line still collapse cross-detector — strongest bar wins.
+        a = _f(archetype="remove_dead_lines", detector="structure", bar="question", title="weak")
+        b = _f(archetype="remove_dead_lines", detector="correctness", bar="defect", title="strong")
         out = findings.dedupe([a, b])
         assert len(out) == 1
         assert out[0]["title"] == "strong"
@@ -102,11 +104,49 @@ class TestDedupe:
     def test_same_key_same_bar_keeps_first_seen(self):
         # Equal bar must NOT override: strict precedence keeps the first-seen finding so the
         # posted comment is stable across reruns. A `>` -> `>=` regression would flip this.
-        a = _f(detector="correctness", bar="defect", title="first")
-        b = _f(detector="structure", bar="defect", title="second")
+        # Fix archetype so the two detectors share a key (prose archetypes key on detector).
+        a = _f(archetype="remove_dead_lines", detector="correctness", bar="defect", title="first")
+        b = _f(archetype="remove_dead_lines", detector="structure", bar="defect", title="second")
         out = findings.dedupe([a, b])
         assert len(out) == 1
         assert out[0]["title"] == "first"
+
+    def test_distinct_detectors_on_same_prose_line_kept(self):
+        # `discussion`/`question` are catch-alls (review-workflow.md: "discussion for
+        # everything else"), so different detectors on the same line are distinct findings.
+        # The detector enters the key for prose archetypes, so all survive.
+        disc_a = _f(archetype="discussion", detector="security", line=7, title="a")
+        disc_b = _f(archetype="discussion", detector="structure", line=7, title="b")
+        q_a = _f(archetype="question", detector="correctness", line=7, title="qa")
+        q_b = _f(archetype="question", detector="performance", line=7, title="qb")
+        out = findings.dedupe([disc_a, disc_b, q_a, q_b])
+        assert {f["title"] for f in out} == {"a", "b", "qa", "qb"}
+
+    def test_same_detector_same_prose_line_still_collapses(self):
+        # A single detector repeating itself on one line still dedups (strongest bar wins),
+        # so prose-keying-on-detector doesn't let a detector double-post the same spot.
+        a = _f(archetype="discussion", detector="security", bar="structural", title="weak")
+        b = _f(archetype="discussion", detector="security", bar="defect", title="strong")
+        out = findings.dedupe([a, b])
+        assert len(out) == 1
+        assert out[0]["title"] == "strong"
+
+    def test_custom_rules_source_preserved_against_collision(self):
+        # A custom-rules violation and a security concern can both land on one line as
+        # `discussion`. The custom-rules `source` must NOT vanish when another detector
+        # shares the line — both survive because prose keys on detector.
+        sec = _f(archetype="discussion", detector="security", bar="defect", title="sec")
+        rule = _f(
+            archetype="discussion",
+            detector="custom-rules",
+            bar="structural",
+            title="rule",
+            source="review-rules.md: payments calls need a timeout",
+        )
+        out = findings.dedupe([sec, rule])
+        assert len(out) == 2
+        by_detector = {f["detector"]: f for f in out}
+        assert by_detector["custom-rules"]["source"] == "review-rules.md: payments calls need a timeout"
 
     def test_out_of_enum_bar_does_not_crash(self):
         # dedupe is module-public; a caller that skips validate (or BARS/_BAR_RANK drift) must
@@ -127,11 +167,23 @@ class TestMerge:
         result = findings.merge([_f(), _f(bar="question"), _f(detector="bogus")])
         assert result == {"findings": [_f()], "candidates": 1, "dropped": 1, "merged": 1}
 
-    def test_merge_reports_merged_count_for_distinct_collisions(self):
-        # Two genuinely different findings colliding on (file, line, archetype) collapse to one;
-        # the loss is surfaced via `merged` (not hidden, and not counted as a schema `dropped`).
+    def test_distinct_prose_findings_on_same_line_both_survive(self):
+        # Two genuinely different findings from different detectors on the same
+        # (file, line, "discussion") must BOTH survive: `discussion` is a catch-all, so
+        # collapsing them would silently drop one. Prose archetypes key on `detector`.
         a = _f(detector="security", title="sqli")
         b = _f(detector="performance", title="n+1")
+        result = findings.merge([a, b])
+        assert result["candidates"] == 2
+        assert result["dropped"] == 0
+        assert result["merged"] == 0
+        assert {f["title"] for f in result["findings"]} == {"sqli", "n+1"}
+
+    def test_same_detector_fix_archetype_collision_still_merges(self):
+        # The merge still collapses true duplicates: two detectors flagging the same fix
+        # archetype on one line reduce to one, surfaced via `merged` (not a schema `dropped`).
+        a = _f(archetype="remove_dead_lines", detector="security", title="dead")
+        b = _f(archetype="remove_dead_lines", detector="performance", title="dead-too")
         result = findings.merge([a, b])
         assert result["candidates"] == 1
         assert result["dropped"] == 0
