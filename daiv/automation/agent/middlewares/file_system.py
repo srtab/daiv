@@ -301,7 +301,8 @@ class SandboxFileBackend(BackendProtocol):
     rollback/desync machinery (scratch is sandbox-authoritative and never committed).
 
     Only the async methods are implemented — the async agent path never calls the
-    sync ones. ``stat_mode`` returns a constant: scratch never mirrors to ``/repo``,
+    sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call
+    here would be a programming error). ``stat_mode`` returns a constant: scratch never mirrors to ``/repo``,
     so exact mode bits are irrelevant, and ``delete`` is the only sync-protocol need
     beyond it (both required by ``DAIVCompositeBackend``'s protocol assertion).
     """
@@ -323,8 +324,14 @@ class SandboxFileBackend(BackendProtocol):
         return abs_path[len(SCRATCH_PATH) :] or "/"
 
     # -- async protocol methods ---------------------------------------------
+    # The Fs*Response list types carry an ``error`` field (populated, with an empty list,
+    # on a soft sandbox failure returned as 200). Propagate it into the deepagents result's
+    # ``error`` so the filesystem middleware surfaces it to the model — otherwise a real
+    # failure reads as a clean "empty directory / no matches".
     async def als(self, path: str) -> LsResult:
         resp = await self._client.fs_ls(self._session_id, FsLsRequest(path=self._abs(path)))
+        if resp.error is not None:
+            return LsResult(error=f"Listing '{path}': {resp.error}")
         return LsResult(entries=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.entries])
 
     async def aread(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
@@ -339,10 +346,14 @@ class SandboxFileBackend(BackendProtocol):
         resp = await self._client.fs_grep(
             self._session_id, FsGrepRequest(pattern=pattern, path=self._abs(path or "/"), glob=glob)
         )
+        if resp.error is not None:
+            return GrepResult(error=f"Grep '{pattern}': {resp.error}")
         return GrepResult(matches=[GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches])
 
     async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
         resp = await self._client.fs_glob(self._session_id, FsGlobRequest(pattern=pattern, path=self._abs(path)))
+        if resp.error is not None:
+            return GlobResult(error=f"Glob '{pattern}': {resp.error}")
         return GlobResult(matches=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.matches])
 
     async def awrite(self, file_path: str, content: str) -> WriteResult:
@@ -351,7 +362,7 @@ class SandboxFileBackend(BackendProtocol):
             FsWriteRequest(path=self._abs(file_path), content=base64.b64encode(content.encode("utf-8")), mode=0o644),
         )
         if not resp.ok:
-            return WriteResult(error=f"Failed to write file '{file_path}': {resp.error}")
+            return WriteResult(error=f"Failed to write file '{file_path}': {resp.error or 'unknown sandbox error'}")
         return WriteResult(path=file_path)
 
     async def aedit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
@@ -361,7 +372,7 @@ class SandboxFileBackend(BackendProtocol):
         )
         if resp.error is not None:
             return EditResult(error=f"Error editing file '{file_path}': {resp.error}")
-        return EditResult(path=file_path, occurrences=resp.occurrences or 1)
+        return EditResult(path=file_path, occurrences=resp.occurrences if resp.occurrences is not None else 1)
 
     async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         out: list[FileUploadResponse] = []
@@ -369,11 +380,12 @@ class SandboxFileBackend(BackendProtocol):
             resp = await self._client.fs_write(
                 self._session_id, FsWriteRequest(path=self._abs(path), content=base64.b64encode(data), mode=0o644)
             )
+            # A failed write with no error string would otherwise be reported as success
+            # (error=None); fall back to a generic message so ok=False always carries one.
+            error = None if resp.ok else (resp.error or "unknown sandbox error")
             # deepagents annotates ``error`` as the narrow ``FileOperationError`` literal but
             # documents accepting backend-specific strings; the sandbox returns its own messages.
-            out.append(
-                FileUploadResponse(path=path, error=None if resp.ok else resp.error)  # ty: ignore[invalid-argument-type]
-            )
+            out.append(FileUploadResponse(path=path, error=error))  # ty: ignore[invalid-argument-type]
         return out
 
     async def adownload_files(self, paths: list[str]) -> list[FileDownloadResponse]:

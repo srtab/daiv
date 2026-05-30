@@ -85,9 +85,10 @@ class ApplyMutationsResponse(BaseModel):
 
 # --- /scratch file-op wire schemas -----------------------------------------
 #
-# Mirror of the daiv-sandbox ``Fs*`` schemas. Kept byte-identical (field
-# names/types/defaults/constraints) to the sandbox side so the schema-drift CI
-# test (tests/unit_tests/core/sandbox/test_schema_consistency.py) passes.
+# Mirror of the daiv-sandbox ``Fs*`` schemas. Kept structurally identical (field
+# names/types/defaults/constraints — NOT titles/descriptions, which the schema-drift
+# CI test normalizes away) to the sandbox side so the schema-drift test
+# (tests/unit_tests/core/sandbox/test_schema_consistency.py) passes.
 
 
 class FsLsRequest(BaseModel):
