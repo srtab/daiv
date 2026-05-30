@@ -18,7 +18,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.constants import SKILLS_CACHE_PATH
+from automation.agent.constants import SCRATCH_ROUTE, SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import (
     EDIT_FILE_TOOL,
     EDIT_SUCCESS_PREFIX,
@@ -26,6 +26,7 @@ from automation.agent.middlewares.file_system import (
     WRITE_TOOL_NAMES,
     DAIVCompositeBackend,
     DAIVFilesystemBackend,
+    SandboxFileBackend,
     SandboxSyncer,
     format_sync_error,
 )
@@ -448,6 +449,19 @@ class SandboxMiddleware(AgentMiddleware):
 
         return bash_tool
 
+    def _maybe_register_scratch(self, session_id: str) -> None:
+        """Mount the ``/scratch`` route on the shared composite once the client+session exist.
+
+        Idempotent: subagents share the parent's composite, so only the first caller wins.
+        """
+        if (
+            session_id
+            and self._client is not None
+            and isinstance(self._backend, DAIVCompositeBackend)
+            and SCRATCH_ROUTE not in self._backend.routes
+        ):
+            self._backend.add_route(SCRATCH_ROUTE, SandboxFileBackend(client=self._client, session_id=session_id))
+
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
         Open the per-run sandbox client and lazily start a session.
@@ -474,6 +488,7 @@ class SandboxMiddleware(AgentMiddleware):
             if not self.close_session and "session_id" in state:
                 # Subagent path: parent owns session lifecycle; we just keep our client open
                 # so bash calls reuse the pool.
+                self._maybe_register_scratch(state["session_id"])
                 return None
 
             sb = runtime.context.sandbox
@@ -510,6 +525,7 @@ class SandboxMiddleware(AgentMiddleware):
             self._client = None
             self._syncer = None
             raise
+        self._maybe_register_scratch(session_id)
         return {"session_id": session_id}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:

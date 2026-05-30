@@ -502,3 +502,33 @@ class TestDAIVCompositeBackend:
 
         with pytest.raises(TypeError, match="DAIVBackendProtocol"):
             DAIVCompositeBackend(default=plain_state, routes={})  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# /scratch route registration
+# ---------------------------------------------------------------------------
+
+
+async def test_composite_add_route_registers_and_routes(working_repo):
+    from automation.agent.constants import SCRATCH_ROUTE
+
+    repo_backend = fs_module.DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    composite = fs_module.DAIVCompositeBackend(default=repo_backend, routes={})
+    scratch = fs_module.SandboxFileBackend(client=AsyncMock(), session_id="sid")
+    composite.add_route(SCRATCH_ROUTE, scratch)
+
+    backend, stripped = composite._get_backend_and_key("/scratch/foo.txt")
+    assert backend is scratch and stripped == "/foo.txt"
+
+
+async def test_abefore_agent_registers_scratch_route(working_repo, fake_client):
+    from automation.agent.constants import SCRATCH_ROUTE
+
+    repo_backend = fs_module.DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    composite = fs_module.DAIVCompositeBackend(default=repo_backend, routes={})
+    mw = SandboxMiddleware(backend=composite, agent_root=f"/{working_repo.name}")
+    mw._client = fake_client  # simulate post-open state
+
+    mw._maybe_register_scratch("sid-123")
+    assert SCRATCH_ROUTE in composite.routes
+    assert isinstance(composite.routes[SCRATCH_ROUTE], fs_module.SandboxFileBackend)

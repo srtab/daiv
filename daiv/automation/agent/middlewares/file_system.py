@@ -280,6 +280,17 @@ class DAIVCompositeBackend(CompositeBackend):
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend
 
+    def add_route(self, prefix: str, backend: BackendProtocol) -> None:
+        """Register a route after construction (used to mount ``/scratch`` once the
+        sandbox session exists). Re-asserts the DAIV protocol and re-sorts routes."""
+        if not isinstance(backend, DAIVBackendProtocol):
+            raise TypeError(
+                f"add_route requires a backend implementing DAIVBackendProtocol "
+                f"(delete + stat_mode); {type(backend).__name__} does not."
+            )
+        self.routes[prefix] = backend
+        self.sorted_routes = sorted(self.routes.items(), key=lambda x: len(x[0]), reverse=True)
+
 
 class SandboxFileBackend(BackendProtocol):
     """Deepagents backend whose files live in the sandbox ``/scratch`` workspace.
