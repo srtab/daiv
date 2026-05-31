@@ -36,7 +36,6 @@ from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
 
-from automation.agent.constants import SCRATCH_PATH
 from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.schemas import (
     ApplyMutationsRequest,
@@ -297,34 +296,52 @@ class DAIVCompositeBackend(CompositeBackend):
 
 
 class SandboxFileBackend(BackendProtocol):
-    """Deepagents backend whose files live in the sandbox ``/scratch`` workspace.
+    """Deepagents backend whose files live in a sandbox workspace rooted at ``root``.
 
-    The composite routes ``/scratch/<rel>`` to this backend as the route-relative
-    path ``/<rel>``; we map that to the sandbox-absolute ``/scratch/<rel>`` and back.
-    Every op is one RPC over ``DAIVSandboxClient``; there is no local copy, so no
-    rollback/desync machinery (scratch is sandbox-authoritative and never committed).
+    The backend maps agent-visible route-relative paths (``/<rel>``) to the
+    sandbox-absolute ``<root>/<rel>`` and back. As the single ``/workspace`` backend,
+    ``root`` is ``/workspace`` and the agent sees ``/repo/<rel>``, ``/skills/<rel>``,
+    ``/tmp/<rel>`` resolved under it. Every op is one RPC over ``DAIVSandboxClient``;
+    there is no local copy, so no rollback/desync machinery (the sandbox is authoritative).
+
+    The backend is constructed at graph-build time (before the per-run session exists)
+    and **bound** to a live client+session via :meth:`bind` once
+    ``SandboxMiddleware.abefore_agent`` has started the session. Any file op before
+    binding raises ``RuntimeError`` (a programming error — the middleware must bind first).
 
     Only the async methods are implemented — the async agent path never calls the
     sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call
-    here would be a programming error). ``stat_mode`` returns a constant: scratch never mirrors to ``/repo``,
-    so exact mode bits are irrelevant, and ``delete`` is the only sync-protocol need
-    beyond it (both required by ``DAIVCompositeBackend``'s protocol assertion).
+    here would be a programming error). ``stat_mode`` returns a constant: the sandbox is
+    authoritative (no mirror to a local repo), so exact mode bits are irrelevant, and
+    ``delete`` is the only sync-protocol need beyond it (both required by
+    ``DAIVCompositeBackend``'s protocol assertion).
     """
 
-    def __init__(self, *, client: DAIVSandboxClient, session_id: str) -> None:
+    def __init__(self, *, root: str, client: DAIVSandboxClient | None = None, session_id: str | None = None) -> None:
+        self._root = root.rstrip("/")
         self._client = client
         self._session_id = session_id
+
+    def bind(self, client: DAIVSandboxClient, session_id: str) -> None:
+        """Attach the live per-run client + session. Called once the sandbox session exists."""
+        self._client = client
+        self._session_id = session_id
+
+    def _require_bound(self) -> tuple[DAIVSandboxClient, str]:
+        if self._client is None or not self._session_id:
+            raise RuntimeError("SandboxFileBackend is not bound to a sandbox session")
+        return self._client, self._session_id
 
     # -- path mapping --------------------------------------------------------
     def _abs(self, backend_path: str) -> str:
         bp = backend_path or "/"
         if bp == "/":
-            return SCRATCH_PATH
-        return f"{SCRATCH_PATH}{bp}" if bp.startswith("/") else f"{SCRATCH_PATH}/{bp}"
+            return self._root
+        return f"{self._root}{bp}" if bp.startswith("/") else f"{self._root}/{bp}"
 
     def _rel(self, abs_path: str) -> str:
-        # Strip the /scratch prefix; the bare root (/scratch) and any empty remainder map to "/".
-        return abs_path[len(SCRATCH_PATH) :] or "/"
+        # Strip the root prefix; the bare root and any empty remainder map to "/".
+        return abs_path[len(self._root) :] or "/"
 
     # -- async protocol methods ---------------------------------------------
     # The Fs*Response list types carry an ``error`` field (populated, with an empty list,
@@ -332,36 +349,37 @@ class SandboxFileBackend(BackendProtocol):
     # ``error`` so the filesystem middleware surfaces it to the model — otherwise a real
     # failure reads as a clean "empty directory / no matches".
     async def als(self, path: str) -> LsResult:
-        resp = await self._client.fs_ls(self._session_id, FsLsRequest(path=self._abs(path)))
+        client, session_id = self._require_bound()
+        resp = await client.fs_ls(session_id, FsLsRequest(path=self._abs(path)))
         if resp.error is not None:
             return LsResult(error=f"Listing '{path}': {resp.error}")
         return LsResult(entries=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.entries])
 
     async def aread(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
-        resp = await self._client.fs_read(
-            self._session_id, FsReadRequest(path=self._abs(file_path), offset=offset, limit=limit)
-        )
+        client, session_id = self._require_bound()
+        resp = await client.fs_read(session_id, FsReadRequest(path=self._abs(file_path), offset=offset, limit=limit))
         if resp.error is not None:
             return ReadResult(error=f"File '{file_path}': {resp.error}")
         return ReadResult(file_data=FileData(content=resp.content or "", encoding=resp.encoding or "utf-8"))
 
     async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
-        resp = await self._client.fs_grep(
-            self._session_id, FsGrepRequest(pattern=pattern, path=self._abs(path or "/"), glob=glob)
-        )
+        client, session_id = self._require_bound()
+        resp = await client.fs_grep(session_id, FsGrepRequest(pattern=pattern, path=self._abs(path or "/"), glob=glob))
         if resp.error is not None:
             return GrepResult(error=f"Grep '{pattern}': {resp.error}")
         return GrepResult(matches=[GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches])
 
     async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
-        resp = await self._client.fs_glob(self._session_id, FsGlobRequest(pattern=pattern, path=self._abs(path)))
+        client, session_id = self._require_bound()
+        resp = await client.fs_glob(session_id, FsGlobRequest(pattern=pattern, path=self._abs(path)))
         if resp.error is not None:
             return GlobResult(error=f"Glob '{pattern}': {resp.error}")
         return GlobResult(matches=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.matches])
 
     async def awrite(self, file_path: str, content: str) -> WriteResult:
-        resp = await self._client.fs_write(
-            self._session_id,
+        client, session_id = self._require_bound()
+        resp = await client.fs_write(
+            session_id,
             FsWriteRequest(path=self._abs(file_path), content=base64.b64encode(content.encode("utf-8")), mode=0o644),
         )
         if not resp.ok:
@@ -369,8 +387,9 @@ class SandboxFileBackend(BackendProtocol):
         return WriteResult(path=file_path)
 
     async def aedit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
-        resp = await self._client.fs_edit(
-            self._session_id,
+        client, session_id = self._require_bound()
+        resp = await client.fs_edit(
+            session_id,
             FsEditRequest(path=self._abs(file_path), old=old_string, new=new_string, replace_all=replace_all),
         )
         if resp.error is not None:
@@ -378,10 +397,11 @@ class SandboxFileBackend(BackendProtocol):
         return EditResult(path=file_path, occurrences=resp.occurrences if resp.occurrences is not None else 1)
 
     async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        client, session_id = self._require_bound()
         out: list[FileUploadResponse] = []
         for path, data in files:
-            resp = await self._client.fs_write(
-                self._session_id, FsWriteRequest(path=self._abs(path), content=base64.b64encode(data), mode=0o644)
+            resp = await client.fs_write(
+                session_id, FsWriteRequest(path=self._abs(path), content=base64.b64encode(data), mode=0o644)
             )
             # A failed write with no error string would otherwise be reported as success
             # (error=None); fall back to a generic message so ok=False always carries one.
@@ -392,9 +412,10 @@ class SandboxFileBackend(BackendProtocol):
         return out
 
     async def adownload_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        client, session_id = self._require_bound()
         out: list[FileDownloadResponse] = []
         for path in paths:
-            resp = await self._client.fs_read(self._session_id, FsReadRequest(path=self._abs(path)))
+            resp = await client.fs_read(session_id, FsReadRequest(path=self._abs(path)))
             if resp.error == FILE_NOT_FOUND:
                 out.append(FileDownloadResponse(path=path, error=FILE_NOT_FOUND))
             elif resp.error is not None:
@@ -410,7 +431,8 @@ class SandboxFileBackend(BackendProtocol):
 
     # -- DAIVBackendProtocol -------------------------------------------------
     async def delete(self, virtual_path: str) -> bool:
-        resp = await self._client.fs_delete(self._session_id, FsDeleteRequest(path=self._abs(virtual_path)))
+        client, session_id = self._require_bound()
+        resp = await client.fs_delete(session_id, FsDeleteRequest(path=self._abs(virtual_path)))
         return resp.ok
 
     async def stat_mode(self, virtual_path: str) -> int:

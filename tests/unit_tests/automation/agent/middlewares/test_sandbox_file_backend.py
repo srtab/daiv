@@ -25,14 +25,29 @@ def client():
 
 @pytest.fixture
 def backend(client):
-    return SandboxFileBackend(client=client, session_id="sid")
+    be = SandboxFileBackend(root="/workspace")
+    be.bind(client, "sid")
+    return be
+
+
+def test_root_is_configurable():
+    be = SandboxFileBackend(root="/workspace")
+    assert be._abs("/repo/x.py") == "/workspace/repo/x.py"
+    assert be._abs("/") == "/workspace"
+    assert be._rel("/workspace/repo/x.py") == "/repo/x.py"
+
+
+async def test_calls_before_bind_raise():
+    be = SandboxFileBackend(root="/workspace")
+    with pytest.raises(RuntimeError, match="not bound"):
+        await be.als("/")
 
 
 async def test_awrite_maps_route_relative_to_scratch_abs(backend, client):
     client.fs_write.return_value = FsWriteResponse(ok=True)
     result = await backend.awrite("/foo.txt", "hello\n")
     sent = client.fs_write.call_args.args[1]
-    assert sent.path == "/scratch/foo.txt"
+    assert sent.path == "/workspace/foo.txt"
     assert sent.content == b"hello\n"
     assert result.error is None and result.path == "/foo.txt"
 
@@ -53,16 +68,16 @@ async def test_aread_maps_error(backend, client):
 
 async def test_als_remaps_paths_to_route_relative(backend, client):
     client.fs_ls.return_value = FsLsResponse(
-        entries=[FsEntry(path="/scratch/sub", is_dir=True), FsEntry(path="/scratch/f.py", is_dir=False)]
+        entries=[FsEntry(path="/workspace/sub", is_dir=True), FsEntry(path="/workspace/f.py", is_dir=False)]
     )
     result = await backend.als("/")
     paths = {(e["path"], e["is_dir"]) for e in result.entries}
     assert ("/sub", True) in paths and ("/f.py", False) in paths
-    assert client.fs_ls.call_args.args[1].path == "/scratch"
+    assert client.fs_ls.call_args.args[1].path == "/workspace"
 
 
 async def test_agrep_remaps_match_paths(backend, client):
-    client.fs_grep.return_value = FsGrepResponse(matches=[FsGrepMatch(path="/scratch/a.py", line=2, text="x")])
+    client.fs_grep.return_value = FsGrepResponse(matches=[FsGrepMatch(path="/workspace/a.py", line=2, text="x")])
     result = await backend.agrep("x", path="/", glob=None)
     assert result.matches[0]["path"] == "/a.py"
     assert result.matches[0]["line"] == 2
@@ -80,7 +95,7 @@ async def test_aedit_success_and_error(backend, client):
 async def test_delete_and_stat_mode(backend, client):
     client.fs_delete.return_value = FsDeleteResponse(ok=True)
     assert await backend.delete("/a.py") is True
-    assert client.fs_delete.call_args.args[1].path == "/scratch/a.py"
+    assert client.fs_delete.call_args.args[1].path == "/workspace/a.py"
     assert await backend.stat_mode("/a.py") == 0o644
 
 
@@ -102,11 +117,11 @@ async def test_agrep_propagates_error(backend, client):
 
 
 async def test_aglob_remaps_and_propagates_error(backend, client):
-    client.fs_glob.return_value = FsGlobResponse(matches=[FsEntry(path="/scratch/a.py", is_dir=False)])
+    client.fs_glob.return_value = FsGlobResponse(matches=[FsEntry(path="/workspace/a.py", is_dir=False)])
     ok = await backend.aglob("*.py", path="/")
     assert ok.error is None
     assert ok.matches[0]["path"] == "/a.py"
-    assert client.fs_glob.call_args.args[1].path == "/scratch"
+    assert client.fs_glob.call_args.args[1].path == "/workspace"
     client.fs_glob.return_value = FsGlobResponse(matches=[], error="bad_glob")
     bad = await backend.aglob("[", path="/")
     assert bad.matches is None and bad.error is not None and "bad_glob" in bad.error
@@ -126,7 +141,7 @@ async def test_aupload_files_ok_and_failure(backend, client):
     client.fs_write.return_value = FsWriteResponse(ok=True)
     ok = await backend.aupload_files([("/a.txt", b"x")])
     assert ok[0].path == "/a.txt" and ok[0].error is None
-    assert client.fs_write.call_args.args[1].path == "/scratch/a.txt"
+    assert client.fs_write.call_args.args[1].path == "/workspace/a.txt"
     # ok=False, error=None must still surface as an error (not silent success)
     client.fs_write.return_value = FsWriteResponse(ok=False)
     bad = await backend.aupload_files([("/a.txt", b"x")])
