@@ -753,9 +753,11 @@ async def gitlab_tool(
 
     args = ["gitlab"]
 
-    if output_file is not None:
+    is_job_trace = resource == "project-job" and action == "trace"
+    if output_file is not None and not is_job_trace:
         # output_mode (detailed/simplified) only shapes the inline text format for token economy;
         # it is moot for a JSON file dump that never enters context, so force JSON on redirect.
+        # Job traces are raw streamed log text, not a serializable object — leave them as-is.
         args += ["--output", "json"]
     elif output_mode == "detailed":
         args.append("--verbose")

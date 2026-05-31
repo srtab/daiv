@@ -515,6 +515,30 @@ async def test_gitlab_output_file_forces_json_writes_and_confirms():
     assert '"iid": 1' in result  # head preview
 
 
+async def test_gitlab_output_file_does_not_force_json_for_job_trace():
+    runtime = _make_gitlab_runtime()
+    runtime.state["session_id"] = "sess-1"
+    mock_settings = Mock()
+    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
+    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
+    with (
+        patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+        patch("automation.agent.middlewares.git_platform.settings", mock_settings),
+        _mock_sandbox_client() as client,
+    ):
+        proc = Mock()
+        proc.communicate = AsyncMock(return_value=(b"log line 1\nlog line 2\n", b""))
+        proc.returncode = 0
+        create_proc.return_value = proc
+        result = await gitlab_tool.coroutine(
+            subcommand="project-job trace --id 55", runtime=runtime, output_file="/workspace/tmp/trace.txt"
+        )
+    argv = list(create_proc.call_args.args)
+    assert "--output" not in argv  # traces are raw log text; JSON would be degenerate
+    assert client.fs_write.call_args.args[1].path == "/workspace/tmp/trace.txt"
+    assert result.startswith("Wrote ")
+
+
 async def test_gitlab_invalid_output_file_errors_before_running_cli():
     runtime = _make_gitlab_runtime()
     runtime.state["session_id"] = "sess-1"
