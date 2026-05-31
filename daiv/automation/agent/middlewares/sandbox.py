@@ -18,7 +18,6 @@ from langgraph.typing import StateT  # noqa: TC002
 from automation.agent.constants import SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import files_changed_from_patch
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -49,9 +48,8 @@ Session behavior:
   <bad-example>cd /workspace/repo/tests && pytest</bad-example>
 
 Result format:
-- On success, returns a JSON object `{"commands": [...], "files_changed": [...]}`.
+- On success, returns a JSON object `{"commands": [...]}`.
   - `commands` is a list of per-command result objects including at least `command`, `output`, and `exit_code`.
-  - `files_changed` is a list of workspace modifications made by these commands (`{"path", "op"}` with op in `modified`/`added`/`deleted`/`renamed`; renames also carry `from_path`). Empty array when nothing changed.
 - You MUST inspect each command's `exit_code` and treat non-zero values or tracebacks in `output` as failures, not as successful verification.
 - On infrastructure failure, the tool may return a plain string starting with `error:` instead of JSON. Treat that as a tool failure, not as a test result.
 
@@ -117,7 +115,7 @@ Use dedicated tools when available:
 - Use `ls`, `glob`, `grep`, `read_file`, `edit_file`, `write_file` instead of doing file listing/search/read/edit/write in bash.
 
 Result interpretation:
-- Successful calls return a JSON object with `commands` (per-command results: `command`, `output`, `exit_code`) and `files_changed` (workspace mutations: path + op).
+- Successful calls return a JSON object with `commands` (per-command results: `command`, `output`, `exit_code`).
 - Always check each `exit_code` and treat non-zero codes or Python tracebacks in `output` as failures that require investigation or fixes.
 - If the tool returns a plain string starting with `error:` instead of JSON, treat it as a sandbox/tool failure, not as a passing check.
 
@@ -372,13 +370,8 @@ class SandboxMiddleware(AgentMiddleware):
                 )
 
             # The sandbox is authoritative: bash mutations already live in /workspace/repo,
-            # so there is no local repo to apply the patch to. ``files_changed_from_patch`` is
-            # display-only here (chat rail) and is retired once "files_changed" reads from
-            # ``git status`` in the sandbox (follow-on cleanup).
-            return json.dumps({
-                "commands": [result.model_dump(mode="json") for result in response.results],
-                "files_changed": files_changed_from_patch(response.patch),
-            })
+            # so there is no local repo to keep in sync here.
+            return json.dumps({"commands": [result.model_dump(mode="json") for result in response.results]})
 
         return bash_tool
 
@@ -424,7 +417,6 @@ class SandboxMiddleware(AgentMiddleware):
             session_id = await client.start_session(
                 StartSessionRequest(
                     base_image=sb.base_image,
-                    extract_patch=True,
                     network_enabled=sb.network_enabled,
                     memory_bytes=sb.memory_bytes,
                     cpus=sb.cpus,

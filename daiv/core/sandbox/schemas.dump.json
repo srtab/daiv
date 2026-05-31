@@ -734,18 +734,6 @@
       }
     },
     "properties": {
-      "patch": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "Base64-encoded patch with the changes.",
-        "title": "Patch"
-      },
       "results": {
         "description": "List of results of each command.",
         "items": {
@@ -756,8 +744,7 @@
       }
     },
     "required": [
-      "results",
-      "patch"
+      "results"
     ],
     "title": "RunResponse",
     "type": "object"
@@ -829,12 +816,6 @@
         "default": null,
         "description": "Environment variables to set in the container at startup.",
         "title": "Environment"
-      },
-      "extract_patch": {
-        "default": false,
-        "description": "Whether to extract a patch with the changes made by the executed commands.",
-        "title": "Extract Patch",
-        "type": "boolean"
       },
       "memory_bytes": {
         "anyOf": [

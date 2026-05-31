@@ -1,16 +1,15 @@
-import base64
 import io
+import json
 import tarfile
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 from git import Repo
 
-from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands
 from core.conf import settings as core_settings
 from core.sandbox.client import DAIVSandboxClient
-from core.sandbox.schemas import RunCommandsResponse
+from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -129,54 +128,23 @@ class TestBindBackend:
 
 
 class TestBashTool:
-    async def test_bash_tool_returns_results_json_without_applying_patch(self, tmp_path: Path):
-        """The sandbox is authoritative: the bash tool reports ``files_changed`` derived from
-        the sandbox patch (display-only) but does NOT apply it to any local checkout."""
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        repo = Repo.init(repo_dir)
+    async def test_bash_tool_returns_commands_json(self):
+        """The bash tool surfaces the sandbox's per-command results as ``{"commands": [...]}``.
 
-        # Configure git identity for commits
-        with repo.config_writer() as writer:
-            writer.set_value("user", "name", "Test User")
-            writer.set_value("user", "email", "test@example.com")
+        The sandbox is authoritative — there is no local checkout to keep in sync — so the
+        output carries only ``commands`` (no ``files_changed``)."""
+        response = RunCommandsResponse(results=[RunCommandResult(command="echo ok", output="ok", exit_code=0)])
 
-        file_path = repo_dir / "hello.txt"
-        file_path.write_text("old\n")
-        repo.git.add("-A")
-        repo.index.commit("init")
-
-        # Create a real patch via git diff, then restore the file so we can assert the
-        # bash tool does NOT apply it locally.
-        file_path.write_text("new\n")
-        patch_text = repo.git.diff("HEAD")
-        if patch_text and not patch_text.endswith("\n"):
-            patch_text += "\n"
-        repo.git.checkout("--", "hello.txt")
-
-        assert file_path.read_text() == "old\n"
-
-        response = RunCommandsResponse(results=[], patch=base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"))
-
-        runtime = _make_bash_runtime(repo)
+        runtime = _make_bash_runtime(Mock())
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
-        middleware = SandboxMiddleware(
-            backend=Mock(spec=DAIVFilesystemBackend), agent_root=f"/{repo_dir.name}", close_session=True
-        )
-        middleware._client = client
-        bash_tool = middleware.tools[0]
+        bash_tool = _bash_tool_with_fake_client(client)
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
-        # The patch is never applied to the local checkout — only the sandbox holds the changes.
-        assert file_path.read_text() == "old\n"
-        import json as _json
-
-        payload = _json.loads(output)
-        assert payload["commands"] == []
-        # The patch just edits hello.txt — nothing added/deleted/renamed.
-        assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
+        payload = json.loads(output)
+        assert payload == {"commands": [{"command": "echo ok", "output": "ok", "exit_code": 0}]}
+        assert "files_changed" not in payload
         client.run_commands.assert_awaited_once()
 
     async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
@@ -228,7 +196,7 @@ class TestBashToolPolicyEnforcement:
         runtime.state["session_id"] = "sess_policy"
 
         client = Mock()
-        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
+        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[]))
         client.run_commands = run_mock
         bash_tool = _bash_tool_with_fake_client(client)
 
@@ -361,7 +329,7 @@ class TestBashToolPolicyEnforcement:
 class TestRunBashCommands:
     async def test_run_bash_commands_no_archive_field(self):
         """_run_bash_commands no longer tarballs the working dir; archive is gone from RunCommandsRequest."""
-        run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
+        run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[]))
         client = Mock()
         client.run_commands = run_commands_mock
 
