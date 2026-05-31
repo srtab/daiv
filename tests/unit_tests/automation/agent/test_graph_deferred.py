@@ -93,3 +93,16 @@ class TestCreateDaivAgentDeferredFlag:
         assert kwargs["tools"] == []
         middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
         assert "DeferredToolsMiddleware" in middleware_types
+
+    async def test_registers_code_review_detectors_as_subagents(self):
+        # Guards the ``*load_builtin_code_review_detectors(...)`` spread at graph.py: a refactor
+        # dropping it would make the code-review skill silently fall back to inline review with no
+        # other failing test. The detector loader runs for real here (it is not patched), so the
+        # compiled subagents handed to create_deep_agent must include every cr-* detector name.
+        from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES
+
+        mock_create_deep_agent, _, _ = await self._run(flag_on=False)
+
+        subagents = mock_create_deep_agent.call_args.kwargs["subagents"]
+        registered = {s["name"] for s in subagents if isinstance(s, dict) and "name" in s}
+        assert set(CODE_REVIEW_DETECTOR_NAMES) <= registered

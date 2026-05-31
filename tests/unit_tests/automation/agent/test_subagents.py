@@ -9,7 +9,7 @@ which middlewares to compose.
 """
 
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from deepagents.middleware.filesystem import FilesystemMiddleware
@@ -415,7 +415,7 @@ class TestCustomSubagents:
 
         assert result == []
 
-    @pytest.mark.parametrize("reserved_name", ["general-purpose", "explore"])
+    @pytest.mark.parametrize("reserved_name", ["general-purpose", "explore", "cr-security"])
     async def test_skips_builtin_name_collision(self, tmp_path: Path, mock_model, mock_runtime_ctx, reserved_name):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 
@@ -453,3 +453,318 @@ class TestCustomSubagents:
         names = {s["name"] for s in result}
         assert "bad-model" not in names
         assert "good" in names
+
+
+class TestDetectorMiddleware:
+    @pytest.fixture
+    def mock_backend(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_model(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_runtime_ctx(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(repo_dir)
+        return ctx
+
+    def test_filesystem_is_read_only(self, mock_model, mock_backend, mock_runtime_ctx):
+        from deepagents.middleware.filesystem import FilesystemMiddleware
+
+        from automation.agent.subagents import READ_ONLY_PERMISSIONS, _build_detector_middleware
+
+        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True)
+        fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
+        assert fs._permissions == READ_ONLY_PERMISSIONS
+
+    def test_includes_sandbox_but_not_git_platform_or_web(self, mock_model, mock_backend, mock_runtime_ctx):
+        from langchain.agents.middleware import TodoListMiddleware
+
+        from automation.agent.middlewares.git_platform import GitPlatformMiddleware
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+        from automation.agent.middlewares.web_fetch import WebFetchMiddleware
+        from automation.agent.middlewares.web_search import WebSearchMiddleware
+        from automation.agent.subagents import _build_detector_middleware
+
+        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True)
+        assert any(isinstance(m, SandboxMiddleware) for m in middleware)
+        assert not any(isinstance(m, GitPlatformMiddleware) for m in middleware)
+        assert not any(isinstance(m, WebSearchMiddleware) for m in middleware)
+        assert not any(isinstance(m, WebFetchMiddleware) for m in middleware)
+        assert not any(isinstance(m, TodoListMiddleware) for m in middleware)
+
+    def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+        from automation.agent.subagents import _build_detector_middleware
+
+        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False)
+        assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
+
+
+class TestShippedDetectorCharters:
+    """Lock the five detector charter files that ship inside the code-review skill."""
+
+    def test_all_five_detectors_present_and_wellformed(self):
+        from automation.agent.subagents import (
+            CODE_REVIEW_AGENTS_PATH,
+            CODE_REVIEW_DETECTOR_NAMES,
+            _parse_subagent_frontmatter,
+        )
+
+        md_files = sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md"))
+        names = set()
+        for md in md_files:
+            parsed = _parse_subagent_frontmatter(
+                md.read_text(encoding="utf-8"), str(md), permitted_reserved_names=frozenset(CODE_REVIEW_DETECTOR_NAMES)
+            )
+            assert parsed is not None, f"{md.name} failed frontmatter parse"
+            frontmatter, body = parsed
+            assert frontmatter["description"].strip()
+            assert body.strip()
+            names.add(frontmatter["name"])
+        assert names == set(CODE_REVIEW_DETECTOR_NAMES)
+
+    def test_charters_carry_read_only_bash_directive(self):
+        # The detector sandbox is a full bash shell — no read-only mount and no per-subagent
+        # command policy (SandboxMiddleware.__init__ takes no policy arg; _check_command_policy
+        # reads only global settings + repo config). So read-only is enforced at the prompt
+        # layer: every shipped charter must carry the read-only bash directive. Locked so a
+        # charter edit can't silently drop it and let a detector mutate the workspace via bash.
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+
+        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
+            body = md.read_text(encoding="utf-8").lower()
+            assert "read-only" in body, f"{md.name} is missing the read-only directive"
+            assert "sed -i" in body, f"{md.name} is missing the no-mutation command guidance"
+
+    def test_agents_dir_holds_exactly_the_five_cr_charters(self):
+        # review-workflow.md's inline-detection fallback tells the parent to read
+        # `agents/cr-*.md`. Lock that this literal glob resolves to exactly the five detector
+        # charters, so renaming the dir or a file (silently breaking that reference) is caught.
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH, CODE_REVIEW_DETECTOR_NAMES
+
+        stems = {p.stem for p in CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")}
+        assert stems == set(CODE_REVIEW_DETECTOR_NAMES)
+
+    def test_principle_citations_resolve_to_existing_sections(self):
+        # The charters cite principles.md sections as ``§N``; those numbers are coupled to the
+        # ``## N.`` headings by convention only. Reordering/inserting a section in principles.md
+        # would silently invalidate the citations with no other test failing — so guard the
+        # coupling here: every cited ``§N`` must resolve to a ``## N.`` heading that exists.
+        import re
+
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+
+        principles = (CODE_REVIEW_AGENTS_PATH.parent / "references" / "principles.md").read_text(encoding="utf-8")
+        existing = {int(n) for n in re.findall(r"^##\s+(\d+)\.", principles, re.MULTILINE)}
+        assert existing, "no numbered sections found in principles.md"
+
+        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
+            cited = {int(n) for n in re.findall(r"§(\d+)", md.read_text(encoding="utf-8"))}
+            missing = cited - existing
+            assert not missing, f"{md.name} cites principles.md sections that don't exist: {sorted(missing)}"
+
+
+class TestBuiltinCodeReviewDetectors:
+    @pytest.fixture
+    def mock_backend(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_model(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_runtime_ctx(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(repo_dir)
+        return ctx
+
+    def test_response_format_wraps_finding_schema(self):
+        from automation.agent.subagents import _load_detector_response_format
+
+        rf = _load_detector_response_format()
+        assert rf["type"] == "object"
+        assert rf["required"] == ["findings"]
+        assert rf["properties"]["findings"]["type"] == "array"
+        item = rf["properties"]["findings"]["items"]
+        assert item["properties"]["detector"]["enum"] == [
+            "correctness",
+            "security",
+            "performance",
+            "structure",
+            "custom-rules",
+        ]
+
+    def test_loads_detectors_from_dir(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Correctness detector", body="Find correctness bugs.")
+        )
+        (agents_dir / "cr-security.md").write_text(
+            _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
+        )
+
+        result = load_builtin_code_review_detectors(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, agents_dir=agents_dir
+        )
+
+        names = {s["name"] for s in result}
+        assert names == {"cr-correctness", "cr-security"}
+        assert all("runnable" in s for s in result)
+
+    def test_returns_empty_when_dir_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        result = load_builtin_code_review_detectors(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, agents_dir=tmp_path / "missing"
+        )
+        assert result == []
+
+    def test_skips_invalid_model_detector(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
+        # A ValueError from get_model is a charter config typo (unknown/empty model spec). The
+        # narrowed handler logs it at WARNING as "invalid model" — NOT via logger.exception — which
+        # is the other half of the env-vs-typo split asserted in the environmental-error test.
+        import logging
+
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Bad model", body="x", model="some:model")
+        )
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        with (
+            caplog.at_level(logging.WARNING, logger="daiv.agent"),
+            patch("automation.agent.subagents.BaseAgent.get_model", side_effect=ValueError("unknown provider")),
+        ):
+            result = load_builtin_code_review_detectors(
+                mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, agents_dir=agents_dir
+            )
+        assert {s["name"] for s in result} == {"cr-security"}
+
+        invalid_records = [r for r in caplog.records if "invalid model" in r.message]
+        assert len(invalid_records) == 1
+        assert invalid_records[0].levelno == logging.WARNING
+        assert invalid_records[0].exc_info is None  # logger.warning, not logger.exception
+        assert not any("failed to initialize" in r.message for r in caplog.records)
+
+    def test_real_shipped_charters_load_all_five(self, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES, load_builtin_code_review_detectors
+
+        result = load_builtin_code_review_detectors(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False)
+        assert {s["name"] for s in result} == set(CODE_REVIEW_DETECTOR_NAMES)
+
+    def test_skips_unreadable_charter_loads_rest(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        # An unreadable charter must degrade the review to the detectors that loaded, never abort
+        # the synchronous graph build. A directory named ``*.md`` is matched by the glob but raises
+        # IsADirectoryError (an OSError subclass) on read_text — exercising the except OSError skip.
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").mkdir()  # unreadable: a directory, not a file
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        result = load_builtin_code_review_detectors(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, agents_dir=agents_dir
+        )
+        assert {s["name"] for s in result} == {"cr-security"}
+
+    def test_skips_malformed_charter_loads_rest(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        # A charter with no parseable frontmatter (``_parse_subagent_frontmatter`` -> None) is skipped
+        # while siblings load. The detector loader has its own ``parsed is None: continue`` branch.
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text("no frontmatter here, just prose")
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        result = load_builtin_code_review_detectors(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, agents_dir=agents_dir
+        )
+        assert {s["name"] for s in result} == {"cr-security"}
+
+    def test_environmental_model_error_skips_detector_not_aborts(
+        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog
+    ):
+        # A non-ValueError from get_model (disabled provider, missing key, SDK init failure) is an
+        # environment problem, not a charter typo: skip just that detector and load the rest, rather
+        # than aborting the whole agent build. The narrowed handler logs it via logger.exception
+        # (ERROR + traceback) with a "failed to initialize" message — NOT mislabeled "invalid model" —
+        # so an env failure is distinguishable from a config typo. Asserting the level/message/exc_info
+        # pins the split: collapsing both handlers into one warning("invalid model") would fail here.
+        import logging
+
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Env-broken model", body="x", model="some:model")
+        )
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        with (
+            caplog.at_level(logging.WARNING, logger="daiv.agent"),
+            patch("automation.agent.subagents.BaseAgent.get_model", side_effect=RuntimeError("provider disabled")),
+        ):
+            result = load_builtin_code_review_detectors(
+                mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, agents_dir=agents_dir
+            )
+        assert {s["name"] for s in result} == {"cr-security"}
+
+        init_records = [r for r in caplog.records if "failed to initialize" in r.message]
+        assert len(init_records) == 1
+        assert init_records[0].levelno == logging.ERROR
+        assert init_records[0].exc_info is not None  # logger.exception captured the traceback
+        assert not any("invalid model" in r.message for r in caplog.records)  # not mislabeled
+
+    def test_logs_error_with_missing_names_when_some_fail(
+        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog
+    ):
+        # Ground-truth reconciliation: a charter present-but-not-compiled is a silently-absent
+        # review dimension, so the shortfall is surfaced at ERROR with the failed file stems.
+        import logging
+
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text("no frontmatter")  # fails to parse
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            result = load_builtin_code_review_detectors(
+                mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, agents_dir=agents_dir
+            )
+
+        assert {s["name"] for s in result} == {"cr-security"}
+        assert any("cr-correctness" in r.message and "loaded 1/2" in r.message for r in caplog.records)
+
+    def test_no_error_logged_when_all_load(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
+        import logging
+
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            load_builtin_code_review_detectors(
+                mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, agents_dir=agents_dir
+            )
+        assert not [r for r in caplog.records if "failed to load" in r.message]

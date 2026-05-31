@@ -2,7 +2,7 @@
 
 Three shapes exist: **interactive-mode markdown** (returned as the final assistant message when there's no MR to post to), **inline comment bodies** (one per inline finding, posted to a diff line in delivery mode), and the **summary discussion body** (one per review, posted as a top-level MR discussion).
 
-Every posted body in delivery mode **must start** with a `<!-- daiv-cr { ... } -->` marker carrying a JSON payload. It's invisible in the rendered view but parsed on the next review to dedup. The inline-marker `line` and `sha` fields are diagnostic; the dedup fingerprint is `(kind, archetype, file, anchor)` where `anchor` is the first 8 hex chars of `sha256` over the stripped target line, with a next-line disambiguator appended when the target is short or all-separators. See the SKILL.md *Marker format* section for the full schema, and `scripts/marker.py` for the canonical implementation.
+Every posted body in delivery mode **must start** with a `<!-- daiv-cr { ... } -->` marker carrying a JSON payload. It's invisible in the rendered view but parsed on the next review to dedup. The inline-marker `line` and `sha` fields are diagnostic; the dedup fingerprint is `(kind, archetype, file, anchor)` where `anchor` is the first 8 hex chars of `sha256` over the stripped target line, with a next-line disambiguator appended when the target is short or all-separators. See `references/marker-format.md` for the full schema, and `scripts/marker.py` for the canonical implementation.
 
 For a wider range of per-archetype examples across multiple languages, see `references/few-shot-examples.md`.
 
@@ -30,15 +30,17 @@ c.checkRouting(routing, isProvider)
 
 ### Medium
 
-**2. Loop uses `=` where it should accumulate** — [reports/aggregate.py:72](https://example.org/repo/-/blob/feature-branch/reports/aggregate.py#L72)
+**2. Re-implements `slugify()` instead of calling the shared helper** — [content/models.py:48](https://example.org/repo/-/blob/feature-branch/content/models.py#L48)
 
 <details>
 <summary>Details</summary>
 
-`count = len(batch)` resets the counter each iteration. The outer loop currently runs once so the bug is latent, but it will silently miscount as soon as a second iteration is added.
+This inlines lowercasing, whitespace-to-dash, and stripping — exactly what `utils.text.slugify()` already does and what three sibling models call. Duplicating it means the slug rules drift the moment one copy changes.
 
 ```python
-count += len(batch)
+from utils.text import slugify
+
+slug = slugify(title)
 ```
 
 </details>
@@ -98,9 +100,21 @@ The migration notes call for `fake|alloy` during cutover, but this default is `f
 
 ---
 
+## Delivery mode — inline body (example D: custom-rule, Python)
+
+A `custom-rules` finding cites the rule it enforces in the prose, so the author sees *why* it was flagged. It still uses one of the standard archetypes (here `question`) and goes through the same dedup + adjudication as built-in findings.
+
+````markdown
+<!-- daiv-cr {"v":1,"kind":"inline","archetype":"question","file":"payments/client.py","line":34,"anchor":"c4d5e6f7","sha":"abc1234"} -->
+
+Per your `.agents/review-rules.md` ("every external call in `payments/` must set an explicit timeout"): this `httpx.get` has no `timeout`. Intentional (inheriting a client default), or should it set one?
+````
+
+---
+
 ## Delivery mode — summary discussion body
 
-The summary collects every **discussion-only** finding plus a one-line index of the inline findings posted this run. On re-review, this exact body is updated in place — never appended.
+The summary collects every **discussion-only** finding plus a one-line index of the inline findings posted this run. On re-review, this body is updated in place — never appended (one summary note per MR). "Updated in place" replaces the *note*, not the *findings*: a delta-only re-review must carry forward still-valid prior discussion-only findings rather than drop the ones it didn't recheck (`references/gitlab-delivery.md` Step 6).
 
 ````markdown
 <!-- daiv-cr {"v":1,"kind":"summary","sha":"abc1234"} -->
@@ -129,9 +143,18 @@ Move the uniqueness check into the model's `validate()`.
 
 </details>
 
+**3. N+1: seller lookup runs once per order row** — `api/orders.py:90`
+
+<details>
+<summary>Details</summary>
+
+`serialize_order` calls `Seller.objects.get(...)` inside the per-order loop, so a page of N orders issues N+1 queries. The fix spans the serializer and the queryset — add `select_related("seller")` on the orders queryset in the viewset — so it can't anchor on a single diff line.
+
+</details>
+
 ## Questions
 
-**3. Does the new ingestion pipeline preserve ordering across the three modules, or is reordering OK?** — multiple files
+**4. Does the new ingestion pipeline preserve ordering across the three modules, or is reordering OK?** — multiple files
 
 <details>
 <summary>Details</summary>
@@ -145,6 +168,8 @@ The refactor moves dedup into `ingest/wavecom.py` and removes the explicit sort 
 - `services/api.py:42` — drop explicit default `timeout=30` *(remove_dead_lines)*
 - `internal/cache/key.go:18` — use `strings.Join` instead of manual loop *(use_framework_idiom)*
 - `env_files/all/grafana.env:9` — is `alloy` intentionally omitted from the default tenant list? *(question)*
+
+_5/5 detectors · 9 candidates · 2 merged → 3 inline, 4 in summary (rest refuted)._
 ````
 
 ---
