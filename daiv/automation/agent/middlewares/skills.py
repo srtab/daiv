@@ -7,12 +7,10 @@ from typing import TYPE_CHECKING, Annotated, NotRequired, override
 
 from deepagents.middleware.skills import SkillMetadata, SkillsState, SkillsStateUpdate
 from deepagents.middleware.skills import SkillsMiddleware as DeepAgentsSkillsMiddleware
-from langchain.agents.middleware import hook_config
 from langchain.agents.middleware.types import PrivateStateAttr
 from langchain.tools import ToolRuntime, tool  # noqa: TC002
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, RemoveMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 from langchain_core.prompts import PromptTemplate
-from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime  # noqa: TC002
 from langgraph.types import Command
 from skills.services import _record_invocation
@@ -20,16 +18,12 @@ from skills.services import _record_invocation
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
-from automation.agent.utils import extract_body_from_frontmatter, extract_text_content
+from automation.agent.utils import extract_body_from_frontmatter
 from codebase.context import RuntimeCtx  # noqa: TC001
-from slash_commands.parser import SlashCommandCommand, parse_slash_command
-from slash_commands.registry import slash_command_registry
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable
 
-    from deepagents.graph import SubAgent
-    from deepagents.middleware.subagents import CompiledSubAgent
     from langchain.agents.middleware.types import ToolCallRequest
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
@@ -109,58 +103,46 @@ AVAILABLE_SKILLS_TEMPLATE = PromptTemplate.from_template(
 
 class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     """
-    Middleware to apply builtin slash commands early in the conversation and copy builtin skills to the project skills
-    directory to make them available to the agent even if the project skills directory is not set up.
+    Middleware that loads skill metadata and, in disk-backed (non-sandbox) mode, copies builtin
+    and custom global skills into the ``/skills`` cache so they are available even when the
+    project skills directory is not set up. In sandbox mode global skills are provisioned by the
+    sandbox seed (SandboxMiddleware), so no upload happens here.
     """
 
     state_schema = DAIVSkillsState
 
-    def __init__(self, *args, subagents: Sequence[SubAgent | CompiledSubAgent] | None = None, **kwargs):
+    def __init__(self, *args, sandbox_enabled: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self.tools = [self._skill_tool_generator()]
-        self.subagents = subagents or []
+        self._sandbox_enabled = sandbox_enabled
 
-    @hook_config(can_jump_to=["end"])
     async def abefore_agent(
         self, state: DAIVSkillsState, runtime: Runtime[RuntimeCtx], config: RunnableConfig
     ) -> SkillsStateUpdate | dict | None:
         """
-        Apply builtin slash commands early in the conversation and copy builtin skills to the project skills directory
-        to make them available to the agent.
+        Load skill metadata and (disk-mode only) materialize global skills into the
+        ``/skills`` cache. In sandbox mode global skills are provisioned by the sandbox
+        seed (SandboxMiddleware), so no upload happens here; discovery reads the bound,
+        seeded sandbox via ``super().abefore_agent``.
 
-        ``skills_load_errors`` are captured once per session and persist through subsequent turns;
-        a misconfig fixed mid-session will continue surfacing in ``<skill_load_warnings>`` until restart.
+        ``skills_load_errors`` are captured once per session and persist through subsequent
+        turns; a misconfig fixed mid-session will keep surfacing until restart.
         """
         clear_skill_mode = state.get("active_skill_mode") is not None and self._has_user_followup(state["messages"])
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # Skip the filesystem walk once skills_metadata is in state — upstream `abefore_agent` also
+        # Skip the filesystem walk once skills_metadata is in state — upstream also
         # short-circuits on the same condition, so re-walking is pure waste on turns 2+.
         local_load_errors: list[str] = []
-        if "skills_metadata" not in state:
+        if "skills_metadata" not in state and not self._sandbox_enabled:
             local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
         if local_load_errors and skills_update is not None:
             skills_update.setdefault("skills_load_errors", []).extend(local_load_errors)
-
-        skills_metadata = skills_update["skills_metadata"] if skills_update else state["skills_metadata"]
-
-        builtin_slash_commands = None
-        if runtime.context.config.slash_commands.enabled:
-            builtin_slash_commands = await self._apply_builtin_slash_commands(
-                state["messages"], runtime.context, skills_metadata
-            )
-
-        if builtin_slash_commands:
-            if skills_update is not None and "skills_load_errors" in skills_update:
-                builtin_slash_commands["skills_load_errors"] = skills_update["skills_load_errors"]
-            if clear_skill_mode:
-                builtin_slash_commands["active_skill_mode"] = None
-            return builtin_slash_commands
 
         if clear_skill_mode:
             return {**(skills_update or {}), "active_skill_mode": None}
@@ -315,88 +297,6 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 break
 
         return False
-
-    async def _apply_builtin_slash_commands(
-        self, messages: list[AnyMessage], context: RuntimeCtx, skills: list[SkillMetadata]
-    ) -> SkillsStateUpdate | None:
-        """
-        Detect and execute builtin slash commands (not project skills) early in the conversation.
-
-        Args:
-            messages: The list of messages.
-            context: The runtime context.
-            skills: The list of skills.
-
-        Returns:
-            State update with messages injected, or None if no builtin slash command detected.
-        """
-        slash_command = self._extract_slash_command(messages, context.bot_username)
-        if not slash_command:
-            return None
-
-        command_classes = slash_command_registry.get_commands(scope=context.scope, command=slash_command.command)
-        if not command_classes:
-            return None
-
-        if len(command_classes) > 1:
-            logger.warning(
-                "[%s] Multiple `%s` slash commands found for scope '%s': %r",
-                self.name,
-                slash_command.command,
-                context.scope.value,
-                [c.command for c in command_classes],
-            )
-            return None
-
-        command = command_classes[0](
-            scope=context.scope, repo_id=context.repository.slug, bot_username=context.bot_username
-        )
-        logger.info("[%s] Executing `%s` slash command", self.name, slash_command.raw)
-
-        try:
-            result = await command.execute_for_agent(
-                args=" ".join(slash_command.args),
-                issue_iid=context.issue.iid if context.issue else None,
-                merge_request_id=context.merge_request.merge_request_id if context.merge_request else None,
-                available_skills=skills,
-                available_subagents=self.subagents,
-            )
-        except Exception:
-            logger.exception("[%s] Failed to execute `%s` slash command", self.name, slash_command.raw)
-            # Intentionally do not honor ``resets_thread`` here: if ``execute_for_agent`` raised,
-            # any checkpointer-side wipe (e.g. ``/clear``'s ``delete_thread``) may not have run,
-            # so keeping in-memory history avoids diverging state from the still-populated Redis
-            # checkpoint.
-            return {"messages": [AIMessage(content=f"Failed to execute `{slash_command.raw}`.")], "jump_to": "end"}
-        else:
-            logger.info("[%s] `%s` slash command completed", self.name, slash_command.raw)
-            # ``resets_thread`` commands (e.g. ``/clear``) must drop the in-memory history;
-            # otherwise the final checkpoint write of this turn re-persists every prior message
-            # under the same ``thread_id``, resurrecting messages the command just deleted.
-            reset_prefix: list = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] if command.resets_thread else []
-            return {"messages": [*reset_prefix, AIMessage(content=result)], "jump_to": "end"}
-
-    def _extract_slash_command(self, messages: list[AnyMessage], bot_username: str) -> SlashCommandCommand | None:
-        """
-        Extract the slash command from the latest message.
-
-        Args:
-            messages: The list of messages.
-            bot_username: The username of the bot.
-
-        Returns:
-            The slash command command if found, otherwise None.
-        """
-        latest_message = messages[-1]
-
-        if not hasattr(latest_message, "type") or latest_message.type != "human":
-            return None
-
-        text_content = extract_text_content(latest_message.content)
-        if not text_content or not text_content.strip():
-            return None
-
-        return parse_slash_command(text_content, bot_username)
 
     def _skill_tool_generator(self) -> BaseTool:
         """Generate a skill tool."""
