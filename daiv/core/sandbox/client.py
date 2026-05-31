@@ -86,7 +86,7 @@ class DAIVSandboxClient:
         self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
     ) -> None:
         """
-        Seed a session with the initial state of /repo and/or /skills.
+        Seed a session with the initial state of /workspace/repo and/or /workspace/skills.
 
         One-shot per session: a 409 from the sandbox (already seeded) is treated
         as a no-op so retries and checkpoint replays are safe.
@@ -106,54 +106,53 @@ class DAIVSandboxClient:
 
     async def apply_file_mutations(self, session_id: str, request: ApplyMutationsRequest) -> ApplyMutationsResponse:
         """
-        Apply a batch of file mutations to /repo on the sandbox session.
+        Apply a batch of file mutations to /workspace/repo on the sandbox session.
 
-        Per-item failures are returned as `MutationResult(ok=False, error=...)`.
-        Caller (e.g. the sync wrapper) is responsible for rolling back local
-        state when `ok=False` or when this method raises.
+        Per-item failures are returned as `MutationResult(ok=False, error=...)`; the caller
+        decides how to react when `ok=False` or when this method raises.
         """
         response = await self._client.post(f"session/{session_id}/files/", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return ApplyMutationsResponse.model_validate(response.json())
 
     async def fs_ls(self, session_id: str, request: FsLsRequest) -> FsLsResponse:
-        """List a directory under ``/scratch`` on the sandbox session."""
+        """List a directory under ``/workspace`` on the sandbox session."""
         response = await self._client.post(f"session/{session_id}/fs/ls", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return FsLsResponse.model_validate(response.json())
 
     async def fs_read(self, session_id: str, request: FsReadRequest) -> FsReadResponse:
-        """Read a file under ``/scratch`` on the sandbox session."""
+        """Read a file under ``/workspace`` on the sandbox session."""
         response = await self._client.post(f"session/{session_id}/fs/read", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return FsReadResponse.model_validate(response.json())
 
     async def fs_grep(self, session_id: str, request: FsGrepRequest) -> FsGrepResponse:
-        """Search file contents under ``/scratch`` on the sandbox session."""
+        """Search file contents under ``/workspace`` on the sandbox session."""
         response = await self._client.post(f"session/{session_id}/fs/grep", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return FsGrepResponse.model_validate(response.json())
 
     async def fs_glob(self, session_id: str, request: FsGlobRequest) -> FsGlobResponse:
-        """Glob for files under ``/scratch`` on the sandbox session."""
+        """Glob for files under ``/workspace`` on the sandbox session."""
         response = await self._client.post(f"session/{session_id}/fs/glob", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return FsGlobResponse.model_validate(response.json())
 
     async def fs_write(self, session_id: str, request: FsWriteRequest) -> FsWriteResponse:
-        """Write a file under ``/scratch`` on the sandbox session."""
+        """Write a file under ``/workspace`` on the sandbox session."""
         response = await self._client.post(f"session/{session_id}/fs/write", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return FsWriteResponse.model_validate(response.json())
 
     async def fs_edit(self, session_id: str, request: FsEditRequest) -> FsEditResponse:
-        """Edit a file under ``/scratch`` on the sandbox session."""
+        """Edit a file under ``/workspace`` on the sandbox session."""
         response = await self._client.post(f"session/{session_id}/fs/edit", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return FsEditResponse.model_validate(response.json())
 
     async def fs_delete(self, session_id: str, request: FsDeleteRequest) -> FsDeleteResponse:
-        """Delete a file under ``/scratch`` on the sandbox session."""
+        """Delete a file under ``/workspace`` on the sandbox session."""
         response = await self._client.post(f"session/{session_id}/fs/delete", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return FsDeleteResponse.model_validate(response.json())

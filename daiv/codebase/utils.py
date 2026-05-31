@@ -239,6 +239,24 @@ class GitManager:
         self._session_id = session_id
         self._repo_path = repo_path
 
+    @classmethod
+    def for_local(cls, repo: Repo) -> GitManager:
+        """Local-mode manager over a GitPython clone (sandbox-disabled / repoless runs).
+
+        Preferred over ``GitManager(repo)`` at call sites: it names the mode and makes the
+        "exactly one mode" invariant unrepresentable by construction.
+        """
+        return cls(repo=repo)
+
+    @classmethod
+    def for_sandbox(cls, client: DAIVSandboxClient, session_id: str, *, repo_path: str | None = None) -> GitManager:
+        """Sandbox-mode manager that runs git in the session's ``repo_path`` (``/workspace/repo``).
+
+        Preferred over ``GitManager(client=..., session_id=...)``: the required ``session_id`` is
+        positional, so a sandbox manager can't be built without one.
+        """
+        return cls(client=client, session_id=session_id, repo_path=repo_path)
+
     # -- git invocation ------------------------------------------------------
     async def _git(self, *args: str, check: bool = True) -> _GitResult:
         """Run one git command in the repo. Raises ``GitCommandError`` on a non-zero
@@ -255,6 +273,10 @@ class GitManager:
             raise RuntimeError("GitManager is not in sandbox mode")
         command = " ".join(_shell_quote(token) for token in ("git", "-C", self._repo_path, *args))
         response = await client.run_commands(session_id, RunCommandsRequest(commands=[command], fail_fast=True))
+        if not response.results:
+            # The sandbox always returns one result per command; an empty list is a wire-level
+            # anomaly. Fail with context rather than a bare IndexError on ``results[0]``.
+            raise RuntimeError(f"Sandbox returned no result for: git {' '.join(args)}")
         result = response.results[0]
         return _GitResult(exit_code=result.exit_code, output=result.output)
 
@@ -280,22 +302,58 @@ class GitManager:
         return bool((await self._git("status", "--porcelain")).output.strip())
 
     async def get_diff(self, ref: str = "HEAD") -> str:
-        """Diff against ``ref``, including untracked files (via ``ls-files`` + ``diff --no-index``)."""
-        diff = (await self._git("diff", ref, check=False)).output
-        untracked = (await self._git("ls-files", "--others", "--exclude-standard", check=False)).output
+        """Diff against ``ref``, including untracked files (via ``ls-files`` + ``diff --no-index``).
+
+        A non-zero exit from ``git diff <ref>`` is a real error — plain ``git diff`` never uses
+        exit 1 for "differences found" (only ``--no-index``/``--quiet`` do). So we raise rather than
+        fold the ``fatal: ...`` text into the returned diff, which would otherwise corrupt
+        commit-message / MR-metadata generation and the publish decision. The sole expected
+        non-zero case is ``ref="HEAD"`` in a repo with no commits yet ("bad revision HEAD"), where
+        we fall back to the staged diff (matching the prior behaviour for repoless/empty repos).
+        """
+        result = await self._git("diff", ref, check=False)
+        if result.exit_code == 0:
+            diff = result.output
+        elif ref == "HEAD":
+            diff = (await self._git("diff", "--cached", "--no-prefix", check=False)).output
+        else:
+            raise GitCommandError(["git", "diff", ref], result.exit_code, result.output)
+
+        untracked = (await self._git("ls-files", "--others", "--exclude-standard")).output
         for file in (line.strip() for line in untracked.splitlines() if line.strip()):
-            # `git diff --no-index` exits 1 when differences are found; we still want the output.
-            file_diff = (await self._git("diff", "--no-index", "/dev/null", file, check=False)).output
-            if file_diff:
-                diff += f"\n{file_diff}"
+            # `git diff --no-index` exits 1 when it finds differences (expected, keep the output);
+            # exit >1 is a genuine error and must surface rather than be swallowed.
+            file_result = await self._git("diff", "--no-index", "/dev/null", file, check=False)
+            if file_result.exit_code > 1:
+                raise GitCommandError(
+                    ["git", "diff", "--no-index", "/dev/null", file], file_result.exit_code, file_result.output
+                )
+            if file_result.output:
+                diff += f"\n{file_result.output}"
         if diff and not diff.endswith("\n"):
             diff += "\n"
         return diff
 
     async def has_unpushed(self, branch: str) -> bool:
-        """Whether local HEAD has commits not present on ``origin/<branch>``."""
-        out = (await self._git("log", f"origin/{branch}..HEAD", "--oneline", check=False)).output
-        return bool(out.strip())
+        """Whether local HEAD has commits not present on ``origin/<branch>``.
+
+        ``git log origin/<branch>..HEAD`` runs with ``check=False`` because a missing
+        ``origin/<branch>`` ref (a branch never pushed yet, or not fetched) exits non-zero with
+        ``fatal: ambiguous argument``. We branch on the exit code rather than the truthiness of the
+        merged output, so a diagnostic line can't masquerade as commit output: a non-zero exit means
+        the upstream doesn't resolve, i.e. nothing is pushed yet, so all of HEAD counts as unpushed.
+        The failure is logged so a genuine git error is still visible.
+        """
+        result = await self._git("log", f"origin/{branch}..HEAD", "--oneline", check=False)
+        if result.exit_code != 0:
+            logger.warning(
+                "has_unpushed: `git log origin/%s..HEAD` exited %s; treating as unpushed. Output: %s",
+                branch,
+                result.exit_code,
+                result.output.strip(),
+            )
+            return True
+        return bool(result.output.strip())
 
     # -- mutations -----------------------------------------------------------
     async def commit_and_push_changes(
@@ -311,17 +369,17 @@ class GitManager:
 
         Mirrors the prior GitPython semantics: branch-exists (local/remote) handling,
         ``override_commits`` force-recreate, unique-name generation when
-        ``use_branch_if_exists`` is False, and a typed ``GitPushPermissionError`` on auth
-        failures. Returns the branch name actually pushed to.
+        ``use_branch_if_exists`` is False, and typed ``GitPushPermissionError`` /
+        ``GitPushNetworkError`` on auth / unreachable-host failures. Returns the branch name
+        actually pushed to.
         """
         await self._git("fetch", "origin", check=False)
 
-        local_branch_names = self._parse_local_branches(
-            (await self._git("branch", "--format=%(refname:short)", check=False)).output
-        )
-        remote_branch_names = self._parse_remote_branches(
-            (await self._git("ls-remote", "--heads", "origin", check=False)).output
-        )
+        # Branch listings run with check=True: a failing `branch`/`ls-remote` must raise rather
+        # than parse to an empty list, which would corrupt the branch-exists decision below
+        # (the same exit-code discipline applied to get_diff/has_unpushed).
+        local_branch_names = self._parse_local_branches((await self._git("branch", "--format=%(refname:short)")).output)
+        remote_branch_names = self._parse_remote_branches((await self._git("ls-remote", "--heads", "origin")).output)
 
         branch_exists_locally = branch_name in local_branch_names
         branch_exists_remotely = branch_name in remote_branch_names
@@ -348,11 +406,7 @@ class GitManager:
         push_args = ["push", "origin", branch_name, *(["--force"] if override_commits else [])]
         push = await self._git(*push_args, check=False)
         if push.exit_code != 0:
-            if _is_push_auth_error_text(push.output):
-                raise GitPushPermissionError(
-                    "Failed to push changes to the remote repository due to authentication or permission issues."
-                )
-            raise GitCommandError(["git", *push_args], push.exit_code, push.output)
+            _raise_for_push_failure(push_args, push)
 
         return branch_name
 
@@ -372,22 +426,24 @@ class GitManager:
     async def push_head_to(self, branch: str, *, force: bool = False) -> str:
         """Push the current ``HEAD`` to ``origin/<branch>`` (creating it if needed).
 
-        Raises ``GitPushPermissionError`` on an auth/permission failure and
-        ``GitCommandError`` on any other push failure. Returns ``branch``.
+        Raises ``GitPushPermissionError`` on an auth/permission failure,
+        ``GitPushNetworkError`` when the remote host is unreachable (e.g. a network-disabled
+        sandbox), and ``GitCommandError`` on any other push failure. Returns ``branch``.
         """
         push_args = ["push", "origin", f"HEAD:{branch}", *(["--force"] if force else [])]
         push = await self._git(*push_args, check=False)
         if push.exit_code != 0:
-            if _is_push_auth_error_text(push.output):
-                raise GitPushPermissionError(
-                    "Failed to push changes to the remote repository due to authentication or permission issues."
-                )
-            raise GitCommandError(["git", *push_args], push.exit_code, push.output)
+            _raise_for_push_failure(push_args, push)
         return branch
 
     async def remote_branches(self) -> list[str]:
-        """Branch names that currently exist on ``origin``."""
-        return self._parse_remote_branches((await self._git("ls-remote", "--heads", "origin", check=False)).output)
+        """Branch names that currently exist on ``origin``.
+
+        ``ls-remote`` runs with ``check=True`` so an unreachable or erroring remote raises
+        ``GitCommandError`` rather than silently parsing to ``[]`` — an empty list here would make
+        ``unique_branch_name`` believe no branches exist and risk picking a colliding name.
+        """
+        return self._parse_remote_branches((await self._git("ls-remote", "--heads", "origin")).output)
 
     def unique_branch_name(self, original_branch_name: str, existing_branch_names: list[str]) -> str:
         """Public wrapper over :meth:`_gen_unique_branch_name` for callers outside this class."""
@@ -478,6 +534,15 @@ class GitPushPermissionError(RuntimeError):
     """
 
 
+class GitPushNetworkError(RuntimeError):
+    """Raised when pushing fails because the remote host is unreachable.
+
+    Typically a sandbox-authoritative run whose sandbox environment is configured with
+    ``network_enabled=False``: git runs (and therefore pushes) from inside the sandbox, so the
+    sandbox must have network access for the push to reach ``origin``.
+    """
+
+
 def _is_push_auth_error_text(output: str) -> bool:
     """
     Check if git push output indicates an authentication or permission failure.
@@ -495,3 +560,45 @@ def _is_push_auth_error_text(output: str) -> bool:
             "not authorized",
         )
     )
+
+
+def _is_push_network_error_text(output: str) -> bool:
+    """Check if git push output indicates the remote host was unreachable (network failure).
+
+    Kept distinct from the auth markers so a network-disabled sandbox produces an actionable
+    ``GitPushNetworkError`` rather than a raw ``GitCommandError``. Checked only after the auth
+    markers, so an auth failure that also mentions a URL is never misclassified as a network one.
+    """
+    text = output.lower()
+    return any(
+        marker in text
+        for marker in (
+            "could not resolve host",
+            "could not resolve proxy",
+            "temporary failure in name resolution",
+            "connection refused",
+            "connection timed out",
+            "failed to connect",
+            "network is unreachable",
+            "no route to host",
+        )
+    )
+
+
+def _raise_for_push_failure(push_args: list[str], result: _GitResult) -> None:
+    """Translate a failed ``git push`` into a typed, actionable error.
+
+    Auth/permission → ``GitPushPermissionError``; an unreachable host → ``GitPushNetworkError``;
+    anything else → the raw ``GitCommandError``. Auth is checked first so it always wins.
+    """
+    if _is_push_auth_error_text(result.output):
+        raise GitPushPermissionError(
+            "Failed to push changes to the remote repository due to authentication or permission issues."
+        )
+    if _is_push_network_error_text(result.output):
+        raise GitPushNetworkError(
+            "Failed to push changes: the remote host is unreachable. Sandbox-authoritative auto-commit "
+            "pushes from inside the sandbox, so the sandbox environment must run with network access "
+            "(network_enabled=True)."
+        )
+    raise GitCommandError(["git", *push_args], result.exit_code, result.output)

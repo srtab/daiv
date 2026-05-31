@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from git import Repo
+from git import GitCommandError, Repo
 
-from codebase.utils import GitManager, GitPushPermissionError, apply_patch_to_dir
+from codebase.utils import GitManager, GitPushNetworkError, GitPushPermissionError, _shell_quote, apply_patch_to_dir
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 # ---------------------------------------------------------------------------
@@ -358,3 +358,190 @@ def test_apply_patch_to_dir_raises_runtime_error_on_invalid_patch(tmp_path: Path
 
     with pytest.raises(RuntimeError, match="git apply"):
         apply_patch_to_dir(bogus_diff, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Constructors / mode validation (classmethods)
+# ---------------------------------------------------------------------------
+
+
+def test_classmethod_constructors(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    assert GitManager.for_local(repo).repo is repo
+
+    gm = GitManager.for_sandbox(FakeSandboxClient(), "sid")  # type: ignore[arg-type]
+    assert gm._session_id == "sid"
+    assert gm.repo is None
+
+
+# ---------------------------------------------------------------------------
+# _shell_quote (sandbox command construction)
+# ---------------------------------------------------------------------------
+
+
+def test_shell_quote_passes_safe_args_through() -> None:
+    assert _shell_quote("status") == "status"
+    assert _shell_quote("--porcelain") == "--porcelain"
+    assert _shell_quote("origin/main..HEAD") == "origin/main..HEAD"
+
+
+def test_shell_quote_single_quotes_args_with_spaces() -> None:
+    assert _shell_quote("fix: thing") == "'fix: thing'"
+
+
+def test_shell_quote_escapes_embedded_single_quote() -> None:
+    # The POSIX idiom: close the quote, emit an escaped quote, reopen — `'\''`.
+    assert _shell_quote("don't") == "'don'\\''t'"
+
+
+def test_shell_quote_preserves_newlines_inside_quotes() -> None:
+    quoted = _shell_quote("line1\nline2")
+    assert quoted.startswith("'") and quoted.endswith("'")
+    assert "\n" in quoted
+
+
+async def test_shell_quote_applied_to_commit_message_with_apostrophe() -> None:
+    gm, client = _sandbox_manager({"refname:short": (0, "main\n"), "ls-remote --heads": (0, "")})
+    await gm.commit_and_push_changes("fix: don't break", branch_name="fix")
+    assert client.ran("commit -m 'fix: don'\\''t break'")
+
+
+# ---------------------------------------------------------------------------
+# _git error-propagation contract (check=True must raise)
+# ---------------------------------------------------------------------------
+
+
+async def test_sandbox_git_check_raises_on_nonzero_exit() -> None:
+    gm, _ = _sandbox_manager({"add -A": (1, "fatal: boom")})
+    with pytest.raises(GitCommandError):
+        await gm.commit_all("msg")
+
+
+async def test_local_git_check_raises_on_nonzero_exit(tmp_path: Path) -> None:
+    # Clean tree -> `git commit` exits non-zero ("nothing to commit"); check=True must raise.
+    repo, _ = _init_repo_with_origin(tmp_path)
+    with pytest.raises(GitCommandError):
+        await GitManager(repo).commit_all("nothing staged")
+
+
+async def test_sandbox_empty_results_raises_runtime_error() -> None:
+    class _EmptyClient:
+        async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
+            return RunCommandsResponse(results=[], patch=None)
+
+    gm = GitManager(client=_EmptyClient(), session_id="sid")  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="no result"):
+        await gm.is_dirty()
+
+
+# ---------------------------------------------------------------------------
+# get_diff error handling (no error text folded into the diff)
+# ---------------------------------------------------------------------------
+
+
+async def test_sandbox_get_diff_raises_on_missing_ref() -> None:
+    gm, _ = _sandbox_manager({"diff origin/main": (128, "fatal: ambiguous argument 'origin/main': unknown revision")})
+    with pytest.raises(GitCommandError):
+        await gm.get_diff("origin/main")
+
+
+async def test_sandbox_get_diff_falls_back_to_staged_diff_for_empty_repo() -> None:
+    # `ref="HEAD"` with no commits: fall back to the staged diff rather than raising.
+    gm, client = _sandbox_manager({
+        "diff HEAD": (128, "fatal: bad revision 'HEAD'"),
+        "diff --cached": (0, "staged diff\n"),
+    })
+    diff = await gm.get_diff("HEAD")
+    assert "staged diff" in diff
+    assert client.ran("diff --cached --no-prefix")
+
+
+# ---------------------------------------------------------------------------
+# has_unpushed (missing upstream ref must not masquerade as commit output)
+# ---------------------------------------------------------------------------
+
+
+async def test_sandbox_has_unpushed_treats_missing_ref_as_unpushed() -> None:
+    gm, _ = _sandbox_manager({"log origin/new..HEAD": (128, "fatal: ambiguous argument 'origin/new..HEAD'")})
+    assert await gm.has_unpushed("new") is True
+
+
+# ---------------------------------------------------------------------------
+# push_head_to failure classification
+# ---------------------------------------------------------------------------
+
+
+async def test_push_head_to_raises_permission_error_on_auth_failure() -> None:
+    gm, _ = _sandbox_manager({"push origin HEAD:b": (128, "...The requested URL returned error: 403")})
+    with pytest.raises(GitPushPermissionError):
+        await gm.push_head_to("b")
+
+
+async def test_push_head_to_raises_network_error_on_unreachable_host() -> None:
+    gm, _ = _sandbox_manager({
+        "push origin HEAD:b": (128, "fatal: unable to access 'https://...': Could not resolve host: gitlab.example.com")
+    })
+    with pytest.raises(GitPushNetworkError):
+        await gm.push_head_to("b")
+
+
+async def test_push_head_to_raises_git_command_error_on_other_failure() -> None:
+    gm, _ = _sandbox_manager({"push origin HEAD:b": (1, "fatal: some other push failure")})
+    with pytest.raises(GitCommandError):
+        await gm.push_head_to("b")
+
+
+# ---------------------------------------------------------------------------
+# commit_and_push_changes: override_commits force-recreate path
+# ---------------------------------------------------------------------------
+
+
+async def test_sandbox_commit_and_push_override_commits_force_recreates_branch() -> None:
+    gm, client = _sandbox_manager({
+        "refname:short": (0, "main\nfix\n"),  # `fix` exists locally
+        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\ncafef00d\trefs/heads/fix\n"),  # and remotely
+    })
+    branch = await gm.commit_and_push_changes("msg", branch_name="fix", override_commits=True)
+
+    assert branch == "fix"
+    assert client.ran("branch -D fix")  # force-delete the stale local branch
+    assert client.ran("checkout -b fix")  # recreate it
+    assert client.ran("push origin fix --force")
+
+
+# ---------------------------------------------------------------------------
+# _parse_remote_branches (ls-remote line parsing)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_remote_branches_filters_non_heads() -> None:
+    out = "deadbeef\trefs/heads/main\ncafef00d\trefs/tags/v1\nbeef\trefs/heads/feature\n"
+    assert GitManager._parse_remote_branches(out) == ["main", "feature"]
+
+
+async def test_get_diff_raises_on_no_index_hard_error() -> None:
+    # `git diff --no-index` exit 1 = "differs" (kept); exit >1 is a genuine error and must raise
+    # rather than be swallowed into the diff.
+    gm, _ = _sandbox_manager({
+        "diff HEAD": (0, ""),
+        "ls-files --others": (0, "weird.bin\n"),
+        "--no-index": (2, "fatal: something broke"),
+    })
+    with pytest.raises(GitCommandError):
+        await gm.get_diff()
+
+
+async def test_push_head_to_auth_wins_over_network_markers() -> None:
+    # Output mentions BOTH a resolve-host failure and a 403; auth must win (checked first).
+    gm, _ = _sandbox_manager({
+        "push origin HEAD:b": (128, "Could not resolve host: x ... The requested URL returned error: 403")
+    })
+    with pytest.raises(GitPushPermissionError):
+        await gm.push_head_to("b")
+
+
+async def test_remote_branches_raises_on_ls_remote_failure() -> None:
+    # A failing ls-remote must raise, not parse to [] (which would risk a colliding branch name).
+    gm, _ = _sandbox_manager({"ls-remote --heads": (128, "fatal: could not read from remote repository")})
+    with pytest.raises(GitCommandError):
+        await gm.remote_branches()

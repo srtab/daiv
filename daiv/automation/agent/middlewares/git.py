@@ -119,14 +119,26 @@ class GitState(AgentState):
 
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     """
-    Middleware to handle the git operations and persist changes made by the DAIV agent to the repository.
+    Middleware that ensures the changes a DAIV run makes are published to a merge/pull request.
 
-    The middleware will commit and push the changes to the repository and create a merge request if necessary.
-    The branch name and merge request ID will be stored in the state to be used later, ensuring that the same branch
-    and merge request are used for subsequent commits.
+    Two modes, decided at construction:
+
+    - **Agent-owned** (sandbox-authoritative + auto-commit): the agent gets ``commit_changes`` /
+      ``create_merge_request`` tools and publishes its own work. ``aafter_model`` nudges it (up to
+      ``MAX_GIT_NUDGES``) to publish before it stops, and ``aafter_agent`` is a safeguard that
+      publishes directly only if the agent left work unpublished.
+    - **Safeguard-only** (otherwise): the tools are absent and ``aafter_agent`` is the sole
+      publisher, committing/pushing via :class:`GitChangePublisher`.
+
+    The resolved merge request is stored in state so subsequent turns reuse the same branch and MR.
 
     Args:
-        skip_ci: Whether to skip the CI.
+        skip_ci: Prefix the commit with ``[skip ci]``. Applies only to the daiv-direct
+            (``aafter_agent`` / publisher) path; agent-owned commits never skip CI.
+        auto_commit_changes: Whether the run publishes its changes at all. When ``False`` the
+            middleware is inert (no tools, no safeguard).
+        sandbox_enabled: Whether the run operates on a sandbox-authoritative workspace. Combined
+            with ``auto_commit_changes`` this gates whether the agent owns committing.
 
     Example:
         ```python
@@ -152,6 +164,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         """
         Initialize the middleware.
         """
+        # ``skip_ci`` only affects the daiv-direct publish path (``aafter_agent`` → publisher);
+        # the agent-owned ``commit_changes``/``create_merge_request`` tools do not prefix
+        # ``[skip ci]``, so a skip-CI run must rely on the safeguard rather than agent commits.
         self.skip_ci = skip_ci
         self.auto_commit_changes = auto_commit_changes
         # The agent owns committing/MR creation only when it can act on a sandbox-authoritative

@@ -222,6 +222,11 @@ class SandboxFileBackend(BackendProtocol):
     here would be a programming error). ``delete`` and ``stat_mode`` round out
     ``DAIVBackendProtocol``; ``stat_mode`` returns a constant since the sandbox is
     authoritative (no mirror to a local repo), so exact mode bits are irrelevant.
+
+    Note: ``awrite`` writes files at a fixed ``0o644`` (the file tools don't carry a mode), so
+    an executable bit must be set via ``bash`` (``chmod +x``) in the sandbox, not through the
+    file tools. ``aedit`` carries no mode (``FsEditRequest`` has no mode field), so the sandbox
+    edits in place and leaves the existing file's mode untouched.
     """
 
     def __init__(self, *, root: str, client: DAIVSandboxClient | None = None, session_id: str | None = None) -> None:
@@ -230,7 +235,20 @@ class SandboxFileBackend(BackendProtocol):
         self._session_id = session_id
 
     def bind(self, client: DAIVSandboxClient, session_id: str) -> None:
-        """Attach the live per-run client + session. Called once the sandbox session exists."""
+        """Attach the live per-run client + session. Called once the sandbox session exists.
+
+        The backend is tied to one **workspace**, identified by ``session_id``. Subagents share
+        the parent's backend instance but each ``SandboxMiddleware`` opens its *own* client, so a
+        subagent legitimately re-binds the *same* session through a *different* client — that is
+        allowed (the new client just becomes the window onto the same session). Re-binding to a
+        *different* session is a programming error and raises, rather than silently redirecting
+        every file op to another workspace.
+        """
+        if self._session_id is not None and self._session_id != session_id:
+            raise RuntimeError(
+                f"SandboxFileBackend is already bound to session {self._session_id!r}; "
+                f"refusing to rebind to {session_id!r}"
+            )
         self._client = client
         self._session_id = session_id
 
@@ -340,6 +358,10 @@ class SandboxFileBackend(BackendProtocol):
     async def delete(self, virtual_path: str) -> bool:
         client, session_id = self._require_bound()
         resp = await client.fs_delete(session_id, FsDeleteRequest(path=self._abs(virtual_path)))
+        if not resp.ok:
+            # The protocol return is a bare bool, so the sandbox's reason would otherwise be lost;
+            # log it so a failed delete is diagnosable rather than a silent ``False``.
+            logger.warning("Sandbox delete failed for %s: %s", virtual_path, resp.error or "unknown sandbox error")
         return resp.ok
 
     async def stat_mode(self, virtual_path: str) -> int:

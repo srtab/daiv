@@ -319,6 +319,33 @@ class TestPublishSuggestsContextFile:
             await publisher.publish(merge_request=None)
             assert publisher.protected_branch_fallback_source is None
 
+    async def test_publish_propagates_push_failure_without_creating_mr(self, publisher, monkeypatch):
+        """If the daiv-direct push fails, publish() must propagate (fail loud) and NOT open an MR
+        against a branch that never landed on the remote."""
+        from codebase.utils import GitPushNetworkError
+
+        gm = _fake_git_manager()
+        gm.push_head_to = AsyncMock(side_effect=GitPushNetworkError("no network"))
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(publisher, "_create_merge_request") as mock_create,
+            patch.object(publisher, "_suggest_context_file") as mock_suggest,
+        ):
+            with pytest.raises(GitPushNetworkError):
+                await publisher.publish(merge_request=None)
+
+            mock_create.assert_not_called()
+            mock_suggest.assert_not_called()
+
     async def test_does_not_suggest_on_existing_mr(self, publisher, monkeypatch):
         mr = _make_merge_request()
         gm = _fake_git_manager()

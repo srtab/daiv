@@ -399,8 +399,8 @@ class SandboxMiddleware(AgentMiddleware):
         Starts the session, seeds the workspace from the on-disk repo, and
         cleans up the session on seed failure to avoid container leaks. The
         client stays open for the rest of the agent run so every bash call
-        and (for the file-system middleware) every file mirror reuses the
-        same connection pool.
+        and every file-tool RPC (via the bound ``SandboxFileBackend``) reuses
+        the same connection pool.
 
         Args:
             state (StateT): The state of the agent.

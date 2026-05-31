@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from codebase.utils import GitManager
 from core.sandbox.client import DAIVSandboxClient
@@ -31,8 +31,8 @@ async def open_git_manager(*, session_id: str | None, gitrepo: Repo | None) -> A
         client = DAIVSandboxClient()
         await client.open()
         try:
-            yield GitManager(client=client, session_id=session_id)
+            yield GitManager.for_sandbox(client, session_id)
         finally:
             await client.close()
     else:
-        yield GitManager(repo=gitrepo)
+        yield GitManager.for_local(cast("Repo", gitrepo))

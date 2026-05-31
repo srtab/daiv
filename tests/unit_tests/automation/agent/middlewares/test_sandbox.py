@@ -86,6 +86,48 @@ def _bash_tool_with_fake_client(client: Mock):
     return middleware.tools[0]
 
 
+class TestBindBackend:
+    def test_bind_backend_binds_sandbox_file_backend(self):
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        backend = SandboxFileBackend(root="/workspace")
+        mw = SandboxMiddleware(backend=backend, agent_root="/workspace/repo")
+        mw._client = AsyncMock()
+
+        mw._bind_backend("sid")
+        assert backend._session_id == "sid"
+
+        # Subagents share the parent's backend: re-binding the same session must not raise.
+        mw._bind_backend("sid")
+        assert backend._session_id == "sid"
+
+    def test_bind_backend_noop_for_non_sandbox_backend(self):
+        backend = Mock()  # a disk-backed / composite backend is not a SandboxFileBackend
+        mw = SandboxMiddleware(backend=backend, agent_root="/x")
+        mw._client = AsyncMock()
+
+        mw._bind_backend("sid")
+        backend.bind.assert_not_called()
+
+    def test_bind_backend_subagent_reuses_parent_session_with_own_client(self):
+        """Regression: parent and subagent share ONE backend, but each middleware has its OWN
+        client. The subagent re-binds the parent's session through its own client — this must
+        not raise (the session, not the client, identifies the workspace)."""
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        backend = SandboxFileBackend(root="/workspace")
+        parent = SandboxMiddleware(backend=backend, agent_root="/workspace/repo")
+        parent._client = AsyncMock()
+        parent._bind_backend("sid")
+
+        subagent = SandboxMiddleware(backend=backend, agent_root="/workspace/repo", close_session=False)
+        subagent._client = AsyncMock()  # distinct client object
+        subagent._bind_backend("sid")  # must not raise
+
+        assert backend._client is subagent._client
+        assert backend._session_id == "sid"
+
+
 class TestBashTool:
     async def test_bash_tool_returns_results_json_without_applying_patch(self, tmp_path: Path):
         """The sandbox is authoritative: the bash tool reports ``files_changed`` derived from

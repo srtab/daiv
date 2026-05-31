@@ -6,7 +6,11 @@ from typing import Annotated, cast
 from django.template.loader import render_to_string
 from django.utils.text import slugify
 
+import httpx
 from asgiref.sync import sync_to_async
+from git import GitCommandError
+from github import GithubException
+from gitlab.exceptions import GitlabError
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -16,12 +20,20 @@ from automation.agent.git_utils import open_git_manager
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.utils import GitPushNetworkError, GitPushPermissionError
 from core.constants import BOT_LABEL, BOT_NAME
 
 logger = logging.getLogger("daiv.tools")
 
 COMMIT_CHANGES_NAME = "commit_changes"
 CREATE_MERGE_REQUEST_NAME = "create_merge_request"
+
+# Commit/push failures we translate into a tool-visible message so the agent can explain or
+# recover, rather than crashing the run with an uncaught exception.
+_PUSH_FAILURES = (GitCommandError, GitPushPermissionError, GitPushNetworkError)
+# Platform/transport errors from the MR API call. Bugs (KeyError, AttributeError, …) still
+# propagate so the run fails loudly rather than masking a defect as a tool error.
+_MR_API_FAILURES = (GitlabError, GithubException, httpx.HTTPError)
 
 COMMIT_CHANGES_DESCRIPTION = """\
 Commit the changes you have made in the workspace so far (`git add -A` + `git commit`).
@@ -41,7 +53,8 @@ Push your committed changes and open (or update) the merge/pull request for this
 Provide a clear `title` and a `description` (markdown) authored by you — these become the
 MR/PR title and body. Optionally pass `branch` to control the source branch name; otherwise
 one is derived from the title. When this run is already attached to an open MR/PR, the
-changes are pushed to that branch and the existing MR/PR is updated instead of creating a new one.
+changes are pushed to that branch and the existing MR/PR is updated instead of creating a new
+one — in that case `branch` is ignored (the existing source branch is reused).
 
 Any still-uncommitted changes are committed first (using the title as the message) so no work
 is lost. Returns the merge/pull request URL.
@@ -60,6 +73,16 @@ def _resolve_assignee_id(ctx: RuntimeCtx) -> str | int | None:
     return None
 
 
+def _tool_error(runtime: ToolRuntime[RuntimeCtx], message: str) -> Command:
+    """Return a Command carrying an error ``ToolMessage`` so the agent sees (and can act on) a
+    failure as a tool result instead of the run crashing on an uncaught exception."""
+    return Command(
+        update={
+            "messages": [ToolMessage(content=f"error: {message}", tool_call_id=runtime.tool_call_id, status="error")]
+        }
+    )
+
+
 @tool(COMMIT_CHANGES_NAME, description=COMMIT_CHANGES_DESCRIPTION)
 async def commit_changes(
     message: Annotated[str, "A clear, conventional commit message for the staged changes."],
@@ -70,7 +93,15 @@ async def commit_changes(
     async with open_git_manager(session_id=session_id, gitrepo=runtime.context.gitrepo) as git_manager:
         if not await git_manager.is_dirty():
             return "Nothing to commit: the working tree is clean."
-        await git_manager.commit_all(message)
+        try:
+            await git_manager.commit_all(message)
+        except GitCommandError as exc:
+            logger.warning("commit_changes: git commit failed: %s", exc)
+            return _tool_error(
+                runtime,
+                f"Commit failed: {exc}. The working tree is unchanged; resolve the cause (e.g. a "
+                f"rejecting pre-commit hook) and try again.",
+            )
 
     return Command(
         update={
@@ -93,19 +124,23 @@ async def create_merge_request(
     existing_mr = (runtime.state or {}).get("merge_request")
     client = RepoClient.create_instance()
 
-    async with open_git_manager(session_id=session_id, gitrepo=ctx.gitrepo) as git_manager:
-        # Fold any still-uncommitted work into the MR so nothing is lost.
-        if await git_manager.is_dirty():
-            await git_manager.commit_all(title)
+    try:
+        async with open_git_manager(session_id=session_id, gitrepo=ctx.gitrepo) as git_manager:
+            # Fold any still-uncommitted work into the MR so nothing is lost.
+            if await git_manager.is_dirty():
+                await git_manager.commit_all(title)
 
-        if existing_mr is not None:
-            # Continuing an existing MR: push onto its source branch and update it.
-            source_branch = existing_mr.source_branch
-        else:
-            source_branch = (branch.strip() if branch else "") or _branch_from_title(title)
-            source_branch = git_manager.unique_branch_name(source_branch, await git_manager.remote_branches())
+            if existing_mr is not None:
+                # Continuing an existing MR: push onto its source branch and update it.
+                source_branch = existing_mr.source_branch
+            else:
+                source_branch = (branch.strip() if branch else "") or _branch_from_title(title)
+                source_branch = git_manager.unique_branch_name(source_branch, await git_manager.remote_branches())
 
-        await git_manager.push_head_to(source_branch)
+            await git_manager.push_head_to(source_branch)
+    except _PUSH_FAILURES as exc:
+        logger.warning("create_merge_request: could not commit/push changes: %s", exc)
+        return _tool_error(runtime, f"Could not publish the changes: {exc}")
 
     rendered_description = render_to_string(
         "automation/issue_merge_request.txt",
@@ -119,16 +154,25 @@ async def create_merge_request(
             "fallback_from_mr": None,
         },
     )
-    merge_request = await sync_to_async(client.update_or_create_merge_request)(
-        repo_id=ctx.repository.slug,
-        source_branch=source_branch,
-        target_branch=cast("str", ctx.config.default_branch),
-        title=title,
-        description=rendered_description,
-        labels=[BOT_LABEL],
-        assignee_id=_resolve_assignee_id(ctx),
-        as_draft=False,
-    )
+    try:
+        merge_request = await sync_to_async(client.update_or_create_merge_request)(
+            repo_id=ctx.repository.slug,
+            source_branch=source_branch,
+            target_branch=cast("str", ctx.config.default_branch),
+            title=title,
+            description=rendered_description,
+            labels=[BOT_LABEL],
+            assignee_id=_resolve_assignee_id(ctx),
+            as_draft=False,
+        )
+    except _MR_API_FAILURES as exc:
+        # The changes are already pushed; tell the agent so it can surface a recoverable state
+        # (the branch exists on the remote) rather than dying with a raw platform exception.
+        logger.warning("create_merge_request: MR API call failed after pushing '%s': %s", source_branch, exc)
+        return _tool_error(
+            runtime,
+            f"Changes were pushed to branch '{source_branch}', but opening/updating the merge request failed: {exc}",
+        )
     logger.info("Agent opened/updated merge request %s on branch '%s'", merge_request.web_url, source_branch)
 
     return Command(

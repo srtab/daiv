@@ -111,9 +111,9 @@ async def main(
                     # local clone (which only seeds the session and is closed by the time we get
                     # here). This local diff is therefore empty for sandbox-enabled runs. Capturing
                     # the prediction patch from the sandbox before the session closes is follow-up
-                    # eval-harness work; see the sandbox-authoritable-workspace design.
+                    # eval-harness work; see the sandbox-authoritative-workspace design.
                     predictions.append({
-                        "model_patch": await GitManager(ctx.gitrepo).get_diff(),
+                        "model_patch": await GitManager.for_local(ctx.gitrepo).get_diff(),
                         "model_name_or_path": ", ".join(model_names),
                         "instance_id": item["instance_id"],
                     })

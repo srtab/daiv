@@ -43,6 +43,33 @@ async def test_calls_before_bind_raise():
         await be.als("/")
 
 
+def test_rebind_same_session_is_noop(client):
+    # Re-binding the same session must be a no-op rather than an error.
+    be = SandboxFileBackend(root="/workspace")
+    be.bind(client, "sid")
+    be.bind(client, "sid")  # must not raise
+    assert be._session_id == "sid"
+
+
+def test_rebind_same_session_different_client_is_allowed():
+    # The real subagent topology: parent and subagent share one backend instance, but each
+    # SandboxMiddleware opens its OWN client and re-binds the SAME (parent's) session. The new
+    # client must replace the old one without raising — the session identifies the workspace.
+    be = SandboxFileBackend(root="/workspace")
+    parent_client, subagent_client = AsyncMock(), AsyncMock()
+    be.bind(parent_client, "sid")
+    be.bind(subagent_client, "sid")  # different client, same session -> allowed
+    assert be._client is subagent_client
+    assert be._session_id == "sid"
+
+
+def test_rebind_different_session_raises(client):
+    be = SandboxFileBackend(root="/workspace")
+    be.bind(client, "sid")
+    with pytest.raises(RuntimeError, match="already bound to session"):
+        be.bind(client, "other-sid")
+
+
 async def test_bound_workspace_backend_resolves_repo_paths(client):
     # Mirrors graph.py (constructs SandboxFileBackend(root=WORKSPACE_PATH) unbound) and
     # SandboxMiddleware.abefore_agent (binds the live client+session). After binding, a
@@ -109,6 +136,13 @@ async def test_delete_and_stat_mode(backend, client):
     assert await backend.delete("/a.py") is True
     assert client.fs_delete.call_args.args[1].path == "/workspace/a.py"
     assert await backend.stat_mode("/a.py") == 0o644
+
+
+async def test_delete_failure_logs_reason(backend, client, caplog):
+    client.fs_delete.return_value = FsDeleteResponse(ok=False, error="permission_denied")
+    with caplog.at_level("WARNING"):
+        assert await backend.delete("/a.py") is False
+    assert "permission_denied" in caplog.text
 
 
 # -- error propagation: a soft sandbox failure (200 + error, empty list) must surface --
