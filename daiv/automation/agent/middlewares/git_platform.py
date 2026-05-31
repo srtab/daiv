@@ -61,6 +61,10 @@ def _truncate_cli_output(output: str, *, keep: Literal["head", "tail"]) -> str:
     return "".join(lines[:DEFAULT_MAX_OUTPUT_LINES]) + sentinel
 
 
+_PREVIEW_MAX_LINES = 25
+_PREVIEW_MAX_CHARS = 1024
+
+
 def _validate_workspace_path(path: str) -> str | None:
     """Return an ``error: ...`` string when ``path`` is not a clean absolute path under
     ``/workspace``, else ``None``. ``..`` is collapsed first so traversal out of the workspace
@@ -73,6 +77,26 @@ def _validate_workspace_path(path: str) -> str | None:
     if normalized == WORKSPACE_PATH:
         return f"error: output_file must be a file path, not the {WORKSPACE_PATH} directory itself."
     return None
+
+
+def _exceeds_output_cap(output: str) -> bool:
+    """True when ``output`` is long enough that ``_truncate_cli_output`` would trim it.
+
+    Mirrors ``_truncate_cli_output``'s own cheap-then-exact line check so eviction triggers
+    exactly when inline truncation would.
+    """
+    if output.count("\n") < DEFAULT_MAX_OUTPUT_LINES:
+        return False
+    return len(output.splitlines(keepends=True)) > DEFAULT_MAX_OUTPUT_LINES
+
+
+def _redirect_confirmation(path: str, byte_count: int, line_count: int, output: str) -> str:
+    """Compact confirmation returned in place of redirected content: path, size, head preview."""
+    preview = "\n".join(output.splitlines()[:_PREVIEW_MAX_LINES])
+    if len(preview) > _PREVIEW_MAX_CHARS:
+        preview = preview[:_PREVIEW_MAX_CHARS] + "\n… (preview truncated)"
+    shown = min(line_count, _PREVIEW_MAX_LINES)
+    return f"Wrote {byte_count} bytes ({line_count} lines) to {path}\nPreview (first {shown} lines):\n{preview}"
 
 
 GITLAB_REQUESTS_TIMEOUT = 15

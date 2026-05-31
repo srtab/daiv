@@ -8,7 +8,13 @@ import pytest
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
-from automation.agent.middlewares.git_platform import _validate_workspace_path, github_tool, gitlab_tool
+from automation.agent.middlewares.git_platform import (
+    _exceeds_output_cap,
+    _redirect_confirmation,
+    _validate_workspace_path,
+    github_tool,
+    gitlab_tool,
+)
 from codebase.base import GitPlatform
 from core.sandbox.schemas import FsWriteResponse
 
@@ -339,3 +345,25 @@ def test_validate_workspace_path_rejects(path):
     err = _validate_workspace_path(path)
     assert err is not None
     assert err.startswith("error:")
+
+
+def test_exceeds_output_cap_thresholds():
+    assert _exceeds_output_cap("\n".join(str(i) for i in range(2100))) is True  # 2100 lines
+    assert _exceeds_output_cap("\n".join(str(i) for i in range(100))) is False  # 100 lines
+    assert _exceeds_output_cap("\n".join(str(i) for i in range(2000))) is False  # exactly 2000 lines
+
+
+def test_redirect_confirmation_shape():
+    output = "line1\nline2\nline3"
+    msg = _redirect_confirmation("/workspace/tmp/x.json", 17, 3, output)
+    assert "/workspace/tmp/x.json" in msg
+    assert "17 bytes" in msg
+    assert "3 lines" in msg
+    assert "line1" in msg  # head preview included
+
+
+def test_redirect_confirmation_caps_preview_to_25_lines():
+    output = "\n".join(f"line{i}" for i in range(100))
+    msg = _redirect_confirmation("/workspace/tmp/x.json", 999, 100, output)
+    assert "line24" in msg  # 25th line (0-indexed) is shown
+    assert "line25" not in msg  # 26th line is not
