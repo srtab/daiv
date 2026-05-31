@@ -1,9 +1,9 @@
+import asyncio
 import fnmatch
 import logging
 import re
 import subprocess  # noqa: S404
-from enum import Enum
-from pathlib import Path
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from git import GitCommandError
@@ -14,14 +14,18 @@ from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
 from core.constants import BOT_NAME
+from core.sandbox.schemas import RunCommandsRequest
 from core.utils import generate_uuid
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from git import Repo
 
     from codebase.base import Discussion, Note, Scope, User
+    from core.sandbox.client import DAIVSandboxClient
 
 
 def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
@@ -169,110 +173,127 @@ def files_changed_from_patch(patch: str | None) -> list[dict[str, str]]:
     return files
 
 
-class IgnoreCheck(Enum):
-    """Result of `git check-ignore`. ``UNKNOWN`` means the plumbing call failed and
-    callers cannot assume the path is safe — treat as fail-closed for any write
-    where being wrong means silent data loss (e.g. `git add -A` would drop the
-    file from the commit)."""
+_SHELL_SAFE_ARG = re.compile(r"^[A-Za-z0-9_./@=:,+-]+$")
 
-    IGNORED = "ignored"
-    NOT_IGNORED = "not_ignored"
-    UNKNOWN = "unknown"
 
-    def should_block_write(self) -> bool:
-        """Canonical fail-closed policy for write paths: refuse on ``IGNORED`` and
-        ``UNKNOWN``; allow only on ``NOT_IGNORED``. Centralised so future write
-        callers don't drift on the fail-closed branch.
-        """
-        return self is not IgnoreCheck.NOT_IGNORED
+def _shell_quote(arg: str) -> str:
+    """POSIX single-quote ``arg`` unless it is already shell-safe.
+
+    Flags/refs/paths (``status``, ``--porcelain``, ``origin/main..HEAD``) pass through
+    unquoted for readability; anything with spaces or shell metacharacters (commit
+    messages, ``--format=%(...)``) is single-quoted so the sandbox shell sees it verbatim.
+    """
+    if arg and _SHELL_SAFE_ARG.match(arg):
+        return arg
+    return "'" + arg.replace("'", "'\\''") + "'"
+
+
+@dataclass
+class _GitResult:
+    """Normalized result of one git invocation (sandbox or local)."""
+
+    exit_code: int
+    output: str
 
 
 class GitManager:
-    """
-    Manager for interacting with a Git repository.
+    """Run git operations against a repository in one of two mutually-exclusive modes:
+
+    - **Sandbox mode** (``client`` + ``session_id``): git runs *in the sandbox* via
+      ``run_commands`` in ``repo_path`` (``/workspace/repo``). Used for sandbox-enabled
+      runs, where the agent's changes are sandbox-authoritative (no local copy).
+    - **Local mode** (``repo``): git runs as a subprocess against a GitPython clone's
+      working tree. Used for sandbox-disabled / repoless runs, where changes live on disk.
+
+    Exactly one mode must be configured. Every operation is async; local-mode git runs in
+    a worker thread so the event loop is never blocked.
 
     Args:
-        repo: The repository to interact with.
+        repo: GitPython repo for local mode.
+        client: Sandbox client for sandbox mode.
+        session_id: Sandbox session id (required with ``client``).
+        repo_path: Repo path inside the sandbox (defaults to ``REPO_PATH``).
     """
 
     BRANCH_NAME_MAX_ATTEMPTS = 10
 
-    def __init__(self, repo: Repo):
-        """
-        Initialize the Git repository manager.
+    def __init__(
+        self,
+        repo: Repo | None = None,
+        *,
+        client: DAIVSandboxClient | None = None,
+        session_id: str | None = None,
+        repo_path: str | None = None,
+    ) -> None:
+        if (repo is None) == (client is None):
+            raise ValueError("GitManager requires exactly one of `repo` (local) or `client` (sandbox).")
+        if client is not None and not session_id:
+            raise ValueError("GitManager sandbox mode requires a non-empty session_id.")
+        if repo_path is None:
+            # Imported lazily to avoid a codebase→automation import-time dependency.
+            from automation.agent.constants import REPO_PATH
 
-        Args:
-            repo: The repository to interact with.
-        """
+            repo_path = REPO_PATH
         self.repo = repo
+        self._client = client
+        self._session_id = session_id
+        self._repo_path = repo_path
 
-    def get_diff(self, ref: str = "HEAD") -> str:
+    # -- git invocation ------------------------------------------------------
+    async def _git(self, *args: str, check: bool = True) -> _GitResult:
+        """Run one git command in the repo. Raises ``GitCommandError`` on a non-zero
+        exit when ``check`` is True; otherwise returns the result for the caller to inspect.
         """
-        Get the diff of the repository's including unstaged changes.
+        result = await (self._git_sandbox(args) if self._client is not None else self._git_local(args))
+        if check and result.exit_code != 0:
+            raise GitCommandError(["git", *args], result.exit_code, result.output)
+        return result
 
-        Returns:
-            The diff of the repository.
-        """
-        try:
-            diff = self.repo.git.diff(ref)
-        except GitCommandError:
-            # No commits yet, get diff of all files
-            diff = self.repo.git.diff("--cached", "--no-prefix")
+    async def _git_sandbox(self, args: tuple[str, ...]) -> _GitResult:
+        command = " ".join(_shell_quote(token) for token in ("git", "-C", self._repo_path, *args))
+        response = await self._client.run_commands(  # type: ignore[union-attr]
+            self._session_id, RunCommandsRequest(commands=[command], fail_fast=True)
+        )
+        result = response.results[0]
+        return _GitResult(exit_code=result.exit_code, output=result.output)
 
-        untracked_files = self._get_untracked_files()
-        if untracked_files:
-            for file in untracked_files:
-                # `git diff --no-index` returns exit code 1 when differences are found,
-                # which GitPython treats as an exception by default. We still want the output.
-                file_diff = self.repo.git.diff("--no-index", "/dev/null", file, with_exceptions=False)
-                if file_diff:
-                    diff += f"\n{file_diff}"
+    async def _git_local(self, args: tuple[str, ...]) -> _GitResult:
+        def _run() -> _GitResult:
+            proc = subprocess.run(  # noqa: S603
+                ["git", "-C", self.repo.working_dir, *args],  # noqa: S607
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return _GitResult(exit_code=proc.returncode, output=proc.stdout + proc.stderr)
 
+        return await asyncio.to_thread(_run)
+
+    # -- queries -------------------------------------------------------------
+    async def is_dirty(self) -> bool:
+        """Whether the working tree has uncommitted changes (tracked or untracked)."""
+        return bool((await self._git("status", "--porcelain")).output.strip())
+
+    async def get_diff(self, ref: str = "HEAD") -> str:
+        """Diff against ``ref``, including untracked files (via ``ls-files`` + ``diff --no-index``)."""
+        diff = (await self._git("diff", ref, check=False)).output
+        untracked = (await self._git("ls-files", "--others", "--exclude-standard", check=False)).output
+        for file in (line.strip() for line in untracked.splitlines() if line.strip()):
+            # `git diff --no-index` exits 1 when differences are found; we still want the output.
+            file_diff = (await self._git("diff", "--no-index", "/dev/null", file, check=False)).output
+            if file_diff:
+                diff += f"\n{file_diff}"
         if diff and not diff.endswith("\n"):
             diff += "\n"
-
         return diff
 
-    def _get_untracked_files(self) -> list[str]:
-        """
-        Get untracked files using git directly (no GitPython caching).
+    async def has_unpushed(self, branch: str) -> bool:
+        """Whether local HEAD has commits not present on ``origin/<branch>``."""
+        out = (await self._git("log", f"origin/{branch}..HEAD", "--oneline", check=False)).output
+        return bool(out.strip())
 
-        GitPython's `Repo.untracked_files` can be stale if accessed before files are created.
-        Using `git ls-files --others --exclude-standard` ensures we see newly-created files.
-        """
-        raw = self.repo.git.ls_files("--others", "--exclude-standard")
-        files = [line.strip() for line in raw.splitlines() if line.strip()]
-        return files
-
-    def is_dirty(self) -> bool:
-        """
-        Check if the repository is dirty.
-
-        Returns:
-            True if the repository is dirty, False otherwise.
-        """
-        # Use `git status --porcelain` instead of GitPython caching (`untracked_files`)
-        # to ensure newly created files are detected reliably.
-        return bool(self.repo.git.status("--porcelain").strip())
-
-    def is_path_ignored(self, path: str | Path) -> IgnoreCheck:
-        """Tri-state result of `git check-ignore`.
-
-        IGNORED — path matches an active rule (untracked + matched).
-        NOT_IGNORED — `check-ignore` exited 1 ("no match") or matched a tracked file.
-        UNKNOWN — `check-ignore` failed for any other reason (corrupt repo, missing
-        binary, permissions); the caller decides whether to refuse or proceed.
-        """
-        try:
-            output = self.repo.git.check_ignore(str(path)).strip()
-        except GitCommandError as e:
-            if e.status == 1:
-                return IgnoreCheck.NOT_IGNORED
-            logger.exception("git check-ignore failed for %s", path)
-            return IgnoreCheck.UNKNOWN
-        return IgnoreCheck.IGNORED if output else IgnoreCheck.NOT_IGNORED
-
-    def commit_and_push_changes(
+    # -- mutations -----------------------------------------------------------
+    async def commit_and_push_changes(
         self,
         commit_message: str,
         *,
@@ -281,23 +302,21 @@ class GitManager:
         override_commits: bool = False,
         use_branch_if_exists: bool = True,
     ) -> str:
+        """Stage all changes, commit, and push ``branch_name`` to ``origin``.
+
+        Mirrors the prior GitPython semantics: branch-exists (local/remote) handling,
+        ``override_commits`` force-recreate, unique-name generation when
+        ``use_branch_if_exists`` is False, and a typed ``GitPushPermissionError`` on auth
+        failures. Returns the branch name actually pushed to.
         """
-        Commit the changes to the repository.
+        await self._git("fetch", "origin", check=False)
 
-        Args:
-            commit_message: The commit message.
-            branch_name: The branch name to commit the changes to.
-            skip_ci: Whether to skip the CI.
-            override_commits: Whether to override existing commits.
-            use_branch_if_exists: Whether to use the branch if it exists or generate a unique branch name.
-
-        Returns:
-            The branch name.
-        """
-        self.repo.remotes.origin.fetch()
-
-        local_branch_names = [head.name for head in self.repo.heads]
-        remote_branch_names = [ref.remote_head for ref in self.repo.remotes.origin.refs if ref.remote_head != "HEAD"]
+        local_branch_names = self._parse_local_branches(
+            (await self._git("branch", "--format=%(refname:short)", check=False)).output
+        )
+        remote_branch_names = self._parse_remote_branches(
+            (await self._git("ls-remote", "--heads", "origin", check=False)).output
+        )
 
         branch_exists_locally = branch_name in local_branch_names
         branch_exists_remotely = branch_name in remote_branch_names
@@ -305,47 +324,55 @@ class GitManager:
         if branch_exists_locally or branch_exists_remotely:
             if override_commits and use_branch_if_exists:
                 if branch_exists_locally:
-                    self.repo.git.branch("-D", branch_name)  # Force delete local
-                self.repo.git.checkout("-b", branch_name)  # Create and checkout
+                    await self._git("branch", "-D", branch_name)  # Force delete local
+                await self._git("checkout", "-b", branch_name)  # Create and checkout
             elif not use_branch_if_exists:
-                # Need to check both local and remote for unique name generation
+                # Need both local and remote for unique-name generation.
                 all_branch_names = list(set(local_branch_names + remote_branch_names))
                 branch_name = self._gen_unique_branch_name(branch_name, all_branch_names)
-                self.repo.git.checkout("-b", branch_name)
+                await self._git("checkout", "-b", branch_name)
             else:
-                # Branch exists, just checkout (Git will handle remote tracking)
-                self.repo.git.checkout(branch_name)
+                # Branch exists, just checkout (git handles remote tracking).
+                await self._git("checkout", branch_name)
         else:
-            self.repo.git.checkout("-b", branch_name)
+            await self._git("checkout", "-b", branch_name)
 
-        self.repo.git.add("-A")
-        self.repo.index.commit(commit_message if not skip_ci else f"[skip ci] {commit_message}")
+        await self._git("add", "-A")
+        await self._git("commit", "-m", commit_message if not skip_ci else f"[skip ci] {commit_message}")
 
-        try:
-            push_info = self.repo.remotes.origin.push(branch_name, force=override_commits)
-            push_info.raise_if_error()
-        except GitCommandError as e:
-            if _is_push_auth_error(e):
+        push_args = ["push", "origin", branch_name, *(["--force"] if override_commits else [])]
+        push = await self._git(*push_args, check=False)
+        if push.exit_code != 0:
+            if _is_push_auth_error_text(push.output):
                 raise GitPushPermissionError(
                     "Failed to push changes to the remote repository due to authentication or permission issues."
-                ) from e
-            raise
+                )
+            raise GitCommandError(["git", *push_args], push.exit_code, push.output)
 
         return branch_name
 
-    def checkout(self, branch_name: str):
-        """
-        Checkout a branch.
+    async def checkout(self, branch_name: str) -> None:
+        """Fetch and checkout ``branch_name``; raise ``ValueError`` if it does not exist."""
+        await self._git("fetch", "origin", check=False)
+        result = await self._git("checkout", branch_name, check=False)
+        if result.exit_code != 0:
+            raise ValueError(f"Branch {branch_name} does not exist in the repository.")
 
-        Args:
-            branch_name: The branch name to checkout.
-        """
-        self.repo.remotes.origin.fetch()
+    # -- helpers -------------------------------------------------------------
+    @staticmethod
+    def _parse_local_branches(output: str) -> list[str]:
+        """Branch names from ``git branch --format=%(refname:short)``."""
+        return [line.strip() for line in output.splitlines() if line.strip()]
 
-        try:
-            self.repo.git.checkout(branch_name)
-        except GitCommandError as e:
-            raise ValueError(f"Branch {branch_name} does not exist in the repository.") from e
+    @staticmethod
+    def _parse_remote_branches(output: str) -> list[str]:
+        """Branch names from ``git ls-remote --heads origin`` (lines: ``<sha>\\trefs/heads/<branch>``)."""
+        branches: list[str] = []
+        for line in output.splitlines():
+            ref = line.strip().split("\t")[-1]
+            if ref.startswith("refs/heads/"):
+                branches.append(ref[len("refs/heads/") :])
+        return branches
 
     def _gen_unique_branch_name(
         self, original_branch_name: str, existing_branch_names: list[str], max_attempts: int = BRANCH_NAME_MAX_ATTEMPTS
@@ -375,15 +402,6 @@ class GitManager:
             )
 
         return branch_name
-
-    def apply_patch(self, patch: str):
-        """
-        Apply a patch to the repository.
-
-        Args:
-            patch: The patch to apply.
-        """
-        apply_patch_to_dir(patch, Path(self.repo.working_dir))
 
 
 def apply_patch_to_dir(patch: str, working_dir: Path) -> None:
@@ -425,13 +443,13 @@ class GitPushPermissionError(RuntimeError):
     """
 
 
-def _is_push_auth_error(error: GitCommandError) -> bool:
+def _is_push_auth_error_text(output: str) -> bool:
     """
-    Check if a git push error is likely caused by authentication or permission issues.
+    Check if git push output indicates an authentication or permission failure.
     """
-    error_text = str(error).lower()
+    text = output.lower()
     return any(
-        marker in error_text
+        marker in text
         for marker in (
             "returned error: 403",
             "authentication failed",

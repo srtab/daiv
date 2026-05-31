@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-from git import GitCommandError, Repo
+from git import Repo
 
 from codebase.utils import GitManager, GitPushPermissionError, apply_patch_to_dir
+from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
+
+# ---------------------------------------------------------------------------
+# Local-mode helpers (GitPython clone; sandbox-disabled / repoless runs)
+# ---------------------------------------------------------------------------
 
 
 def _configure_repo_identity(repo: Repo) -> None:
@@ -49,221 +53,261 @@ def _init_repo_with_origin(tmp_path: Path) -> tuple[Repo, Path]:
     return repo, origin_dir
 
 
-def test_git_manager_is_dirty_detects_new_untracked_files(tmp_path: Path) -> None:
+# ---------------------------------------------------------------------------
+# Sandbox-mode test double
+# ---------------------------------------------------------------------------
+
+
+class FakeSandboxClient:
+    """Records issued git commands and returns canned ``(exit_code, output)`` results.
+
+    ``responses`` maps a substring of the command to ``(exit_code, output)``; the first
+    matching entry wins. Unmatched commands return success with empty output.
+    """
+
+    def __init__(self, responses: dict[str, tuple[int, str]] | None = None) -> None:
+        self.responses = responses or {}
+        self.commands: list[str] = []
+
+    async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
+        command = request.commands[0]
+        self.commands.append(command)
+        exit_code, output = 0, ""
+        for needle, (code, out) in self.responses.items():
+            if needle in command:
+                exit_code, output = code, out
+                break
+        return RunCommandsResponse(
+            results=[RunCommandResult(command=command, output=output, exit_code=exit_code)], patch=None
+        )
+
+    def ran(self, needle: str) -> bool:
+        return any(needle in command for command in self.commands)
+
+
+def _sandbox_manager(responses: dict[str, tuple[int, str]] | None = None) -> tuple[GitManager, FakeSandboxClient]:
+    client = FakeSandboxClient(responses)
+    return GitManager(client=client, session_id="sid"), client
+
+
+# ---------------------------------------------------------------------------
+# Constructor / mode validation
+# ---------------------------------------------------------------------------
+
+
+def test_requires_exactly_one_mode(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        GitManager()
+    repo = _init_repo(tmp_path)
+    with pytest.raises(ValueError, match="exactly one"):
+        GitManager(repo, client=FakeSandboxClient())  # type: ignore[arg-type]
+
+
+def test_sandbox_mode_requires_session_id() -> None:
+    with pytest.raises(ValueError, match="session_id"):
+        GitManager(client=FakeSandboxClient(), session_id="")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Local mode (GitPython clone)
+# ---------------------------------------------------------------------------
+
+
+async def test_local_is_dirty_detects_new_untracked_files(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
     repo = Repo.init(repo_dir)
-
-    # Prime GitPython's internal state (this is where caching can bite).
-    _ = repo.untracked_files
-
     (repo_dir / "new_file.txt").write_text("hello\n")
 
-    assert GitManager(repo).is_dirty() is True
+    assert await GitManager(repo).is_dirty() is True
 
 
-def test_git_manager_is_dirty_returns_false_for_clean_repo(tmp_path: Path) -> None:
+async def test_local_is_dirty_returns_false_for_clean_repo(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     repo_dir = _repo_path(repo)
     (repo_dir / "README.md").write_text("hello\n")
     repo.git.add("-A")
     repo.index.commit("Initial commit")
 
-    assert GitManager(repo).is_dirty() is False
+    assert await GitManager(repo).is_dirty() is False
 
 
-def test_git_manager_get_untracked_files_detects_new_file(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    repo_dir = _repo_path(repo)
-
-    _ = repo.untracked_files
-    (repo_dir / "new_file.txt").write_text("hello\n")
-
-    assert "new_file.txt" in GitManager(repo)._get_untracked_files()
-
-
-def test_git_manager_get_diff_includes_untracked_file_diff(tmp_path: Path) -> None:
+async def test_local_get_diff_includes_untracked_file_diff(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    repo = Repo.init(repo_dir)
-
+    Repo.init(repo_dir)
     (repo_dir / "new_file.txt").write_text("hello\n")
 
-    diff = GitManager(repo).get_diff()
-    # For untracked files we add `git diff --no-index /dev/null <file>`, which includes `/dev/null`.
+    diff = await GitManager(Repo(repo_dir)).get_diff()
+    # For untracked files we add `git diff --no-index /dev/null <file>`, which includes the path.
     assert "new_file.txt" in diff
 
 
-def test_git_manager_commit_and_push_creates_branch_and_pushes(tmp_path: Path) -> None:
+async def test_local_commit_and_push_creates_branch_and_pushes(tmp_path: Path) -> None:
     repo, origin_dir = _init_repo_with_origin(tmp_path)
     repo_dir = _repo_path(repo)
     (repo_dir / "feature.txt").write_text("feature\n")
 
-    branch_name = GitManager(repo).commit_and_push_changes("Add feature", branch_name="feature/test")
+    branch_name = await GitManager(repo).commit_and_push_changes("Add feature", branch_name="feature/test")
 
     assert branch_name == "feature/test"
-    assert repo.active_branch.name == "feature/test"
-    assert repo.head.commit.message.strip() == "Add feature"
+    fresh = Repo(repo_dir)
+    assert fresh.active_branch.name == "feature/test"
+    assert fresh.head.commit.message.strip() == "Add feature"
 
     origin_repo = Repo(origin_dir)
     assert branch_name in [head.name for head in origin_repo.heads]
 
 
-def test_git_manager_commit_and_push_adds_skip_ci_prefix(tmp_path: Path) -> None:
+async def test_local_commit_and_push_adds_skip_ci_prefix(tmp_path: Path) -> None:
     repo, _ = _init_repo_with_origin(tmp_path)
     repo_dir = _repo_path(repo)
     (repo_dir / "skip.txt").write_text("skip\n")
 
-    GitManager(repo).commit_and_push_changes("Add skip", branch_name="skip-ci", skip_ci=True)
+    await GitManager(repo).commit_and_push_changes("Add skip", branch_name="skip-ci", skip_ci=True)
 
-    assert repo.head.commit.message.strip() == "[skip ci] Add skip"
+    assert Repo(repo_dir).head.commit.message.strip() == "[skip ci] Add skip"
 
 
-def test_git_manager_commit_and_push_generates_unique_branch_name(tmp_path: Path) -> None:
+async def test_local_commit_and_push_generates_unique_branch_name(tmp_path: Path) -> None:
     repo, _ = _init_repo_with_origin(tmp_path)
     repo.git.branch("feature")
     repo_dir = _repo_path(repo)
     (repo_dir / "unique.txt").write_text("unique\n")
 
-    branch_name = GitManager(repo).commit_and_push_changes(
+    branch_name = await GitManager(repo).commit_and_push_changes(
         "Add unique", branch_name="feature", use_branch_if_exists=False
     )
 
     assert branch_name == "feature-1"
-    assert repo.active_branch.name == "feature-1"
+    assert Repo(repo_dir).active_branch.name == "feature-1"
 
 
-def test_git_manager_commit_and_push_raises_permission_error_on_auth_failure(tmp_path: Path) -> None:
-    repo, _ = _init_repo_with_origin(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / "feature-auth.txt").write_text("feature-auth\n")
-
-    auth_error = GitCommandError(
-        command="git push",
-        status=128,
-        stderr=(
-            "fatal: unable to access 'https://github.com/example/repo.git/': The requested URL returned error: 403"
-        ),
-    )
-
-    with (
-        patch("git.remote.Remote.push", side_effect=auth_error),
-        pytest.raises(GitPushPermissionError, match="authentication or permission issues"),
-    ):
-        GitManager(repo).commit_and_push_changes("Add auth protected feature", branch_name="feature/auth-fail")
-
-
-def test_git_manager_checkout_raises_for_missing_branch(tmp_path: Path) -> None:
+async def test_local_checkout_raises_for_missing_branch(tmp_path: Path) -> None:
     repo, _ = _init_repo_with_origin(tmp_path)
 
     with pytest.raises(ValueError, match="Branch missing-branch does not exist in the repository."):
-        GitManager(repo).checkout("missing-branch")
+        await GitManager(repo).checkout("missing-branch")
 
 
-def test_git_manager_gen_unique_branch_name_returns_original_when_available(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    manager = GitManager(repo)
-
-    assert manager._gen_unique_branch_name("feature", ["main"]) == "feature"
+# ---------------------------------------------------------------------------
+# Sandbox mode (git via run_commands)
+# ---------------------------------------------------------------------------
 
 
-def test_git_manager_gen_unique_branch_name_raises_when_max_attempts_exceeded(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    manager = GitManager(repo)
+async def test_sandbox_is_dirty_uses_status_porcelain() -> None:
+    gm, client = _sandbox_manager({"status --porcelain": (0, " M a.py\n")})
+    assert await gm.is_dirty() is True
+    assert client.ran("git -C /workspace/repo status --porcelain")
 
+
+async def test_sandbox_is_dirty_false_on_clean_tree() -> None:
+    gm, _ = _sandbox_manager({"status --porcelain": (0, "")})
+    assert await gm.is_dirty() is False
+
+
+async def test_sandbox_get_diff_appends_untracked_files() -> None:
+    gm, client = _sandbox_manager({
+        "diff HEAD": (0, "diff --git a/x b/x\n"),
+        "ls-files --others": (0, "new.py\n"),
+        "--no-index": (1, "diff --git a/new.py b/new.py\n+added\n"),
+    })
+    diff = await gm.get_diff()
+    assert "a/x" in diff
+    assert "new.py" in diff
+    assert client.ran("git -C /workspace/repo diff HEAD")
+    assert client.ran("ls-files --others --exclude-standard")
+
+
+async def test_sandbox_has_unpushed() -> None:
+    gm, _ = _sandbox_manager({"log origin/main..HEAD": (0, "abc123 commit\n")})
+    assert await gm.has_unpushed("main") is True
+    gm2, _ = _sandbox_manager({"log origin/main..HEAD": (0, "")})
+    assert await gm2.has_unpushed("main") is False
+
+
+async def test_sandbox_commit_and_push_new_branch() -> None:
+    gm, client = _sandbox_manager({
+        "refname:short": (0, "main\n"),
+        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
+    })
+    branch = await gm.commit_and_push_changes("fix: thing", branch_name="fix-thing")
+
+    assert branch == "fix-thing"
+    assert client.ran("checkout -b fix-thing")
+    # commit message contains a space, so it is single-quoted in the shell command.
+    assert client.ran("commit -m 'fix: thing'")
+    assert client.ran("push origin fix-thing")
+
+
+async def test_sandbox_commit_and_push_reuses_existing_remote_branch() -> None:
+    gm, client = _sandbox_manager({
+        "refname:short": (0, "main\n"),
+        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\ncafef00d\trefs/heads/fix-thing\n"),
+    })
+    branch = await gm.commit_and_push_changes("msg", branch_name="fix-thing")
+
+    assert branch == "fix-thing"
+    assert client.ran("checkout fix-thing")
+    assert not client.ran("checkout -b fix-thing")
+
+
+async def test_sandbox_commit_and_push_generates_unique_branch_name() -> None:
+    gm, client = _sandbox_manager({
+        "refname:short": (0, "main\nfeature\n"),
+        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
+    })
+    branch = await gm.commit_and_push_changes("msg", branch_name="feature", use_branch_if_exists=False)
+
+    assert branch == "feature-1"
+    assert client.ran("checkout -b feature-1")
+
+
+async def test_sandbox_commit_and_push_raises_on_auth_failure() -> None:
+    gm, _ = _sandbox_manager({
+        "refname:short": (0, "main\n"),
+        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
+        "push origin": (128, "fatal: unable to access ...: The requested URL returned error: 403"),
+    })
+    with pytest.raises(GitPushPermissionError, match="authentication or permission issues"):
+        await gm.commit_and_push_changes("msg", branch_name="fix-thing")
+
+
+async def test_sandbox_checkout_success_and_missing() -> None:
+    gm, client = _sandbox_manager()
+    await gm.checkout("main")
+    assert client.ran("checkout main")
+
+    gm2, _ = _sandbox_manager({"checkout missing": (1, "error: pathspec 'missing' did not match")})
+    with pytest.raises(ValueError, match="Branch missing does not exist"):
+        await gm2.checkout("missing")
+
+
+# ---------------------------------------------------------------------------
+# Pure branch-name logic (mode-independent)
+# ---------------------------------------------------------------------------
+
+
+def test_gen_unique_branch_name_returns_original_when_available() -> None:
+    gm, _ = _sandbox_manager()
+    assert gm._gen_unique_branch_name("feature", ["main"]) == "feature"
+
+
+def test_gen_unique_branch_name_raises_when_max_attempts_exceeded() -> None:
+    gm, _ = _sandbox_manager()
     with pytest.raises(ValueError, match="max attempts reached 3"):
-        manager._gen_unique_branch_name("feature", ["feature", "feature-1", "feature-2"], max_attempts=3)
+        gm._gen_unique_branch_name("feature", ["feature", "feature-1", "feature-2"], max_attempts=3)
 
 
-def test_git_manager_apply_patch_applies_valid_diff(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    repo_dir = _repo_path(repo)
-    file_path = repo_dir / "file.txt"
-    file_path.write_text("hello\n")
-    repo.git.add("-A")
-    repo.index.commit("Initial commit")
-
-    file_path.write_text("hello\nworld\n")
-    diff = repo.git.diff("HEAD")
-    file_path.write_text("hello\n")
-
-    GitManager(repo).apply_patch(diff)
-
-    assert file_path.read_text() == "hello\nworld\n"
-
-
-def test_git_manager_is_path_ignored_matches_gitignore_rule(tmp_path: Path) -> None:
-    from codebase.utils import IgnoreCheck
-
-    repo = _init_repo(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / ".gitignore").write_text(".python-version\n")
-
-    manager = GitManager(repo)
-
-    assert manager.is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.IGNORED
-    assert manager.is_path_ignored(repo_dir / "README.md") is IgnoreCheck.NOT_IGNORED
-
-
-def test_git_manager_is_path_ignored_returns_false_when_no_gitignore(tmp_path: Path) -> None:
-    from codebase.utils import IgnoreCheck
-
-    repo = _init_repo(tmp_path)
-    repo_dir = _repo_path(repo)
-
-    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.NOT_IGNORED
-
-
-def test_git_manager_is_path_ignored_returns_false_for_tracked_file_matching_rule(tmp_path: Path) -> None:
-    """Tracked files are updated by `git add -A` regardless of `.gitignore`, and
-    `git check-ignore` reflects that by reporting them as not ignored. Locked in
-    so a future refactor (e.g. switching to manual fnmatch) doesn't reintroduce
-    a false positive that would block edits to legitimately-tracked files."""
-    from codebase.utils import IgnoreCheck
-
-    repo = _init_repo(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / ".gitignore").write_text(".python-version\n")
-    (repo_dir / ".python-version").write_text("3.11\n")
-    repo.git.add("-f", ".python-version", ".gitignore")
-    repo.index.commit("track ignored file")
-
-    assert GitManager(repo).is_path_ignored(repo_dir / ".python-version") is IgnoreCheck.NOT_IGNORED
-
-
-def test_git_manager_is_path_ignored_returns_unknown_on_command_error(tmp_path: Path, monkeypatch) -> None:
-    """When `git check-ignore` fails for any reason other than exit-1 ("no match"),
-    the helper must surface UNKNOWN so callers can fail-closed rather than treating
-    a broken plumbing call as "not ignored"."""
-    from unittest.mock import MagicMock
-
-    from git import GitCommandError
-
-    from codebase.utils import IgnoreCheck
-
-    repo = _init_repo(tmp_path)
-    fake_git = MagicMock()
-    fake_git.check_ignore.side_effect = GitCommandError(["git", "check-ignore"], 128, stderr=b"fatal: bad object HEAD")
-    monkeypatch.setattr(repo, "git", fake_git)
-
-    assert GitManager(repo).is_path_ignored("any/path") is IgnoreCheck.UNKNOWN
-
-
-def test_git_manager_apply_patch_skips_empty_patch(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    repo_dir = _repo_path(repo)
-    file_path = repo_dir / "file.txt"
-    file_path.write_text("hello\n")
-
-    GitManager(repo).apply_patch("")
-
-    assert file_path.read_text() == "hello\n"
+# ---------------------------------------------------------------------------
+# apply_patch_to_dir (repoless helper, unchanged)
+# ---------------------------------------------------------------------------
 
 
 def test_apply_patch_to_dir_works_without_git_repo(tmp_path: Path) -> None:
     """Repoless agent runs use ``apply_patch_to_dir`` directly against the on-disk working
-    directory backing ``FilesystemBackend``; ``git apply`` does not require a ``.git``
-    folder, so the patch must apply cleanly even when ``tmp_path`` is just a plain dir."""
+    directory; ``git apply`` does not require a ``.git`` folder, so the patch must apply
+    cleanly even when ``tmp_path`` is just a plain dir."""
     file_path = tmp_path / "file.txt"
     file_path.write_text("hello\n")
 
@@ -289,8 +333,7 @@ def test_apply_patch_to_dir_skips_non_patch_input_via_git_sentinel(tmp_path: Pat
 
 def test_apply_patch_to_dir_creates_new_file_in_non_repo_dir(tmp_path: Path) -> None:
     """``git apply`` over stdin must create new files in a plain working directory
-    (no ``.git/``), since the bash tool relies on this to mirror sandbox-side file
-    creations back to the agent's local FilesystemBackend in repoless runs."""
+    (no ``.git/``)."""
     new_file_diff = (
         "diff --git a/new.txt b/new.txt\n"
         "new file mode 100644\n"
@@ -308,8 +351,7 @@ def test_apply_patch_to_dir_creates_new_file_in_non_repo_dir(tmp_path: Path) -> 
 
 
 def test_apply_patch_to_dir_raises_runtime_error_on_invalid_patch(tmp_path: Path) -> None:
-    """Malformed patches must surface as ``RuntimeError`` so the bash tool can return its
-    fail-loud "Failed to persist the changes" message instead of silently dropping bytes."""
+    """Malformed patches must surface as ``RuntimeError`` so callers can fail loud."""
     bogus_diff = (
         "diff --git a/missing.txt b/missing.txt\n--- a/missing.txt\n+++ b/missing.txt\n@@ -1 +1 @@\n-was here\n+gone\n"
     )

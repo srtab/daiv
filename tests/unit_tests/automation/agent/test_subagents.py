@@ -30,9 +30,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-pytestmark = pytest.mark.usefixtures("bypass_gitignore_check")
-
-
 class TestGeneralPurposeMiddleware:
     """Tests for ``_build_general_purpose_middleware`` — the middleware composer."""
 
