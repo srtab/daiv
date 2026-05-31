@@ -43,6 +43,18 @@ async def test_calls_before_bind_raise():
         await be.als("/")
 
 
+async def test_bound_workspace_backend_resolves_repo_paths(client):
+    # Mirrors graph.py (constructs SandboxFileBackend(root=WORKSPACE_PATH) unbound) and
+    # SandboxMiddleware.abefore_agent (binds the live client+session). After binding, a
+    # read under the agent-visible /repo path must hit the absolute /workspace/repo path.
+    be = SandboxFileBackend(root="/workspace")
+    be.bind(client, "sid")
+    client.fs_read.return_value = FsReadResponse(content="x", encoding="utf-8")
+    await be.aread("/repo/pkg/mod.py")
+    assert client.fs_read.call_args.args[0] == "sid"
+    assert client.fs_read.call_args.args[1].path == "/workspace/repo/pkg/mod.py"
+
+
 async def test_awrite_maps_route_relative_to_scratch_abs(backend, client):
     client.fs_write.return_value = FsWriteResponse(ok=True)
     result = await backend.awrite("/foo.txt", "hello\n")

@@ -461,18 +461,15 @@ class SandboxMiddleware(AgentMiddleware):
 
         return bash_tool
 
-    def _maybe_register_scratch(self, session_id: str) -> None:
-        """Mount the ``/scratch`` route on the shared composite once the client+session exist.
+    def _bind_backend(self, session_id: str) -> None:
+        """Bind the live client+session into the single ``/workspace`` backend.
 
-        Idempotent: subagents share the parent's composite, so only the first caller wins.
+        Idempotent: subagents share the parent's backend instance, so re-binding with the
+        same client+session is a no-op rebind. A non-sandbox backend (sandbox-disabled
+        runs) is left untouched.
         """
-        if (
-            session_id
-            and self._client is not None
-            and isinstance(self._backend, DAIVCompositeBackend)
-            and SCRATCH_ROUTE not in self._backend.routes
-        ):
-            self._backend.add_route(SCRATCH_ROUTE, SandboxFileBackend(client=self._client, session_id=session_id))
+        if session_id and self._client is not None and isinstance(self._backend, SandboxFileBackend):
+            self._backend.bind(self._client, session_id)
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
@@ -500,7 +497,7 @@ class SandboxMiddleware(AgentMiddleware):
             if not self.close_session and "session_id" in state:
                 # Subagent path: parent owns session lifecycle; we just keep our client open
                 # so bash calls reuse the pool.
-                self._maybe_register_scratch(state["session_id"])
+                self._bind_backend(state["session_id"])
                 return None
 
             sb = runtime.context.sandbox
@@ -537,7 +534,7 @@ class SandboxMiddleware(AgentMiddleware):
             self._client = None
             self._syncer = None
             raise
-        self._maybe_register_scratch(session_id)
+        self._bind_backend(session_id)
         return {"session_id": session_id}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
