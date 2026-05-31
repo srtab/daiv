@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import Annotated, cast
 
 from django.template.loader import render_to_string
 from django.utils.text import slugify
@@ -122,7 +122,7 @@ async def create_merge_request(
     merge_request = await sync_to_async(client.update_or_create_merge_request)(
         repo_id=ctx.repository.slug,
         source_branch=source_branch,
-        target_branch=ctx.config.default_branch,
+        target_branch=cast("str", ctx.config.default_branch),
         title=title,
         description=rendered_description,
         labels=[BOT_LABEL],

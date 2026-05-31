@@ -250,17 +250,22 @@ class GitManager:
         return result
 
     async def _git_sandbox(self, args: tuple[str, ...]) -> _GitResult:
+        client, session_id = self._client, self._session_id
+        if client is None or session_id is None:  # pragma: no cover - guaranteed by __init__
+            raise RuntimeError("GitManager is not in sandbox mode")
         command = " ".join(_shell_quote(token) for token in ("git", "-C", self._repo_path, *args))
-        response = await self._client.run_commands(  # type: ignore[union-attr]
-            self._session_id, RunCommandsRequest(commands=[command], fail_fast=True)
-        )
+        response = await client.run_commands(session_id, RunCommandsRequest(commands=[command], fail_fast=True))
         result = response.results[0]
         return _GitResult(exit_code=result.exit_code, output=result.output)
 
     async def _git_local(self, args: tuple[str, ...]) -> _GitResult:
+        repo = self.repo
+        if repo is None:  # pragma: no cover - guaranteed by __init__
+            raise RuntimeError("GitManager is not in local mode")
+
         def _run() -> _GitResult:
             proc = subprocess.run(  # noqa: S603
-                ["git", "-C", self.repo.working_dir, *args],  # noqa: S607
+                ["git", "-C", repo.working_dir, *args],  # noqa: S607
                 capture_output=True,
                 text=True,
                 check=False,

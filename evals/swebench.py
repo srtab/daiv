@@ -106,8 +106,14 @@ async def main(
                     traceback.print_exc()
                     continue
                 finally:
+                    # FIXME(sandbox-authoritative): with the sandbox as the single source of
+                    # truth, the agent's edits live in the sandbox /workspace/repo, not in this
+                    # local clone (which only seeds the session and is closed by the time we get
+                    # here). This local diff is therefore empty for sandbox-enabled runs. Capturing
+                    # the prediction patch from the sandbox before the session closes is follow-up
+                    # eval-harness work; see the sandbox-authoritable-workspace design.
                     predictions.append({
-                        "model_patch": GitManager(ctx.gitrepo).get_diff(),
+                        "model_patch": await GitManager(ctx.gitrepo).get_diff(),
                         "model_name_or_path": ", ".join(model_names),
                         "instance_id": item["instance_id"],
                     })
