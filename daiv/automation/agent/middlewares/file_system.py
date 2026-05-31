@@ -4,12 +4,8 @@ import asyncio
 import base64
 import logging
 import stat
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+from typing import Protocol, cast, runtime_checkable
 
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
@@ -28,7 +24,6 @@ from deepagents.backends.protocol import (
     ReadResult,
     WriteResult,
 )
-from deepagents.backends.utils import validate_path
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_DESCRIPTION_BASE
@@ -38,7 +33,6 @@ from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRIT
 
 from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.schemas import (
-    ApplyMutationsRequest,
     FsDeleteRequest,
     FsEditRequest,
     FsGlobRequest,
@@ -46,12 +40,9 @@ from core.sandbox.schemas import (
     FsLsRequest,
     FsReadRequest,
     FsWriteRequest,
-    PutMutation,
 )
 
 logger = logging.getLogger("daiv.tools")
-
-SANDBOX_PATH_ROOT = "/repo"
 
 # ---------------------------------------------------------------------------
 # Tool descriptions
@@ -108,88 +99,13 @@ CUSTOM_TOOL_DESCRIPTIONS = {
 
 
 # ---------------------------------------------------------------------------
-# Sandbox sync
-# ---------------------------------------------------------------------------
-
-
-def format_sync_error(reason: str, *, rollback_ok: bool) -> str:
-    if rollback_ok:
-        return f"Error: {reason}"
-    return f"CRITICAL: {reason}; rollback also failed — local state is desynced from sandbox"
-
-
-@dataclass
-class SandboxSyncer:
-    """Mirrors successful local writes to the sandbox session associated with the agent run.
-
-    Bundles the backend, the agent virtual root → ``/repo`` mapping, the sandbox client
-    (owned and lifecycle-managed by ``SandboxMiddleware``), and a single lock that
-    serialises the upstream-write→sandbox-sync critical section across all concurrent
-    write_file/edit_file calls in one agent run, so rollback can never overwrite a
-    sibling tool call's edit.
-
-    ``agent_root`` is the virtual path prefix the agent's filesystem tools see (e.g.
-    ``/repo``); the sync mapping is pure string arithmetic against that prefix.
-    """
-
-    backend: Any
-    agent_root: str
-    client: DAIVSandboxClient
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
-    def sandbox_path(self, virtual_path: str) -> str:
-        """Map agent ``<agent_root>/<rel>`` → sandbox ``/repo/<rel>``.
-
-        Raises ``ValueError`` if ``virtual_path`` is not under ``agent_root``.
-        """
-        prefix = self.agent_root.rstrip("/") + "/"
-        normalized = validate_path(virtual_path, allowed_prefixes=[prefix])
-        rel = normalized[len(prefix) :]
-        return f"{SANDBOX_PATH_ROOT.rstrip('/')}/{rel}"
-
-    async def mirror(
-        self, *, runtime, virtual_path: str, content_bytes: bytes, mode: int, rollback: Callable[[], Awaitable[bool]]
-    ) -> str | None:
-        """Mirror a successful local write/edit to the sandbox; rollback on failure.
-
-        Returns an error string for the tool to surface, or ``None`` on success. ``rollback``
-        is an async callable returning whether the local-state restore succeeded; awaited
-        only when the sandbox sync fails.
-        """
-        try:
-            sandbox_path = self.sandbox_path(virtual_path)
-        except ValueError as exc:
-            return format_sync_error(f"failed to prepare sandbox sync: {exc}", rollback_ok=await rollback())
-
-        session_id = runtime.state.get("session_id") if runtime.state else None
-        if not session_id:
-            return format_sync_error("sandbox session not started", rollback_ok=await rollback())
-
-        request = ApplyMutationsRequest(
-            mutations=[PutMutation(path=sandbox_path, content=base64.b64encode(content_bytes), mode=mode)]
-        )
-        try:
-            response = await self.client.apply_file_mutations(session_id, request)
-        except Exception as exc:
-            logger.exception("sandbox apply_file_mutations failed for %s", sandbox_path)
-            return format_sync_error(f"sandbox sync raised: {exc}", rollback_ok=await rollback())
-
-        result = response.results[0]
-        if not result.ok:
-            return format_sync_error(f"failed to sync to sandbox: {result.error}", rollback_ok=await rollback())
-        return None
-
-
-# ---------------------------------------------------------------------------
 # Backends
 #
 # Thin daiv-side extensions to deepagents' backends. Two methods that
 # ``BackendProtocol`` doesn't expose:
 #
-# - ``delete(path)``: needed for write rollback (drop the just-created file when
-#   sandbox sync fails). ``Path.unlink`` under the hood.
-# - ``stat_mode(path)``: needed for the OUTGOING sandbox sync — ``PutMutation.mode``
-#   carries POSIX mode bits so the sandbox replicates ``+x`` on executable scripts.
+# - ``delete(path)``: drop a file (``Path.unlink`` under the hood).
+# - ``stat_mode(path)``: report a file's POSIX mode bits.
 #
 # ``DAIVBackendProtocol`` formalises the surface and ``DAIVCompositeBackend`` asserts
 # every routed backend implements it at construction time, so a new backend is a
@@ -198,8 +114,8 @@ class SandboxSyncer:
 
 
 class DAIVFilesystemBackend(FilesystemBackend):
-    """``FilesystemBackend`` with sandbox-sync hooks (``delete`` for rollback,
-    ``stat_mode`` to mirror real POSIX mode bits onto ``PutMutation``)."""
+    """``FilesystemBackend`` plus DAIV's two backend-protocol extensions
+    (``delete`` and ``stat_mode``)."""
 
     def _to_path(self, virtual_path: str) -> Path:
         return Path(self._resolve_path(virtual_path))
@@ -223,8 +139,8 @@ class DAIVFilesystemBackend(FilesystemBackend):
 
 @runtime_checkable
 class DAIVBackendProtocol(Protocol):
-    """The two methods DAIV's sandbox layer needs on top of ``BackendProtocol``:
-    ``delete`` for write/edit rollback, ``stat_mode`` for outgoing ``PutMutation.mode``.
+    """The two methods DAIV adds on top of ``BackendProtocol``: ``delete`` (drop a file)
+    and ``stat_mode`` (report POSIX mode bits).
 
     The composite asserts on this shape so a misconfigured route fails loudly at
     construction time instead of with a runtime ``AttributeError`` on first delete.
@@ -281,18 +197,10 @@ class DAIVCompositeBackend(CompositeBackend):
     def resolve_backend_for(self, virtual_path: str) -> BackendProtocol:
         """Return the underlying backend that owns ``virtual_path``.
 
-        Used by callers that need to dispatch on backend shape (e.g. the gitignore
-        guard, which is only meaningful for disk-backed repos).
+        Used by callers that need to dispatch on the underlying backend shape.
         """
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend
-
-    def add_route(self, prefix: str, backend: BackendProtocol) -> None:
-        """Register a route after construction (used to mount ``/scratch`` once the
-        sandbox session exists). Re-asserts the DAIV protocol and re-sorts routes."""
-        _require_daiv_backend(backend, "add_route")
-        self.routes[prefix] = backend
-        self.sorted_routes = sorted(self.routes.items(), key=lambda x: len(x[0]), reverse=True)
 
 
 class SandboxFileBackend(BackendProtocol):
@@ -311,10 +219,9 @@ class SandboxFileBackend(BackendProtocol):
 
     Only the async methods are implemented — the async agent path never calls the
     sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call
-    here would be a programming error). ``stat_mode`` returns a constant: the sandbox is
-    authoritative (no mirror to a local repo), so exact mode bits are irrelevant, and
-    ``delete`` is the only sync-protocol need beyond it (both required by
-    ``DAIVCompositeBackend``'s protocol assertion).
+    here would be a programming error). ``delete`` and ``stat_mode`` round out
+    ``DAIVBackendProtocol``; ``stat_mode`` returns a constant since the sandbox is
+    authoritative (no mirror to a local repo), so exact mode bits are irrelevant.
     """
 
     def __init__(self, *, root: str, client: DAIVSandboxClient | None = None, session_id: str | None = None) -> None:

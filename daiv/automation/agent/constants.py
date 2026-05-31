@@ -20,9 +20,6 @@ WORKSPACE_PATH = "/workspace"
 REPO_PATH = "/workspace/repo"
 SKILLS_PATH = "/workspace/skills"
 SCRATCH_PATH = "/workspace/tmp"  # the per-run scratchpad, now a workspace subdir
-# Composite route still used by the disk-mirror scratch carve-out; removed once
-# sandbox.py drops the scratch route (sandbox-authoritative cutover).
-SCRATCH_ROUTE = f"{SCRATCH_PATH}/"
 
 # On-disk root the composite backend mounts at ``GLOBAL_SKILLS_PATH``. Created at module
 # import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup
