@@ -75,6 +75,9 @@ ALWAYS_LOADED_TOOLS = frozenset({
     "write_todos",
     "skill",
     "task",
+    # Agent-owned commit/MR tools (present only when sandbox + auto-commit are enabled).
+    "commit_changes",
+    "create_merge_request",
 })
 
 
@@ -270,7 +273,7 @@ async def create_daiv_agent(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        GitMiddleware(auto_commit_changes=auto_commit_changes),
+        GitMiddleware(auto_commit_changes=auto_commit_changes, sandbox_enabled=_sandbox_enabled),
         GitPlatformMiddleware(git_platform=ctx.git_platform),
         dynamic_daiv_system_prompt,
         *(middleware or []),

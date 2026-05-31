@@ -14,6 +14,7 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
 from automation.agent.publishers import GitChangePublisher
+from automation.agent.tools.git_publish import commit_changes, create_merge_request
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -119,12 +120,18 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     state_schema = GitState
 
-    def __init__(self, *, skip_ci: bool = False, auto_commit_changes: bool = True) -> None:
+    def __init__(
+        self, *, skip_ci: bool = False, auto_commit_changes: bool = True, sandbox_enabled: bool = False
+    ) -> None:
         """
         Initialize the middleware.
         """
         self.skip_ci = skip_ci
         self.auto_commit_changes = auto_commit_changes
+        # The agent owns committing/MR creation only when it can act on a sandbox-authoritative
+        # workspace and auto-commit is on. Otherwise these tools are absent and the safeguard
+        # (``aafter_agent``) is the sole publisher.
+        self.tools = [commit_changes, create_merge_request] if (sandbox_enabled and auto_commit_changes) else []
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """

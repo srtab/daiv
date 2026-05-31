@@ -358,6 +358,36 @@ class GitManager:
         if result.exit_code != 0:
             raise ValueError(f"Branch {branch_name} does not exist in the repository.")
 
+    async def commit_all(self, message: str) -> None:
+        """Stage every change and commit it. Callers should ensure the tree is dirty first
+        (``git commit`` exits non-zero on an empty index)."""
+        await self._git("add", "-A")
+        await self._git("commit", "-m", message)
+
+    async def push_head_to(self, branch: str, *, force: bool = False) -> str:
+        """Push the current ``HEAD`` to ``origin/<branch>`` (creating it if needed).
+
+        Raises ``GitPushPermissionError`` on an auth/permission failure and
+        ``GitCommandError`` on any other push failure. Returns ``branch``.
+        """
+        push_args = ["push", "origin", f"HEAD:{branch}", *(["--force"] if force else [])]
+        push = await self._git(*push_args, check=False)
+        if push.exit_code != 0:
+            if _is_push_auth_error_text(push.output):
+                raise GitPushPermissionError(
+                    "Failed to push changes to the remote repository due to authentication or permission issues."
+                )
+            raise GitCommandError(["git", *push_args], push.exit_code, push.output)
+        return branch
+
+    async def remote_branches(self) -> list[str]:
+        """Branch names that currently exist on ``origin``."""
+        return self._parse_remote_branches((await self._git("ls-remote", "--heads", "origin", check=False)).output)
+
+    def unique_branch_name(self, original_branch_name: str, existing_branch_names: list[str]) -> str:
+        """Public wrapper over :meth:`_gen_unique_branch_name` for callers outside this class."""
+        return self._gen_unique_branch_name(original_branch_name, existing_branch_names)
+
     # -- helpers -------------------------------------------------------------
     @staticmethod
     def _parse_local_branches(output: str) -> list[str]:
