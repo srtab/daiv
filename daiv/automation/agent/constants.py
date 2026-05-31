@@ -13,10 +13,15 @@ BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 GLOBAL_SKILLS_PATH = "/skills"
 GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
 
-# Virtual path + composite route for the per-run scratchpad. Sandbox-backed and
-# never committed (lives outside /repo). The absolute path inside the sandbox
-# container is the same string (``/scratch``).
-SCRATCH_PATH = "/scratch"
+# Unified sandbox workspace. One backend (sandbox-authoritative) serves all of /workspace.
+# The sandbox holds the one true workspace: repo at /workspace/repo, seeded skills at
+# /workspace/skills, and the per-run scratchpad at /workspace/tmp.
+WORKSPACE_PATH = "/workspace"
+REPO_PATH = "/workspace/repo"
+SKILLS_PATH = "/workspace/skills"
+SCRATCH_PATH = "/workspace/tmp"  # the per-run scratchpad, now a workspace subdir
+# Composite route still used by the disk-mirror scratch carve-out; removed once
+# sandbox.py drops the scratch route (sandbox-authoritative cutover).
 SCRATCH_ROUTE = f"{SCRATCH_PATH}/"
 
 # On-disk root the composite backend mounts at ``GLOBAL_SKILLS_PATH``. Created at module

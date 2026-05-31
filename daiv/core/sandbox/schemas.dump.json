@@ -17,7 +17,7 @@
             "type": "integer"
           },
           "path": {
-            "description": "Absolute path inside the sandbox, must be under /repo.",
+            "description": "Absolute path inside the sandbox, must be under /workspace/repo.",
             "title": "Path",
             "type": "string"
           }
@@ -102,7 +102,7 @@
   "FsDeleteRequest": {
     "properties": {
       "path": {
-        "description": "Absolute file path under /scratch.",
+        "description": "Absolute file path under /workspace.",
         "title": "Path",
         "type": "string"
       }
@@ -151,7 +151,7 @@
         "type": "string"
       },
       "path": {
-        "description": "Absolute file path under /scratch.",
+        "description": "Absolute file path under /workspace.",
         "title": "Path",
         "type": "string"
       },
@@ -225,7 +225,7 @@
   "FsGlobRequest": {
     "properties": {
       "path": {
-        "description": "Absolute base directory under /scratch.",
+        "description": "Absolute base directory under /workspace.",
         "title": "Path",
         "type": "string"
       },
@@ -333,7 +333,7 @@
         "title": "Glob"
       },
       "path": {
-        "description": "Absolute directory/file path under /scratch.",
+        "description": "Absolute directory/file path under /workspace.",
         "title": "Path",
         "type": "string"
       },
@@ -408,7 +408,7 @@
   "FsLsRequest": {
     "properties": {
       "path": {
-        "description": "Absolute directory path under /scratch.",
+        "description": "Absolute directory path under /workspace.",
         "title": "Path",
         "type": "string"
       }
@@ -485,7 +485,7 @@
         "type": "integer"
       },
       "path": {
-        "description": "Absolute file path under /scratch.",
+        "description": "Absolute file path under /workspace.",
         "title": "Path",
         "type": "string"
       }
@@ -562,7 +562,7 @@
         "type": "integer"
       },
       "path": {
-        "description": "Absolute file path under /scratch.",
+        "description": "Absolute file path under /workspace.",
         "title": "Path",
         "type": "string"
       }
@@ -648,7 +648,7 @@
         "type": "integer"
       },
       "path": {
-        "description": "Absolute path inside the sandbox, must be under /repo.",
+        "description": "Absolute path inside the sandbox, must be under /workspace/repo.",
         "title": "Path",
         "type": "string"
       }
