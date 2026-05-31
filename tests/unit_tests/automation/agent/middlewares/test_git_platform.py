@@ -8,7 +8,7 @@ import pytest
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
-from automation.agent.middlewares.git_platform import github_tool, gitlab_tool
+from automation.agent.middlewares.git_platform import _validate_workspace_path, github_tool, gitlab_tool
 from codebase.base import GitPlatform
 from core.sandbox.schemas import FsWriteResponse
 
@@ -327,3 +327,15 @@ class TestGitLabToolInlineDiscussionFallback:
 
         assert result.startswith("error:")
         assert "--mr-iid" in result
+
+
+@pytest.mark.parametrize("path", ["/workspace/tmp/x.json", "/workspace/repo/a/b.txt", "/workspace/out"])
+def test_validate_workspace_path_accepts_under_workspace(path):
+    assert _validate_workspace_path(path) is None
+
+
+@pytest.mark.parametrize("path", ["relative.json", "/etc/passwd", "/workspace/../etc/passwd", "/workspace", ""])
+def test_validate_workspace_path_rejects(path):
+    err = _validate_workspace_path(path)
+    assert err is not None
+    assert err.startswith("error:")

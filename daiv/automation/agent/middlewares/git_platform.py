@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import posixpath
 import shlex
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
 
@@ -18,6 +19,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
+from automation.agent.constants import WORKSPACE_PATH
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
@@ -57,6 +59,20 @@ def _truncate_cli_output(output: str, *, keep: Literal["head", "tail"]) -> str:
     if keep == "tail":
         return sentinel + "".join(lines[-DEFAULT_MAX_OUTPUT_LINES:])
     return "".join(lines[:DEFAULT_MAX_OUTPUT_LINES]) + sentinel
+
+
+def _validate_workspace_path(path: str) -> str | None:
+    """Return an ``error: ...`` string when ``path`` is not a clean absolute path under
+    ``/workspace``, else ``None``. ``..`` is collapsed first so traversal out of the workspace
+    is rejected, and the bare workspace directory is not accepted as a file target."""
+    if not path or not path.startswith("/"):
+        return f"error: output_file must be an absolute path under {WORKSPACE_PATH} (got '{path}')."
+    normalized = posixpath.normpath(path)
+    if normalized != WORKSPACE_PATH and not normalized.startswith(WORKSPACE_PATH + "/"):
+        return f"error: output_file must resolve to a path under {WORKSPACE_PATH} (got '{path}')."
+    if normalized == WORKSPACE_PATH:
+        return f"error: output_file must be a file path, not the {WORKSPACE_PATH} directory itself."
+    return None
 
 
 GITLAB_REQUESTS_TIMEOUT = 15
