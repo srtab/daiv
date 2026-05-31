@@ -133,11 +133,10 @@ async def _handle_output_redirect(
     session_id = runtime.state.get("session_id")
     if not session_id:
         logger.warning("[%s] output_file requested but no sandbox session; returning inline output", tool_name)
-        note = (
+        return (
             "(note: output_file was ignored — file redirect needs the sandbox, which is not active "
             "for this run. Returning inline output instead.)\n\n"
-        )
-        return note + _truncate_cli_output(output, keep=keep)
+        ) + _truncate_cli_output(output, keep=keep)
 
     try:
         byte_count, line_count = await _write_output_to_sandbox(output, output_file, session_id)
@@ -160,9 +159,9 @@ async def _auto_evict(output: str, session_id: str, resource: str, action: str, 
     except Exception:
         logger.exception("[%s] Auto-eviction failed (session=%s, path=%s)", tool_name, session_id, path)
         return None
-    confirmation = _redirect_confirmation(path, byte_count, line_count, output)
     return (
-        confirmation + "\n\n(note: output exceeded the inline limit and was written verbatim to the scratch file "
+        _redirect_confirmation(path, byte_count, line_count, output)
+        + "\n\n(note: output exceeded the inline limit and was written verbatim to the scratch file "
         "above instead of being truncated. To get the full result, re-run with output_file=<path> "
         "(GitLab writes JSON automatically; for GitHub add --json <fields> to the subcommand).)"
     )
@@ -801,7 +800,7 @@ async def gitlab_tool(
         return empty
 
     keep: Literal["head", "tail"] = "head"
-    if resource == "project-job" and action == "trace":
+    if is_job_trace:
         output = clean_job_logs(output, runtime.context.git_platform)
         keep = "tail"
 
