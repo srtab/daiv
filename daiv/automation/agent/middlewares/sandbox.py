@@ -15,7 +15,8 @@ from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.constants import SKILLS_CACHE_PATH
+from automation.agent.conf import settings as agent_settings
+from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
@@ -248,28 +249,43 @@ def _make_repo_archive(working_dir: str) -> bytes:
     return buf.getvalue()
 
 
-def _make_skills_archive(skills_dir: Path) -> bytes | None:
-    """Tar the contents of ``skills_dir`` (members relative to it). Return ``None`` if missing/empty."""
-    if not skills_dir.is_dir():
+def _make_global_skills_archive() -> bytes | None:
+    """Tar builtin + custom global skills (members relative to their skill dir).
+
+    These are the only-disk sources for global skills; seeding them into the sandbox's
+    ``/workspace/skills`` is the single provisioning step (one RPC), replacing per-file
+    uploads. Custom skills are added after builtins so a same-named custom skill overrides.
+    Returns ``None`` if there is nothing to pack.
+    """
+    roots: list[Path] = [BUILTIN_SKILLS_PATH]
+    custom = agent_settings.CUSTOM_SKILLS_PATH
+    if custom is not None and custom.is_dir():
+        roots.append(custom)
+
+    members: dict[str, Path] = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            logger.warning("Could not read skills root '%s'; skipping for seed archive", root, exc_info=True)
+            continue
+        for child in children:
+            if child.is_dir() and (child.name.startswith(".") or child.name == "__pycache__"):
+                continue
+            members[child.name] = child  # later root (custom) overrides builtin
+
+    if not members:
         return None
-    try:
-        children = list(skills_dir.iterdir())
-    except OSError:
-        logger.warning(
-            "Could not read skills directory '%s'; seeding without skills archive", skills_dir, exc_info=True
-        )
-        return None
-    if not children:
-        return None
+
     buf = io.BytesIO()
     try:
         with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-            for child in children:
-                tf.add(child, arcname=child.name)
+            for name, path in members.items():
+                tf.add(path, arcname=name)
     except OSError, tarfile.TarError:
-        logger.warning(
-            "Failed to build skills archive from '%s'; seeding without skills archive", skills_dir, exc_info=True
-        )
+        logger.warning("Failed to build global skills archive; seeding without skills", exc_info=True)
         return None
     return buf.getvalue()
 
@@ -427,7 +443,7 @@ class SandboxMiddleware(AgentMiddleware):
                 working_dir = Path(runtime.context.gitrepo.working_dir)
                 repo_archive, skills_archive = await asyncio.gather(
                     asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                    asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
+                    asyncio.to_thread(_make_global_skills_archive),
                 )
                 await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:
