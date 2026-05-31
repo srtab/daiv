@@ -10,6 +10,8 @@ from langgraph.types import Command
 
 from automation.agent.middlewares.git_platform import (
     _exceeds_output_cap,
+    _finalize_inline_output,
+    _handle_output_redirect,
     _redirect_confirmation,
     _validate_workspace_path,
     _write_output_to_sandbox,
@@ -387,3 +389,74 @@ async def test_write_output_to_sandbox_raises_on_not_ok_and_still_closes():
     with _mock_sandbox_client(ok=False, error="disk full") as client, pytest.raises(RuntimeError, match="disk full"):
         await _write_output_to_sandbox("x", "/workspace/tmp/x.txt", "s")
     client.close.assert_awaited_once()
+
+
+async def test_handle_redirect_degrades_inline_without_session():
+    runtime = _make_gitlab_runtime()  # state has no session_id
+    result = await _handle_output_redirect(
+        output="hello", output_file="/workspace/tmp/x.json", runtime=runtime, keep="head", tool_name="gitlab"
+    )
+    assert "output_file was ignored" in result
+    assert "hello" in result
+
+
+async def test_handle_redirect_writes_and_confirms_with_session():
+    runtime = _make_gitlab_runtime()
+    runtime.state["session_id"] = "sess-1"
+    with _mock_sandbox_client() as client:
+        result = await _handle_output_redirect(
+            output="payload-data", output_file="/workspace/tmp/x.json", runtime=runtime, keep="head", tool_name="gitlab"
+        )
+    assert client.fs_write.call_args.args[1].path == "/workspace/tmp/x.json"
+    assert result.startswith("Wrote ")
+
+
+async def test_handle_redirect_returns_error_on_write_failure():
+    runtime = _make_gitlab_runtime()
+    runtime.state["session_id"] = "sess-1"
+    with _mock_sandbox_client(ok=False, error="boom"):
+        result = await _handle_output_redirect(
+            output="x", output_file="/workspace/tmp/x.json", runtime=runtime, keep="head", tool_name="gitlab"
+        )
+    assert result.startswith("error:")
+    assert "/workspace/tmp/x.json" in result
+
+
+async def test_finalize_inline_returns_plain_output_when_small():
+    runtime = _make_gitlab_runtime()
+    with patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as cls:
+        result = await _finalize_inline_output(
+            output="small", runtime=runtime, resource="r", action="a", keep="head", tool_name="gitlab"
+        )
+        cls.assert_not_called()
+    assert result == "small"
+
+
+async def test_finalize_inline_auto_evicts_when_oversized_with_session():
+    runtime = _make_gitlab_runtime()
+    runtime.state["session_id"] = "sess-1"
+    big = "\n".join(str(i) for i in range(2100))
+    with _mock_sandbox_client() as client:
+        result = await _finalize_inline_output(
+            output=big,
+            runtime=runtime,
+            resource="project-merge-request",
+            action="list",
+            keep="head",
+            tool_name="gitlab",
+        )
+    path = client.fs_write.call_args.args[1].path
+    assert path.startswith("/workspace/tmp/gitlab-project-merge-request-list-")
+    assert path.endswith(".txt")
+    assert "written verbatim to the scratch file" in result
+
+
+async def test_finalize_inline_truncates_without_session_when_oversized():
+    runtime = _make_gitlab_runtime()  # no session
+    big = "\n".join(str(i) for i in range(2100))
+    with patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as cls:
+        result = await _finalize_inline_output(
+            output=big, runtime=runtime, resource="r", action="a", keep="head", tool_name="gitlab"
+        )
+        cls.assert_not_called()
+    assert "truncated" in result  # sentinel from _truncate_cli_output

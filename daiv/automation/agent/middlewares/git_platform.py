@@ -7,6 +7,7 @@ import logging
 import os
 import posixpath
 import shlex
+import uuid
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
 
 from django.core.cache import cache
@@ -20,7 +21,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
-from automation.agent.constants import WORKSPACE_PATH
+from automation.agent.constants import SCRATCH_PATH, WORKSPACE_PATH
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
@@ -119,6 +120,70 @@ async def _write_output_to_sandbox(content: str, path: str, session_id: str) -> 
     if not response.ok:
         raise RuntimeError(response.error or "sandbox returned ok=false")
     return len(data), len(content.splitlines())
+
+
+async def _handle_output_redirect(
+    *, output: str, output_file: str, runtime: ToolRuntime[RuntimeCtx], keep: Literal["head", "tail"], tool_name: str
+) -> str:
+    """Write the full output to ``output_file`` and return a confirmation.
+
+    Assumes ``output_file`` already passed ``_validate_workspace_path``. Degrades to inline
+    (truncated) output with a note when the sandbox is not active for this run.
+    """
+    session_id = runtime.state.get("session_id")
+    if not session_id:
+        note = (
+            "(note: output_file was ignored — file redirect needs the sandbox, which is not active "
+            "for this run. Returning inline output instead.)\n\n"
+        )
+        return note + _truncate_cli_output(output, keep=keep)
+
+    try:
+        byte_count, line_count = await _write_output_to_sandbox(output, output_file, session_id)
+    except Exception as exc:
+        logger.exception("[%s] Failed to write output_file %s", tool_name, output_file)
+        return f"error: Failed to write output to {output_file}. Details: {exc}"
+
+    return _redirect_confirmation(output_file, byte_count, line_count, output)
+
+
+async def _auto_evict(output: str, session_id: str, resource: str, action: str, tool_name: str) -> str | None:
+    """Spill oversized inline output verbatim to a scratch file under /workspace/tmp.
+
+    Returns a confirmation + note, or ``None`` if the write failed (caller falls back to
+    inline truncation).
+    """
+    path = posixpath.join(SCRATCH_PATH, f"{tool_name}-{resource}-{action}-{uuid.uuid4().hex[:8]}.txt")
+    try:
+        byte_count, line_count = await _write_output_to_sandbox(output, path, session_id)
+    except Exception:
+        logger.exception("[%s] Auto-eviction failed for oversized output", tool_name)
+        return None
+    confirmation = _redirect_confirmation(path, byte_count, line_count, output)
+    return (
+        confirmation + "\n\n(note: output exceeded the inline limit and was written verbatim to the scratch file "
+        "above instead of being truncated. To structure-query it as JSON, re-run with output_file=<path>.)"
+    )
+
+
+async def _finalize_inline_output(
+    *,
+    output: str,
+    runtime: ToolRuntime[RuntimeCtx],
+    resource: str,
+    action: str,
+    keep: Literal["head", "tail"],
+    tool_name: str,
+) -> str:
+    """Return inline output, auto-evicting to a scratch file when it exceeds the inline cap."""
+    if not _exceeds_output_cap(output):
+        return _truncate_cli_output(output, keep=keep)
+    session_id = runtime.state.get("session_id")
+    if session_id:
+        evicted = await _auto_evict(output, session_id, resource, action, tool_name)
+        if evicted is not None:
+            return evicted
+    return _truncate_cli_output(output, keep=keep)
 
 
 GITLAB_REQUESTS_TIMEOUT = 15
