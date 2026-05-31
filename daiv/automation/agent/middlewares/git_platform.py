@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -26,6 +27,8 @@ from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 from codebase.context import RuntimeCtx  # noqa: TC001
+from core.sandbox.client import DAIVSandboxClient
+from core.sandbox.schemas import FsWriteRequest
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
@@ -97,6 +100,25 @@ def _redirect_confirmation(path: str, byte_count: int, line_count: int, output: 
         preview = preview[:_PREVIEW_MAX_CHARS] + "\n… (preview truncated)"
     shown = min(line_count, _PREVIEW_MAX_LINES)
     return f"Wrote {byte_count} bytes ({line_count} lines) to {path}\nPreview (first {shown} lines):\n{preview}"
+
+
+async def _write_output_to_sandbox(content: str, path: str, session_id: str) -> tuple[int, int]:
+    """Write ``content`` to ``path`` under /workspace via a short-lived sandbox client.
+
+    Mirrors the short-lived-client pattern of ``open_git_manager``: open one client against the
+    live session, write, close in a ``finally``. ``content`` is base64-encoded for the
+    ``Base64Bytes`` wire field. Returns ``(byte_count, line_count)``; raises on a failed write.
+    """
+    data = content.encode("utf-8")
+    client = DAIVSandboxClient()
+    await client.open()
+    try:
+        response = await client.fs_write(session_id, FsWriteRequest(path=path, content=base64.b64encode(data)))
+    finally:
+        await client.close()
+    if not response.ok:
+        raise RuntimeError(response.error or "sandbox returned ok=false")
+    return len(data), len(content.splitlines())
 
 
 GITLAB_REQUESTS_TIMEOUT = 15

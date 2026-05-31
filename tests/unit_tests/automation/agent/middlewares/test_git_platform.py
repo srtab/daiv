@@ -12,6 +12,7 @@ from automation.agent.middlewares.git_platform import (
     _exceeds_output_cap,
     _redirect_confirmation,
     _validate_workspace_path,
+    _write_output_to_sandbox,
     github_tool,
     gitlab_tool,
 )
@@ -367,3 +368,22 @@ def test_redirect_confirmation_caps_preview_to_25_lines():
     msg = _redirect_confirmation("/workspace/tmp/x.json", 999, 100, output)
     assert "line24" in msg  # 25th line (0-indexed) is shown
     assert "line25" not in msg  # 26th line is not
+
+
+async def test_write_output_to_sandbox_writes_and_returns_counts():
+    with _mock_sandbox_client() as client:
+        byte_count, line_count = await _write_output_to_sandbox("a\nb\nc", "/workspace/tmp/x.txt", "sess-9")
+
+    assert client.fs_write.call_args.args[0] == "sess-9"
+    req = client.fs_write.call_args.args[1]
+    assert req.path == "/workspace/tmp/x.txt"
+    assert req.content == b"a\nb\nc"  # Base64Bytes stores decoded bytes after validation
+    assert (byte_count, line_count) == (5, 3)
+    client.open.assert_awaited_once()
+    client.close.assert_awaited_once()
+
+
+async def test_write_output_to_sandbox_raises_on_not_ok_and_still_closes():
+    with _mock_sandbox_client(ok=False, error="disk full") as client, pytest.raises(RuntimeError, match="disk full"):
+        await _write_output_to_sandbox("x", "/workspace/tmp/x.txt", "s")
+    client.close.assert_awaited_once()
