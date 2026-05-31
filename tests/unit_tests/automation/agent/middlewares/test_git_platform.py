@@ -460,3 +460,14 @@ async def test_finalize_inline_truncates_without_session_when_oversized():
         )
         cls.assert_not_called()
     assert "truncated" in result  # sentinel from _truncate_cli_output
+
+
+async def test_finalize_inline_falls_back_to_truncation_when_evict_fails():
+    runtime = _make_gitlab_runtime()
+    runtime.state["session_id"] = "sess-1"
+    big = "\n".join(str(i) for i in range(2100))
+    with _mock_sandbox_client(ok=False, error="disk full"):
+        result = await _finalize_inline_output(
+            output=big, runtime=runtime, resource="r", action="a", keep="head", tool_name="gitlab"
+        )
+    assert "truncated" in result  # fallback to _truncate_cli_output sentinel
