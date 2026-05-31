@@ -17,7 +17,7 @@ from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, get_repo_ref
+from codebase.utils import get_repo_ref
 
 # Platform / transport errors that warrant a soft "no MR" fallback. Bugs
 # (KeyError, AttributeError, etc.) propagate so the run fails loudly rather
@@ -128,7 +128,13 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
-        Before the agent starts, set the branch name and merge request ID.
+        Before the agent starts, resolve the merge request the run will publish to.
+
+        No branch checkout happens here: ``set_runtime_ctx`` clones directly on the right
+        ref (``ref=source_branch`` for MR scope; chat persists the branch), and the sandbox
+        is seeded from that clone — so the workspace already reflects the MR's source branch
+        before this hook runs. A post-seed checkout would only touch the now non-authoritative
+        local clone, so the resolved MR is just recorded in state for the prompt and safeguard.
         """
         merge_request = state.get("merge_request")
 
@@ -141,19 +147,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # composer pill reflects reality from the very first turn. Issue-scope
             # runs always start on the default branch, where this lookup short-circuits.
             merge_request = await self._alookup_open_mr(runtime.context)
-
-        if merge_request and merge_request.source_branch != get_repo_ref(runtime.context.gitrepo):
-            git_manager = GitManager(runtime.context.gitrepo)
-
-            logger.info("[%s] Checking out to branch '%s'", self.name, merge_request.source_branch)
-
-            try:
-                git_manager.checkout(merge_request.source_branch)
-            except ValueError as e:
-                # Branch from the MR no longer exists locally; treat as no MR
-                # and let the publisher decide whether to recreate it.
-                logger.warning("[%s] Failed to checkout to branch '%s': %s", self.name, merge_request.source_branch, e)
-                merge_request = None
 
         return {"merge_request": merge_request, "code_changes": False, "protected_branch_fallback_source": None}
 
