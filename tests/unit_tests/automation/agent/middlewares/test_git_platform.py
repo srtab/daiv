@@ -9,6 +9,8 @@ from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
 from automation.agent.middlewares.git_platform import (
+    GITHUB_TOOL_DESCRIPTION,
+    GITLAB_TOOL_DESCRIPTION,
     _exceeds_output_cap,
     _finalize_inline_output,
     _handle_output_redirect,
@@ -651,3 +653,12 @@ async def test_gitlab_empty_output_with_output_file_notes_file_not_written():
     assert "empty result" in result
     assert "not written" in result
     client_cls.assert_not_called()
+
+
+def test_tool_descriptions_document_output_file():
+    for desc in (GITLAB_TOOL_DESCRIPTION, GITHUB_TOOL_DESCRIPTION):
+        assert "output_file" in desc
+        assert "/workspace" in desc
+        assert "/workspace/tmp" in desc  # transient-dump guidance
+    assert "--output json" in GITLAB_TOOL_DESCRIPTION  # gitlab forces JSON on redirect
+    assert "--json" in GITHUB_TOOL_DESCRIPTION  # gh opts into JSON via its own flag

@@ -204,6 +204,7 @@ This tool is best for retrieving the current state of:
 **Inputs:**
 - `subcommand`: a single CLI-like subcommand string in the form `<object> <action> <arguments...>`
 - `output_mode`: either `simplified` or `detailed`
+- `output_file`: optional absolute path under `/workspace` to write the FULL result to as JSON (`output_mode` is ignored). Returns a compact confirmation instead of the content.
 
 **Hard rules:**
 - Do NOT include the `gitlab` prefix in `subcommand`
@@ -216,6 +217,14 @@ This tool is best for retrieving the current state of:
 - Results are ordered from most recent to oldest by default
 - List subcommands return the first 5 items by default unless you paginate with `--page`
 - Output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines
+
+**Redirecting large output to a file (for jq/scripts):**
+- Set `output_file` to an absolute `/workspace` path to write the FULL, untruncated result there as JSON (using `--output json`), instead of returning it inline. Then process the file with `bash` (jq, scripts, grep).
+- This avoids re-typing tool output into a bash command and bypasses the inline line cap.
+- Pagination stays under your control: pair with `--get-all` or `--per-page` for complete list dumps.
+- Prefer `/workspace/tmp` for transient dumps; a `/workspace/repo` path becomes a commit candidate.
+- If output exceeds the inline cap and you did NOT set `output_file`, it is auto-written to a `/workspace/tmp` file and that path is returned.
+- Example: `project-merge-request list --state opened --get-all` with `output_file="/workspace/tmp/mrs.json"`, then `bash`: `jq '[.[].labels[]] | group_by(.) | map({{label: .[0], count: length}})' /workspace/tmp/mrs.json`.
 
 **How to use it well:**
 - Use `output_mode="simplified"` ONLY for broad `list` discovery where you just need IDs (e.g. `project-merge-request list --state opened`).
@@ -285,6 +294,7 @@ This tool is best for retrieving the current state of:
 
 **Inputs:**
 - `subcommand`: a single CLI-like subcommand string in the form `<object> <action> [arguments...]>`
+- `output_file`: optional absolute path under `/workspace` to write the FULL stdout to (verbatim). Returns a compact confirmation instead of the content.
 
 **Hard rules:**
 - Do NOT include the `gh` prefix in `subcommand`
@@ -296,6 +306,14 @@ This tool is best for retrieving the current state of:
 - List subcommands are limited to the first 30 items by default
 - Results are ordered from most recent to oldest when supported by the underlying subcommand
 - Output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines
+
+**Redirecting large output to a file (for jq/scripts):**
+- Set `output_file` to an absolute `/workspace` path to write the FULL, untruncated stdout there, instead of returning it inline. Then process the file with `bash` (jq, scripts, grep).
+- gh has no global JSON flag — for jq-able output, include gh's own `--json <fields> [--jq ...]` in the subcommand; otherwise the file holds gh's text output.
+- Pagination stays under your control: use `--limit` for complete list dumps.
+- Prefer `/workspace/tmp` for transient dumps; a `/workspace/repo` path becomes a commit candidate.
+- If output exceeds the inline cap and you did NOT set `output_file`, it is auto-written to a `/workspace/tmp` file and that path is returned.
+- Example: `pr list --state open --json number,title,labels --limit 200` with `output_file="/workspace/tmp/prs.json"`, then `bash`: `jq '.[] | select(.labels | length == 0) | .number' /workspace/tmp/prs.json`.
 
 **How to use it well:**
 - Start with the smallest subcommand that identifies the exact target
