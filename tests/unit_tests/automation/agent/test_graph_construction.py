@@ -60,3 +60,24 @@ def test_graph_sandbox_global_skills_source_is_workspace_skills():
     assert "global_skills_source = GLOBAL_SKILLS_PATH" in src, (
         "graph.py non-sandbox branch must keep GLOBAL_SKILLS_PATH (/skills) as the global-skills source"
     )
+
+
+def test_middleware_order_slash_then_sandbox_then_skills():
+    src = inspect.getsource(graph_module)
+    # SlashCommandMiddleware must run before SandboxMiddleware (so /clear etc. don't start a sandbox),
+    # and SkillsMiddleware must run AFTER SandboxMiddleware (so the backend is bound + seeded before
+    # discovery reads it).
+    slash = src.index("SlashCommandMiddleware(")
+    sandbox = src.index("SandboxMiddleware(backend=backend, agent_root=agent_root)")
+    skills = src.index("SkillsMiddleware(")
+    assert slash < sandbox < skills, "order must be SlashCommandMiddleware -> SandboxMiddleware -> SkillsMiddleware"
+
+
+def test_skills_middleware_receives_sandbox_enabled_flag():
+    src = inspect.getsource(graph_module)
+    assert "sandbox_enabled=_sandbox_enabled" in src, "SkillsMiddleware must receive the sandbox_enabled flag"
+
+
+def test_slash_command_middleware_receives_subagents():
+    src = inspect.getsource(graph_module)
+    assert "SlashCommandMiddleware(subagents=subagents)" in src
