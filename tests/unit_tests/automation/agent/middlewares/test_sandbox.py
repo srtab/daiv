@@ -610,6 +610,47 @@ class TestSandboxMiddleware:
             settings.CUSTOM_SKILLS_PATH = None
             assert _make_global_skills_archive() is None
 
+    def test_make_global_skills_archive_skips_unreadable_root_and_still_packs_builtins(self, tmp_path: Path):
+        """An OSError reading one root (e.g. a bad-perms custom dir) must not abort the whole
+        archive — builtins still seed. (Multi-root behavior change vs the old single-root helper.)"""
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
+
+        builtin = tmp_path / "builtin"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
+
+        bad_custom = Mock()
+        bad_custom.is_dir.return_value = True
+        bad_custom.iterdir.side_effect = PermissionError("denied")
+
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = bad_custom
+            archive = _make_global_skills_archive()
+
+        assert isinstance(archive, (bytes, bytearray))
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+            names = set(tf.getnames())
+        assert "code-review/SKILL.md" in names
+
+    def test_make_global_skills_archive_returns_none_on_tar_error(self, tmp_path: Path):
+        """A TarError mid-build must not abort the whole sandbox seed — returns None (seed without skills)."""
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
+
+        builtin = tmp_path / "builtin"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
+
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+            patch("automation.agent.middlewares.sandbox.tarfile.open", side_effect=tarfile.TarError("boom")),
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            assert _make_global_skills_archive() is None
+
     async def test_awrap_model_call_appends_sandbox_system_prompt(self, tmp_path: Path):
         from langchain.agents.middleware import ModelRequest, ModelResponse
 

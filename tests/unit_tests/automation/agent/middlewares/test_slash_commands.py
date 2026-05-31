@@ -114,6 +114,8 @@ async def test_executes_builtin_command_and_jumps_to_end():
     assert result["jump_to"] == "end"
     assert isinstance(result["messages"][-1], AIMessage)
     assert result["messages"][-1].content == "help text"
+    # A non-resetting command must NOT touch active_skill_mode (SkillsMiddleware clears it on follow-up).
+    assert "active_skill_mode" not in result
     # /help got the disk-loaded global skills
     assert command.execute_for_agent.await_args.kwargs["available_skills"] == [{"name": "x", "description": "d"}]
     assert command.execute_for_agent.await_args.kwargs["available_subagents"] == []
@@ -139,6 +141,9 @@ async def test_resets_thread_prepends_remove_all():
 
     assert result["jump_to"] == "end"
     assert getattr(result["messages"][0], "id", None) == REMOVE_ALL_MESSAGES
+    # A thread reset must also clear active_skill_mode, else a read-only skill stays stuck on the
+    # fresh thread (history is wiped, so SkillsMiddleware's clear-on-followup can never fire).
+    assert result["active_skill_mode"] is None
 
 
 async def test_command_failure_jumps_to_end_with_error_message():
@@ -160,3 +165,68 @@ async def test_command_failure_jumps_to_end_with_error_message():
 
     assert result["jump_to"] == "end"
     assert "Failed to execute `/help`." in result["messages"][-1].content
+
+
+async def test_unknown_command_falls_through_without_jump():
+    """An unregistered command must NOT short-circuit — it falls through so the agent handles it."""
+    mw = SlashCommandMiddleware(subagents=[])
+    command = MagicMock()
+    command.execute_for_agent = AsyncMock()
+    state = {"messages": [HumanMessage(content="/nope")]}
+    with (
+        patch.object(
+            mw, "_extract_slash_command", return_value=SlashCommandCommand(raw="/nope", command="nope", args=[])
+        ),
+        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
+    ):
+        registry.get_commands.return_value = []
+        result = await mw.abefore_agent(state, _runtime(), {})
+
+    assert result is None
+    command.execute_for_agent.assert_not_awaited()
+
+
+async def test_ambiguous_command_falls_through_without_executing():
+    """More than one command for the same name is ambiguous — fall through, do not execute either."""
+    mw = SlashCommandMiddleware(subagents=[])
+    command = MagicMock()
+    command.execute_for_agent = AsyncMock()
+    state = {"messages": [HumanMessage(content="/demo")]}
+    with (
+        patch.object(
+            mw, "_extract_slash_command", return_value=SlashCommandCommand(raw="/demo", command="demo", args=[])
+        ),
+        patch("automation.agent.middlewares.slash_commands.slash_command_registry") as registry,
+    ):
+        registry.get_commands.return_value = [MagicMock(command="demo"), MagicMock(command="demo")]
+        result = await mw.abefore_agent(state, _runtime(), {})
+
+    assert result is None
+    command.execute_for_agent.assert_not_awaited()
+
+
+def test_extract_slash_command_requires_human_message():
+    mw = SlashCommandMiddleware(subagents=[])
+    assert mw._extract_slash_command([AIMessage(content="hello")], "daiv") is None
+
+
+def test_extract_slash_command_skips_blank_content():
+    mw = SlashCommandMiddleware(subagents=[])
+    assert mw._extract_slash_command([HumanMessage(content="  \n\t ")], "daiv") is None
+
+
+def test_extract_slash_command_parses_multimodal_content():
+    mw = SlashCommandMiddleware(subagents=[])
+    messages = [
+        HumanMessage(
+            content=[
+                {"type": "text", "text": "@daiv /help arg1"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/demo.png"}},
+            ]
+        )
+    ]
+    result = mw._extract_slash_command(messages, "daiv")
+    assert result is not None
+    assert result.command == "help"
+    assert result.args == ["arg1"]
+    assert result.raw == "@daiv /help arg1"

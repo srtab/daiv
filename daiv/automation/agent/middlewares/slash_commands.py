@@ -11,6 +11,7 @@ from langgraph.runtime import Runtime  # noqa: TC002
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
+from automation.agent.middlewares.skills import DAIVSkillsState
 from automation.agent.utils import extract_text_content
 from codebase.context import RuntimeCtx  # noqa: TC001
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
@@ -55,6 +56,7 @@ def _load_global_skill_metadata() -> list[SkillMetadata]:
             try:
                 content = skill_md.read_text(encoding="utf-8")
             except OSError:
+                logger.warning("Could not read SKILL.md '%s' for /help; omitting from listing", skill_md, exc_info=True)
                 continue
             meta = _parse_skill_metadata(content, str(skill_md), skill_dir.name)
             if meta is not None:
@@ -71,6 +73,10 @@ class SlashCommandMiddleware(AgentMiddleware):
     plus, for ``/help``, the builtin + custom *global* skill list — all read from disk, so
     this hook never touches the sandbox backend.
     """
+
+    # Declares the skills state channels so this middleware may reset ``active_skill_mode`` when a
+    # command wipes the thread (see ``_apply_builtin_slash_commands``); ``SkillsMiddleware`` owns it.
+    state_schema = DAIVSkillsState
 
     def __init__(self, *, subagents: Sequence[SubAgent | CompiledSubAgent] | None = None) -> None:
         super().__init__()
@@ -124,7 +130,15 @@ class SlashCommandMiddleware(AgentMiddleware):
             # resets_thread commands (e.g. /clear) must drop in-memory history, else the final
             # checkpoint write re-persists every prior message under the same thread_id.
             reset_prefix: list = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] if command.resets_thread else []
-            return {"messages": [*reset_prefix, AIMessage(content=result)], "jump_to": "end"}
+            update: dict = {"messages": [*reset_prefix, AIMessage(content=result)], "jump_to": "end"}
+            if command.resets_thread:
+                # The wipe also clears private state: a read-only skill (e.g. /plan sets
+                # active_skill_mode="read-only") must not survive onto the fresh thread, where
+                # _has_user_followup (needs surviving history) could never clear it — every write
+                # tool would stay refused. SkillsMiddleware's clear-on-followup never runs here
+                # (we jump to end), so reset it explicitly.
+                update["active_skill_mode"] = None
+            return update
 
     def _extract_slash_command(self, messages: list[AnyMessage], bot_username: str) -> SlashCommandCommand | None:
         latest_message = messages[-1]

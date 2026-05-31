@@ -73,9 +73,22 @@ def test_middleware_order_slash_then_sandbox_then_skills():
     assert slash < sandbox < skills, "order must be SlashCommandMiddleware -> SandboxMiddleware -> SkillsMiddleware"
 
 
+def _balanced_call_args(src: str, callee: str) -> str:
+    """Return the argument text inside ``callee(...)`` via balanced-paren matching."""
+    start = src.index(callee) + len(callee)
+    depth, i = 1, start
+    while i < len(src) and depth > 0:
+        depth += {"(": 1, ")": -1}.get(src[i], 0)
+        i += 1
+    return src[start : i - 1]
+
+
 def test_skills_middleware_receives_sandbox_enabled_flag():
     src = inspect.getsource(graph_module)
-    assert "sandbox_enabled=_sandbox_enabled" in src, "SkillsMiddleware must receive the sandbox_enabled flag"
+    # Assert the flag is passed INSIDE the SkillsMiddleware(...) call, not just somewhere in the
+    # file (it also appears on the subagent factory calls), so this guards the real wiring.
+    skills_call = _balanced_call_args(src, "SkillsMiddleware(")
+    assert "sandbox_enabled=_sandbox_enabled" in skills_call, "SkillsMiddleware must receive the sandbox_enabled flag"
 
 
 def test_slash_command_middleware_receives_subagents():
