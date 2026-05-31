@@ -89,7 +89,7 @@ class TestBindBackend:
     def test_bind_backend_binds_sandbox_file_backend(self):
         from automation.agent.middlewares.file_system import SandboxFileBackend
 
-        backend = SandboxFileBackend(root="/workspace")
+        backend = SandboxFileBackend()
         mw = SandboxMiddleware(backend=backend, agent_root="/workspace/repo")
         mw._client = AsyncMock()
 
@@ -114,7 +114,7 @@ class TestBindBackend:
         not raise (the session, not the client, identifies the workspace)."""
         from automation.agent.middlewares.file_system import SandboxFileBackend
 
-        backend = SandboxFileBackend(root="/workspace")
+        backend = SandboxFileBackend()
         parent = SandboxMiddleware(backend=backend, agent_root="/workspace/repo")
         parent._client = AsyncMock()
         parent._bind_backend("sid")

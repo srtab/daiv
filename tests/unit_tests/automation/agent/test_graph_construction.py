@@ -40,3 +40,23 @@ def test_graph_uses_fallback_thinking_level_standalone():
     assert "site_settings.agent_fallback_thinking_level or" not in src, (
         "graph.py must NOT coalesce agent_fallback_thinking_level to another value"
     )
+
+
+def test_graph_constructs_sandbox_backend_without_root():
+    src = inspect.getsource(graph_module)
+    assert "SandboxFileBackend()" in src, (
+        "graph.py must construct SandboxFileBackend() with no root — the agent uses sandbox-absolute paths"
+    )
+    assert "SandboxFileBackend(root=" not in src, "graph.py must NOT pass a root to SandboxFileBackend (pass-through)"
+
+
+def test_graph_sandbox_global_skills_source_is_workspace_skills():
+    src = inspect.getsource(graph_module)
+    # In sandbox mode the global-skills discovery source must be the real sandbox dir,
+    # not the route-relative "/skills" used by the disk-backed composite.
+    assert "global_skills_source = SKILLS_PATH" in src, (
+        "graph.py sandbox branch must use SKILLS_PATH (/workspace/skills) as the global-skills source"
+    )
+    assert "global_skills_source = GLOBAL_SKILLS_PATH" in src, (
+        "graph.py non-sandbox branch must keep GLOBAL_SKILLS_PATH (/skills) as the global-skills source"
+    )
