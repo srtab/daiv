@@ -1,4 +1,5 @@
-from unittest.mock import Mock, patch
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -6,6 +7,26 @@ import pytest
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import GitPlatform, MergeRequest, User
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
+
+
+def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches=()) -> Mock:
+    """A stand-in for the (sandbox/local) GitManager the publisher opens via open_git_manager."""
+    gm = Mock()
+    gm.is_dirty = AsyncMock(return_value=dirty)
+    gm.get_diff = AsyncMock(return_value=diff)
+    gm.commit_all = AsyncMock()
+    gm.remote_branches = AsyncMock(return_value=list(remote_branches))
+    gm.push_head_to = AsyncMock(return_value="pushed")
+    gm.unique_branch_name = Mock(side_effect=lambda name, existing: name)
+    return gm
+
+
+def _patch_open_git_manager(monkeypatch, gm: Mock) -> None:
+    @asynccontextmanager
+    async def _fake_open(*, session_id, gitrepo):  # noqa: ARG001
+        yield gm
+
+    monkeypatch.setattr("automation.agent.publishers.open_git_manager", _fake_open)
 
 
 def _make_merge_request(**overrides) -> MergeRequest:
@@ -205,8 +226,10 @@ class TestPublishSuggestsContextFile:
         pub.client.get_repository_file.return_value = None
         return pub
 
-    async def test_calls_suggest_on_new_mr(self, publisher):
+    async def test_calls_suggest_on_new_mr(self, publisher, monkeypatch):
         mr = _make_merge_request()
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
 
         with (
             patch.object(
@@ -217,24 +240,22 @@ class TestPublishSuggestsContextFile:
                     "commit_message": Mock(commit_message="commit msg"),
                 },
             ),
-            patch("automation.agent.publishers.GitManager") as mock_git_mgr_cls,
             patch.object(publisher, "_create_merge_request", return_value=mr),
             patch.object(publisher, "_suggest_context_file") as mock_suggest,
         ):
-            mock_git_mgr = mock_git_mgr_cls.return_value
-            mock_git_mgr.is_dirty.return_value = True
-            mock_git_mgr.get_diff.return_value = "diff"
-            mock_git_mgr.commit_and_push_changes.return_value = "feature"
-
             result = await publisher.publish(merge_request=None)
 
+            gm.commit_all.assert_awaited_once()
+            gm.push_head_to.assert_awaited_once_with("feature")
             mock_suggest.assert_called_once_with(mr)
             assert result == mr
 
-    async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher):
+    async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
         existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
         new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
 
         with (
             patch.object(
@@ -245,24 +266,18 @@ class TestPublishSuggestsContextFile:
                     "commit_message": Mock(commit_message="commit msg"),
                 },
             ) as mock_diff_to_metadata,
-            patch("automation.agent.publishers.GitManager") as mock_git_mgr_cls,
             patch.object(publisher, "_create_merge_request", return_value=new_mr) as mock_create_mr,
             patch.object(publisher, "_suggest_context_file"),
         ):
-            mock_git_mgr = mock_git_mgr_cls.return_value
-            mock_git_mgr.is_dirty.return_value = True
-            mock_git_mgr.get_diff.return_value = "diff"
-            mock_git_mgr.commit_and_push_changes.return_value = "feature-fix"
-
             result = await publisher.publish(merge_request=existing_mr)
 
             publisher.client.is_branch_protected.assert_called_once_with("owner/repo", "dev")
             # Pre-check must run before _diff_to_metadata so the fallback path receives a
             # populated pr_metadata_diff (the new MR needs title/branch/description).
             assert mock_diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is not None
-            mock_git_mgr.commit_and_push_changes.assert_called_once_with(
-                "commit msg", branch_name="feature-fix", use_branch_if_exists=False, skip_ci=False
-            )
+            # Fresh unique branch generated + pushed for the fallback MR.
+            gm.unique_branch_name.assert_called_once_with("feature-fix", [])
+            gm.push_head_to.assert_awaited_once_with("feature-fix")
             # The new MR is created with a back-link to the original protected MR.
             mock_create_mr.assert_called_once()
             assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
@@ -273,12 +288,14 @@ class TestPublishSuggestsContextFile:
             publisher.client.create_merge_request_comment.assert_not_called()
             assert result == new_mr
 
-    async def test_protected_branch_fallback_resets_between_publish_calls(self, publisher):
+    async def test_protected_branch_fallback_resets_between_publish_calls(self, publisher, monkeypatch):
         # First call hits the protected branch and sets the attribute; a follow-up
         # publish on a clean branch must not leave the prior signal behind.
         existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
         new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
 
         with (
             patch.object(
@@ -289,26 +306,23 @@ class TestPublishSuggestsContextFile:
                     "commit_message": Mock(commit_message="commit msg"),
                 },
             ),
-            patch("automation.agent.publishers.GitManager") as mock_git_mgr_cls,
             patch.object(publisher, "_create_merge_request", return_value=new_mr),
             patch.object(publisher, "_suggest_context_file"),
         ):
-            mock_git_mgr = mock_git_mgr_cls.return_value
-            mock_git_mgr.is_dirty.return_value = True
-            mock_git_mgr.get_diff.return_value = "diff"
-            mock_git_mgr.commit_and_push_changes.return_value = "feature-fix"
-
             await publisher.publish(merge_request=existing_mr)
             assert publisher.protected_branch_fallback_source == "dev"
 
-            # Second call: nothing dirty, so publish short-circuits — but the
-            # signal from the prior call must still clear.
-            mock_git_mgr.is_dirty.return_value = False
+            # Second call: clean tree, no diff versus base → publish short-circuits, but
+            # the signal from the prior call must still clear.
+            gm.is_dirty.return_value = False
+            gm.get_diff.return_value = ""
             await publisher.publish(merge_request=None)
             assert publisher.protected_branch_fallback_source is None
 
-    async def test_does_not_suggest_on_existing_mr(self, publisher):
+    async def test_does_not_suggest_on_existing_mr(self, publisher, monkeypatch):
         mr = _make_merge_request()
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
 
         with (
             patch.object(
@@ -319,14 +333,9 @@ class TestPublishSuggestsContextFile:
                     "commit_message": Mock(commit_message="commit msg"),
                 },
             ),
-            patch("automation.agent.publishers.GitManager") as mock_git_mgr_cls,
             patch.object(publisher, "_suggest_context_file") as mock_suggest,
         ):
-            mock_git_mgr = mock_git_mgr_cls.return_value
-            mock_git_mgr.is_dirty.return_value = True
-            mock_git_mgr.get_diff.return_value = "diff"
-            mock_git_mgr.commit_and_push_changes.return_value = "feature"
-
             await publisher.publish(merge_request=mr)
 
+            gm.push_head_to.assert_awaited_once_with("feature")
             mock_suggest.assert_not_called()

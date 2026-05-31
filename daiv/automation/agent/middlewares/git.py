@@ -9,10 +9,12 @@ from github import GithubException
 from gitlab.exceptions import GitlabError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain.agents.middleware.types import PrivateStateAttr
+from langchain.agents.middleware.types import PrivateStateAttr, hook_config
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
+from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher
 from automation.agent.tools.git_publish import commit_changes, create_merge_request
 from codebase.base import MergeRequest, Scope
@@ -32,6 +34,17 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("daiv.tools")
+
+# Bounded number of times the safeguard re-prompts the agent to publish its own work
+# before daiv publishes it directly.
+MAX_GIT_NUDGES = 2
+
+COMMIT_NUDGE_PROMPT = """\
+You still have unpublished changes in the workspace. Before finishing, publish them yourself:
+call `commit_changes` with a clear message for anything uncommitted, then `create_merge_request`
+with a title and description to open (or update) the merge/pull request.
+
+If you deliberately intend to leave the work unpublished, say so explicitly and stop."""
 
 
 GIT_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
@@ -90,6 +103,12 @@ class GitState(AgentState):
     posted as a separate comment.
     """
 
+    _git_nudges: Annotated[int, PrivateStateAttr]
+    """
+    How many times the safeguard has re-prompted the agent to publish its own work.
+    Caps the nudge loop (see ``MAX_GIT_NUDGES``) before daiv publishes directly.
+    """
+
 
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     """
@@ -129,9 +148,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self.skip_ci = skip_ci
         self.auto_commit_changes = auto_commit_changes
         # The agent owns committing/MR creation only when it can act on a sandbox-authoritative
-        # workspace and auto-commit is on. Otherwise these tools are absent and the safeguard
-        # (``aafter_agent``) is the sole publisher.
-        self.tools = [commit_changes, create_merge_request] if (sandbox_enabled and auto_commit_changes) else []
+        # workspace and auto-commit is on. Otherwise these tools are absent, the agent is never
+        # nudged, and the safeguard (``aafter_agent``) is the sole publisher.
+        self._agent_owns_commit = sandbox_enabled and auto_commit_changes
+        self.tools = [commit_changes, create_merge_request] if self._agent_owns_commit else []
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -227,21 +247,99 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         return await handler(request.override(system_prompt=system_prompt))
 
+    @staticmethod
+    async def _is_unpublished(git_manager, state: GitState, context: RuntimeCtx) -> bool:
+        """Whether the run produced changes that have not reached a merge request yet.
+
+        Unpublished = uncommitted changes exist, OR there are changes versus the base branch
+        that are not captured by a pushed MR (no MR recorded, or local commits not yet pushed
+        to the MR's source branch). A clean tree with no diff versus base means there is
+        nothing to publish.
+        """
+        if await git_manager.is_dirty():
+            return True
+        if not (await git_manager.get_diff(f"origin/{context.config.default_branch}")).strip():
+            return False
+        merge_request = state.get("merge_request")
+        if merge_request is None:
+            return True
+        return await git_manager.has_unpushed(merge_request.source_branch)
+
+    @staticmethod
+    def _record_issue_mr(merge_request: MergeRequest, runtime: Runtime[RuntimeCtx]) -> None:
+        """Tag the LangSmith run with the MR id when an issue produced a merge request."""
+        if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
+            rt.metadata["merge_request_id"] = merge_request.merge_request_id
+
+    @hook_config(can_jump_to=["model"])
+    async def aafter_model(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
+        """Nudge the agent to publish its own work before it stops.
+
+        Runs after every model call but acts only at a terminal turn (a final assistant
+        message with no tool calls). When the agent owns committing and left work unpublished,
+        re-enter the model loop with an instruction to use its commit/MR tools, bounded by
+        ``MAX_GIT_NUDGES``. Once nudges are exhausted, ``aafter_agent`` publishes directly.
+        """
+        if not self._agent_owns_commit:
+            return None
+
+        messages = state["messages"]
+        last_message = messages[-1] if messages else None
+        # Only act when the model is about to stop: a terminal assistant message with no
+        # pending tool calls. A response with tool calls means the agent is still working.
+        if not isinstance(last_message, AIMessage) or last_message.tool_calls:
+            return None
+
+        nudges_used = state.get("_git_nudges") or 0
+        if nudges_used >= MAX_GIT_NUDGES:
+            return None
+
+        async with open_git_manager(session_id=state.get("session_id"), gitrepo=runtime.context.gitrepo) as git_manager:
+            if not await self._is_unpublished(git_manager, state, runtime.context):
+                return None
+
+        logger.info(
+            "[%s] Unpublished changes at turn end; nudging agent to publish (attempt %s/%s).",
+            self.name,
+            nudges_used + 1,
+            MAX_GIT_NUDGES,
+        )
+        return {
+            "messages": [HumanMessage(content=COMMIT_NUDGE_PROMPT)],
+            "_git_nudges": nudges_used + 1,
+            "jump_to": "model",
+        }
+
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
-        After the agent finishes, commit the changes and update or create the merge request.
+        Safeguard: guarantee the run's changes are published, completing anything the agent left.
+
+        Happy path: the agent committed and opened/updated the MR via its own tools, so the
+        MR already lives in state — just confirm it. Otherwise (agent ignored the nudges, or
+        the tools are unavailable for this run) daiv publishes directly via the publisher,
+        which generates the title/description/commit message with ``_diff_to_metadata``.
         """
         if not self.auto_commit_changes:
             return None
 
+        async with open_git_manager(session_id=state.get("session_id"), gitrepo=runtime.context.gitrepo) as git_manager:
+            unpublished = await self._is_unpublished(git_manager, state, runtime.context)
+
+        if not unpublished:
+            # Published by the agent, or no changes at all.
+            merge_request = state.get("merge_request")
+            if merge_request:
+                self._record_issue_mr(merge_request, runtime)
+                return {"merge_request": merge_request, "code_changes": True}
+            return None
+
+        # Daiv-direct fallback: commit/push the work and open/update the MR.
         publisher = GitChangePublisher(runtime.context)
-        merge_request = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
-
+        merge_request = await publisher.publish(
+            session_id=state.get("session_id"), merge_request=state.get("merge_request"), skip_ci=self.skip_ci
+        )
         if merge_request:
-            if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
-                # If an issue resulted in a merge request, we send it to LangSmith for tracking.
-                rt.metadata["merge_request_id"] = merge_request.merge_request_id
-
+            self._record_issue_mr(merge_request, runtime)
             return {
                 "merge_request": merge_request,
                 "code_changes": True,

@@ -10,10 +10,11 @@ from django.template.loader import render_to_string
 
 from asgiref.sync import sync_to_async
 
+from automation.agent.git_utils import open_git_manager
 from automation.agent.utils import build_langsmith_config
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients import RepoClient
-from codebase.utils import GitManager, redact_diff_content
+from codebase.utils import redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
 from core.site_settings import site_settings
 
@@ -51,66 +52,82 @@ class GitChangePublisher(ChangePublisher):
     """
 
     async def publish(
-        self, *, merge_request: MergeRequest | None = None, skip_ci: bool = False, as_draft: bool = False, **kwargs
+        self,
+        *,
+        session_id: str | None = None,
+        merge_request: MergeRequest | None = None,
+        skip_ci: bool = False,
+        as_draft: bool = False,
+        **kwargs,
     ) -> MergeRequest | None:
         """
-        Save the changes made by the agent to the repository.
+        Daiv-direct publish: ensure the run's changes reach a merge request.
+
+        This is the safeguard fallback (when the agent did not publish via its own
+        ``commit_changes``/``create_merge_request`` tools) and the draft-recovery path. It
+        handles both uncommitted changes (commits them with an LLM-generated message) and
+        already-committed-but-unpushed work (pushes the existing commits), then opens or
+        updates the MR. Title/description/commit message come from ``_diff_to_metadata``.
 
         Args:
-            merge_request: The merge request to commit and push the changes to. If None, a new merge request will be
-                generated based on the diff.
-            skip_ci: Whether to skip the CI.
-            as_draft: Whether to create the merge request as a draft if merge request doesn't exist.
+            session_id: Sandbox session id from agent state. ``None`` selects local
+                (GitPython) mode for sandbox-disabled runs.
+            merge_request: The merge request to push onto and update. If None, a new branch
+                and merge request are generated from the diff.
+            skip_ci: Whether to prefix the commit with ``[skip ci]``.
+            as_draft: Whether to create the merge request as a draft if one doesn't exist.
 
         Returns:
             The merge request if it was created or updated, otherwise None.
         """
-        git_manager = GitManager(self.ctx.gitrepo)
         self.protected_branch_fallback_source = None
+        default_branch = cast("str", self.ctx.config.default_branch)
 
-        if not git_manager.is_dirty():
-            logger.info("No changes to publish.")
-            return None
+        async with open_git_manager(session_id=session_id, gitrepo=self.ctx.gitrepo) as git_manager:
+            dirty = await git_manager.is_dirty()
+            # `git diff origin/<base>` over the working tree captures committed AND uncommitted
+            # tracked changes (plus untracked), so it is the full picture of the run's work.
+            diff = await git_manager.get_diff(f"origin/{default_branch}")
+            if not dirty and not diff.strip():
+                logger.info("No changes to publish.")
+                return None
 
-        fallback_from_mr: MergeRequest | None = None
-        if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
-            self.ctx.repository.slug, merge_request.source_branch
-        ):
-            logger.warning(
-                "Source branch '%s' of MR !%s is protected; opening a new MR with a fresh branch instead.",
-                merge_request.source_branch,
-                merge_request.merge_request_id,
-            )
-            fallback_from_mr = merge_request
-            self.protected_branch_fallback_source = merge_request.source_branch
-            merge_request = None
+            fallback_from_mr: MergeRequest | None = None
+            if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
+                self.ctx.repository.slug, merge_request.source_branch
+            ):
+                logger.warning(
+                    "Source branch '%s' of MR !%s is protected; opening a new MR with a fresh branch instead.",
+                    merge_request.source_branch,
+                    merge_request.merge_request_id,
+                )
+                fallback_from_mr = merge_request
+                self.protected_branch_fallback_source = merge_request.source_branch
+                merge_request = None
 
-        # Compute full diff metadata when creating a new merge request or updating a draft merge request
-        # to ensure we have the most up-to-date information.
-        pr_metadata_diff = (
-            git_manager.get_diff(f"origin/{self.ctx.config.default_branch}")
-            if merge_request is None or (merge_request.draft and as_draft is False)
-            else None
-        )
+            # Compute full diff metadata when creating a new merge request or updating a draft merge request
+            # to ensure we have the most up-to-date information.
+            pr_metadata_diff = diff if merge_request is None or (merge_request.draft and as_draft is False) else None
+            changes_metadata = await self._diff_to_metadata(pr_metadata_diff=pr_metadata_diff, commit_message_diff=diff)
 
-        changes_metadata = await self._diff_to_metadata(
-            pr_metadata_diff=pr_metadata_diff, commit_message_diff=git_manager.get_diff()
-        )
+            if dirty:
+                commit_message = changes_metadata["commit_message"].commit_message
+                await git_manager.commit_all(f"[skip ci] {commit_message}" if skip_ci else commit_message)
 
-        unique_branch_name = git_manager.commit_and_push_changes(
-            changes_metadata["commit_message"].commit_message,
-            branch_name=(
-                changes_metadata["pr_metadata"].branch if merge_request is None else merge_request.source_branch
-            ),
-            use_branch_if_exists=merge_request is not None,
-            skip_ci=skip_ci,
-        )
+            if merge_request is None:
+                branch_name = git_manager.unique_branch_name(
+                    changes_metadata["pr_metadata"].branch, await git_manager.remote_branches()
+                )
+            else:
+                branch_name = merge_request.source_branch
 
-        logger.info("Published changes to branch: '%s' [skip_ci: %s]", unique_branch_name, skip_ci)
+            await git_manager.push_head_to(branch_name)
+
+        logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
         if merge_request is None:
             merge_request = self._create_merge_request(
-                unique_branch_name,
+                branch_name,
                 changes_metadata["pr_metadata"].title,
                 changes_metadata["pr_metadata"].description,
                 as_draft=as_draft,
