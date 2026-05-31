@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -9,6 +10,18 @@ from langgraph.types import Command
 
 from automation.agent.middlewares.git_platform import github_tool, gitlab_tool
 from codebase.base import GitPlatform
+from core.sandbox.schemas import FsWriteResponse
+
+
+@contextmanager
+def _mock_sandbox_client(*, ok: bool = True, error: str | None = None):
+    """Patch DAIVSandboxClient with an async mock; yield the client mock for assertions."""
+    client = Mock()
+    client.open = AsyncMock()
+    client.close = AsyncMock()
+    client.fs_write = AsyncMock(return_value=FsWriteResponse(ok=ok, error=error))
+    with patch("automation.agent.middlewares.git_platform.DAIVSandboxClient", return_value=client):
+        yield client
 
 
 @patch("automation.agent.middlewares.git_platform.cache.lock", new=MagicMock())
