@@ -112,8 +112,8 @@ async def _write_output_to_sandbox(content: str, path: str, session_id: str) -> 
     """
     data = content.encode("utf-8")
     client = DAIVSandboxClient()
-    await client.open()
     try:
+        await client.open()
         response = await client.fs_write(session_id, FsWriteRequest(path=path, content=base64.b64encode(data)))
     finally:
         await client.close()
@@ -132,6 +132,7 @@ async def _handle_output_redirect(
     """
     session_id = runtime.state.get("session_id")
     if not session_id:
+        logger.warning("[%s] output_file requested but no sandbox session; returning inline output", tool_name)
         note = (
             "(note: output_file was ignored — file redirect needs the sandbox, which is not active "
             "for this run. Returning inline output instead.)\n\n"
@@ -141,7 +142,7 @@ async def _handle_output_redirect(
     try:
         byte_count, line_count = await _write_output_to_sandbox(output, output_file, session_id)
     except Exception as exc:
-        logger.exception("[%s] Failed to write output_file %s", tool_name, output_file)
+        logger.exception("[%s] Failed to write output_file %s (session=%s)", tool_name, output_file, session_id)
         return f"error: Failed to write output to {output_file}. Details: {exc}"
 
     return _redirect_confirmation(output_file, byte_count, line_count, output)
@@ -157,12 +158,13 @@ async def _auto_evict(output: str, session_id: str, resource: str, action: str, 
     try:
         byte_count, line_count = await _write_output_to_sandbox(output, path, session_id)
     except Exception:
-        logger.exception("[%s] Auto-eviction failed for oversized output", tool_name)
+        logger.exception("[%s] Auto-eviction failed (session=%s, path=%s)", tool_name, session_id, path)
         return None
     confirmation = _redirect_confirmation(path, byte_count, line_count, output)
     return (
         confirmation + "\n\n(note: output exceeded the inline limit and was written verbatim to the scratch file "
-        "above instead of being truncated. To structure-query it as JSON, re-run with output_file=<path>.)"
+        "above instead of being truncated. To get the full result, re-run with output_file=<path> "
+        "(GitLab writes JSON automatically; for GitHub add --json <fields> to the subcommand).)"
     )
 
 
@@ -183,6 +185,10 @@ async def _finalize_inline_output(
         evicted = await _auto_evict(output, session_id, resource, action, tool_name)
         if evicted is not None:
             return evicted
+        return _truncate_cli_output(output, keep=keep) + (
+            "\n\n(note: output exceeded the inline cap and writing it to a sandbox scratch file failed, "
+            "so it is truncated here. Re-run with output_file=<path> for the full result.)"
+        )
     return _truncate_cli_output(output, keep=keep)
 
 
@@ -204,12 +210,12 @@ This tool is best for retrieving the current state of:
 **Inputs:**
 - `subcommand`: a single CLI-like subcommand string in the form `<object> <action> <arguments...>`
 - `output_mode`: either `simplified` or `detailed`
-- `output_file`: optional absolute path under `/workspace` to write the FULL result to as JSON (`output_mode` is ignored). Returns a compact confirmation instead of the content.
+- `output_file`: optional absolute path under `/workspace` to write the FULL result to as JSON (`output_mode` is ignored); project-job trace is written as raw log text, not JSON. Returns a compact confirmation instead of the content.
 
 **Hard rules:**
 - Do NOT include the `gitlab` prefix in `subcommand`
 - Do NOT pass `--project-id` (the project is injected automatically)
-- Do NOT pass `--output` (it is set automatically from `output_mode`)
+- Do NOT pass `--output` (set automatically from `output_mode`, or forced to json when output_file is used)
 - Prefer IID-based lookup when available (for example `--iid` for issues and merge requests)
 
 **Default behavior:**
@@ -219,7 +225,7 @@ This tool is best for retrieving the current state of:
 - Output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines
 
 **Redirecting large output to a file (for jq/scripts):**
-- Set `output_file` to an absolute `/workspace` path to write the FULL, untruncated result there as JSON (using `--output json`), instead of returning it inline. Then process the file with `bash` (jq, scripts, grep).
+- Set `output_file` to an absolute `/workspace` path to write the FULL, untruncated result there as JSON (using `--output json`) (except project-job trace, which is written as raw log text), instead of returning it inline. Then process the file with `bash` (jq, scripts, grep).
 - This avoids re-typing tool output into a bash command and bypasses the inline line cap.
 - Pagination stays under your control: pair with `--get-all` or `--per-page` for complete list dumps.
 - Prefer `/workspace/tmp` for transient dumps; a `/workspace/repo` path becomes a commit candidate.
@@ -691,8 +697,9 @@ async def gitlab_tool(
     output_file: Annotated[
         str | None,
         "Optional absolute path under /workspace to write the FULL, untruncated result to. "
-        "When set, the result is written to the sandbox filesystem as JSON (output_mode is ignored) "
-        "and the tool returns a compact confirmation (path + size + a short preview) instead of the "
+        "When set, the result is written to the sandbox filesystem as JSON (output_mode is ignored); "
+        "project-job trace is written as raw log text. "
+        "The tool returns a compact confirmation (path + size + a short preview) instead of the "
         "content, so you can then process the file with bash (jq, scripts, grep). "
         "Prefer /workspace/tmp for transient dumps; a /workspace/repo target becomes a commit "
         "candidate. Overwrites the file if it exists.",

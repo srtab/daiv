@@ -451,6 +451,9 @@ async def test_finalize_inline_auto_evicts_when_oversized_with_session():
     assert path.startswith("/workspace/tmp/gitlab-project-merge-request-list-")
     assert path.endswith(".txt")
     assert "written verbatim to the scratch file" in result
+    # Note must be platform-neutral and guide both gitlab and gh users
+    assert "output_file=" in result
+    assert "--json" in result
 
 
 async def test_finalize_inline_truncates_without_session_when_oversized():
@@ -473,6 +476,7 @@ async def test_finalize_inline_falls_back_to_truncation_when_evict_fails():
             output=big, runtime=runtime, resource="r", action="a", keep="head", tool_name="gitlab"
         )
     assert "truncated" in result  # fallback to _truncate_cli_output sentinel
+    assert "writing it to a sandbox scratch file failed" in result  # eviction-failure note
 
 
 async def test_gitlab_output_file_forces_json_writes_and_confirms():
@@ -686,3 +690,81 @@ def test_tool_descriptions_document_output_file():
         assert "/workspace/tmp" in desc  # transient-dump guidance
     assert "--output json" in GITLAB_TOOL_DESCRIPTION  # gitlab forces JSON on redirect
     assert "--json" in GITHUB_TOOL_DESCRIPTION  # gh opts into JSON via its own flag
+
+
+def test_tool_descriptions_document_project_job_trace_raw_text():
+    """GITLAB_TOOL_DESCRIPTION must mention project-job trace together with raw log text."""
+    assert "project-job trace" in GITLAB_TOOL_DESCRIPTION
+    assert "raw log text" in GITLAB_TOOL_DESCRIPTION
+
+
+def test_redirect_confirmation_caps_preview_chars():
+    output = "x" * 5000  # single very long line
+    msg = _redirect_confirmation("/workspace/tmp/x.json", 5000, 1, output)
+    assert "(preview truncated)" in msg
+    assert len(msg) < 5000
+
+
+@patch("automation.agent.middlewares.git_platform.cache.lock", new=MagicMock())
+class TestGitHubToolOutputFileExtra:
+    async def test_github_run_view_log_redirect(self):
+        """gh run view --log redirect: clean_job_logs + keep='tail'; file written, confirmation returned."""
+        runtime = ToolRuntime(
+            state={"session_id": "sess-2", "github_token": "tok", "github_token_expires_at": 9999999999.0},
+            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
+            config={"configurable": {"thread_id": "t-gh-log"}},
+            stream_writer=Mock(),
+            tool_call_id="c-log",
+            store=None,
+        )
+        log_output = b"2024-01-01T00:00:00.000Z job1\tsome log line\n"
+
+        with (
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            patch(
+                "automation.agent.middlewares.git_platform.clean_job_logs", return_value="some log line"
+            ) as mock_clean,
+            _mock_sandbox_client() as client,
+        ):
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(log_output, b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            result = await github_tool.coroutine(
+                subcommand="run view 123 --job 456 --log", runtime=runtime, output_file="/workspace/tmp/log.txt"
+            )
+
+        # Token was already cached → plain string (no Command)
+        assert isinstance(result, str)
+        assert result.startswith("Wrote ")
+        assert client.fs_write.call_args.args[1].path == "/workspace/tmp/log.txt"
+        mock_clean.assert_called_once()
+
+    async def test_github_output_file_cached_token_plain_string(self):
+        """gh output_file with a cached valid token returns a plain str (no Command)."""
+        runtime = ToolRuntime(
+            state={"session_id": "sess-3", "github_token": "tok", "github_token_expires_at": 9999999999.0},
+            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
+            config={"configurable": {"thread_id": "t-gh-cached"}},
+            stream_writer=Mock(),
+            tool_call_id="c-cached",
+            store=None,
+        )
+        payload = b'{"number": 7}\n'
+
+        with (
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            _mock_sandbox_client(),
+        ):
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(payload, b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            result = await github_tool.coroutine(
+                subcommand="pr view 7 --json number", runtime=runtime, output_file="/workspace/tmp/pr.json"
+            )
+
+        assert isinstance(result, str)
+        assert result.startswith("Wrote ")
