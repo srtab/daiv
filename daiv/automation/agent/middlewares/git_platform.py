@@ -842,6 +842,15 @@ async def github_tool(
         "Examples: 'issue view 42', 'pr list --state open'.",
     ],
     runtime: ToolRuntime[RuntimeCtx],
+    output_file: Annotated[
+        str | None,
+        "Optional absolute path under /workspace to write the FULL, untruncated result to. "
+        "When set, stdout is written verbatim to the sandbox filesystem and the tool returns a "
+        "compact confirmation instead of the content, so you can process the file with bash "
+        "(jq, scripts, grep). For jq-able output, include gh's own --json <fields> [--jq ...] in "
+        "the subcommand. Prefer /workspace/tmp for transient dumps; a /workspace/repo target "
+        "becomes a commit candidate. Overwrites the file if it exists.",
+    ] = None,
 ) -> str | Command:
     """
     Tool to interact with GitHub API using the `gh` command line interface.
@@ -875,6 +884,9 @@ async def github_tool(
 
     if _gh_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
+
+    if output_file is not None and (path_error := _validate_workspace_path(output_file)):
+        return path_error
 
     token, state_update = _get_cached_github_cli_token(runtime)
 
@@ -921,21 +933,29 @@ async def github_tool(
 
     output = stdout.decode("utf-8").strip()
     if not output:
-        output = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
-    elif resource == "run" and action == "view" and "--log" in splitted_subcommand:
-        # TODO: evict the output to the file system if it's too long
-        output = clean_job_logs(output, runtime.context.git_platform)
-        output = _truncate_cli_output(output, keep="tail")
+        final_output = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
     else:
-        output = _truncate_cli_output(output, keep="head")
+        keep: Literal["head", "tail"] = "head"
+        if resource == "run" and action == "view" and "--log" in splitted_subcommand:
+            output = clean_job_logs(output, runtime.context.git_platform)
+            keep = "tail"
+
+        if output_file is not None:
+            final_output = await _handle_output_redirect(
+                output=output, output_file=output_file, runtime=runtime, keep=keep, tool_name=GITHUB_TOOL_NAME
+            )
+        else:
+            final_output = await _finalize_inline_output(
+                output=output, runtime=runtime, resource=resource, action=action, keep=keep, tool_name=GITHUB_TOOL_NAME
+            )
 
     # Return Command with state update if token was cached/refreshed
     if state_update:
-        tool_message = ToolMessage(content=output, tool_call_id=runtime.tool_call_id)
+        tool_message = ToolMessage(content=final_output, tool_call_id=runtime.tool_call_id)
         state_update["messages"] = [tool_message]
         return Command(update=state_update)
 
-    return output
+    return final_output
 
 
 class GitPlatformState(AgentState):

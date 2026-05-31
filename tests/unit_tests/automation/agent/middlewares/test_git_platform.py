@@ -526,3 +526,69 @@ async def test_gitlab_invalid_output_file_errors_before_running_cli():
     assert result.startswith("error:")
     create_proc.assert_not_called()
     client_cls.assert_not_called()
+
+
+@patch("automation.agent.middlewares.git_platform.cache.lock", new=MagicMock())
+class TestGitHubToolOutputFile:
+    async def test_github_output_file_writes_verbatim_and_wraps_in_command(self):
+        runtime = ToolRuntime(
+            state={"session_id": "sess-1"},
+            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
+            config={"configurable": {"thread_id": "t-gh-of"}},
+            stream_writer=Mock(),
+            tool_call_id="c1",
+            store=None,
+        )
+        payload = b'{"number": 7}\n'
+
+        with (
+            patch("automation.agent.middlewares.git_platform.get_github_integration") as gi,
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            _mock_sandbox_client() as client,
+        ):
+            gi.return_value.get_access_token.return_value = Mock(
+                token="tok",  # noqa: S106
+                expires_at=Mock(timestamp=Mock(return_value=9999999999.0)),
+            )
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(payload, b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            result = await github_tool.coroutine(
+                subcommand="pr view 7 --json number", runtime=runtime, output_file="/workspace/tmp/pr.json"
+            )
+
+        # gh is written verbatim — the tool never injects a global --output flag
+        argv = list(create_proc.call_args.args)
+        assert "--output" not in argv
+
+        req = client.fs_write.call_args.args[1]
+        assert req.path == "/workspace/tmp/pr.json"
+        assert req.content == b'{"number": 7}'
+
+        # token was refreshed → Command, and its ToolMessage carries the confirmation
+        assert isinstance(result, Command)
+        msg = result.update["messages"][0].content
+        assert msg.startswith("Wrote ")
+        assert "/workspace/tmp/pr.json" in msg
+
+    async def test_github_invalid_output_file_errors_before_running_cli(self):
+        runtime = ToolRuntime(
+            state={"session_id": "sess-1"},
+            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
+            config={"configurable": {"thread_id": "t-gh-bad"}},
+            stream_writer=Mock(),
+            tool_call_id="c2",
+            store=None,
+        )
+        with (
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as client_cls,
+        ):
+            result = await github_tool.coroutine(
+                subcommand="issue view 1", runtime=runtime, output_file="../escape.json"
+            )
+        assert result.startswith("error:")
+        create_proc.assert_not_called()
+        client_cls.assert_not_called()
