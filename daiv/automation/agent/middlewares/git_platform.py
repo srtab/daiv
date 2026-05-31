@@ -768,7 +768,10 @@ async def gitlab_tool(
 
     output = stdout.decode("utf-8").strip()
     if not output:
-        return "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
+        empty = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
+        if output_file is not None:
+            empty += f"\n(note: output_file '{output_file}' was not written — the command produced no output.)"
+        return empty
 
     keep: Literal["head", "tail"] = "head"
     if resource == "project-job" and action == "trace":
@@ -934,6 +937,8 @@ async def github_tool(
     output = stdout.decode("utf-8").strip()
     if not output:
         final_output = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
+        if output_file is not None:
+            final_output += f"\n(note: output_file '{output_file}' was not written — the command produced no output.)"
     else:
         keep: Literal["head", "tail"] = "head"
         if resource == "run" and action == "view" and "--log" in splitted_subcommand:

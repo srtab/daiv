@@ -592,3 +592,62 @@ class TestGitHubToolOutputFile:
         assert result.startswith("error:")
         create_proc.assert_not_called()
         client_cls.assert_not_called()
+
+    async def test_github_empty_output_with_output_file_notes_file_not_written(self):
+        """When gh returns empty stdout and output_file is set, the result must contain
+        both the 'empty result' sentinel and a note that the file was not written."""
+        runtime = ToolRuntime(
+            state={"session_id": "sess-1", "github_token": "tok", "github_token_expires_at": 9999999999.0},
+            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
+            config={"configurable": {"thread_id": "t-gh-empty"}},
+            stream_writer=Mock(),
+            tool_call_id="c3",
+            store=None,
+        )
+        with (
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as client_cls,
+        ):
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            result = await github_tool.coroutine(
+                subcommand="issue list --state open", runtime=runtime, output_file="/workspace/tmp/issues.json"
+            )
+
+        # Token was already cached → plain string (no Command)
+        assert isinstance(result, str)
+        assert "empty result" in result
+        assert "not written" in result
+        client_cls.assert_not_called()
+
+
+async def test_gitlab_empty_output_with_output_file_notes_file_not_written():
+    """When the gitlab CLI returns empty stdout and output_file is set, the result must
+    contain both the 'empty result' sentinel and a note that the file was not written."""
+    runtime = _make_gitlab_runtime()
+    runtime.state["session_id"] = "sess-1"
+
+    mock_settings = Mock()
+    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
+    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
+
+    with (
+        patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+        patch("automation.agent.middlewares.git_platform.settings", mock_settings),
+        patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as client_cls,
+    ):
+        proc = Mock()
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+        proc.returncode = 0
+        create_proc.return_value = proc
+
+        result = await gitlab_tool.coroutine(
+            subcommand="project-issue list --state opened", runtime=runtime, output_file="/workspace/tmp/issues.json"
+        )
+
+    assert "empty result" in result
+    assert "not written" in result
+    client_cls.assert_not_called()
