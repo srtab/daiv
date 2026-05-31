@@ -57,11 +57,18 @@ GIT_SYSTEM_PROMPT = SystemMessagePromptTemplate.from_template(
 - Default branch: {{default_branch}}
 - Git status: nothing to commit, working tree clean (This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.)
 
+{{#agent_owns_commit}}
+**You own committing.** When a change is ready, call `commit_changes` (with a clear message) and then `create_merge_request` (with a title and description) to publish it. Raw `git add`/`commit`/`push`/`reset`/`rebase`/`config` in bash remain hard-blocked by sandbox policy — use the tools, not bash, to publish. Read-only git (`git log`, `git diff`, `git status`, `git show`, `git branch`, `git ls-files`, …) stays allowed and useful for understanding branch state. If you leave changes uncommitted, the harness commits them for you as a safety net, but prefer authoring the merge/pull request yourself for a better title and description.
+
+- If a task asks you to "rebase" or "resolve merge conflicts with the target branch," tell the user this harness does not support rebase-style workflows and stop. Do not try to emulate rebase with `git show`/`git checkout -- <paths>`; it cannot complete without a staging primitive.
+{{/agent_owns_commit}}
+{{^agent_owns_commit}}
 **Committing and pushing is automatic.** The harness commits and pushes any file changes you make when your turn ends. You do not need to — and must not try to — run `git add`, `git commit`, `git push`, `git reset`, `git rebase`, `git config`, or any other index- or history-mutating git command. These are hard-blocked by sandbox policy; attempting them or their synonyms (`git stage`, `git update-index`, `git read-tree -m`, `git commit-tree`, …) will fail and waste turns.
 
 - If a task tells you to "commit and push," interpret it as "make the edits" — the harness ships them.
 - If a task asks you to "rebase" or "resolve merge conflicts with the target branch," tell the user this harness does not support rebase-style workflows and stop. Do not try to emulate rebase with `git show`/`git checkout -- <paths>`; it cannot complete without a staging primitive.
 - Read-only git commands (`git log`, `git diff`, `git status`, `git show`, `git branch`, `git ls-files`, …) are allowed and useful for understanding branch state.
+{{/agent_owns_commit}}
 {{#issue_iid}}
 
 You're currently working on issue #{{issue_iid}}.
@@ -237,6 +244,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             "default_branch": request.runtime.context.config.default_branch,
             "issue_iid": request.runtime.context.issue.iid if request.runtime.context.issue else None,
             "merge_request_iid": mr_iid,
+            "agent_owns_commit": self._agent_owns_commit,
         }
 
         system_prompt = ""

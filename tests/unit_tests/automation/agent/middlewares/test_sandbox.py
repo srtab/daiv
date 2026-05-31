@@ -741,3 +741,13 @@ class TestSandboxMiddleware:
         assert result is not None
         assert result.startswith("error:")
         assert "repo_disallow" in result
+
+
+def test_sandbox_prompt_uses_workspace_paths():
+    """The bash + scratchpad prompt blocks point at the /workspace layout (not /repo, /scratch)."""
+    from automation.agent.middlewares.sandbox import BASH_TOOL_DESCRIPTION, SANDBOX_SYSTEM_PROMPT
+
+    assert "/workspace/tmp" in SANDBOX_SYSTEM_PROMPT
+    assert "/scratch" not in SANDBOX_SYSTEM_PROMPT
+    assert "/workspace/repo" in BASH_TOOL_DESCRIPTION
+    assert "/repos/" not in BASH_TOOL_DESCRIPTION

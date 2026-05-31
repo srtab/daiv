@@ -50,7 +50,7 @@ logger = logging.getLogger("daiv.tools")
 
 REMINDER_ABSOLUTE_PATHS = """
 IMPORTANT:
-- Tool inputs/outputs use absolute paths (e.g. /repo/...).
+- Tool inputs/outputs use absolute paths (e.g. /workspace/repo/...).
 - DO NOT output these absolute paths to the user.
 - Convert to repo-relative paths in all user-visible text.
 """

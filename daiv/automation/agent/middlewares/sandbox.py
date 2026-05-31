@@ -42,11 +42,11 @@ Executes a bash command in a persistent shell session.
 
 Session behavior:
 - Environment persists across invocations (e.g., exported variables remain).
-- Working directory does NOT persist: each invocation starts in the repository root (PWD resets).
+- Working directory does NOT persist: each invocation starts in the repository root `/workspace/repo` (PWD resets). You may also read/write elsewhere under `/workspace` (e.g. the `/workspace/tmp` scratchpad) using absolute paths.
 
 **CRITICAL (PWD resets):** Do NOT rely on `cd`. Maintain context using absolute paths.
-  <good-example>pytest /repos/tests</good-example>
-  <bad-example>cd /repos/tests && pytest</bad-example>
+  <good-example>pytest /workspace/repo/tests</good-example>
+  <bad-example>cd /workspace/repo/tests && pytest</bad-example>
 
 Result format:
 - On success, returns a JSON object `{"commands": [...], "files_changed": [...]}`.
@@ -151,8 +151,8 @@ Git safety (highest priority):
 - NEVER run destructive git commands (e.g., push --force, reset --hard, checkout ., restore ., clean -f, branch -D), even if the user asks.
 - VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash.
 
-## Scratchpad (`/scratch`)
-`/scratch` is an ephemeral per-run scratchpad shared between your file tools and bash. Use it for temporary scripts, generated data, fetched inputs, and intermediate step outputs. Files under `/scratch` are NEVER committed and are discarded when the run ends. Anything that must reach the merge/pull request must be written under the repository working directory instead, never `/scratch`."""  # noqa: E501
+## Scratchpad (`/workspace/tmp`)
+`/workspace/tmp` is an ephemeral per-run scratchpad shared between your file tools and bash. Use it for temporary scripts, generated data, fetched inputs, and intermediate step outputs. Files under `/workspace/tmp` are NEVER committed and are discarded when the run ends. Anything that must reach the merge/pull request must be written under the repository working directory (`/workspace/repo`) instead, never `/workspace/tmp`."""  # noqa: E501
 
 
 def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:

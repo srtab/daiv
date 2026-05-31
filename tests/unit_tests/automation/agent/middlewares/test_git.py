@@ -331,6 +331,40 @@ class TestGitMiddleware:
 
         assert "merge request #" not in captured["system_prompt"]
 
+    async def _render_git_prompt(self, middleware) -> str:
+        runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
+        captured = {}
+
+        async def fake_handler(req):
+            captured["system_prompt"] = req.system_prompt
+            return MagicMock()
+
+        request = MagicMock()
+        request.runtime = runtime
+        request.state = {}
+        request.system_prompt = ""
+        request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
+
+        with patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"):
+            await middleware.awrap_model_call(request, fake_handler)
+        return captured["system_prompt"]
+
+    async def test_prompt_commit_ownership_when_agent_owns_commit(self):
+        """Sandbox + auto-commit → the agent is told it owns committing via the tools."""
+        prompt = await self._render_git_prompt(GitMiddleware(sandbox_enabled=True))
+
+        assert "You own committing" in prompt
+        assert "commit_changes" in prompt
+        assert "create_merge_request" in prompt
+        assert "Committing and pushing is automatic" not in prompt
+
+    async def test_prompt_automatic_when_agent_does_not_own_commit(self):
+        """Sandbox-disabled runs keep the 'harness commits automatically' contract."""
+        prompt = await self._render_git_prompt(GitMiddleware(sandbox_enabled=False))
+
+        assert "Committing and pushing is automatic" in prompt
+        assert "You own committing" not in prompt
+
     async def test_awrap_model_call_prefers_context_mr_over_state(self):
         """When ``context.merge_request`` is set (true MR-scoped trigger), it
         wins — the publisher and the prompt agree on the same id."""

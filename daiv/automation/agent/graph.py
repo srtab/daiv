@@ -85,15 +85,19 @@ class _Unset:
     """Sentinel to distinguish 'not provided' from ``None`` in function defaults."""
 
 
-OUTPUT_INVARIANTS_SYSTEM_PROMPT = f"""\
+def _output_invariants_system_prompt(working_directory: str) -> str:
+    """Output invariants keyed to the run's absolute repo prefix (``/workspace/repo/`` for
+    sandbox runs, ``/<clone-name>/`` for disk-backed runs)."""
+    prefix = working_directory.rstrip("/") + "/"
+    return f"""\
 <output_invariants>
 Applies to ALL user-visible text:
 
-- NEVER include "/repo/" anywhere in user-visible output.
+- NEVER include "{prefix}" anywhere in user-visible output.
 - Any repository file path shown to the user MUST be repo-relative (no leading "/").
-  <example>/repo/daiv/core/utils.py -> daiv/core/utils.py</example>
+  <example>{prefix}daiv/core/utils.py -> daiv/core/utils.py</example>
 - Code reference labels MUST be repo-relative paths (e.g. `daiv/core/utils.py:42`), but hrefs should use platform-native blob URLs with branch refs.
-- Before emitting any user-visible text, check for "/repo/" and rewrite to repo-relative form.
+- Before emitting any user-visible text, check for "{prefix}" and rewrite to repo-relative form.
 
 {FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}
 </output_invariants>"""  # noqa: E501
@@ -111,7 +115,13 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         str: The dynamic prompt for the DAIV system.
     """
     context = cast("RuntimeCtx", request.runtime.context)
-    agent_path = Path(context.gitrepo.working_dir)
+    # Sandbox-enabled runs operate under the sandbox-authoritative /workspace/repo; disk-backed
+    # runs see the local clone's basename. Mirror create_daiv_agent's agent_root decision so the
+    # prompt's working directory and output invariants match the paths the agent's tools use.
+    if context.sandbox and context.sandbox.enabled:
+        working_directory = f"{REPO_PATH}/"
+    else:
+        working_directory = f"/{Path(context.gitrepo.working_dir).name}/"
 
     daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
         current_date=timezone.now().strftime("%d %B, %Y"),
@@ -121,7 +131,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         gitlab_platform=context.git_platform == GitPlatform.GITLAB,
         github_platform=context.git_platform == GitPlatform.GITHUB,
         bash_tool_enabled=BASH_TOOL_NAME in [tool.name for tool in request.tools],
-        working_directory=f"/{agent_path.name}/",
+        working_directory=working_directory,
         current_branch=get_repo_ref(context.gitrepo),
     )
 
@@ -133,7 +143,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     inherited_system_prompt = f"{inherited}\n\n" if inherited else ""
 
     return (
-        OUTPUT_INVARIANTS_SYSTEM_PROMPT
+        _output_invariants_system_prompt(working_directory)
         + "\n\n"
         + cast("str", daiv_system_prompt.content).strip()
         + "\n\n"
