@@ -142,3 +142,27 @@ async def test_call_before_open_raises(fake_settings):
     client = DAIVSandboxClient()
     with pytest.raises(AttributeError):
         await client.run_commands("sid", RunCommandsRequest(commands=["echo"], fail_fast=True))
+
+
+async def test_fs_write_posts_to_fs_write(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsWriteRequest
+
+    mock_post["json_body"] = {"ok": True, "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_write(
+            "sid-1", FsWriteRequest(path="/scratch/a.txt", content=base64.b64encode(b"hi"), mode=0o644)
+        )
+    assert mock_post["url"] == "session/sid-1/fs/write"
+    assert resp.ok is True
+
+
+async def test_fs_read_parses_response(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsReadRequest
+
+    mock_post["json_body"] = {"content": "hello", "encoding": "utf-8", "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_read("sid-1", FsReadRequest(path="/scratch/a.txt"))
+    assert mock_post["url"] == "session/sid-1/fs/read"
+    assert resp.content == "hello" and resp.encoding == "utf-8"

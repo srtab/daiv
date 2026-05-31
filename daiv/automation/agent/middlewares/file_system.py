@@ -13,7 +13,21 @@ if TYPE_CHECKING:
 
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.backends.protocol import BackendProtocol  # noqa: TC002
+from deepagents.backends.protocol import (
+    FILE_NOT_FOUND,
+    BackendProtocol,
+    EditResult,
+    FileData,
+    FileDownloadResponse,
+    FileInfo,
+    FileUploadResponse,
+    GlobResult,
+    GrepMatch,
+    GrepResult,
+    LsResult,
+    ReadResult,
+    WriteResult,
+)
 from deepagents.backends.utils import validate_path
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
@@ -22,8 +36,19 @@ from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
 
+from automation.agent.constants import SCRATCH_PATH
 from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
-from core.sandbox.schemas import ApplyMutationsRequest, PutMutation
+from core.sandbox.schemas import (
+    ApplyMutationsRequest,
+    FsDeleteRequest,
+    FsEditRequest,
+    FsGlobRequest,
+    FsGrepRequest,
+    FsLsRequest,
+    FsReadRequest,
+    FsWriteRequest,
+    PutMutation,
+)
 
 logger = logging.getLogger("daiv.tools")
 
@@ -213,6 +238,19 @@ class DAIVBackendProtocol(Protocol):
     async def stat_mode(self, virtual_path: str) -> int: ...
 
 
+def _require_daiv_backend(backend: BackendProtocol, label: str) -> None:
+    """Raise ``TypeError`` unless ``backend`` implements ``DAIVBackendProtocol``.
+
+    A silent ``AttributeError`` on the first ``delete``/``stat_mode`` is worse than a
+    loud failure at wiring time, so both the constructor and ``add_route`` gate on this.
+    """
+    if not isinstance(backend, DAIVBackendProtocol):
+        raise TypeError(
+            f"{label} requires a backend implementing DAIVBackendProtocol (delete + stat_mode); "
+            f"{type(backend).__name__} does not."
+        )
+
+
 class DAIVCompositeBackend(CompositeBackend):
     """``CompositeBackend`` with the two DAIV extensions (``delete``/``stat_mode``) and a
     ``resolve_backend_for`` helper for callers that need to dispatch on the underlying
@@ -230,12 +268,7 @@ class DAIVCompositeBackend(CompositeBackend):
         self, default: BackendProtocol, routes: dict[str, BackendProtocol], *, artifacts_root: str = "/"
     ) -> None:
         for label, backend in (("default", default), *routes.items()):
-            if not isinstance(backend, DAIVBackendProtocol):
-                raise TypeError(
-                    f"DAIVCompositeBackend requires every backend to implement "
-                    f"DAIVBackendProtocol (delete + stat_mode); "
-                    f"{label!r} ({type(backend).__name__}) does not."
-                )
+            _require_daiv_backend(backend, f"DAIVCompositeBackend route {label!r}")
         super().__init__(default=default, routes=routes, artifacts_root=artifacts_root)
 
     async def delete(self, virtual_path: str) -> bool:
@@ -254,3 +287,131 @@ class DAIVCompositeBackend(CompositeBackend):
         """
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend
+
+    def add_route(self, prefix: str, backend: BackendProtocol) -> None:
+        """Register a route after construction (used to mount ``/scratch`` once the
+        sandbox session exists). Re-asserts the DAIV protocol and re-sorts routes."""
+        _require_daiv_backend(backend, "add_route")
+        self.routes[prefix] = backend
+        self.sorted_routes = sorted(self.routes.items(), key=lambda x: len(x[0]), reverse=True)
+
+
+class SandboxFileBackend(BackendProtocol):
+    """Deepagents backend whose files live in the sandbox ``/scratch`` workspace.
+
+    The composite routes ``/scratch/<rel>`` to this backend as the route-relative
+    path ``/<rel>``; we map that to the sandbox-absolute ``/scratch/<rel>`` and back.
+    Every op is one RPC over ``DAIVSandboxClient``; there is no local copy, so no
+    rollback/desync machinery (scratch is sandbox-authoritative and never committed).
+
+    Only the async methods are implemented — the async agent path never calls the
+    sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call
+    here would be a programming error). ``stat_mode`` returns a constant: scratch never mirrors to ``/repo``,
+    so exact mode bits are irrelevant, and ``delete`` is the only sync-protocol need
+    beyond it (both required by ``DAIVCompositeBackend``'s protocol assertion).
+    """
+
+    def __init__(self, *, client: DAIVSandboxClient, session_id: str) -> None:
+        self._client = client
+        self._session_id = session_id
+
+    # -- path mapping --------------------------------------------------------
+    def _abs(self, backend_path: str) -> str:
+        bp = backend_path or "/"
+        if bp == "/":
+            return SCRATCH_PATH
+        return f"{SCRATCH_PATH}{bp}" if bp.startswith("/") else f"{SCRATCH_PATH}/{bp}"
+
+    def _rel(self, abs_path: str) -> str:
+        # Strip the /scratch prefix; the bare root (/scratch) and any empty remainder map to "/".
+        return abs_path[len(SCRATCH_PATH) :] or "/"
+
+    # -- async protocol methods ---------------------------------------------
+    # The Fs*Response list types carry an ``error`` field (populated, with an empty list,
+    # on a soft sandbox failure returned as 200). Propagate it into the deepagents result's
+    # ``error`` so the filesystem middleware surfaces it to the model — otherwise a real
+    # failure reads as a clean "empty directory / no matches".
+    async def als(self, path: str) -> LsResult:
+        resp = await self._client.fs_ls(self._session_id, FsLsRequest(path=self._abs(path)))
+        if resp.error is not None:
+            return LsResult(error=f"Listing '{path}': {resp.error}")
+        return LsResult(entries=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.entries])
+
+    async def aread(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
+        resp = await self._client.fs_read(
+            self._session_id, FsReadRequest(path=self._abs(file_path), offset=offset, limit=limit)
+        )
+        if resp.error is not None:
+            return ReadResult(error=f"File '{file_path}': {resp.error}")
+        return ReadResult(file_data=FileData(content=resp.content or "", encoding=resp.encoding or "utf-8"))
+
+    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+        resp = await self._client.fs_grep(
+            self._session_id, FsGrepRequest(pattern=pattern, path=self._abs(path or "/"), glob=glob)
+        )
+        if resp.error is not None:
+            return GrepResult(error=f"Grep '{pattern}': {resp.error}")
+        return GrepResult(matches=[GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches])
+
+    async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
+        resp = await self._client.fs_glob(self._session_id, FsGlobRequest(pattern=pattern, path=self._abs(path)))
+        if resp.error is not None:
+            return GlobResult(error=f"Glob '{pattern}': {resp.error}")
+        return GlobResult(matches=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.matches])
+
+    async def awrite(self, file_path: str, content: str) -> WriteResult:
+        resp = await self._client.fs_write(
+            self._session_id,
+            FsWriteRequest(path=self._abs(file_path), content=base64.b64encode(content.encode("utf-8")), mode=0o644),
+        )
+        if not resp.ok:
+            return WriteResult(error=f"Failed to write file '{file_path}': {resp.error or 'unknown sandbox error'}")
+        return WriteResult(path=file_path)
+
+    async def aedit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
+        resp = await self._client.fs_edit(
+            self._session_id,
+            FsEditRequest(path=self._abs(file_path), old=old_string, new=new_string, replace_all=replace_all),
+        )
+        if resp.error is not None:
+            return EditResult(error=f"Error editing file '{file_path}': {resp.error}")
+        return EditResult(path=file_path, occurrences=resp.occurrences if resp.occurrences is not None else 1)
+
+    async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        out: list[FileUploadResponse] = []
+        for path, data in files:
+            resp = await self._client.fs_write(
+                self._session_id, FsWriteRequest(path=self._abs(path), content=base64.b64encode(data), mode=0o644)
+            )
+            # A failed write with no error string would otherwise be reported as success
+            # (error=None); fall back to a generic message so ok=False always carries one.
+            error = None if resp.ok else (resp.error or "unknown sandbox error")
+            # deepagents annotates ``error`` as the narrow ``FileOperationError`` literal but
+            # documents accepting backend-specific strings; the sandbox returns its own messages.
+            out.append(FileUploadResponse(path=path, error=error))  # ty: ignore[invalid-argument-type]
+        return out
+
+    async def adownload_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        out: list[FileDownloadResponse] = []
+        for path in paths:
+            resp = await self._client.fs_read(self._session_id, FsReadRequest(path=self._abs(path)))
+            if resp.error == FILE_NOT_FOUND:
+                out.append(FileDownloadResponse(path=path, error=FILE_NOT_FOUND))
+            elif resp.error is not None:
+                # See ``aupload_files``: deepagents accepts backend-specific error strings.
+                out.append(
+                    FileDownloadResponse(path=path, error=resp.error)  # ty: ignore[invalid-argument-type]
+                )
+            elif resp.encoding == "base64":
+                out.append(FileDownloadResponse(path=path, content=base64.b64decode(resp.content or "")))
+            else:
+                out.append(FileDownloadResponse(path=path, content=(resp.content or "").encode("utf-8")))
+        return out
+
+    # -- DAIVBackendProtocol -------------------------------------------------
+    async def delete(self, virtual_path: str) -> bool:
+        resp = await self._client.fs_delete(self._session_id, FsDeleteRequest(path=self._abs(virtual_path)))
+        return resp.ok
+
+    async def stat_mode(self, virtual_path: str) -> int:
+        return 0o644

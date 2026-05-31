@@ -502,3 +502,143 @@ class TestDAIVCompositeBackend:
 
         with pytest.raises(TypeError, match="DAIVBackendProtocol"):
             DAIVCompositeBackend(default=plain_state, routes={})  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# /scratch route registration
+# ---------------------------------------------------------------------------
+
+
+async def test_composite_add_route_registers_and_routes(working_repo):
+    from automation.agent.constants import SCRATCH_ROUTE
+
+    repo_backend = fs_module.DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    composite = fs_module.DAIVCompositeBackend(default=repo_backend, routes={})
+    scratch = fs_module.SandboxFileBackend(client=AsyncMock(), session_id="sid")
+    composite.add_route(SCRATCH_ROUTE, scratch)
+
+    backend, stripped = composite._get_backend_and_key("/scratch/foo.txt")
+    assert backend is scratch and stripped == "/foo.txt"
+
+
+async def test_abefore_agent_registers_scratch_route(working_repo, fake_client):
+    from automation.agent.constants import SCRATCH_ROUTE
+
+    repo_backend = fs_module.DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    composite = fs_module.DAIVCompositeBackend(default=repo_backend, routes={})
+    mw = SandboxMiddleware(backend=composite, agent_root=f"/{working_repo.name}")
+    mw._client = fake_client  # simulate post-open state
+
+    mw._maybe_register_scratch("sid-123")
+    assert SCRATCH_ROUTE in composite.routes
+    assert isinstance(composite.routes[SCRATCH_ROUTE], fs_module.SandboxFileBackend)
+
+
+def _composite_sandbox_middleware(working_repo, fake_client, *, register_scratch: bool):
+    """Build a ``SandboxMiddleware`` over a real ``DAIVCompositeBackend`` (production wiring),
+    optionally with the ``/scratch`` route mounted."""
+    repo_backend = fs_module.DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    composite = fs_module.DAIVCompositeBackend(default=repo_backend, routes={})
+    agent_root = f"/{working_repo.name}"
+    mw = SandboxMiddleware(backend=composite, agent_root=agent_root)
+    mw._client = fake_client
+    mw._syncer = fs_module.SandboxSyncer(backend=composite, agent_root=agent_root, client=fake_client)
+    if register_scratch:
+        mw._maybe_register_scratch("sid")
+    return mw
+
+
+async def _dispatch_with_recording_handler(mw, *, tool_name, args, runtime):
+    """Run ``args`` through ``mw.awrap_tool_call`` with a handler that records whether
+    dispatch reached it (i.e. the write was bypassed rather than mirrored/refused)."""
+    request = ToolCallRequest(
+        tool_call={"name": tool_name, "args": args, "id": runtime.tool_call_id, "type": "tool_call"},
+        tool=SimpleNamespace(name=tool_name),
+        state=runtime.state,
+        runtime=runtime,
+    )
+    called = {"handler": False}
+
+    async def handler(_req):
+        called["handler"] = True
+        return ToolMessage(content=f"OK {args['file_path']}", tool_call_id=runtime.tool_call_id, name=tool_name)
+
+    result = await mw.awrap_tool_call(request, handler)
+    return called["handler"], result
+
+
+async def test_scratch_write_bypasses_mirror(working_repo, fake_client):
+    """With /scratch mounted, a write to it dispatches straight to the handler — no
+    apply_file_mutations, no gitignore/outside-root refusal (the composite routes it
+    to SandboxFileBackend)."""
+    mw = _composite_sandbox_middleware(working_repo, fake_client, register_scratch=True)
+    runtime = _runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    called, result = await _dispatch_with_recording_handler(
+        mw, tool_name="write_file", args={"file_path": "/scratch/x", "content": "hi\n"}, runtime=runtime
+    )
+
+    assert called is True
+    fake_client.apply_file_mutations.assert_not_awaited()
+    assert _content(result) == "OK /scratch/x"
+
+
+async def test_scratch_edit_bypasses_mirror(working_repo, fake_client):
+    """edit_file on /scratch must ALSO bypass: _mirror_edit would pre-read + roll back
+    against a non-existent local copy. The bypass precedes the edit branch."""
+    mw = _composite_sandbox_middleware(working_repo, fake_client, register_scratch=True)
+    runtime = _runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    called, result = await _dispatch_with_recording_handler(
+        mw,
+        tool_name="edit_file",
+        args={"file_path": "/scratch/x", "old_string": "a", "new_string": "b"},
+        runtime=runtime,
+    )
+
+    assert called is True
+    fake_client.apply_file_mutations.assert_not_awaited()
+    assert _content(result) == "OK /scratch/x"
+
+
+async def test_scratch_write_refused_when_route_not_registered(working_repo, fake_client):
+    """If /scratch is NOT mounted, the bypass must NOT fire — the write falls through to
+    the normal guard and is refused (outside agent_root), never silently sent to disk."""
+    mw = _composite_sandbox_middleware(working_repo, fake_client, register_scratch=False)
+    runtime = _runtime(state={"session_id": "sid"}, working_dir=working_repo)
+
+    called, result = await _dispatch_with_recording_handler(
+        mw, tool_name="write_file", args={"file_path": "/scratch/x", "content": "hi\n"}, runtime=runtime
+    )
+
+    assert called is False
+    fake_client.apply_file_mutations.assert_not_awaited()
+    assert "Refused" in _content(result)
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("/scratch", True),
+        ("/scratch/a", True),
+        ("/scratch/a/b.py", True),
+        ("scratch/x", True),  # relative path normalizes to /scratch/x
+        ("/scratch/../etc/passwd", False),  # traversal → validate_path raises → False
+        ("/scratchpad/x", False),  # lookalike prefix, not under /scratch/
+        ("/scratchfile", False),
+        ("/repo/x", False),
+    ],
+)
+def test_is_under_scratch(path, expected):
+    from automation.agent.middlewares.sandbox import _is_under_scratch
+
+    assert _is_under_scratch(path) is expected
+
+
+async def test_add_route_rejects_non_daiv_backend(working_repo):
+    """add_route is the post-construction mount path for /scratch; it must re-assert the
+    DAIV protocol (delete + stat_mode) just like the constructor does."""
+    repo_backend = fs_module.DAIVFilesystemBackend(root_dir=working_repo.parent, virtual_mode=True)
+    composite = fs_module.DAIVCompositeBackend(default=repo_backend, routes={})
+    with pytest.raises(TypeError, match="DAIVBackendProtocol"):
+        composite.add_route("/x/", SimpleNamespace())  # type: ignore[arg-type]  # missing delete + stat_mode

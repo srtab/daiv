@@ -18,7 +18,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.constants import SKILLS_CACHE_PATH
+from automation.agent.constants import SCRATCH_PATH, SCRATCH_ROUTE, SKILLS_CACHE_PATH
 from automation.agent.middlewares.file_system import (
     EDIT_FILE_TOOL,
     EDIT_SUCCESS_PREFIX,
@@ -26,6 +26,7 @@ from automation.agent.middlewares.file_system import (
     WRITE_TOOL_NAMES,
     DAIVCompositeBackend,
     DAIVFilesystemBackend,
+    SandboxFileBackend,
     SandboxSyncer,
     format_sync_error,
 )
@@ -163,7 +164,10 @@ Git safety (highest priority):
 - NEVER update git config.
 - NEVER commit or push, even if the user asks.
 - NEVER run destructive git commands (e.g., push --force, reset --hard, checkout ., restore ., clean -f, branch -D), even if the user asks.
-- VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash."""  # noqa: E501
+- VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash.
+
+## Scratchpad (`/scratch`)
+`/scratch` is an ephemeral per-run scratchpad shared between your file tools and bash. Use it for temporary scripts, generated data, fetched inputs, and intermediate step outputs. Files under `/scratch` are NEVER committed and are discarded when the run ends. Anything that must reach the merge/pull request must be written under the repository working directory instead, never `/scratch`."""  # noqa: E501
 
 
 def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:
@@ -289,6 +293,15 @@ def _make_skills_archive(skills_dir: Path) -> bytes | None:
 
 def _agent_root_prefix(agent_root: str) -> str:
     return agent_root.rstrip("/") + "/"
+
+
+def _is_under_scratch(file_path: str) -> bool:
+    """True iff ``file_path`` resolves to ``/scratch`` itself or anything under it."""
+    try:
+        vpath = validate_path(file_path)
+    except ValueError:
+        return False
+    return vpath == SCRATCH_PATH or vpath.startswith(SCRATCH_ROUTE)
 
 
 def _resolve_repo_backend(backend: BackendProtocol, agent_root: str) -> BackendProtocol:
@@ -448,6 +461,19 @@ class SandboxMiddleware(AgentMiddleware):
 
         return bash_tool
 
+    def _maybe_register_scratch(self, session_id: str) -> None:
+        """Mount the ``/scratch`` route on the shared composite once the client+session exist.
+
+        Idempotent: subagents share the parent's composite, so only the first caller wins.
+        """
+        if (
+            session_id
+            and self._client is not None
+            and isinstance(self._backend, DAIVCompositeBackend)
+            and SCRATCH_ROUTE not in self._backend.routes
+        ):
+            self._backend.add_route(SCRATCH_ROUTE, SandboxFileBackend(client=self._client, session_id=session_id))
+
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
         Open the per-run sandbox client and lazily start a session.
@@ -474,6 +500,7 @@ class SandboxMiddleware(AgentMiddleware):
             if not self.close_session and "session_id" in state:
                 # Subagent path: parent owns session lifecycle; we just keep our client open
                 # so bash calls reuse the pool.
+                self._maybe_register_scratch(state["session_id"])
                 return None
 
             sb = runtime.context.sandbox
@@ -510,6 +537,7 @@ class SandboxMiddleware(AgentMiddleware):
             self._client = None
             self._syncer = None
             raise
+        self._maybe_register_scratch(session_id)
         return {"session_id": session_id}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
@@ -591,6 +619,19 @@ class SandboxMiddleware(AgentMiddleware):
             The tool result, or a replacement ``ToolMessage`` describing a sync error.
         """
         if request.tool is None or request.tool.name not in WRITE_TOOL_NAMES or self._syncer is None:
+            return await handler(request)
+
+        # /scratch is sandbox-authoritative: when the composite has the /scratch route
+        # mounted, the write is routed straight to SandboxFileBackend (one RPC), so no
+        # disk mirror, gitignore guard, or outside-root refusal applies — dispatch
+        # unmodified. Gate on the route actually being registered: if it is not (e.g. a
+        # non-composite backend), fall through so the normal guard refuses the write
+        # instead of silently letting it resolve to a stray on-disk path.
+        if (
+            isinstance(self._backend, DAIVCompositeBackend)
+            and SCRATCH_ROUTE in self._backend.routes
+            and _is_under_scratch(request.tool_call["args"].get("file_path", ""))
+        ):
             return await handler(request)
 
         if request.tool.name == EDIT_FILE_TOOL:
