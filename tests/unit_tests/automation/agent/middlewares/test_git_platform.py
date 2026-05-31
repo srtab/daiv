@@ -471,3 +471,58 @@ async def test_finalize_inline_falls_back_to_truncation_when_evict_fails():
             output=big, runtime=runtime, resource="r", action="a", keep="head", tool_name="gitlab"
         )
     assert "truncated" in result  # fallback to _truncate_cli_output sentinel
+
+
+async def test_gitlab_output_file_forces_json_writes_and_confirms():
+    runtime = _make_gitlab_runtime()
+    runtime.state["session_id"] = "sess-1"
+
+    mock_settings = Mock()
+    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
+    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
+
+    payload = b'[{"iid": 1}, {"iid": 2}]\n'
+
+    with (
+        patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+        patch("automation.agent.middlewares.git_platform.settings", mock_settings),
+        _mock_sandbox_client() as client,
+    ):
+        proc = Mock()
+        proc.communicate = AsyncMock(return_value=(payload, b""))
+        proc.returncode = 0
+        create_proc.return_value = proc
+
+        result = await gitlab_tool.coroutine(
+            subcommand="project-merge-request list --state opened",
+            runtime=runtime,
+            output_mode="detailed",
+            output_file="/workspace/tmp/mrs.json",
+        )
+
+    argv = list(create_proc.call_args.args)
+    assert "--output" in argv and argv[argv.index("--output") + 1] == "json"
+    assert "--verbose" not in argv  # output_mode ignored on redirect
+
+    assert client.fs_write.call_args.args[0] == "sess-1"
+    req = client.fs_write.call_args.args[1]
+    assert req.path == "/workspace/tmp/mrs.json"
+    assert req.content == b'[{"iid": 1}, {"iid": 2}]'  # full, untruncated, decoded
+    assert result.startswith("Wrote ")
+    assert "/workspace/tmp/mrs.json" in result
+    assert '"iid": 1' in result  # head preview
+
+
+async def test_gitlab_invalid_output_file_errors_before_running_cli():
+    runtime = _make_gitlab_runtime()
+    runtime.state["session_id"] = "sess-1"
+    with (
+        patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+        patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as client_cls,
+    ):
+        result = await gitlab_tool.coroutine(
+            subcommand="project-issue get --iid 1", runtime=runtime, output_file="/etc/passwd"
+        )
+    assert result.startswith("error:")
+    create_proc.assert_not_called()
+    client_cls.assert_not_called()

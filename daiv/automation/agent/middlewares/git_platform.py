@@ -670,6 +670,15 @@ async def gitlab_tool(
         "Use 'simplified' for listing/discovery and 'detailed' for inspecting a specific resource or reading logs. "
         "Default: 'simplified'.",
     ] = "simplified",
+    output_file: Annotated[
+        str | None,
+        "Optional absolute path under /workspace to write the FULL, untruncated result to. "
+        "When set, the result is written to the sandbox filesystem as JSON (output_mode is ignored) "
+        "and the tool returns a compact confirmation (path + size + a short preview) instead of the "
+        "content, so you can then process the file with bash (jq, scripts, grep). "
+        "Prefer /workspace/tmp for transient dumps; a /workspace/repo target becomes a commit "
+        "candidate. Overwrites the file if it exists.",
+    ] = None,
 ) -> str:
     """
     Tool to interact with GitLab API using the `python-gitlab` command line interface.
@@ -704,6 +713,9 @@ async def gitlab_tool(
     if _gitlab_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The project ID and output format are automatically set."
 
+    if output_file is not None and (path_error := _validate_workspace_path(output_file)):
+        return path_error
+
     # Inline MR diff discussion: bypass CLI because python-gitlab cannot encode nested
     # hash params (position[base_sha], position[position_type], …) via the CLI.
     if resource == "project-merge-request-discussion" and action == "create":
@@ -723,7 +735,11 @@ async def gitlab_tool(
 
     args = ["gitlab"]
 
-    if output_mode == "detailed":
+    if output_file is not None:
+        # output_mode (detailed/simplified) only shapes the inline text format for token economy;
+        # it is moot for a JSON file dump that never enters context, so force JSON on redirect.
+        args += ["--output", "json"]
+    elif output_mode == "detailed":
         args.append("--verbose")
 
     args += splitted_subcommand
@@ -754,12 +770,18 @@ async def gitlab_tool(
     if not output:
         return "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
 
-    if resource == "project-job" and splitted_subcommand[1] == "trace":
-        # TODO: evict the output to the file system if it's too long
+    keep: Literal["head", "tail"] = "head"
+    if resource == "project-job" and action == "trace":
         output = clean_job_logs(output, runtime.context.git_platform)
-        return _truncate_cli_output(output, keep="tail")
+        keep = "tail"
 
-    return _truncate_cli_output(output, keep="head")
+    if output_file is not None:
+        return await _handle_output_redirect(
+            output=output, output_file=output_file, runtime=runtime, keep=keep, tool_name=GITLAB_TOOL_NAME
+        )
+    return await _finalize_inline_output(
+        output=output, runtime=runtime, resource=resource, action=action, keep=keep, tool_name=GITLAB_TOOL_NAME
+    )
 
 
 def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str, dict[str, str | float] | None]:
