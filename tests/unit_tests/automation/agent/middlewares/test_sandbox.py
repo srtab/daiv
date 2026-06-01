@@ -44,12 +44,13 @@ def _make_sandbox_runtime(disallow=(), allow=()):
     )
 
 
-def _make_agent_runtime(*, repo_working_dir: str) -> Mock:
+def _make_agent_runtime(*, repo_working_dir: str, thread_id: str | None = None) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
     runtime.context.gitrepo = Mock(working_dir=repo_working_dir)
     runtime.context.config = _make_sandbox_config_mock()
     runtime.context.sandbox = _make_sandbox_runtime()
+    runtime.config = {"configurable": {"thread_id": thread_id}}
     return runtime
 
 
