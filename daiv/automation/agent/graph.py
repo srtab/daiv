@@ -21,9 +21,9 @@ from automation.agent.constants import (
     GLOBAL_SKILLS_ROUTE,
     REPO_PATH,
     SKILLS_CACHE_PATH,
+    SKILLS_PATH,
     SKILLS_SOURCES,
     SUBAGENTS_SOURCES,
-    WORKSPACE_PATH,
     ModelName,
 )
 from automation.agent.deferred.conf import settings as deferred_settings
@@ -42,6 +42,7 @@ from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SkillsMiddleware
+from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
@@ -215,17 +216,19 @@ async def create_daiv_agent(
     if _sandbox_enabled:
         # Sandbox-authoritative: one backend serves all of /workspace (repo at
         # /workspace/repo, seeded skills at /workspace/skills, scratchpad at
-        # /workspace/tmp). The global skills route (/skills) resolves under
-        # /workspace/skills via this same backend. Bound to the live client+session
-        # by SandboxMiddleware.abefore_agent once the session exists.
+        # /workspace/tmp). The agent uses these sandbox-absolute paths directly, so the
+        # backend is a pass-through, bound to the live client+session by
+        # SandboxMiddleware.abefore_agent once the session exists.
         agent_root = REPO_PATH
-        backend: BackendProtocol = SandboxFileBackend(root=WORKSPACE_PATH)
+        global_skills_source = SKILLS_PATH
+        backend: BackendProtocol = SandboxFileBackend()
     else:
-        # Sandbox-disabled runs have no sandbox to be authoritative: keep the disk-backed
-        # composite (repo files from disk; ``/skills/`` from the shared SKILLS_CACHE_PATH so
-        # per-turn skill uploads become a no-op once primed). Preserves repoless/no-sandbox flows.
+        # Sandbox-disabled runs keep the disk-backed composite: repo files from disk;
+        # ``/skills/`` from the shared SKILLS_CACHE_PATH so per-turn skill uploads become a
+        # no-op once primed. Preserves repoless/no-sandbox flows.
         agent_path = Path(ctx.gitrepo.working_dir)
         agent_root = f"/{agent_path.name}"
+        global_skills_source = GLOBAL_SKILLS_PATH
         repo_backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
         skills_backend = DAIVFilesystemBackend(root_dir=SKILLS_CACHE_PATH, virtual_mode=True)
         backend = DAIVCompositeBackend(default=repo_backend, routes={GLOBAL_SKILLS_ROUTE: skills_backend})
@@ -259,12 +262,13 @@ async def create_daiv_agent(
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
+        SlashCommandMiddleware(subagents=subagents),
+        *([SandboxMiddleware(backend=backend, agent_root=agent_root)] if _sandbox_enabled else []),
         SkillsMiddleware(
             backend=backend,
-            sources=[(GLOBAL_SKILLS_PATH, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
-            subagents=subagents,
+            sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
+            sandbox_enabled=_sandbox_enabled,
         ),
-        *([SandboxMiddleware(backend=backend, agent_root=agent_root)] if _sandbox_enabled else []),
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),

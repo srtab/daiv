@@ -23,3 +23,15 @@ def test_start_session_request_no_ephemeral():
     from core.sandbox.schemas import StartSessionRequest
 
     assert "ephemeral" not in StartSessionRequest.model_fields
+
+
+def test_start_session_request_no_extract_patch():
+    from core.sandbox.schemas import StartSessionRequest
+
+    assert "extract_patch" not in StartSessionRequest.model_fields
+
+
+def test_run_commands_response_no_patch():
+    from core.sandbox.schemas import RunCommandsResponse
+
+    assert "patch" not in RunCommandsResponse.model_fields

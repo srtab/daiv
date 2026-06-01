@@ -15,10 +15,10 @@ from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.constants import SKILLS_CACHE_PATH
+from automation.agent.conf import settings as agent_settings
+from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import files_changed_from_patch
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -49,9 +49,8 @@ Session behavior:
   <bad-example>cd /workspace/repo/tests && pytest</bad-example>
 
 Result format:
-- On success, returns a JSON object `{"commands": [...], "files_changed": [...]}`.
+- On success, returns a JSON object `{"commands": [...]}`.
   - `commands` is a list of per-command result objects including at least `command`, `output`, and `exit_code`.
-  - `files_changed` is a list of workspace modifications made by these commands (`{"path", "op"}` with op in `modified`/`added`/`deleted`/`renamed`; renames also carry `from_path`). Empty array when nothing changed.
 - You MUST inspect each command's `exit_code` and treat non-zero values or tracebacks in `output` as failures, not as successful verification.
 - On infrastructure failure, the tool may return a plain string starting with `error:` instead of JSON. Treat that as a tool failure, not as a test result.
 
@@ -117,7 +116,7 @@ Use dedicated tools when available:
 - Use `ls`, `glob`, `grep`, `read_file`, `edit_file`, `write_file` instead of doing file listing/search/read/edit/write in bash.
 
 Result interpretation:
-- Successful calls return a JSON object with `commands` (per-command results: `command`, `output`, `exit_code`) and `files_changed` (workspace mutations: path + op).
+- Successful calls return a JSON object with `commands` (per-command results: `command`, `output`, `exit_code`).
 - Always check each `exit_code` and treat non-zero codes or Python tracebacks in `output` as failures that require investigation or fixes.
 - If the tool returns a plain string starting with `error:` instead of JSON, treat it as a sandbox/tool failure, not as a passing check.
 
@@ -250,28 +249,43 @@ def _make_repo_archive(working_dir: str) -> bytes:
     return buf.getvalue()
 
 
-def _make_skills_archive(skills_dir: Path) -> bytes | None:
-    """Tar the contents of ``skills_dir`` (members relative to it). Return ``None`` if missing/empty."""
-    if not skills_dir.is_dir():
+def _make_global_skills_archive() -> bytes | None:
+    """Tar builtin + custom global skills (members relative to their skill dir).
+
+    These are the only-disk sources for global skills; seeding them into the sandbox's
+    ``/workspace/skills`` is the single provisioning step (one RPC), replacing per-file
+    uploads. Custom skills are added after builtins so a same-named custom skill overrides.
+    Returns ``None`` if there is nothing to pack.
+    """
+    roots: list[Path] = [BUILTIN_SKILLS_PATH]
+    custom = agent_settings.CUSTOM_SKILLS_PATH
+    if custom is not None and custom.is_dir():
+        roots.append(custom)
+
+    members: dict[str, Path] = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            logger.warning("Could not read skills root '%s'; skipping for seed archive", root, exc_info=True)
+            continue
+        for child in children:
+            if child.is_dir() and (child.name.startswith(".") or child.name == "__pycache__"):
+                continue
+            members[child.name] = child  # later root (custom) overrides builtin
+
+    if not members:
         return None
-    try:
-        children = list(skills_dir.iterdir())
-    except OSError:
-        logger.warning(
-            "Could not read skills directory '%s'; seeding without skills archive", skills_dir, exc_info=True
-        )
-        return None
-    if not children:
-        return None
+
     buf = io.BytesIO()
     try:
         with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-            for child in children:
-                tf.add(child, arcname=child.name)
+            for name, path in members.items():
+                tf.add(path, arcname=name)
     except OSError, tarfile.TarError:
-        logger.warning(
-            "Failed to build skills archive from '%s'; seeding without skills archive", skills_dir, exc_info=True
-        )
+        logger.warning("Failed to build global skills archive; seeding without skills", exc_info=True)
         return None
     return buf.getvalue()
 
@@ -372,13 +386,8 @@ class SandboxMiddleware(AgentMiddleware):
                 )
 
             # The sandbox is authoritative: bash mutations already live in /workspace/repo,
-            # so there is no local repo to apply the patch to. ``files_changed_from_patch`` is
-            # display-only here (chat rail) and is retired once "files_changed" reads from
-            # ``git status`` in the sandbox (follow-on cleanup).
-            return json.dumps({
-                "commands": [result.model_dump(mode="json") for result in response.results],
-                "files_changed": files_changed_from_patch(response.patch),
-            })
+            # so there is no local repo to keep in sync here.
+            return json.dumps({"commands": [result.model_dump(mode="json") for result in response.results]})
 
         return bash_tool
 
@@ -424,7 +433,6 @@ class SandboxMiddleware(AgentMiddleware):
             session_id = await client.start_session(
                 StartSessionRequest(
                     base_image=sb.base_image,
-                    extract_patch=True,
                     network_enabled=sb.network_enabled,
                     memory_bytes=sb.memory_bytes,
                     cpus=sb.cpus,
@@ -435,7 +443,7 @@ class SandboxMiddleware(AgentMiddleware):
                 working_dir = Path(runtime.context.gitrepo.working_dir)
                 repo_archive, skills_archive = await asyncio.gather(
                     asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                    asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
+                    asyncio.to_thread(_make_global_skills_archive),
                 )
                 await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:

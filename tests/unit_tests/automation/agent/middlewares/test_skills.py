@@ -5,8 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from langchain.agents.middleware.types import ToolCallRequest
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
-from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 from automation.agent.constants import AGENTS_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, CURSOR_SKILLS_PATH, SKILLS_SOURCES
@@ -14,8 +13,6 @@ from automation.agent.middlewares.skills import SKILL_MODE_READ_ONLY, SkillsMidd
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
-from slash_commands.base import SlashCommand
-from slash_commands.registry import SlashCommandRegistry
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -242,177 +239,40 @@ class TestSkillsMiddleware:
         formatted = middleware._format_skills_list([])
         assert formatted == "(No skills available yet. You can create skills in /skills or /extra/skills)"
 
-    def test_extract_slash_command_requires_human_message(self):
-        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
-        messages = [AIMessage(content="hello")]
-        assert middleware._extract_slash_command(messages, "daiv") is None
+    async def test_abefore_agent_skips_copy_global_skills_in_sandbox_mode(self):
+        """In sandbox mode SkillsMiddleware must NOT upload skills (the sandbox seed provisions them)."""
+        backend = Mock()
+        middleware = SkillsMiddleware(backend=backend, sources=[("/workspace/skills", "Global")], sandbox_enabled=True)
+        state = {"messages": [HumanMessage(content="hi")]}  # no skills_metadata yet
+        runtime = Mock()
 
-    def test_extract_slash_command_skips_blank_content(self):
-        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
-        messages = [HumanMessage(content="  \n\t ")]
-        assert middleware._extract_slash_command(messages, "daiv") is None
+        with (
+            patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock) as mock_copy,
+            patch(
+                "deepagents.middleware.skills.SkillsMiddleware.abefore_agent",
+                new=AsyncMock(return_value={"skills_metadata": []}),
+            ),
+        ):
+            await middleware.abefore_agent(state, runtime, {})
 
-    def test_extract_slash_command_parses_multimodal_content(self):
-        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
-        messages = [
-            HumanMessage(
-                content=[
-                    {"type": "text", "text": "@daiv /help arg1"},
-                    {"type": "image_url", "image_url": {"url": "https://example.com/demo.png"}},
-                ]
-            )
-        ]
-        result = middleware._extract_slash_command(messages, "daiv")
-        assert result is not None
-        assert result.command == "help"
-        assert result.args == ["arg1"]
-        assert result.raw == "@daiv /help arg1"
+        mock_copy.assert_not_called()
 
-    async def test_apply_builtin_slash_commands_executes_command(self):
-        class DemoSlashCommand(SlashCommand):
-            description = "demo"
+    async def test_abefore_agent_runs_copy_global_skills_when_not_sandbox(self):
+        backend = Mock()
+        middleware = SkillsMiddleware(backend=backend, sources=[("/skills", "Global")], sandbox_enabled=False)
+        state = {"messages": [HumanMessage(content="hi")]}
+        runtime = Mock()
 
-            async def execute_for_agent(
-                self,
-                *,
-                args: str,
-                issue_iid: int | None = None,
-                merge_request_id: int | None = None,
-                available_skills: list | None = None,
-                available_subagents: list | None = None,
-            ) -> str:
-                skill_name = available_skills[0]["name"] if available_skills else "none"
-                return f"{args}|{issue_iid}|{merge_request_id}|{skill_name}"
+        with (
+            patch.object(middleware, "_copy_global_skills", new_callable=AsyncMock, return_value=[]) as mock_copy,
+            patch(
+                "deepagents.middleware.skills.SkillsMiddleware.abefore_agent",
+                new=AsyncMock(return_value={"skills_metadata": []}),
+            ),
+        ):
+            await middleware.abefore_agent(state, runtime, {})
 
-        registry = SlashCommandRegistry()
-        registry.register(DemoSlashCommand, "demo", [Scope.GLOBAL])
-
-        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
-        context = Mock()
-        context.bot_username = "daiv"
-        context.scope = Scope.GLOBAL
-        context.repository = Mock(slug="repo-1")
-        context.issue = Mock(iid=101)
-        context.merge_request = Mock(merge_request_id=202)
-
-        with patch("automation.agent.middlewares.skills.slash_command_registry", registry):
-            result = await middleware._apply_builtin_slash_commands(
-                [HumanMessage(content="/demo arg1")], context, [{"name": "skill-one"}]
-            )
-
-        assert result is not None
-        assert result["jump_to"] == "end"
-        assert isinstance(result["messages"][0], AIMessage)
-        assert result["messages"][0].content == "arg1|101|202|skill-one"
-
-    async def test_apply_builtin_slash_commands_drops_history_when_command_resets_thread(self):
-        """Commands flagged ``resets_thread`` must emit ``RemoveMessage(REMOVE_ALL_MESSAGES)``
-        ahead of the result so the turn-final checkpoint write doesn't re-persist prior
-        messages under the same thread_id (regression for /clear)."""
-
-        class ResettingSlashCommand(SlashCommand):
-            description = "reset"
-            resets_thread = True
-
-            async def execute_for_agent(
-                self,
-                *,
-                args: str,
-                issue_iid: int | None = None,
-                merge_request_id: int | None = None,
-                available_skills: list | None = None,
-                available_subagents: list | None = None,
-            ) -> str:
-                return "done"
-
-        registry = SlashCommandRegistry()
-        registry.register(ResettingSlashCommand, "reset", [Scope.GLOBAL])
-
-        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
-        context = Mock()
-        context.bot_username = "daiv"
-        context.scope = Scope.GLOBAL
-        context.repository = Mock(slug="repo-1")
-        context.issue = None
-        context.merge_request = None
-
-        with patch("automation.agent.middlewares.skills.slash_command_registry", registry):
-            result = await middleware._apply_builtin_slash_commands(
-                [HumanMessage(content="/reset"), AIMessage(content="prior"), HumanMessage(content="/reset")],
-                context,
-                [],
-            )
-
-        assert result is not None
-        assert result["jump_to"] == "end"
-        assert isinstance(result["messages"][0], RemoveMessage)
-        assert result["messages"][0].id == REMOVE_ALL_MESSAGES
-        assert isinstance(result["messages"][1], AIMessage)
-        assert result["messages"][1].content == "done"
-
-    async def test_apply_builtin_slash_commands_returns_error_message_on_failure(self):
-        class FailingSlashCommand(SlashCommand):
-            description = "fail"
-
-            async def execute_for_agent(
-                self,
-                *,
-                args: str,
-                issue_iid: int | None = None,
-                merge_request_id: int | None = None,
-                available_skills: list | None = None,
-                available_subagents: list | None = None,
-            ) -> str:
-                raise RuntimeError("boom")
-
-        registry = SlashCommandRegistry()
-        registry.register(FailingSlashCommand, "fail", [Scope.GLOBAL])
-
-        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
-        context = Mock()
-        context.bot_username = "daiv"
-        context.scope = Scope.GLOBAL
-        context.repository = Mock(slug="repo-1")
-        context.issue = None
-        context.merge_request = None
-
-        with patch("automation.agent.middlewares.skills.slash_command_registry", registry):
-            result = await middleware._apply_builtin_slash_commands(
-                [HumanMessage(content="/fail now")], context, [{"name": "skill-one"}]
-            )
-
-        assert result is not None
-        assert result["jump_to"] == "end"
-        assert isinstance(result["messages"][0], AIMessage)
-        assert result["messages"][0].content == "Failed to execute `/fail now`."
-
-    async def test_apply_builtin_slash_commands_returns_none_for_ambiguous_command(self):
-        class DemoSlashCommand(SlashCommand):
-            description = "demo"
-
-        class OtherSlashCommand(SlashCommand):
-            description = "other"
-
-        DemoSlashCommand.command = "demo"
-        OtherSlashCommand.command = "demo"
-
-        registry = Mock()
-        registry.get_commands.return_value = [DemoSlashCommand, OtherSlashCommand]
-
-        middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
-        context = Mock()
-        context.bot_username = "daiv"
-        context.scope = Scope.GLOBAL
-        context.repository = Mock(slug="repo-1")
-        context.issue = None
-        context.merge_request = None
-
-        with patch("automation.agent.middlewares.skills.slash_command_registry", registry):
-            result = await middleware._apply_builtin_slash_commands(
-                [HumanMessage(content="/demo now")], context, [{"name": "skill-one"}]
-            )
-
-        assert result is None
+        mock_copy.assert_called_once()
 
     async def test_skill_tool_reports_missing_skill(self):
         backend = Mock()
@@ -491,27 +351,6 @@ class TestSkillsMiddleware:
         messages = result.update["messages"]
         assert messages[1].content.endswith("\n\n$ARGUMENTS: --flag=1")
 
-    async def test_abefore_agent_skips_slash_commands_when_disabled(self, tmp_path: Path):
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        repo_name = "repoX"
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "skill-one").mkdir(parents=True)
-        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="does one"))
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
-        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
-        runtime.context.config = RepositoryConfig(slash_commands=SlashCommands(enabled=False))
-
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch.object(middleware, "_apply_builtin_slash_commands") as mock_apply,
-        ):
-            await middleware.abefore_agent({"messages": [HumanMessage(content="/help")]}, runtime, Mock())
-
-        mock_apply.assert_not_called()
-
     async def test_discovers_skills_from_multiple_sources(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
 
@@ -549,61 +388,6 @@ class TestSkillsMiddleware:
         assert skills["daiv-skill"]["description"] == "from daiv"
         assert skills["agents-skill"]["description"] == "from agents"
         assert skills["cursor-skill"]["description"] == "from cursor"
-
-    async def test_abefore_agent_forwards_skills_load_errors_through_slash_command_branch(self, tmp_path: Path):
-        """When a slash command short-circuits, skills_load_errors must still surface."""
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        repo_name = "repoX"
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "skill-one").mkdir(parents=True)
-        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
-
-        class DemoSlashCommand(SlashCommand):
-            description = "demo"
-
-            async def execute_for_agent(
-                self,
-                *,
-                args: str,
-                issue_iid: int | None = None,
-                merge_request_id: int | None = None,
-                available_skills: list | None = None,
-                available_subagents: list | None = None,
-            ) -> str:
-                return "ran"
-
-        registry = SlashCommandRegistry()
-        registry.register(DemoSlashCommand, "demo", [Scope.GLOBAL])
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills", f"/{repo_name}/.agents/skills"])
-        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
-        runtime.context.config = RepositoryConfig()
-
-        upstream_update = {
-            "skills_metadata": [],
-            "skills_load_errors": [f"Cannot load skills from '/{repo_name}/.agents/skills': permission_denied"],
-        }
-
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.slash_command_registry", registry),
-            patch(
-                "automation.agent.middlewares.skills.DeepAgentsSkillsMiddleware.abefore_agent",
-                AsyncMock(return_value=upstream_update),
-            ),
-        ):
-            result = await middleware.abefore_agent(
-                {"messages": [HumanMessage(content="@daiv-bot /demo")]}, runtime, Mock()
-            )
-
-        assert result is not None
-        assert result["jump_to"] == "end"
-        # Errors from the missing source must be carried through.
-        assert "skills_load_errors" in result
-        assert result["skills_load_errors"]
-        assert any(".agents/skills" in err for err in result["skills_load_errors"])
 
     async def test_abefore_agent_forwards_skills_load_errors_through_clear_skill_mode_branch(self, tmp_path: Path):
         """When clear-skill-mode merges into the return, skills_load_errors must survive."""
@@ -648,68 +432,6 @@ class TestSkillsMiddleware:
         assert result.get("active_skill_mode") is None
         assert "skills_load_errors" in result
         assert result["skills_load_errors"]
-        assert any(".agents/skills" in err for err in result["skills_load_errors"])
-
-    async def test_abefore_agent_forwards_skills_load_errors_with_clear_mode_and_slash_command(self, tmp_path: Path):
-        """All three signals must merge: slash-command short-circuit, clear-skill-mode, AND load errors."""
-        from deepagents.backends.filesystem import FilesystemBackend
-
-        repo_name = "repoX"
-        builtin = tmp_path / "builtin_skills"
-        (builtin / "skill-one").mkdir(parents=True)
-        (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="ok"))
-
-        class DemoSlashCommand(SlashCommand):
-            description = "demo"
-
-            async def execute_for_agent(
-                self,
-                *,
-                args: str,
-                issue_iid: int | None = None,
-                merge_request_id: int | None = None,
-                available_skills: list | None = None,
-                available_subagents: list | None = None,
-            ) -> str:
-                return "ran"
-
-        registry = SlashCommandRegistry()
-        registry.register(DemoSlashCommand, "demo", [Scope.GLOBAL])
-
-        backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills", f"/{repo_name}/.agents/skills"])
-        runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
-        runtime.context.config = RepositoryConfig()
-
-        # Active read-only mode plus a user follow-up message that also invokes a slash command.
-        state = {
-            "active_skill_mode": SKILL_MODE_READ_ONLY,
-            "messages": [
-                HumanMessage(content="run /plan"),
-                AIMessage(content="planned"),
-                HumanMessage(content="@daiv-bot /demo proceed"),
-            ],
-        }
-        upstream_update = {
-            "skills_metadata": [],
-            "skills_load_errors": [f"Cannot load skills from '/{repo_name}/.agents/skills': permission_denied"],
-        }
-
-        with (
-            patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
-            patch("automation.agent.middlewares.skills.slash_command_registry", registry),
-            patch(
-                "automation.agent.middlewares.skills.DeepAgentsSkillsMiddleware.abefore_agent",
-                AsyncMock(return_value=upstream_update),
-            ),
-        ):
-            result = await middleware.abefore_agent(state, runtime, Mock())
-
-        assert result is not None
-        assert result["jump_to"] == "end"
-        # Both the clear-mode signal AND the load errors must survive through the slash-command return.
-        assert result.get("active_skill_mode") is None
-        assert "skills_load_errors" in result
         assert any(".agents/skills" in err for err in result["skills_load_errors"])
 
     def test_system_prompt_renders_skills_load_warnings(self):

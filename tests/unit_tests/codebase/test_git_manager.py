@@ -77,9 +77,7 @@ class FakeSandboxClient:
             if needle in command:
                 exit_code, output = code, out
                 break
-        return RunCommandsResponse(
-            results=[RunCommandResult(command=command, output=output, exit_code=exit_code)], patch=None
-        )
+        return RunCommandsResponse(results=[RunCommandResult(command=command, output=output, exit_code=exit_code)])
 
     def ran(self, needle: str) -> bool:
         return any(needle in command for command in self.commands)
@@ -427,7 +425,7 @@ async def test_local_git_check_raises_on_nonzero_exit(tmp_path: Path) -> None:
 async def test_sandbox_empty_results_raises_runtime_error() -> None:
     class _EmptyClient:
         async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
-            return RunCommandsResponse(results=[], patch=None)
+            return RunCommandsResponse(results=[])
 
     gm = GitManager(client=_EmptyClient(), session_id="sid")  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="no result"):

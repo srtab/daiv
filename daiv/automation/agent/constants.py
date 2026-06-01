@@ -7,9 +7,11 @@ from daiv.settings.components import PROJECT_DIR
 # Path where the builtin skills are stored in the filesystem to be copied to the repository.
 BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 
-# Virtual path the composite backend serves global skills from. Mounted onto
-# ``SKILLS_CACHE_PATH`` on disk so per-turn skill uploads are idempotent and writes
-# under ``/skills/`` don't round-trip through the agent's state.
+# Virtual path the disk-backed (non-sandbox) composite backend serves global skills from.
+# Mounted onto ``SKILLS_CACHE_PATH`` on disk so per-turn skill uploads are idempotent and
+# writes under ``/skills/`` don't round-trip through the agent's state. Sandbox runs do NOT
+# use this route: they address skills by their sandbox-absolute path ``SKILLS_PATH``
+# (``/workspace/skills``) directly, since the backend is a pass-through.
 GLOBAL_SKILLS_PATH = "/skills"
 GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
 

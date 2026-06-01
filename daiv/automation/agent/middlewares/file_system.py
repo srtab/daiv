@@ -204,13 +204,13 @@ class DAIVCompositeBackend(CompositeBackend):
 
 
 class SandboxFileBackend(BackendProtocol):
-    """Deepagents backend whose files live in a sandbox workspace rooted at ``root``.
+    """Deepagents backend whose files live in a sandbox workspace.
 
-    The backend maps agent-visible route-relative paths (``/<rel>``) to the
-    sandbox-absolute ``<root>/<rel>`` and back. As the single ``/workspace`` backend,
-    ``root`` is ``/workspace`` and the agent sees ``/repo/<rel>``, ``/skills/<rel>``,
-    ``/tmp/<rel>`` resolved under it. Every op is one RPC over ``DAIVSandboxClient``;
-    there is no local copy, so no rollback/desync machinery (the sandbox is authoritative).
+    The agent addresses files by their sandbox-absolute path (``/workspace/repo``,
+    ``/workspace/skills``, ``/workspace/tmp``); the backend is a thin pass-through to
+    ``DAIVSandboxClient`` — the sandbox is authoritative, so there is no path translation
+    or local mirror. Every op is one RPC over ``DAIVSandboxClient``; there is no local
+    copy, so no rollback/desync machinery.
 
     The backend is constructed at graph-build time (before the per-run session exists)
     and **bound** to a live client+session via :meth:`bind` once
@@ -229,8 +229,7 @@ class SandboxFileBackend(BackendProtocol):
     edits in place and leaves the existing file's mode untouched.
     """
 
-    def __init__(self, *, root: str, client: DAIVSandboxClient | None = None, session_id: str | None = None) -> None:
-        self._root = root.rstrip("/")
+    def __init__(self, *, client: DAIVSandboxClient | None = None, session_id: str | None = None) -> None:
         self._client = client
         self._session_id = session_id
 
@@ -257,16 +256,16 @@ class SandboxFileBackend(BackendProtocol):
             raise RuntimeError("SandboxFileBackend is not bound to a sandbox session")
         return self._client, self._session_id
 
-    # -- path mapping --------------------------------------------------------
+    # -- path mapping (identity) --------------------------------------------
+    # The sandbox is authoritative and the agent addresses files by their
+    # sandbox-absolute path (/workspace/repo, /workspace/skills, /workspace/tmp).
+    # There is no translation: paths pass straight through. Kept as helpers so the
+    # async methods below need no change and an empty path normalises to "/".
     def _abs(self, backend_path: str) -> str:
-        bp = backend_path or "/"
-        if bp == "/":
-            return self._root
-        return f"{self._root}{bp}" if bp.startswith("/") else f"{self._root}/{bp}"
+        return backend_path or "/"
 
     def _rel(self, abs_path: str) -> str:
-        # Strip the root prefix; the bare root and any empty remainder map to "/".
-        return abs_path[len(self._root) :] or "/"
+        return abs_path or "/"
 
     # -- async protocol methods ---------------------------------------------
     # The Fs*Response list types carry an ``error`` field (populated, with an empty list,

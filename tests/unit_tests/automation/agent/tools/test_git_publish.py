@@ -32,7 +32,7 @@ class _FakeClient:
             if needle in command:
                 code, out = c, o
                 break
-        return RunCommandsResponse(results=[RunCommandResult(command=command, output=out, exit_code=code)], patch=None)
+        return RunCommandsResponse(results=[RunCommandResult(command=command, output=out, exit_code=code)])
 
     def ran(self, needle: str) -> bool:
         return any(needle in command for command in self.commands)
