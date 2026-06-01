@@ -1,16 +1,15 @@
-import base64
 import io
+import json
 import tarfile
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 from git import Repo
 
-from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands
 from core.conf import settings as core_settings
 from core.sandbox.client import DAIVSandboxClient
-from core.sandbox.schemas import RunCommandsResponse
+from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -90,7 +89,7 @@ class TestBindBackend:
     def test_bind_backend_binds_sandbox_file_backend(self):
         from automation.agent.middlewares.file_system import SandboxFileBackend
 
-        backend = SandboxFileBackend(root="/workspace")
+        backend = SandboxFileBackend()
         mw = SandboxMiddleware(backend=backend, agent_root="/workspace/repo")
         mw._client = AsyncMock()
 
@@ -115,7 +114,7 @@ class TestBindBackend:
         not raise (the session, not the client, identifies the workspace)."""
         from automation.agent.middlewares.file_system import SandboxFileBackend
 
-        backend = SandboxFileBackend(root="/workspace")
+        backend = SandboxFileBackend()
         parent = SandboxMiddleware(backend=backend, agent_root="/workspace/repo")
         parent._client = AsyncMock()
         parent._bind_backend("sid")
@@ -129,54 +128,23 @@ class TestBindBackend:
 
 
 class TestBashTool:
-    async def test_bash_tool_returns_results_json_without_applying_patch(self, tmp_path: Path):
-        """The sandbox is authoritative: the bash tool reports ``files_changed`` derived from
-        the sandbox patch (display-only) but does NOT apply it to any local checkout."""
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        repo = Repo.init(repo_dir)
+    async def test_bash_tool_returns_commands_json(self):
+        """The bash tool surfaces the sandbox's per-command results as ``{"commands": [...]}``.
 
-        # Configure git identity for commits
-        with repo.config_writer() as writer:
-            writer.set_value("user", "name", "Test User")
-            writer.set_value("user", "email", "test@example.com")
+        The sandbox is authoritative — there is no local checkout to keep in sync — so the
+        output carries only ``commands`` (no ``files_changed``)."""
+        response = RunCommandsResponse(results=[RunCommandResult(command="echo ok", output="ok", exit_code=0)])
 
-        file_path = repo_dir / "hello.txt"
-        file_path.write_text("old\n")
-        repo.git.add("-A")
-        repo.index.commit("init")
-
-        # Create a real patch via git diff, then restore the file so we can assert the
-        # bash tool does NOT apply it locally.
-        file_path.write_text("new\n")
-        patch_text = repo.git.diff("HEAD")
-        if patch_text and not patch_text.endswith("\n"):
-            patch_text += "\n"
-        repo.git.checkout("--", "hello.txt")
-
-        assert file_path.read_text() == "old\n"
-
-        response = RunCommandsResponse(results=[], patch=base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"))
-
-        runtime = _make_bash_runtime(repo)
+        runtime = _make_bash_runtime(Mock())
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
-        middleware = SandboxMiddleware(
-            backend=Mock(spec=DAIVFilesystemBackend), agent_root=f"/{repo_dir.name}", close_session=True
-        )
-        middleware._client = client
-        bash_tool = middleware.tools[0]
+        bash_tool = _bash_tool_with_fake_client(client)
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
-        # The patch is never applied to the local checkout — only the sandbox holds the changes.
-        assert file_path.read_text() == "old\n"
-        import json as _json
-
-        payload = _json.loads(output)
-        assert payload["commands"] == []
-        # The patch just edits hello.txt — nothing added/deleted/renamed.
-        assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
+        payload = json.loads(output)
+        assert payload == {"commands": [{"command": "echo ok", "output": "ok", "exit_code": 0}]}
+        assert "files_changed" not in payload
         client.run_commands.assert_awaited_once()
 
     async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
@@ -228,7 +196,7 @@ class TestBashToolPolicyEnforcement:
         runtime.state["session_id"] = "sess_policy"
 
         client = Mock()
-        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
+        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[]))
         client.run_commands = run_mock
         bash_tool = _bash_tool_with_fake_client(client)
 
@@ -361,7 +329,7 @@ class TestBashToolPolicyEnforcement:
 class TestRunBashCommands:
     async def test_run_bash_commands_no_archive_field(self):
         """_run_bash_commands no longer tarballs the working dir; archive is gone from RunCommandsRequest."""
-        run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
+        run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[]))
         client = Mock()
         client.run_commands = run_commands_mock
 
@@ -392,10 +360,16 @@ class TestSandboxMiddleware:
         (repo_dir / "README.md").write_text("hello")
         runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
+        # No global skills available (empty builtin dir, no custom) -> skills_archive is None.
+        empty_builtin = tmp_path / "builtin-empty"
+        empty_builtin.mkdir()
+
         open_patch, close_patch = self._patch_client_lifecycle()
         with (
             open_patch,
             close_patch,
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty_builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_1"),
@@ -404,6 +378,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
+            settings.CUSTOM_SKILLS_PATH = None
             middleware = _make_middleware(close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
@@ -570,9 +545,9 @@ class TestSandboxMiddleware:
         repo_dir.mkdir(parents=True)
         (repo_dir / "README.md").write_text("hello")
 
-        skills_dir = tmp_path / "skills"
-        (skills_dir / "skill-one").mkdir(parents=True)
-        (skills_dir / "skill-one" / "SKILL.md").write_text("hi")
+        builtin = tmp_path / "builtin"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text("hi")
 
         runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
@@ -580,7 +555,8 @@ class TestSandboxMiddleware:
         with (
             open_patch,
             close_patch,
-            patch("automation.agent.middlewares.sandbox.SKILLS_CACHE_PATH", skills_dir),
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_skills"),
@@ -589,6 +565,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
+            settings.CUSTOM_SKILLS_PATH = None
             middleware = SandboxMiddleware(backend=Mock(), agent_root=f"/{repo_dir.name}", close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
@@ -598,59 +575,81 @@ class TestSandboxMiddleware:
         assert isinstance(kwargs.get("repo_archive"), (bytes, bytearray))
         assert isinstance(kwargs.get("skills_archive"), (bytes, bytearray))
 
-    def test_make_skills_archive_returns_none_when_dir_missing(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+    def test_make_global_skills_archive_packs_builtin_and_custom(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        assert _make_skills_archive(tmp_path / "nonexistent") is None
+        builtin = tmp_path / "builtin"
+        custom = tmp_path / "custom"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
+        (custom / "deploy").mkdir(parents=True)
+        (custom / "deploy" / "SKILL.md").write_text("yo")
 
-    def test_make_skills_archive_returns_none_when_dir_empty(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = custom
+            archive = _make_global_skills_archive()
 
-        empty = tmp_path / "skills"
-        empty.mkdir()
-        assert _make_skills_archive(empty) is None
-
-    def test_make_skills_archive_packs_children_relative_to_root(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
-
-        skills = tmp_path / "skills"
-        (skills / "skill-one").mkdir(parents=True)
-        (skills / "skill-one" / "SKILL.md").write_text("hello")
-        (skills / "skill-two").mkdir()
-        (skills / "skill-two" / "SKILL.md").write_text("world")
-
-        archive = _make_skills_archive(skills)
-        assert isinstance(archive, bytes)
-
+        assert isinstance(archive, (bytes, bytearray))
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
-            names = sorted(tf.getnames())
-        assert "skill-one/SKILL.md" in names
-        assert "skill-two/SKILL.md" in names
-        # No top-level wrapper directory.
-        assert not any(n.startswith("skills/") for n in names)
+            names = set(tf.getnames())
+        assert "code-review/SKILL.md" in names
+        assert "deploy/SKILL.md" in names
 
-    def test_make_skills_archive_returns_none_on_iterdir_oserror(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+    def test_make_global_skills_archive_none_when_no_skills(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        skills = tmp_path / "skills"
-        skills.mkdir()
+        empty = tmp_path / "builtin-empty"
+        empty.mkdir()
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            assert _make_global_skills_archive() is None
 
-        with patch("automation.agent.middlewares.sandbox.Path.iterdir", side_effect=PermissionError("denied")):
-            result = _make_skills_archive(skills)
+    def test_make_global_skills_archive_skips_unreadable_root_and_still_packs_builtins(self, tmp_path: Path):
+        """An OSError reading one root (e.g. a bad-perms custom dir) must not abort the whole
+        archive — builtins still seed. (Multi-root behavior change vs the old single-root helper.)"""
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        assert result is None
+        builtin = tmp_path / "builtin"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
 
-    def test_make_skills_archive_returns_none_on_tar_error(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+        bad_custom = Mock()
+        bad_custom.is_dir.return_value = True
+        bad_custom.iterdir.side_effect = PermissionError("denied")
 
-        skills = tmp_path / "skills"
-        (skills / "skill-one").mkdir(parents=True)
-        (skills / "skill-one" / "SKILL.md").write_text("hello")
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = bad_custom
+            archive = _make_global_skills_archive()
 
-        with patch("automation.agent.middlewares.sandbox.tarfile.open", side_effect=tarfile.TarError("boom")):
-            result = _make_skills_archive(skills)
+        assert isinstance(archive, (bytes, bytearray))
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+            names = set(tf.getnames())
+        assert "code-review/SKILL.md" in names
 
-        assert result is None
+    def test_make_global_skills_archive_returns_none_on_tar_error(self, tmp_path: Path):
+        """A TarError mid-build must not abort the whole sandbox seed — returns None (seed without skills)."""
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
+
+        builtin = tmp_path / "builtin"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
+
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+            patch("automation.agent.middlewares.sandbox.tarfile.open", side_effect=tarfile.TarError("boom")),
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            assert _make_global_skills_archive() is None
 
     async def test_awrap_model_call_appends_sandbox_system_prompt(self, tmp_path: Path):
         from langchain.agents.middleware import ModelRequest, ModelResponse

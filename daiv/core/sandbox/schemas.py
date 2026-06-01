@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Base64Bytes, Base64Str, BaseModel, Field, field_validator, model_validator
+from pydantic import Base64Bytes, BaseModel, Field, field_validator, model_validator
 
 MAX_OUTPUT_LENGTH = 2000
 
@@ -10,7 +10,6 @@ MAX_OUTPUT_LENGTH = 2000
 class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
-    extract_patch: bool = Field(default=True, description="Whether to extract the patch of the changed files.")
     network_enabled: bool = Field(default=False, description="Whether to enable the network for the session.")
     memory_bytes: int | None = Field(default=None, description="Memory in bytes to be used for the session.")
     cpus: float | None = Field(default=None, description="CPUs to be used for the session.")
@@ -52,7 +51,6 @@ class RunCommandsResponse(BaseModel):
     """
 
     results: list[RunCommandResult]
-    patch: Base64Str | None
 
 
 class PutMutation(BaseModel):

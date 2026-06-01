@@ -162,8 +162,8 @@ def _argv_matches_rule(argv: tuple[str, ...], rule: tuple[str, ...]) -> bool:
     subsequence, with the executable name (argv[0]) matched exactly.
 
     This handles global flags that appear between the executable name and the
-    subcommand, e.g. ``git -C /repo commit`` is matched by rule
-    ``("git", "commit")`` even though ``-C /repo`` intervenes.
+    subcommand, e.g. ``git -C /workspace/repo commit`` is matched by rule
+    ``("git", "commit")`` even though ``-C /workspace/repo`` intervenes.
 
     Comparison is case-insensitive and performs short-flag normalization for
     bundled short options. Example: ``-rf`` and ``-fr`` are considered equal.
