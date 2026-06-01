@@ -792,3 +792,65 @@ def test_sandbox_prompt_uses_workspace_paths():
     assert "/scratch" not in SANDBOX_SYSTEM_PROMPT
     assert "/workspace/repo" in BASH_TOOL_DESCRIPTION
     assert "/repos/" not in BASH_TOOL_DESCRIPTION
+
+
+class TestWarmSessionHelpers:
+    async def test_reuse_returns_none_without_thread_id(self):
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+
+        middleware = SandboxMiddleware(backend=Mock(), agent_root="/d")
+        client = Mock()
+        client.session_exists = AsyncMock(return_value=True)
+        assert await middleware._reuse_warm_session(client, None) is None
+        client.session_exists.assert_not_awaited()
+
+    async def test_reuse_returns_session_when_alive_and_refreshes_ttl(self):
+        from automation.agent.middlewares.sandbox import SANDBOX_SESSION_TTL_SECONDS, SandboxMiddleware
+
+        middleware = SandboxMiddleware(backend=Mock(), agent_root="/d")
+        client = Mock()
+        client.session_exists = AsyncMock(return_value=True)
+
+        fake_cache = Mock()
+        fake_cache.aget = AsyncMock(return_value={"session_id": "warm-1"})
+        fake_cache.aset = AsyncMock(return_value=None)
+        fake_cache.adelete = AsyncMock(return_value=None)
+
+        with patch("automation.agent.middlewares.sandbox.cache", fake_cache):
+            result = await middleware._reuse_warm_session(client, "thread-1")
+
+        assert result == "warm-1"
+        client.session_exists.assert_awaited_once_with("warm-1")
+        fake_cache.aset.assert_awaited_once_with(
+            "sandbox_session:thread-1", {"session_id": "warm-1"}, timeout=SANDBOX_SESSION_TTL_SECONDS
+        )
+
+    async def test_reuse_drops_mapping_when_session_gone(self):
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+
+        middleware = SandboxMiddleware(backend=Mock(), agent_root="/d")
+        client = Mock()
+        client.session_exists = AsyncMock(return_value=False)
+
+        fake_cache = Mock()
+        fake_cache.aget = AsyncMock(return_value={"session_id": "stale-1"})
+        fake_cache.aset = AsyncMock(return_value=None)
+        fake_cache.adelete = AsyncMock(return_value=None)
+
+        with patch("automation.agent.middlewares.sandbox.cache", fake_cache):
+            result = await middleware._reuse_warm_session(client, "thread-1")
+
+        assert result is None
+        fake_cache.adelete.assert_awaited_once_with("sandbox_session:thread-1")
+
+    async def test_remember_writes_mapping(self):
+        from automation.agent.middlewares.sandbox import SANDBOX_SESSION_TTL_SECONDS, SandboxMiddleware
+
+        middleware = SandboxMiddleware(backend=Mock(), agent_root="/d")
+        fake_cache = Mock()
+        fake_cache.aset = AsyncMock(return_value=None)
+        with patch("automation.agent.middlewares.sandbox.cache", fake_cache):
+            await middleware._remember_warm_session("thread-1", "sess-9")
+        fake_cache.aset.assert_awaited_once_with(
+            "sandbox_session:thread-1", {"session_id": "sess-9"}, timeout=SANDBOX_SESSION_TTL_SECONDS
+        )

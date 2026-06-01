@@ -8,6 +8,8 @@ import tarfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired
 
+from django.core.cache import cache
+
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import OmitFromOutput
@@ -36,6 +38,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 BASH_TOOL_NAME = "bash"
+
+# Warm sandbox sessions are remembered per conversation thread for this long. Keep it ≤ the
+# sandbox's DAIV_SANDBOX_SESSION_GRACE_SECONDS so the mapping expires around when the reaper
+# removes the stopped container.
+SANDBOX_SESSION_TTL_SECONDS = 12 * 60 * 60
 
 BASH_TOOL_DESCRIPTION = """\
 Executes a bash command in a persistent shell session.
@@ -400,6 +407,44 @@ class SandboxMiddleware(AgentMiddleware):
         """
         if session_id and self._client is not None and isinstance(self._backend, SandboxFileBackend):
             self._backend.bind(self._client, session_id)
+
+    @staticmethod
+    def _session_cache_key(thread_id: str) -> str:
+        return f"sandbox_session:{thread_id}"
+
+    async def _reuse_warm_session(self, client: DAIVSandboxClient, thread_id: str | None) -> str | None:
+        """Return a reusable warm session id for *thread_id*, or None.
+
+        Looks up the cached mapping, confirms the session still exists on the sandbox (which also
+        restarts it if it was stopped), and refreshes the mapping TTL. A reaped/missing session
+        drops the stale mapping and returns None so the caller creates a fresh one.
+        """
+        if not thread_id:
+            return None
+        key = self._session_cache_key(thread_id)
+        cached = await cache.aget(key)
+        session_id = cached.get("session_id") if isinstance(cached, dict) else None
+        if not session_id:
+            return None
+        try:
+            alive = await client.session_exists(session_id)
+        except httpx.HTTPError:
+            logger.exception("Failed to validate sandbox session %s for reuse", session_id)
+            return None
+        if not alive:
+            await cache.adelete(key)
+            return None
+        await cache.aset(key, {"session_id": session_id}, timeout=SANDBOX_SESSION_TTL_SECONDS)
+        logger.info("Reusing warm sandbox session %s for thread %s", session_id, thread_id)
+        return session_id
+
+    async def _remember_warm_session(self, thread_id: str | None, session_id: str) -> None:
+        """Persist the thread→session mapping so the next turn can reuse it. No-op without a thread."""
+        if not thread_id:
+            return
+        await cache.aset(
+            self._session_cache_key(thread_id), {"session_id": session_id}, timeout=SANDBOX_SESSION_TTL_SECONDS
+        )
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
