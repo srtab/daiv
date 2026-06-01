@@ -44,14 +44,24 @@ def _make_sandbox_runtime(disallow=(), allow=()):
     )
 
 
-def _make_agent_runtime(*, repo_working_dir: str, thread_id: str | None = None) -> Mock:
+def _make_agent_runtime(*, repo_working_dir: str) -> Mock:
     runtime = Mock()
     runtime.context = Mock()
     runtime.context.gitrepo = Mock(working_dir=repo_working_dir)
     runtime.context.config = _make_sandbox_config_mock()
     runtime.context.sandbox = _make_sandbox_runtime()
-    runtime.config = {"configurable": {"thread_id": thread_id}}
     return runtime
+
+
+def _patch_thread_id(thread_id: str | None):
+    """Patch the run-config lookup so the middleware sees ``thread_id``.
+
+    Agent-level middleware hooks read the conversation thread_id from the langgraph run config
+    (``get_config()``), not from the ``Runtime`` they are handed, so tests stub ``get_config``.
+    """
+    return patch(
+        "automation.agent.middlewares.sandbox.get_config", return_value={"configurable": {"thread_id": thread_id}}
+    )
 
 
 def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
@@ -396,7 +406,7 @@ class TestSandboxMiddleware:
 
         repo_dir = tmp_path / "repoX"
         repo_dir.mkdir(parents=True)
-        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir), thread_id="thread-1")
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
         fake_cache = Mock()
         fake_cache.aget = AsyncMock(return_value={"session_id": "warm-1"})
@@ -407,6 +417,7 @@ class TestSandboxMiddleware:
         with (
             open_patch,
             close_patch,
+            _patch_thread_id("thread-1"),
             patch("automation.agent.middlewares.sandbox.cache", fake_cache),
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.session_exists",
@@ -437,7 +448,7 @@ class TestSandboxMiddleware:
         repo_dir = tmp_path / "repoX"
         repo_dir.mkdir(parents=True)
         (repo_dir / "README.md").write_text("hi")
-        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir), thread_id="thread-1")
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
         empty_builtin = tmp_path / "builtin-empty"
         empty_builtin.mkdir()
 
@@ -450,6 +461,7 @@ class TestSandboxMiddleware:
         with (
             open_patch,
             close_patch,
+            _patch_thread_id("thread-1"),
             patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty_builtin),
             patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
             patch("automation.agent.middlewares.sandbox.cache", fake_cache),
@@ -476,7 +488,7 @@ class TestSandboxMiddleware:
         repo_dir = tmp_path / "repoX"
         repo_dir.mkdir(parents=True)
         (repo_dir / "README.md").write_text("hi")
-        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir), thread_id="thread-1")
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
         empty_builtin = tmp_path / "builtin-empty"
         empty_builtin.mkdir()
 
@@ -489,6 +501,7 @@ class TestSandboxMiddleware:
         with (
             open_patch,
             close_patch,
+            _patch_thread_id("thread-1"),
             patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty_builtin),
             patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
             patch("automation.agent.middlewares.sandbox.cache", fake_cache),
@@ -642,11 +655,12 @@ class TestSandboxMiddleware:
         assert middleware._client is None
 
     async def test_aafter_agent_stops_session_for_reusable_thread(self, tmp_path: Path):
-        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"), thread_id="thread-1")
+        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "warm-1"}
 
         close_mock = AsyncMock(return_value=None)
         with (
+            _patch_thread_id("thread-1"),
             patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
             patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=AsyncMock(return_value=None)),
             patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_mock),
@@ -659,11 +673,12 @@ class TestSandboxMiddleware:
         close_mock.assert_awaited_once_with("warm-1", force=False)
 
     async def test_aafter_agent_force_removes_when_no_thread(self, tmp_path: Path):
-        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"), thread_id=None)
+        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "sess_1"}
 
         close_mock = AsyncMock(return_value=None)
         with (
+            _patch_thread_id(None),
             patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
             patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=AsyncMock(return_value=None)),
             patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_mock),

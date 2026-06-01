@@ -15,6 +15,7 @@ from langchain.agents.middleware import AgentMiddleware, AgentState, ModelReques
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
 from langchain_core.tools import BaseTool, tool
+from langgraph.config import get_config
 from langgraph.typing import StateT  # noqa: TC002
 
 from automation.agent.conf import settings as agent_settings
@@ -412,6 +413,21 @@ class SandboxMiddleware(AgentMiddleware):
     def _session_cache_key(thread_id: str) -> str:
         return f"sandbox_session:{thread_id}"
 
+    @staticmethod
+    def _conversation_thread_id() -> str | None:
+        """Read the conversation ``thread_id`` from the active run config.
+
+        Agent-level middleware hooks receive a langgraph ``Runtime`` (which has no ``config``
+        attribute), so the thread_id is read from the run config contextvar via ``get_config()``.
+        Returns None when called outside a runnable context — warm-session reuse is then disabled
+        and the session is force-removed, preserving today's non-chat behavior (safe fallback).
+        """
+        try:
+            config = get_config()
+        except RuntimeError:
+            return None
+        return config.get("configurable", {}).get("thread_id")
+
     async def _reuse_warm_session(self, client: DAIVSandboxClient, thread_id: str | None) -> str | None:
         """Return a reusable warm session id for *thread_id*, or None.
 
@@ -473,7 +489,7 @@ class SandboxMiddleware(AgentMiddleware):
                 self._bind_backend(state["session_id"])
                 return None
 
-            thread_id = runtime.config.get("configurable", {}).get("thread_id")
+            thread_id = self._conversation_thread_id()
 
             reused_session_id = await self._reuse_warm_session(client, thread_id)
             if reused_session_id is not None:
@@ -539,7 +555,7 @@ class SandboxMiddleware(AgentMiddleware):
                 # A chat conversation (thread_id present) keeps its session warm for the next turn:
                 # close_session => server *stop* (kept), and the cached mapping is retained. A
                 # non-chat run has no thread to reuse, so force-remove immediately (today's behavior).
-                thread_id = runtime.config.get("configurable", {}).get("thread_id")
+                thread_id = self._conversation_thread_id()
                 force = not thread_id
                 try:
                     await client.close_session(session_id, force=force)
