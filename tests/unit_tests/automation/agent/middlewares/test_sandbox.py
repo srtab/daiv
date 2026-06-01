@@ -391,6 +391,128 @@ class TestSandboxMiddleware:
         assert kwargs.get("skills_archive") is None
         assert middleware._client is not None
 
+    async def test_abefore_agent_reuses_warm_session(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import SANDBOX_SESSION_TTL_SECONDS
+
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir), thread_id="thread-1")
+
+        fake_cache = Mock()
+        fake_cache.aget = AsyncMock(return_value={"session_id": "warm-1"})
+        fake_cache.aset = AsyncMock(return_value=None)
+        fake_cache.adelete = AsyncMock(return_value=None)
+
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch("automation.agent.middlewares.sandbox.cache", fake_cache),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.session_exists",
+                new=AsyncMock(return_value=True),
+            ) as exists_mock,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_new"),
+            ) as start_mock,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ) as seed_mock,
+        ):
+            middleware = _make_middleware(close_session=True)
+            update = await middleware.abefore_agent({}, runtime)
+
+        assert update == {"session_id": "warm-1"}
+        exists_mock.assert_awaited_once_with("warm-1")
+        start_mock.assert_not_awaited()
+        seed_mock.assert_not_awaited()
+        fake_cache.aset.assert_awaited_once_with(
+            "sandbox_session:thread-1", {"session_id": "warm-1"}, timeout=SANDBOX_SESSION_TTL_SECONDS
+        )
+
+    async def test_abefore_agent_creates_and_remembers_when_no_warm_session(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import SANDBOX_SESSION_TTL_SECONDS
+
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "README.md").write_text("hi")
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir), thread_id="thread-1")
+        empty_builtin = tmp_path / "builtin-empty"
+        empty_builtin.mkdir()
+
+        fake_cache = Mock()
+        fake_cache.aget = AsyncMock(return_value=None)
+        fake_cache.aset = AsyncMock(return_value=None)
+        fake_cache.adelete = AsyncMock(return_value=None)
+
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty_builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+            patch("automation.agent.middlewares.sandbox.cache", fake_cache),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_new"),
+            ) as start_mock,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ) as seed_mock,
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            middleware = _make_middleware(close_session=True)
+            update = await middleware.abefore_agent({}, runtime)
+
+        assert update == {"session_id": "sess_new"}
+        start_mock.assert_awaited_once()
+        seed_mock.assert_awaited_once()
+        fake_cache.aset.assert_awaited_once_with(
+            "sandbox_session:thread-1", {"session_id": "sess_new"}, timeout=SANDBOX_SESSION_TTL_SECONDS
+        )
+
+    async def test_abefore_agent_falls_back_when_warm_session_reaped(self, tmp_path: Path):
+        repo_dir = tmp_path / "repoX"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "README.md").write_text("hi")
+        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir), thread_id="thread-1")
+        empty_builtin = tmp_path / "builtin-empty"
+        empty_builtin.mkdir()
+
+        fake_cache = Mock()
+        fake_cache.aget = AsyncMock(return_value={"session_id": "stale-1"})
+        fake_cache.aset = AsyncMock(return_value=None)
+        fake_cache.adelete = AsyncMock(return_value=None)
+
+        open_patch, close_patch = self._patch_client_lifecycle()
+        with (
+            open_patch,
+            close_patch,
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty_builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+            patch("automation.agent.middlewares.sandbox.cache", fake_cache),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.session_exists",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
+                new=AsyncMock(return_value="sess_fresh"),
+            ) as start_mock,
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
+            ) as seed_mock,
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            middleware = _make_middleware(close_session=True)
+            update = await middleware.abefore_agent({}, runtime)
+
+        assert update == {"session_id": "sess_fresh"}
+        fake_cache.adelete.assert_awaited_once_with("sandbox_session:thread-1")
+        start_mock.assert_awaited_once()
+        seed_mock.assert_awaited_once()
+
     async def test_abefore_agent_closes_session_on_seed_failure(self, tmp_path: Path):
         """If seed_session raises, the started session is closed and the client is released (no leak)."""
         import pytest
@@ -420,7 +542,7 @@ class TestSandboxMiddleware:
             with pytest.raises(RuntimeError, match="simulated seed failure"):
                 await middleware.abefore_agent({}, runtime)
 
-        close_session_mock.assert_awaited_once_with("sess_leaky")
+        close_session_mock.assert_awaited_once_with("sess_leaky", force=True)
         client_close_mock.assert_awaited_once()
         assert middleware._client is None
 

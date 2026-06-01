@@ -448,13 +448,13 @@ class SandboxMiddleware(AgentMiddleware):
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
-        Open the per-run sandbox client and lazily start a session.
+        Open the per-run sandbox client and bind a session — reusing a warm one when possible.
 
-        Starts the session, seeds the workspace from the on-disk repo, and
-        cleans up the session on seed failure to avoid container leaks. The
-        client stays open for the rest of the agent run so every bash call
-        and every file-tool RPC (via the bound ``SandboxFileBackend``) reuses
-        the same connection pool.
+        For a chat conversation (a ``thread_id`` is present) a previously-created session is reused
+        if it still exists on the sandbox, skipping both ``start_session`` and the repo re-seed.
+        Otherwise a fresh session is started, seeded from the on-disk repo, and remembered for the
+        next turn. The client stays open for the rest of the run so every bash/file RPC reuses the
+        same connection pool.
 
         Args:
             state (StateT): The state of the agent.
@@ -469,10 +469,16 @@ class SandboxMiddleware(AgentMiddleware):
 
         try:
             if not self.close_session and "session_id" in state:
-                # Subagent path: parent owns session lifecycle; we just keep our client open
-                # so bash calls reuse the pool.
+                # Subagent path: parent owns session lifecycle; we just keep our client open.
                 self._bind_backend(state["session_id"])
                 return None
+
+            thread_id = runtime.config.get("configurable", {}).get("thread_id")
+
+            reused_session_id = await self._reuse_warm_session(client, thread_id)
+            if reused_session_id is not None:
+                self._bind_backend(reused_session_id)
+                return {"session_id": reused_session_id}
 
             sb = runtime.context.sandbox
             session_id = await client.start_session(
@@ -497,10 +503,11 @@ class SandboxMiddleware(AgentMiddleware):
                 # build/seed failure shows up only as whatever LangGraph chooses to log.
                 logger.exception("Failed to build or seed sandbox session %s", session_id)
                 try:
-                    await client.close_session(session_id)
+                    await client.close_session(session_id, force=True)
                 except Exception:
                     logger.exception("Failed to close session %s after seed failure", session_id)
                 raise
+            await self._remember_warm_session(thread_id, session_id)
         except BaseException:
             # Release the client we just opened; otherwise its httpx pool leaks for the run.
             await client.close()
