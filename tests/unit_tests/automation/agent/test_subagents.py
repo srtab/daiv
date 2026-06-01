@@ -30,9 +30,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-pytestmark = pytest.mark.usefixtures("bypass_gitignore_check")
-
-
 class TestGeneralPurposeMiddleware:
     """Tests for ``_build_general_purpose_middleware`` — the middleware composer."""
 
@@ -126,77 +123,6 @@ class TestGeneralPurposeMiddleware:
             web_fetch_enabled=True,
         )
         assert not any(isinstance(m, ModelFallbackMiddleware) for m in middleware)
-
-    async def test_subagent_write_file_uses_parent_session_id(self, tmp_path, mock_model):
-        """The subagent's sandbox-mirroring write_file must thread the parent's session_id into the sandbox call.
-
-        DAIV-custom contract: a subagent inheriting the parent runtime's ``session_id`` calls the
-        sandbox under that same session, never opening a fresh one. Exercises the production
-        intercept path: ``_build_general_purpose_middleware`` → ``SandboxMiddleware.awrap_tool_call``
-        → ``SandboxSyncer.mirror``.
-        """
-        from types import SimpleNamespace
-
-        from langchain_core.messages import ToolMessage
-        from langgraph.prebuilt.tool_node import ToolCallRequest
-
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend, SandboxSyncer
-        from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        ctx = Mock()
-        ctx.gitrepo.working_dir = str(repo_dir)
-
-        fake_client = AsyncMock()
-        fake_client.apply_file_mutations.return_value = ApplyMutationsResponse(
-            results=[MutationResult(path="/repo/sub.py", ok=True, error=None)]
-        )
-
-        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = _build_general_purpose_middleware(
-            mock_model, backend, ctx, sandbox_enabled=True, web_search_enabled=False, web_fetch_enabled=False
-        )
-
-        fs_mw = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
-        sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
-        # Inject fake client + syncer to skip network setup that abefore_agent would otherwise drive.
-        sandbox_mw._client = fake_client
-        sandbox_mw._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=fake_client)
-
-        write = next(t for t in fs_mw.tools if t.name == "write_file")
-        runtime = SimpleNamespace(
-            state={"session_id": "parent-sid"},
-            context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(repo_dir)), has_repo=True),
-            tool_call_id="call_subagent",
-        )
-
-        request = ToolCallRequest(
-            tool_call={
-                "name": "write_file",
-                "args": {"file_path": f"/{repo_dir.name}/sub.py", "content": "x"},
-                "id": "call_subagent",
-                "type": "tool_call",
-            },
-            tool=write,
-            state=runtime.state,
-            runtime=runtime,
-        )
-
-        async def handler(req: ToolCallRequest) -> ToolMessage:
-            result = await req.tool.coroutine(**req.tool_call["args"], runtime=req.runtime)
-            if isinstance(result, ToolMessage):
-                return result
-            return ToolMessage(content=result, tool_call_id=req.tool_call["id"], name=req.tool.name)
-
-        result = await sandbox_mw.awrap_tool_call(request, handler)
-
-        assert isinstance(result, ToolMessage)
-        assert isinstance(result.content, str)
-        assert "Updated file" in result.content
-        fake_client.apply_file_mutations.assert_awaited_once()
-        call_session_id = fake_client.apply_file_mutations.call_args.args[0]
-        assert call_session_id == "parent-sid"
 
 
 class TestGeneralPurposeSubagent:

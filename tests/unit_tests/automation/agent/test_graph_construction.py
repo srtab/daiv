@@ -40,3 +40,57 @@ def test_graph_uses_fallback_thinking_level_standalone():
     assert "site_settings.agent_fallback_thinking_level or" not in src, (
         "graph.py must NOT coalesce agent_fallback_thinking_level to another value"
     )
+
+
+def test_graph_constructs_sandbox_backend_without_root():
+    src = inspect.getsource(graph_module)
+    assert "SandboxFileBackend()" in src, (
+        "graph.py must construct SandboxFileBackend() with no root — the agent uses sandbox-absolute paths"
+    )
+    assert "SandboxFileBackend(root=" not in src, "graph.py must NOT pass a root to SandboxFileBackend (pass-through)"
+
+
+def test_graph_sandbox_global_skills_source_is_workspace_skills():
+    src = inspect.getsource(graph_module)
+    # In sandbox mode the global-skills discovery source must be the real sandbox dir,
+    # not the route-relative "/skills" used by the disk-backed composite.
+    assert "global_skills_source = SKILLS_PATH" in src, (
+        "graph.py sandbox branch must use SKILLS_PATH (/workspace/skills) as the global-skills source"
+    )
+    assert "global_skills_source = GLOBAL_SKILLS_PATH" in src, (
+        "graph.py non-sandbox branch must keep GLOBAL_SKILLS_PATH (/skills) as the global-skills source"
+    )
+
+
+def test_middleware_order_slash_then_sandbox_then_skills():
+    src = inspect.getsource(graph_module)
+    # SlashCommandMiddleware must run before SandboxMiddleware (so /clear etc. don't start a sandbox),
+    # and SkillsMiddleware must run AFTER SandboxMiddleware (so the backend is bound + seeded before
+    # discovery reads it).
+    slash = src.index("SlashCommandMiddleware(")
+    sandbox = src.index("SandboxMiddleware(backend=backend, agent_root=agent_root)")
+    skills = src.index("SkillsMiddleware(")
+    assert slash < sandbox < skills, "order must be SlashCommandMiddleware -> SandboxMiddleware -> SkillsMiddleware"
+
+
+def _balanced_call_args(src: str, callee: str) -> str:
+    """Return the argument text inside ``callee(...)`` via balanced-paren matching."""
+    start = src.index(callee) + len(callee)
+    depth, i = 1, start
+    while i < len(src) and depth > 0:
+        depth += {"(": 1, ")": -1}.get(src[i], 0)
+        i += 1
+    return src[start : i - 1]
+
+
+def test_skills_middleware_receives_sandbox_enabled_flag():
+    src = inspect.getsource(graph_module)
+    # Assert the flag is passed INSIDE the SkillsMiddleware(...) call, not just somewhere in the
+    # file (it also appears on the subagent factory calls), so this guards the real wiring.
+    skills_call = _balanced_call_args(src, "SkillsMiddleware(")
+    assert "sandbox_enabled=_sandbox_enabled" in skills_call, "SkillsMiddleware must receive the sandbox_enabled flag"
+
+
+def test_slash_command_middleware_receives_subagents():
+    src = inspect.getsource(graph_module)
+    assert "SlashCommandMiddleware(subagents=subagents)" in src

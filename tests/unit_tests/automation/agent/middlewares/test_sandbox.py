@@ -1,16 +1,15 @@
-import base64
 import io
+import json
 import tarfile
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 from git import Repo
 
-from automation.agent.middlewares.file_system import DAIVFilesystemBackend
 from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands
 from core.conf import settings as core_settings
 from core.sandbox.client import DAIVSandboxClient
-from core.sandbox.schemas import RunCommandsResponse
+from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -86,84 +85,67 @@ def _bash_tool_with_fake_client(client: Mock):
     return middleware.tools[0]
 
 
+class TestBindBackend:
+    def test_bind_backend_binds_sandbox_file_backend(self):
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        backend = SandboxFileBackend()
+        mw = SandboxMiddleware(backend=backend, agent_root="/workspace/repo")
+        mw._client = AsyncMock()
+
+        mw._bind_backend("sid")
+        assert backend._session_id == "sid"
+
+        # Subagents share the parent's backend: re-binding the same session must not raise.
+        mw._bind_backend("sid")
+        assert backend._session_id == "sid"
+
+    def test_bind_backend_noop_for_non_sandbox_backend(self):
+        backend = Mock()  # a disk-backed / composite backend is not a SandboxFileBackend
+        mw = SandboxMiddleware(backend=backend, agent_root="/x")
+        mw._client = AsyncMock()
+
+        mw._bind_backend("sid")
+        backend.bind.assert_not_called()
+
+    def test_bind_backend_subagent_reuses_parent_session_with_own_client(self):
+        """Regression: parent and subagent share ONE backend, but each middleware has its OWN
+        client. The subagent re-binds the parent's session through its own client — this must
+        not raise (the session, not the client, identifies the workspace)."""
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        backend = SandboxFileBackend()
+        parent = SandboxMiddleware(backend=backend, agent_root="/workspace/repo")
+        parent._client = AsyncMock()
+        parent._bind_backend("sid")
+
+        subagent = SandboxMiddleware(backend=backend, agent_root="/workspace/repo", close_session=False)
+        subagent._client = AsyncMock()  # distinct client object
+        subagent._bind_backend("sid")  # must not raise
+
+        assert backend._client is subagent._client
+        assert backend._session_id == "sid"
+
+
 class TestBashTool:
-    async def test_bash_tool_applies_patch_and_returns_results_json(self, tmp_path: Path):
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        repo = Repo.init(repo_dir)
+    async def test_bash_tool_returns_commands_json(self):
+        """The bash tool surfaces the sandbox's per-command results as ``{"commands": [...]}``.
 
-        # Configure git identity for commits
-        with repo.config_writer() as writer:
-            writer.set_value("user", "name", "Test User")
-            writer.set_value("user", "email", "test@example.com")
+        The sandbox is authoritative — there is no local checkout to keep in sync — so the
+        output carries only ``commands`` (no ``files_changed``)."""
+        response = RunCommandsResponse(results=[RunCommandResult(command="echo ok", output="ok", exit_code=0)])
 
-        file_path = repo_dir / "hello.txt"
-        file_path.write_text("old\n")
-        repo.git.add("-A")
-        repo.index.commit("init")
-
-        # Create a real patch via git diff.
-        file_path.write_text("new\n")
-        patch_text = repo.git.diff("HEAD")
-        if patch_text and not patch_text.endswith("\n"):
-            patch_text += "\n"
-        # Restore file so the patch application is observable.
-        repo.git.checkout("--", "hello.txt")
-
-        assert file_path.read_text() == "old\n"
-
-        response = RunCommandsResponse(results=[], patch=base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"))
-
-        runtime = _make_bash_runtime(repo)
+        runtime = _make_bash_runtime(Mock())
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
-        middleware = SandboxMiddleware(
-            backend=Mock(spec=DAIVFilesystemBackend), agent_root=f"/{repo_dir.name}", close_session=True
-        )
-        middleware._client = client
-        bash_tool = middleware.tools[0]
+        bash_tool = _bash_tool_with_fake_client(client)
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
-        assert file_path.read_text() == "new\n"
-        import json as _json
-
-        payload = _json.loads(output)
-        assert payload["commands"] == []
-        # The patch just edits hello.txt — nothing added/deleted/renamed.
-        assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
+        payload = json.loads(output)
+        assert payload == {"commands": [{"command": "echo ok", "output": "ok", "exit_code": 0}]}
+        assert "files_changed" not in payload
         client.run_commands.assert_awaited_once()
-
-    async def test_bash_tool_returns_error_when_apply_patch_raises(self, tmp_path: Path):
-        """If ``GitManager.apply_patch`` raises (e.g. malformed sandbox patch), the bash tool
-        must surface a "Failed to persist" error string instead of returning the JSON
-        success payload — otherwise the agent's local filesystem silently desyncs from
-        the sandbox while bash claims success."""
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        repo = Repo.init(repo_dir)
-
-        # Non-empty patch so the response.patch branch is taken.
-        response = RunCommandsResponse(
-            results=[], patch=base64.b64encode(b"diff --git a/x b/x\nbogus\n").decode("utf-8")
-        )
-
-        runtime = _make_bash_runtime(repo)
-        client = Mock()
-        client.run_commands = AsyncMock(return_value=response)
-        middleware = SandboxMiddleware(
-            backend=Mock(spec=DAIVFilesystemBackend), agent_root=f"/{repo_dir.name}", close_session=True
-        )
-        middleware._client = client
-        bash_tool = middleware.tools[0]
-
-        with patch(
-            "automation.agent.middlewares.sandbox.GitManager.apply_patch",
-            side_effect=RuntimeError("simulated apply failure"),
-        ):
-            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
-
-        assert output.startswith("error: Failed to persist")
 
     async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
         import httpx
@@ -214,7 +196,7 @@ class TestBashToolPolicyEnforcement:
         runtime.state["session_id"] = "sess_policy"
 
         client = Mock()
-        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
+        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[]))
         client.run_commands = run_mock
         bash_tool = _bash_tool_with_fake_client(client)
 
@@ -347,7 +329,7 @@ class TestBashToolPolicyEnforcement:
 class TestRunBashCommands:
     async def test_run_bash_commands_no_archive_field(self):
         """_run_bash_commands no longer tarballs the working dir; archive is gone from RunCommandsRequest."""
-        run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
+        run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[]))
         client = Mock()
         client.run_commands = run_commands_mock
 
@@ -361,32 +343,6 @@ class TestRunBashCommands:
         dumped = request.model_dump()
         assert "archive" not in dumped
         assert dumped["commands"] == ["echo ok"]
-
-
-class TestResolveRepoBackend:
-    """Validate the helper that the patch-apply and gitignore-guard dispatches rely on:
-    with composite present, the underlying repo backend is unwrapped (so isinstance
-    dispatch works); without composite, the backend passes through.
-    """
-
-    def test_composite_returns_underlying_default(self, tmp_path: Path):
-        from automation.agent.middlewares.file_system import DAIVCompositeBackend, DAIVFilesystemBackend
-        from automation.agent.middlewares.sandbox import _resolve_repo_backend
-
-        skills = DAIVFilesystemBackend(root_dir=tmp_path / "s", virtual_mode=True)
-        (tmp_path / "s").mkdir()
-        repo = DAIVFilesystemBackend(root_dir=tmp_path / "r", virtual_mode=True)
-        (tmp_path / "r").mkdir()
-        composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
-
-        assert _resolve_repo_backend(composite, "/myrepo") is repo
-
-    def test_bare_backend_passes_through(self, tmp_path: Path):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
-        from automation.agent.middlewares.sandbox import _resolve_repo_backend
-
-        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        assert _resolve_repo_backend(backend, "/myrepo") is backend
 
 
 class TestSandboxMiddleware:
@@ -404,10 +360,16 @@ class TestSandboxMiddleware:
         (repo_dir / "README.md").write_text("hello")
         runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
+        # No global skills available (empty builtin dir, no custom) -> skills_archive is None.
+        empty_builtin = tmp_path / "builtin-empty"
+        empty_builtin.mkdir()
+
         open_patch, close_patch = self._patch_client_lifecycle()
         with (
             open_patch,
             close_patch,
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty_builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_1"),
@@ -416,6 +378,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
+            settings.CUSTOM_SKILLS_PATH = None
             middleware = _make_middleware(close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
@@ -582,9 +545,9 @@ class TestSandboxMiddleware:
         repo_dir.mkdir(parents=True)
         (repo_dir / "README.md").write_text("hello")
 
-        skills_dir = tmp_path / "skills"
-        (skills_dir / "skill-one").mkdir(parents=True)
-        (skills_dir / "skill-one" / "SKILL.md").write_text("hi")
+        builtin = tmp_path / "builtin"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text("hi")
 
         runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
@@ -592,7 +555,8 @@ class TestSandboxMiddleware:
         with (
             open_patch,
             close_patch,
-            patch("automation.agent.middlewares.sandbox.SKILLS_CACHE_PATH", skills_dir),
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
             patch(
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
                 new=AsyncMock(return_value="sess_skills"),
@@ -601,6 +565,7 @@ class TestSandboxMiddleware:
                 "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
             ) as seed_session_mock,
         ):
+            settings.CUSTOM_SKILLS_PATH = None
             middleware = SandboxMiddleware(backend=Mock(), agent_root=f"/{repo_dir.name}", close_session=True)
             update = await middleware.abefore_agent({}, runtime)
 
@@ -610,59 +575,81 @@ class TestSandboxMiddleware:
         assert isinstance(kwargs.get("repo_archive"), (bytes, bytearray))
         assert isinstance(kwargs.get("skills_archive"), (bytes, bytearray))
 
-    def test_make_skills_archive_returns_none_when_dir_missing(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+    def test_make_global_skills_archive_packs_builtin_and_custom(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        assert _make_skills_archive(tmp_path / "nonexistent") is None
+        builtin = tmp_path / "builtin"
+        custom = tmp_path / "custom"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
+        (custom / "deploy").mkdir(parents=True)
+        (custom / "deploy" / "SKILL.md").write_text("yo")
 
-    def test_make_skills_archive_returns_none_when_dir_empty(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = custom
+            archive = _make_global_skills_archive()
 
-        empty = tmp_path / "skills"
-        empty.mkdir()
-        assert _make_skills_archive(empty) is None
-
-    def test_make_skills_archive_packs_children_relative_to_root(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
-
-        skills = tmp_path / "skills"
-        (skills / "skill-one").mkdir(parents=True)
-        (skills / "skill-one" / "SKILL.md").write_text("hello")
-        (skills / "skill-two").mkdir()
-        (skills / "skill-two" / "SKILL.md").write_text("world")
-
-        archive = _make_skills_archive(skills)
-        assert isinstance(archive, bytes)
-
+        assert isinstance(archive, (bytes, bytearray))
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
-            names = sorted(tf.getnames())
-        assert "skill-one/SKILL.md" in names
-        assert "skill-two/SKILL.md" in names
-        # No top-level wrapper directory.
-        assert not any(n.startswith("skills/") for n in names)
+            names = set(tf.getnames())
+        assert "code-review/SKILL.md" in names
+        assert "deploy/SKILL.md" in names
 
-    def test_make_skills_archive_returns_none_on_iterdir_oserror(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+    def test_make_global_skills_archive_none_when_no_skills(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        skills = tmp_path / "skills"
-        skills.mkdir()
+        empty = tmp_path / "builtin-empty"
+        empty.mkdir()
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            assert _make_global_skills_archive() is None
 
-        with patch("automation.agent.middlewares.sandbox.Path.iterdir", side_effect=PermissionError("denied")):
-            result = _make_skills_archive(skills)
+    def test_make_global_skills_archive_skips_unreadable_root_and_still_packs_builtins(self, tmp_path: Path):
+        """An OSError reading one root (e.g. a bad-perms custom dir) must not abort the whole
+        archive — builtins still seed. (Multi-root behavior change vs the old single-root helper.)"""
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        assert result is None
+        builtin = tmp_path / "builtin"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
 
-    def test_make_skills_archive_returns_none_on_tar_error(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+        bad_custom = Mock()
+        bad_custom.is_dir.return_value = True
+        bad_custom.iterdir.side_effect = PermissionError("denied")
 
-        skills = tmp_path / "skills"
-        (skills / "skill-one").mkdir(parents=True)
-        (skills / "skill-one" / "SKILL.md").write_text("hello")
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = bad_custom
+            archive = _make_global_skills_archive()
 
-        with patch("automation.agent.middlewares.sandbox.tarfile.open", side_effect=tarfile.TarError("boom")):
-            result = _make_skills_archive(skills)
+        assert isinstance(archive, (bytes, bytearray))
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+            names = set(tf.getnames())
+        assert "code-review/SKILL.md" in names
 
-        assert result is None
+    def test_make_global_skills_archive_returns_none_on_tar_error(self, tmp_path: Path):
+        """A TarError mid-build must not abort the whole sandbox seed — returns None (seed without skills)."""
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
+
+        builtin = tmp_path / "builtin"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
+
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+            patch("automation.agent.middlewares.sandbox.tarfile.open", side_effect=tarfile.TarError("boom")),
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            assert _make_global_skills_archive() is None
 
     async def test_awrap_model_call_appends_sandbox_system_prompt(self, tmp_path: Path):
         from langchain.agents.middleware import ModelRequest, ModelResponse
@@ -797,217 +784,11 @@ class TestSandboxMiddleware:
         assert "repo_disallow" in result
 
 
-class TestAwrapToolCall:
-    """Tool dispatch is intercepted at ToolNode level, not via ``awrap_model_call``.
+def test_sandbox_prompt_uses_workspace_paths():
+    """The bash + scratchpad prompt blocks point at the /workspace layout (not /repo, /scratch)."""
+    from automation.agent.middlewares.sandbox import BASH_TOOL_DESCRIPTION, SANDBOX_SYSTEM_PROMPT
 
-    These tests pin the entry point: ``awrap_tool_call`` must intercept dispatched
-    write_file/edit_file calls so that the mirror runs against ``ToolNode.tools_by_name``,
-    which is built once at agent-creation time and not updated by ``awrap_model_call``.
-    """
-
-    @staticmethod
-    def _request(tool_name: str, args: dict, *, runtime=None):
-        from langgraph.prebuilt.tool_node import ToolCallRequest
-
-        tool = Mock(spec_set=["name"])
-        tool.name = tool_name
-        return ToolCallRequest(
-            tool_call={"name": tool_name, "args": args, "id": "call_1", "type": "tool_call"},
-            tool=tool,
-            state={},
-            runtime=runtime or Mock(),
-        )
-
-    async def test_passes_through_when_tool_is_not_write_or_edit(self, tmp_path: Path):
-        request = self._request("read_file", {"file_path": "/repo/foo.py"})
-        middleware = _make_middleware()
-        middleware._syncer = Mock()  # set so we don't bypass on syncer-missing path
-
-        sentinel = object()
-
-        async def handler(req):
-            assert req is request
-            return sentinel
-
-        result = await middleware.awrap_tool_call(request, handler)
-        assert result is sentinel
-
-    async def test_passes_through_when_syncer_not_initialized(self, tmp_path: Path):
-        """Pre-``abefore_agent`` dispatch is rare but must not raise."""
-        request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x"})
-        middleware = _make_middleware()
-        # _syncer is None — abefore_agent never ran.
-
-        sentinel = object()
-
-        async def handler(req):
-            return sentinel
-
-        result = await middleware.awrap_tool_call(request, handler)
-        assert result is sentinel
-
-    async def test_passes_through_when_tool_is_none(self, tmp_path: Path):
-        """Unregistered tool calls reach awrap_tool_call with ``request.tool=None``."""
-        from langgraph.prebuilt.tool_node import ToolCallRequest
-
-        request = ToolCallRequest(
-            tool_call={"name": "unknown", "args": {}, "id": "call_1", "type": "tool_call"},
-            tool=None,
-            state={},
-            runtime=Mock(),
-        )
-        middleware = _make_middleware()
-        middleware._syncer = Mock()
-
-        sentinel = object()
-
-        async def handler(req):
-            return sentinel
-
-        result = await middleware.awrap_tool_call(request, handler)
-        assert result is sentinel
-
-    async def test_write_file_refused_outside_agent_root(self, tmp_path: Path):
-        """A write to ``/skills/...`` (or any path outside agent_root) must be refused
-        before dispatch. The skills mount is shared across concurrent agent runs in this
-        process; an errant write here would later trigger a rollback ``backend.delete``
-        that clobbers a file other runs depend on.
-        """
-        from langchain_core.messages import ToolMessage
-
-        from automation.agent.middlewares.file_system import SandboxSyncer
-
-        backend = Mock(spec=DAIVFilesystemBackend)
-        runtime = Mock()
-        runtime.context = Mock(has_repo=True)
-        runtime.state = {"session_id": "sess_1"}
-
-        middleware = _make_middleware()
-        middleware._backend = backend
-        middleware._agent_root = "/myrepo"
-        middleware._syncer = SandboxSyncer(backend=backend, agent_root="/myrepo", client=Mock())
-
-        request = self._request(
-            "write_file", {"file_path": "/skills/some-skill/SKILL.md", "content": "x"}, runtime=runtime
-        )
-        handler = AsyncMock()
-
-        result = await middleware.awrap_tool_call(request, handler)
-
-        assert isinstance(result, ToolMessage)
-        assert result.status == "error"
-        assert "Refused" in result.content
-        assert "/myrepo/" in result.content
-        handler.assert_not_called()
-        backend.delete.assert_not_called()
-
-    async def test_write_file_dispatches_when_resolve_target_fails(self, tmp_path: Path):
-        """Pre-dispatch path-resolution failure must fall through to upstream, not
-        synthesize a refusal — upstream owns the canonical "invalid path" error."""
-        from langchain_core.messages import ToolMessage
-
-        from automation.agent.middlewares.file_system import SandboxSyncer
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        repo = Repo.init(repo_dir)
-
-        backend = Mock(spec=DAIVFilesystemBackend)
-        backend._resolve_path = Mock(side_effect=ValueError("traversal"))
-
-        runtime = Mock()
-        runtime.context = Mock(gitrepo=repo, has_repo=True)
-        runtime.state = {"session_id": "sess_1"}
-
-        middleware = _make_middleware()
-        middleware._backend = backend
-        middleware._agent_root = f"/{repo_dir.name}"
-        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
-
-        request = self._request("write_file", {"file_path": f"/{repo_dir.name}/foo", "content": "x"}, runtime=runtime)
-        sentinel = ToolMessage(content="upstream error", tool_call_id="call_1", name="write_file", status="error")
-        handler = AsyncMock(return_value=sentinel)
-
-        result = await middleware.awrap_tool_call(request, handler)
-
-        handler.assert_called_once()
-        assert result is sentinel
-
-    async def test_write_file_refused_when_path_is_gitignored(self, tmp_path: Path):
-        """write_file on a `.gitignore`-matching path must be refused before the upstream
-        handler runs — `git add -A` would silently drop the file, so the agent would
-        report success while the change never reached the merge request."""
-        from langchain_core.messages import ToolMessage
-
-        from automation.agent.middlewares.file_system import SandboxSyncer
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        repo = Repo.init(repo_dir)
-        (repo_dir / ".gitignore").write_text(".python-version\n")
-
-        target = repo_dir / ".python-version"
-
-        backend = Mock(spec=DAIVFilesystemBackend)
-        backend._to_path = Mock(return_value=target)
-
-        runtime = Mock()
-        runtime.context = Mock(gitrepo=repo, has_repo=True)
-        runtime.state = {"session_id": "sess_1"}
-
-        middleware = _make_middleware()
-        middleware._backend = backend
-        middleware._agent_root = f"/{repo_dir.name}"
-        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
-
-        request = self._request(
-            "write_file", {"file_path": f"/{repo_dir.name}/.python-version", "content": "3.11\n"}, runtime=runtime
-        )
-        handler = AsyncMock()
-
-        result = await middleware.awrap_tool_call(request, handler)
-
-        assert isinstance(result, ToolMessage)
-        assert result.status == "error"
-        assert ".gitignore" in result.content
-        assert not target.exists()
-        handler.assert_not_called()
-
-    async def test_write_file_refused_when_gitignore_check_unknown(self, tmp_path: Path):
-        """If `git check-ignore` itself fails (corrupt repo, missing binary, permissions),
-        the helper returns ``IgnoreCheck.UNKNOWN`` and the write must be refused — failing
-        open here would silently re-introduce the `git add -A` drop the guard prevents."""
-        from langchain_core.messages import ToolMessage
-
-        from automation.agent.middlewares.file_system import SandboxSyncer
-        from codebase.utils import GitManager, IgnoreCheck
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        repo = Repo.init(repo_dir)
-        target = repo_dir / "foo.py"
-
-        backend = Mock(spec=DAIVFilesystemBackend)
-        backend._to_path = Mock(return_value=target)
-
-        runtime = Mock()
-        runtime.context = Mock(gitrepo=repo, has_repo=True)
-        runtime.state = {"session_id": "sess_1"}
-
-        middleware = _make_middleware()
-        middleware._backend = backend
-        middleware._agent_root = f"/{repo_dir.name}"
-        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
-
-        request = self._request(
-            "write_file", {"file_path": f"/{repo_dir.name}/foo.py", "content": "x\n"}, runtime=runtime
-        )
-        handler = AsyncMock()
-
-        with patch.object(GitManager, "is_path_ignored", return_value=IgnoreCheck.UNKNOWN):
-            result = await middleware.awrap_tool_call(request, handler)
-
-        assert isinstance(result, ToolMessage)
-        assert result.status == "error"
-        assert "could not determine" in result.content
-        handler.assert_not_called()
+    assert "/workspace/tmp" in SANDBOX_SYSTEM_PROMPT
+    assert "/scratch" not in SANDBOX_SYSTEM_PROMPT
+    assert "/workspace/repo" in BASH_TOOL_DESCRIPTION
+    assert "/repos/" not in BASH_TOOL_DESCRIPTION

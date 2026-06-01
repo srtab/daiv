@@ -7,11 +7,21 @@ from daiv.settings.components import PROJECT_DIR
 # Path where the builtin skills are stored in the filesystem to be copied to the repository.
 BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 
-# Virtual path the composite backend serves global skills from. Mounted onto
-# ``SKILLS_CACHE_PATH`` on disk so per-turn skill uploads are idempotent and writes
-# under ``/skills/`` don't round-trip through the agent's state.
+# Virtual path the disk-backed (non-sandbox) composite backend serves global skills from.
+# Mounted onto ``SKILLS_CACHE_PATH`` on disk so per-turn skill uploads are idempotent and
+# writes under ``/skills/`` don't round-trip through the agent's state. Sandbox runs do NOT
+# use this route: they address skills by their sandbox-absolute path ``SKILLS_PATH``
+# (``/workspace/skills``) directly, since the backend is a pass-through.
 GLOBAL_SKILLS_PATH = "/skills"
 GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
+
+# Unified sandbox workspace. One backend (sandbox-authoritative) serves all of /workspace.
+# The sandbox holds the one true workspace: repo at /workspace/repo, seeded skills at
+# /workspace/skills, and the per-run scratchpad at /workspace/tmp.
+WORKSPACE_PATH = "/workspace"
+REPO_PATH = "/workspace/repo"
+SKILLS_PATH = "/workspace/skills"
+SCRATCH_PATH = "/workspace/tmp"  # the per-run scratchpad, now a workspace subdir
 
 # On-disk root the composite backend mounts at ``GLOBAL_SKILLS_PATH``. Created at module
 # import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup

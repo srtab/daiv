@@ -6,31 +6,19 @@ import json
 import logging
 import tarfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, NotRequired, cast
+from typing import TYPE_CHECKING, Annotated, NotRequired
 
 import httpx
-from deepagents.backends.protocol import FILE_NOT_FOUND
-from deepagents.backends.utils import validate_path
-from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse, ToolCallRequest
+from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import OmitFromOutput
 from langchain.tools import ToolRuntime  # noqa: TC002
-from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.typing import StateT  # noqa: TC002
 
-from automation.agent.constants import SKILLS_CACHE_PATH
-from automation.agent.middlewares.file_system import (
-    EDIT_FILE_TOOL,
-    EDIT_SUCCESS_PREFIX,
-    WRITE_SUCCESS_PREFIX,
-    WRITE_TOOL_NAMES,
-    DAIVCompositeBackend,
-    DAIVFilesystemBackend,
-    SandboxSyncer,
-    format_sync_error,
-)
+from automation.agent.conf import settings as agent_settings
+from automation.agent.constants import BUILTIN_SKILLS_PATH
+from automation.agent.middlewares.file_system import SandboxFileBackend
 from codebase.context import RuntimeCtx  # noqa: TC001
-from codebase.utils import GitManager, IgnoreCheck, files_changed_from_patch
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -40,11 +28,9 @@ from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from typing import Any
 
     from deepagents.backends.protocol import BackendProtocol
     from langgraph.runtime import Runtime
-    from langgraph.types import Command
 
 
 logger = logging.getLogger("daiv.tools")
@@ -56,16 +42,15 @@ Executes a bash command in a persistent shell session.
 
 Session behavior:
 - Environment persists across invocations (e.g., exported variables remain).
-- Working directory does NOT persist: each invocation starts in the repository root (PWD resets).
+- Working directory does NOT persist: each invocation starts in the repository root `/workspace/repo` (PWD resets). You may also read/write elsewhere under `/workspace` (e.g. the `/workspace/tmp` scratchpad) using absolute paths.
 
 **CRITICAL (PWD resets):** Do NOT rely on `cd`. Maintain context using absolute paths.
-  <good-example>pytest /repos/tests</good-example>
-  <bad-example>cd /repos/tests && pytest</bad-example>
+  <good-example>pytest /workspace/repo/tests</good-example>
+  <bad-example>cd /workspace/repo/tests && pytest</bad-example>
 
 Result format:
-- On success, returns a JSON object `{"commands": [...], "files_changed": [...]}`.
+- On success, returns a JSON object `{"commands": [...]}`.
   - `commands` is a list of per-command result objects including at least `command`, `output`, and `exit_code`.
-  - `files_changed` is a list of workspace modifications made by these commands (`{"path", "op"}` with op in `modified`/`added`/`deleted`/`renamed`; renames also carry `from_path`). Empty array when nothing changed.
 - You MUST inspect each command's `exit_code` and treat non-zero values or tracebacks in `output` as failures, not as successful verification.
 - On infrastructure failure, the tool may return a plain string starting with `error:` instead of JSON. Treat that as a tool failure, not as a test result.
 
@@ -131,7 +116,7 @@ Use dedicated tools when available:
 - Use `ls`, `glob`, `grep`, `read_file`, `edit_file`, `write_file` instead of doing file listing/search/read/edit/write in bash.
 
 Result interpretation:
-- Successful calls return a JSON object with `commands` (per-command results: `command`, `output`, `exit_code`) and `files_changed` (workspace mutations: path + op).
+- Successful calls return a JSON object with `commands` (per-command results: `command`, `output`, `exit_code`).
 - Always check each `exit_code` and treat non-zero codes or Python tracebacks in `output` as failures that require investigation or fixes.
 - If the tool returns a plain string starting with `error:` instead of JSON, treat it as a sandbox/tool failure, not as a passing check.
 
@@ -163,7 +148,10 @@ Git safety (highest priority):
 - NEVER update git config.
 - NEVER commit or push, even if the user asks.
 - NEVER run destructive git commands (e.g., push --force, reset --hard, checkout ., restore ., clean -f, branch -D), even if the user asks.
-- VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash."""  # noqa: E501
+- VERY IMPORTANT: If a user request is prohibited by these rules, respond without running bash.
+
+## Scratchpad (`/workspace/tmp`)
+`/workspace/tmp` is an ephemeral per-run scratchpad shared between your file tools and bash. Use it for temporary scripts, generated data, fetched inputs, and intermediate step outputs. Files under `/workspace/tmp` are NEVER committed and are discarded when the run ends. Anything that must reach the merge/pull request must be written under the repository working directory (`/workspace/repo`) instead, never `/workspace/tmp`."""  # noqa: E501
 
 
 def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str | None:
@@ -261,82 +249,45 @@ def _make_repo_archive(working_dir: str) -> bytes:
     return buf.getvalue()
 
 
-def _make_skills_archive(skills_dir: Path) -> bytes | None:
-    """Tar the contents of ``skills_dir`` (members relative to it). Return ``None`` if missing/empty."""
-    if not skills_dir.is_dir():
+def _make_global_skills_archive() -> bytes | None:
+    """Tar builtin + custom global skills (members relative to their skill dir).
+
+    These are the only-disk sources for global skills; seeding them into the sandbox's
+    ``/workspace/skills`` is the single provisioning step (one RPC), replacing per-file
+    uploads. Custom skills are added after builtins so a same-named custom skill overrides.
+    Returns ``None`` if there is nothing to pack.
+    """
+    roots: list[Path] = [BUILTIN_SKILLS_PATH]
+    custom = agent_settings.CUSTOM_SKILLS_PATH
+    if custom is not None and custom.is_dir():
+        roots.append(custom)
+
+    members: dict[str, Path] = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            logger.warning("Could not read skills root '%s'; skipping for seed archive", root, exc_info=True)
+            continue
+        for child in children:
+            if child.is_dir() and (child.name.startswith(".") or child.name == "__pycache__"):
+                continue
+            members[child.name] = child  # later root (custom) overrides builtin
+
+    if not members:
         return None
-    try:
-        children = list(skills_dir.iterdir())
-    except OSError:
-        logger.warning(
-            "Could not read skills directory '%s'; seeding without skills archive", skills_dir, exc_info=True
-        )
-        return None
-    if not children:
-        return None
+
     buf = io.BytesIO()
     try:
         with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-            for child in children:
-                tf.add(child, arcname=child.name)
+            for name, path in members.items():
+                tf.add(path, arcname=name)
     except OSError, tarfile.TarError:
-        logger.warning(
-            "Failed to build skills archive from '%s'; seeding without skills archive", skills_dir, exc_info=True
-        )
+        logger.warning("Failed to build global skills archive; seeding without skills", exc_info=True)
         return None
     return buf.getvalue()
-
-
-def _agent_root_prefix(agent_root: str) -> str:
-    return agent_root.rstrip("/") + "/"
-
-
-def _resolve_repo_backend(backend: BackendProtocol, agent_root: str) -> BackendProtocol:
-    """Return the backend that owns ``agent_root``.
-
-    Composite-aware so callers that need to dispatch on backend shape (e.g. the
-    gitignore guard, which calls ``DAIVFilesystemBackend._to_path``) see the
-    underlying backend, not the ``DAIVCompositeBackend`` wrapper.
-    """
-    if isinstance(backend, DAIVCompositeBackend):
-        return backend.resolve_backend_for(_agent_root_prefix(agent_root))
-    return backend
-
-
-def _refuse_write_outside_agent_root(request: ToolCallRequest, file_path: str, repo_prefix: str) -> ToolMessage:
-    """Reject a write_file/edit_file whose target is not under ``agent_root``.
-
-    Skills (under ``/skills/``) live on a shared host directory in this process; if the
-    write succeeded, the sandbox-sync rollback would then ``backend.delete`` it,
-    clobbering a skill file other concurrent agent runs depend on. Refuse up front.
-    """
-    return ToolMessage(
-        content=(
-            f"Refused: '{file_path}' is outside the working directory '{repo_prefix.rstrip('/')}/'. "
-            f"Filesystem tools may only write under that prefix."
-        ),
-        tool_call_id=request.tool_call["id"],
-        name=request.tool_call["name"],
-        status="error",
-    )
-
-
-async def _read_backend_bytes(backend: BackendProtocol, virtual_path: str) -> bytes | None:
-    """Return the file's bytes via ``adownload_files``, or ``None`` on absence/error.
-
-    Logs transient/permission errors so a backend hiccup during ``_mirror_edit``'s
-    pre-snapshot can be diagnosed — without a log the snapshot just silently turns into
-    a defer-to-upstream, and a subsequent sandbox-sync failure has no rollback to fire.
-    Missing-file responses (``FILE_NOT_FOUND``) stay silent: that's the expected branch
-    when ``edit_file`` is invoked on a path upstream will reject anyway.
-    """
-    response = (await backend.adownload_files([virtual_path]))[0]
-    if response.error == FILE_NOT_FOUND:
-        return None
-    if response.error is not None:
-        logger.warning("backend read failed for %s: %s", virtual_path, response.error)
-        return None
-    return response.content
 
 
 async def _run_bash_commands(
@@ -366,24 +317,25 @@ class SandboxState(AgentState):
 
 class SandboxMiddleware(AgentMiddleware):
     """
-    Middleware to manage a sandbox session for running commands and mirroring filesystem writes.
+    Middleware to manage a sandbox session for running commands against the workspace.
 
-    Owns the per-run sandbox session lifecycle (start in ``abefore_agent``, close in
+    Owns the per-run sandbox session lifecycle (start + seed in ``abefore_agent``, close in
     ``aafter_agent``) and exposes:
 
     - The ``bash`` tool for running shell commands inside the sandbox.
-    - A wrapper around upstream's ``write_file``/``edit_file`` tools that mirrors each
-      successful local write to the sandbox so subsequent ``bash`` invocations see a
-      coherent filesystem.
+    - Late-binding of the single ``/workspace`` :class:`SandboxFileBackend` to the live
+      client+session, so the agent's file tools (``read_file``/``write_file``/``edit_file``/
+      ``ls``/``glob``/``grep``) operate directly against the sandbox — it is the one true
+      store, with no local mirror to keep in sync.
 
-    A single ``DAIVSandboxClient`` is opened in ``abefore_agent`` and reused for both
-    bash execution and write mirroring.
+    A single ``DAIVSandboxClient`` is opened in ``abefore_agent`` and reused for the run.
 
     Args:
         backend: Filesystem backend the agent's tools operate on. Must be the same instance
-            that backs upstream's ``FilesystemMiddleware``.
-        agent_root: Virtual path prefix the agent's filesystem tools see (e.g. ``/repo``).
-            Used to validate inbound paths and map them to sandbox-side ``/repo/<rel>``.
+            that backs upstream's ``FilesystemMiddleware``. When sandbox-enabled this is the
+            single ``SandboxFileBackend`` rooted at ``/workspace``, bound here at session start.
+        agent_root: Virtual path prefix the agent's filesystem tools see (e.g.
+            ``/workspace/repo``); the agent's repo root.
         close_session: Whether to close the session after the agent finishes the execution
             loop. Set to ``False`` when used in subagents so the parent agent owns session
             lifecycle.
@@ -394,7 +346,7 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(backend=backend, agent_root="/repo")],
+            middleware=[SandboxMiddleware(backend=backend, agent_root="/workspace/repo")],
         )
         ```
     """
@@ -409,7 +361,6 @@ class SandboxMiddleware(AgentMiddleware):
         self._agent_root = agent_root
         self.close_session = close_session
         self._client: DAIVSandboxClient | None = None
-        self._syncer: SandboxSyncer | None = None
         self.tools = [self._build_bash_tool()]
 
     def _build_bash_tool(self) -> BaseTool:
@@ -434,19 +385,21 @@ class SandboxMiddleware(AgentMiddleware):
                     "The bash tool may be unavailable for this run."
                 )
 
-            if response.patch:
-                try:
-                    GitManager(runtime.context.gitrepo).apply_patch(response.patch)
-                except Exception:
-                    logger.exception("[%s] Error applying patch to the repository.", BASH_TOOL_NAME)
-                    return "error: Failed to persist the changes. The bash tool is not working properly."
-
-            return json.dumps({
-                "commands": [result.model_dump(mode="json") for result in response.results],
-                "files_changed": files_changed_from_patch(response.patch),
-            })
+            # The sandbox is authoritative: bash mutations already live in /workspace/repo,
+            # so there is no local repo to keep in sync here.
+            return json.dumps({"commands": [result.model_dump(mode="json") for result in response.results]})
 
         return bash_tool
+
+    def _bind_backend(self, session_id: str) -> None:
+        """Bind the live client+session into the single ``/workspace`` backend.
+
+        Idempotent: subagents share the parent's backend instance, so re-binding with the
+        same client+session is a no-op rebind. A non-sandbox backend (sandbox-disabled
+        runs) is left untouched.
+        """
+        if session_id and self._client is not None and isinstance(self._backend, SandboxFileBackend):
+            self._backend.bind(self._client, session_id)
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
@@ -455,8 +408,8 @@ class SandboxMiddleware(AgentMiddleware):
         Starts the session, seeds the workspace from the on-disk repo, and
         cleans up the session on seed failure to avoid container leaks. The
         client stays open for the rest of the agent run so every bash call
-        and (for the file-system middleware) every file mirror reuses the
-        same connection pool.
+        and every file-tool RPC (via the bound ``SandboxFileBackend``) reuses
+        the same connection pool.
 
         Args:
             state (StateT): The state of the agent.
@@ -468,19 +421,18 @@ class SandboxMiddleware(AgentMiddleware):
         client = DAIVSandboxClient()
         await client.open()
         self._client = client
-        self._syncer = SandboxSyncer(backend=self._backend, agent_root=self._agent_root, client=client)
 
         try:
             if not self.close_session and "session_id" in state:
                 # Subagent path: parent owns session lifecycle; we just keep our client open
                 # so bash calls reuse the pool.
+                self._bind_backend(state["session_id"])
                 return None
 
             sb = runtime.context.sandbox
             session_id = await client.start_session(
                 StartSessionRequest(
                     base_image=sb.base_image,
-                    extract_patch=True,
                     network_enabled=sb.network_enabled,
                     memory_bytes=sb.memory_bytes,
                     cpus=sb.cpus,
@@ -491,7 +443,7 @@ class SandboxMiddleware(AgentMiddleware):
                 working_dir = Path(runtime.context.gitrepo.working_dir)
                 repo_archive, skills_archive = await asyncio.gather(
                     asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                    asyncio.to_thread(_make_skills_archive, SKILLS_CACHE_PATH),
+                    asyncio.to_thread(_make_global_skills_archive),
                 )
                 await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             except Exception:
@@ -508,8 +460,8 @@ class SandboxMiddleware(AgentMiddleware):
             # Release the client we just opened; otherwise its httpx pool leaks for the run.
             await client.close()
             self._client = None
-            self._syncer = None
             raise
+        self._bind_backend(session_id)
         return {"session_id": session_id}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
@@ -555,7 +507,6 @@ class SandboxMiddleware(AgentMiddleware):
                 except Exception:
                     logger.exception("Failed to close sandbox httpx client; pool may have leaked")
                 self._client = None
-                self._syncer = None
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -571,201 +522,3 @@ class SandboxMiddleware(AgentMiddleware):
             The model response from the handler.
         """
         return await handler(request.override(system_prompt=request.system_prompt + "\n\n" + SANDBOX_SYSTEM_PROMPT))
-
-    async def awrap_tool_call(
-        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
-    ) -> ToolMessage | Command[Any]:
-        """
-        Mirror successful local ``write_file``/``edit_file`` results to the sandbox session.
-
-        Tool dispatch happens through ``ToolNode.tools_by_name``, which is built once at
-        agent-creation time. Wrapping the tool object in ``awrap_model_call`` only changes
-        what is bound to the model — the dispatched tool is still upstream's. ``awrap_tool_call``
-        intercepts the actual dispatch, so the mirror runs whenever the model calls the tool.
-
-        Args:
-            request: The tool call request.
-            handler: The handler executing the tool.
-
-        Returns:
-            The tool result, or a replacement ``ToolMessage`` describing a sync error.
-        """
-        if request.tool is None or request.tool.name not in WRITE_TOOL_NAMES or self._syncer is None:
-            return await handler(request)
-
-        if request.tool.name == EDIT_FILE_TOOL:
-            return await self._mirror_edit(request, handler)
-        return await self._mirror_write(request, handler)
-
-    async def _mirror_write(
-        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
-    ) -> ToolMessage | Command[Any]:
-        """Dispatch ``write_file`` and mirror the new file to the sandbox under the syncer lock.
-
-        The lock serialises with concurrent writes/edits in the same run so a rollback
-        cannot race with a sibling tool's edit on the same path.
-
-        Rollback calls ``backend.delete`` (subclass method) to undo a just-created file
-        when the sync fails. ``stat_mode`` (subclass method) reads the post-write mode
-        bits so ``PutMutation.mode`` mirrors ``+x`` for executable scripts on the
-        sandbox side.
-        """
-        assert self._syncer is not None  # guarded by awrap_tool_call
-        syncer = self._syncer
-        args = request.tool_call["args"]
-        file_path = args["file_path"]
-        content = args["content"]
-        ctx = cast("RuntimeCtx", request.runtime.context)
-        backend = self._backend
-
-        try:
-            virtual_path = validate_path(file_path)
-        except ValueError:
-            return await handler(request)
-
-        repo_prefix = _agent_root_prefix(self._agent_root)
-        if not virtual_path.startswith(repo_prefix):
-            return _refuse_write_outside_agent_root(request, file_path, repo_prefix)
-
-        # `git add -A` silently drops gitignored paths, so a successful write would
-        # never reach the MR. Fail-closed: any unexpected error from path resolution
-        # or `git check-ignore` (surfaced as ``IgnoreCheck.UNKNOWN``) refuses the
-        # write, since the alternative is silent data loss.
-        repo_backend = _resolve_repo_backend(backend, self._agent_root)
-        if isinstance(repo_backend, DAIVFilesystemBackend):
-            disk_target = repo_backend._to_path(virtual_path)
-            git_manager = GitManager(ctx.gitrepo)
-            ignore_result = await asyncio.to_thread(git_manager.is_path_ignored, disk_target)
-            if ignore_result is IgnoreCheck.IGNORED:
-                return ToolMessage(
-                    content=(
-                        f"Refused: '{file_path}' matches a `.gitignore` rule — `git add -A` "
-                        f"would silently drop it from the commit, so the change would not "
-                        f"appear in the merge request. Pick a path that is not ignored, or "
-                        f"run `git check-ignore -v <path>` via bash to find the matching rule "
-                        f"(it may live in a parent `.gitignore`, `.git/info/exclude`, or the "
-                        f"user's global ignore file) before changing it."
-                    ),
-                    tool_call_id=request.tool_call["id"],
-                    name=request.tool_call["name"],
-                    status="error",
-                )
-            if ignore_result is IgnoreCheck.UNKNOWN:
-                return ToolMessage(
-                    content=(
-                        f"Refused: could not determine whether '{file_path}' is gitignored "
-                        f"(`git check-ignore` failed; see server logs). Retry, or run "
-                        f"`git check-ignore -v <path>` via bash to inspect."
-                    ),
-                    tool_call_id=request.tool_call["id"],
-                    name=request.tool_call["name"],
-                    status="error",
-                )
-
-        async with syncer.lock:
-            result = await handler(request)
-            if not _is_text_success(result, WRITE_SUCCESS_PREFIX):
-                return result
-
-            async def _rollback() -> bool:
-                return await cast("Any", backend).delete(virtual_path)
-
-            mode = await cast("Any", backend).stat_mode(virtual_path)
-
-            error = await syncer.mirror(
-                runtime=request.runtime,
-                virtual_path=virtual_path,
-                content_bytes=content.encode(),
-                mode=mode,
-                rollback=_rollback,
-            )
-            return _replace_tool_message(result, error) if error else result
-
-    async def _mirror_edit(
-        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
-    ) -> ToolMessage | Command[Any]:
-        """Dispatch ``edit_file`` and mirror the post-edit file under the syncer lock.
-
-        Snapshots pre-edit bytes + mode outside the lock so rollback can restore them on
-        sync failure. The lock then serialises dispatch through mirror so a sibling write
-        cannot interleave with our restore.
-
-        Reads use ``backend.adownload_files`` (protocol); rollback uses
-        ``backend.aupload_files`` (protocol). ``stat_mode`` (subclass) provides the
-        outgoing mutation's mode bits so ``+x`` mirrors to the sandbox; the disk
-        write itself preserves mode automatically via POSIX ``O_TRUNC`` overwrite.
-        """
-        assert self._syncer is not None  # guarded by awrap_tool_call
-        syncer = self._syncer
-        backend = self._backend
-        args = request.tool_call["args"]
-        file_path = args["file_path"]
-
-        try:
-            virtual_path = validate_path(file_path)
-        except ValueError:
-            return await handler(request)
-
-        repo_prefix = _agent_root_prefix(self._agent_root)
-        if not virtual_path.startswith(repo_prefix):
-            return _refuse_write_outside_agent_root(request, file_path, repo_prefix)
-
-        # Snapshot must happen before dispatch so we can rebuild the file on sync failure.
-        # If anything fails here (invalid path, missing file), let upstream produce the
-        # canonical "not found" error instead of inventing our own.
-        pre_bytes = await _read_backend_bytes(backend, virtual_path)
-        if pre_bytes is None:
-            return await handler(request)
-        pre_mode = await cast("Any", backend).stat_mode(virtual_path)
-
-        async with syncer.lock:
-            result = await handler(request)
-            if not _is_text_success(result, EDIT_SUCCESS_PREFIX):
-                return result
-
-            async def _rollback() -> bool:
-                try:
-                    responses = await backend.aupload_files([(virtual_path, pre_bytes)])
-                except Exception:
-                    logger.exception("rollback aupload_files failed for %s", virtual_path)
-                    return False
-                if responses[0].error is not None:
-                    logger.error("rollback aupload returned error for %s: %s", virtual_path, responses[0].error)
-                    return False
-                return True
-
-            post_bytes = await _read_backend_bytes(backend, virtual_path)
-            if post_bytes is None:
-                return _replace_tool_message(
-                    result,
-                    format_sync_error(
-                        "failed to prepare sandbox sync: post-edit read returned no content",
-                        rollback_ok=await _rollback(),
-                    ),
-                )
-
-            error = await syncer.mirror(
-                runtime=request.runtime,
-                virtual_path=virtual_path,
-                content_bytes=post_bytes,
-                mode=pre_mode,
-                rollback=_rollback,
-            )
-            return _replace_tool_message(result, error) if error else result
-
-
-def _is_text_success(result: ToolMessage | Command[Any], prefix: str) -> bool:
-    """True iff ``result`` is a non-error ToolMessage whose text content starts with ``prefix``."""
-    if not isinstance(result, ToolMessage) or result.status == "error":
-        return False
-    return isinstance(result.content, str) and result.content.startswith(prefix)
-
-
-def _replace_tool_message(original: ToolMessage | Command[Any], error_text: str) -> ToolMessage:
-    """Return a new ``ToolMessage`` carrying ``error_text`` keyed to the same tool call.
-
-    Caller must have verified ``original`` is a successful ``ToolMessage``; only used after
-    upstream dispatch succeeded but the post-dispatch sync step failed.
-    """
-    assert isinstance(original, ToolMessage)
-    return ToolMessage(content=error_text, tool_call_id=original.tool_call_id, name=original.name, status="error")

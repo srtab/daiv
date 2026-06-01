@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import Base64Bytes, Base64Str, BaseModel, Field, field_validator, model_validator
+from typing import Literal
+
+from pydantic import Base64Bytes, BaseModel, Field, field_validator, model_validator
 
 MAX_OUTPUT_LENGTH = 2000
 
@@ -8,7 +10,6 @@ MAX_OUTPUT_LENGTH = 2000
 class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
-    extract_patch: bool = Field(default=True, description="Whether to extract the patch of the changed files.")
     network_enabled: bool = Field(default=False, description="Whether to enable the network for the session.")
     memory_bytes: int | None = Field(default=None, description="Memory in bytes to be used for the session.")
     cpus: float | None = Field(default=None, description="CPUs to be used for the session.")
@@ -50,11 +51,10 @@ class RunCommandsResponse(BaseModel):
     """
 
     results: list[RunCommandResult]
-    patch: Base64Str | None
 
 
 class PutMutation(BaseModel):
-    path: str = Field(description="Absolute path inside the sandbox, must be under /repo.")
+    path: str = Field(description="Absolute path inside the sandbox, must be under /workspace/repo.")
     content: Base64Bytes = Field(description="Base64-encoded full file content.")
     mode: int = Field(ge=0, le=0o7777, description="POSIX mode bits to set on the file.")
 
@@ -79,3 +79,104 @@ class MutationResult(BaseModel):
 
 class ApplyMutationsResponse(BaseModel):
     results: list[MutationResult]
+
+
+# --- /workspace file-op wire schemas -----------------------------------------
+#
+# Mirror of the daiv-sandbox ``Fs*`` schemas. Kept structurally identical (field
+# names/types/defaults/constraints — NOT titles/descriptions, which the schema-drift
+# CI test normalizes away) to the sandbox side so the schema-drift test
+# (tests/unit_tests/core/sandbox/test_schema_consistency.py) passes.
+
+
+class FsLsRequest(BaseModel):
+    path: str = Field(description="Absolute directory path under /workspace.")
+
+
+class FsEntry(BaseModel):
+    path: str = Field(description="Absolute path of the entry.")
+    is_dir: bool = Field(description="Whether the entry is a directory.")
+
+
+class FsLsResponse(BaseModel):
+    entries: list[FsEntry] = Field(default_factory=list, description="Directory entries (empty on error).")
+    error: str | None = Field(default=None, description="Error message when the listing failed.")
+
+
+class FsReadRequest(BaseModel):
+    path: str = Field(description="Absolute file path under /workspace.")
+    offset: int = Field(default=0, ge=0, description="0-indexed start line (text files only).")
+    limit: int = Field(default=2000, ge=1, description="Maximum number of lines (text files only).")
+
+
+class FsReadResponse(BaseModel):
+    content: str | None = Field(
+        default=None,
+        description=(
+            "File content (utf-8 text or base64 binary). For an empty file this is a human-readable "
+            "sentinel string (with encoding 'utf-8'), not the file's bytes."
+        ),
+    )
+    encoding: Literal["utf-8", "base64"] | None = Field(
+        default=None, description="Encoding of `content`: 'utf-8' for text, 'base64' for binary."
+    )
+    error: str | None = Field(default=None, description="Error message when the read failed.")
+
+
+class FsGrepRequest(BaseModel):
+    pattern: str = Field(description="Literal substring to search for (not a regex).")
+    path: str = Field(description="Absolute directory/file path under /workspace.")
+    glob: str | None = Field(default=None, description="Optional filename glob to restrict the search.")
+
+
+class FsGrepMatch(BaseModel):
+    path: str = Field(description="Absolute path of the matching file.")
+    line: int = Field(description="1-indexed line number of the match.")
+    text: str = Field(description="Text of the matching line.")
+
+
+class FsGrepResponse(BaseModel):
+    matches: list[FsGrepMatch] = Field(default_factory=list, description="Matches found (empty on error).")
+    error: str | None = Field(default=None, description="Error message when the search failed.")
+
+
+class FsGlobRequest(BaseModel):
+    pattern: str = Field(description="Glob pattern (supports *, **, ?, [abc]).")
+    path: str = Field(description="Absolute base directory under /workspace.")
+
+
+class FsGlobResponse(BaseModel):
+    matches: list[FsEntry] = Field(default_factory=list, description="Matching entries (empty on error).")
+    error: str | None = Field(default=None, description="Error message when the glob failed.")
+
+
+class FsWriteRequest(BaseModel):
+    path: str = Field(description="Absolute file path under /workspace.")
+    content: Base64Bytes = Field(description="Base64-encoded full file content.")
+    mode: int = Field(default=0o644, ge=0, le=0o7777, description="POSIX mode bits to set on the file.")
+
+
+class FsWriteResponse(BaseModel):
+    ok: bool
+    error: str | None = None
+
+
+class FsEditRequest(BaseModel):
+    path: str = Field(description="Absolute file path under /workspace.")
+    old: str = Field(description="Exact substring to replace.")
+    new: str = Field(description="Replacement string.")
+    replace_all: bool = Field(default=False, description="Replace every occurrence.")
+
+
+class FsEditResponse(BaseModel):
+    occurrences: int | None = Field(default=None, description="Number of replacements made.")
+    error: str | None = Field(default=None, description="Error code/message on failure.")
+
+
+class FsDeleteRequest(BaseModel):
+    path: str = Field(description="Absolute file path under /workspace.")
+
+
+class FsDeleteResponse(BaseModel):
+    ok: bool
+    error: str | None = None

@@ -6,7 +6,6 @@ from langgraph.store.memory import InMemoryStore
 from automation.agent.publishers import GitChangePublisher
 from automation.agent.results import NO_SNAPSHOT, AgentResult, build_agent_result
 from codebase.clients import RepoClient
-from codebase.utils import GitManager
 
 if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
@@ -29,7 +28,6 @@ class BaseManager:
         self.ctx = runtime_ctx
         self.client = RepoClient.create_instance()
         self.store = InMemoryStore()
-        self.git_manager = GitManager(self.ctx.gitrepo)
 
     async def _recover_draft(
         self, agent: CompiledAgent, config: RunnableConfig, *, entity_label: str, entity_id: int | str
@@ -46,7 +44,9 @@ class BaseManager:
 
             publisher = GitChangePublisher(self.ctx)
             published_mr = await publisher.publish(
-                merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
+                session_id=snapshot.values.get("session_id"),
+                merge_request=snapshot_mr,
+                as_draft=(snapshot_mr is None or snapshot_mr.draft),
             )
 
             if published_mr:

@@ -93,3 +93,15 @@ class TestCreateDaivAgentDeferredFlag:
         assert kwargs["tools"] == []
         middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
         assert "DeferredToolsMiddleware" in middleware_types
+
+
+def test_output_invariants_prompt_keys_off_working_directory():
+    """The output-invariants block strips the run's actual repo prefix (sandbox => /workspace/repo/)."""
+    from automation.agent.graph import _output_invariants_system_prompt
+
+    sandbox = _output_invariants_system_prompt("/workspace/repo/")
+    assert '"/workspace/repo/"' in sandbox
+    assert '"/repo/"' not in sandbox
+
+    disk = _output_invariants_system_prompt("/myrepo/")
+    assert '"/myrepo/"' in disk

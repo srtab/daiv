@@ -142,3 +142,71 @@ async def test_call_before_open_raises(fake_settings):
     client = DAIVSandboxClient()
     with pytest.raises(AttributeError):
         await client.run_commands("sid", RunCommandsRequest(commands=["echo"], fail_fast=True))
+
+
+async def test_fs_write_posts_to_fs_write(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsWriteRequest
+
+    mock_post["json_body"] = {"ok": True, "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_write(
+            "sid-1", FsWriteRequest(path="/workspace/a.txt", content=base64.b64encode(b"hi"), mode=0o644)
+        )
+    assert mock_post["url"] == "session/sid-1/fs/write"
+    assert resp.ok is True
+
+
+async def test_fs_read_parses_response(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsReadRequest
+
+    mock_post["json_body"] = {"content": "hello", "encoding": "utf-8", "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_read("sid-1", FsReadRequest(path="/workspace/a.txt"))
+    assert mock_post["url"] == "session/sid-1/fs/read"
+    assert resp.content == "hello" and resp.encoding == "utf-8"
+
+
+@pytest.mark.parametrize(
+    ("method_name", "make_request", "json_body", "expected_url"),
+    [
+        ("fs_ls", lambda s: s.FsLsRequest(path="/workspace/d"), {"entries": [], "error": None}, "session/sid/fs/ls"),
+        (
+            "fs_grep",
+            lambda s: s.FsGrepRequest(pattern="x", path="/workspace/d"),
+            {"matches": [], "error": None},
+            "session/sid/fs/grep",
+        ),
+        (
+            "fs_glob",
+            lambda s: s.FsGlobRequest(pattern="*.py", path="/workspace/d"),
+            {"matches": [], "error": None},
+            "session/sid/fs/glob",
+        ),
+        (
+            "fs_edit",
+            lambda s: s.FsEditRequest(path="/workspace/a", old="a", new="b"),
+            {"occurrences": 1, "error": None},
+            "session/sid/fs/edit",
+        ),
+        (
+            "fs_delete",
+            lambda s: s.FsDeleteRequest(path="/workspace/a"),
+            {"ok": True, "error": None},
+            "session/sid/fs/delete",
+        ),
+    ],
+)
+async def test_fs_methods_post_to_expected_url(
+    fake_settings, mock_post, method_name, make_request, json_body, expected_url
+):
+    """Pin the endpoint string of every fs_* method so a wrong route (e.g. fs/delete→fs/remove)
+    is caught — the backend tests use a mock client and wouldn't notice."""
+    from core.sandbox import schemas
+    from core.sandbox.client import DAIVSandboxClient
+
+    mock_post["json_body"] = json_body
+    async with DAIVSandboxClient() as client:
+        await getattr(client, method_name)("sid", make_request(schemas))
+    assert mock_post["url"] == expected_url
