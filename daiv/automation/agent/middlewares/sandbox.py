@@ -536,8 +536,13 @@ class SandboxMiddleware(AgentMiddleware):
         try:
             if client is not None and self.close_session and "session_id" in state and state["session_id"] is not None:
                 session_id = state["session_id"]
+                # A chat conversation (thread_id present) keeps its session warm for the next turn:
+                # close_session => server *stop* (kept), and the cached mapping is retained. A
+                # non-chat run has no thread to reuse, so force-remove immediately (today's behavior).
+                thread_id = runtime.config.get("configurable", {}).get("thread_id")
+                force = not thread_id
                 try:
-                    await client.close_session(session_id)
+                    await client.close_session(session_id, force=force)
                 except httpx.HTTPStatusError as exc:
                     status = exc.response.status_code
                     if status in (404, 409):

@@ -637,9 +637,43 @@ class TestSandboxMiddleware:
             update = await middleware.aafter_agent(state, runtime)
 
         assert update == {"session_id": None}
-        close_session_mock.assert_awaited_once_with("sess_1")
+        close_session_mock.assert_awaited_once_with("sess_1", force=True)
         client_close_mock.assert_awaited_once()
         assert middleware._client is None
+
+    async def test_aafter_agent_stops_session_for_reusable_thread(self, tmp_path: Path):
+        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"), thread_id="thread-1")
+        state = {"session_id": "warm-1"}
+
+        close_mock = AsyncMock(return_value=None)
+        with (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_mock),
+        ):
+            middleware = _make_middleware(close_session=True)
+            middleware._client = DAIVSandboxClient()
+            update = await middleware.aafter_agent(state, runtime)
+
+        assert update == {"session_id": None}
+        close_mock.assert_awaited_once_with("warm-1", force=False)
+
+    async def test_aafter_agent_force_removes_when_no_thread(self, tmp_path: Path):
+        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"), thread_id=None)
+        state = {"session_id": "sess_1"}
+
+        close_mock = AsyncMock(return_value=None)
+        with (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_mock),
+        ):
+            middleware = _make_middleware(close_session=True)
+            middleware._client = DAIVSandboxClient()
+            update = await middleware.aafter_agent(state, runtime)
+
+        assert update == {"session_id": None}
+        close_mock.assert_awaited_once_with("sess_1", force=True)
 
     async def test_aafter_agent_does_not_close_session_when_close_session_false(self, tmp_path: Path):
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
