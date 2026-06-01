@@ -1,5 +1,5 @@
 import base64
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import pytest
@@ -210,3 +210,42 @@ async def test_fs_methods_post_to_expected_url(
     async with DAIVSandboxClient() as client:
         await getattr(client, method_name)("sid", make_request(schemas))
     assert mock_post["url"] == expected_url
+
+
+async def test_session_exists_true_on_204():
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    client._client.get = AsyncMock(return_value=Mock(status_code=204, raise_for_status=Mock()))
+    assert await client.session_exists("sid") is True
+    client._client.get.assert_awaited_once_with("session/sid/")
+
+
+async def test_session_exists_false_on_404():
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    client._client.get = AsyncMock(return_value=Mock(status_code=404))
+    assert await client.session_exists("sid") is False
+
+
+async def test_close_session_default_stops_via_force_false():
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    client._client.delete = AsyncMock(return_value=Mock(raise_for_status=Mock()))
+    await client.close_session("sid")
+    client._client.delete.assert_awaited_once_with("session/sid/", params={"force": False})
+
+
+async def test_close_session_force_removes():
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    client._client.delete = AsyncMock(return_value=Mock(raise_for_status=Mock()))
+    await client.close_session("sid", force=True)
+    client._client.delete.assert_awaited_once_with("session/sid/", params={"force": True})

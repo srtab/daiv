@@ -172,14 +172,26 @@ class DAIVSandboxClient:
         response.raise_for_status()
         return RunCommandsResponse.model_validate(response.json())
 
-    async def close_session(self, session_id: str):
-        """
-        Close a session with the sandbox.
+    async def session_exists(self, session_id: str) -> bool:
+        """Return True if the session container exists on the sandbox.
 
-        Args:
-            session_id (str): The session ID.
+        Hits ``GET /session/{id}/`` which returns 204 when the container exists (restarting it if
+        stopped — i.e. warming it for reuse) and 404 when it does not.
         """
-        response = await self._client.delete(f"session/{session_id}/")
+        response = await self._client.get(f"session/{session_id}/")
+        if response.status_code == 404:
+            return False
+        response.raise_for_status()
+        return True
+
+    async def close_session(self, session_id: str, *, force: bool = False):
+        """
+        Close a session.
+
+        By default the sandbox *stops* the container (kept warm for reuse and reclaimed later by the
+        sandbox's reaper). Pass ``force=True`` to remove it immediately.
+        """
+        response = await self._client.delete(f"session/{session_id}/", params={"force": force})
         response.raise_for_status()
 
     def _get_headers(self) -> dict[str, str]:
