@@ -84,8 +84,6 @@ class SlashCommandMiddleware(AgentMiddleware):
 
     @hook_config(can_jump_to=["end"])
     async def abefore_agent(self, state: dict, runtime: Runtime[RuntimeCtx], config: RunnableConfig) -> dict | None:
-        if not runtime.context.config.slash_commands.enabled:
-            return None
         return await self._apply_builtin_slash_commands(state["messages"], runtime.context)
 
     async def _apply_builtin_slash_commands(self, messages: list[AnyMessage], context: RuntimeCtx) -> dict | None:

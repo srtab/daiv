@@ -94,3 +94,12 @@ def test_skills_middleware_receives_sandbox_enabled_flag():
 def test_slash_command_middleware_receives_subagents():
     src = inspect.getsource(graph_module)
     assert "SlashCommandMiddleware(subagents=subagents)" in src
+
+
+def test_slash_command_middleware_registered_only_when_enabled():
+    # The enabled check lives at registration time (like sandbox/web middleware), not inside the
+    # middleware — so a disabled config drops the middleware entirely rather than no-op'ing per turn.
+    src = inspect.getsource(graph_module)
+    assert "*([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else [])" in src, (
+        "SlashCommandMiddleware must be conditionally registered on ctx.config.slash_commands.enabled"
+    )

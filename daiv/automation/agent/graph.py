@@ -262,7 +262,7 @@ async def create_daiv_agent(
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
-        SlashCommandMiddleware(subagents=subagents),
+        *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
         *([SandboxMiddleware(backend=backend, agent_root=agent_root)] if _sandbox_enabled else []),
         SkillsMiddleware(
             backend=backend,

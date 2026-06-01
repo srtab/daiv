@@ -67,9 +67,8 @@ def test_load_global_skill_metadata_skips_missing_custom_dir(tmp_path: Path):
     assert [s["name"] for s in skills] == ["only-builtin"]
 
 
-def _runtime(*, scope=Scope.GLOBAL, bot_username="daiv", slash_enabled=True):
+def _runtime(*, scope=Scope.GLOBAL, bot_username="daiv"):
     rt = MagicMock()
-    rt.context.config.slash_commands.enabled = slash_enabled
     rt.context.scope = scope
     rt.context.bot_username = bot_username
     rt.context.repository.slug = "group/repo"
@@ -82,12 +81,6 @@ async def test_no_slash_command_returns_none():
     mw = SlashCommandMiddleware(subagents=[])
     state = {"messages": [HumanMessage(content="just a question")]}
     assert await mw.abefore_agent(state, _runtime(), {}) is None
-
-
-async def test_disabled_slash_commands_short_circuits():
-    mw = SlashCommandMiddleware(subagents=[])
-    state = {"messages": [HumanMessage(content="/help")]}
-    assert await mw.abefore_agent(state, _runtime(slash_enabled=False), {}) is None
 
 
 async def test_executes_builtin_command_and_jumps_to_end():
