@@ -40,9 +40,11 @@ logger = logging.getLogger("daiv.tools")
 
 BASH_TOOL_NAME = "bash"
 
-# Warm sandbox sessions are remembered per conversation thread for this long. Keep it ≤ the
-# sandbox's DAIV_SANDBOX_SESSION_GRACE_SECONDS so the mapping expires around when the reaper
-# removes the stopped container.
+# Warm sandbox sessions are remembered per conversation thread for this long. Ideally kept ≤ the
+# sandbox's DAIV_SANDBOX_SESSION_GRACE_SECONDS (configured in the separate daiv-sandbox service, so
+# not enforceable here) so the mapping expires around when the reaper removes the stopped container.
+# A mismatch is only a perf miss, not a bug: a reaped session fails `session_exists`, which drops
+# the stale mapping and falls back to a cold create+seed.
 SANDBOX_SESSION_TTL_SECONDS = 12 * 60 * 60
 
 BASH_TOOL_DESCRIPTION = """\
@@ -420,13 +422,44 @@ class SandboxMiddleware(AgentMiddleware):
         Agent-level middleware hooks receive a langgraph ``Runtime`` (which has no ``config``
         attribute), so the thread_id is read from the run config contextvar via ``get_config()``.
         Returns None when called outside a runnable context — warm-session reuse is then disabled
-        and the session is force-removed, preserving today's non-chat behavior (safe fallback).
+        and the session is force-removed (the behavior for non-chat automation runs).
         """
         try:
             config = get_config()
         except RuntimeError:
+            # No runnable context (e.g. a non-chat automation run): disable reuse silently but
+            # leave a breadcrumb so a future invocation path that unexpectedly lacks the context
+            # — and thus never reuses sessions — is diagnosable rather than invisible.
+            logger.debug("No runnable context; sandbox session reuse disabled for this run")
             return None
         return config.get("configurable", {}).get("thread_id")
+
+    @staticmethod
+    async def _cache_get(key: str) -> dict | None:
+        """Best-effort cache read. Warm-session reuse is a pure optimization, so a cache outage
+        degrades to "no warm session" (cold create+seed) instead of failing the agent run."""
+        try:
+            return await cache.aget(key)
+        except Exception:
+            logger.exception("Sandbox-session cache read failed for %s; falling back to cold create", key)
+            return None
+
+    @staticmethod
+    async def _cache_set(key: str, value: dict) -> None:
+        """Best-effort cache write (see :meth:`_cache_get`). A failure only costs the next turn a
+        cold create+seed; it must never propagate into the run's teardown logic."""
+        try:
+            await cache.aset(key, value, timeout=SANDBOX_SESSION_TTL_SECONDS)
+        except Exception:
+            logger.exception("Sandbox-session cache write failed for %s; reuse may not persist", key)
+
+    @staticmethod
+    async def _cache_delete(key: str) -> None:
+        """Best-effort cache delete (see :meth:`_cache_get`)."""
+        try:
+            await cache.adelete(key)
+        except Exception:
+            logger.exception("Sandbox-session cache delete failed for %s", key)
 
     async def _reuse_warm_session(self, client: DAIVSandboxClient, thread_id: str | None) -> str | None:
         """Return a reusable warm session id for *thread_id*, or None.
@@ -438,7 +471,7 @@ class SandboxMiddleware(AgentMiddleware):
         if not thread_id:
             return None
         key = self._session_cache_key(thread_id)
-        cached = await cache.aget(key)
+        cached = await self._cache_get(key)
         session_id = cached.get("session_id") if isinstance(cached, dict) else None
         if not session_id:
             return None
@@ -448,9 +481,9 @@ class SandboxMiddleware(AgentMiddleware):
             logger.exception("Failed to validate sandbox session %s for reuse", session_id)
             return None
         if not alive:
-            await cache.adelete(key)
+            await self._cache_delete(key)
             return None
-        await cache.aset(key, {"session_id": session_id}, timeout=SANDBOX_SESSION_TTL_SECONDS)
+        await self._cache_set(key, {"session_id": session_id})
         logger.info("Reusing warm sandbox session %s for thread %s", session_id, thread_id)
         return session_id
 
@@ -458,9 +491,7 @@ class SandboxMiddleware(AgentMiddleware):
         """Persist the thread→session mapping so the next turn can reuse it. No-op without a thread."""
         if not thread_id:
             return
-        await cache.aset(
-            self._session_cache_key(thread_id), {"session_id": session_id}, timeout=SANDBOX_SESSION_TTL_SECONDS
-        )
+        await self._cache_set(self._session_cache_key(thread_id), {"session_id": session_id})
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
@@ -554,7 +585,7 @@ class SandboxMiddleware(AgentMiddleware):
                 session_id = state["session_id"]
                 # A chat conversation (thread_id present) keeps its session warm for the next turn:
                 # close_session => server *stop* (kept), and the cached mapping is retained. A
-                # non-chat run has no thread to reuse, so force-remove immediately (today's behavior).
+                # non-chat run has no thread to reuse, so force-remove the container immediately.
                 thread_id = self._conversation_thread_id()
                 force = not thread_id
                 try:

@@ -175,8 +175,10 @@ class DAIVSandboxClient:
     async def session_exists(self, session_id: str) -> bool:
         """Return True if the session container exists on the sandbox.
 
-        Hits ``GET /session/{id}/`` which returns 204 when the container exists (restarting it if
-        stopped — i.e. warming it for reuse) and 404 when it does not.
+        Hits ``GET /session/{id}/``: a 404 means the container is gone (returns False); any other
+        success status means it exists (returns True), and a non-404 error is raised. The sandbox
+        currently answers 204 for a live container, restarting it if stopped — i.e. warming it for
+        reuse. Semantics are owned by daiv-sandbox (see its ``GET /session/{id}/`` handler).
         """
         response = await self._client.get(f"session/{session_id}/")
         if response.status_code == 404:
@@ -189,7 +191,8 @@ class DAIVSandboxClient:
         Close a session.
 
         By default the sandbox *stops* the container (kept warm for reuse and reclaimed later by the
-        sandbox's reaper). Pass ``force=True`` to remove it immediately.
+        sandbox's reaper). Pass ``force=True`` to remove it immediately. Stop-vs-remove semantics
+        are owned by daiv-sandbox (see its ``DELETE /session/{id}/`` handler).
         """
         response = await self._client.delete(f"session/{session_id}/", params={"force": force})
         response.raise_for_status()

@@ -690,6 +690,32 @@ class TestSandboxMiddleware:
         assert update == {"session_id": None}
         close_mock.assert_awaited_once_with("sess_1", force=True)
 
+    async def test_aafter_agent_swallows_already_closed_session(self, tmp_path: Path):
+        """A 404/409 from close_session (the warm session the reaper already removed — now the
+        common case) is swallowed: the run still clears state and releases the client."""
+        import httpx
+
+        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
+        state = {"session_id": "warm-1"}
+
+        err = httpx.HTTPStatusError("gone", request=httpx.Request("DELETE", "x"), response=httpx.Response(404))
+        client_close_mock = AsyncMock(return_value=None)
+        with (
+            _patch_thread_id("thread-1"),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
+            patch(
+                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(side_effect=err)
+            ),
+        ):
+            middleware = _make_middleware(close_session=True)
+            middleware._client = DAIVSandboxClient()
+            update = await middleware.aafter_agent(state, runtime)
+
+        assert update == {"session_id": None}
+        client_close_mock.assert_awaited_once()
+        assert middleware._client is None
+
     async def test_aafter_agent_does_not_close_session_when_close_session_false(self, tmp_path: Path):
         runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
         state = {"session_id": "sess_1"}
@@ -1014,6 +1040,58 @@ class TestWarmSessionHelpers:
 
         assert result is None
         fake_cache.adelete.assert_awaited_once_with("sandbox_session:thread-1")
+
+    async def test_reuse_returns_none_and_keeps_mapping_when_validation_errors(self):
+        """A transient ``session_exists`` HTTP error falls back to a cold create WITHOUT dropping
+        or refreshing the mapping — distinct from the ``alive is False`` path, which deletes it."""
+        import httpx
+
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+
+        middleware = SandboxMiddleware(backend=Mock(), agent_root="/d")
+        client = Mock()
+        client.session_exists = AsyncMock(side_effect=httpx.HTTPError("boom"))
+
+        fake_cache = Mock()
+        fake_cache.aget = AsyncMock(return_value={"session_id": "warm-1"})
+        fake_cache.aset = AsyncMock(return_value=None)
+        fake_cache.adelete = AsyncMock(return_value=None)
+
+        with patch("automation.agent.middlewares.sandbox.cache", fake_cache):
+            result = await middleware._reuse_warm_session(client, "thread-1")
+
+        assert result is None
+        fake_cache.adelete.assert_not_awaited()
+        fake_cache.aset.assert_not_awaited()
+
+    async def test_reuse_survives_cache_read_failure(self):
+        """Warm-session reuse is a pure optimization: a cache outage degrades to "no warm session"
+        (cold create), never crashes the run."""
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+
+        middleware = SandboxMiddleware(backend=Mock(), agent_root="/d")
+        client = Mock()
+        client.session_exists = AsyncMock(return_value=True)
+
+        fake_cache = Mock()
+        fake_cache.aget = AsyncMock(side_effect=RuntimeError("redis down"))
+
+        with patch("automation.agent.middlewares.sandbox.cache", fake_cache):
+            result = await middleware._reuse_warm_session(client, "thread-1")
+
+        assert result is None
+        client.session_exists.assert_not_awaited()
+
+    async def test_remember_survives_cache_write_failure(self):
+        """A cache write failure must not propagate into the agent run's teardown logic."""
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+
+        middleware = SandboxMiddleware(backend=Mock(), agent_root="/d")
+        fake_cache = Mock()
+        fake_cache.aset = AsyncMock(side_effect=RuntimeError("redis down"))
+
+        with patch("automation.agent.middlewares.sandbox.cache", fake_cache):
+            await middleware._remember_warm_session("thread-1", "sess-9")  # must not raise
 
     async def test_remember_writes_mapping(self):
         from automation.agent.middlewares.sandbox import SANDBOX_SESSION_TTL_SECONDS, SandboxMiddleware

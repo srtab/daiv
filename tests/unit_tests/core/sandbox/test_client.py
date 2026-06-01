@@ -231,6 +231,20 @@ async def test_session_exists_false_on_404():
     assert await client.session_exists("sid") is False
 
 
+async def test_session_exists_raises_on_non_404_error():
+    """A transient sandbox error (e.g. 500) must propagate, not be treated as "session gone" —
+    the caller falls back to a cold create only on a real HTTP error, never silently discards a
+    live session on a blip."""
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    err = httpx.HTTPStatusError("boom", request=httpx.Request("GET", "x"), response=httpx.Response(500))
+    client._client.get = AsyncMock(return_value=Mock(status_code=500, raise_for_status=Mock(side_effect=err)))
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.session_exists("sid")
+
+
 async def test_close_session_default_stops_via_force_false():
     from core.sandbox.client import DAIVSandboxClient
 
