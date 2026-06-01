@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworked sandbox file sync: `write_file` and `edit_file` now push changes to the sandbox eagerly per tool call, and `bash_tool` no longer tarballs the entire working tree on every invocation. Substantially reduces per-turn cost on long agent runs. **BREAKING**: requires the matching daiv-sandbox release with the new mutation/seed wire protocol.
 - Sandbox runtime is now configured exclusively through `SandboxEnvironment` rows; the `sandbox:` block in `.daiv.yml` is no longer honored. Recreate per-repo runtime configuration by creating an environment and listing the repo under its repository assignments.
 - The env picker gains an `Auto` mode (the new default): when no env is explicitly picked and a repository is known, the environment claiming that repository wins (USER-scoped beats GLOBAL-scoped); otherwise the GLOBAL default applies.
+- Sandbox sessions are now reused across the turns of a chat conversation: the `thread_id → session_id` mapping is cached (Redis, TTL 12h) and the session is validated/warmed via `GET /session/{id}/` and reused on the next turn, skipping the repo re-seed. At turn-end the session is stopped (kept warm) for chat threads and force-removed for non-chat runs. Requires the matching daiv-sandbox release (stop-on-close + reaper).
 
 ### Removed
 
