@@ -13,6 +13,7 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
+from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
@@ -223,6 +224,26 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         return await handler(request.override(system_prompt=system_prompt))
 
     @staticmethod
+    async def _is_unpublished(git_manager, state: GitState, context: RuntimeCtx) -> bool:
+        """Whether the run's branch has changes that have not reached a merge request yet.
+
+        Unpublished = uncommitted changes exist, OR there are changes versus the base branch
+        that are not captured by a pushed MR (no MR recorded, or local commits not yet pushed
+        to the MR's source branch). A clean tree already pushed to its MR means there is nothing
+        new to publish — this short-circuit keeps idle follow-up turns of a chat (warm sandbox
+        session, where the workspace still holds an earlier turn's committed+pushed work) from
+        re-running the publisher and its diff-to-metadata model call on already-live changes.
+        """
+        if await git_manager.is_dirty():
+            return True
+        if not (await git_manager.get_diff(f"origin/{context.config.default_branch}")).strip():
+            return False
+        merge_request = state.get("merge_request")
+        if merge_request is None:
+            return True
+        return await git_manager.has_unpushed(merge_request.source_branch)
+
+    @staticmethod
     def _record_issue_mr(merge_request: MergeRequest, runtime: Runtime[RuntimeCtx]) -> None:
         """Tag the LangSmith run with the MR id when an issue produced a merge request."""
         if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
@@ -230,13 +251,27 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
-        After the agent finishes, commit the changes and update or create the merge request.
+        After the agent finishes, commit and push the changes and update or create the merge request.
 
-        Publishing is daiv-direct via :class:`GitChangePublisher`, which commits any uncommitted
-        work (with an LLM-generated message), pushes, and opens/updates the MR — generating the
+        When the run left nothing new to publish (a clean tree already pushed to its MR, or no
+        changes at all) the resolved MR is just confirmed in state. Otherwise daiv publishes
+        directly via :class:`GitChangePublisher`, which commits any uncommitted work (with an
+        LLM-generated message), pushes, and opens/updates the MR — generating the
         title/description/commit message with ``_diff_to_metadata``.
         """
         if not self.auto_commit_changes:
+            return None
+
+        async with open_git_manager(session_id=state.get("session_id"), gitrepo=runtime.context.gitrepo) as git_manager:
+            unpublished = await self._is_unpublished(git_manager, state, runtime.context)
+
+        if not unpublished:
+            # Nothing new this turn — keep the resolved MR in state so the chat MR pill stays
+            # populated, without re-running the publisher on already-live work.
+            merge_request = state.get("merge_request")
+            if merge_request:
+                self._record_issue_mr(merge_request, runtime)
+                return {"merge_request": merge_request, "code_changes": True}
             return None
 
         publisher = GitChangePublisher(runtime.context)

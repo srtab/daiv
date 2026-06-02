@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -18,6 +19,17 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     return runtime
 
 
+def _patch_open_git_manager(monkeypatch) -> None:
+    """Stub ``open_git_manager`` so ``aafter_agent``'s unpublished check doesn't touch a real
+    sandbox or clone; the ``_is_unpublished`` verdict is monkeypatched per test."""
+
+    @asynccontextmanager
+    async def _fake_open(*, session_id, gitrepo):  # noqa: ARG001
+        yield MagicMock()
+
+    monkeypatch.setattr("automation.agent.middlewares.git.open_git_manager", _fake_open)
+
+
 def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
     """Runtime mock with concrete strings so ``GIT_SYSTEM_PROMPT.format`` can render."""
     runtime = Mock()
@@ -33,9 +45,11 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
 
 
 class TestGitMiddleware:
-    async def test_aafter_agent_propagates_push_permission_error(self):
+    async def test_aafter_agent_propagates_push_permission_error(self, monkeypatch):
         middleware = GitMiddleware()
         runtime = _make_runtime()
+        _patch_open_git_manager(monkeypatch)
+        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
 
         with (
             patch(
@@ -46,28 +60,43 @@ class TestGitMiddleware:
         ):
             await middleware.aafter_agent(state={"merge_request": None}, runtime=runtime)
 
-    async def test_aafter_agent_returns_none_when_nothing_to_publish(self):
-        """Clean tree / nothing to publish → the publisher returns None and so does the hook."""
+    async def test_aafter_agent_noop_when_nothing_unpublished(self, monkeypatch):
+        """Clean tree already pushed to its MR (or no changes at all) → no publish, no MR."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
+        _patch_open_git_manager(monkeypatch)
+        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=False))
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
-            publisher = MagicMock()
-            publisher.protected_branch_fallback_source = None
-            publisher.publish = AsyncMock(return_value=None)
-            publisher_cls.return_value = publisher
-
             result = await middleware.aafter_agent({"merge_request": None}, runtime)
 
         assert result is None
-        publisher.publish.assert_awaited_once()
+        publisher_cls.assert_not_called()
 
-    async def test_aafter_agent_publishes_changes_and_threads_session_id(self):
-        """The publisher commits/pushes and opens/updates the MR; the hook returns it in state
-        and threads the sandbox session id so the publisher runs git in the right mode."""
+    async def test_aafter_agent_confirms_existing_mr_when_nothing_unpublished(self, monkeypatch):
+        """Idle follow-up turn: the run's branch is already published (MR in state, nothing
+        unpublished) → confirm the MR in state without re-running the publisher (which would
+        otherwise burn a diff-to-metadata model call on already-live work)."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        state_mr = MagicMock(source_branch="daiv/feature", merge_request_id=10)
+        _patch_open_git_manager(monkeypatch)
+        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=False))
+
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
+            result = await middleware.aafter_agent({"merge_request": state_mr}, runtime)
+
+        assert result == {"merge_request": state_mr, "code_changes": True}
+        publisher_cls.assert_not_called()
+
+    async def test_aafter_agent_publishes_when_unpublished_and_threads_session_id(self, monkeypatch):
+        """Unpublished work → daiv publishes directly via the publisher; the sandbox session id
+        is threaded so the publisher runs git in the right (sandbox vs local) mode."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
         new_mr = MagicMock(source_branch="daiv/changes", merge_request_id=11)
+        _patch_open_git_manager(monkeypatch)
+        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher = MagicMock()
@@ -198,7 +227,7 @@ class TestGitMiddleware:
         ):
             await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
-    async def test_aafter_agent_returns_protected_branch_fallback_source(self):
+    async def test_aafter_agent_returns_protected_branch_fallback_source(self, monkeypatch):
         """The publisher writes the original (protected) source branch onto itself
         when it has to swap to a fresh MR. ``aafter_agent`` must thread that value
         through the returned state dict — otherwise the manager-side footer
@@ -207,6 +236,8 @@ class TestGitMiddleware:
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
         new_mr = MagicMock(source_branch="agent/fresh", merge_request_id=200)
+        _patch_open_git_manager(monkeypatch)
+        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher_instance = MagicMock()
@@ -352,12 +383,14 @@ class TestGitMiddleware:
         assert "merge request #7" in captured["system_prompt"]
         assert "merge request #999" not in captured["system_prompt"]
 
-    async def test_aafter_agent_passes_through_none_when_no_fallback(self):
+    async def test_aafter_agent_passes_through_none_when_no_fallback(self, monkeypatch):
         """When publish completes without protection fallback, the value stays None
         so a stale signal from a prior turn doesn't render a phantom footer."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
         new_mr = MagicMock(source_branch="agent/normal", merge_request_id=201)
+        _patch_open_git_manager(monkeypatch)
+        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher_instance = MagicMock()
