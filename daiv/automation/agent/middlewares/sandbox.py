@@ -8,8 +8,6 @@ import tarfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired
 
-from django.core.cache import cache
-
 import httpx
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import OmitFromOutput
@@ -27,6 +25,7 @@ from core.sandbox.client import DAIVSandboxClient
 from core.sandbox.command_parser import CommandParseError, parse_command
 from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
 from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
+from core.sandbox.session_store import SandboxSessionStore
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
@@ -39,13 +38,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.tools")
 
 BASH_TOOL_NAME = "bash"
-
-# Warm sandbox sessions are remembered per conversation thread for this long. Ideally kept ≤ the
-# sandbox's DAIV_SANDBOX_SESSION_GRACE_SECONDS (configured in the separate daiv-sandbox service, so
-# not enforceable here) so the mapping expires around when the reaper removes the stopped container.
-# A mismatch is only a perf miss, not a bug: a reaped session fails `session_exists`, which drops
-# the stale mapping and falls back to a cold create+seed.
-SANDBOX_SESSION_TTL_SECONDS = 12 * 60 * 60
 
 BASH_TOOL_DESCRIPTION = """\
 Executes a bash command in a persistent shell session.
@@ -371,6 +363,7 @@ class SandboxMiddleware(AgentMiddleware):
         self._agent_root = agent_root
         self.close_session = close_session
         self._client: DAIVSandboxClient | None = None
+        self._session_store = SandboxSessionStore()
         self.tools = [self._build_bash_tool()]
 
     def _build_bash_tool(self) -> BaseTool:
@@ -412,10 +405,6 @@ class SandboxMiddleware(AgentMiddleware):
             self._backend.bind(self._client, session_id)
 
     @staticmethod
-    def _session_cache_key(thread_id: str) -> str:
-        return f"sandbox_session:{thread_id}"
-
-    @staticmethod
     def _conversation_thread_id() -> str | None:
         """Read the conversation ``thread_id`` from the active run config.
 
@@ -434,45 +423,17 @@ class SandboxMiddleware(AgentMiddleware):
             return None
         return config.get("configurable", {}).get("thread_id")
 
-    @staticmethod
-    async def _cache_get(key: str) -> dict | None:
-        """Best-effort cache read. Warm-session reuse is a pure optimization, so a cache outage
-        degrades to "no warm session" (cold create+seed) instead of failing the agent run."""
-        try:
-            return await cache.aget(key)
-        except Exception:
-            logger.exception("Sandbox-session cache read failed for %s; falling back to cold create", key)
-            return None
-
-    @staticmethod
-    async def _cache_set(key: str, value: dict) -> None:
-        """Best-effort cache write (see :meth:`_cache_get`). A failure only costs the next turn a
-        cold create+seed; it must never propagate into the run's teardown logic."""
-        try:
-            await cache.aset(key, value, timeout=SANDBOX_SESSION_TTL_SECONDS)
-        except Exception:
-            logger.exception("Sandbox-session cache write failed for %s; reuse may not persist", key)
-
-    @staticmethod
-    async def _cache_delete(key: str) -> None:
-        """Best-effort cache delete (see :meth:`_cache_get`)."""
-        try:
-            await cache.adelete(key)
-        except Exception:
-            logger.exception("Sandbox-session cache delete failed for %s", key)
-
     async def _reuse_warm_session(self, client: DAIVSandboxClient, thread_id: str | None) -> str | None:
         """Return a reusable warm session id for *thread_id*, or None.
 
-        Looks up the cached mapping, confirms the session still exists on the sandbox (which also
-        restarts it if it was stopped), and refreshes the mapping TTL. A reaped/missing session
-        drops the stale mapping and returns None so the caller creates a fresh one.
+        Looks up the remembered mapping (:class:`SandboxSessionStore`), confirms the session still
+        exists on the sandbox (which also restarts it if it was stopped), and refreshes the mapping
+        TTL. A reaped/missing session drops the stale mapping and returns None so the caller creates
+        a fresh one.
         """
         if not thread_id:
             return None
-        key = self._session_cache_key(thread_id)
-        cached = await self._cache_get(key)
-        session_id = cached.get("session_id") if isinstance(cached, dict) else None
+        session_id = await self._session_store.aget(thread_id)
         if not session_id:
             return None
         try:
@@ -481,17 +442,11 @@ class SandboxMiddleware(AgentMiddleware):
             logger.exception("Failed to validate sandbox session %s for reuse", session_id)
             return None
         if not alive:
-            await self._cache_delete(key)
+            await self._session_store.forget(thread_id)
             return None
-        await self._cache_set(key, {"session_id": session_id})
+        await self._session_store.remember(thread_id, session_id)
         logger.info("Reusing warm sandbox session %s for thread %s", session_id, thread_id)
         return session_id
-
-    async def _remember_warm_session(self, thread_id: str | None, session_id: str) -> None:
-        """Persist the thread→session mapping so the next turn can reuse it. No-op without a thread."""
-        if not thread_id:
-            return
-        await self._cache_set(self._session_cache_key(thread_id), {"session_id": session_id})
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
@@ -554,7 +509,8 @@ class SandboxMiddleware(AgentMiddleware):
                 except Exception:
                     logger.exception("Failed to close session %s after seed failure", session_id)
                 raise
-            await self._remember_warm_session(thread_id, session_id)
+            if thread_id:
+                await self._session_store.remember(thread_id, session_id)
         except BaseException:
             # Release the client we just opened; otherwise its httpx pool leaks for the run.
             await client.close()
