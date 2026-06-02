@@ -63,9 +63,7 @@ class GitChangePublisher(ChangePublisher):
         """
         Daiv-direct publish: ensure the run's changes reach a merge request.
 
-        This is the safeguard fallback (when the agent did not publish via its own
-        ``commit_changes``/``create_merge_request`` tools) and the draft-recovery path. It
-        handles both uncommitted changes (commits them with an LLM-generated message) and
+        Handles both uncommitted changes (commits them with an LLM-generated message) and
         already-committed-but-unpushed work (pushes the existing commits), then opens or
         updates the MR. Title/description/commit message come from ``_diff_to_metadata``.
 

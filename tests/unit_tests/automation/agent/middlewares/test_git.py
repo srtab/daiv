@@ -1,10 +1,8 @@
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
 
-from automation.agent.middlewares.git import MAX_GIT_NUDGES, GitMiddleware
+from automation.agent.middlewares.git import GitMiddleware
 from codebase.base import Scope
 from codebase.utils import GitPushPermissionError
 
@@ -18,16 +16,6 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     runtime.context.config = Mock(default_branch="main")
     runtime.context.gitrepo = Mock()
     return runtime
-
-
-def _patch_open_git_manager(monkeypatch) -> None:
-    """Stub ``open_git_manager`` so the safeguard/nudge don't touch a real sandbox or clone."""
-
-    @asynccontextmanager
-    async def _fake_open(*, session_id, gitrepo):  # noqa: ARG001
-        yield MagicMock()
-
-    monkeypatch.setattr("automation.agent.middlewares.git.open_git_manager", _fake_open)
 
 
 def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
@@ -45,11 +33,9 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
 
 
 class TestGitMiddleware:
-    async def test_aafter_agent_propagates_push_permission_error(self, monkeypatch):
+    async def test_aafter_agent_propagates_push_permission_error(self):
         middleware = GitMiddleware()
         runtime = _make_runtime()
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
 
         with (
             patch(
@@ -60,41 +46,28 @@ class TestGitMiddleware:
         ):
             await middleware.aafter_agent(state={"merge_request": None}, runtime=runtime)
 
-    async def test_safeguard_noop_when_no_changes(self, monkeypatch):
-        """Clean tree, nothing versus base → no publish, no MR."""
+    async def test_aafter_agent_returns_none_when_nothing_to_publish(self):
+        """Clean tree / nothing to publish → the publisher returns None and so does the hook."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=False))
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
+            publisher = MagicMock()
+            publisher.protected_branch_fallback_source = None
+            publisher.publish = AsyncMock(return_value=None)
+            publisher_cls.return_value = publisher
+
             result = await middleware.aafter_agent({"merge_request": None}, runtime)
 
         assert result is None
-        publisher_cls.assert_not_called()
+        publisher.publish.assert_awaited_once()
 
-    async def test_safeguard_done_when_agent_published(self, monkeypatch):
-        """Agent already published via its tools (MR in state, nothing unpublished) → confirm
-        the MR without invoking the publisher."""
+    async def test_aafter_agent_publishes_changes_and_threads_session_id(self):
+        """The publisher commits/pushes and opens/updates the MR; the hook returns it in state
+        and threads the sandbox session id so the publisher runs git in the right mode."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        state_mr = MagicMock(source_branch="agent/feature", merge_request_id=10)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=False))
-
-        with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
-            result = await middleware.aafter_agent({"merge_request": state_mr}, runtime)
-
-        assert result == {"merge_request": state_mr, "code_changes": True}
-        publisher_cls.assert_not_called()
-
-    async def test_safeguard_daiv_direct_fallback_when_unpublished(self, monkeypatch):
-        """Unpublished work → daiv publishes directly via the publisher."""
-        middleware = GitMiddleware()
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        new_mr = MagicMock(source_branch="daiv/fallback", merge_request_id=11)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
+        new_mr = MagicMock(source_branch="daiv/changes", merge_request_id=11)
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher = MagicMock()
@@ -102,13 +75,14 @@ class TestGitMiddleware:
             publisher.publish = AsyncMock(return_value=new_mr)
             publisher_cls.return_value = publisher
 
-            result = await middleware.aafter_agent({"merge_request": None}, runtime)
+            result = await middleware.aafter_agent({"merge_request": None, "session_id": "sid"}, runtime)
 
         assert result["merge_request"] is new_mr
         assert result["code_changes"] is True
         publisher.publish.assert_awaited_once()
+        assert publisher.publish.await_args.kwargs["session_id"] == "sid"
 
-    async def test_safeguard_skips_when_auto_commit_disabled(self, monkeypatch):
+    async def test_aafter_agent_skips_when_auto_commit_disabled(self):
         middleware = GitMiddleware(auto_commit_changes=False)
         runtime = _make_runtime()
 
@@ -224,7 +198,7 @@ class TestGitMiddleware:
         ):
             await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
-    async def test_aafter_agent_returns_protected_branch_fallback_source(self, monkeypatch):
+    async def test_aafter_agent_returns_protected_branch_fallback_source(self):
         """The publisher writes the original (protected) source branch onto itself
         when it has to swap to a fresh MR. ``aafter_agent`` must thread that value
         through the returned state dict — otherwise the manager-side footer
@@ -233,8 +207,6 @@ class TestGitMiddleware:
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
         new_mr = MagicMock(source_branch="agent/fresh", merge_request_id=200)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher_instance = MagicMock()
@@ -349,21 +321,11 @@ class TestGitMiddleware:
             await middleware.awrap_model_call(request, fake_handler)
         return captured["system_prompt"]
 
-    async def test_prompt_commit_ownership_when_agent_owns_commit(self):
-        """Sandbox + auto-commit → the agent is told it owns committing via the tools."""
-        prompt = await self._render_git_prompt(GitMiddleware(sandbox_enabled=True))
-
-        assert "You own committing" in prompt
-        assert "commit_changes" in prompt
-        assert "create_merge_request" in prompt
-        assert "Committing and pushing is automatic" not in prompt
-
-    async def test_prompt_automatic_when_agent_does_not_own_commit(self):
-        """Sandbox-disabled runs keep the 'harness commits automatically' contract."""
-        prompt = await self._render_git_prompt(GitMiddleware(sandbox_enabled=False))
+    async def test_prompt_states_committing_is_automatic(self):
+        """The git prompt tells the agent committing/pushing is handled by the harness."""
+        prompt = await self._render_git_prompt(GitMiddleware())
 
         assert "Committing and pushing is automatic" in prompt
-        assert "You own committing" not in prompt
 
     async def test_awrap_model_call_prefers_context_mr_over_state(self):
         """When ``context.merge_request`` is set (true MR-scoped trigger), it
@@ -390,14 +352,12 @@ class TestGitMiddleware:
         assert "merge request #7" in captured["system_prompt"]
         assert "merge request #999" not in captured["system_prompt"]
 
-    async def test_aafter_agent_passes_through_none_when_no_fallback(self, monkeypatch):
+    async def test_aafter_agent_passes_through_none_when_no_fallback(self):
         """When publish completes without protection fallback, the value stays None
         so a stale signal from a prior turn doesn't render a phantom footer."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
         new_mr = MagicMock(source_branch="agent/normal", merge_request_id=201)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher_instance = MagicMock()
@@ -409,63 +369,3 @@ class TestGitMiddleware:
 
         assert result is not None
         assert result["protected_branch_fallback_source"] is None
-
-    # -- aafter_model nudge ---------------------------------------------------
-
-    async def test_nudge_reenters_model_when_unpublished_at_turn_end(self, monkeypatch):
-        """Agent stops (no tool calls) with unpublished work → inject a nudge and jump_to=model."""
-        middleware = GitMiddleware(sandbox_enabled=True)
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
-
-        state = {"messages": [AIMessage(content="All done!")], "session_id": "sid", "_git_nudges": 0}
-        result = await middleware.aafter_model(state, runtime)
-
-        assert result["jump_to"] == "model"
-        assert result["_git_nudges"] == 1
-        assert isinstance(result["messages"][0], HumanMessage)
-
-    async def test_nudge_skips_when_agent_still_calling_tools(self, monkeypatch):
-        """A response with tool calls means the agent is still working — never nudge."""
-        middleware = GitMiddleware(sandbox_enabled=True)
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        unpublished = AsyncMock(return_value=True)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", unpublished)
-
-        msg = AIMessage(content="", tool_calls=[{"name": "edit_file", "args": {}, "id": "t1"}])
-        result = await middleware.aafter_model({"messages": [msg], "session_id": "sid"}, runtime)
-
-        assert result is None
-        unpublished.assert_not_awaited()  # never even checks git when not terminal
-
-    async def test_nudge_skips_when_published(self, monkeypatch):
-        middleware = GitMiddleware(sandbox_enabled=True)
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=False))
-
-        state = {"messages": [AIMessage(content="done")], "session_id": "sid", "_git_nudges": 0}
-        assert await middleware.aafter_model(state, runtime) is None
-
-    async def test_nudge_stops_after_max_attempts(self, monkeypatch):
-        """Once the nudge budget is exhausted, stop re-entering — aafter_agent will fall back."""
-        middleware = GitMiddleware(sandbox_enabled=True)
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        unpublished = AsyncMock(return_value=True)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", unpublished)
-
-        state = {"messages": [AIMessage(content="done")], "session_id": "sid", "_git_nudges": MAX_GIT_NUDGES}
-        assert await middleware.aafter_model(state, runtime) is None
-        unpublished.assert_not_awaited()  # short-circuits before the git check
-
-    async def test_nudge_disabled_when_agent_does_not_own_commit(self, monkeypatch):
-        """Sandbox-disabled / no-auto-commit runs have no commit tools, so never nudge."""
-        middleware = GitMiddleware(sandbox_enabled=False)
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        unpublished = AsyncMock(return_value=True)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", unpublished)
-
-        state = {"messages": [AIMessage(content="done")], "session_id": "sid", "_git_nudges": 0}
-        assert await middleware.aafter_model(state, runtime) is None
-        unpublished.assert_not_awaited()
