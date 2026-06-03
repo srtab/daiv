@@ -9,6 +9,7 @@ from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  #
 from codebase.clients import RepoClient
 from codebase.exceptions import SingleRepoRequiredError
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
+from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -162,23 +163,43 @@ async def set_runtime_ctx(
     global_default = await get_global_default()
     sandbox = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
 
-    with repo_client.load_repo(repository, sha=ref) as repo:
-        handle = RepoHandle(
-            repo_id=repo_id, git_platform=repo_client.git_platform, repository=repository, gitrepo=repo, config=config
-        )
-        ctx = RuntimeCtx(
-            bot_username=repo_client.current_user.username,
-            repos=(handle,),
-            sandbox=sandbox,
-            scope=scope,
-            issue=issue,
-            merge_request=merge_request,
-        )
-        token = runtime_ctx.set(ctx)
-        try:
-            yield ctx
-        finally:
-            runtime_ctx.reset(token)
+    # Own the sandbox transport for the whole run: one httpx connection pool, read once by
+    # create_daiv_agent and injected into the backend + middlewares. Opening the client is cheap
+    # (httpx connects lazily on first request), so idling through the clone/graph-build phase costs
+    # nothing. Gated on `sandbox.enabled` so sandbox-disabled / file-only flows never construct one.
+    sandbox_client: DAIVSandboxClient | None = None
+    client_token = None
+    if sandbox.enabled:
+        sandbox_client = DAIVSandboxClient()
+        await sandbox_client.open()
+        client_token = set_run_sandbox_client(sandbox_client)
+
+    try:
+        with repo_client.load_repo(repository, sha=ref) as repo:
+            handle = RepoHandle(
+                repo_id=repo_id,
+                git_platform=repo_client.git_platform,
+                repository=repository,
+                gitrepo=repo,
+                config=config,
+            )
+            ctx = RuntimeCtx(
+                bot_username=repo_client.current_user.username,
+                repos=(handle,),
+                sandbox=sandbox,
+                scope=scope,
+                issue=issue,
+                merge_request=merge_request,
+            )
+            token = runtime_ctx.set(ctx)
+            try:
+                yield ctx
+            finally:
+                runtime_ctx.reset(token)
+    finally:
+        if sandbox_client is not None:
+            await sandbox_client.close()
+            reset_run_sandbox_client(client_token)
 
 
 def get_runtime_ctx() -> RuntimeCtx:

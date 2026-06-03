@@ -1,10 +1,12 @@
-from unittest.mock import patch
+from contextlib import nullcontext
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
 
 from codebase.base import Scope as RepoScope
 from codebase.context import set_runtime_ctx
+from core.sandbox.client import _run_sandbox_client
 
 
 @pytest.fixture
@@ -127,3 +129,44 @@ async def test_set_runtime_ctx_auto_falls_back_to_global_default():
             gc.return_value = RepositoryConfig.model_validate({})
             async with set_runtime_ctx(repo_id="acme/foo", scope=RepoScope.GLOBAL) as ctx:
                 assert ctx.sandbox.base_image == "python:3.12"
+
+
+def _patch_context_deps(*, sandbox_enabled: bool):
+    repo_client = MagicMock()
+    repo_client.get_repository.return_value = MagicMock()
+    repo_client.current_user.username = "daiv"
+    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
+    sandbox = MagicMock()
+    sandbox.enabled = sandbox_enabled
+    return (
+        patch.multiple(
+            "codebase.context",
+            RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
+            RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
+        ),
+        patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
+        patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
+        patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=sandbox)),
+        patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
+    )
+
+
+async def test_set_runtime_ctx_opens_and_closes_transport_when_sandbox_enabled():
+    fake_client = MagicMock()
+    fake_client.open = AsyncMock(return_value=fake_client)
+    fake_client.close = AsyncMock()
+    p = _patch_context_deps(sandbox_enabled=True)
+    with p[0], p[1], p[2], p[3], p[4], patch("codebase.context.DAIVSandboxClient", return_value=fake_client):
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL):
+            assert _run_sandbox_client.get() is fake_client
+        fake_client.open.assert_awaited_once()
+        fake_client.close.assert_awaited_once()
+        assert _run_sandbox_client.get() is None
+
+
+async def test_set_runtime_ctx_skips_transport_when_sandbox_disabled():
+    p = _patch_context_deps(sandbox_enabled=False)
+    with p[0], p[1], p[2], p[3], p[4], patch("codebase.context.DAIVSandboxClient") as ctor:
+        async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL):
+            assert _run_sandbox_client.get() is None
+        ctor.assert_not_called()
