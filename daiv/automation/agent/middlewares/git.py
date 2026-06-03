@@ -174,6 +174,22 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             )
             return None
 
+    @staticmethod
+    def _effective_mr_iid(
+        *, context_mr: MergeRequest | None, state_mr: MergeRequest | None, current_ref: str
+    ) -> int | None:
+        """Pick the MR iid to advertise in the prompt.
+
+        Prefer the context MR (MR-scope runs). Otherwise use the state MR only when its
+        ``source_branch`` still matches the current ref — the branch could have been checked out from
+        under us mid-run (or the MR closed), and a stale iid would mislead the agent every turn.
+        """
+        if context_mr is not None:
+            return context_mr.merge_request_id
+        if state_mr is not None and state_mr.source_branch == current_ref:
+            return state_mr.merge_request_id
+        return None
+
     async def awrap_model_call(
         self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
     ) -> ModelResponse:
@@ -185,26 +201,18 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         # MR. Without this fallback the agent re-discovers via
         # ``project-merge-request list --source-branch ...`` on every turn and may
         # pick a different MR than the publisher will write to.
-        #
-        # The state branch validates ``source_branch`` against the current ref —
-        # ``abefore_agent`` populated state once at run start, but the branch
-        # could have been checked out from under us mid-run (or the MR closed).
-        # A stale id would then advertise the wrong MR on every subsequent turn.
-        mr_iid: int | None = None
-        if (ctx_mr := request.runtime.context.merge_request) is not None:
-            mr_iid = ctx_mr.merge_request_id
-        elif (state_mr := request.state.get("merge_request")) is not None:
-            current_ref = get_repo_ref(request.runtime.context.gitrepo)
-            if state_mr.source_branch == current_ref:
-                mr_iid = state_mr.merge_request_id
-            else:
-                logger.warning(
-                    "[%s] Ignoring stale state MR #%s: source_branch=%r != current ref=%r",
-                    self.name,
-                    state_mr.merge_request_id,
-                    state_mr.source_branch,
-                    current_ref,
-                )
+        current_ref = get_repo_ref(request.runtime.context.gitrepo)
+        context_mr = request.runtime.context.merge_request
+        state_mr = request.state.get("merge_request")
+        mr_iid = self._effective_mr_iid(context_mr=context_mr, state_mr=state_mr, current_ref=current_ref)
+        if mr_iid is None and context_mr is None and state_mr is not None:
+            logger.warning(
+                "[%s] Ignoring stale state MR #%s: source_branch=%r != current ref=%r",
+                self.name,
+                state_mr.merge_request_id,
+                state_mr.source_branch,
+                current_ref,
+            )
 
         context = {
             "git_platform": request.runtime.context.git_platform.value,

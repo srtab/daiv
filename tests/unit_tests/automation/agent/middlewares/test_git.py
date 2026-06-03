@@ -408,3 +408,19 @@ class TestGitMiddleware:
 
         assert result is not None
         assert result["protected_branch_fallback_source"] is None
+
+
+def test_effective_mr_iid_prefers_context_mr():
+    assert GitMiddleware._effective_mr_iid(context_mr=_mr(1, "a"), state_mr=_mr(2, "b"), current_ref="b") == 1
+
+
+def test_effective_mr_iid_uses_state_mr_when_branch_matches():
+    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=_mr(2, "feat/x"), current_ref="feat/x") == 2
+
+
+def test_effective_mr_iid_drops_stale_state_mr():
+    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=_mr(2, "feat/x"), current_ref="main") is None
+
+
+def test_effective_mr_iid_none_when_no_mr():
+    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=None, current_ref="main") is None
