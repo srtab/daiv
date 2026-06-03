@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from langchain.chat_models import BaseChatModel
 
     from codebase.context import RuntimeCtx
+    from core.sandbox.client import DAIVSandboxClient
 
 GENERAL_PURPOSE_NAME = "general-purpose"
 EXPLORE_NAME = "explore"
@@ -53,6 +54,7 @@ def _build_general_purpose_middleware(
     web_search_enabled: bool,
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
@@ -89,7 +91,7 @@ def _build_general_purpose_middleware(
 
     if sandbox_enabled:
         agent_path = Path(runtime.gitrepo.working_dir)
-        middleware.append(SandboxMiddleware(backend=backend, agent_root=f"/{agent_path.name}", close_session=False))
+        middleware.append(SandboxMiddleware(agent_root=f"/{agent_path.name}", client=client, close_session=False))
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
@@ -105,6 +107,7 @@ def create_general_purpose_subagent(
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
 ) -> CompiledSubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
@@ -114,7 +117,7 @@ def create_general_purpose_subagent(
         tools=[],
         system_prompt=GENERAL_PURPOSE_SYSTEM_PROMPT,
         middleware=_build_general_purpose_middleware(
-            model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled, fallback_models
+            model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled, fallback_models, client
         ),
         name=GENERAL_PURPOSE_NAME,
     )
@@ -274,6 +277,7 @@ async def load_custom_subagents(
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
 ) -> list[CompiledSubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -349,6 +353,7 @@ async def load_custom_subagents(
                     web_search_enabled,
                     web_fetch_enabled,
                     fallback_models,
+                    client,
                 ),
                 name=frontmatter["name"],
             )

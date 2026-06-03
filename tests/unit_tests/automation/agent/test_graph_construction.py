@@ -44,8 +44,9 @@ def test_graph_uses_fallback_thinking_level_standalone():
 
 def test_graph_constructs_sandbox_backend_without_root():
     src = inspect.getsource(graph_module)
-    assert "SandboxFileBackend()" in src, (
-        "graph.py must construct SandboxFileBackend() with no root — the agent uses sandbox-absolute paths"
+    assert "SandboxFileBackend(client=run_client)" in src, (
+        "graph.py must construct SandboxFileBackend(client=run_client) with no root — the agent uses "
+        "sandbox-absolute paths and the run client is injected by construction"
     )
     assert "SandboxFileBackend(root=" not in src, "graph.py must NOT pass a root to SandboxFileBackend (pass-through)"
 
@@ -68,7 +69,7 @@ def test_middleware_order_slash_then_sandbox_then_skills():
     # and SkillsMiddleware must run AFTER SandboxMiddleware (so the backend is bound + seeded before
     # discovery reads it).
     slash = src.index("SlashCommandMiddleware(")
-    sandbox = src.index("SandboxMiddleware(backend=backend, agent_root=agent_root)")
+    sandbox = src.index("SandboxMiddleware(agent_root=agent_root, client=run_client, sandbox_backend=sandbox_backend)")
     skills = src.index("SkillsMiddleware(")
     assert slash < sandbox < skills, "order must be SlashCommandMiddleware -> SandboxMiddleware -> SkillsMiddleware"
 

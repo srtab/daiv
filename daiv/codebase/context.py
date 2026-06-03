@@ -197,7 +197,7 @@ async def set_runtime_ctx(
             finally:
                 runtime_ctx.reset(token)
     finally:
-        if sandbox_client is not None:
+        if sandbox_client is not None and client_token is not None:
             await sandbox_client.close()
             reset_run_sandbox_client(client_token)
 

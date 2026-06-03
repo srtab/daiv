@@ -18,20 +18,18 @@ from langgraph.typing import StateT  # noqa: TC002
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
-from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
+from automation.agent.middlewares.file_system import SandboxFileBackend  # noqa: TC001
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
-from core.sandbox.client import DAIVSandboxClient
+from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.command_parser import CommandParseError, parse_command
 from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
 from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
-from core.sandbox.session_store import SandboxSessionStore
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from deepagents.backends.protocol import BackendProtocol
     from langgraph.runtime import Runtime
 
 
@@ -321,23 +319,25 @@ class SandboxMiddleware(AgentMiddleware):
     """
     Middleware to manage a sandbox session for running commands against the workspace.
 
-    Owns the per-run sandbox session lifecycle (start + seed in ``abefore_agent``, close in
-    ``aafter_agent``) and exposes:
+    Manages the per-run sandbox *session* lifecycle (start + seed in ``abefore_agent``, stop/remove
+    in ``aafter_agent``) and exposes:
 
     - The ``bash`` tool for running shell commands inside the sandbox.
-    - Late-binding of the single ``/workspace`` :class:`SandboxFileBackend` to the live
-      client+session, so the agent's file tools (``read_file``/``write_file``/``edit_file``/
-      ``ls``/``glob``/``grep``) operate directly against the sandbox — it is the one true
-      store, with no local mirror to keep in sync.
+    - Late-binding of the run's session onto the injected ``/workspace`` :class:`SandboxFileBackend`,
+      so the agent's file tools (``read_file``/``write_file``/``edit_file``/``ls``/``glob``/``grep``)
+      operate directly against the sandbox — it is the one true store, with no local mirror to keep
+      in sync.
 
-    A single ``DAIVSandboxClient`` is opened in ``abefore_agent`` and reused for the run.
+    The ``DAIVSandboxClient`` (transport) is **injected** — opened once per run by
+    ``set_runtime_ctx`` and read once by ``create_daiv_agent``. The middleware borrows it; it never
+    opens or closes it.
 
     Args:
-        backend: Filesystem backend the agent's tools operate on. Must be the same instance
-            that backs upstream's ``FilesystemMiddleware``. When sandbox-enabled this is the
-            single ``SandboxFileBackend`` rooted at ``/workspace``, bound here at session start.
         agent_root: Virtual path prefix the agent's filesystem tools see (e.g.
             ``/workspace/repo``); the agent's repo root.
+        client: The run-scoped sandbox client opened by ``set_runtime_ctx`` and injected here.
+        sandbox_backend: The concrete ``SandboxFileBackend`` to bind the run's session onto.
+            ``None`` for subagents, which share the parent-bound backend.
         close_session: Whether to close the session after the agent finishes the execution
             loop. Set to ``False`` when used in subagents so the parent agent owns session
             lifecycle.
@@ -348,22 +348,27 @@ class SandboxMiddleware(AgentMiddleware):
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[SandboxMiddleware(backend=backend, agent_root="/workspace/repo")],
+            middleware=[SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=backend)],
         )
         ```
     """
 
     state_schema = SandboxState
 
-    def __init__(self, *, backend: BackendProtocol, agent_root: str, close_session: bool = True):
+    def __init__(
+        self,
+        *,
+        agent_root: str,
+        client: DAIVSandboxClient | None = None,
+        sandbox_backend: SandboxFileBackend | None = None,
+        close_session: bool = True,
+    ):
         if site_settings.sandbox_api_key is None:
             raise RuntimeError("Sandbox API key is not configured. Set DAIV_SANDBOX_API_KEY or use the config UI.")
-
-        self._backend = backend
         self._agent_root = agent_root
         self.close_session = close_session
-        self._client: DAIVSandboxClient | None = None
-        self._session_store = SandboxSessionStore()
+        self._client = client
+        self._sandbox_backend = sandbox_backend
         self.tools = [self._build_bash_tool()]
 
     def _build_bash_tool(self) -> BaseTool:
@@ -394,21 +399,14 @@ class SandboxMiddleware(AgentMiddleware):
 
         return bash_tool
 
-    def _bind_backend(self, session_id: str) -> None:
-        """Bind the live client+session into the ``/workspace`` :class:`SandboxFileBackend`.
+    def _bind_session(self, session_id: str) -> None:
+        """Bind the run's session onto the injected SandboxFileBackend (main agent only).
 
-        The backend is a :class:`DAIVCompositeBackend` (wrapping the SandboxFileBackend so an
-        ``artifacts_root`` under /workspace can be set), so unwrap it to reach the backend(s)
-        that actually need a client+session. Idempotent: subagents share the parent's backend
-        instance, so re-binding with the same client+session is a no-op rebind. A non-sandbox
-        backend (sandbox-disabled runs) is left untouched.
+        Subagents pass ``sandbox_backend=None`` because they share the parent's backend, which the
+        parent already bound — so this is a no-op for them.
         """
-        if not (session_id and self._client is not None):
-            return
-        candidates = self._backend.routes.values() if isinstance(self._backend, DAIVCompositeBackend) else ()
-        for candidate in (getattr(self._backend, "default", self._backend), *candidates):
-            if isinstance(candidate, SandboxFileBackend):
-                candidate.bind(self._client, session_id)
+        if self._sandbox_backend is not None:
+            self._sandbox_backend.bind_session(session_id)
 
     @staticmethod
     def _conversation_thread_id() -> str | None:
@@ -416,8 +414,8 @@ class SandboxMiddleware(AgentMiddleware):
 
         Agent-level middleware hooks receive a langgraph ``Runtime`` (which has no ``config``
         attribute), so the thread_id is read from the run config contextvar via ``get_config()``.
-        Returns None when called outside a runnable context — warm-session reuse is then disabled
-        and the session is force-removed (the behavior for non-chat automation runs).
+        Returns None when called outside a runnable context — the session is then force-removed
+        (the behavior for non-chat automation runs).
         """
         try:
             config = get_config()
@@ -429,150 +427,98 @@ class SandboxMiddleware(AgentMiddleware):
             return None
         return config.get("configurable", {}).get("thread_id")
 
-    async def _reuse_warm_session(self, client: DAIVSandboxClient, thread_id: str | None) -> str | None:
-        """Return a reusable warm session id for *thread_id*, or None.
+    @staticmethod
+    async def _session_exists(client: DAIVSandboxClient, session_id: str) -> bool:
+        """Whether ``session_id`` still exists on the sandbox (restarting it if stopped).
 
-        Looks up the remembered mapping (:class:`SandboxSessionStore`), confirms the session still
-        exists on the sandbox (which also restarts it if it was stopped), and refreshes the mapping
-        TTL. A reaped/missing session drops the stale mapping and returns None so the caller creates
-        a fresh one.
+        Soft-fails to ``False`` on transport errors so a flaky liveness check just triggers a fresh
+        create rather than failing the run.
         """
-        if not thread_id:
-            return None
-        session_id = await self._session_store.aget(thread_id)
-        if not session_id:
-            return None
         try:
-            alive = await client.session_exists(session_id)
+            return await client.session_exists(session_id)
         except httpx.HTTPError:
             logger.exception("Failed to validate sandbox session %s for reuse", session_id)
-            return None
-        if not alive:
-            await self._session_store.forget(thread_id)
-            return None
-        await self._session_store.remember(thread_id, session_id)
-        logger.info("Reusing warm sandbox session %s for thread %s", session_id, thread_id)
-        return session_id
+            return False
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
-        Open the per-run sandbox client and bind a session — reusing a warm one when possible.
+        Bind a sandbox session — reusing the prior turn's warm session when possible.
 
-        For a chat conversation (a ``thread_id`` is present) a previously-created session is reused
-        if it still exists on the sandbox, skipping both ``start_session`` and the repo re-seed.
-        Otherwise a fresh session is started, seeded from the on-disk repo, and remembered for the
-        next turn. The client stays open for the rest of the run so every bash/file RPC reuses the
-        same connection pool.
-
-        Args:
-            state (StateT): The state of the agent.
-            runtime (Runtime[RuntimeCtx]): The runtime context.
-
-        Returns:
-            dict[str, str] | None: The state updates with the sandbox session ID.
+        The run-scoped client is supplied at construction (opened by set_runtime_ctx); this hook only
+        manages the *session*. Warm reuse reads ``state["session_id"]`` — the checkpointer persists it
+        per thread_id, so a prior turn's session is reachable directly from state (no separate store).
+        We confirm it still exists on the sandbox (``session_exists`` also restarts a stopped
+        container); a reaped/missing session falls through to a fresh create + seed.
         """
-        client = DAIVSandboxClient()
-        await client.open()
-        self._client = client
+        client = self._client
+        if client is None:
+            raise RuntimeError("SandboxMiddleware requires an injected run-scoped sandbox client.")
 
-        try:
-            if not self.close_session and "session_id" in state:
-                # Subagent path: parent owns session lifecycle; we just keep our client open.
-                self._bind_backend(state["session_id"])
-                return None
+        if not self.close_session and "session_id" in state:
+            # Subagent path: the parent owns the session and already bound the shared backend; our
+            # injected client serves this subagent's bash tool. Nothing to set up.
+            return None
 
-            thread_id = self._conversation_thread_id()
+        prior_session_id = state.get("session_id")
+        if prior_session_id and await self._session_exists(client, prior_session_id):
+            self._bind_session(prior_session_id)
+            logger.info("Reusing warm sandbox session %s", prior_session_id)
+            return {"session_id": prior_session_id}
 
-            reused_session_id = await self._reuse_warm_session(client, thread_id)
-            if reused_session_id is not None:
-                self._bind_backend(reused_session_id)
-                return {"session_id": reused_session_id}
-
-            sb = runtime.context.sandbox
-            session_id = await client.start_session(
-                StartSessionRequest(
-                    base_image=sb.base_image,
-                    network_enabled=sb.network_enabled,
-                    memory_bytes=sb.memory_bytes,
-                    cpus=sb.cpus,
-                    environment=sb.env_vars or None,
-                )
+        sb = runtime.context.sandbox
+        session_id = await client.start_session(
+            StartSessionRequest(
+                base_image=sb.base_image,
+                network_enabled=sb.network_enabled,
+                memory_bytes=sb.memory_bytes,
+                cpus=sb.cpus,
+                environment=sb.env_vars or None,
             )
+        )
+        try:
+            working_dir = Path(runtime.context.gitrepo.working_dir)
+            repo_archive, skills_archive = await asyncio.gather(
+                asyncio.to_thread(_make_repo_archive, str(working_dir)), asyncio.to_thread(_make_global_skills_archive)
+            )
+            await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
+        except Exception:
+            logger.exception("Failed to build or seed sandbox session %s", session_id)
             try:
-                working_dir = Path(runtime.context.gitrepo.working_dir)
-                repo_archive, skills_archive = await asyncio.gather(
-                    asyncio.to_thread(_make_repo_archive, str(working_dir)),
-                    asyncio.to_thread(_make_global_skills_archive),
-                )
-                await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
+                await client.close_session(session_id, force=True)
             except Exception:
-                # Log the cause keyed to ``session_id`` before unwinding — the outer
-                # ``except BaseException`` re-raises bare, so without this breadcrumb a
-                # build/seed failure shows up only as whatever LangGraph chooses to log.
-                logger.exception("Failed to build or seed sandbox session %s", session_id)
-                try:
-                    await client.close_session(session_id, force=True)
-                except Exception:
-                    logger.exception("Failed to close session %s after seed failure", session_id)
-                raise
-            if thread_id:
-                await self._session_store.remember(thread_id, session_id)
-        except BaseException:
-            # Release the client we just opened; otherwise its httpx pool leaks for the run.
-            await client.close()
-            self._client = None
+                logger.exception("Failed to close session %s after seed failure", session_id)
             raise
-        self._bind_backend(session_id)
+        self._bind_session(session_id)
         return {"session_id": session_id}
 
     async def aafter_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
-        Close the sandbox session and the long-lived client after the agent finishes.
+        Stop the sandbox session after the agent finishes.
 
-        ``aafter_agent`` only runs on a successful agent loop; on agent failure the
-        client is not awaited closed and may leak its httpx pool until process
-        teardown. Acceptable today because each run is short-lived; revisit if
-        agent runs grow long enough that leaked pools matter.
-
-        Args:
-            state (StateT): The state of the agent.
-            runtime (Runtime[RuntimeCtx]): The runtime context.
-
-        Returns:
-            dict[str, str] | None: The state updates with the closed sandbox session ID.
+        The run-scoped transport is closed by set_runtime_ctx, not here. A resumable conversation
+        (thread_id present) keeps its session warm (server *stop*) AND leaves ``session_id`` in state
+        so the next turn reuses it. A one-shot run (no thread) force-removes the container and clears
+        ``session_id`` from state.
         """
         client = self._client
-        try:
-            if client is not None and self.close_session and "session_id" in state and state["session_id"] is not None:
-                session_id = state["session_id"]
-                # A chat conversation (thread_id present) keeps its session warm for the next turn:
-                # close_session => server *stop* (kept), and the cached mapping is retained. A
-                # non-chat run has no thread to reuse, so force-remove the container immediately.
-                thread_id = self._conversation_thread_id()
-                force = not thread_id
-                try:
-                    await client.close_session(session_id, force=force)
-                except httpx.HTTPStatusError as exc:
-                    status = exc.response.status_code
-                    if status in (404, 409):
-                        logger.debug("Sandbox session %s already closed (status=%s)", session_id, status)
-                    else:
-                        logger.exception(
-                            "Sandbox session %s close returned status=%s; container may have leaked", session_id, status
-                        )
-                except httpx.RequestError:
-                    logger.exception("Sandbox session %s close request failed; container may have leaked", session_id)
-                return {"session_id": None}
-            return None
-        finally:
-            if client is not None:
-                # Wrap teardown so a transport-level failure can't mask whatever close_session
-                # (or another caller) was already raising.
-                try:
-                    await client.close()
-                except Exception:
-                    logger.exception("Failed to close sandbox httpx client; pool may have leaked")
-                self._client = None
+        if client is not None and self.close_session and "session_id" in state and state["session_id"] is not None:
+            session_id = state["session_id"]
+            resumable = self._conversation_thread_id() is not None
+            try:
+                await client.close_session(session_id, force=not resumable)
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status in (404, 409):
+                    logger.debug("Sandbox session %s already closed (status=%s)", session_id, status)
+                else:
+                    logger.exception(
+                        "Sandbox session %s close returned status=%s; container may have leaked", session_id, status
+                    )
+            except httpx.RequestError:
+                logger.exception("Sandbox session %s close request failed; container may have leaked", session_id)
+            # Resumable: keep session_id in state (warm reuse next turn). One-shot: clear it.
+            return None if resumable else {"session_id": None}
+        return None
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

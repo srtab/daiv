@@ -158,3 +158,19 @@ class TestDAIVCompositeBackend:
 
         with pytest.raises(TypeError, match="DAIVBackendProtocol"):
             DAIVCompositeBackend(default=plain_state, routes={})  # type: ignore[arg-type]
+
+
+def test_bind_session_sets_session_with_construction_client():
+    from automation.agent.middlewares.file_system import SandboxFileBackend
+
+    backend = SandboxFileBackend(client=object())
+    backend.bind_session("sess-1")
+    assert backend._session_id == "sess-1"
+
+
+def test_bind_session_rejects_cross_session_rebind():
+    from automation.agent.middlewares.file_system import SandboxFileBackend
+
+    backend = SandboxFileBackend(client=object(), session_id="sess-1")
+    with pytest.raises(RuntimeError, match="refusing"):
+        backend.bind_session("sess-2")
