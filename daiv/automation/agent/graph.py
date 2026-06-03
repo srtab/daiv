@@ -24,6 +24,7 @@ from automation.agent.constants import (
     SKILLS_PATH,
     SKILLS_SOURCES,
     SUBAGENTS_SOURCES,
+    WORKSPACE_PATH,
     ModelName,
 )
 from automation.agent.deferred.conf import settings as deferred_settings
@@ -218,7 +219,19 @@ async def create_daiv_agent(
         # SandboxMiddleware.abefore_agent once the session exists.
         agent_root = REPO_PATH
         global_skills_source = SKILLS_PATH
-        backend: BackendProtocol = SandboxFileBackend()
+        # Wrap the single /workspace backend in a composite purely to carry an
+        # ``artifacts_root`` under /workspace. The middlewares that offload to the
+        # filesystem (FilesystemMiddleware tool-result + HumanMessage eviction,
+        # SummarizationMiddleware history) derive their write prefix from
+        # ``artifacts_root`` *only when the backend is a CompositeBackend*, defaulting
+        # to "/" otherwise. A bare SandboxFileBackend would send those writes to
+        # ``/large_tool_results`` / ``/conversation_history`` at the container root —
+        # outside /workspace, which the sandbox rejects — so eviction would silently
+        # no-op. There is no route: every /workspace path falls through to the default
+        # backend with its full path, identity-mapped into the sandbox.
+        backend: BackendProtocol = DAIVCompositeBackend(
+            default=SandboxFileBackend(), routes={}, artifacts_root=WORKSPACE_PATH
+        )
     else:
         # Sandbox-disabled runs keep the disk-backed composite: repo files from disk;
         # ``/skills/`` from the shared SKILLS_CACHE_PATH so per-turn skill uploads become a
@@ -285,7 +298,7 @@ async def create_daiv_agent(
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
         GitMiddleware(auto_commit_changes=auto_commit_changes),
-        GitPlatformMiddleware(git_platform=ctx.git_platform),
+        GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
         *(middleware or []),
     ]

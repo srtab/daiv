@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import os
-import posixpath
 import shlex
-import uuid
 from typing import TYPE_CHECKING, Annotated, Literal, NotRequired
 
 from django.core.cache import cache
 from django.utils import timezone
 
+from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.utils import sanitize_tool_call_id
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import OmitFromOutput
@@ -21,81 +20,46 @@ from langchain_core.messages import ToolMessage
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langgraph.types import Command
 
-from automation.agent.constants import SCRATCH_PATH, WORKSPACE_PATH
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.clients.github.utils import get_github_integration
 from codebase.clients.utils import clean_job_logs
 from codebase.conf import settings
 from codebase.context import RuntimeCtx  # noqa: TC001
-from core.sandbox.client import DAIVSandboxClient
-from core.sandbox.schemas import FsWriteRequest
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from deepagents.backends.protocol import BackendProtocol
+    from langchain_core.tools import BaseTool
+
 
 logger = logging.getLogger("daiv.tools")
 
 
-DEFAULT_MAX_OUTPUT_LINES = 2_000
 DEFAULT_CLI_TIMEOUT = 30
-
-
-def _truncate_cli_output(output: str, *, keep: Literal["head", "tail"]) -> str:
-    """
-    Cap CLI output to ``DEFAULT_MAX_OUTPUT_LINES``, appending a sentinel when
-    truncation occurs so the agent and the chat UI both know the slice is
-    partial. ``keep="tail"`` is for job traces / run logs where the failing
-    tail is the interesting part.
-    """
-    # Cheap line count avoids materializing splitlines on the (common) happy path.
-    if output.count("\n") < DEFAULT_MAX_OUTPUT_LINES:
-        return output
-
-    lines = output.splitlines(keepends=True)
-    if len(lines) <= DEFAULT_MAX_OUTPUT_LINES:
-        return output
-
-    omitted = len(lines) - DEFAULT_MAX_OUTPUT_LINES
-    sentinel = f"... (truncated, {omitted} lines omitted)\n"
-    if keep == "tail":
-        return sentinel + "".join(lines[-DEFAULT_MAX_OUTPUT_LINES:])
-    return "".join(lines[:DEFAULT_MAX_OUTPUT_LINES]) + sentinel
-
 
 _PREVIEW_MAX_LINES = 25
 _PREVIEW_MAX_CHARS = 1024
 
 
-def _validate_workspace_path(path: str) -> str | None:
-    """Return an ``error: ...`` string when ``path`` is not a clean absolute path under
-    ``/workspace``, else ``None``. ``..`` is collapsed first so traversal out of the workspace
-    is rejected, and the bare workspace directory is not accepted as a file target."""
-    if not path or not path.startswith("/"):
-        return f"error: output_file must be an absolute path under {WORKSPACE_PATH} (got '{path}')."
-    normalized = posixpath.normpath(path)
-    if normalized != WORKSPACE_PATH and not normalized.startswith(WORKSPACE_PATH + "/"):
-        return f"error: output_file must resolve to a path under {WORKSPACE_PATH} (got '{path}')."
-    if normalized == WORKSPACE_PATH:
-        return f"error: output_file must be a file path, not the {WORKSPACE_PATH} directory itself."
-    return None
+def _large_tool_results_prefix(backend: BackendProtocol) -> str:
+    """Directory where a full result is written when ``to_file`` is set.
 
-
-def _exceeds_output_cap(output: str) -> bool:
-    """True when ``output`` is long enough that ``_truncate_cli_output`` would trim it.
-
-    Mirrors ``_truncate_cli_output``'s own cheap-then-exact line check so eviction triggers
-    exactly when inline truncation would.
+    Derived exactly like ``deepagents`` ``FilesystemMiddleware``'s own eviction prefix:
+    ``artifacts_root`` is honoured only for a ``CompositeBackend`` (else ``"/"``). Keeping the
+    derivation identical means an explicit ``to_file`` dump lands in the *same* directory, with
+    the same ``tool_call_id`` naming, as a result the middleware auto-evicts when it exceeds the
+    middleware's tool-result token limit — one convention for the agent to read back via
+    ``read_file``/``grep``.
     """
-    if output.count("\n") < DEFAULT_MAX_OUTPUT_LINES:
-        return False
-    return len(output.splitlines(keepends=True)) > DEFAULT_MAX_OUTPUT_LINES
+    artifacts_root = backend.artifacts_root if isinstance(backend, CompositeBackend) else "/"
+    return f"{artifacts_root.rstrip('/')}/large_tool_results"
 
 
-def _redirect_confirmation(path: str, byte_count: int, line_count: int, output: str) -> str:
-    """Compact confirmation returned in place of redirected content: path, size, head preview."""
+def _file_write_confirmation(path: str, byte_count: int, line_count: int, output: str) -> str:
+    """Compact confirmation returned in place of the written content: path, size, head preview."""
     preview = "\n".join(output.splitlines()[:_PREVIEW_MAX_LINES])
     if len(preview) > _PREVIEW_MAX_CHARS:
         preview = preview[:_PREVIEW_MAX_CHARS] + "\n… (preview truncated)"
@@ -103,99 +67,43 @@ def _redirect_confirmation(path: str, byte_count: int, line_count: int, output: 
     return f"Wrote {byte_count} bytes ({line_count} lines) to {path}\nPreview (first {shown} lines):\n{preview}"
 
 
-async def _write_output_to_sandbox(content: str, path: str, session_id: str) -> tuple[int, int]:
-    """Write ``content`` to ``path`` under /workspace via a short-lived sandbox client.
-
-    Mirrors the short-lived-client pattern of ``open_git_manager``: open one client against the
-    live session, write, close in a ``finally``. ``content`` is base64-encoded for the
-    ``Base64Bytes`` wire field. Returns ``(byte_count, line_count)``; raises on a failed write.
-    """
-    data = content.encode("utf-8")
-    client = DAIVSandboxClient()
-    try:
-        await client.open()
-        response = await client.fs_write(session_id, FsWriteRequest(path=path, content=base64.b64encode(data)))
-    finally:
-        await client.close()
-    if not response.ok:
-        raise RuntimeError(response.error or "sandbox returned ok=false")
-    return len(data), len(content.splitlines())
-
-
-async def _handle_output_redirect(
-    *, output: str, output_file: str, runtime: ToolRuntime[RuntimeCtx], keep: Literal["head", "tail"], tool_name: str
-) -> str:
-    """Write the full output to ``output_file`` and return a confirmation.
-
-    Assumes ``output_file`` already passed ``_validate_workspace_path``. Degrades to inline
-    (truncated) output with a note when the sandbox is not active for this run.
-    """
-    session_id = runtime.state.get("session_id")
-    if not session_id:
-        logger.warning("[%s] output_file requested but no sandbox session; returning inline output", tool_name)
-        return (
-            "(note: output_file was ignored — file redirect needs the sandbox, which is not active "
-            "for this run. Returning inline output instead.)\n\n"
-        ) + _truncate_cli_output(output, keep=keep)
-
-    try:
-        byte_count, line_count = await _write_output_to_sandbox(output, output_file, session_id)
-    except Exception as exc:
-        logger.exception("[%s] Failed to write output_file %s (session=%s)", tool_name, output_file, session_id)
-        return f"error: Failed to write output to {output_file}. Details: {exc}"
-
-    return _redirect_confirmation(output_file, byte_count, line_count, output)
-
-
-async def _auto_evict(output: str, session_id: str, resource: str, action: str, tool_name: str) -> str | None:
-    """Spill oversized inline output verbatim to a scratch file under /workspace/tmp.
-
-    Returns a confirmation + note, or ``None`` if the write failed (caller falls back to
-    inline truncation).
-    """
-    path = posixpath.join(SCRATCH_PATH, f"{tool_name}-{resource}-{action}-{uuid.uuid4().hex[:8]}.txt")
-    try:
-        byte_count, line_count = await _write_output_to_sandbox(output, path, session_id)
-    except Exception:
-        logger.exception("[%s] Auto-eviction failed (session=%s, path=%s)", tool_name, session_id, path)
-        return None
-    return (
-        _redirect_confirmation(path, byte_count, line_count, output)
-        + "\n\n(note: output exceeded the inline limit and was written verbatim to the scratch file "
-        "above instead of being truncated. To get the full result, re-run with output_file=<path> "
-        "(GitLab writes JSON automatically; for GitHub add --json <fields> to the subcommand).)"
-    )
-
-
-async def _finalize_inline_output(
-    *,
+async def _write_output_to_file(
     output: str,
+    *,
     runtime: ToolRuntime[RuntimeCtx],
-    resource: str,
-    action: str,
-    keep: Literal["head", "tail"],
+    backend: BackendProtocol,
+    large_tool_results_prefix: str,
     tool_name: str,
 ) -> str:
-    """Return inline output, auto-evicting to a scratch file when it exceeds the inline cap."""
-    if not _exceeds_output_cap(output):
-        return _truncate_cli_output(output, keep=keep)
-    session_id = runtime.state.get("session_id")
-    if session_id:
-        evicted = await _auto_evict(output, session_id, resource, action, tool_name)
-        if evicted is not None:
-            return evicted
-        return _truncate_cli_output(output, keep=keep) + (
-            "\n\n(note: output exceeded the inline cap and writing it to a sandbox scratch file failed, "
-            "so it is truncated here. Re-run with output_file=<path> for the full result.)"
-        )
-    return _truncate_cli_output(output, keep=keep)
+    """Write the full result to the large-tool-results dir through the bound filesystem backend.
+
+    Writes via the same backend the agent's ``read_file``/``grep`` tools use, so the file is
+    immediately addressable, and keys the path by ``tool_call_id`` exactly like the middleware's
+    auto-eviction. Returns a compact confirmation, or an ``error: ...`` string on a failed write.
+    """
+    if not runtime.tool_call_id:
+        # Every result is keyed by tool_call_id (mirroring the middleware's auto-eviction). A
+        # missing id is unexpected here; falling back to a shared filename would silently
+        # overwrite a previous dump, so fail loudly instead.
+        logger.error("[%s] Cannot write result to file: missing tool_call_id", tool_name)
+        return "error: Failed to write result to file — missing tool_call_id."
+    path = f"{large_tool_results_prefix}/{sanitize_tool_call_id(runtime.tool_call_id)}"
+    try:
+        result = await backend.awrite(path, output)
+    except Exception as exc:
+        logger.exception("[%s] Failed to write result to %s", tool_name, path)
+        return f"error: Failed to write result to {path}. Details: {exc}"
+    if result.error:
+        logger.error("[%s] Backend rejected write to %s: %s", tool_name, path, result.error)
+        return f"error: Failed to write result to {path}. Details: {result.error}"
+    return _file_write_confirmation(path, len(output.encode("utf-8")), len(output.splitlines()), output)
 
 
 GITLAB_REQUESTS_TIMEOUT = 15
 GITLAB_PER_PAGE = "5"
 GITLAB_TOOL_NAME = "gitlab"
 
-GITLAB_TOOL_DESCRIPTION = f"""\
+GITLAB_TOOL_DESCRIPTION = """\
 Use this tool to inspect the configured GitLab project through the python-gitlab CLI.
 
 This tool is best for retrieving the current state of:
@@ -209,27 +117,25 @@ This tool is best for retrieving the current state of:
 **Inputs:**
 - `subcommand`: a single CLI-like subcommand string in the form `<object> <action> <arguments...>`
 - `output_mode`: either `simplified` or `detailed`
-- `output_file`: optional absolute path under `/workspace` to write the FULL result to as JSON (`output_mode` is ignored); project-job trace is written as raw log text, not JSON. Returns a compact confirmation instead of the content.
+- `output_to_file`: set true to write the FULL result to a file (as JSON; `output_mode` is ignored) and get back a compact confirmation instead of the content. Project-job trace is written as raw log text, not JSON.
 
 **Hard rules:**
 - Do NOT include the `gitlab` prefix in `subcommand`
 - Do NOT pass `--project-id` (the project is injected automatically)
-- Do NOT pass `--output` (set automatically from `output_mode`, or forced to json when output_file is used)
+- Do NOT pass `--output` (set automatically from `output_mode`, or forced to json when output_to_file is true)
 - Prefer IID-based lookup when available (for example `--iid` for issues and merge requests)
 
 **Default behavior:**
 - The configured project is targeted automatically
 - Results are ordered from most recent to oldest by default
 - List subcommands return the first 5 items by default unless you paginate with `--page`
-- Output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines
+- A result too large for the context window is automatically saved to a file (see below) instead of being returned inline
 
-**Redirecting large output to a file (for jq/scripts):**
-- Set `output_file` to an absolute `/workspace` path to write the FULL, untruncated result there as JSON (using `--output json`) (except project-job trace, which is written as raw log text), instead of returning it inline. Then process the file with `bash` (jq, scripts, grep).
-- This avoids re-typing tool output into a bash command and bypasses the inline line cap.
-- Pagination stays under your control: pair with `--get-all` or `--per-page` for complete list dumps.
-- Prefer `/workspace/tmp` for transient dumps; a `/workspace/repo` path becomes a commit candidate.
-- If output exceeds the inline cap and you did NOT set `output_file`, it is auto-written to a `/workspace/tmp` file and that path is returned.
-- Example: `project-merge-request list --state opened --get-all` with `output_file="/workspace/tmp/mrs.json"`, then `bash`: `jq '[.[].labels[]] | group_by(.) | map({{label: .[0], count: length}})' /workspace/tmp/mrs.json`.
+**Getting results into a file (for jq/scripts), and automatic saving:**
+- Set `output_to_file=true` to write the FULL, untruncated result as JSON (using `--output json`; project-job trace is written as raw log text) instead of returning it inline. The file path is chosen automatically and returned in the confirmation. Then process it with `bash` (jq, scripts, grep) or read it with `read_file`. Use this when you intend to post-process the result.
+- This avoids re-typing tool output into a bash command. Pagination stays under your control: pair with `--get-all` or `--per-page` for complete list dumps.
+- Even without `output_to_file`, any result too large for the context window is automatically saved to the same large-tool-results directory and replaced inline with a short preview plus the file path — read it with `read_file`, or `grep` within that directory if you don't know the exact path.
+- Example: `project-merge-request list --state opened --get-all` with `output_to_file=true`, then read the returned path with `bash`: `jq '[.[].labels[]] | group_by(.) | map({label: .[0], count: length})' <returned-path>`.
 
 **How to use it well:**
 - Use `output_mode="simplified"` ONLY for broad `list` discovery where you just need IDs (e.g. `project-merge-request list --state opened`).
@@ -267,7 +173,7 @@ This tool is best for retrieving the current state of:
   - use `new_line` (int) for an added line
   - use `old_line` (int) for a removed line
   - use both `old_line` and `new_line` for an unchanged line
-  - Example: `--position '{{"position_type": "text", "base_sha": "abc", "start_sha": "def", "head_sha": "ghi", "old_path": "src/foo.py", "new_path": "src/foo.py", "new_line": 42}}'`
+  - Example: `--position '{"position_type": "text", "base_sha": "abc", "start_sha": "def", "head_sha": "ghi", "old_path": "src/foo.py", "new_path": "src/foo.py", "new_line": 42}'`
 - To reply to an existing inline thread, use `project-merge-request-discussion-note create --discussion-id <discussion_id>`.
 - Never guess an inline position. If the exact diff anchor cannot be determined reliably, prefer a regular MR note instead of posting a misplaced inline comment.
 
@@ -286,7 +192,7 @@ This tool is best for retrieving the current state of:
 
 GITHUB_TOOL_NAME = "gh"
 
-GITHUB_TOOL_DESCRIPTION = f"""\
+GITHUB_TOOL_DESCRIPTION = """\
 Use this tool to inspect the configured GitHub repository through the GitHub CLI.
 
 This tool is best for retrieving the current state of:
@@ -299,7 +205,7 @@ This tool is best for retrieving the current state of:
 
 **Inputs:**
 - `subcommand`: a single CLI-like subcommand string in the form `<object> <action> [arguments...]>`
-- `output_file`: optional absolute path under `/workspace` to write the FULL stdout to (verbatim). Returns a compact confirmation instead of the content.
+- `output_to_file`: set true to write the FULL stdout to a file (verbatim) and get back a compact confirmation instead of the content.
 
 **Hard rules:**
 - Do NOT include the `gh` prefix in `subcommand`
@@ -310,15 +216,14 @@ This tool is best for retrieving the current state of:
 - The configured repository is targeted automatically
 - List subcommands are limited to the first 30 items by default
 - Results are ordered from most recent to oldest when supported by the underlying subcommand
-- Output may be truncated bottom-up to {DEFAULT_MAX_OUTPUT_LINES} lines
+- A result too large for the context window is automatically saved to a file (see below) instead of being returned inline
 
-**Redirecting large output to a file (for jq/scripts):**
-- Set `output_file` to an absolute `/workspace` path to write the FULL, untruncated stdout there, instead of returning it inline. Then process the file with `bash` (jq, scripts, grep).
+**Getting results into a file (for jq/scripts), and automatic saving:**
+- Set `output_to_file=true` to write the FULL, untruncated stdout to a file instead of returning it inline. The file path is chosen automatically and returned in the confirmation. Then process it with `bash` (jq, scripts, grep) or read it with `read_file`. Use this when you intend to post-process the result.
 - gh has no global JSON flag — for jq-able output, include gh's own `--json <fields> [--jq ...]` in the subcommand; otherwise the file holds gh's text output.
 - Pagination stays under your control: use `--limit` for complete list dumps.
-- Prefer `/workspace/tmp` for transient dumps; a `/workspace/repo` path becomes a commit candidate.
-- If output exceeds the inline cap and you did NOT set `output_file`, it is auto-written to a `/workspace/tmp` file and that path is returned.
-- Example: `pr list --state open --json number,title,labels --limit 200` with `output_file="/workspace/tmp/prs.json"`, then `bash`: `jq '.[] | select(.labels | length == 0) | .number' /workspace/tmp/prs.json`.
+- Even without `output_to_file`, any result too large for the context window is automatically saved to the same large-tool-results directory and replaced inline with a short preview plus the file path — read it with `read_file`, or `grep` within that directory if you don't know the exact path.
+- Example: `pr list --state open --json number,title,labels --limit 200` with `output_to_file=true`, then read the returned path with `bash`: `jq '.[] | select(.labels | length == 0) | .number' <returned-path>`.
 
 **How to use it well:**
 - Start with the smallest subcommand that identifies the exact target
@@ -676,40 +581,23 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
         return f"error: Failed to create inline discussion. Details: {e}"
 
 
-@tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
-async def gitlab_tool(
-    subcommand: Annotated[
-        str,
-        "Single GitLab CLI subcommand string, parsed with shell-like quoting. "
-        "Format: '<object> <action> [arguments...]'. "
-        "Do not include the 'gitlab' prefix, '--project-id', or any output/verbosity flags managed by the tool. "
-        "Wrap arguments containing spaces in double quotes. "
-        "Examples: 'project-issue get --iid 42', 'project-merge-request list --state opened'.",
-    ],
+async def _run_gitlab_subcommand(
+    subcommand: str,
     runtime: ToolRuntime[RuntimeCtx],
-    output_mode: Annotated[
-        Literal["detailed", "simplified"],
-        "Controls the detail level of the returned output. "
-        "Use 'simplified' for listing/discovery and 'detailed' for inspecting a specific resource or reading logs. "
-        "Default: 'simplified'.",
-    ] = "simplified",
-    output_file: Annotated[
-        str | None,
-        "Optional absolute path under /workspace to write the FULL, untruncated result to. "
-        "When set, the result is written to the sandbox filesystem as JSON (output_mode is ignored); "
-        "project-job trace is written as raw log text. "
-        "The tool returns a compact confirmation (path + size + a short preview) instead of the "
-        "content, so you can then process the file with bash (jq, scripts, grep). "
-        "Prefer /workspace/tmp for transient dumps; a /workspace/repo target becomes a commit "
-        "candidate. Overwrites the file if it exists.",
-    ] = None,
+    output_mode: Literal["detailed", "simplified"],
+    to_file: bool,
+    *,
+    backend: BackendProtocol,
+    large_tool_results_prefix: str,
 ) -> str:
     """
-    Tool to interact with GitLab API using the `python-gitlab` command line interface.
+    Run a `python-gitlab` CLI subcommand on behalf of the ``gitlab`` tool.
 
-    This tool ensures that the interaction with the GitLab API is done in a more safe and secure way by using
-    a subprocess without shell expansion, and that the output is as minimal as possible by paginating the results
-    and truncating the output to avoid overwhelming the model with too much data.
+    Runs a subprocess without shell expansion and keeps the returned output minimal. When
+    ``to_file`` is set the full result is written to the large-tool-results dir via ``backend``
+    and a compact confirmation is returned; otherwise the output is returned inline and the
+    deepagents FilesystemMiddleware evicts it to that same dir if it exceeds the middleware's
+    tool-result token limit.
     """
     if not subcommand or not subcommand.strip():
         return "error: Subcommand cannot be empty. Format: '<object> <action> <arguments>'"
@@ -737,9 +625,6 @@ async def gitlab_tool(
     if _gitlab_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The project ID and output format are automatically set."
 
-    if output_file is not None and (path_error := _validate_workspace_path(output_file)):
-        return path_error
-
     # Inline MR diff discussion: bypass CLI because python-gitlab cannot encode nested
     # hash params (position[base_sha], position[position_type], …) via the CLI.
     if resource == "project-merge-request-discussion" and action == "create":
@@ -760,9 +645,9 @@ async def gitlab_tool(
     args = ["gitlab"]
 
     is_job_trace = resource == "project-job" and action == "trace"
-    if output_file is not None and not is_job_trace:
+    if to_file and not is_job_trace:
         # output_mode (detailed/simplified) only shapes the inline text format for token economy;
-        # it is moot for a JSON file dump that never enters context, so force JSON on redirect.
+        # it is moot for a JSON file dump meant for jq/scripts, so force JSON when writing to file.
         # Job traces are raw streamed log text, not a serializable object — leave them as-is.
         args += ["--output", "json"]
     elif output_mode == "detailed":
@@ -782,10 +667,10 @@ async def gitlab_tool(
             process.kill()
             await process.wait()
         except Exception as e:
-            logger.warning("[%s] Failed to kill GitLab process: %s", gitlab_tool.name, e)
+            logger.warning("[%s] Failed to kill GitLab process: %s", GITLAB_TOOL_NAME, e)
         return "error: GitLab command timed out after 30 seconds. The operation may be too complex or the API is slow."
     except Exception as e:
-        logger.exception("[%s] Failed to execute GitLab command.", gitlab_tool.name)
+        logger.exception("[%s] Failed to execute GitLab command.", GITLAB_TOOL_NAME)
         return f"error: Failed to execute GitLab command. Details: {str(e)}"
 
     if process.returncode != 0:
@@ -795,22 +680,22 @@ async def gitlab_tool(
     output = stdout.decode("utf-8").strip()
     if not output:
         empty = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
-        if output_file is not None:
-            empty += f"\n(note: output_file '{output_file}' was not written — the command produced no output.)"
+        if to_file:
+            empty += "\n(note: no file was written — the command produced no output.)"
         return empty
 
-    keep: Literal["head", "tail"] = "head"
     if is_job_trace:
         output = clean_job_logs(output, runtime.context.git_platform)
-        keep = "tail"
 
-    if output_file is not None:
-        return await _handle_output_redirect(
-            output=output, output_file=output_file, runtime=runtime, keep=keep, tool_name=GITLAB_TOOL_NAME
+    if to_file:
+        return await _write_output_to_file(
+            output,
+            runtime=runtime,
+            backend=backend,
+            large_tool_results_prefix=large_tool_results_prefix,
+            tool_name=GITLAB_TOOL_NAME,
         )
-    return await _finalize_inline_output(
-        output=output, runtime=runtime, resource=resource, action=action, keep=keep, tool_name=GITLAB_TOOL_NAME
-    )
+    return output
 
 
 def _get_cached_github_cli_token(runtime: ToolRuntime[RuntimeCtx]) -> tuple[str, dict[str, str | float] | None]:
@@ -859,34 +744,24 @@ def _gh_has_disallowed_cli_flags(args: list[str]) -> bool:
     return False
 
 
-@tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)
-async def github_tool(
-    subcommand: Annotated[
-        str,
-        "Single GitHub CLI subcommand string, parsed with shell-like quoting. "
-        "Format: '<object> <action> [arguments...]'. "
-        "Do not include the 'gh' prefix. "
-        "Do not pass '--repo', '-R', or '--hostname' (these are managed or restricted by the tool). "
-        "Wrap arguments containing spaces in double quotes. "
-        "Examples: 'issue view 42', 'pr list --state open'.",
-    ],
+async def _run_github_subcommand(
+    subcommand: str,
     runtime: ToolRuntime[RuntimeCtx],
-    output_file: Annotated[
-        str | None,
-        "Optional absolute path under /workspace to write the FULL, untruncated result to. "
-        "When set, stdout is written verbatim to the sandbox filesystem and the tool returns a "
-        "compact confirmation instead of the content, so you can process the file with bash "
-        "(jq, scripts, grep). For jq-able output, include gh's own --json <fields> [--jq ...] in "
-        "the subcommand. Prefer /workspace/tmp for transient dumps; a /workspace/repo target "
-        "becomes a commit candidate. Overwrites the file if it exists.",
-    ] = None,
+    to_file: bool,
+    *,
+    backend: BackendProtocol,
+    large_tool_results_prefix: str,
 ) -> str | Command:
     """
-    Tool to interact with GitHub API using the `gh` command line interface.
+    Run a `gh` CLI subcommand on behalf of the ``gh`` tool.
 
-    This tool ensures that the interaction with the GitHub API is done in a more safe and secure way by using
-    a subprocess without shell expansion, and that the output is as minimal as possible by paginating the results
-    and truncating the output to avoid overwhelming the model with too much data.
+    Runs a subprocess without shell expansion and keeps the returned output minimal. When
+    ``to_file`` is set the full stdout is written to the large-tool-results dir via ``backend``
+    and a compact confirmation is returned; otherwise the output is returned inline and the
+    deepagents FilesystemMiddleware evicts it to that same dir if it exceeds the middleware's
+    tool-result token limit.
+    ``gh`` has no global JSON flag, so for jq-able output include ``--json <fields>`` in the
+    subcommand. Returns a ``Command`` when a refreshed CLI token must be written back to state.
     """
     if not subcommand or not subcommand.strip():
         return "error: Subcommand cannot be empty. Format: '<object> <action> [arguments...]'"
@@ -913,9 +788,6 @@ async def github_tool(
 
     if _gh_has_disallowed_cli_flags(splitted_subcommand[2:]):
         return "error: The repository and hostname are automatically set. Do not pass --repo, -R, or --hostname."
-
-    if output_file is not None and (path_error := _validate_workspace_path(output_file)):
-        return path_error
 
     token, state_update = _get_cached_github_cli_token(runtime)
 
@@ -948,12 +820,12 @@ async def github_tool(
             process.kill()
             await process.wait()
         except Exception as e:
-            logger.warning("[%s] Failed to kill GitHub process: %s", github_tool.name, e)
+            logger.warning("[%s] Failed to kill GitHub process: %s", GITHUB_TOOL_NAME, e)
 
         return "error: GitHub command timed out after 30 seconds. The operation may be too complex or the API is slow."
 
     except Exception as e:
-        logger.exception("[%s] Failed to execute GitHub command.", github_tool.name)
+        logger.exception("[%s] Failed to execute GitHub command.", GITHUB_TOOL_NAME)
         return f"error: Failed to execute GitHub command. Details: {str(e)}"
 
     if process.returncode != 0:
@@ -963,22 +835,22 @@ async def github_tool(
     output = stdout.decode("utf-8").strip()
     if not output:
         final_output = "(empty result — command succeeded with no output, e.g. an empty list or no matches)"
-        if output_file is not None:
-            final_output += f"\n(note: output_file '{output_file}' was not written — the command produced no output.)"
+        if to_file:
+            final_output += "\n(note: no file was written — the command produced no output.)"
     else:
-        keep: Literal["head", "tail"] = "head"
         if resource == "run" and action == "view" and "--log" in splitted_subcommand:
             output = clean_job_logs(output, runtime.context.git_platform)
-            keep = "tail"
 
-        if output_file is not None:
-            final_output = await _handle_output_redirect(
-                output=output, output_file=output_file, runtime=runtime, keep=keep, tool_name=GITHUB_TOOL_NAME
+        if to_file:
+            final_output = await _write_output_to_file(
+                output,
+                runtime=runtime,
+                backend=backend,
+                large_tool_results_prefix=large_tool_results_prefix,
+                tool_name=GITHUB_TOOL_NAME,
             )
         else:
-            final_output = await _finalize_inline_output(
-                output=output, runtime=runtime, resource=resource, action=action, keep=keep, tool_name=GITHUB_TOOL_NAME
-            )
+            final_output = output
 
     # Return Command with state update if token was cached/refreshed
     if state_update:
@@ -1004,30 +876,118 @@ class GitPlatformMiddleware(AgentMiddleware):
         ```python
         from langchain.agents import create_agent
         from langgraph.store.memory import InMemoryStore
+        from codebase.base import GitPlatform
         from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 
         store = InMemoryStore()
 
         agent = create_agent(
             model="openai:gpt-4o",
-            middleware=[GitPlatformMiddleware()],
+            # ``backend`` is the agent's filesystem backend (e.g. the shared SandboxFileBackend).
+            middleware=[GitPlatformMiddleware(git_platform=GitPlatform.GITHUB, backend=backend)],
             store=store,
         )
         ```
     """
 
-    def __init__(self, git_platform: GitPlatform) -> None:
+    def __init__(self, git_platform: GitPlatform, backend: BackendProtocol) -> None:
         """
         Initialize the middleware.
+
+        ``backend`` is the same filesystem backend the agent's file tools use; the platform tools
+        write ``to_file`` dumps through it, into the same large-tool-results dir the deepagents
+        FilesystemMiddleware auto-evicts to (derived identically from the backend's artifacts root).
         """
         super().__init__()
+
+        self._backend = backend
+        self._large_tool_results_prefix = _large_tool_results_prefix(backend)
 
         self.tools = []
 
         if git_platform == GitPlatform.GITLAB:
-            self.tools.append(gitlab_tool)
+            self.tools.append(self._build_gitlab_tool())
         elif git_platform == GitPlatform.GITHUB:
-            self.tools.append(github_tool)
+            self.tools.append(self._build_github_tool())
+
+    def _build_gitlab_tool(self) -> BaseTool:
+        """Build the ``gitlab`` tool as a closure over the bound backend + results prefix."""
+        backend = self._backend
+        large_tool_results_prefix = self._large_tool_results_prefix
+
+        @tool(GITLAB_TOOL_NAME, description=GITLAB_TOOL_DESCRIPTION)
+        async def gitlab(
+            subcommand: Annotated[
+                str,
+                "Single GitLab CLI subcommand string, parsed with shell-like quoting. "
+                "Format: '<object> <action> [arguments...]'. "
+                "Do not include the 'gitlab' prefix, '--project-id', or any output/verbosity flags "
+                "managed by the tool. Wrap arguments containing spaces in double quotes. "
+                "Examples: 'project-issue get --iid 42', 'project-merge-request list --state opened'.",
+            ],
+            runtime: ToolRuntime[RuntimeCtx],
+            output_mode: Annotated[
+                Literal["detailed", "simplified"],
+                "Controls the detail level of the returned output. "
+                "Use 'simplified' for listing/discovery and 'detailed' for inspecting a specific "
+                "resource or reading logs. Ignored when output_to_file is true (JSON is forced). "
+                "Default: 'simplified'.",
+            ] = "simplified",
+            output_to_file: Annotated[
+                bool,
+                "Set true to write the FULL result to a file for bash/jq/grep instead of returning it "
+                "inline. The path is auto-assigned under the large-tool-results dir and returned in a "
+                "compact confirmation (path + size + short preview). The result is written as JSON "
+                "(output_mode ignored); a project-job trace is written as raw log text. Use this when "
+                "you intend to post-process the result with bash. Default: false.",
+            ] = False,
+        ) -> str:
+            return await _run_gitlab_subcommand(
+                subcommand,
+                runtime,
+                output_mode,
+                output_to_file,
+                backend=backend,
+                large_tool_results_prefix=large_tool_results_prefix,
+            )
+
+        return gitlab
+
+    def _build_github_tool(self) -> BaseTool:
+        """Build the ``gh`` tool as a closure over the bound backend + results prefix."""
+        backend = self._backend
+        large_tool_results_prefix = self._large_tool_results_prefix
+
+        @tool(GITHUB_TOOL_NAME, description=GITHUB_TOOL_DESCRIPTION)
+        async def github(
+            subcommand: Annotated[
+                str,
+                "Single GitHub CLI subcommand string, parsed with shell-like quoting. "
+                "Format: '<object> <action> [arguments...]'. "
+                "Do not include the 'gh' prefix. "
+                "Do not pass '--repo', '-R', or '--hostname' (these are managed or restricted by the tool). "
+                "Wrap arguments containing spaces in double quotes. "
+                "Examples: 'issue view 42', 'pr list --state open'.",
+            ],
+            runtime: ToolRuntime[RuntimeCtx],
+            output_to_file: Annotated[
+                bool,
+                "Set true to write the FULL stdout to a file for bash/jq/grep instead of returning it "
+                "inline. The path is auto-assigned under the large-tool-results dir and returned in a "
+                "compact confirmation (path + size + short preview). gh has no global JSON flag — for "
+                "jq-able output include gh's own --json <fields> [--jq ...] in the subcommand. Use this "
+                "when you intend to post-process the result with bash. Default: false.",
+            ] = False,
+        ) -> str | Command:
+            return await _run_github_subcommand(
+                subcommand,
+                runtime,
+                output_to_file,
+                backend=backend,
+                large_tool_results_prefix=large_tool_results_prefix,
+            )
+
+        return github
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]

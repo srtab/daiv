@@ -126,12 +126,42 @@ class TestBindBackend:
         assert backend._session_id == "sid"
 
     def test_bind_backend_noop_for_non_sandbox_backend(self):
-        backend = Mock()  # a disk-backed / composite backend is not a SandboxFileBackend
+        backend = Mock()  # a bare non-sandbox backend has nothing to bind
         mw = SandboxMiddleware(backend=backend, agent_root="/x")
         mw._client = AsyncMock()
 
         mw._bind_backend("sid")
         backend.bind.assert_not_called()
+
+    def test_bind_backend_unwraps_composite_to_bind_sandbox_default(self):
+        """The /workspace backend is a DAIVCompositeBackend wrapping a SandboxFileBackend (to carry
+        an artifacts_root); binding must reach through the composite to the default backend."""
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
+
+        inner = SandboxFileBackend()
+        composite = DAIVCompositeBackend(default=inner, routes={}, artifacts_root="/workspace")
+        mw = SandboxMiddleware(backend=composite, agent_root="/workspace/repo")
+        mw._client = AsyncMock()
+
+        mw._bind_backend("sid")
+        assert inner._session_id == "sid"
+
+    def test_bind_backend_binds_sandbox_backends_wired_as_routes(self):
+        """The unwrap loop iterates ``routes.values()`` too, not just the default slot — a
+        SandboxFileBackend wired as a route must also get bound."""
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
+
+        default_be = SandboxFileBackend()
+        routed_be = SandboxFileBackend()
+        composite = DAIVCompositeBackend(
+            default=default_be, routes={"/skills/": routed_be}, artifacts_root="/workspace"
+        )
+        mw = SandboxMiddleware(backend=composite, agent_root="/workspace/repo")
+        mw._client = AsyncMock()
+
+        mw._bind_backend("sid")
+        assert default_be._session_id == "sid"
+        assert routed_be._session_id == "sid"
 
     def test_bind_backend_subagent_reuses_parent_session_with_own_client(self):
         """Regression: parent and subagent share ONE backend, but each middleware has its OWN

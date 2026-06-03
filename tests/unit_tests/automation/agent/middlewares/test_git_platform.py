@@ -1,38 +1,56 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
 
+from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
 from automation.agent.middlewares.git_platform import (
     GITHUB_TOOL_DESCRIPTION,
     GITLAB_TOOL_DESCRIPTION,
-    _exceeds_output_cap,
-    _finalize_inline_output,
-    _handle_output_redirect,
-    _redirect_confirmation,
-    _validate_workspace_path,
-    _write_output_to_sandbox,
-    github_tool,
-    gitlab_tool,
+    GitPlatformMiddleware,
+    _file_write_confirmation,
+    _large_tool_results_prefix,
+    _run_github_subcommand,
+    _run_gitlab_subcommand,
+    _write_output_to_file,
 )
 from codebase.base import GitPlatform
-from core.sandbox.schemas import FsWriteResponse
+
+LARGE_TOOL_RESULTS_PREFIX = "/workspace/large_tool_results"
 
 
-@contextmanager
-def _mock_sandbox_client(*, ok: bool = True, error: str | None = None):
-    """Patch DAIVSandboxClient with an async mock; yield the client mock for assertions."""
-    client = Mock()
-    client.open = AsyncMock()
-    client.close = AsyncMock()
-    client.fs_write = AsyncMock(return_value=FsWriteResponse(ok=ok, error=error))
-    with patch("automation.agent.middlewares.git_platform.DAIVSandboxClient", return_value=client):
-        yield client
+def _mock_backend(*, error: str | None = None):
+    """Filesystem backend stub whose ``awrite`` records calls and returns a WriteResult-like obj."""
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=Mock(error=error))
+    return backend
+
+
+async def _run_gl(subcommand, runtime, *, output_mode="simplified", to_file=False, backend=None):
+    """Invoke the gitlab tool implementation with a default mock backend + results prefix."""
+    return await _run_gitlab_subcommand(
+        subcommand,
+        runtime,
+        output_mode,
+        to_file,
+        backend=backend if backend is not None else _mock_backend(),
+        large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+    )
+
+
+async def _run_gh(subcommand, runtime, *, to_file=False, backend=None):
+    """Invoke the gh tool implementation with a default mock backend + results prefix."""
+    return await _run_github_subcommand(
+        subcommand,
+        runtime,
+        to_file,
+        backend=backend if backend is not None else _mock_backend(),
+        large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+    )
 
 
 @patch("automation.agent.middlewares.git_platform.cache.lock", new=MagicMock())
@@ -59,7 +77,7 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            result1 = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)
+            result1 = await _run_gh("issue view 1", runtime)
             # Handle Command return - extract output and apply state update
             if isinstance(result1, Command):
                 assert result1.update is not None
@@ -73,7 +91,7 @@ class TestGitHubToolTokenCaching:
             else:
                 out1 = result1
 
-            result2 = await github_tool.coroutine(subcommand="issue view 2", runtime=runtime)
+            result2 = await _run_gh("issue view 2", runtime)
             # Handle Command return - extract output and apply state update
             if isinstance(result2, Command):
                 assert result2.update is not None
@@ -117,7 +135,7 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)
+            result = await _run_gh("issue view 1", runtime)
             # Handle Command return - apply state update
             if isinstance(result, Command) and result.update is not None:
                 # Apply state updates (excluding messages)
@@ -149,7 +167,7 @@ class TestGitHubToolTokenCaching:
             proc.returncode = 0
             create_proc_mock.return_value = proc
 
-            result = await github_tool.coroutine(subcommand="issue view 1", runtime=runtime)
+            result = await _run_gh("issue view 1", runtime)
             # Handle Command return - extract output
             if isinstance(result, Command):
                 assert result.update is not None
@@ -197,10 +215,10 @@ class TestGitLabToolInlineDiscussionFallback:
             mock_rc.create_instance.return_value.create_merge_request_inline_discussion.return_value = "disc-1"
 
             position_json = json.dumps(VALID_POSITION)
-            result = await gitlab_tool.coroutine(
-                subcommand=f'project-merge-request-discussion create --mr-iid 10 --body "nice" '
+            result = await _run_gl(
+                f'project-merge-request-discussion create --mr-iid 10 --body "nice" '
                 f"--position {json.dumps(position_json)}",
-                runtime=runtime,
+                runtime,
             )
 
         assert isinstance(result, str)
@@ -225,7 +243,7 @@ class TestGitLabToolInlineDiscussionFallback:
         with patch("automation.agent.middlewares.git_platform.RepoClient") as mock_rc:
             mock_rc.create_instance.return_value.create_merge_request_inline_discussion.return_value = "disc-eq"
 
-            result = await gitlab_tool.coroutine(subcommand=subcommand, runtime=runtime)
+            result = await _run_gl(subcommand, runtime)
 
         assert json.loads(result)["id"] == "disc-eq"
 
@@ -247,9 +265,7 @@ class TestGitLabToolInlineDiscussionFallback:
             proc.returncode = 0
             create_proc.return_value = proc
 
-            result = await gitlab_tool.coroutine(
-                subcommand='project-merge-request-discussion create --mr-iid 10 --body "hi"', runtime=runtime
-            )
+            result = await _run_gl('project-merge-request-discussion create --mr-iid 10 --body "hi"', runtime)
 
         assert result == "cli-output"
         mock_rc.create_instance.return_value.create_merge_request_inline_discussion.assert_not_called()
@@ -260,9 +276,8 @@ class TestGitLabToolInlineDiscussionFallback:
         position_json = json.dumps(VALID_POSITION)
 
         with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await gitlab_tool.coroutine(
-                subcommand=f'project-merge-request-discussion create --body "b" --position {json.dumps(position_json)}',
-                runtime=runtime,
+            result = await _run_gl(
+                f'project-merge-request-discussion create --body "b" --position {json.dumps(position_json)}', runtime
             )
 
         assert result.startswith("error:")
@@ -273,9 +288,8 @@ class TestGitLabToolInlineDiscussionFallback:
         position_json = json.dumps(VALID_POSITION)
 
         with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await gitlab_tool.coroutine(
-                subcommand=f"project-merge-request-discussion create --mr-iid 5 --position {json.dumps(position_json)}",
-                runtime=runtime,
+            result = await _run_gl(
+                f"project-merge-request-discussion create --mr-iid 5 --position {json.dumps(position_json)}", runtime
             )
 
         assert result.startswith("error:")
@@ -285,9 +299,8 @@ class TestGitLabToolInlineDiscussionFallback:
         runtime = _make_gitlab_runtime()
 
         with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await gitlab_tool.coroutine(
-                subcommand='project-merge-request-discussion create --mr-iid 5 --body "b" --position "not-json"',
-                runtime=runtime,
+            result = await _run_gl(
+                'project-merge-request-discussion create --mr-iid 5 --body "b" --position "not-json"', runtime
             )
 
         assert result.startswith("error:")
@@ -297,9 +310,8 @@ class TestGitLabToolInlineDiscussionFallback:
         runtime = _make_gitlab_runtime()
 
         with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await gitlab_tool.coroutine(
-                subcommand='project-merge-request-discussion create --mr-iid 5 --body "b" --position "[1,2,3]"',
-                runtime=runtime,
+            result = await _run_gl(
+                'project-merge-request-discussion create --mr-iid 5 --body "b" --position "[1,2,3]"', runtime
             )
 
         assert result.startswith("error:")
@@ -313,10 +325,10 @@ class TestGitLabToolInlineDiscussionFallback:
                 "GitLab 422"
             )
 
-            result = await gitlab_tool.coroutine(
-                subcommand=f'project-merge-request-discussion create --mr-iid 10 --body "b" '
+            result = await _run_gl(
+                f'project-merge-request-discussion create --mr-iid 10 --body "b" '
                 f"--position {json.dumps(position_json)}",
-                runtime=runtime,
+                runtime,
             )
 
         assert result.startswith("error:")
@@ -334,154 +346,117 @@ class TestGitLabToolInlineDiscussionFallback:
         runtime = _make_gitlab_runtime()
 
         with patch("automation.agent.middlewares.git_platform.RepoClient"):
-            result = await gitlab_tool.coroutine(subcommand=subcommand, runtime=runtime)
+            result = await _run_gl(subcommand, runtime)
 
         assert result.startswith("error:")
         assert "--mr-iid" in result
 
 
-@pytest.mark.parametrize("path", ["/workspace/tmp/x.json", "/workspace/repo/a/b.txt", "/workspace/out"])
-def test_validate_workspace_path_accepts_under_workspace(path):
-    assert _validate_workspace_path(path) is None
+def test_large_tool_results_prefix_uses_artifacts_root_for_composite():
+    backend = DAIVCompositeBackend(default=SandboxFileBackend(), routes={}, artifacts_root="/workspace")
+    assert _large_tool_results_prefix(backend) == "/workspace/large_tool_results"
 
 
-@pytest.mark.parametrize("path", ["relative.json", "/etc/passwd", "/workspace/../etc/passwd", "/workspace", ""])
-def test_validate_workspace_path_rejects(path):
-    err = _validate_workspace_path(path)
-    assert err is not None
-    assert err.startswith("error:")
+def test_large_tool_results_prefix_defaults_to_root_for_non_composite():
+    # A bare backend carries no artifacts_root the middleware would honour, so it falls back to "/".
+    assert _large_tool_results_prefix(SandboxFileBackend()) == "/large_tool_results"
 
 
-def test_exceeds_output_cap_thresholds():
-    assert _exceeds_output_cap("\n".join(str(i) for i in range(2100))) is True  # 2100 lines
-    assert _exceeds_output_cap("\n".join(str(i) for i in range(100))) is False  # 100 lines
-    assert _exceeds_output_cap("\n".join(str(i) for i in range(2000))) is False  # exactly 2000 lines
-
-
-def test_redirect_confirmation_shape():
+def test_file_write_confirmation_shape():
     output = "line1\nline2\nline3"
-    msg = _redirect_confirmation("/workspace/tmp/x.json", 17, 3, output)
-    assert "/workspace/tmp/x.json" in msg
+    msg = _file_write_confirmation("/workspace/large_tool_results/x", 17, 3, output)
+    assert "/workspace/large_tool_results/x" in msg
     assert "17 bytes" in msg
     assert "3 lines" in msg
     assert "line1" in msg  # head preview included
 
 
-def test_redirect_confirmation_caps_preview_to_25_lines():
+def test_file_write_confirmation_caps_preview_to_25_lines():
     output = "\n".join(f"line{i}" for i in range(100))
-    msg = _redirect_confirmation("/workspace/tmp/x.json", 999, 100, output)
+    msg = _file_write_confirmation("/workspace/large_tool_results/x", 999, 100, output)
     assert "line24" in msg  # 25th line (0-indexed) is shown
     assert "line25" not in msg  # 26th line is not
 
 
-async def test_write_output_to_sandbox_writes_and_returns_counts():
-    with _mock_sandbox_client() as client:
-        byte_count, line_count = await _write_output_to_sandbox("a\nb\nc", "/workspace/tmp/x.txt", "sess-9")
-
-    assert client.fs_write.call_args.args[0] == "sess-9"
-    req = client.fs_write.call_args.args[1]
-    assert req.path == "/workspace/tmp/x.txt"
-    assert req.content == b"a\nb\nc"  # Base64Bytes stores decoded bytes after validation
-    assert (byte_count, line_count) == (5, 3)
-    client.open.assert_awaited_once()
-    client.close.assert_awaited_once()
+def test_file_write_confirmation_caps_preview_chars():
+    output = "x" * 5000  # single very long line
+    msg = _file_write_confirmation("/workspace/large_tool_results/x", 5000, 1, output)
+    assert "(preview truncated)" in msg
+    assert len(msg) < 5000
 
 
-async def test_write_output_to_sandbox_raises_on_not_ok_and_still_closes():
-    with _mock_sandbox_client(ok=False, error="disk full") as client, pytest.raises(RuntimeError, match="disk full"):
-        await _write_output_to_sandbox("x", "/workspace/tmp/x.txt", "s")
-    client.close.assert_awaited_once()
+async def test_write_output_to_file_writes_via_backend_and_confirms():
+    runtime = _make_gitlab_runtime()  # tool_call_id="test_call_gitlab"
+    backend = _mock_backend()
 
-
-async def test_handle_redirect_degrades_inline_without_session():
-    runtime = _make_gitlab_runtime()  # state has no session_id
-    result = await _handle_output_redirect(
-        output="hello", output_file="/workspace/tmp/x.json", runtime=runtime, keep="head", tool_name="gitlab"
+    result = await _write_output_to_file(
+        "a\nb\nc",
+        runtime=runtime,
+        backend=backend,
+        large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX,
+        tool_name="gitlab",
     )
-    assert "output_file was ignored" in result
-    assert "hello" in result
 
-
-async def test_handle_redirect_writes_and_confirms_with_session():
-    runtime = _make_gitlab_runtime()
-    runtime.state["session_id"] = "sess-1"
-    with _mock_sandbox_client() as client:
-        result = await _handle_output_redirect(
-            output="payload-data", output_file="/workspace/tmp/x.json", runtime=runtime, keep="head", tool_name="gitlab"
-        )
-    assert client.fs_write.call_args.args[1].path == "/workspace/tmp/x.json"
+    path, content = backend.awrite.call_args.args
+    # path is keyed by tool_call_id, exactly like the middleware's auto-eviction
+    assert path == "/workspace/large_tool_results/test_call_gitlab"
+    assert content == "a\nb\nc"  # full content, untruncated
     assert result.startswith("Wrote ")
+    assert "3 lines" in result
 
 
-async def test_handle_redirect_returns_error_on_write_failure():
+async def test_write_output_to_file_returns_error_on_backend_failure():
     runtime = _make_gitlab_runtime()
-    runtime.state["session_id"] = "sess-1"
-    with _mock_sandbox_client(ok=False, error="boom"):
-        result = await _handle_output_redirect(
-            output="x", output_file="/workspace/tmp/x.json", runtime=runtime, keep="head", tool_name="gitlab"
-        )
+    backend = _mock_backend(error="disk full")
+
+    result = await _write_output_to_file(
+        "x", runtime=runtime, backend=backend, large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX, tool_name="gitlab"
+    )
+
     assert result.startswith("error:")
-    assert "/workspace/tmp/x.json" in result
+    assert "disk full" in result
 
 
-async def test_finalize_inline_returns_plain_output_when_small():
+async def test_write_output_to_file_returns_error_when_backend_raises():
+    """A raised exception from ``awrite`` must be caught and returned as an ``error:`` string,
+    not propagated out of the tool (the agent's only channel is the returned string)."""
     runtime = _make_gitlab_runtime()
-    with patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as cls:
-        result = await _finalize_inline_output(
-            output="small", runtime=runtime, resource="r", action="a", keep="head", tool_name="gitlab"
-        )
-        cls.assert_not_called()
-    assert result == "small"
+    backend = _mock_backend()
+    backend.awrite = AsyncMock(side_effect=RuntimeError("boom"))
+
+    result = await _write_output_to_file(
+        "x", runtime=runtime, backend=backend, large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX, tool_name="gitlab"
+    )
+
+    assert result.startswith("error:")
+    assert "boom" in result
 
 
-async def test_finalize_inline_auto_evicts_when_oversized_with_session():
+async def test_write_output_to_file_fails_loudly_when_tool_call_id_missing():
+    """Without a tool_call_id the path key would collapse onto a shared filename, silently
+    overwriting a prior dump — so the write must be refused with an ``error:`` string instead."""
+    runtime = ToolRuntime(
+        state={},
+        context=Mock(repository=Mock(slug="group/repo"), git_platform=GitPlatform.GITLAB),
+        config={},
+        stream_writer=Mock(),
+        tool_call_id=None,
+        store=None,
+    )
+    backend = _mock_backend()
+
+    result = await _write_output_to_file(
+        "x", runtime=runtime, backend=backend, large_tool_results_prefix=LARGE_TOOL_RESULTS_PREFIX, tool_name="gitlab"
+    )
+
+    assert result.startswith("error:")
+    assert "tool_call_id" in result
+    backend.awrite.assert_not_called()
+
+
+async def test_gitlab_output_to_file_forces_json_writes_and_confirms():
     runtime = _make_gitlab_runtime()
-    runtime.state["session_id"] = "sess-1"
-    big = "\n".join(str(i) for i in range(2100))
-    with _mock_sandbox_client() as client:
-        result = await _finalize_inline_output(
-            output=big,
-            runtime=runtime,
-            resource="project-merge-request",
-            action="list",
-            keep="head",
-            tool_name="gitlab",
-        )
-    path = client.fs_write.call_args.args[1].path
-    assert path.startswith("/workspace/tmp/gitlab-project-merge-request-list-")
-    assert path.endswith(".txt")
-    assert "written verbatim to the scratch file" in result
-    # Note must be platform-neutral and guide both gitlab and gh users
-    assert "output_file=" in result
-    assert "--json" in result
-
-
-async def test_finalize_inline_truncates_without_session_when_oversized():
-    runtime = _make_gitlab_runtime()  # no session
-    big = "\n".join(str(i) for i in range(2100))
-    with patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as cls:
-        result = await _finalize_inline_output(
-            output=big, runtime=runtime, resource="r", action="a", keep="head", tool_name="gitlab"
-        )
-        cls.assert_not_called()
-    assert "truncated" in result  # sentinel from _truncate_cli_output
-
-
-async def test_finalize_inline_falls_back_to_truncation_when_evict_fails():
-    runtime = _make_gitlab_runtime()
-    runtime.state["session_id"] = "sess-1"
-    big = "\n".join(str(i) for i in range(2100))
-    with _mock_sandbox_client(ok=False, error="disk full"):
-        result = await _finalize_inline_output(
-            output=big, runtime=runtime, resource="r", action="a", keep="head", tool_name="gitlab"
-        )
-    assert "truncated" in result  # fallback to _truncate_cli_output sentinel
-    assert "writing it to a sandbox scratch file failed" in result  # eviction-failure note
-
-
-async def test_gitlab_output_file_forces_json_writes_and_confirms():
-    runtime = _make_gitlab_runtime()
-    runtime.state["session_id"] = "sess-1"
+    backend = _mock_backend()
 
     mock_settings = Mock()
     mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
@@ -492,75 +467,78 @@ async def test_gitlab_output_file_forces_json_writes_and_confirms():
     with (
         patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
         patch("automation.agent.middlewares.git_platform.settings", mock_settings),
-        _mock_sandbox_client() as client,
     ):
         proc = Mock()
         proc.communicate = AsyncMock(return_value=(payload, b""))
         proc.returncode = 0
         create_proc.return_value = proc
 
-        result = await gitlab_tool.coroutine(
-            subcommand="project-merge-request list --state opened",
-            runtime=runtime,
-            output_mode="detailed",
-            output_file="/workspace/tmp/mrs.json",
+        result = await _run_gl(
+            "project-merge-request list --state opened", runtime, output_mode="detailed", to_file=True, backend=backend
         )
 
     argv = list(create_proc.call_args.args)
     assert "--output" in argv and argv[argv.index("--output") + 1] == "json"
-    assert "--verbose" not in argv  # output_mode ignored on redirect
+    assert "--verbose" not in argv  # output_mode ignored when writing to file
 
-    assert client.fs_write.call_args.args[0] == "sess-1"
-    req = client.fs_write.call_args.args[1]
-    assert req.path == "/workspace/tmp/mrs.json"
-    assert req.content == b'[{"iid": 1}, {"iid": 2}]'  # full, untruncated, decoded
+    path, content = backend.awrite.call_args.args
+    assert path == "/workspace/large_tool_results/test_call_gitlab"
+    assert content == '[{"iid": 1}, {"iid": 2}]'  # full, untruncated
     assert result.startswith("Wrote ")
-    assert "/workspace/tmp/mrs.json" in result
+    assert "/workspace/large_tool_results/test_call_gitlab" in result
     assert '"iid": 1' in result  # head preview
 
 
-async def test_gitlab_output_file_does_not_force_json_for_job_trace():
+async def test_gitlab_output_to_file_does_not_force_json_for_job_trace():
     runtime = _make_gitlab_runtime()
-    runtime.state["session_id"] = "sess-1"
+    backend = _mock_backend()
     mock_settings = Mock()
     mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
     mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
     with (
         patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
         patch("automation.agent.middlewares.git_platform.settings", mock_settings),
-        _mock_sandbox_client() as client,
     ):
         proc = Mock()
         proc.communicate = AsyncMock(return_value=(b"log line 1\nlog line 2\n", b""))
         proc.returncode = 0
         create_proc.return_value = proc
-        result = await gitlab_tool.coroutine(
-            subcommand="project-job trace --id 55", runtime=runtime, output_file="/workspace/tmp/trace.txt"
-        )
+        result = await _run_gl("project-job trace --id 55", runtime, to_file=True, backend=backend)
     argv = list(create_proc.call_args.args)
     assert "--output" not in argv  # traces are raw log text; JSON would be degenerate
-    assert client.fs_write.call_args.args[1].path == "/workspace/tmp/trace.txt"
+    assert backend.awrite.call_args.args[0] == "/workspace/large_tool_results/test_call_gitlab"
     assert result.startswith("Wrote ")
 
 
-async def test_gitlab_invalid_output_file_errors_before_running_cli():
+async def test_gitlab_empty_output_to_file_notes_no_file_written():
+    """When the gitlab CLI returns empty stdout and output_to_file is true, the result must
+    contain both the 'empty result' sentinel and a note that no file was written."""
     runtime = _make_gitlab_runtime()
-    runtime.state["session_id"] = "sess-1"
+    backend = _mock_backend()
+
+    mock_settings = Mock()
+    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
+    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
+
     with (
         patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
-        patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as client_cls,
+        patch("automation.agent.middlewares.git_platform.settings", mock_settings),
     ):
-        result = await gitlab_tool.coroutine(
-            subcommand="project-issue get --iid 1", runtime=runtime, output_file="/etc/passwd"
-        )
-    assert result.startswith("error:")
-    create_proc.assert_not_called()
-    client_cls.assert_not_called()
+        proc = Mock()
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+        proc.returncode = 0
+        create_proc.return_value = proc
+
+        result = await _run_gl("project-issue list --state opened", runtime, to_file=True, backend=backend)
+
+    assert "empty result" in result
+    assert "no file was written" in result
+    backend.awrite.assert_not_called()
 
 
 @patch("automation.agent.middlewares.git_platform.cache.lock", new=MagicMock())
-class TestGitHubToolOutputFile:
-    async def test_github_output_file_writes_verbatim_and_wraps_in_command(self):
+class TestGitHubToolOutputToFile:
+    async def test_github_output_to_file_writes_verbatim_and_wraps_in_command(self):
         runtime = ToolRuntime(
             state={"session_id": "sess-1"},
             context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
@@ -569,12 +547,12 @@ class TestGitHubToolOutputFile:
             tool_call_id="c1",
             store=None,
         )
+        backend = _mock_backend()
         payload = b'{"number": 7}\n'
 
         with (
             patch("automation.agent.middlewares.git_platform.get_github_integration") as gi,
             patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
-            _mock_sandbox_client() as client,
         ):
             gi.return_value.get_access_token.return_value = Mock(
                 token="tok",  # noqa: S106
@@ -585,47 +563,25 @@ class TestGitHubToolOutputFile:
             proc.returncode = 0
             create_proc.return_value = proc
 
-            result = await github_tool.coroutine(
-                subcommand="pr view 7 --json number", runtime=runtime, output_file="/workspace/tmp/pr.json"
-            )
+            result = await _run_gh("pr view 7 --json number", runtime, to_file=True, backend=backend)
 
         # gh is written verbatim — the tool never injects a global --output flag
         argv = list(create_proc.call_args.args)
         assert "--output" not in argv
 
-        req = client.fs_write.call_args.args[1]
-        assert req.path == "/workspace/tmp/pr.json"
-        assert req.content == b'{"number": 7}'
+        path, content = backend.awrite.call_args.args
+        assert path == "/workspace/large_tool_results/c1"
+        assert content == '{"number": 7}'
 
         # token was refreshed → Command, and its ToolMessage carries the confirmation
         assert isinstance(result, Command)
         msg = result.update["messages"][0].content
         assert msg.startswith("Wrote ")
-        assert "/workspace/tmp/pr.json" in msg
+        assert "/workspace/large_tool_results/c1" in msg
 
-    async def test_github_invalid_output_file_errors_before_running_cli(self):
-        runtime = ToolRuntime(
-            state={"session_id": "sess-1"},
-            context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
-            config={"configurable": {"thread_id": "t-gh-bad"}},
-            stream_writer=Mock(),
-            tool_call_id="c2",
-            store=None,
-        )
-        with (
-            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
-            patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as client_cls,
-        ):
-            result = await github_tool.coroutine(
-                subcommand="issue view 1", runtime=runtime, output_file="../escape.json"
-            )
-        assert result.startswith("error:")
-        create_proc.assert_not_called()
-        client_cls.assert_not_called()
-
-    async def test_github_empty_output_with_output_file_notes_file_not_written(self):
-        """When gh returns empty stdout and output_file is set, the result must contain
-        both the 'empty result' sentinel and a note that the file was not written."""
+    async def test_github_empty_output_to_file_notes_no_file_written(self):
+        """When gh returns empty stdout and output_to_file is true, the result must contain
+        both the 'empty result' sentinel and a note that no file was written."""
         runtime = ToolRuntime(
             state={"session_id": "sess-1", "github_token": "tok", "github_token_expires_at": 9999999999.0},
             context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
@@ -634,61 +590,27 @@ class TestGitHubToolOutputFile:
             tool_call_id="c3",
             store=None,
         )
-        with (
-            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
-            patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as client_cls,
-        ):
+        backend = _mock_backend()
+        with patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc:
             proc = Mock()
             proc.communicate = AsyncMock(return_value=(b"", b""))
             proc.returncode = 0
             create_proc.return_value = proc
 
-            result = await github_tool.coroutine(
-                subcommand="issue list --state open", runtime=runtime, output_file="/workspace/tmp/issues.json"
-            )
+            result = await _run_gh("issue list --state open", runtime, to_file=True, backend=backend)
 
         # Token was already cached → plain string (no Command)
         assert isinstance(result, str)
         assert "empty result" in result
-        assert "not written" in result
-        client_cls.assert_not_called()
+        assert "no file was written" in result
+        backend.awrite.assert_not_called()
 
 
-async def test_gitlab_empty_output_with_output_file_notes_file_not_written():
-    """When the gitlab CLI returns empty stdout and output_file is set, the result must
-    contain both the 'empty result' sentinel and a note that the file was not written."""
-    runtime = _make_gitlab_runtime()
-    runtime.state["session_id"] = "sess-1"
-
-    mock_settings = Mock()
-    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
-    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
-
-    with (
-        patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
-        patch("automation.agent.middlewares.git_platform.settings", mock_settings),
-        patch("automation.agent.middlewares.git_platform.DAIVSandboxClient") as client_cls,
-    ):
-        proc = Mock()
-        proc.communicate = AsyncMock(return_value=(b"", b""))
-        proc.returncode = 0
-        create_proc.return_value = proc
-
-        result = await gitlab_tool.coroutine(
-            subcommand="project-issue list --state opened", runtime=runtime, output_file="/workspace/tmp/issues.json"
-        )
-
-    assert "empty result" in result
-    assert "not written" in result
-    client_cls.assert_not_called()
-
-
-def test_tool_descriptions_document_output_file():
+async def test_tool_descriptions_document_output_to_file():
     for desc in (GITLAB_TOOL_DESCRIPTION, GITHUB_TOOL_DESCRIPTION):
-        assert "output_file" in desc
-        assert "/workspace" in desc
-        assert "/workspace/tmp" in desc  # transient-dump guidance
-    assert "--output json" in GITLAB_TOOL_DESCRIPTION  # gitlab forces JSON on redirect
+        assert "output_to_file" in desc
+        assert "read_file" in desc  # how to consume the saved file
+    assert "--output json" in GITLAB_TOOL_DESCRIPTION  # gitlab forces JSON when writing to file
     assert "--json" in GITHUB_TOOL_DESCRIPTION  # gh opts into JSON via its own flag
 
 
@@ -698,17 +620,10 @@ def test_tool_descriptions_document_project_job_trace_raw_text():
     assert "raw log text" in GITLAB_TOOL_DESCRIPTION
 
 
-def test_redirect_confirmation_caps_preview_chars():
-    output = "x" * 5000  # single very long line
-    msg = _redirect_confirmation("/workspace/tmp/x.json", 5000, 1, output)
-    assert "(preview truncated)" in msg
-    assert len(msg) < 5000
-
-
 @patch("automation.agent.middlewares.git_platform.cache.lock", new=MagicMock())
-class TestGitHubToolOutputFileExtra:
-    async def test_github_run_view_log_redirect(self):
-        """gh run view --log redirect: clean_job_logs + keep='tail'; file written, confirmation returned."""
+class TestGitHubToolOutputToFileExtra:
+    async def test_github_run_view_log_to_file(self):
+        """gh run view --log to_file: clean_job_logs runs; file written, confirmation returned."""
         runtime = ToolRuntime(
             state={"session_id": "sess-2", "github_token": "tok", "github_token_expires_at": 9999999999.0},
             context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
@@ -717,6 +632,7 @@ class TestGitHubToolOutputFileExtra:
             tool_call_id="c-log",
             store=None,
         )
+        backend = _mock_backend()
         log_output = b"2024-01-01T00:00:00.000Z job1\tsome log line\n"
 
         with (
@@ -724,25 +640,22 @@ class TestGitHubToolOutputFileExtra:
             patch(
                 "automation.agent.middlewares.git_platform.clean_job_logs", return_value="some log line"
             ) as mock_clean,
-            _mock_sandbox_client() as client,
         ):
             proc = Mock()
             proc.communicate = AsyncMock(return_value=(log_output, b""))
             proc.returncode = 0
             create_proc.return_value = proc
 
-            result = await github_tool.coroutine(
-                subcommand="run view 123 --job 456 --log", runtime=runtime, output_file="/workspace/tmp/log.txt"
-            )
+            result = await _run_gh("run view 123 --job 456 --log", runtime, to_file=True, backend=backend)
 
         # Token was already cached → plain string (no Command)
         assert isinstance(result, str)
         assert result.startswith("Wrote ")
-        assert client.fs_write.call_args.args[1].path == "/workspace/tmp/log.txt"
+        assert backend.awrite.call_args.args[0] == "/workspace/large_tool_results/c-log"
         mock_clean.assert_called_once()
 
-    async def test_github_output_file_cached_token_plain_string(self):
-        """gh output_file with a cached valid token returns a plain str (no Command)."""
+    async def test_github_output_to_file_cached_token_plain_string(self):
+        """gh output_to_file with a cached valid token returns a plain str (no Command)."""
         runtime = ToolRuntime(
             state={"session_id": "sess-3", "github_token": "tok", "github_token_expires_at": 9999999999.0},
             context=Mock(repo_id="owner/repo", git_platform=GitPlatform.GITHUB),
@@ -751,20 +664,61 @@ class TestGitHubToolOutputFileExtra:
             tool_call_id="c-cached",
             store=None,
         )
+        backend = _mock_backend()
         payload = b'{"number": 7}\n'
 
-        with (
-            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
-            _mock_sandbox_client(),
-        ):
+        with patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc:
             proc = Mock()
             proc.communicate = AsyncMock(return_value=(payload, b""))
             proc.returncode = 0
             create_proc.return_value = proc
 
-            result = await github_tool.coroutine(
-                subcommand="pr view 7 --json number", runtime=runtime, output_file="/workspace/tmp/pr.json"
-            )
+            result = await _run_gh("pr view 7 --json number", runtime, to_file=True, backend=backend)
 
         assert isinstance(result, str)
+        assert result.startswith("Wrote ")
+        assert backend.awrite.call_args.args[0] == "/workspace/large_tool_results/c-cached"
+
+
+class TestGitPlatformMiddlewareWiring:
+    def test_builds_gitlab_tool_and_prefix_from_backend(self):
+        backend = DAIVCompositeBackend(default=SandboxFileBackend(), routes={}, artifacts_root="/workspace")
+        mw = GitPlatformMiddleware(git_platform=GitPlatform.GITLAB, backend=backend)
+        assert mw._large_tool_results_prefix == "/workspace/large_tool_results"
+        assert [t.name for t in mw.tools] == ["gitlab"]
+
+    def test_builds_github_tool(self):
+        backend = DAIVCompositeBackend(default=SandboxFileBackend(), routes={}, artifacts_root="/workspace")
+        mw = GitPlatformMiddleware(git_platform=GitPlatform.GITHUB, backend=backend)
+        assert [t.name for t in mw.tools] == ["gh"]
+
+    async def test_gitlab_closure_forwards_backend_and_prefix_end_to_end(self):
+        """Invoking the closure-built gitlab tool (not the underscore helper) must write through
+        the middleware's own backend, at the prefix derived from that backend's artifacts_root —
+        proving the closure captured and forwarded both ``backend`` and ``large_tool_results_prefix``."""
+        backend = DAIVCompositeBackend(default=SandboxFileBackend(), routes={}, artifacts_root="/workspace")
+        backend.awrite = AsyncMock(return_value=Mock(error=None))
+        mw = GitPlatformMiddleware(git_platform=GitPlatform.GITLAB, backend=backend)
+
+        runtime = _make_gitlab_runtime()  # tool_call_id="test_call_gitlab"
+        mock_settings = Mock()
+        mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
+        mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
+
+        with (
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            patch("automation.agent.middlewares.git_platform.settings", mock_settings),
+        ):
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(b'[{"iid": 1}]\n', b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            result = await mw.tools[0].coroutine(
+                subcommand="project-merge-request list --state opened", runtime=runtime, output_to_file=True
+            )
+
+        path, content = backend.awrite.call_args.args
+        assert path == "/workspace/large_tool_results/test_call_gitlab"
+        assert content == '[{"iid": 1}]'
         assert result.startswith("Wrote ")

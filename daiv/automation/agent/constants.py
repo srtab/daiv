@@ -21,7 +21,6 @@ GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
 WORKSPACE_PATH = "/workspace"
 REPO_PATH = "/workspace/repo"
 SKILLS_PATH = "/workspace/skills"
-SCRATCH_PATH = "/workspace/tmp"  # the per-run scratchpad, now a workspace subdir
 
 # On-disk root the composite backend mounts at ``GLOBAL_SKILLS_PATH``. Created at module
 # import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup

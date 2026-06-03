@@ -67,7 +67,7 @@ def _build_general_purpose_middleware(
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS),
-        GitPlatformMiddleware(git_platform=runtime.git_platform),
+        GitPlatformMiddleware(git_platform=runtime.git_platform, backend=backend),
         SummarizationMiddleware(
             model=model,
             backend=backend,

@@ -315,7 +315,9 @@
   // intentionally do NOT use the prefix — they still carry useful content.
   const ERROR_PREFIX_RE = /^error\b/i;
   const REDIRECT_TAG_RE = /<redirect_url>([^<]+)<\/redirect_url>/;
-  // Sentinel from _truncate_cli_output; presence drives the "truncated" badge.
+  // Legacy line-truncation sentinel; presence drives the "truncated" badge. Git platform tools
+  // no longer truncate (large results are offloaded to a file by the agent harness), so this only
+  // matches messages persisted before that change.
   const TRUNCATED_SENTINEL_RE = /\.{3} \(truncated, (\d+) lines omitted\)/;
   // First identifying flag to surface in the gitlab/gh summary row so adjacent
   // calls are distinguishable without expanding.

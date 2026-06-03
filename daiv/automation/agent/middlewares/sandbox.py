@@ -18,7 +18,7 @@ from langgraph.typing import StateT  # noqa: TC002
 
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
-from automation.agent.middlewares.file_system import SandboxFileBackend
+from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient
@@ -395,14 +395,20 @@ class SandboxMiddleware(AgentMiddleware):
         return bash_tool
 
     def _bind_backend(self, session_id: str) -> None:
-        """Bind the live client+session into the single ``/workspace`` backend.
+        """Bind the live client+session into the ``/workspace`` :class:`SandboxFileBackend`.
 
-        Idempotent: subagents share the parent's backend instance, so re-binding with the
-        same client+session is a no-op rebind. A non-sandbox backend (sandbox-disabled
-        runs) is left untouched.
+        The backend is a :class:`DAIVCompositeBackend` (wrapping the SandboxFileBackend so an
+        ``artifacts_root`` under /workspace can be set), so unwrap it to reach the backend(s)
+        that actually need a client+session. Idempotent: subagents share the parent's backend
+        instance, so re-binding with the same client+session is a no-op rebind. A non-sandbox
+        backend (sandbox-disabled runs) is left untouched.
         """
-        if session_id and self._client is not None and isinstance(self._backend, SandboxFileBackend):
-            self._backend.bind(self._client, session_id)
+        if not (session_id and self._client is not None):
+            return
+        candidates = self._backend.routes.values() if isinstance(self._backend, DAIVCompositeBackend) else ()
+        for candidate in (getattr(self._backend, "default", self._backend), *candidates):
+            if isinstance(candidate, SandboxFileBackend):
+                candidate.bind(self._client, session_id)
 
     @staticmethod
     def _conversation_thread_id() -> str | None:
