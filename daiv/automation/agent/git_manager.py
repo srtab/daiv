@@ -200,67 +200,6 @@ class GitManager:
         return bool(result.output.strip())
 
     # -- mutations -----------------------------------------------------------
-    async def commit_and_push_changes(
-        self,
-        commit_message: str,
-        *,
-        branch_name: str,
-        skip_ci: bool = False,
-        override_commits: bool = False,
-        use_branch_if_exists: bool = True,
-    ) -> str:
-        """Stage all changes, commit, and push ``branch_name`` to ``origin``.
-
-        Mirrors the prior GitPython semantics: branch-exists (local/remote) handling,
-        ``override_commits`` force-recreate, unique-name generation when
-        ``use_branch_if_exists`` is False, and typed ``GitPushPermissionError`` /
-        ``GitPushNetworkError`` on auth / unreachable-host failures. Returns the branch name
-        actually pushed to.
-        """
-        await self._git("fetch", "origin", check=False)
-
-        # Branch listings run with check=True: a failing `branch`/`ls-remote` must raise rather
-        # than parse to an empty list, which would corrupt the branch-exists decision below
-        # (the same exit-code discipline applied to get_diff/has_unpushed).
-        local_branch_names = self._parse_local_branches((await self._git("branch", "--format=%(refname:short)")).output)
-        remote_branch_names = self._parse_remote_branches((await self._git("ls-remote", "--heads", "origin")).output)
-
-        branch_exists_locally = branch_name in local_branch_names
-        branch_exists_remotely = branch_name in remote_branch_names
-
-        if branch_exists_locally or branch_exists_remotely:
-            if override_commits and use_branch_if_exists:
-                if branch_exists_locally:
-                    await self._git("branch", "-D", branch_name)  # Force delete local
-                await self._git("checkout", "-b", branch_name)  # Create and checkout
-            elif not use_branch_if_exists:
-                # Need both local and remote for unique-name generation.
-                all_branch_names = list(set(local_branch_names + remote_branch_names))
-                branch_name = self._gen_unique_branch_name(branch_name, all_branch_names)
-                await self._git("checkout", "-b", branch_name)
-            else:
-                # Branch exists, just checkout (git handles remote tracking).
-                await self._git("checkout", branch_name)
-        else:
-            await self._git("checkout", "-b", branch_name)
-
-        await self._git("add", "-A")
-        await self._git("commit", "-m", commit_message if not skip_ci else f"[skip ci] {commit_message}")
-
-        push_args = ["push", "origin", branch_name, *(["--force"] if override_commits else [])]
-        push = await self._git(*push_args, check=False)
-        if push.exit_code != 0:
-            _raise_for_push_failure(push_args, push)
-
-        return branch_name
-
-    async def checkout(self, branch_name: str) -> None:
-        """Fetch and checkout ``branch_name``; raise ``ValueError`` if it does not exist."""
-        await self._git("fetch", "origin", check=False)
-        result = await self._git("checkout", branch_name, check=False)
-        if result.exit_code != 0:
-            raise ValueError(f"Branch {branch_name} does not exist in the repository.")
-
     async def commit_all(self, message: str) -> None:
         """Stage every change and commit it. Callers should ensure the tree is dirty first
         (``git commit`` exits non-zero on an empty index)."""
@@ -294,11 +233,6 @@ class GitManager:
         return self._gen_unique_branch_name(original_branch_name, existing_branch_names)
 
     # -- helpers -------------------------------------------------------------
-    @staticmethod
-    def _parse_local_branches(output: str) -> list[str]:
-        """Branch names from ``git branch --format=%(refname:short)``."""
-        return [line.strip() for line in output.splitlines() if line.strip()]
-
     @staticmethod
     def _parse_remote_branches(output: str) -> list[str]:
         """Branch names from ``git ls-remote --heads origin`` (lines: ``<sha>\\trefs/heads/<branch>``)."""

@@ -142,53 +142,6 @@ async def test_local_get_diff_includes_untracked_file_diff(tmp_path: Path) -> No
     assert "new_file.txt" in diff
 
 
-async def test_local_commit_and_push_creates_branch_and_pushes(tmp_path: Path) -> None:
-    repo, origin_dir = _init_repo_with_origin(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / "feature.txt").write_text("feature\n")
-
-    branch_name = await GitManager(repo).commit_and_push_changes("Add feature", branch_name="feature/test")
-
-    assert branch_name == "feature/test"
-    fresh = Repo(repo_dir)
-    assert fresh.active_branch.name == "feature/test"
-    assert fresh.head.commit.message.strip() == "Add feature"
-
-    origin_repo = Repo(origin_dir)
-    assert branch_name in [head.name for head in origin_repo.heads]
-
-
-async def test_local_commit_and_push_adds_skip_ci_prefix(tmp_path: Path) -> None:
-    repo, _ = _init_repo_with_origin(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / "skip.txt").write_text("skip\n")
-
-    await GitManager(repo).commit_and_push_changes("Add skip", branch_name="skip-ci", skip_ci=True)
-
-    assert Repo(repo_dir).head.commit.message.strip() == "[skip ci] Add skip"
-
-
-async def test_local_commit_and_push_generates_unique_branch_name(tmp_path: Path) -> None:
-    repo, _ = _init_repo_with_origin(tmp_path)
-    repo.git.branch("feature")
-    repo_dir = _repo_path(repo)
-    (repo_dir / "unique.txt").write_text("unique\n")
-
-    branch_name = await GitManager(repo).commit_and_push_changes(
-        "Add unique", branch_name="feature", use_branch_if_exists=False
-    )
-
-    assert branch_name == "feature-1"
-    assert Repo(repo_dir).active_branch.name == "feature-1"
-
-
-async def test_local_checkout_raises_for_missing_branch(tmp_path: Path) -> None:
-    repo, _ = _init_repo_with_origin(tmp_path)
-
-    with pytest.raises(ValueError, match="Branch missing-branch does not exist in the repository."):
-        await GitManager(repo).checkout("missing-branch")
-
-
 # ---------------------------------------------------------------------------
 # Sandbox mode (git via run_commands)
 # ---------------------------------------------------------------------------
@@ -223,63 +176,6 @@ async def test_sandbox_has_unpushed() -> None:
     assert await gm.has_unpushed("main") is True
     gm2, _ = _sandbox_manager({"log origin/main..HEAD": (0, "")})
     assert await gm2.has_unpushed("main") is False
-
-
-async def test_sandbox_commit_and_push_new_branch() -> None:
-    gm, client = _sandbox_manager({
-        "refname:short": (0, "main\n"),
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
-    })
-    branch = await gm.commit_and_push_changes("fix: thing", branch_name="fix-thing")
-
-    assert branch == "fix-thing"
-    assert client.ran("checkout -b fix-thing")
-    # commit message contains a space, so it is single-quoted in the shell command.
-    assert client.ran("commit -m 'fix: thing'")
-    assert client.ran("push origin fix-thing")
-
-
-async def test_sandbox_commit_and_push_reuses_existing_remote_branch() -> None:
-    gm, client = _sandbox_manager({
-        "refname:short": (0, "main\n"),
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\ncafef00d\trefs/heads/fix-thing\n"),
-    })
-    branch = await gm.commit_and_push_changes("msg", branch_name="fix-thing")
-
-    assert branch == "fix-thing"
-    assert client.ran("checkout fix-thing")
-    assert not client.ran("checkout -b fix-thing")
-
-
-async def test_sandbox_commit_and_push_generates_unique_branch_name() -> None:
-    gm, client = _sandbox_manager({
-        "refname:short": (0, "main\nfeature\n"),
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
-    })
-    branch = await gm.commit_and_push_changes("msg", branch_name="feature", use_branch_if_exists=False)
-
-    assert branch == "feature-1"
-    assert client.ran("checkout -b feature-1")
-
-
-async def test_sandbox_commit_and_push_raises_on_auth_failure() -> None:
-    gm, _ = _sandbox_manager({
-        "refname:short": (0, "main\n"),
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
-        "push origin": (128, "fatal: unable to access ...: The requested URL returned error: 403"),
-    })
-    with pytest.raises(GitPushPermissionError, match="authentication or permission issues"):
-        await gm.commit_and_push_changes("msg", branch_name="fix-thing")
-
-
-async def test_sandbox_checkout_success_and_missing() -> None:
-    gm, client = _sandbox_manager()
-    await gm.checkout("main")
-    assert client.ran("checkout main")
-
-    gm2, _ = _sandbox_manager({"checkout missing": (1, "error: pathspec 'missing' did not match")})
-    with pytest.raises(ValueError, match="Branch missing does not exist"):
-        await gm2.checkout("missing")
 
 
 # ---------------------------------------------------------------------------
@@ -400,8 +296,8 @@ def test_shell_quote_preserves_newlines_inside_quotes() -> None:
 
 
 async def test_shell_quote_applied_to_commit_message_with_apostrophe() -> None:
-    gm, client = _sandbox_manager({"refname:short": (0, "main\n"), "ls-remote --heads": (0, "")})
-    await gm.commit_and_push_changes("fix: don't break", branch_name="fix")
+    gm, client = _sandbox_manager()
+    await gm.commit_all("fix: don't break")
     assert client.ran("commit -m 'fix: don'\\''t break'")
 
 
@@ -488,24 +384,6 @@ async def test_push_head_to_raises_git_command_error_on_other_failure() -> None:
     gm, _ = _sandbox_manager({"push origin HEAD:b": (1, "fatal: some other push failure")})
     with pytest.raises(GitCommandError):
         await gm.push_head_to("b")
-
-
-# ---------------------------------------------------------------------------
-# commit_and_push_changes: override_commits force-recreate path
-# ---------------------------------------------------------------------------
-
-
-async def test_sandbox_commit_and_push_override_commits_force_recreates_branch() -> None:
-    gm, client = _sandbox_manager({
-        "refname:short": (0, "main\nfix\n"),  # `fix` exists locally
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\ncafef00d\trefs/heads/fix\n"),  # and remotely
-    })
-    branch = await gm.commit_and_push_changes("msg", branch_name="fix", override_commits=True)
-
-    assert branch == "fix"
-    assert client.ran("branch -D fix")  # force-delete the stale local branch
-    assert client.ran("checkout -b fix")  # recreate it
-    assert client.ran("push origin fix --force")
 
 
 # ---------------------------------------------------------------------------
