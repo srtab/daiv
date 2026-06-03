@@ -1,3 +1,4 @@
+import inspect
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
@@ -71,12 +72,12 @@ def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_f
 
 
 class TestSuggestContextFile:
-    def test_posts_comment_when_file_missing(self):
+    async def test_posts_comment_when_file_missing(self):
         publisher = _make_publisher()
         publisher.client.get_repository_file.return_value = None
         mr = _make_merge_request()
 
-        publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_called_once_with("owner/repo", "AGENTS.md", ref="main")
         publisher.client.create_merge_request_comment.assert_called_once()
@@ -84,70 +85,70 @@ class TestSuggestContextFile:
         assert "AGENTS.md" in comment_body
         assert BOT_NAME in comment_body
 
-    def test_skips_when_file_exists(self):
+    async def test_skips_when_file_exists(self):
         publisher = _make_publisher()
         publisher.client.get_repository_file.return_value = "# AGENTS.md content"
         mr = _make_merge_request()
 
-        publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_called_once()
         publisher.client.create_merge_request_comment.assert_not_called()
 
-    def test_skips_when_context_file_name_none(self):
+    async def test_skips_when_context_file_name_none(self):
         publisher = _make_publisher(context_file_name=None)
         mr = _make_merge_request()
 
-        publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_not_called()
         publisher.client.create_merge_request_comment.assert_not_called()
 
-    def test_skips_when_context_file_name_empty(self):
+    async def test_skips_when_context_file_name_empty(self):
         publisher = _make_publisher(context_file_name="")
         mr = _make_merge_request()
 
-        publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_not_called()
         publisher.client.create_merge_request_comment.assert_not_called()
 
-    def test_skips_when_disabled_per_repo(self):
+    async def test_skips_when_disabled_per_repo(self):
         publisher = _make_publisher()
         publisher.ctx.config.suggest_context_file = False
         mr = _make_merge_request()
 
-        publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_not_called()
         publisher.client.create_merge_request_comment.assert_not_called()
 
-    def test_skips_when_globally_disabled(self, monkeypatch):
+    async def test_skips_when_globally_disabled(self, monkeypatch):
         from core.site_settings import site_settings
 
         monkeypatch.setattr(site_settings, "suggest_context_file_enabled", False)
         publisher = _make_publisher()
         mr = _make_merge_request()
 
-        publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_not_called()
         publisher.client.create_merge_request_comment.assert_not_called()
 
-    def test_does_not_raise_on_error(self):
+    async def test_does_not_raise_on_error(self):
         publisher = _make_publisher()
         publisher.client.get_repository_file.side_effect = Exception("API error")
         mr = _make_merge_request()
 
         # Should not raise
-        publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
-    def test_custom_context_file_name(self):
+    async def test_custom_context_file_name(self):
         publisher = _make_publisher(context_file_name="CLAUDE.md")
         publisher.client.get_repository_file.return_value = None
         mr = _make_merge_request()
 
-        publisher._suggest_context_file(mr)
+        await publisher._suggest_context_file(mr)
 
         publisher.client.get_repository_file.assert_called_once_with("owner/repo", "CLAUDE.md", ref="main")
         comment_body = publisher.client.create_merge_request_comment.call_args[0][2]
@@ -163,34 +164,34 @@ class TestCreateMergeRequestDescription:
         publisher.ctx.bot_username = "daiv"
         return publisher
 
-    def test_includes_back_link_when_fallback_provided(self):
+    async def test_includes_back_link_when_fallback_provided(self):
         publisher = self._make_publisher_with_no_issue()
         original = _make_merge_request(
             source_branch="dev", merge_request_id=42, web_url="https://gitlab.com/owner/repo/-/merge_requests/42"
         )
 
-        publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
+        await publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "dev" in description
         assert "https://gitlab.com/owner/repo/-/merge_requests/42" in description
         assert "!42" in description
 
-    def test_omits_back_link_when_no_fallback(self):
+    async def test_omits_back_link_when_no_fallback(self):
         publisher = self._make_publisher_with_no_issue()
 
-        publisher._create_merge_request("feature", "Title", "Body", as_draft=False)
+        await publisher._create_merge_request("feature", "Title", "Body", as_draft=False)
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "is protected on the remote" not in description
 
-    def test_back_link_uses_github_terminology(self):
+    async def test_back_link_uses_github_terminology(self):
         publisher = self._make_publisher_with_no_issue(git_platform=GitPlatform.GITHUB)
         original = _make_merge_request(
             source_branch="main", merge_request_id=10, web_url="https://github.com/owner/repo/pull/10"
         )
 
-        publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
+        await publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "#10" in description
@@ -401,3 +402,8 @@ class TestPublishDecision:
         assert outcome == PublishOutcome(merge_request=mr, published=False)
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
+
+
+def test_create_merge_request_and_suggest_are_async():
+    assert inspect.iscoroutinefunction(GitChangePublisher._create_merge_request)
+    assert inspect.iscoroutinefunction(GitChangePublisher._suggest_context_file)

@@ -139,7 +139,7 @@ class GitChangePublisher(ChangePublisher):
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
         if merge_request is None:
-            merge_request = self._create_merge_request(
+            merge_request = await self._create_merge_request(
                 branch_name,
                 changes_metadata["pr_metadata"].title,
                 changes_metadata["pr_metadata"].description,
@@ -152,9 +152,9 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.merge_request_id,
                 merge_request.draft,
             )
-            self._suggest_context_file(merge_request)
+            await self._suggest_context_file(merge_request)
         elif merge_request.draft and as_draft is False:
-            merge_request = self.client.update_merge_request(
+            merge_request = await sync_to_async(self.client.update_merge_request)(
                 merge_request.repo_id, merge_request.merge_request_id, as_draft=as_draft
             )
             logger.info(
@@ -208,7 +208,7 @@ class GitChangePublisher(ChangePublisher):
 
         raise ValueError("Failed to get PR metadata from the diff.")
 
-    def _create_merge_request(
+    async def _create_merge_request(
         self,
         branch_name: str,
         title: str,
@@ -240,7 +240,7 @@ class GitChangePublisher(ChangePublisher):
                 else self.ctx.issue.assignee.username
             )
 
-        return self.client.update_or_create_merge_request(
+        return await sync_to_async(self.client.update_or_create_merge_request)(
             repo_id=self.ctx.repository.slug,
             source_branch=branch_name,
             target_branch=cast("str", self.ctx.config.default_branch),
@@ -262,7 +262,7 @@ class GitChangePublisher(ChangePublisher):
             ),
         )
 
-    def _suggest_context_file(self, merge_request: MergeRequest) -> None:
+    async def _suggest_context_file(self, merge_request: MergeRequest) -> None:
         if not site_settings.suggest_context_file_enabled or not self.ctx.config.suggest_context_file:
             return
 
@@ -271,7 +271,7 @@ class GitChangePublisher(ChangePublisher):
             return
 
         try:
-            existing = self.client.get_repository_file(
+            existing = await sync_to_async(self.client.get_repository_file)(
                 self.ctx.repository.slug, context_file_name, ref=cast("str", self.ctx.config.default_branch)
             )
             if existing is not None:
@@ -282,7 +282,7 @@ class GitChangePublisher(ChangePublisher):
                 "automation/suggest_context_file.txt",
                 {"context_file_name": context_file_name, "bot_name": BOT_NAME, "issue_url": issue_url},
             )
-            self.client.create_merge_request_comment(
+            await sync_to_async(self.client.create_merge_request_comment)(
                 self.ctx.repository.slug, merge_request.merge_request_id, comment_body
             )
             logger.info(
