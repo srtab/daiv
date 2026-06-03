@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from git import GitCommandError, Repo
 
-from codebase.utils import GitManager, GitPushNetworkError, GitPushPermissionError, _shell_quote, apply_patch_to_dir
+from automation.agent.git_manager import GitManager, GitPushNetworkError, GitPushPermissionError, _shell_quote
+from codebase.utils import apply_patch_to_dir
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 # ---------------------------------------------------------------------------

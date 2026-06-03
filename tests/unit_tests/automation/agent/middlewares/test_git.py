@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from automation.agent.git_manager import GitPushPermissionError
 from automation.agent.middlewares.git import GitMiddleware
 from codebase.base import Scope
-from codebase.utils import GitPushPermissionError
 
 
 def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, cast
 
-from codebase.utils import GitManager
+from automation.agent.git_manager import GitManager
 from core.sandbox.client import DAIVSandboxClient
 
 if TYPE_CHECKING:

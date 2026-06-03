@@ -322,7 +322,7 @@ class TestPublishSuggestsContextFile:
     async def test_publish_propagates_push_failure_without_creating_mr(self, publisher, monkeypatch):
         """If the daiv-direct push fails, publish() must propagate (fail loud) and NOT open an MR
         against a branch that never landed on the remote."""
-        from codebase.utils import GitPushNetworkError
+        from automation.agent.git_manager import GitPushNetworkError
 
         gm = _fake_git_manager()
         gm.push_head_to = AsyncMock(side_effect=GitPushNetworkError("no network"))
