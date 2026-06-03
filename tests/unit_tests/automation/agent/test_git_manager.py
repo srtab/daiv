@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from git import GitCommandError, Repo
 
-from automation.agent.git_manager import GitManager, GitPushNetworkError, GitPushPermissionError, _shell_quote
+from automation.agent.git_manager import (
+    GitManager,
+    GitPushNetworkError,
+    GitPushPermissionError,
+    RepoStatus,
+    _shell_quote,
+)
 from codebase.utils import apply_patch_to_dir
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
@@ -71,14 +78,16 @@ class FakeSandboxClient:
         self.commands: list[str] = []
 
     async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
-        command = request.commands[0]
-        self.commands.append(command)
-        exit_code, output = 0, ""
-        for needle, (code, out) in self.responses.items():
-            if needle in command:
-                exit_code, output = code, out
-                break
-        return RunCommandsResponse(results=[RunCommandResult(command=command, output=output, exit_code=exit_code)])
+        results: list[RunCommandResult] = []
+        for command in request.commands:
+            self.commands.append(command)
+            exit_code, output = 0, ""
+            for needle, (code, out) in self.responses.items():
+                if needle in command:
+                    exit_code, output = code, out
+                    break
+            results.append(RunCommandResult(command=command, output=output, exit_code=exit_code))
+        return RunCommandsResponse(results=results)
 
     def ran(self, needle: str) -> bool:
         return any(needle in command for command in self.commands)
@@ -422,3 +431,45 @@ async def test_remote_branches_raises_on_ls_remote_failure() -> None:
     gm, _ = _sandbox_manager({"ls-remote --heads": (128, "fatal: could not read from remote repository")})
     with pytest.raises(GitCommandError):
         await gm.remote_branches()
+
+
+# ---------------------------------------------------------------------------
+# status_snapshot (batched publish reads, <=2 round-trips)
+# ---------------------------------------------------------------------------
+
+
+def _resp(*outputs_and_codes):
+    return RunCommandsResponse(
+        results=[RunCommandResult(command="git", exit_code=code, output=out) for out, code in outputs_and_codes]
+    )
+
+
+async def test_status_snapshot_one_round_trip_when_clean() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("", 0))
+    )
+    gm = GitManager.for_sandbox(client, "sess-1")
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
+    assert isinstance(snap, RepoStatus)
+    assert (snap.dirty, snap.diff, snap.remote_branches, snap.has_unpushed) == (False, "", ["main"], False)
+    assert client.run_commands.await_count == 1
+    sent = client.run_commands.await_args.args[1]
+    assert sent.fail_fast is False
+    assert len(sent.commands) == 5
+
+
+async def test_status_snapshot_second_round_trip_only_for_untracked() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[
+            _resp(("?? new.py\n", 0), ("", 0), ("new.py\n", 0), ("abc\trefs/heads/main\n", 0)),
+            _resp(("+++ b/new.py\n+hello\n", 1)),
+        ]
+    )
+    gm = GitManager.for_sandbox(client, "sess-1")
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert snap.dirty is True
+    assert "new.py" in snap.diff
+    assert snap.has_unpushed is False
+    assert client.run_commands.await_count == 2

@@ -43,6 +43,16 @@ class _GitResult:
     output: str
 
 
+@dataclass(frozen=True)
+class RepoStatus:
+    """One-shot snapshot of the run's repo state, gathered in <=2 sandbox round-trips."""
+
+    dirty: bool
+    diff: str
+    remote_branches: list[str]
+    has_unpushed: bool
+
+
 class GitManager:
     """Run git operations against a repository in one of two mutually-exclusive modes:
 
@@ -140,20 +150,54 @@ class GitManager:
 
         return await asyncio.to_thread(_run)
 
+    async def _git_batch(self, commands: list[tuple[str, ...]]) -> list[_GitResult]:
+        """Run several git commands in a single round-trip (sandbox) or concurrently (local).
+
+        Never raises on a non-zero exit — callers inspect each result's exit_code, mirroring the
+        per-command ``check=False`` discipline. ``fail_fast=False`` so an expected non-zero (e.g.
+        ``diff --no-index`` finding differences) doesn't abort the batch. Results are in input order.
+        """
+        if not commands:
+            return []
+        if self._client is not None:
+            client, session_id = self._client, self._session_id
+            if session_id is None:  # pragma: no cover - guaranteed by __init__
+                raise RuntimeError("GitManager is not in sandbox mode")
+            cmd_strs = [
+                " ".join(_shell_quote(tok) for tok in ("git", "-C", self._repo_path, *args)) for args in commands
+            ]
+            response = await client.run_commands(session_id, RunCommandsRequest(commands=cmd_strs, fail_fast=False))
+            if len(response.results) != len(commands):
+                raise RuntimeError(f"Sandbox returned {len(response.results)} results for {len(commands)} git commands")
+            return [_GitResult(exit_code=r.exit_code, output=r.output) for r in response.results]
+        return list(await asyncio.gather(*(self._git_local(args) for args in commands)))
+
+    @staticmethod
+    def _append_untracked(diff: str, files: list[str], results: list[_GitResult]) -> str:
+        """Fold per-untracked-file ``diff --no-index`` results into ``diff`` and normalise the trailing newline.
+
+        ``diff --no-index`` exits 1 when it finds differences (expected — keep the output); exit >1 is a
+        genuine error and must surface.
+        """
+        for fres, f in zip(results, files, strict=True):
+            if fres.exit_code > 1:
+                raise GitCommandError(["git", "diff", "--no-index", "/dev/null", f], fres.exit_code, fres.output)
+            if fres.output:
+                diff += f"\n{fres.output}"
+        if diff and not diff.endswith("\n"):
+            diff += "\n"
+        return diff
+
     # -- queries -------------------------------------------------------------
     async def is_dirty(self) -> bool:
         """Whether the working tree has uncommitted changes (tracked or untracked)."""
         return bool((await self._git("status", "--porcelain")).output.strip())
 
     async def get_diff(self, ref: str = "HEAD") -> str:
-        """Diff against ``ref``, including untracked files (via ``ls-files`` + ``diff --no-index``).
+        """Diff against ``ref``, including untracked files (via ``ls-files`` + batched ``diff --no-index``).
 
-        A non-zero exit from ``git diff <ref>`` is a real error — plain ``git diff`` never uses
-        exit 1 for "differences found" (only ``--no-index``/``--quiet`` do). So we raise rather than
-        fold the ``fatal: ...`` text into the returned diff, which would otherwise corrupt
-        commit-message / MR-metadata generation and the publish decision. The sole expected
-        non-zero case is ``ref="HEAD"`` in a repo with no commits yet ("bad revision HEAD"), where
-        we fall back to the staged diff (matching the prior behaviour for repoless/empty repos).
+        A non-zero exit from ``git diff <ref>`` is a real error except for ``ref="HEAD"`` in a repo with
+        no commits yet, where we fall back to the staged diff (repoless/empty-repo behaviour).
         """
         result = await self._git("diff", ref, check=False)
         if result.exit_code == 0:
@@ -163,20 +207,13 @@ class GitManager:
         else:
             raise GitCommandError(["git", "diff", ref], result.exit_code, result.output)
 
-        untracked = (await self._git("ls-files", "--others", "--exclude-standard")).output
-        for file in (line.strip() for line in untracked.splitlines() if line.strip()):
-            # `git diff --no-index` exits 1 when it finds differences (expected, keep the output);
-            # exit >1 is a genuine error and must surface rather than be swallowed.
-            file_result = await self._git("diff", "--no-index", "/dev/null", file, check=False)
-            if file_result.exit_code > 1:
-                raise GitCommandError(
-                    ["git", "diff", "--no-index", "/dev/null", file], file_result.exit_code, file_result.output
-                )
-            if file_result.output:
-                diff += f"\n{file_result.output}"
-        if diff and not diff.endswith("\n"):
-            diff += "\n"
-        return diff
+        untracked = [
+            line.strip()
+            for line in (await self._git("ls-files", "--others", "--exclude-standard")).output.splitlines()
+            if line.strip()
+        ]
+        results = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
+        return self._append_untracked(diff, untracked, results)
 
     async def has_unpushed(self, branch: str) -> bool:
         """Whether local HEAD has commits not present on ``origin/<branch>``.
@@ -198,6 +235,71 @@ class GitManager:
             )
             return True
         return bool(result.output.strip())
+
+    async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
+        """Collect everything the publisher needs in at most two sandbox round-trips.
+
+        Batch A (one round-trip): working-tree status, diff vs ``origin/<base_branch>``, untracked
+        file list, remote branch list, and — when ``mr_source_branch`` is given —
+        ``origin/<mr_source_branch>..HEAD``. Batch B (only when untracked files exist): one
+        ``diff --no-index`` per untracked file, in a single round-trip. Replaces the previous
+        is_dirty/get_diff/has_unpushed/remote_branches sequence (~5+U round-trips) with <=2.
+        """
+        batch_a: list[tuple[str, ...]] = [
+            ("status", "--porcelain"),
+            ("diff", f"origin/{base_branch}"),
+            ("ls-files", "--others", "--exclude-standard"),
+            ("ls-remote", "--heads", "origin"),
+        ]
+        log_idx = -1
+        if mr_source_branch:
+            batch_a.append(("log", f"origin/{mr_source_branch}..HEAD", "--oneline"))
+            log_idx = len(batch_a) - 1
+
+        res = await self._git_batch(batch_a)
+        status_res, diff_res, untracked_res, lsremote_res = res[0], res[1], res[2], res[3]
+
+        # Exit-code discipline (same as the per-method versions): a real ref never exits non-zero for
+        # "differences found", and an empty branch list from a failing ls-remote would risk a colliding
+        # branch name, so raise rather than silently parse.
+        if status_res.exit_code != 0:
+            raise GitCommandError(["git", "status", "--porcelain"], status_res.exit_code, status_res.output)
+        if diff_res.exit_code != 0:
+            raise GitCommandError(["git", "diff", f"origin/{base_branch}"], diff_res.exit_code, diff_res.output)
+        if untracked_res.exit_code != 0:
+            raise GitCommandError(
+                ["git", "ls-files", "--others", "--exclude-standard"], untracked_res.exit_code, untracked_res.output
+            )
+        if lsremote_res.exit_code != 0:
+            raise GitCommandError(
+                ["git", "ls-remote", "--heads", "origin"], lsremote_res.exit_code, lsremote_res.output
+            )
+
+        untracked = [line.strip() for line in untracked_res.output.splitlines() if line.strip()]
+        batch_b = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
+        diff = self._append_untracked(diff_res.output, untracked, batch_b)
+
+        if log_idx >= 0:
+            log_res = res[log_idx]
+            if log_res.exit_code != 0:
+                logger.warning(
+                    "status_snapshot: `git log origin/%s..HEAD` exited %s; treating as unpushed. Output: %s",
+                    mr_source_branch,
+                    log_res.exit_code,
+                    log_res.output.strip(),
+                )
+                has_unpushed = True
+            else:
+                has_unpushed = bool(log_res.output.strip())
+        else:
+            has_unpushed = False
+
+        return RepoStatus(
+            dirty=bool(status_res.output.strip()),
+            diff=diff,
+            remote_branches=self._parse_remote_branches(lsremote_res.output),
+            has_unpushed=has_unpushed,
+        )
 
     # -- mutations -----------------------------------------------------------
     async def commit_all(self, message: str) -> None:
