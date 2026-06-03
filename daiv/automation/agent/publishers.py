@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
+from dataclasses import dataclass
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
@@ -22,9 +23,23 @@ from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
 if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
+    from core.sandbox.client import DAIVSandboxClient
 
 
 logger = logging.getLogger("daiv.tools")
+
+
+@dataclass(frozen=True)
+class PublishOutcome:
+    """Result of a publish attempt.
+
+    ``published`` is True when this turn committed/pushed/created/updated; False when there was
+    nothing new (no changes at all, or a clean tree already on its MR). ``merge_request`` is the MR
+    to surface in state (``None`` only when there was nothing at all).
+    """
+
+    merge_request: MergeRequest | None
+    published: bool
 
 
 class ChangePublisher:
@@ -32,9 +47,10 @@ class ChangePublisher:
     Publisher for changes made by the agent.
     """
 
-    def __init__(self, ctx: RuntimeCtx):
+    def __init__(self, ctx: RuntimeCtx, *, sandbox_client: DAIVSandboxClient | None = None):
         self.ctx = ctx
         self.client = RepoClient.create_instance()
+        self.sandbox_client = sandbox_client
         # Set when publish() falls back to a fresh MR because the original's source
         # branch was protected; consumed by managers to bundle a notice into the reply.
         self.protected_branch_fallback_source: str | None = None
@@ -59,36 +75,33 @@ class GitChangePublisher(ChangePublisher):
         skip_ci: bool = False,
         as_draft: bool = False,
         **kwargs,
-    ) -> MergeRequest | None:
+    ) -> PublishOutcome:
         """
         Daiv-direct publish: ensure the run's changes reach a merge request.
 
-        Handles both uncommitted changes (commits them with an LLM-generated message) and
-        already-committed-but-unpushed work (pushes the existing commits), then opens or
-        updates the MR. Title/description/commit message come from ``_diff_to_metadata``.
-
-        Args:
-            session_id: Sandbox session id from agent state. ``None`` selects local
-                (GitPython) mode for sandbox-disabled runs.
-            merge_request: The merge request to push onto and update. If None, a new branch
-                and merge request are generated from the diff.
-            skip_ci: Whether to prefix the commit with ``[skip ci]``.
-            as_draft: Whether to create the merge request as a draft if one doesn't exist.
-
-        Returns:
-            The merge request if it was created or updated, otherwise None.
+        Computes one ``status_snapshot`` and decides whether anything is new (folding the former
+        ``GitMiddleware._is_unpublished`` gate): a clean tree whose work is already on its MR — or no
+        changes at all — short-circuits without an LLM metadata call or a no-op push. Otherwise
+        commits any uncommitted work (LLM-generated message), pushes, and opens/updates the MR.
         """
         self.protected_branch_fallback_source = None
         default_branch = cast("str", self.ctx.config.default_branch)
 
-        async with open_git_manager(session_id=session_id, gitrepo=self.ctx.gitrepo) as git_manager:
-            dirty = await git_manager.is_dirty()
-            # `git diff origin/<base>` over the working tree captures committed AND uncommitted
-            # tracked changes (plus untracked), so it is the full picture of the run's work.
-            diff = await git_manager.get_diff(f"origin/{default_branch}")
-            if not dirty and not diff.strip():
-                logger.info("No changes to publish.")
-                return None
+        async with open_git_manager(
+            client=self.sandbox_client, session_id=session_id, gitrepo=self.ctx.gitrepo
+        ) as git_manager:
+            snapshot = await git_manager.status_snapshot(
+                base_branch=default_branch,
+                mr_source_branch=merge_request.source_branch if merge_request is not None else None,
+            )
+
+            if not snapshot.dirty:
+                if not snapshot.diff.strip():
+                    logger.info("No changes to publish.")
+                    return PublishOutcome(merge_request=None, published=False)
+                if merge_request is not None and not snapshot.has_unpushed:
+                    logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
+                    return PublishOutcome(merge_request=merge_request, published=False)
 
             fallback_from_mr: MergeRequest | None = None
             if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
@@ -103,18 +116,20 @@ class GitChangePublisher(ChangePublisher):
                 self.protected_branch_fallback_source = merge_request.source_branch
                 merge_request = None
 
-            # Compute full diff metadata when creating a new merge request or updating a draft merge request
-            # to ensure we have the most up-to-date information.
-            pr_metadata_diff = diff if merge_request is None or (merge_request.draft and as_draft is False) else None
-            changes_metadata = await self._diff_to_metadata(pr_metadata_diff=pr_metadata_diff, commit_message_diff=diff)
+            pr_metadata_diff = (
+                snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
+            )
+            changes_metadata = await self._diff_to_metadata(
+                pr_metadata_diff=pr_metadata_diff, commit_message_diff=snapshot.diff
+            )
 
-            if dirty:
+            if snapshot.dirty:
                 commit_message = changes_metadata["commit_message"].commit_message
                 await git_manager.commit_all(f"[skip ci] {commit_message}" if skip_ci else commit_message)
 
             if merge_request is None:
                 branch_name = git_manager.unique_branch_name(
-                    changes_metadata["pr_metadata"].branch, await git_manager.remote_branches()
+                    changes_metadata["pr_metadata"].branch, snapshot.remote_branches
                 )
             else:
                 branch_name = merge_request.source_branch
@@ -149,7 +164,7 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.draft,
             )
 
-        return merge_request
+        return PublishOutcome(merge_request=merge_request, published=True)
 
     async def _diff_to_metadata(self, commit_message_diff: str, pr_metadata_diff: str | None = None) -> dict[str, Any]:
         """

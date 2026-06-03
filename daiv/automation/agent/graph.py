@@ -314,7 +314,7 @@ async def create_daiv_agent(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        GitMiddleware(auto_commit_changes=auto_commit_changes),
+        GitMiddleware(auto_commit_changes=auto_commit_changes, sandbox_client=run_client),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
         *(middleware or []),

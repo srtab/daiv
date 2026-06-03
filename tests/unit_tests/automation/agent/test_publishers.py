@@ -4,18 +4,25 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from automation.agent.publishers import GitChangePublisher
+from automation.agent.git_manager import RepoStatus
+from automation.agent.publishers import GitChangePublisher, PublishOutcome
 from codebase.base import GitPlatform, MergeRequest, User
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 
 
-def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches=()) -> Mock:
-    """A stand-in for the (sandbox/local) GitManager the publisher opens via open_git_manager."""
+def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches=(), has_unpushed: bool = True) -> Mock:
+    """A stand-in for the (sandbox/local) GitManager the publisher opens via open_git_manager.
+
+    The publisher reads everything it needs from a single ``status_snapshot``; the mutation methods
+    (``commit_all``/``push_head_to``) stay separate AsyncMocks.
+    """
     gm = Mock()
-    gm.is_dirty = AsyncMock(return_value=dirty)
-    gm.get_diff = AsyncMock(return_value=diff)
+    gm.status_snapshot = AsyncMock(
+        return_value=RepoStatus(
+            dirty=dirty, diff=diff, remote_branches=list(remote_branches), has_unpushed=has_unpushed
+        )
+    )
     gm.commit_all = AsyncMock()
-    gm.remote_branches = AsyncMock(return_value=list(remote_branches))
     gm.push_head_to = AsyncMock(return_value="pushed")
     gm.unique_branch_name = Mock(side_effect=lambda name, existing: name)
     return gm
@@ -23,7 +30,7 @@ def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches
 
 def _patch_open_git_manager(monkeypatch, gm: Mock) -> None:
     @asynccontextmanager
-    async def _fake_open(*, session_id, gitrepo):  # noqa: ARG001
+    async def _fake_open(*, client, session_id, gitrepo):  # noqa: ARG001
         yield gm
 
     monkeypatch.setattr("automation.agent.publishers.open_git_manager", _fake_open)
@@ -248,7 +255,7 @@ class TestPublishSuggestsContextFile:
             gm.commit_all.assert_awaited_once()
             gm.push_head_to.assert_awaited_once_with("feature")
             mock_suggest.assert_called_once_with(mr)
-            assert result == mr
+            assert result == PublishOutcome(merge_request=mr, published=True)
 
     async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
         existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
@@ -286,7 +293,7 @@ class TestPublishSuggestsContextFile:
             assert publisher.protected_branch_fallback_source == "dev"
             # No fallback comment is posted from the publisher itself.
             publisher.client.create_merge_request_comment.assert_not_called()
-            assert result == new_mr
+            assert result == PublishOutcome(merge_request=new_mr, published=True)
 
     async def test_protected_branch_fallback_resets_between_publish_calls(self, publisher, monkeypatch):
         # First call hits the protected branch and sets the attribute; a follow-up
@@ -314,8 +321,7 @@ class TestPublishSuggestsContextFile:
 
             # Second call: clean tree, no diff versus base → publish short-circuits, but
             # the signal from the prior call must still clear.
-            gm.is_dirty.return_value = False
-            gm.get_diff.return_value = ""
+            gm.status_snapshot.return_value = RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False)
             await publisher.publish(merge_request=None)
             assert publisher.protected_branch_fallback_source is None
 
@@ -366,3 +372,32 @@ class TestPublishSuggestsContextFile:
 
             gm.push_head_to.assert_awaited_once_with("feature")
             mock_suggest.assert_not_called()
+
+
+class TestPublishDecision:
+    """The publish decision (formerly GitMiddleware._is_unpublished) now lives in publish()."""
+
+    async def test_returns_nothing_when_clean_and_no_diff(self, monkeypatch):
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with patch.object(publisher, "_diff_to_metadata") as meta:
+            outcome = await publisher.publish(session_id="s", merge_request=None)
+
+        assert outcome == PublishOutcome(merge_request=None, published=False)
+        meta.assert_not_called()
+        gm.push_head_to.assert_not_called()
+
+    async def test_confirms_existing_mr_without_republishing_when_pushed(self, monkeypatch):
+        publisher = _make_publisher()
+        mr = _make_merge_request(source_branch="feat/x", merge_request_id=42)
+        gm = _fake_git_manager(dirty=False, diff="diff", remote_branches=["feat/x"], has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with patch.object(publisher, "_diff_to_metadata") as meta:
+            outcome = await publisher.publish(session_id="s", merge_request=mr)
+
+        assert outcome == PublishOutcome(merge_request=mr, published=False)
+        meta.assert_not_called()
+        gm.push_head_to.assert_not_called()
