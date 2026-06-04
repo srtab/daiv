@@ -58,8 +58,8 @@ class BaseManager:
 
             if outcome.merge_request is not None:
                 update_values: dict[str, Any] = {"merge_request": outcome.merge_request}
-                if publisher.protected_branch_fallback_source:
-                    update_values["protected_branch_fallback_source"] = publisher.protected_branch_fallback_source
+                if outcome.protected_branch_fallback_source:
+                    update_values["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
                 await agent.aupdate_state(config=config, values=update_values)
                 return True
         except Exception:

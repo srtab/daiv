@@ -289,16 +289,17 @@ class TestPublishSuggestsContextFile:
             # The new MR is created with a back-link to the original protected MR.
             mock_create_mr.assert_called_once()
             assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
-            # Fallback source is exposed on the publisher so the manager can bundle a
-            # footer onto the agent's reply instead of posting a separate comment.
-            assert publisher.protected_branch_fallback_source == "dev"
             # No fallback comment is posted from the publisher itself.
             publisher.client.create_merge_request_comment.assert_not_called()
-            assert result == PublishOutcome(merge_request=new_mr, published=True)
+            # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
+            # agent's reply instead of posting a separate comment.
+            assert result == PublishOutcome(
+                merge_request=new_mr, published=True, protected_branch_fallback_source="dev"
+            )
 
-    async def test_protected_branch_fallback_resets_between_publish_calls(self, publisher, monkeypatch):
-        # First call hits the protected branch and sets the attribute; a follow-up
-        # publish on a clean branch must not leave the prior signal behind.
+    async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):
+        # The fallback source lives on the per-call PublishOutcome, so a protected-branch call that
+        # reports it cannot leak the signal into a later clean publish.
         existing_mr = _make_merge_request(source_branch="dev", merge_request_id=42)
         new_mr = _make_merge_request(source_branch="feature-fix", merge_request_id=43)
         publisher.client.is_branch_protected.return_value = True
@@ -317,14 +318,14 @@ class TestPublishSuggestsContextFile:
             patch.object(publisher, "_create_merge_request", return_value=new_mr),
             patch.object(publisher, "_suggest_context_file"),
         ):
-            await publisher.publish(merge_request=existing_mr)
-            assert publisher.protected_branch_fallback_source == "dev"
+            first = await publisher.publish(merge_request=existing_mr)
+            assert first.protected_branch_fallback_source == "dev"
 
-            # Second call: clean tree, no diff versus base → publish short-circuits, but
-            # the signal from the prior call must still clear.
+            # Second call: clean tree, no diff versus base → publish short-circuits, and the
+            # outcome carries no fallback source.
             gm.status_snapshot.return_value = RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False)
-            await publisher.publish(merge_request=None)
-            assert publisher.protected_branch_fallback_source is None
+            second = await publisher.publish(merge_request=None)
+            assert second.protected_branch_fallback_source is None
 
     async def test_publish_propagates_push_failure_without_creating_mr(self, publisher, monkeypatch):
         """If the daiv-direct push fails, publish() must propagate (fail loud) and NOT open an MR

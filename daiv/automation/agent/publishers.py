@@ -35,11 +35,14 @@ class PublishOutcome:
 
     ``published`` is True when this turn committed/pushed/created/updated; False when there was
     nothing new (no changes at all, or a clean tree already on its MR). ``merge_request`` is the MR
-    to surface in state (``None`` only when there was nothing at all).
+    to surface in state (``None`` only when there was nothing at all). ``protected_branch_fallback_source``
+    is the original MR's source branch when publish fell back to a fresh MR because that branch was
+    protected on the remote (``None`` otherwise); consumed by managers to bundle a notice into the reply.
     """
 
     merge_request: MergeRequest | None
     published: bool
+    protected_branch_fallback_source: str | None = None
 
 
 class ChangePublisher:
@@ -51,9 +54,6 @@ class ChangePublisher:
         self.ctx = ctx
         self.client = RepoClient.create_instance()
         self.sandbox_client = sandbox_client
-        # Set when publish() falls back to a fresh MR because the original's source
-        # branch was protected; consumed by managers to bundle a notice into the reply.
-        self.protected_branch_fallback_source: str | None = None
 
     @abstractmethod
     async def publish(self, **kwargs) -> Any:
@@ -84,7 +84,7 @@ class GitChangePublisher(ChangePublisher):
         changes at all — short-circuits without an LLM metadata call or a no-op push. Otherwise
         commits any uncommitted work (LLM-generated message), pushes, and opens/updates the MR.
         """
-        self.protected_branch_fallback_source = None
+        protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
 
         async with open_git_manager(
@@ -113,7 +113,7 @@ class GitChangePublisher(ChangePublisher):
                     merge_request.merge_request_id,
                 )
                 fallback_from_mr = merge_request
-                self.protected_branch_fallback_source = merge_request.source_branch
+                protected_branch_fallback_source = merge_request.source_branch
                 merge_request = None
 
             pr_metadata_diff = (
@@ -164,7 +164,11 @@ class GitChangePublisher(ChangePublisher):
                 merge_request.draft,
             )
 
-        return PublishOutcome(merge_request=merge_request, published=True)
+        return PublishOutcome(
+            merge_request=merge_request,
+            published=True,
+            protected_branch_fallback_source=protected_branch_fallback_source,
+        )
 
     async def _diff_to_metadata(self, commit_message_diff: str, pr_metadata_diff: str | None = None) -> dict[str, Any]:
         """

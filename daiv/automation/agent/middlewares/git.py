@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
     from langgraph.runtime import Runtime
 
+    from core.sandbox.client import DAIVSandboxClient
+
 
 logger = logging.getLogger("daiv.tools")
 
@@ -102,6 +104,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         skip_ci: Whether to prefix the commit with ``[skip ci]``.
         auto_commit_changes: Whether the run publishes its changes at all. When ``False`` the
             middleware is inert.
+        sandbox_client: Run-scoped sandbox client injected by ``create_daiv_agent``; forwarded to
+            :class:`GitChangePublisher` so the turn-end publish runs git inside the sandbox. ``None``
+            for sandbox-disabled / local runs.
 
     Example:
         ```python
@@ -121,7 +126,13 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     state_schema = GitState
 
-    def __init__(self, *, skip_ci: bool = False, auto_commit_changes: bool = True, sandbox_client=None) -> None:
+    def __init__(
+        self,
+        *,
+        skip_ci: bool = False,
+        auto_commit_changes: bool = True,
+        sandbox_client: DAIVSandboxClient | None = None,
+    ) -> None:
         """
         Initialize the middleware.
         """
@@ -260,5 +271,5 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self._record_issue_mr(outcome.merge_request, runtime)
         update: dict[str, Any] = {"merge_request": outcome.merge_request, "code_changes": True}
         if outcome.published:
-            update["protected_branch_fallback_source"] = publisher.protected_branch_fallback_source
+            update["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
         return update

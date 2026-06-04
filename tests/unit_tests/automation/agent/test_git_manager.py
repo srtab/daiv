@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,6 +15,9 @@ from automation.agent.git_manager import (
 )
 from codebase.utils import apply_patch_to_dir
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Local-mode helpers (GitPython clone; sandbox-disabled / repoless runs)
@@ -33,12 +36,6 @@ def _init_repo(tmp_path: Path) -> Repo:
     repo = Repo.init(repo_dir)
     _configure_repo_identity(repo)
     return repo
-
-
-def _repo_path(repo: Repo) -> Path:
-    if repo.working_tree_dir is None:
-        raise RuntimeError("Repository working tree was not available.")
-    return Path(repo.working_tree_dir)
 
 
 def _create_initial_commit(repo: Repo, repo_dir: Path) -> None:
@@ -114,77 +111,6 @@ def test_requires_exactly_one_mode(tmp_path: Path) -> None:
 def test_sandbox_mode_requires_session_id() -> None:
     with pytest.raises(ValueError, match="session_id"):
         GitManager(client=FakeSandboxClient(), session_id="")  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# Local mode (GitPython clone)
-# ---------------------------------------------------------------------------
-
-
-async def test_local_is_dirty_detects_new_untracked_files(tmp_path: Path) -> None:
-    repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
-    repo = Repo.init(repo_dir)
-    (repo_dir / "new_file.txt").write_text("hello\n")
-
-    assert await GitManager(repo).is_dirty() is True
-
-
-async def test_local_is_dirty_returns_false_for_clean_repo(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / "README.md").write_text("hello\n")
-    repo.git.add("-A")
-    repo.index.commit("Initial commit")
-
-    assert await GitManager(repo).is_dirty() is False
-
-
-async def test_local_get_diff_includes_untracked_file_diff(tmp_path: Path) -> None:
-    repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
-    Repo.init(repo_dir)
-    (repo_dir / "new_file.txt").write_text("hello\n")
-
-    diff = await GitManager(Repo(repo_dir)).get_diff()
-    # For untracked files we add `git diff --no-index /dev/null <file>`, which includes the path.
-    assert "new_file.txt" in diff
-
-
-# ---------------------------------------------------------------------------
-# Sandbox mode (git via run_commands)
-# ---------------------------------------------------------------------------
-
-
-async def test_sandbox_is_dirty_uses_status_porcelain() -> None:
-    gm, client = _sandbox_manager({"status --porcelain": (0, " M a.py\n")})
-    assert await gm.is_dirty() is True
-    assert client.ran("git -C /workspace/repo status --porcelain")
-
-
-async def test_sandbox_is_dirty_false_on_clean_tree() -> None:
-    gm, _ = _sandbox_manager({"status --porcelain": (0, "")})
-    assert await gm.is_dirty() is False
-
-
-async def test_sandbox_get_diff_appends_untracked_files() -> None:
-    gm, client = _sandbox_manager({
-        "diff HEAD": (0, "diff --git a/x b/x\n"),
-        "ls-files --others": (0, "new.py\n"),
-        "--no-index": (1, "diff --git a/new.py b/new.py\n+added\n"),
-    })
-    diff = await gm.get_diff()
-    assert "a/x" in diff
-    assert "new.py" in diff
-    assert client.ran("git -C /workspace/repo diff HEAD")
-    assert client.ran("ls-files --others --exclude-standard")
-
-
-async def test_sandbox_has_unpushed() -> None:
-    gm, _ = _sandbox_manager({"log origin/main..HEAD": (0, "abc123 commit\n")})
-    assert await gm.has_unpushed("main") is True
-    gm2, _ = _sandbox_manager({"log origin/main..HEAD": (0, "")})
-    assert await gm2.has_unpushed("main") is False
 
 
 # ---------------------------------------------------------------------------
@@ -335,39 +261,7 @@ async def test_sandbox_empty_results_raises_runtime_error() -> None:
 
     gm = GitManager(client=_EmptyClient(), session_id="sid")  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="no result"):
-        await gm.is_dirty()
-
-
-# ---------------------------------------------------------------------------
-# get_diff error handling (no error text folded into the diff)
-# ---------------------------------------------------------------------------
-
-
-async def test_sandbox_get_diff_raises_on_missing_ref() -> None:
-    gm, _ = _sandbox_manager({"diff origin/main": (128, "fatal: ambiguous argument 'origin/main': unknown revision")})
-    with pytest.raises(GitCommandError):
-        await gm.get_diff("origin/main")
-
-
-async def test_sandbox_get_diff_falls_back_to_staged_diff_for_empty_repo() -> None:
-    # `ref="HEAD"` with no commits: fall back to the staged diff rather than raising.
-    gm, client = _sandbox_manager({
-        "diff HEAD": (128, "fatal: bad revision 'HEAD'"),
-        "diff --cached": (0, "staged diff\n"),
-    })
-    diff = await gm.get_diff("HEAD")
-    assert "staged diff" in diff
-    assert client.ran("diff --cached --no-prefix")
-
-
-# ---------------------------------------------------------------------------
-# has_unpushed (missing upstream ref must not masquerade as commit output)
-# ---------------------------------------------------------------------------
-
-
-async def test_sandbox_has_unpushed_treats_missing_ref_as_unpushed() -> None:
-    gm, _ = _sandbox_manager({"log origin/new..HEAD": (128, "fatal: ambiguous argument 'origin/new..HEAD'")})
-    assert await gm.has_unpushed("new") is True
+        await gm.commit_all("msg")
 
 
 # ---------------------------------------------------------------------------
@@ -405,16 +299,16 @@ def test_parse_remote_branches_filters_non_heads() -> None:
     assert GitManager._parse_remote_branches(out) == ["main", "feature"]
 
 
-async def test_get_diff_raises_on_no_index_hard_error() -> None:
+async def test_status_snapshot_raises_on_no_index_hard_error() -> None:
     # `git diff --no-index` exit 1 = "differs" (kept); exit >1 is a genuine error and must raise
-    # rather than be swallowed into the diff.
+    # rather than be swallowed into the snapshot diff.
     gm, _ = _sandbox_manager({
-        "diff HEAD": (0, ""),
+        "diff origin/main": (0, ""),
         "ls-files --others": (0, "weird.bin\n"),
         "--no-index": (2, "fatal: something broke"),
     })
     with pytest.raises(GitCommandError):
-        await gm.get_diff()
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
 
 
 async def test_push_head_to_auth_wins_over_network_markers() -> None:
@@ -424,13 +318,6 @@ async def test_push_head_to_auth_wins_over_network_markers() -> None:
     })
     with pytest.raises(GitPushPermissionError):
         await gm.push_head_to("b")
-
-
-async def test_remote_branches_raises_on_ls_remote_failure() -> None:
-    # A failing ls-remote must raise, not parse to [] (which would risk a colliding branch name).
-    gm, _ = _sandbox_manager({"ls-remote --heads": (128, "fatal: could not read from remote repository")})
-    with pytest.raises(GitCommandError):
-        await gm.remote_branches()
 
 
 # ---------------------------------------------------------------------------
@@ -473,3 +360,54 @@ async def test_status_snapshot_second_round_trip_only_for_untracked() -> None:
     assert "new.py" in snap.diff
     assert snap.has_unpushed is False
     assert client.run_commands.await_count == 2
+
+
+@pytest.mark.parametrize(
+    "failing_index,command_fragment",
+    [(0, "status --porcelain"), (1, "diff origin/main"), (2, "ls-files --others"), (3, "ls-remote --heads")],
+)
+async def test_status_snapshot_raises_on_batch_a_command_failure(failing_index: int, command_fragment: str) -> None:
+    # A non-zero exit from any batch-A query must raise rather than parse to a misleading empty value
+    # (e.g. a failing ls-remote parsing to [] would risk a colliding branch name).
+    outputs = [("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0)]
+    outputs[failing_index] = ("boom", 128)
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(*outputs))
+    gm = GitManager.for_sandbox(client, "sess-1")
+    with pytest.raises(GitCommandError) as exc_info:
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert command_fragment in str(exc_info.value)
+    # The failing check short-circuits before the untracked second round-trip.
+    assert client.run_commands.await_count == 1
+
+
+async def test_status_snapshot_has_unpushed_true_when_log_has_output() -> None:
+    # mr_source_branch present and `git log origin/<src>..HEAD` returns commits -> has_unpushed True.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc123 commit\n", 0))
+    )
+    gm = GitManager.for_sandbox(client, "sess-1")
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
+    assert snap.has_unpushed is True
+
+
+async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
+    # A non-zero `git log origin/<src>..HEAD` (e.g. an unknown upstream ref) is treated as "all
+    # unpushed" rather than raising, mirroring has_unpushed().
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("fatal: bad revision", 128))
+    )
+    gm = GitManager.for_sandbox(client, "sess-1")
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
+    assert snap.has_unpushed is True
+
+
+async def test_status_snapshot_raises_on_result_count_mismatch() -> None:
+    # The sandbox returns one result per command; a short list is a wire anomaly, not a parse-to-empty.
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(("", 0), ("", 0)))  # 2 results for 4 commands
+    gm = GitManager.for_sandbox(client, "sess-1")
+    with pytest.raises(RuntimeError, match="results for"):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)

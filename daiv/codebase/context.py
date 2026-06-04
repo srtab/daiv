@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -14,6 +15,9 @@ from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+
+logger = logging.getLogger("daiv.codebase")
 
 
 @dataclass(frozen=True)
@@ -163,10 +167,11 @@ async def set_runtime_ctx(
     global_default = await get_global_default()
     sandbox = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
 
-    # Own the sandbox transport for the whole run: one httpx connection pool, read once by
-    # create_daiv_agent and injected into the backend + middlewares. Opening the client is cheap
-    # (httpx connects lazily on first request), so idling through the clone/graph-build phase costs
-    # nothing. Gated on `sandbox.enabled` so sandbox-disabled / file-only flows never construct one.
+    # Own the sandbox transport for the whole run: one httpx connection pool, injected into the
+    # backend + middlewares by create_daiv_agent (and read by the manager recovery path). Opening
+    # the client is cheap (httpx connects lazily on first request), so idling through the
+    # clone/graph-build phase costs nothing. Gated on `sandbox.enabled` so sandbox-disabled /
+    # file-only flows never construct one.
     sandbox_client: DAIVSandboxClient | None = None
     client_token = None
     if sandbox.enabled:
@@ -198,8 +203,15 @@ async def set_runtime_ctx(
                 runtime_ctx.reset(token)
     finally:
         if sandbox_client is not None and client_token is not None:
-            await sandbox_client.close()
-            reset_run_sandbox_client(client_token)
+            try:
+                await sandbox_client.close()
+            except Exception:
+                # A transport-level close failure must not mask whatever the run was already raising,
+                # and the contextvar reset below must still run so it is never left bound to a closed
+                # client. Log and continue.
+                logger.exception("Failed to close run-scoped sandbox client")
+            finally:
+                reset_run_sandbox_client(client_token)
 
 
 def get_runtime_ctx() -> RuntimeCtx:

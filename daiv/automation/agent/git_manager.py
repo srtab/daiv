@@ -189,53 +189,6 @@ class GitManager:
         return diff
 
     # -- queries -------------------------------------------------------------
-    async def is_dirty(self) -> bool:
-        """Whether the working tree has uncommitted changes (tracked or untracked)."""
-        return bool((await self._git("status", "--porcelain")).output.strip())
-
-    async def get_diff(self, ref: str = "HEAD") -> str:
-        """Diff against ``ref``, including untracked files (via ``ls-files`` + batched ``diff --no-index``).
-
-        A non-zero exit from ``git diff <ref>`` is a real error except for ``ref="HEAD"`` in a repo with
-        no commits yet, where we fall back to the staged diff (repoless/empty-repo behaviour).
-        """
-        result = await self._git("diff", ref, check=False)
-        if result.exit_code == 0:
-            diff = result.output
-        elif ref == "HEAD":
-            diff = (await self._git("diff", "--cached", "--no-prefix", check=False)).output
-        else:
-            raise GitCommandError(["git", "diff", ref], result.exit_code, result.output)
-
-        untracked = [
-            line.strip()
-            for line in (await self._git("ls-files", "--others", "--exclude-standard")).output.splitlines()
-            if line.strip()
-        ]
-        results = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
-        return self._append_untracked(diff, untracked, results)
-
-    async def has_unpushed(self, branch: str) -> bool:
-        """Whether local HEAD has commits not present on ``origin/<branch>``.
-
-        ``git log origin/<branch>..HEAD`` runs with ``check=False`` because a missing
-        ``origin/<branch>`` ref (a branch never pushed yet, or not fetched) exits non-zero with
-        ``fatal: ambiguous argument``. We branch on the exit code rather than the truthiness of the
-        merged output, so a diagnostic line can't masquerade as commit output: a non-zero exit means
-        the upstream doesn't resolve, i.e. nothing is pushed yet, so all of HEAD counts as unpushed.
-        The failure is logged so a genuine git error is still visible.
-        """
-        result = await self._git("log", f"origin/{branch}..HEAD", "--oneline", check=False)
-        if result.exit_code != 0:
-            logger.warning(
-                "has_unpushed: `git log origin/%s..HEAD` exited %s; treating as unpushed. Output: %s",
-                branch,
-                result.exit_code,
-                result.output.strip(),
-            )
-            return True
-        return bool(result.output.strip())
-
     async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
         """Collect everything the publisher needs in at most two sandbox round-trips.
 
@@ -320,15 +273,6 @@ class GitManager:
         if push.exit_code != 0:
             _raise_for_push_failure(push_args, push)
         return branch
-
-    async def remote_branches(self) -> list[str]:
-        """Branch names that currently exist on ``origin``.
-
-        ``ls-remote`` runs with ``check=True`` so an unreachable or erroring remote raises
-        ``GitCommandError`` rather than silently parsing to ``[]`` — an empty list here would make
-        ``unique_branch_name`` believe no branches exist and risk picking a colliding name.
-        """
-        return self._parse_remote_branches((await self._git("ls-remote", "--heads", "origin")).output)
 
     def unique_branch_name(self, original_branch_name: str, existing_branch_names: list[str]) -> str:
         """Public wrapper over :meth:`_gen_unique_branch_name` for callers outside this class."""

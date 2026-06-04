@@ -329,8 +329,8 @@ class SandboxMiddleware(AgentMiddleware):
       in sync.
 
     The ``DAIVSandboxClient`` (transport) is **injected** — opened once per run by
-    ``set_runtime_ctx`` and read once by ``create_daiv_agent``. The middleware borrows it; it never
-    opens or closes it.
+    ``set_runtime_ctx`` and injected here by ``create_daiv_agent`` at graph-build time. The
+    middleware borrows it; it never opens or closes it.
 
     Args:
         agent_root: Virtual path prefix the agent's filesystem tools see (e.g.
@@ -431,13 +431,21 @@ class SandboxMiddleware(AgentMiddleware):
     async def _session_exists(client: DAIVSandboxClient, session_id: str) -> bool:
         """Whether ``session_id`` still exists on the sandbox (restarting it if stopped).
 
-        Soft-fails to ``False`` on transport errors so a flaky liveness check just triggers a fresh
-        create rather than failing the run.
+        ``client.session_exists`` already maps a 404 (container genuinely gone) to ``False`` without
+        raising, so reaching the ``except`` means a non-404 status or a transport error: we couldn't
+        confirm the session, not that it's gone. We soft-fail to ``False`` so a flaky liveness check
+        triggers a fresh create rather than failing the run — but the prior container may still be
+        alive and is now abandoned (state["session_id"] gets overwritten), so log that it may have
+        leaked and will be reclaimed by the sandbox reaper.
         """
         try:
             return await client.session_exists(session_id)
         except httpx.HTTPError:
-            logger.exception("Failed to validate sandbox session %s for reuse", session_id)
+            logger.exception(
+                "Could not validate sandbox session %s for reuse; creating a fresh session. The prior "
+                "container may have leaked and will be reclaimed by the sandbox reaper.",
+                session_id,
+            )
             return False
 
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:

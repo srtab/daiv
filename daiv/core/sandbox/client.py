@@ -33,10 +33,10 @@ from .schemas import (
 
 logger = logging.getLogger("daiv.sandbox")
 
-# Run-scoped sandbox transport. `set_runtime_ctx` opens one client per sandbox-enabled run and
-# binds it here; `create_daiv_agent` reads it ONCE and injects it explicitly into the backend and
-# middlewares. No other code reads this — it is purely the set_runtime_ctx -> create_daiv_agent
-# handoff. There is no per-call fallback.
+# Run-scoped sandbox transport. `set_runtime_ctx` opens one client per sandbox-enabled run and binds
+# it here. Readers take it and inject it explicitly rather than calling it ad hoc: `create_daiv_agent`
+# at graph-build time (into the backend and middlewares) and `BaseManager`'s draft-recovery path
+# (into the publisher). Reading it outside an open run scope raises; there is no per-call fallback.
 _run_sandbox_client: ContextVar[DAIVSandboxClient | None] = ContextVar("run_sandbox_client", default=None)
 
 

@@ -70,7 +70,6 @@ class TestGitMiddleware:
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub = pub_cls.return_value
             pub.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
-            pub.protected_branch_fallback_source = None
             result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
         assert result["merge_request"].merge_request_id == 7
         assert result["code_changes"] is True
@@ -110,7 +109,6 @@ class TestGitMiddleware:
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher = MagicMock()
-            publisher.protected_branch_fallback_source = None
             publisher.publish = AsyncMock(return_value=PublishOutcome(merge_request=new_mr, published=True))
             publisher_cls.return_value = publisher
 
@@ -238,25 +236,20 @@ class TestGitMiddleware:
             await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
     async def test_aafter_agent_returns_protected_branch_fallback_source(self):
-        """The publisher writes the original (protected) source branch onto itself
-        when it has to swap to a fresh MR. ``aafter_agent`` must thread that value
-        through the returned state dict — otherwise the manager-side footer
-        rendering pipeline (`_render_protected_branch_footer`) never fires and the
-        notice silently drops."""
+        """The publisher reports the original (protected) source branch on the returned
+        ``PublishOutcome`` when it has to swap to a fresh MR. ``aafter_agent`` must thread that value
+        through the returned state dict — otherwise the manager-side footer rendering pipeline
+        (`_render_protected_branch_footer`) never fires and the notice silently drops."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
         new_mr = _mr(iid=200, branch="agent/fresh")
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
-            publisher_instance = MagicMock()
-            publisher_instance.protected_branch_fallback_source = None
-            publisher_cls.return_value = publisher_instance
-
-            async def publish_side_effect(**kwargs):
-                publisher_instance.protected_branch_fallback_source = "feature"
-                return PublishOutcome(merge_request=new_mr, published=True)
-
-            publisher_instance.publish = AsyncMock(side_effect=publish_side_effect)
+            publisher_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(
+                    merge_request=new_mr, published=True, protected_branch_fallback_source="feature"
+                )
+            )
 
             result = await middleware.aafter_agent({"merge_request": None}, runtime)
 
@@ -399,10 +392,9 @@ class TestGitMiddleware:
         new_mr = _mr(iid=201, branch="agent/normal")
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
-            publisher_instance = MagicMock()
-            publisher_instance.protected_branch_fallback_source = None
-            publisher_instance.publish = AsyncMock(return_value=PublishOutcome(merge_request=new_mr, published=True))
-            publisher_cls.return_value = publisher_instance
+            publisher_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=new_mr, published=True)
+            )
 
             result = await middleware.aafter_agent({"merge_request": None}, runtime)
 
