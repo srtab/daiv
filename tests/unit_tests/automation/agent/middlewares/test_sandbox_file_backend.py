@@ -25,8 +25,8 @@ def client():
 
 @pytest.fixture
 def backend(client):
-    be = SandboxFileBackend()
-    be.bind(client, "sid")
+    be = SandboxFileBackend(client=client)
+    be.bind_session("sid")
     return be
 
 
@@ -46,31 +46,22 @@ async def test_calls_before_bind_raise():
 
 
 def test_rebind_same_session_is_noop(client):
-    be = SandboxFileBackend()
-    be.bind(client, "sid")
-    be.bind(client, "sid")  # must not raise
-    assert be._session_id == "sid"
-
-
-def test_rebind_same_session_different_client_is_allowed():
-    be = SandboxFileBackend()
-    parent_client, subagent_client = AsyncMock(), AsyncMock()
-    be.bind(parent_client, "sid")
-    be.bind(subagent_client, "sid")  # different client, same session -> allowed
-    assert be._client is subagent_client
+    be = SandboxFileBackend(client=client)
+    be.bind_session("sid")
+    be.bind_session("sid")  # must not raise (subagents share the parent-bound backend)
     assert be._session_id == "sid"
 
 
 def test_rebind_different_session_raises(client):
-    be = SandboxFileBackend()
-    be.bind(client, "sid")
+    be = SandboxFileBackend(client=client)
+    be.bind_session("sid")
     with pytest.raises(RuntimeError, match="already bound to session"):
-        be.bind(client, "other-sid")
+        be.bind_session("other-sid")
 
 
 async def test_bound_backend_sends_absolute_paths_unchanged(client):
-    be = SandboxFileBackend()
-    be.bind(client, "sid")
+    be = SandboxFileBackend(client=client)
+    be.bind_session("sid")
     client.fs_read.return_value = FsReadResponse(content="x", encoding="utf-8")
     await be.aread("/workspace/repo/pkg/mod.py")
     assert client.fs_read.call_args.args[0] == "sid"

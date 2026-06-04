@@ -13,7 +13,6 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
@@ -29,6 +28,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langgraph.runtime import Runtime
+
+    from core.sandbox.client import DAIVSandboxClient
 
 
 logger = logging.getLogger("daiv.tools")
@@ -103,6 +104,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         skip_ci: Whether to prefix the commit with ``[skip ci]``.
         auto_commit_changes: Whether the run publishes its changes at all. When ``False`` the
             middleware is inert.
+        sandbox_client: Run-scoped sandbox client injected by ``create_daiv_agent``; forwarded to
+            :class:`GitChangePublisher` so the turn-end publish runs git inside the sandbox. ``None``
+            for sandbox-disabled / local runs.
 
     Example:
         ```python
@@ -122,12 +126,19 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     state_schema = GitState
 
-    def __init__(self, *, skip_ci: bool = False, auto_commit_changes: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        skip_ci: bool = False,
+        auto_commit_changes: bool = True,
+        sandbox_client: DAIVSandboxClient | None = None,
+    ) -> None:
         """
         Initialize the middleware.
         """
         self.skip_ci = skip_ci
         self.auto_commit_changes = auto_commit_changes
+        self._sandbox_client = sandbox_client
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -174,6 +185,22 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             )
             return None
 
+    @staticmethod
+    def _effective_mr_iid(
+        *, context_mr: MergeRequest | None, state_mr: MergeRequest | None, current_ref: str
+    ) -> int | None:
+        """Pick the MR iid to advertise in the prompt.
+
+        Prefer the context MR (MR-scope runs). Otherwise use the state MR only when its
+        ``source_branch`` still matches the current ref — the branch could have been checked out from
+        under us mid-run (or the MR closed), and a stale iid would mislead the agent every turn.
+        """
+        if context_mr is not None:
+            return context_mr.merge_request_id
+        if state_mr is not None and state_mr.source_branch == current_ref:
+            return state_mr.merge_request_id
+        return None
+
     async def awrap_model_call(
         self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
     ) -> ModelResponse:
@@ -185,26 +212,18 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         # MR. Without this fallback the agent re-discovers via
         # ``project-merge-request list --source-branch ...`` on every turn and may
         # pick a different MR than the publisher will write to.
-        #
-        # The state branch validates ``source_branch`` against the current ref —
-        # ``abefore_agent`` populated state once at run start, but the branch
-        # could have been checked out from under us mid-run (or the MR closed).
-        # A stale id would then advertise the wrong MR on every subsequent turn.
-        mr_iid: int | None = None
-        if (ctx_mr := request.runtime.context.merge_request) is not None:
-            mr_iid = ctx_mr.merge_request_id
-        elif (state_mr := request.state.get("merge_request")) is not None:
-            current_ref = get_repo_ref(request.runtime.context.gitrepo)
-            if state_mr.source_branch == current_ref:
-                mr_iid = state_mr.merge_request_id
-            else:
-                logger.warning(
-                    "[%s] Ignoring stale state MR #%s: source_branch=%r != current ref=%r",
-                    self.name,
-                    state_mr.merge_request_id,
-                    state_mr.source_branch,
-                    current_ref,
-                )
+        current_ref = get_repo_ref(request.runtime.context.gitrepo)
+        context_mr = request.runtime.context.merge_request
+        state_mr = request.state.get("merge_request")
+        mr_iid = self._effective_mr_iid(context_mr=context_mr, state_mr=state_mr, current_ref=current_ref)
+        if mr_iid is None and context_mr is None and state_mr is not None:
+            logger.warning(
+                "[%s] Ignoring stale state MR #%s: source_branch=%r != current ref=%r",
+                self.name,
+                state_mr.merge_request_id,
+                state_mr.source_branch,
+                current_ref,
+            )
 
         context = {
             "git_platform": request.runtime.context.git_platform.value,
@@ -224,26 +243,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         return await handler(request.override(system_prompt=system_prompt))
 
     @staticmethod
-    async def _is_unpublished(git_manager, state: GitState, context: RuntimeCtx) -> bool:
-        """Whether the run's branch has changes that have not reached a merge request yet.
-
-        Unpublished = uncommitted changes exist, OR there are changes versus the base branch
-        that are not captured by a pushed MR (no MR recorded, or local commits not yet pushed
-        to the MR's source branch). A clean tree already pushed to its MR means there is nothing
-        new to publish — this short-circuit keeps idle follow-up turns of a chat (warm sandbox
-        session, where the workspace still holds an earlier turn's committed+pushed work) from
-        re-running the publisher and its diff-to-metadata model call on already-live changes.
-        """
-        if await git_manager.is_dirty():
-            return True
-        if not (await git_manager.get_diff(f"origin/{context.config.default_branch}")).strip():
-            return False
-        merge_request = state.get("merge_request")
-        if merge_request is None:
-            return True
-        return await git_manager.has_unpushed(merge_request.source_branch)
-
-    @staticmethod
     def _record_issue_mr(merge_request: MergeRequest, runtime: Runtime[RuntimeCtx]) -> None:
         """Tag the LangSmith run with the MR id when an issue produced a merge request."""
         if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
@@ -251,40 +250,26 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
-        After the agent finishes, commit and push the changes and update or create the merge request.
+        After the agent finishes, publish any new changes and reflect the resolved MR in state.
 
-        When the run left nothing new to publish (a clean tree already pushed to its MR, or no
-        changes at all) the resolved MR is just confirmed in state. Otherwise daiv publishes
-        directly via :class:`GitChangePublisher`, which commits any uncommitted work (with an
-        LLM-generated message), pushes, and opens/updates the MR — generating the
-        title/description/commit message with ``_diff_to_metadata``.
+        The publish *decision* lives in :meth:`GitChangePublisher.publish`, which returns a
+        :class:`PublishOutcome`: a no-op turn (clean tree already on its MR, or no changes at all)
+        publishes nothing. We map the outcome onto the streamed ``merge_request`` field and the
+        private ``code_changes`` / ``protected_branch_fallback_source`` flags.
         """
         if not self.auto_commit_changes:
             return None
 
-        async with open_git_manager(session_id=state.get("session_id"), gitrepo=runtime.context.gitrepo) as git_manager:
-            unpublished = await self._is_unpublished(git_manager, state, runtime.context)
-
-        if not unpublished:
-            # Nothing new this turn — keep the resolved MR in state so the chat MR pill stays
-            # populated, without re-running the publisher on already-live work.
-            merge_request = state.get("merge_request")
-            if merge_request:
-                self._record_issue_mr(merge_request, runtime)
-                return {"merge_request": merge_request, "code_changes": True}
-            return None
-
-        publisher = GitChangePublisher(runtime.context)
-        merge_request = await publisher.publish(
+        publisher = GitChangePublisher(runtime.context, sandbox_client=self._sandbox_client)
+        outcome = await publisher.publish(
             session_id=state.get("session_id"), merge_request=state.get("merge_request"), skip_ci=self.skip_ci
         )
 
-        if merge_request:
-            self._record_issue_mr(merge_request, runtime)
-            return {
-                "merge_request": merge_request,
-                "code_changes": True,
-                "protected_branch_fallback_source": publisher.protected_branch_fallback_source,
-            }
+        if outcome.merge_request is None:
+            return None
 
-        return None
+        self._record_issue_mr(outcome.merge_request, runtime)
+        update: dict[str, Any] = {"merge_request": outcome.merge_request, "code_changes": True}
+        if outcome.published:
+            update["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
+        return update

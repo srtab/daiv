@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar, Token
 from typing import Self
 
 import httpx
@@ -31,6 +32,37 @@ from .schemas import (
 )
 
 logger = logging.getLogger("daiv.sandbox")
+
+# Run-scoped sandbox transport. `set_runtime_ctx` opens one client per sandbox-enabled run and binds
+# it here. Readers take it and inject it explicitly rather than calling it ad hoc: `create_daiv_agent`
+# at graph-build time (into the backend and middlewares) and `BaseManager`'s draft-recovery path
+# (into the publisher). Reading it outside an open run scope raises; there is no per-call fallback.
+_run_sandbox_client: ContextVar[DAIVSandboxClient | None] = ContextVar("run_sandbox_client", default=None)
+
+
+def set_run_sandbox_client(client: DAIVSandboxClient) -> Token:
+    """Bind the run-scoped sandbox client; returns the token for ``reset_run_sandbox_client``."""
+    return _run_sandbox_client.set(client)
+
+
+def reset_run_sandbox_client(token: Token) -> None:
+    """Unbind the run-scoped sandbox client previously set with ``set_run_sandbox_client``."""
+    _run_sandbox_client.reset(token)
+
+
+def get_run_sandbox_client() -> DAIVSandboxClient:
+    """Return the run-scoped sandbox client opened by ``set_runtime_ctx``.
+
+    Raises ``RuntimeError`` when called outside a sandbox-enabled run: sandbox-mode wiring relies on
+    the transport being owned by the run, and there is no per-call fallback client.
+    """
+    client = _run_sandbox_client.get()
+    if client is None:
+        raise RuntimeError(
+            "No run-scoped sandbox client. `set_runtime_ctx` opens one for sandbox-enabled runs; "
+            "this code path ran without it."
+        )
+    return client
 
 
 class DAIVSandboxClient:

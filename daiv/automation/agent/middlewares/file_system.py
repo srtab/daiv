@@ -212,10 +212,10 @@ class SandboxFileBackend(BackendProtocol):
     or local mirror. Every op is one RPC over ``DAIVSandboxClient``; there is no local
     copy, so no rollback/desync machinery.
 
-    The backend is constructed at graph-build time (before the per-run session exists)
-    and **bound** to a live client+session via :meth:`bind` once
-    ``SandboxMiddleware.abefore_agent`` has started the session. Any file op before
-    binding raises ``RuntimeError`` (a programming error — the middleware must bind first).
+    The client is supplied at construction; the backend is **bound** to the run's session via
+    :meth:`bind_session` once ``SandboxMiddleware.abefore_agent`` has started (or reused) it. Any
+    file op before binding raises ``RuntimeError`` (a programming error — the middleware must bind
+    first).
 
     Only the async methods are implemented — the async agent path never calls the
     sync ones (the inherited sync methods raise ``NotImplementedError``; a sync call
@@ -233,22 +233,17 @@ class SandboxFileBackend(BackendProtocol):
         self._client = client
         self._session_id = session_id
 
-    def bind(self, client: DAIVSandboxClient, session_id: str) -> None:
-        """Attach the live per-run client + session. Called once the sandbox session exists.
-
-        The backend is tied to one **workspace**, identified by ``session_id``. Subagents share
-        the parent's backend instance but each ``SandboxMiddleware`` opens its *own* client, so a
-        subagent legitimately re-binds the *same* session through a *different* client — that is
-        allowed (the new client just becomes the window onto the same session). Re-binding to a
-        *different* session is a programming error and raises, rather than silently redirecting
-        every file op to another workspace.
+    def bind_session(self, session_id: str) -> None:
+        """Attach the run's session id. The client is supplied at construction; this only sets the
+        workspace (session). Subagents share the parent's backend instance, so re-binding the *same*
+        session is a no-op; re-binding to a *different* session is a programming error and raises,
+        rather than silently redirecting every file op to another workspace.
         """
         if self._session_id is not None and self._session_id != session_id:
             raise RuntimeError(
                 f"SandboxFileBackend is already bound to session {self._session_id!r}; "
                 f"refusing to rebind to {session_id!r}"
             )
-        self._client = client
         self._session_id = session_id
 
     def _require_bound(self) -> tuple[DAIVSandboxClient, str]:

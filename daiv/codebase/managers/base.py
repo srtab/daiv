@@ -6,6 +6,7 @@ from langgraph.store.memory import InMemoryStore
 from automation.agent.publishers import GitChangePublisher
 from automation.agent.results import NO_SNAPSHOT, AgentResult, build_agent_result
 from codebase.clients import RepoClient
+from core.sandbox.client import get_run_sandbox_client
 
 if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
@@ -42,17 +43,23 @@ class BaseManager:
             snapshot = await agent.aget_state(config=config)
             snapshot_mr = snapshot.values.get("merge_request")
 
-            publisher = GitChangePublisher(self.ctx)
-            published_mr = await publisher.publish(
+            # Sandbox-mode publish runs git through the run-scoped client opened by set_runtime_ctx
+            # (still active here — recovery runs in the same run scope as the agent). Local /
+            # sandbox-disabled runs need no client.
+            sandbox_client = (
+                get_run_sandbox_client() if self.ctx.sandbox is not None and self.ctx.sandbox.enabled else None
+            )
+            publisher = GitChangePublisher(self.ctx, sandbox_client=sandbox_client)
+            outcome = await publisher.publish(
                 session_id=snapshot.values.get("session_id"),
                 merge_request=snapshot_mr,
                 as_draft=(snapshot_mr is None or snapshot_mr.draft),
             )
 
-            if published_mr:
-                update_values: dict[str, Any] = {"merge_request": published_mr}
-                if publisher.protected_branch_fallback_source:
-                    update_values["protected_branch_fallback_source"] = publisher.protected_branch_fallback_source
+            if outcome.merge_request is not None:
+                update_values: dict[str, Any] = {"merge_request": outcome.merge_request}
+                if outcome.protected_branch_fallback_source:
+                    update_values["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
                 await agent.aupdate_state(config=config, values=update_values)
                 return True
         except Exception:

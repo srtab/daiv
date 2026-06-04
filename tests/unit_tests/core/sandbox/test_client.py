@@ -263,3 +263,28 @@ async def test_close_session_force_removes():
     client._client.delete = AsyncMock(return_value=Mock(raise_for_status=Mock()))
     await client.close_session("sid", force=True)
     client._client.delete.assert_awaited_once_with("session/sid/", params={"force": True})
+
+
+def test_get_run_sandbox_client_raises_when_unset():
+    from core.sandbox.client import get_run_sandbox_client
+
+    with pytest.raises(RuntimeError, match="No run-scoped sandbox client"):
+        get_run_sandbox_client()
+
+
+def test_set_get_reset_run_sandbox_client_roundtrip():
+    from core.sandbox.client import (
+        DAIVSandboxClient,
+        get_run_sandbox_client,
+        reset_run_sandbox_client,
+        set_run_sandbox_client,
+    )
+
+    client = DAIVSandboxClient()
+    token = set_run_sandbox_client(client)
+    try:
+        assert get_run_sandbox_client() is client
+    finally:
+        reset_run_sandbox_client(token)
+    with pytest.raises(RuntimeError):
+        get_run_sandbox_client()

@@ -1,11 +1,11 @@
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from automation.agent.git_manager import GitPushPermissionError
 from automation.agent.middlewares.git import GitMiddleware
-from codebase.base import Scope
-from codebase.utils import GitPushPermissionError
+from automation.agent.publishers import PublishOutcome
+from codebase.base import MergeRequest, Scope, User
 
 
 def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
@@ -19,15 +19,18 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     return runtime
 
 
-def _patch_open_git_manager(monkeypatch) -> None:
-    """Stub ``open_git_manager`` so ``aafter_agent``'s unpublished check doesn't touch a real
-    sandbox or clone; the ``_is_unpublished`` verdict is monkeypatched per test."""
-
-    @asynccontextmanager
-    async def _fake_open(*, session_id, gitrepo):  # noqa: ARG001
-        yield MagicMock()
-
-    monkeypatch.setattr("automation.agent.middlewares.git.open_git_manager", _fake_open)
+def _mr(iid=7, branch="feat/y") -> MergeRequest:
+    return MergeRequest(
+        repo_id="g/r",
+        merge_request_id=iid,
+        source_branch=branch,
+        target_branch="main",
+        title="t",
+        description="d",
+        author=User(id=1, username="daiv"),
+        draft=False,
+        web_url="u",
+    )
 
 
 def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
@@ -45,11 +48,9 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
 
 
 class TestGitMiddleware:
-    async def test_aafter_agent_propagates_push_permission_error(self, monkeypatch):
+    async def test_aafter_agent_propagates_push_permission_error(self):
         middleware = GitMiddleware()
         runtime = _make_runtime()
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
 
         with (
             patch(
@@ -60,48 +61,55 @@ class TestGitMiddleware:
         ):
             await middleware.aafter_agent(state={"merge_request": None}, runtime=runtime)
 
-    async def test_aafter_agent_noop_when_nothing_unpublished(self, monkeypatch):
-        """Clean tree already pushed to its MR (or no changes at all) → no publish, no MR."""
+    async def test_aafter_agent_maps_published_outcome_to_state(self):
+        """A published outcome maps onto the streamed ``merge_request`` field plus the private
+        ``code_changes`` / ``protected_branch_fallback_source`` flags."""
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_client=object())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub = pub_cls.return_value
+            pub.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+        assert result["merge_request"].merge_request_id == 7
+        assert result["code_changes"] is True
+        assert result["protected_branch_fallback_source"] is None
+
+    async def test_aafter_agent_returns_none_when_nothing_to_publish(self):
+        """A no-op outcome (no MR at all) returns None — nothing to surface in state."""
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_client=object())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
+            assert await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime) is None
+
+    async def test_aafter_agent_confirms_existing_mr_without_fallback_key(self):
+        """A clean tree already on its MR: publish returns the MR with ``published=False``, so
+        aafter confirms it in state WITHOUT touching ``protected_branch_fallback_source`` (a
+        no-op turn must not clobber a prior turn's fallback signal)."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=False))
+        state_mr = _mr(iid=10, branch="daiv/feature")
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
-            result = await middleware.aafter_agent({"merge_request": None}, runtime)
-
-        assert result is None
-        publisher_cls.assert_not_called()
-
-    async def test_aafter_agent_confirms_existing_mr_when_nothing_unpublished(self, monkeypatch):
-        """Idle follow-up turn: the run's branch is already published (MR in state, nothing
-        unpublished) → confirm the MR in state without re-running the publisher (which would
-        otherwise burn a diff-to-metadata model call on already-live work)."""
-        middleware = GitMiddleware()
-        runtime = _make_runtime(scope=Scope.GLOBAL)
-        state_mr = MagicMock(source_branch="daiv/feature", merge_request_id=10)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=False))
-
-        with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
+            publisher_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=state_mr, published=False)
+            )
             result = await middleware.aafter_agent({"merge_request": state_mr}, runtime)
 
         assert result == {"merge_request": state_mr, "code_changes": True}
-        publisher_cls.assert_not_called()
 
-    async def test_aafter_agent_publishes_when_unpublished_and_threads_session_id(self, monkeypatch):
-        """Unpublished work → daiv publishes directly via the publisher; the sandbox session id
-        is threaded so the publisher runs git in the right (sandbox vs local) mode."""
+    async def test_aafter_agent_publishes_and_threads_session_id(self):
+        """Daiv publishes via the publisher; the sandbox session id is threaded so the publisher
+        runs git in the right (sandbox vs local) mode."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        new_mr = MagicMock(source_branch="daiv/changes", merge_request_id=11)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
+        new_mr = _mr(iid=11, branch="daiv/changes")
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher = MagicMock()
-            publisher.protected_branch_fallback_source = None
-            publisher.publish = AsyncMock(return_value=new_mr)
+            publisher.publish = AsyncMock(return_value=PublishOutcome(merge_request=new_mr, published=True))
             publisher_cls.return_value = publisher
 
             result = await middleware.aafter_agent({"merge_request": None, "session_id": "sid"}, runtime)
@@ -227,28 +235,21 @@ class TestGitMiddleware:
         ):
             await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
-    async def test_aafter_agent_returns_protected_branch_fallback_source(self, monkeypatch):
-        """The publisher writes the original (protected) source branch onto itself
-        when it has to swap to a fresh MR. ``aafter_agent`` must thread that value
-        through the returned state dict — otherwise the manager-side footer
-        rendering pipeline (`_render_protected_branch_footer`) never fires and the
-        notice silently drops."""
+    async def test_aafter_agent_returns_protected_branch_fallback_source(self):
+        """The publisher reports the original (protected) source branch on the returned
+        ``PublishOutcome`` when it has to swap to a fresh MR. ``aafter_agent`` must thread that value
+        through the returned state dict — otherwise the manager-side footer rendering pipeline
+        (`_render_protected_branch_footer`) never fires and the notice silently drops."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        new_mr = MagicMock(source_branch="agent/fresh", merge_request_id=200)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
+        new_mr = _mr(iid=200, branch="agent/fresh")
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
-            publisher_instance = MagicMock()
-            publisher_instance.protected_branch_fallback_source = None
-            publisher_cls.return_value = publisher_instance
-
-            async def publish_side_effect(**kwargs):
-                publisher_instance.protected_branch_fallback_source = "feature"
-                return new_mr
-
-            publisher_instance.publish = AsyncMock(side_effect=publish_side_effect)
+            publisher_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(
+                    merge_request=new_mr, published=True, protected_branch_fallback_source="feature"
+                )
+            )
 
             result = await middleware.aafter_agent({"merge_request": None}, runtime)
 
@@ -383,22 +384,35 @@ class TestGitMiddleware:
         assert "merge request #7" in captured["system_prompt"]
         assert "merge request #999" not in captured["system_prompt"]
 
-    async def test_aafter_agent_passes_through_none_when_no_fallback(self, monkeypatch):
+    async def test_aafter_agent_passes_through_none_when_no_fallback(self):
         """When publish completes without protection fallback, the value stays None
         so a stale signal from a prior turn doesn't render a phantom footer."""
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        new_mr = MagicMock(source_branch="agent/normal", merge_request_id=201)
-        _patch_open_git_manager(monkeypatch)
-        monkeypatch.setattr(GitMiddleware, "_is_unpublished", AsyncMock(return_value=True))
+        new_mr = _mr(iid=201, branch="agent/normal")
 
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
-            publisher_instance = MagicMock()
-            publisher_instance.protected_branch_fallback_source = None
-            publisher_instance.publish = AsyncMock(return_value=new_mr)
-            publisher_cls.return_value = publisher_instance
+            publisher_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=new_mr, published=True)
+            )
 
             result = await middleware.aafter_agent({"merge_request": None}, runtime)
 
         assert result is not None
         assert result["protected_branch_fallback_source"] is None
+
+
+def test_effective_mr_iid_prefers_context_mr():
+    assert GitMiddleware._effective_mr_iid(context_mr=_mr(1, "a"), state_mr=_mr(2, "b"), current_ref="b") == 1
+
+
+def test_effective_mr_iid_uses_state_mr_when_branch_matches():
+    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=_mr(2, "feat/x"), current_ref="feat/x") == 2
+
+
+def test_effective_mr_iid_drops_stale_state_mr():
+    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=_mr(2, "feat/x"), current_ref="main") is None
+
+
+def test_effective_mr_iid_none_when_no_mr():
+    assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=None, current_ref="main") is None

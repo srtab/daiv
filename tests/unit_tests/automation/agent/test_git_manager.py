@@ -1,12 +1,23 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from git import GitCommandError, Repo
 
-from codebase.utils import GitManager, GitPushNetworkError, GitPushPermissionError, _shell_quote, apply_patch_to_dir
+from automation.agent.git_manager import (
+    GitManager,
+    GitPushNetworkError,
+    GitPushPermissionError,
+    RepoStatus,
+    _shell_quote,
+)
+from codebase.utils import apply_patch_to_dir
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Local-mode helpers (GitPython clone; sandbox-disabled / repoless runs)
@@ -25,12 +36,6 @@ def _init_repo(tmp_path: Path) -> Repo:
     repo = Repo.init(repo_dir)
     _configure_repo_identity(repo)
     return repo
-
-
-def _repo_path(repo: Repo) -> Path:
-    if repo.working_tree_dir is None:
-        raise RuntimeError("Repository working tree was not available.")
-    return Path(repo.working_tree_dir)
 
 
 def _create_initial_commit(repo: Repo, repo_dir: Path) -> None:
@@ -70,14 +75,16 @@ class FakeSandboxClient:
         self.commands: list[str] = []
 
     async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
-        command = request.commands[0]
-        self.commands.append(command)
-        exit_code, output = 0, ""
-        for needle, (code, out) in self.responses.items():
-            if needle in command:
-                exit_code, output = code, out
-                break
-        return RunCommandsResponse(results=[RunCommandResult(command=command, output=output, exit_code=exit_code)])
+        results: list[RunCommandResult] = []
+        for command in request.commands:
+            self.commands.append(command)
+            exit_code, output = 0, ""
+            for needle, (code, out) in self.responses.items():
+                if needle in command:
+                    exit_code, output = code, out
+                    break
+            results.append(RunCommandResult(command=command, output=output, exit_code=exit_code))
+        return RunCommandsResponse(results=results)
 
     def ran(self, needle: str) -> bool:
         return any(needle in command for command in self.commands)
@@ -104,181 +111,6 @@ def test_requires_exactly_one_mode(tmp_path: Path) -> None:
 def test_sandbox_mode_requires_session_id() -> None:
     with pytest.raises(ValueError, match="session_id"):
         GitManager(client=FakeSandboxClient(), session_id="")  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# Local mode (GitPython clone)
-# ---------------------------------------------------------------------------
-
-
-async def test_local_is_dirty_detects_new_untracked_files(tmp_path: Path) -> None:
-    repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
-    repo = Repo.init(repo_dir)
-    (repo_dir / "new_file.txt").write_text("hello\n")
-
-    assert await GitManager(repo).is_dirty() is True
-
-
-async def test_local_is_dirty_returns_false_for_clean_repo(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / "README.md").write_text("hello\n")
-    repo.git.add("-A")
-    repo.index.commit("Initial commit")
-
-    assert await GitManager(repo).is_dirty() is False
-
-
-async def test_local_get_diff_includes_untracked_file_diff(tmp_path: Path) -> None:
-    repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
-    Repo.init(repo_dir)
-    (repo_dir / "new_file.txt").write_text("hello\n")
-
-    diff = await GitManager(Repo(repo_dir)).get_diff()
-    # For untracked files we add `git diff --no-index /dev/null <file>`, which includes the path.
-    assert "new_file.txt" in diff
-
-
-async def test_local_commit_and_push_creates_branch_and_pushes(tmp_path: Path) -> None:
-    repo, origin_dir = _init_repo_with_origin(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / "feature.txt").write_text("feature\n")
-
-    branch_name = await GitManager(repo).commit_and_push_changes("Add feature", branch_name="feature/test")
-
-    assert branch_name == "feature/test"
-    fresh = Repo(repo_dir)
-    assert fresh.active_branch.name == "feature/test"
-    assert fresh.head.commit.message.strip() == "Add feature"
-
-    origin_repo = Repo(origin_dir)
-    assert branch_name in [head.name for head in origin_repo.heads]
-
-
-async def test_local_commit_and_push_adds_skip_ci_prefix(tmp_path: Path) -> None:
-    repo, _ = _init_repo_with_origin(tmp_path)
-    repo_dir = _repo_path(repo)
-    (repo_dir / "skip.txt").write_text("skip\n")
-
-    await GitManager(repo).commit_and_push_changes("Add skip", branch_name="skip-ci", skip_ci=True)
-
-    assert Repo(repo_dir).head.commit.message.strip() == "[skip ci] Add skip"
-
-
-async def test_local_commit_and_push_generates_unique_branch_name(tmp_path: Path) -> None:
-    repo, _ = _init_repo_with_origin(tmp_path)
-    repo.git.branch("feature")
-    repo_dir = _repo_path(repo)
-    (repo_dir / "unique.txt").write_text("unique\n")
-
-    branch_name = await GitManager(repo).commit_and_push_changes(
-        "Add unique", branch_name="feature", use_branch_if_exists=False
-    )
-
-    assert branch_name == "feature-1"
-    assert Repo(repo_dir).active_branch.name == "feature-1"
-
-
-async def test_local_checkout_raises_for_missing_branch(tmp_path: Path) -> None:
-    repo, _ = _init_repo_with_origin(tmp_path)
-
-    with pytest.raises(ValueError, match="Branch missing-branch does not exist in the repository."):
-        await GitManager(repo).checkout("missing-branch")
-
-
-# ---------------------------------------------------------------------------
-# Sandbox mode (git via run_commands)
-# ---------------------------------------------------------------------------
-
-
-async def test_sandbox_is_dirty_uses_status_porcelain() -> None:
-    gm, client = _sandbox_manager({"status --porcelain": (0, " M a.py\n")})
-    assert await gm.is_dirty() is True
-    assert client.ran("git -C /workspace/repo status --porcelain")
-
-
-async def test_sandbox_is_dirty_false_on_clean_tree() -> None:
-    gm, _ = _sandbox_manager({"status --porcelain": (0, "")})
-    assert await gm.is_dirty() is False
-
-
-async def test_sandbox_get_diff_appends_untracked_files() -> None:
-    gm, client = _sandbox_manager({
-        "diff HEAD": (0, "diff --git a/x b/x\n"),
-        "ls-files --others": (0, "new.py\n"),
-        "--no-index": (1, "diff --git a/new.py b/new.py\n+added\n"),
-    })
-    diff = await gm.get_diff()
-    assert "a/x" in diff
-    assert "new.py" in diff
-    assert client.ran("git -C /workspace/repo diff HEAD")
-    assert client.ran("ls-files --others --exclude-standard")
-
-
-async def test_sandbox_has_unpushed() -> None:
-    gm, _ = _sandbox_manager({"log origin/main..HEAD": (0, "abc123 commit\n")})
-    assert await gm.has_unpushed("main") is True
-    gm2, _ = _sandbox_manager({"log origin/main..HEAD": (0, "")})
-    assert await gm2.has_unpushed("main") is False
-
-
-async def test_sandbox_commit_and_push_new_branch() -> None:
-    gm, client = _sandbox_manager({
-        "refname:short": (0, "main\n"),
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
-    })
-    branch = await gm.commit_and_push_changes("fix: thing", branch_name="fix-thing")
-
-    assert branch == "fix-thing"
-    assert client.ran("checkout -b fix-thing")
-    # commit message contains a space, so it is single-quoted in the shell command.
-    assert client.ran("commit -m 'fix: thing'")
-    assert client.ran("push origin fix-thing")
-
-
-async def test_sandbox_commit_and_push_reuses_existing_remote_branch() -> None:
-    gm, client = _sandbox_manager({
-        "refname:short": (0, "main\n"),
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\ncafef00d\trefs/heads/fix-thing\n"),
-    })
-    branch = await gm.commit_and_push_changes("msg", branch_name="fix-thing")
-
-    assert branch == "fix-thing"
-    assert client.ran("checkout fix-thing")
-    assert not client.ran("checkout -b fix-thing")
-
-
-async def test_sandbox_commit_and_push_generates_unique_branch_name() -> None:
-    gm, client = _sandbox_manager({
-        "refname:short": (0, "main\nfeature\n"),
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
-    })
-    branch = await gm.commit_and_push_changes("msg", branch_name="feature", use_branch_if_exists=False)
-
-    assert branch == "feature-1"
-    assert client.ran("checkout -b feature-1")
-
-
-async def test_sandbox_commit_and_push_raises_on_auth_failure() -> None:
-    gm, _ = _sandbox_manager({
-        "refname:short": (0, "main\n"),
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\n"),
-        "push origin": (128, "fatal: unable to access ...: The requested URL returned error: 403"),
-    })
-    with pytest.raises(GitPushPermissionError, match="authentication or permission issues"):
-        await gm.commit_and_push_changes("msg", branch_name="fix-thing")
-
-
-async def test_sandbox_checkout_success_and_missing() -> None:
-    gm, client = _sandbox_manager()
-    await gm.checkout("main")
-    assert client.ran("checkout main")
-
-    gm2, _ = _sandbox_manager({"checkout missing": (1, "error: pathspec 'missing' did not match")})
-    with pytest.raises(ValueError, match="Branch missing does not exist"):
-        await gm2.checkout("missing")
 
 
 # ---------------------------------------------------------------------------
@@ -399,8 +231,8 @@ def test_shell_quote_preserves_newlines_inside_quotes() -> None:
 
 
 async def test_shell_quote_applied_to_commit_message_with_apostrophe() -> None:
-    gm, client = _sandbox_manager({"refname:short": (0, "main\n"), "ls-remote --heads": (0, "")})
-    await gm.commit_and_push_changes("fix: don't break", branch_name="fix")
+    gm, client = _sandbox_manager()
+    await gm.commit_all("fix: don't break")
     assert client.ran("commit -m 'fix: don'\\''t break'")
 
 
@@ -429,39 +261,7 @@ async def test_sandbox_empty_results_raises_runtime_error() -> None:
 
     gm = GitManager(client=_EmptyClient(), session_id="sid")  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="no result"):
-        await gm.is_dirty()
-
-
-# ---------------------------------------------------------------------------
-# get_diff error handling (no error text folded into the diff)
-# ---------------------------------------------------------------------------
-
-
-async def test_sandbox_get_diff_raises_on_missing_ref() -> None:
-    gm, _ = _sandbox_manager({"diff origin/main": (128, "fatal: ambiguous argument 'origin/main': unknown revision")})
-    with pytest.raises(GitCommandError):
-        await gm.get_diff("origin/main")
-
-
-async def test_sandbox_get_diff_falls_back_to_staged_diff_for_empty_repo() -> None:
-    # `ref="HEAD"` with no commits: fall back to the staged diff rather than raising.
-    gm, client = _sandbox_manager({
-        "diff HEAD": (128, "fatal: bad revision 'HEAD'"),
-        "diff --cached": (0, "staged diff\n"),
-    })
-    diff = await gm.get_diff("HEAD")
-    assert "staged diff" in diff
-    assert client.ran("diff --cached --no-prefix")
-
-
-# ---------------------------------------------------------------------------
-# has_unpushed (missing upstream ref must not masquerade as commit output)
-# ---------------------------------------------------------------------------
-
-
-async def test_sandbox_has_unpushed_treats_missing_ref_as_unpushed() -> None:
-    gm, _ = _sandbox_manager({"log origin/new..HEAD": (128, "fatal: ambiguous argument 'origin/new..HEAD'")})
-    assert await gm.has_unpushed("new") is True
+        await gm.commit_all("msg")
 
 
 # ---------------------------------------------------------------------------
@@ -490,24 +290,6 @@ async def test_push_head_to_raises_git_command_error_on_other_failure() -> None:
 
 
 # ---------------------------------------------------------------------------
-# commit_and_push_changes: override_commits force-recreate path
-# ---------------------------------------------------------------------------
-
-
-async def test_sandbox_commit_and_push_override_commits_force_recreates_branch() -> None:
-    gm, client = _sandbox_manager({
-        "refname:short": (0, "main\nfix\n"),  # `fix` exists locally
-        "ls-remote --heads": (0, "deadbeef\trefs/heads/main\ncafef00d\trefs/heads/fix\n"),  # and remotely
-    })
-    branch = await gm.commit_and_push_changes("msg", branch_name="fix", override_commits=True)
-
-    assert branch == "fix"
-    assert client.ran("branch -D fix")  # force-delete the stale local branch
-    assert client.ran("checkout -b fix")  # recreate it
-    assert client.ran("push origin fix --force")
-
-
-# ---------------------------------------------------------------------------
 # _parse_remote_branches (ls-remote line parsing)
 # ---------------------------------------------------------------------------
 
@@ -517,16 +299,16 @@ def test_parse_remote_branches_filters_non_heads() -> None:
     assert GitManager._parse_remote_branches(out) == ["main", "feature"]
 
 
-async def test_get_diff_raises_on_no_index_hard_error() -> None:
+async def test_status_snapshot_raises_on_no_index_hard_error() -> None:
     # `git diff --no-index` exit 1 = "differs" (kept); exit >1 is a genuine error and must raise
-    # rather than be swallowed into the diff.
+    # rather than be swallowed into the snapshot diff.
     gm, _ = _sandbox_manager({
-        "diff HEAD": (0, ""),
+        "diff origin/main": (0, ""),
         "ls-files --others": (0, "weird.bin\n"),
         "--no-index": (2, "fatal: something broke"),
     })
     with pytest.raises(GitCommandError):
-        await gm.get_diff()
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
 
 
 async def test_push_head_to_auth_wins_over_network_markers() -> None:
@@ -538,8 +320,94 @@ async def test_push_head_to_auth_wins_over_network_markers() -> None:
         await gm.push_head_to("b")
 
 
-async def test_remote_branches_raises_on_ls_remote_failure() -> None:
-    # A failing ls-remote must raise, not parse to [] (which would risk a colliding branch name).
-    gm, _ = _sandbox_manager({"ls-remote --heads": (128, "fatal: could not read from remote repository")})
-    with pytest.raises(GitCommandError):
-        await gm.remote_branches()
+# ---------------------------------------------------------------------------
+# status_snapshot (batched publish reads, <=2 round-trips)
+# ---------------------------------------------------------------------------
+
+
+def _resp(*outputs_and_codes):
+    return RunCommandsResponse(
+        results=[RunCommandResult(command="git", exit_code=code, output=out) for out, code in outputs_and_codes]
+    )
+
+
+async def test_status_snapshot_one_round_trip_when_clean() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("", 0))
+    )
+    gm = GitManager.for_sandbox(client, "sess-1")
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
+    assert isinstance(snap, RepoStatus)
+    assert (snap.dirty, snap.diff, snap.remote_branches, snap.has_unpushed) == (False, "", ["main"], False)
+    assert client.run_commands.await_count == 1
+    sent = client.run_commands.await_args.args[1]
+    assert sent.fail_fast is False
+    assert len(sent.commands) == 5
+
+
+async def test_status_snapshot_second_round_trip_only_for_untracked() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[
+            _resp(("?? new.py\n", 0), ("", 0), ("new.py\n", 0), ("abc\trefs/heads/main\n", 0)),
+            _resp(("+++ b/new.py\n+hello\n", 1)),
+        ]
+    )
+    gm = GitManager.for_sandbox(client, "sess-1")
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert snap.dirty is True
+    assert "new.py" in snap.diff
+    assert snap.has_unpushed is False
+    assert client.run_commands.await_count == 2
+
+
+@pytest.mark.parametrize(
+    "failing_index,command_fragment",
+    [(0, "status --porcelain"), (1, "diff origin/main"), (2, "ls-files --others"), (3, "ls-remote --heads")],
+)
+async def test_status_snapshot_raises_on_batch_a_command_failure(failing_index: int, command_fragment: str) -> None:
+    # A non-zero exit from any batch-A query must raise rather than parse to a misleading empty value
+    # (e.g. a failing ls-remote parsing to [] would risk a colliding branch name).
+    outputs = [("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0)]
+    outputs[failing_index] = ("boom", 128)
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(*outputs))
+    gm = GitManager.for_sandbox(client, "sess-1")
+    with pytest.raises(GitCommandError) as exc_info:
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert command_fragment in str(exc_info.value)
+    # The failing check short-circuits before the untracked second round-trip.
+    assert client.run_commands.await_count == 1
+
+
+async def test_status_snapshot_has_unpushed_true_when_log_has_output() -> None:
+    # mr_source_branch present and `git log origin/<src>..HEAD` returns commits -> has_unpushed True.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc123 commit\n", 0))
+    )
+    gm = GitManager.for_sandbox(client, "sess-1")
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
+    assert snap.has_unpushed is True
+
+
+async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
+    # A non-zero `git log origin/<src>..HEAD` (e.g. an unknown upstream ref) is treated as "all
+    # unpushed" rather than raising, mirroring has_unpushed().
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("fatal: bad revision", 128))
+    )
+    gm = GitManager.for_sandbox(client, "sess-1")
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
+    assert snap.has_unpushed is True
+
+
+async def test_status_snapshot_raises_on_result_count_mismatch() -> None:
+    # The sandbox returns one result per command; a short list is a wire anomaly, not a parse-to-empty.
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(("", 0), ("", 0)))  # 2 results for 4 commands
+    gm = GitManager.for_sandbox(client, "sess-1")
+    with pytest.raises(RuntimeError, match="results for"):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)

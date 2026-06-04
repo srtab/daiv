@@ -52,6 +52,7 @@ from codebase.base import GitPlatform
 from codebase.context import RuntimeCtx
 from codebase.utils import get_repo_ref
 from core.constants import BOT_NAME
+from core.sandbox.client import get_run_sandbox_client
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
@@ -211,14 +212,22 @@ async def create_daiv_agent(
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
+    sandbox_backend: SandboxFileBackend | None = None
+    run_client = None
     if _sandbox_enabled:
         # Sandbox-authoritative: one backend serves all of /workspace (repo at
         # /workspace/repo, seeded skills at /workspace/skills, scratchpad at
         # /workspace/tmp). The agent uses these sandbox-absolute paths directly, so the
-        # backend is a pass-through, bound to the live client+session by
+        # backend is a pass-through, bound to the run's session by
         # SandboxMiddleware.abefore_agent once the session exists.
         agent_root = REPO_PATH
         global_skills_source = SKILLS_PATH
+        # Read the run-scoped sandbox client opened by set_runtime_ctx EXACTLY ONCE, here, and inject
+        # it explicitly everywhere it's needed. The client is supplied to SandboxFileBackend at
+        # construction, so the FilesystemMiddleware/SummarizationMiddleware artifacts_root machinery
+        # (which needs a CompositeBackend) still works, and the session is bound late by
+        # SandboxMiddleware via bind_session — no composite-unwrapping required.
+        #
         # Wrap the single /workspace backend in a composite purely to carry an
         # ``artifacts_root`` under /workspace. The middlewares that offload to the
         # filesystem (FilesystemMiddleware tool-result + HumanMessage eviction,
@@ -229,8 +238,10 @@ async def create_daiv_agent(
         # outside /workspace, which the sandbox rejects — so eviction would silently
         # no-op. There is no route: every /workspace path falls through to the default
         # backend with its full path, identity-mapped into the sandbox.
+        run_client = get_run_sandbox_client()
+        sandbox_backend = SandboxFileBackend(client=run_client)
         backend: BackendProtocol = DAIVCompositeBackend(
-            default=SandboxFileBackend(), routes={}, artifacts_root=WORKSPACE_PATH
+            default=sandbox_backend, routes={}, artifacts_root=WORKSPACE_PATH
         )
     else:
         # Sandbox-disabled runs keep the disk-backed composite: repo files from disk;
@@ -252,6 +263,7 @@ async def create_daiv_agent(
             web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
             fallback_models=fallback_models,
+            client=run_client,
         ),
         create_explore_subagent(backend),
     ]
@@ -265,6 +277,7 @@ async def create_daiv_agent(
         web_search_enabled=_web_search_enabled,
         web_fetch_enabled=_web_fetch_enabled,
         fallback_models=fallback_models,
+        client=run_client,
     )
     subagents.extend(custom_subagents)
 
@@ -273,7 +286,11 @@ async def create_daiv_agent(
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
-        *([SandboxMiddleware(backend=backend, agent_root=agent_root)] if _sandbox_enabled else []),
+        *(
+            [SandboxMiddleware(agent_root=agent_root, client=run_client, sandbox_backend=sandbox_backend)]
+            if _sandbox_enabled
+            else []
+        ),
         SkillsMiddleware(
             backend=backend,
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
@@ -297,7 +314,7 @@ async def create_daiv_agent(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        GitMiddleware(auto_commit_changes=auto_commit_changes),
+        GitMiddleware(auto_commit_changes=auto_commit_changes, sandbox_client=run_client),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
         *(middleware or []),
