@@ -223,3 +223,21 @@ async def test_run_commands_propagates_transport_error(backend, client):
     client.run_commands.side_effect = RuntimeError("boom")
     with pytest.raises(RuntimeError, match="boom"):
         await backend.run_commands(["echo hi"], fail_fast=True)
+
+
+def test_backend_does_not_advertise_execution():
+    """SandboxFileBackend must NOT be a deepagents SandboxBackendProtocol.
+
+    deepagents' FilesystemMiddleware always registers an `execute` tool, gated only at call
+    time on `supports_execution(backend)`. Implementing the protocol would make that ungated
+    tool live, bypassing daiv's _check_command_policy (and would break the read-only explore
+    subagent, which combines _permissions with this backend). Command execution must stay on
+    the policy-gated `bash` tool. See the design spec's "Rejected alternative".
+    """
+    from deepagents.backends.protocol import SandboxBackendProtocol
+    from deepagents.middleware.filesystem import supports_execution
+
+    be = SandboxFileBackend(client=AsyncMock())
+    be.bind_session("sid")
+    assert not isinstance(be, SandboxBackendProtocol)
+    assert supports_execution(be) is False
