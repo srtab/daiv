@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Hardened MCP tool loading so a single broken or slow MCP server can no longer freeze chats and runs. Each server's tools are now loaded independently with a per-server timeout (`MCP_TOOL_LOAD_TIMEOUT`, default 30s); a server that times out or errors is skipped instead of blocking the whole agent.
 - Enforced "at most one active (`READY`/`RUNNING`) API/MCP Activity per `thread_id`" at the DB layer via a partial unique constraint. Concurrent submissions on the same thread cleanly fall back to `QUEUED` instead of both running.
 - Made the FIFO dispatcher race-safe: an atomic compare-and-swap (`UPDATE filter(status=QUEUED) → READY`) prevents two terminal events on the same thread from double-promoting the same queued sibling. Dispatch failures now set `finished_at` and iterate via a loop instead of recursive signal re-entry. The loop bails after `MAX_CONSECUTIVE_DISPATCH_FAILURES` (3) consecutive failures so a transient broker outage does not mass-fail an entire QUEUED backlog — remaining rows stay QUEUED for `release_orphan_queued_threads`.
 - Guarded the post-enqueue `task_result_id` save in both `asubmit_batch_runs` and `dispatch_next_in_thread`: a DB blip after a successful broker enqueue now marks the row FAILED (and releases queued siblings) instead of stranding it in READY with no task linkage.
