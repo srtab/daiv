@@ -264,6 +264,7 @@ async def create_daiv_agent(
             web_fetch_enabled=_web_fetch_enabled,
             fallback_models=fallback_models,
             client=run_client,
+            sandbox_backend=sandbox_backend,
         ),
         create_explore_subagent(backend),
     ]
@@ -278,6 +279,7 @@ async def create_daiv_agent(
         web_fetch_enabled=_web_fetch_enabled,
         fallback_models=fallback_models,
         client=run_client,
+        sandbox_backend=sandbox_backend,
     )
     subagents.extend(custom_subagents)
 

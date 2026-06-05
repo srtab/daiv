@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from deepagents.backends import BackendProtocol
     from langchain.chat_models import BaseChatModel
 
+    from automation.agent.middlewares.file_system import SandboxFileBackend
     from codebase.context import RuntimeCtx
     from core.sandbox.client import DAIVSandboxClient
 
@@ -55,6 +56,7 @@ def _build_general_purpose_middleware(
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
@@ -91,7 +93,11 @@ def _build_general_purpose_middleware(
 
     if sandbox_enabled:
         agent_path = Path(runtime.gitrepo.working_dir)
-        middleware.append(SandboxMiddleware(agent_root=f"/{agent_path.name}", client=client, close_session=False))
+        middleware.append(
+            SandboxMiddleware(
+                agent_root=f"/{agent_path.name}", client=client, sandbox_backend=sandbox_backend, close_session=False
+            )
+        )
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
@@ -108,6 +114,7 @@ def create_general_purpose_subagent(
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
 ) -> CompiledSubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
@@ -117,7 +124,15 @@ def create_general_purpose_subagent(
         tools=[],
         system_prompt=GENERAL_PURPOSE_SYSTEM_PROMPT,
         middleware=_build_general_purpose_middleware(
-            model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled, fallback_models, client
+            model,
+            backend,
+            runtime,
+            sandbox_enabled,
+            web_search_enabled,
+            web_fetch_enabled,
+            fallback_models,
+            client,
+            sandbox_backend,
         ),
         name=GENERAL_PURPOSE_NAME,
     )
@@ -278,6 +293,7 @@ async def load_custom_subagents(
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
 ) -> list[CompiledSubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -354,6 +370,7 @@ async def load_custom_subagents(
                     web_fetch_enabled,
                     fallback_models,
                     client,
+                    sandbox_backend,
                 ),
                 name=frontmatter["name"],
             )

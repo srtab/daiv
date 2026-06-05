@@ -4,6 +4,7 @@ import tarfile
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
 from git import Repo
 
 from automation.agent.middlewares.file_system import SandboxFileBackend
@@ -92,9 +93,11 @@ def _make_runtime() -> MagicMock:
 
 
 def _bash_tool_with_fake_client(client: Mock):
-    """Build a fresh SandboxMiddleware with ``client`` pre-installed and return its bash tool."""
+    """Build a fresh SandboxMiddleware with a bound backend over ``client`` and return its bash tool."""
+    backend = SandboxFileBackend(client=client)
+    backend.bind_session("sess_1")
     middleware = _make_middleware()
-    middleware._client = client
+    middleware._sandbox_backend = backend
     return middleware.tools[0]
 
 
@@ -134,19 +137,12 @@ class TestBashTool:
 
         assert output.startswith("error: Sandbox call failed")
 
-    async def test_bash_tool_raises_when_client_not_opened(self, tmp_path: Path):
-        """Calling the bash tool before ``abefore_agent`` opens the client must fail loud."""
-        import pytest
-
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        repo = Repo.init(repo_dir)
-
-        runtime = _make_bash_runtime(repo)
-        middleware = _make_middleware(close_session=True)
+    async def test_bash_tool_raises_when_backend_not_set(self):
+        """Calling the bash tool before abefore_agent bound the backend must fail loud."""
+        runtime = _make_bash_runtime(Mock())
+        middleware = _make_middleware()  # no backend installed
         bash_tool = middleware.tools[0]
-
-        with pytest.raises(RuntimeError, match="bash tool invoked before abefore_agent"):
+        with pytest.raises(RuntimeError, match="bound the sandbox backend"):
             await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
 
@@ -298,22 +294,18 @@ class TestBashToolPolicyEnforcement:
 
 
 class TestRunBashCommands:
-    async def test_run_bash_commands_no_archive_field(self):
-        """_run_bash_commands no longer tarballs the working dir; archive is gone from RunCommandsRequest."""
-        run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[]))
-        client = Mock()
-        client.run_commands = run_commands_mock
+    async def test_run_bash_commands_forwards_to_backend(self):
+        """_run_bash_commands forwards the command list to the bound backend with fail_fast=True."""
+        backend = SandboxFileBackend(client=Mock())
+        backend.bind_session("sess_1")
+        backend.run_commands = AsyncMock(return_value=RunCommandsResponse(results=[]))
 
-        response = await _run_bash_commands(client, ["echo ok"], "sess_1")
+        response = await _run_bash_commands(backend, ["echo ok"])
 
         assert response is not None
-        run_commands_mock.assert_awaited_once()
-        _session_id, request = run_commands_mock.call_args.args
-
-        # The RunCommandsRequest schema no longer has an archive field.
-        dumped = request.model_dump()
-        assert "archive" not in dumped
-        assert dumped["commands"] == ["echo ok"]
+        backend.run_commands.assert_awaited_once()
+        assert backend.run_commands.await_args.args[0] == ["echo ok"]
+        assert backend.run_commands.await_args.kwargs["fail_fast"] is True
 
 
 class TestSandboxMiddleware:
