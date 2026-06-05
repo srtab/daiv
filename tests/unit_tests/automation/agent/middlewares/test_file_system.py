@@ -15,6 +15,7 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_FENCE_PERMISSIONS,
     WRITE_SUCCESS_PREFIX,
     DAIVFilesystemBackend,
+    build_disk_workspace_backend,
 )
 
 if TYPE_CHECKING:
@@ -225,3 +226,30 @@ class TestWorkspaceFencePermissions:
 
     def test_paths_outside_workspace_default_allow(self):
         assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", "/etc/passwd") == "allow"
+
+
+class TestBuildDiskWorkspaceBackend:
+    """The disk composite maps the unified /workspace namespace onto local disk locations."""
+
+    async def test_routes_repo_skills_and_tmp(self, tmp_path):
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        skills_cache = tmp_path / "skills_cache"
+        skills_cache.mkdir()
+
+        backend = build_disk_workspace_backend(clone_dir, skills_cache=skills_cache)
+
+        assert (await backend.awrite("/workspace/repo/a.txt", "R")).error is None
+        assert (clone_dir / "a.txt").read_text() == "R"
+
+        assert (await backend.awrite("/workspace/skills/s.txt", "S")).error is None
+        assert (skills_cache / "s.txt").read_text() == "S"
+
+        assert (await backend.awrite("/workspace/tmp/t.txt", "T")).error is None
+        assert (clone_dir.parent / "workspace" / "tmp" / "t.txt").read_text() == "T"
+
+    def test_artifacts_root_is_workspace(self, tmp_path):
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
+        assert backend.artifacts_root == "/workspace"

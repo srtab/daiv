@@ -32,7 +32,7 @@ from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import FilesystemPermission
 
-from automation.agent.constants import REPO_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
+from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.schemas import (
     FsDeleteRequest,
@@ -238,6 +238,31 @@ class DAIVCompositeBackend(CompositeBackend):
         """
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend
+
+
+def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> DAIVCompositeBackend:
+    """Build the disk-backed composite that serves the unified ``/workspace`` namespace.
+
+    Routes:
+      - ``/workspace/repo/``   → the local git clone (``clone_dir``)
+      - ``/workspace/skills/`` → the shared global skills cache (``SKILLS_CACHE_PATH``)
+      - everything else under ``/workspace`` (the ``/workspace/tmp`` scratchpad and the offloaded
+        artifact dirs derived from ``artifacts_root``) → a per-run scratch backend rooted at the
+        clone's parent (the ``set_runtime_ctx`` tempdir, auto-removed at run end). Non-routed paths
+        reach this default with their full path, so they materialise under ``<parent>/workspace/``,
+        siblings to the clone and never committed.
+
+    The skills cache is a route (not copied per run) so the global-cache idempotency in
+    ``SkillsMiddleware`` is preserved.
+    """
+    repo_backend = DAIVFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
+    skills_backend = DAIVFilesystemBackend(root_dir=skills_cache, virtual_mode=True)
+    scratch_backend = DAIVFilesystemBackend(root_dir=clone_dir.parent, virtual_mode=True)
+    return DAIVCompositeBackend(
+        default=scratch_backend,
+        routes={f"{REPO_PATH}/": repo_backend, f"{SKILLS_PATH}/": skills_backend},
+        artifacts_root=WORKSPACE_PATH,
+    )
 
 
 # Every fs soft failure now arrives in the 200 body as a structured ``FsError`` (the sandbox no
