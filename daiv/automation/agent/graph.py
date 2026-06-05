@@ -264,6 +264,7 @@ async def create_daiv_agent(
             web_fetch_enabled=_web_fetch_enabled,
             fallback_models=fallback_models,
             client=run_client,
+            sandbox_backend=sandbox_backend,
         ),
         create_explore_subagent(backend),
     ]
@@ -278,6 +279,7 @@ async def create_daiv_agent(
         web_fetch_enabled=_web_fetch_enabled,
         fallback_models=fallback_models,
         client=run_client,
+        sandbox_backend=sandbox_backend,
     )
     subagents.extend(custom_subagents)
 
@@ -314,7 +316,7 @@ async def create_daiv_agent(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        GitMiddleware(auto_commit_changes=auto_commit_changes, sandbox_client=run_client),
+        GitMiddleware(auto_commit_changes=auto_commit_changes, sandbox_backend=sandbox_backend),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
         *(middleware or []),

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 from langgraph.store.memory import InMemoryStore
 
+from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.publishers import GitChangePublisher
 from automation.agent.results import NO_SNAPSHOT, AgentResult, build_agent_result
 from codebase.clients import RepoClient
@@ -43,17 +44,17 @@ class BaseManager:
             snapshot = await agent.aget_state(config=config)
             snapshot_mr = snapshot.values.get("merge_request")
 
-            # Sandbox-mode publish runs git through the run-scoped client opened by set_runtime_ctx
-            # (still active here — recovery runs in the same run scope as the agent). Local /
-            # sandbox-disabled runs need no client.
-            sandbox_client = (
-                get_run_sandbox_client() if self.ctx.sandbox is not None and self.ctx.sandbox.enabled else None
-            )
-            publisher = GitChangePublisher(self.ctx, sandbox_client=sandbox_client)
+            # Sandbox-mode publish runs git through the run's bound backend. Recovery runs in the same
+            # run scope as the agent (client still open), but doesn't hold the agent's backend instance,
+            # so it reconstructs the bound handle from the run-scoped client + the persisted session id.
+            sandbox_backend = None
+            if self.ctx.sandbox is not None and self.ctx.sandbox.enabled and (sid := snapshot.values.get("session_id")):
+                sandbox_backend = SandboxFileBackend(client=get_run_sandbox_client())
+                sandbox_backend.bind_session(sid)
+
+            publisher = GitChangePublisher(self.ctx, sandbox_backend=sandbox_backend)
             outcome = await publisher.publish(
-                session_id=snapshot.values.get("session_id"),
-                merge_request=snapshot_mr,
-                as_draft=(snapshot_mr is None or snapshot_mr.draft),
+                merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
             )
 
             if outcome.merge_request is not None:
