@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import tarfile
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, NotRequired
 
@@ -120,9 +121,9 @@ Result interpretation:
 - Always check each `exit_code` and treat non-zero codes or Python tracebacks in `output` as failures that require investigation or fixes.
 - If the tool returns a plain string starting with `error:` instead of JSON, treat it as a sandbox/tool failure, not as a passing check.
 
-Repeated failure policy:
-- If 2 consecutive commands return the same `error:` string indicating that the bash tool is not working properly, assume command execution is unavailable for this conversation. Do not attempt a third command.
-- After that point, stop invoking `{BASH_TOOL_NAME}`, switch to static reasoning only (code reading/search), and clearly mention that you cannot run commands.
+Infrastructure failure policy:
+- The bash tool reports infrastructure problems (not command results) as a string starting with `error:`. Read it: some say the problem is temporary and invite a single retry of the same command; others say the tool is unavailable for the rest of the conversation. Follow the instruction the error gives you.
+- Stop invoking `{BASH_TOOL_NAME}` once an error says the tool is unavailable, OR once the same `error:` string occurs on two consecutive commands. After that, switch to static reasoning only (code reading/search) and clearly mention that you cannot run commands.
 
 Dedicated-tool failure policy:
 - If a dedicated tool (for example `gitlab`, `gh`, `web_search`, or `web_fetch`) exists for the task, do NOT use bash to reproduce or bypass that tool.
@@ -231,7 +232,7 @@ def _check_command_policy(command: str, runtime: ToolRuntime[RuntimeCtx]) -> str
         "The Git middleware commits and pushes file changes automatically at turn-end "
         "(see the Git context section in the system prompt)."
         if matched.startswith("git ")
-        else " This capability is intentionally unavailable — do not rephrase."
+        else " This capability is intentionally unavailable — do not rephrase or try synonyms."
     )
     return (
         f"error: Command blocked by policy ({reason_label}): "
@@ -290,20 +291,70 @@ def _make_global_skills_archive() -> bytes | None:
     return buf.getvalue()
 
 
-async def _run_bash_commands(backend: SandboxFileBackend, commands: list[str]) -> RunCommandsResponse | None:
+class BashFailure(Enum):
+    """Why a bash invocation produced no result, mapped to the guidance the agent gets.
+
+    The agent only knows what the tool message and system prompt tell it — it has no view of
+    transport details — so the failure is classified here into one of two actionable buckets:
+
+    - ``TRANSIENT``: a momentary transport/server hiccup (no HTTP response, or a retryable status
+      like a timeout/rate-limit/5xx). A retry may succeed.
+    - ``PERMANENT``: the sandbox rejected the call in a way a retry will not fix (auth, session
+      gone, malformed request). The bash tool is unusable for the rest of the run.
+    """
+
+    TRANSIENT = "transient"
+    PERMANENT = "permanent"
+
+
+# Sandbox HTTP statuses a retry might clear (timeout, too-early, rate-limit, and the transient 5xx
+# family). Every other status — auth (401/403), session-gone (404), bad-request (400/422),
+# not-implemented (501) — is permanent: retrying only burns a tool call.
+_TRANSIENT_SANDBOX_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+# Agent-facing guidance for a bash call that returned no result. Both deliberately start with
+# `error:` so the agent treats them as infrastructure failures, not command output (per the tool
+# description and system prompt). The TRANSIENT text is kept byte-stable (no status codes, no
+# per-call detail) so the system prompt's "two identical `error:` strings ⇒ stop" backstop still
+# fires when a retry fails the same way.
+_BASH_TRANSIENT_ERROR = (
+    "error: The sandbox did not return a result for this command — a temporary problem reaching it "
+    "interrupted the call, so the command may or may not have run. This is usually transient. "
+    "You may retry this exact command ONCE. If the retry returns this same error, stop using the "
+    "bash tool for the rest of this conversation and tell the user you were unable to run commands."
+)
+
+_BASH_PERMANENT_ERROR = (
+    "error: The bash tool is unavailable for the rest of this conversation. The sandbox rejected "
+    "the call in a way that will not recover by retrying, and no command was executed. Do NOT call "
+    "the bash tool again — further calls will fail the same way."
+)
+
+_BASH_FAILURE_MESSAGES = {BashFailure.TRANSIENT: _BASH_TRANSIENT_ERROR, BashFailure.PERMANENT: _BASH_PERMANENT_ERROR}
+
+
+async def _run_bash_commands(backend: SandboxFileBackend, commands: list[str]) -> RunCommandsResponse | BashFailure:
     """Run bash commands through the run's bound :class:`SandboxFileBackend`.
 
-    The backend raises on transport/HTTP errors; this wrapper degrades them to ``None`` so
-    the bash tool can surface a friendly error instead of crashing the run.
+    On success returns the :class:`RunCommandsResponse`. Degrades only ``httpx`` transport/HTTP
+    errors to a :class:`BashFailure` (classified transient vs. permanent) so the bash tool can hand
+    the agent self-contained guidance — retry once vs. stop using the tool — instead of crashing the
+    run. Other failures are intentionally NOT caught and propagate: a malformed or schema-mismatched
+    200 body (``json.JSONDecodeError`` / ``pydantic.ValidationError``) and an unbound-backend
+    ``RuntimeError`` are wire/programming bugs that should fail loud rather than masquerade as a soft
+    sandbox failure.
     """
     try:
         return await backend.run_commands(commands, fail_fast=True)
     except httpx.RequestError:
-        logger.exception("Unexpected error calling sandbox API.")
-        return None
+        # No HTTP response at all (timeout, connection refused, network blip): the sandbox is
+        # momentarily unreachable, so a retry may connect — transient.
+        logger.exception("Transport error calling sandbox API; treating as transient.")
+        return BashFailure.TRANSIENT
     except httpx.HTTPStatusError as e:
-        logger.exception("Status code %s calling sandbox API: %s", e.response.status_code, e.response.text)
-        return None
+        status = e.response.status_code
+        logger.exception("Status code %s calling sandbox API: %s", status, e.response.text)
+        return BashFailure.TRANSIENT if status in _TRANSIENT_SANDBOX_STATUS else BashFailure.PERMANENT
 
 
 class SandboxState(AgentState):
@@ -338,8 +389,10 @@ class SandboxMiddleware(AgentMiddleware):
         agent_root: Virtual path prefix the agent's filesystem tools see (e.g.
             ``/workspace/repo``); the agent's repo root.
         client: The run-scoped sandbox client opened by ``set_runtime_ctx`` and injected here.
-        sandbox_backend: The concrete ``SandboxFileBackend`` to bind the run's session onto.
-            ``None`` for subagents, which share the parent-bound backend.
+        sandbox_backend: The concrete ``SandboxFileBackend`` the run's session is bound onto and
+            that backs the ``bash`` tool. Subagents receive the *same* instance the parent agent
+            uses (forwarded from ``create_daiv_agent``), so they share the parent-bound backend
+            rather than binding their own.
         close_session: Whether to close the session after the agent finishes the execution
             loop. Set to ``False`` when used in subagents so the parent agent owns session
             lifecycle.
@@ -374,7 +427,7 @@ class SandboxMiddleware(AgentMiddleware):
         self.tools = [self._build_bash_tool()]
 
     def _build_bash_tool(self) -> BaseTool:
-        """Build a bash tool bound to this middleware's per-run sandbox client."""
+        """Build a bash tool that runs commands through this middleware's bound SandboxFileBackend."""
 
         @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
         async def bash_tool(
@@ -388,24 +441,22 @@ class SandboxMiddleware(AgentMiddleware):
             if self._sandbox_backend is None:
                 raise RuntimeError("SandboxMiddleware bash tool invoked before abefore_agent bound the sandbox backend")
 
-            response = await _run_bash_commands(self._sandbox_backend, [command])
-            if response is None:
-                return (
-                    "error: Sandbox call failed (transport or HTTP error — see server logs). "
-                    "The bash tool may be unavailable for this run."
-                )
+            result = await _run_bash_commands(self._sandbox_backend, [command])
+            if isinstance(result, BashFailure):
+                return _BASH_FAILURE_MESSAGES[result]
 
             # The sandbox is authoritative: bash mutations already live in /workspace/repo,
             # so there is no local repo to keep in sync here.
-            return json.dumps({"commands": [result.model_dump(mode="json") for result in response.results]})
+            return json.dumps({"commands": [r.model_dump(mode="json") for r in result.results]})
 
         return bash_tool
 
     def _bind_session(self, session_id: str) -> None:
         """Bind the run's session onto the injected SandboxFileBackend (main agent only).
 
-        Subagents pass ``sandbox_backend=None`` because they share the parent's backend, which the
-        parent already bound — so this is a no-op for them.
+        Subagents receive the already-bound parent backend and short-circuit in ``abefore_agent``
+        (``close_session=False`` + ``session_id`` already in state) before reaching this method, so
+        they never re-bind. The ``is not None`` guard below stays defensive regardless.
         """
         if self._sandbox_backend is not None:
             self._sandbox_backend.bind_session(session_id)
@@ -465,8 +516,9 @@ class SandboxMiddleware(AgentMiddleware):
             raise RuntimeError("SandboxMiddleware requires an injected run-scoped sandbox client.")
 
         if not self.close_session and "session_id" in state:
-            # Subagent path: the parent owns the session and already bound the shared backend; our
-            # injected client serves this subagent's bash tool. Nothing to set up.
+            # Subagent path: the parent owns the session and already bound the shared backend (which
+            # this subagent received and uses for its bash tool). Our injected client serves only the
+            # non-None guard above. Nothing to set up.
             return None
 
         prior_session_id = state.get("session_id")

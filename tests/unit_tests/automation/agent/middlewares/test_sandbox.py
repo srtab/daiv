@@ -8,7 +8,12 @@ import pytest
 from git import Repo
 
 from automation.agent.middlewares.file_system import SandboxFileBackend
-from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands
+from automation.agent.middlewares.sandbox import (
+    SANDBOX_SYSTEM_PROMPT,
+    BashFailure,
+    SandboxMiddleware,
+    _run_bash_commands,
+)
 from core.conf import settings as core_settings
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
@@ -121,7 +126,8 @@ class TestBashTool:
         assert "files_changed" not in payload
         client.run_commands.assert_awaited_once()
 
-    async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
+    async def test_bash_tool_transient_failure_invites_single_retry(self, tmp_path: Path):
+        """A transport error (no HTTP response) yields transient guidance: retry once, then stop."""
         import httpx
 
         repo_dir = tmp_path / "repoX"
@@ -135,7 +141,30 @@ class TestBashTool:
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
-        assert output.startswith("error: Sandbox call failed")
+        assert output.startswith("error:")
+        assert "retry this exact command once" in output.lower()
+        # Must NOT carry the permanent "stop forever" framing — a retry is still warranted.
+        assert "unavailable for the rest of this conversation" not in output.lower()
+
+    async def test_bash_tool_permanent_failure_tells_agent_to_stop(self, tmp_path: Path):
+        """A non-retryable status (e.g. 403) tells the agent the tool is gone for the run."""
+        import httpx
+
+        repo_dir = tmp_path / "repoY"
+        repo_dir.mkdir(parents=True)
+        repo = Repo.init(repo_dir)
+
+        runtime = _make_bash_runtime(repo)
+        err = httpx.HTTPStatusError("forbidden", request=httpx.Request("POST", "x"), response=httpx.Response(403))
+        client = Mock()
+        client.run_commands = AsyncMock(side_effect=err)
+        bash_tool = _bash_tool_with_fake_client(client)
+
+        output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
+
+        assert output.startswith("error:")
+        assert "unavailable for the rest of this conversation" in output.lower()
+        assert "do not call" in output.lower()
 
     async def test_bash_tool_raises_when_backend_not_set(self):
         """Calling the bash tool before abefore_agent bound the backend must fail loud."""
@@ -306,6 +335,32 @@ class TestRunBashCommands:
         backend.run_commands.assert_awaited_once()
         assert backend.run_commands.await_args.args[0] == ["echo ok"]
         assert backend.run_commands.await_args.kwargs["fail_fast"] is True
+
+    async def _run_with_error(self, error: Exception) -> object:
+        backend = SandboxFileBackend(client=Mock())
+        backend.bind_session("sess_1")
+        backend.run_commands = AsyncMock(side_effect=error)
+        return await _run_bash_commands(backend, ["echo ok"])
+
+    async def test_transport_error_is_transient(self):
+        """No HTTP response (timeout/connection blip) → transient: a retry may connect."""
+        import httpx
+
+        assert await self._run_with_error(httpx.RequestError("boom")) is BashFailure.TRANSIENT
+
+    @pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+    async def test_retryable_status_is_transient(self, status: int):
+        import httpx
+
+        err = httpx.HTTPStatusError("busy", request=httpx.Request("POST", "x"), response=httpx.Response(status))
+        assert await self._run_with_error(err) is BashFailure.TRANSIENT
+
+    @pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+    async def test_non_retryable_status_is_permanent(self, status: int):
+        import httpx
+
+        err = httpx.HTTPStatusError("nope", request=httpx.Request("POST", "x"), response=httpx.Response(status))
+        assert await self._run_with_error(err) is BashFailure.PERMANENT
 
 
 class TestSandboxMiddleware:

@@ -9,7 +9,7 @@ which middlewares to compose.
 """
 
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from deepagents.middleware.filesystem import FilesystemMiddleware
@@ -65,6 +65,28 @@ class TestGeneralPurposeMiddleware:
         sandbox_middlewares = [m for m in middleware if isinstance(m, SandboxMiddleware)]
         assert len(sandbox_middlewares) == 1
         assert sandbox_middlewares[0].close_session is False
+
+    def test_threads_client_and_sandbox_backend_into_sandbox_middleware(
+        self, mock_model, mock_backend, mock_runtime_ctx
+    ):
+        """The run-scoped client and the parent's bound backend must reach the subagent's
+        SandboxMiddleware: the subagent's bash tool runs through the shared backend, so a dropped
+        argument would make that bash raise ``...bound the sandbox backend`` at runtime."""
+        sentinel_client = Mock()
+        sentinel_backend = Mock()
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            web_search_enabled=True,
+            web_fetch_enabled=True,
+            client=sentinel_client,
+            sandbox_backend=sentinel_backend,
+        )
+        sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
+        assert sandbox_mw._client is sentinel_client
+        assert sandbox_mw._sandbox_backend is sentinel_backend
 
     def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend, mock_runtime_ctx):
         middleware = _build_general_purpose_middleware(
@@ -226,6 +248,38 @@ class TestCustomSubagents:
         assert result[0]["name"] == "my-agent"
         assert result[0]["description"] == "Does custom things"
         assert "runnable" in result[0]
+
+    async def test_threads_client_and_sandbox_backend_into_middleware(
+        self, tmp_path: Path, mock_model, mock_runtime_ctx
+    ):
+        """The run-scoped client + parent backend are forwarded (positionally, as the last two
+        args) into each custom subagent's middleware builder, so a custom subagent's bash tool runs
+        through the shared backend rather than raising at runtime. Guards the positional pass-through
+        in ``load_custom_subagents``."""
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
+
+        sentinel_client = Mock()
+        sentinel_backend = Mock()
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        with patch("automation.agent.subagents._build_general_purpose_middleware", return_value=[]) as build_mw:
+            result = await load_custom_subagents(
+                model=mock_model,
+                backend=backend,
+                runtime=mock_runtime_ctx,
+                sources=["/repo/.agents/subagents"],
+                client=sentinel_client,
+                sandbox_backend=sentinel_backend,
+            )
+
+        assert len(result) == 1
+        build_mw.assert_called_once()
+        # client and sandbox_backend are the last two positional args (see load_custom_subagents).
+        assert build_mw.call_args.args[-2] is sentinel_client
+        assert build_mw.call_args.args[-1] is sentinel_backend
 
     async def test_loads_multiple_subagents(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend
