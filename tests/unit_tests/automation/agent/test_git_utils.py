@@ -1,25 +1,17 @@
 from unittest.mock import MagicMock
 
-import pytest
-
 from automation.agent.git_utils import open_git_manager
 
 
-async def test_open_git_manager_sandbox_uses_injected_client():
-    client = MagicMock()
-    async with open_git_manager(client=client, session_id="sess-1", gitrepo=None) as gm:
-        assert gm._client is client
-        assert gm._session_id == "sess-1"
+async def test_open_git_manager_sandbox_uses_injected_backend():
+    backend = MagicMock()
+    async with open_git_manager(sandbox_backend=backend, gitrepo=None) as gm:
+        assert gm._sandbox_backend is backend
+        assert gm.repo is None
 
 
-async def test_open_git_manager_sandbox_requires_client():
-    with pytest.raises(RuntimeError, match="no sandbox client"):
-        async with open_git_manager(client=None, session_id="sess-1", gitrepo=None):
-            pass
-
-
-async def test_open_git_manager_local_mode_ignores_client():
+async def test_open_git_manager_local_mode_when_no_backend():
     repo = MagicMock()
-    async with open_git_manager(client=None, session_id=None, gitrepo=repo) as gm:
+    async with open_git_manager(sandbox_backend=None, gitrepo=repo) as gm:
         assert gm.repo is repo
-        assert gm._client is None
+        assert gm._sandbox_backend is None

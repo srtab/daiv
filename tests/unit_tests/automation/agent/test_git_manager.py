@@ -13,6 +13,7 @@ from automation.agent.git_manager import (
     RepoStatus,
     _shell_quote,
 )
+from automation.agent.middlewares.file_system import SandboxFileBackend
 from codebase.utils import apply_patch_to_dir
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
@@ -92,7 +93,9 @@ class FakeSandboxClient:
 
 def _sandbox_manager(responses: dict[str, tuple[int, str]] | None = None) -> tuple[GitManager, FakeSandboxClient]:
     client = FakeSandboxClient(responses)
-    return GitManager(client=client, session_id="sid"), client
+    backend = SandboxFileBackend(client=client)
+    backend.bind_session("sid")
+    return GitManager.for_sandbox(backend), client
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +107,10 @@ def test_requires_exactly_one_mode(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="exactly one"):
         GitManager()
     repo = _init_repo(tmp_path)
+    backend = SandboxFileBackend(client=FakeSandboxClient())
+    backend.bind_session("sid")
     with pytest.raises(ValueError, match="exactly one"):
-        GitManager(repo, client=FakeSandboxClient())  # type: ignore[arg-type]
-
-
-def test_sandbox_mode_requires_session_id() -> None:
-    with pytest.raises(ValueError, match="session_id"):
-        GitManager(client=FakeSandboxClient(), session_id="")  # type: ignore[arg-type]
+        GitManager(repo, sandbox_backend=backend)
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +199,10 @@ def test_classmethod_constructors(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     assert GitManager.for_local(repo).repo is repo
 
-    gm = GitManager.for_sandbox(FakeSandboxClient(), "sid")  # type: ignore[arg-type]
-    assert gm._session_id == "sid"
+    backend = SandboxFileBackend(client=FakeSandboxClient())
+    backend.bind_session("sid")
+    gm = GitManager.for_sandbox(backend)
+    assert gm._sandbox_backend is backend
     assert gm.repo is None
 
 
@@ -259,7 +261,9 @@ async def test_sandbox_empty_results_raises_runtime_error() -> None:
         async def run_commands(self, session_id, request) -> RunCommandsResponse:  # noqa: ARG002
             return RunCommandsResponse(results=[])
 
-    gm = GitManager(client=_EmptyClient(), session_id="sid")  # type: ignore[arg-type]
+    backend = SandboxFileBackend(client=_EmptyClient())
+    backend.bind_session("sid")
+    gm = GitManager.for_sandbox(backend)
     with pytest.raises(RuntimeError, match="no result"):
         await gm.commit_all("msg")
 
@@ -331,12 +335,18 @@ def _resp(*outputs_and_codes):
     )
 
 
+def _backend_for(client) -> SandboxFileBackend:
+    backend = SandboxFileBackend(client=client)
+    backend.bind_session("sess-1")
+    return backend
+
+
 async def test_status_snapshot_one_round_trip_when_clean() -> None:
     client = MagicMock()
     client.run_commands = AsyncMock(
         return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("", 0))
     )
-    gm = GitManager.for_sandbox(client, "sess-1")
+    gm = GitManager.for_sandbox(_backend_for(client))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert isinstance(snap, RepoStatus)
     assert (snap.dirty, snap.diff, snap.remote_branches, snap.has_unpushed) == (False, "", ["main"], False)
@@ -354,7 +364,7 @@ async def test_status_snapshot_second_round_trip_only_for_untracked() -> None:
             _resp(("+++ b/new.py\n+hello\n", 1)),
         ]
     )
-    gm = GitManager.for_sandbox(client, "sess-1")
+    gm = GitManager.for_sandbox(_backend_for(client))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert snap.dirty is True
     assert "new.py" in snap.diff
@@ -373,7 +383,7 @@ async def test_status_snapshot_raises_on_batch_a_command_failure(failing_index: 
     outputs[failing_index] = ("boom", 128)
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(*outputs))
-    gm = GitManager.for_sandbox(client, "sess-1")
+    gm = GitManager.for_sandbox(_backend_for(client))
     with pytest.raises(GitCommandError) as exc_info:
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
     assert command_fragment in str(exc_info.value)
@@ -387,7 +397,7 @@ async def test_status_snapshot_has_unpushed_true_when_log_has_output() -> None:
     client.run_commands = AsyncMock(
         return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc123 commit\n", 0))
     )
-    gm = GitManager.for_sandbox(client, "sess-1")
+    gm = GitManager.for_sandbox(_backend_for(client))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert snap.has_unpushed is True
 
@@ -399,7 +409,7 @@ async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
     client.run_commands = AsyncMock(
         return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("fatal: bad revision", 128))
     )
-    gm = GitManager.for_sandbox(client, "sess-1")
+    gm = GitManager.for_sandbox(_backend_for(client))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert snap.has_unpushed is True
 
@@ -408,6 +418,6 @@ async def test_status_snapshot_raises_on_result_count_mismatch() -> None:
     # The sandbox returns one result per command; a short list is a wire anomaly, not a parse-to-empty.
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(("", 0), ("", 0)))  # 2 results for 4 commands
-    gm = GitManager.for_sandbox(client, "sess-1")
+    gm = GitManager.for_sandbox(_backend_for(client))
     with pytest.raises(RuntimeError, match="results for"):
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)

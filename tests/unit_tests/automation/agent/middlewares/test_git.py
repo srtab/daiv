@@ -64,7 +64,7 @@ class TestGitMiddleware:
     async def test_aafter_agent_maps_published_outcome_to_state(self):
         """A published outcome maps onto the streamed ``merge_request`` field plus the private
         ``code_changes`` / ``protected_branch_fallback_source`` flags."""
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_client=object())
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=object())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -77,7 +77,7 @@ class TestGitMiddleware:
 
     async def test_aafter_agent_returns_none_when_nothing_to_publish(self):
         """A no-op outcome (no MR at all) returns None — nothing to surface in state."""
-        mw = GitMiddleware(auto_commit_changes=True, sandbox_client=object())
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=object())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
@@ -100,13 +100,13 @@ class TestGitMiddleware:
 
         assert result == {"merge_request": state_mr, "code_changes": True}
 
-    async def test_aafter_agent_publishes_and_threads_session_id(self):
-        """Daiv publishes via the publisher; the sandbox session id is threaded so the publisher
-        runs git in the right (sandbox vs local) mode."""
-        middleware = GitMiddleware()
+    async def test_aafter_agent_passes_backend_to_publisher(self):
+        """Daiv publishes via the publisher; the run's bound backend is injected at construction
+        (no session_id is threaded through publish)."""
+        sentinel_backend = object()
+        middleware = GitMiddleware(sandbox_backend=sentinel_backend)
+        new_mr = _mr()
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        new_mr = _mr(iid=11, branch="daiv/changes")
-
         with patch("automation.agent.middlewares.git.GitChangePublisher") as publisher_cls:
             publisher = MagicMock()
             publisher.publish = AsyncMock(return_value=PublishOutcome(merge_request=new_mr, published=True))
@@ -114,10 +114,10 @@ class TestGitMiddleware:
 
             result = await middleware.aafter_agent({"merge_request": None, "session_id": "sid"}, runtime)
 
-        assert result["merge_request"] is new_mr
-        assert result["code_changes"] is True
+        assert publisher_cls.call_args.kwargs["sandbox_backend"] is sentinel_backend
         publisher.publish.assert_awaited_once()
-        assert publisher.publish.await_args.kwargs["session_id"] == "sid"
+        assert "session_id" not in publisher.publish.await_args.kwargs
+        assert result["merge_request"] is new_mr
 
     async def test_aafter_agent_skips_when_auto_commit_disabled(self):
         middleware = GitMiddleware(auto_commit_changes=False)
