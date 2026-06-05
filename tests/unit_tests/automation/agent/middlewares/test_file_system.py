@@ -6,10 +6,16 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
+from deepagents.middleware.filesystem import _check_fs_permission
 from langchain_core.messages import ToolMessage
 
 from automation.agent.middlewares import file_system as fs_module
-from automation.agent.middlewares.file_system import EDIT_SUCCESS_PREFIX, WRITE_SUCCESS_PREFIX, DAIVFilesystemBackend
+from automation.agent.middlewares.file_system import (
+    EDIT_SUCCESS_PREFIX,
+    WORKSPACE_FENCE_PERMISSIONS,
+    WRITE_SUCCESS_PREFIX,
+    DAIVFilesystemBackend,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -194,3 +200,28 @@ def test_filesystem_absolute_path_directive_normalizes_trailing_slash():
     from automation.agent.middlewares.file_system import filesystem_absolute_path_directive
 
     assert "/workspace/repo/path/to/file.py" in filesystem_absolute_path_directive("/workspace/repo")
+
+
+class TestWorkspaceFencePermissions:
+    """Disk-mode fence: allow the three real subtrees, deny the bare /workspace root
+    and the offloaded-artifact dirs, for both read and write."""
+
+    def test_allows_real_subtrees(self):
+        for op in ("read", "write"):
+            for path in (
+                "/workspace/repo",
+                "/workspace/repo/daiv/foo.py",
+                "/workspace/skills",
+                "/workspace/skills/code-review/SKILL.md",
+                "/workspace/tmp",
+                "/workspace/tmp/scratch.txt",
+            ):
+                assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "allow", (op, path)
+
+    def test_denies_bare_root_and_artifact_dirs(self):
+        for op in ("read", "write"):
+            for path in ("/workspace", "/workspace/large_tool_results/x", "/workspace/conversation_history/y"):
+                assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "deny", (op, path)
+
+    def test_paths_outside_workspace_default_allow(self):
+        assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", "/etc/passwd") == "allow"

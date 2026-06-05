@@ -30,8 +30,9 @@ from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
+from deepagents.middleware.filesystem import FilesystemPermission
 
-from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
+from automation.agent.constants import REPO_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.schemas import (
     FsDeleteRequest,
@@ -109,6 +110,20 @@ def filesystem_absolute_path_directive(working_directory: str) -> str:
         f'not a repo-relative path like "/path/to/file.py".'
     )
 
+
+# Disk-mode fence. The disk composite routes /workspace/repo and /workspace/skills and lets
+# everything else under /workspace fall through to the scratch/artifacts backend. These rules keep
+# the agent's file tools inside the three real subtrees: bare /workspace (which would not enumerate
+# the routed subdirs) and the offloaded-artifact dirs (/workspace/large_tool_results,
+# /workspace/conversation_history) are denied. First-rule-wins, default allow; artifact eviction
+# writes through the backend directly and is not affected. Sandbox runs do NOT use this — bash is
+# unconstrained there, so fencing only the file tools would be inconsistent.
+WORKSPACE_FENCE_SUBTREES = [REPO_PATH, f"{REPO_PATH}/**", SKILLS_PATH, f"{SKILLS_PATH}/**", TMP_PATH, f"{TMP_PATH}/**"]
+
+WORKSPACE_FENCE_PERMISSIONS = [
+    FilesystemPermission(operations=["read", "write"], paths=WORKSPACE_FENCE_SUBTREES, mode="allow"),
+    FilesystemPermission(operations=["read", "write"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
+]
 
 CUSTOM_TOOL_DESCRIPTIONS = {
     "grep": GREP_TOOL_DESCRIPTION,
