@@ -24,7 +24,7 @@ from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.command_parser import CommandParseError, parse_command
 from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
-from core.sandbox.schemas import RunCommandsRequest, RunCommandsResponse, StartSessionRequest
+from core.sandbox.schemas import RunCommandsResponse, StartSessionRequest
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
@@ -290,12 +290,14 @@ def _make_global_skills_archive() -> bytes | None:
     return buf.getvalue()
 
 
-async def _run_bash_commands(
-    client: DAIVSandboxClient, commands: list[str], session_id: str
-) -> RunCommandsResponse | None:
-    """Run bash commands in the existing sandbox session using the supplied long-lived client."""
+async def _run_bash_commands(backend: SandboxFileBackend, commands: list[str]) -> RunCommandsResponse | None:
+    """Run bash commands through the run's bound :class:`SandboxFileBackend`.
+
+    The backend raises on transport/HTTP errors; this wrapper degrades them to ``None`` so
+    the bash tool can surface a friendly error instead of crashing the run.
+    """
     try:
-        return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=True))
+        return await backend.run_commands(commands, fail_fast=True)
     except httpx.RequestError:
         logger.exception("Unexpected error calling sandbox API.")
         return None
@@ -383,10 +385,10 @@ class SandboxMiddleware(AgentMiddleware):
             if denial_error:
                 return denial_error
 
-            if self._client is None:
-                raise RuntimeError("SandboxMiddleware bash tool invoked before abefore_agent opened the sandbox client")
+            if self._sandbox_backend is None:
+                raise RuntimeError("SandboxMiddleware bash tool invoked before abefore_agent bound the sandbox backend")
 
-            response = await _run_bash_commands(self._client, [command], runtime.state["session_id"])
+            response = await _run_bash_commands(self._sandbox_backend, [command])
             if response is None:
                 return (
                     "error: Sandbox call failed (transport or HTTP error — see server logs). "
