@@ -15,6 +15,9 @@ from core.sandbox.schemas import (
     FsLsResponse,
     FsReadResponse,
     FsWriteResponse,
+    RunCommandResult,
+    RunCommandsRequest,
+    RunCommandsResponse,
 )
 
 
@@ -191,3 +194,32 @@ async def test_adownload_files_branches(backend, client):
     client.fs_read.return_value = FsReadResponse(error="boom")
     err = await backend.adownload_files(["/workspace/repo/x.txt"])
     assert err[0].error == "boom" and err[0].content is None
+
+
+async def test_run_commands_forwards_to_client(backend, client):
+    client.run_commands.return_value = RunCommandsResponse(
+        results=[RunCommandResult(command="echo hi", output="hi", exit_code=0)]
+    )
+    result = await backend.run_commands(["echo hi", "ls"], fail_fast=False)
+
+    assert result.results[0].output == "hi"
+    # Forwarded under the bound session id, as a RunCommandsRequest carrying the list + fail_fast.
+    assert client.run_commands.call_args.args[0] == "sid"
+    sent = client.run_commands.call_args.args[1]
+    assert isinstance(sent, RunCommandsRequest)
+    assert sent.commands == ["echo hi", "ls"]
+    assert sent.fail_fast is False
+
+
+async def test_run_commands_before_bind_raises():
+    be = SandboxFileBackend()
+    with pytest.raises(RuntimeError, match="not bound"):
+        await be.run_commands(["echo hi"], fail_fast=True)
+
+
+async def test_run_commands_propagates_transport_error(backend, client):
+    # Unlike the bash tool, the backend is a raising pass-through; graceful degradation
+    # is the caller's job. A transport error must NOT be swallowed here.
+    client.run_commands.side_effect = RuntimeError("boom")
+    with pytest.raises(RuntimeError, match="boom"):
+        await backend.run_commands(["echo hi"], fail_fast=True)
