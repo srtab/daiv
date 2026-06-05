@@ -10,12 +10,11 @@ from typing import TYPE_CHECKING
 from git import GitCommandError
 
 from automation.agent.constants import REPO_PATH
-from core.sandbox.schemas import RunCommandsRequest
 
 if TYPE_CHECKING:
     from git import Repo
 
-    from core.sandbox.client import DAIVSandboxClient
+    from automation.agent.middlewares.file_system import SandboxFileBackend
 
 logger = logging.getLogger("daiv.tools")
 
@@ -56,9 +55,9 @@ class RepoStatus:
 class GitManager:
     """Run git operations against a repository in one of two mutually-exclusive modes:
 
-    - **Sandbox mode** (``client`` + ``session_id``): git runs *in the sandbox* via
-      ``run_commands`` in ``repo_path`` (``/workspace/repo``). Used for sandbox-enabled
-      runs, where the agent's changes are sandbox-authoritative (no local copy).
+    - **Sandbox mode** (``sandbox_backend``): git runs *in the sandbox* via the bound
+      backend's ``run_commands`` in ``repo_path`` (``/workspace/repo``). Used for
+      sandbox-enabled runs, where the agent's changes are sandbox-authoritative (no local copy).
     - **Local mode** (``repo``): git runs as a subprocess against a GitPython clone's
       working tree. Used for sandbox-disabled / repoless runs, where changes live on disk.
 
@@ -67,8 +66,7 @@ class GitManager:
 
     Args:
         repo: GitPython repo for local mode.
-        client: Sandbox client for sandbox mode.
-        session_id: Sandbox session id (required with ``client``).
+        sandbox_backend: The run's bound :class:`SandboxFileBackend` for sandbox mode.
         repo_path: Repo path inside the sandbox (defaults to ``REPO_PATH``).
     """
 
@@ -78,19 +76,15 @@ class GitManager:
         self,
         repo: Repo | None = None,
         *,
-        client: DAIVSandboxClient | None = None,
-        session_id: str | None = None,
+        sandbox_backend: SandboxFileBackend | None = None,
         repo_path: str | None = None,
     ) -> None:
-        if (repo is None) == (client is None):
-            raise ValueError("GitManager requires exactly one of `repo` (local) or `client` (sandbox).")
-        if client is not None and not session_id:
-            raise ValueError("GitManager sandbox mode requires a non-empty session_id.")
+        if (repo is None) == (sandbox_backend is None):
+            raise ValueError("GitManager requires exactly one of `repo` (local) or `sandbox_backend` (sandbox).")
         if repo_path is None:
             repo_path = REPO_PATH
         self.repo = repo
-        self._client = client
-        self._session_id = session_id
+        self._sandbox_backend = sandbox_backend
         self._repo_path = repo_path
 
     @classmethod
@@ -103,30 +97,31 @@ class GitManager:
         return cls(repo=repo)
 
     @classmethod
-    def for_sandbox(cls, client: DAIVSandboxClient, session_id: str, *, repo_path: str | None = None) -> GitManager:
+    def for_sandbox(cls, sandbox_backend: SandboxFileBackend, *, repo_path: str | None = None) -> GitManager:
         """Sandbox-mode manager that runs git in the session's ``repo_path`` (``/workspace/repo``).
 
-        Preferred over ``GitManager(client=..., session_id=...)``: the required ``session_id`` is
-        positional, so a sandbox manager can't be built without one.
+        Takes the run's already-bound :class:`SandboxFileBackend` — the single session handle.
+        The backend's ``_require_bound`` guard surfaces an unbound-session programming error on
+        the first command, so no session id is threaded here.
         """
-        return cls(client=client, session_id=session_id, repo_path=repo_path)
+        return cls(sandbox_backend=sandbox_backend, repo_path=repo_path)
 
     # -- git invocation ------------------------------------------------------
     async def _git(self, *args: str, check: bool = True) -> _GitResult:
         """Run one git command in the repo. Raises ``GitCommandError`` on a non-zero
         exit when ``check`` is True; otherwise returns the result for the caller to inspect.
         """
-        result = await (self._git_sandbox(args) if self._client is not None else self._git_local(args))
+        result = await (self._git_sandbox(args) if self._sandbox_backend is not None else self._git_local(args))
         if check and result.exit_code != 0:
             raise GitCommandError(["git", *args], result.exit_code, result.output)
         return result
 
     async def _git_sandbox(self, args: tuple[str, ...]) -> _GitResult:
-        client, session_id = self._client, self._session_id
-        if client is None or session_id is None:  # pragma: no cover - guaranteed by __init__
+        backend = self._sandbox_backend
+        if backend is None:  # pragma: no cover - guaranteed by __init__
             raise RuntimeError("GitManager is not in sandbox mode")
         command = " ".join(_shell_quote(token) for token in ("git", "-C", self._repo_path, *args))
-        response = await client.run_commands(session_id, RunCommandsRequest(commands=[command], fail_fast=True))
+        response = await backend.run_commands([command], fail_fast=True)
         if not response.results:
             # The sandbox always returns one result per command; an empty list is a wire-level
             # anomaly. Fail with context rather than a bare IndexError on ``results[0]``.
@@ -159,14 +154,11 @@ class GitManager:
         """
         if not commands:
             return []
-        if self._client is not None:
-            client, session_id = self._client, self._session_id
-            if session_id is None:  # pragma: no cover - guaranteed by __init__
-                raise RuntimeError("GitManager is not in sandbox mode")
+        if self._sandbox_backend is not None:
             cmd_strs = [
                 " ".join(_shell_quote(tok) for tok in ("git", "-C", self._repo_path, *args)) for args in commands
             ]
-            response = await client.run_commands(session_id, RunCommandsRequest(commands=cmd_strs, fail_fast=False))
+            response = await self._sandbox_backend.run_commands(cmd_strs, fail_fast=False)
             if len(response.results) != len(commands):
                 raise RuntimeError(f"Sandbox returned {len(response.results)} results for {len(commands)} git commands")
             return [_GitResult(exit_code=r.exit_code, output=r.output) for r in response.results]

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from langgraph.runtime import Runtime
 
-    from core.sandbox.client import DAIVSandboxClient
+    from automation.agent.middlewares.file_system import SandboxFileBackend
 
 
 logger = logging.getLogger("daiv.tools")
@@ -104,9 +104,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         skip_ci: Whether to prefix the commit with ``[skip ci]``.
         auto_commit_changes: Whether the run publishes its changes at all. When ``False`` the
             middleware is inert.
-        sandbox_client: Run-scoped sandbox client injected by ``create_daiv_agent``; forwarded to
-            :class:`GitChangePublisher` so the turn-end publish runs git inside the sandbox. ``None``
-            for sandbox-disabled / local runs.
+        sandbox_backend: Run's bound :class:`SandboxFileBackend` injected by ``create_daiv_agent``;
+            forwarded to :class:`GitChangePublisher` so the turn-end publish runs git inside the
+            sandbox. ``None`` for sandbox-disabled / local runs.
 
     Example:
         ```python
@@ -131,14 +131,14 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         *,
         skip_ci: bool = False,
         auto_commit_changes: bool = True,
-        sandbox_client: DAIVSandboxClient | None = None,
+        sandbox_backend: SandboxFileBackend | None = None,
     ) -> None:
         """
         Initialize the middleware.
         """
         self.skip_ci = skip_ci
         self.auto_commit_changes = auto_commit_changes
-        self._sandbox_client = sandbox_client
+        self._sandbox_backend = sandbox_backend
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -260,10 +260,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if not self.auto_commit_changes:
             return None
 
-        publisher = GitChangePublisher(runtime.context, sandbox_client=self._sandbox_client)
-        outcome = await publisher.publish(
-            session_id=state.get("session_id"), merge_request=state.get("merge_request"), skip_ci=self.skip_ci
-        )
+        publisher = GitChangePublisher(runtime.context, sandbox_backend=self._sandbox_backend)
+        outcome = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
 
         if outcome.merge_request is None:
             return None
