@@ -22,8 +22,8 @@ from core.site_settings import site_settings
 from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
 if TYPE_CHECKING:
+    from automation.agent.middlewares.file_system import SandboxFileBackend
     from codebase.context import RuntimeCtx
-    from core.sandbox.client import DAIVSandboxClient
 
 
 logger = logging.getLogger("daiv.tools")
@@ -50,10 +50,10 @@ class ChangePublisher:
     Publisher for changes made by the agent.
     """
 
-    def __init__(self, ctx: RuntimeCtx, *, sandbox_client: DAIVSandboxClient | None = None):
+    def __init__(self, ctx: RuntimeCtx, *, sandbox_backend: SandboxFileBackend | None = None):
         self.ctx = ctx
         self.client = RepoClient.create_instance()
-        self.sandbox_client = sandbox_client
+        self.sandbox_backend = sandbox_backend
 
     @abstractmethod
     async def publish(self, **kwargs) -> Any:
@@ -68,13 +68,7 @@ class GitChangePublisher(ChangePublisher):
     """
 
     async def publish(
-        self,
-        *,
-        session_id: str | None = None,
-        merge_request: MergeRequest | None = None,
-        skip_ci: bool = False,
-        as_draft: bool = False,
-        **kwargs,
+        self, *, merge_request: MergeRequest | None = None, skip_ci: bool = False, as_draft: bool = False, **kwargs
     ) -> PublishOutcome:
         """
         Daiv-direct publish: ensure the run's changes reach a merge request.
@@ -87,9 +81,7 @@ class GitChangePublisher(ChangePublisher):
         protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
 
-        async with open_git_manager(
-            client=self.sandbox_client, session_id=session_id, gitrepo=self.ctx.gitrepo
-        ) as git_manager:
+        async with open_git_manager(sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo) as git_manager:
             snapshot = await git_manager.status_snapshot(
                 base_branch=default_branch,
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,

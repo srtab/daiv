@@ -15,6 +15,9 @@ from core.sandbox.schemas import (
     FsLsResponse,
     FsReadResponse,
     FsWriteResponse,
+    RunCommandResult,
+    RunCommandsRequest,
+    RunCommandsResponse,
 )
 
 
@@ -191,3 +194,50 @@ async def test_adownload_files_branches(backend, client):
     client.fs_read.return_value = FsReadResponse(error="boom")
     err = await backend.adownload_files(["/workspace/repo/x.txt"])
     assert err[0].error == "boom" and err[0].content is None
+
+
+async def test_run_commands_forwards_to_client(backend, client):
+    client.run_commands.return_value = RunCommandsResponse(
+        results=[RunCommandResult(command="echo hi", output="hi", exit_code=0)]
+    )
+    result = await backend.run_commands(["echo hi", "ls"], fail_fast=False)
+
+    assert result.results[0].output == "hi"
+    # Forwarded under the bound session id, as a RunCommandsRequest carrying the list + fail_fast.
+    assert client.run_commands.call_args.args[0] == "sid"
+    sent = client.run_commands.call_args.args[1]
+    assert isinstance(sent, RunCommandsRequest)
+    assert sent.commands == ["echo hi", "ls"]
+    assert sent.fail_fast is False
+
+
+async def test_run_commands_before_bind_raises():
+    be = SandboxFileBackend()
+    with pytest.raises(RuntimeError, match="not bound"):
+        await be.run_commands(["echo hi"], fail_fast=True)
+
+
+async def test_run_commands_propagates_transport_error(backend, client):
+    # Unlike the bash tool, the backend is a raising pass-through; graceful degradation
+    # is the caller's job. A transport error must NOT be swallowed here.
+    client.run_commands.side_effect = RuntimeError("boom")
+    with pytest.raises(RuntimeError, match="boom"):
+        await backend.run_commands(["echo hi"], fail_fast=True)
+
+
+def test_backend_does_not_advertise_execution():
+    """SandboxFileBackend must NOT be a deepagents SandboxBackendProtocol.
+
+    deepagents' FilesystemMiddleware always registers an `execute` tool, gated only at call
+    time on `supports_execution(backend)`. Implementing the protocol would make that ungated
+    tool live, bypassing daiv's _check_command_policy (and would break the read-only explore
+    subagent, which combines _permissions with this backend). Command execution must stay on
+    the policy-gated `bash` tool. See the design spec's "Rejected alternative".
+    """
+    from deepagents.backends.protocol import SandboxBackendProtocol
+    from deepagents.middleware.filesystem import supports_execution
+
+    be = SandboxFileBackend(client=AsyncMock())
+    be.bind_session("sid")
+    assert not isinstance(be, SandboxBackendProtocol)
+    assert supports_execution(be) is False

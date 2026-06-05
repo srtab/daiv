@@ -40,6 +40,8 @@ from core.sandbox.schemas import (
     FsLsRequest,
     FsReadRequest,
     FsWriteRequest,
+    RunCommandsRequest,
+    RunCommandsResponse,
 )
 
 logger = logging.getLogger("daiv.tools")
@@ -204,7 +206,8 @@ class DAIVCompositeBackend(CompositeBackend):
 
 
 class SandboxFileBackend(BackendProtocol):
-    """Deepagents backend whose files live in a sandbox workspace.
+    """Deepagents backend whose files live in a sandbox workspace, and the run's
+    command-execution handle (``run_commands``).
 
     The agent addresses files by their sandbox-absolute path (``/workspace/repo``,
     ``/workspace/skills``, ``/workspace/tmp``); the backend is a thin pass-through to
@@ -250,6 +253,21 @@ class SandboxFileBackend(BackendProtocol):
         if self._client is None or not self._session_id:
             raise RuntimeError("SandboxFileBackend is not bound to a sandbox session")
         return self._client, self._session_id
+
+    async def run_commands(self, commands: list[str], *, fail_fast: bool) -> RunCommandsResponse:
+        """Run shell commands in the bound session's workspace.
+
+        The run's command-execution handle (used by the ``bash`` tool and sandbox-mode
+        ``GitManager``). A thin pass-through to ``DAIVSandboxClient.run_commands`` — it takes a
+        *list* + ``fail_fast`` (not a single command) so multi-command batches run in one
+        round-trip. Like the other methods here it **raises** on transport/HTTP errors;
+        callers that need graceful degradation (the ``bash`` tool) wrap it.
+
+        Intentionally NOT deepagents' ``SandboxBackendProtocol.aexecute``: implementing that
+        protocol would activate deepagents' always-registered, ungated ``execute`` tool.
+        """
+        client, session_id = self._require_bound()
+        return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast))
 
     # -- path mapping (identity) --------------------------------------------
     # The sandbox is authoritative and the agent addresses files by their

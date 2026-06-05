@@ -31,7 +31,7 @@ def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches
 
 def _patch_open_git_manager(monkeypatch, gm: Mock) -> None:
     @asynccontextmanager
-    async def _fake_open(*, client, session_id, gitrepo):  # noqa: ARG001
+    async def _fake_open(*, sandbox_backend, gitrepo):  # noqa: ARG001
         yield gm
 
     monkeypatch.setattr("automation.agent.publishers.open_git_manager", _fake_open)
@@ -385,7 +385,7 @@ class TestPublishDecision:
         _patch_open_git_manager(monkeypatch, gm)
 
         with patch.object(publisher, "_diff_to_metadata") as meta:
-            outcome = await publisher.publish(session_id="s", merge_request=None)
+            outcome = await publisher.publish(merge_request=None)
 
         assert outcome == PublishOutcome(merge_request=None, published=False)
         meta.assert_not_called()
@@ -398,7 +398,7 @@ class TestPublishDecision:
         _patch_open_git_manager(monkeypatch, gm)
 
         with patch.object(publisher, "_diff_to_metadata") as meta:
-            outcome = await publisher.publish(session_id="s", merge_request=mr)
+            outcome = await publisher.publish(merge_request=mr)
 
         assert outcome == PublishOutcome(merge_request=mr, published=False)
         meta.assert_not_called()

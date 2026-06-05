@@ -10,24 +10,21 @@ if TYPE_CHECKING:
 
     from git import Repo
 
-    from core.sandbox.client import DAIVSandboxClient
+    from automation.agent.middlewares.file_system import SandboxFileBackend
 
 
 @asynccontextmanager
 async def open_git_manager(
-    *, client: DAIVSandboxClient | None = None, session_id: str | None, gitrepo: Repo | None
+    *, sandbox_backend: SandboxFileBackend | None, gitrepo: Repo | None
 ) -> AsyncIterator[GitManager]:
     """Yield a :class:`GitManager` matched to the run's mode.
 
-    Sandbox-enabled runs (a ``session_id`` is present) get a **sandbox-mode** manager bound to the
-    injected run-scoped ``client`` — git runs in ``/workspace/repo`` where the agent's changes are
-    authoritative. The transport is borrowed, not owned: no open/close here, and no per-call
-    fallback — a session id without a client is a wiring error. Sandbox-disabled / repoless runs
-    (no session) get a **local-mode** manager over the GitPython clone.
+    Sandbox-enabled runs pass the run's bound :class:`SandboxFileBackend` — git runs in
+    ``/workspace/repo`` where the agent's changes are authoritative. Sandbox-disabled /
+    repoless runs pass ``sandbox_backend=None`` and get a local-mode manager over the
+    GitPython clone.
     """
-    if session_id:
-        if client is None:
-            raise RuntimeError("open_git_manager: sandbox session given but no sandbox client injected.")
-        yield GitManager.for_sandbox(client, session_id)
+    if sandbox_backend is not None:
+        yield GitManager.for_sandbox(sandbox_backend)
     else:
         yield GitManager.for_local(cast("Repo", gitrepo))
