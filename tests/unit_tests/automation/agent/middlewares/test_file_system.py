@@ -204,8 +204,9 @@ def test_filesystem_absolute_path_directive_normalizes_trailing_slash():
 
 
 class TestWorkspaceFencePermissions:
-    """Disk-mode fence: allow the three real subtrees, deny the bare /workspace root
-    and the offloaded-artifact dirs, for both read and write."""
+    """Disk-mode fence: allow read+write under the three real subtrees, read-only access to the
+    offloaded-artifact dirs (so eviction read-back works), and deny the bare /workspace root plus
+    any other path beneath it."""
 
     def test_allows_real_subtrees(self):
         for op in ("read", "write"):
@@ -219,10 +220,37 @@ class TestWorkspaceFencePermissions:
             ):
                 assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "allow", (op, path)
 
-    def test_denies_bare_root_and_artifact_dirs(self):
+    def test_denies_bare_root_and_unrelated_workspace_paths(self):
+        # Bare /workspace (the deny needs the literal pattern; /workspace/** does not match it) and
+        # any path under /workspace that isn't a real subtree or an artifact dir are denied both ways.
         for op in ("read", "write"):
-            for path in ("/workspace", "/workspace/large_tool_results/x", "/workspace/conversation_history/y"):
+            for path in ("/workspace", "/workspace/random", "/workspace/repofoo", "/workspace/repofoo/x"):
                 assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "deny", (op, path)
+
+    def test_artifact_dirs_are_readable_but_not_writable(self):
+        # Eviction / output_to_file write here through the backend directly (bypassing the fence);
+        # the agent must be able to read the offloaded file back, but never writes here itself.
+        for path in (
+            "/workspace/large_tool_results",
+            "/workspace/large_tool_results/call_abc",
+            "/workspace/conversation_history",
+            "/workspace/conversation_history/uuid.md",
+        ):
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", path) == "allow", path
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "write", path) == "deny", path
+
+    def test_fence_allows_framework_offload_prefixes(self, tmp_path):
+        """Drift-guard: the artifact read carve-out must cover whatever offload prefixes deepagents
+        derives from ``artifacts_root``. If a framework bump renames those dirs, this fails loudly
+        instead of silently re-breaking offload read-back in disk mode."""
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
+        middleware = UpstreamFilesystemMiddleware(backend=backend, _permissions=WORKSPACE_FENCE_PERMISSIONS)
+
+        for prefix in (middleware._large_tool_results_prefix, middleware._conversation_history_prefix):
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", f"{prefix}/some-id") == "allow", prefix
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "write", f"{prefix}/some-id") == "deny", prefix
 
     def test_paths_outside_workspace_default_allow(self):
         assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", "/etc/passwd") == "allow"

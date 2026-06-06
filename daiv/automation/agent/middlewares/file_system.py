@@ -113,15 +113,31 @@ def filesystem_absolute_path_directive(working_directory: str) -> str:
 
 # Disk-mode fence. The disk composite routes /workspace/repo and /workspace/skills and lets
 # everything else under /workspace fall through to the scratch/artifacts backend. These rules keep
-# the agent's file tools inside the three real subtrees: bare /workspace (which would not enumerate
-# the routed subdirs) and the offloaded-artifact dirs (/workspace/large_tool_results,
-# /workspace/conversation_history) are denied. First-rule-wins, default allow; artifact eviction
-# writes through the backend directly and is not affected. Sandbox runs do NOT use this — bash is
-# unconstrained there, so fencing only the file tools would be inconsistent.
+# the agent's file tools inside the three real subtrees (repo, skills, tmp), grant read-only access
+# to the offloaded-artifact dirs (so eviction read-back works — see below), and deny bare /workspace
+# (which would not enumerate the routed subdirs) plus any other path beneath it. First-rule-wins,
+# default allow. Sandbox runs do NOT use this — bash is unconstrained there, so fencing only the file
+# tools would be inconsistent.
 WORKSPACE_FENCE_SUBTREES = [REPO_PATH, f"{REPO_PATH}/**", SKILLS_PATH, f"{SKILLS_PATH}/**", TMP_PATH, f"{TMP_PATH}/**"]
+
+# Offloaded-artifact dirs derived from ``artifacts_root`` (= /workspace in the disk composite).
+# deepagents' large-tool-result / conversation-history eviction and git_platform's ``output_to_file``
+# all WRITE here through the backend directly (bypassing the fence) and then hand the agent the path
+# to read back. Without an explicit read carve-out ahead of the deny, that read-back hits the
+# ``/workspace/**`` deny and dead-ends — the full content is written but unrecoverable. Write stays
+# denied (the agent never writes here itself; only the framework does, and that bypasses the fence).
+# These suffixes mirror deepagents' ``FilesystemMiddleware``; a drift-guard test pins them to the
+# framework's computed prefixes so a rename fails loudly instead of silently re-breaking read-back.
+WORKSPACE_ARTIFACT_SUBTREES = [
+    f"{WORKSPACE_PATH}/large_tool_results",
+    f"{WORKSPACE_PATH}/large_tool_results/**",
+    f"{WORKSPACE_PATH}/conversation_history",
+    f"{WORKSPACE_PATH}/conversation_history/**",
+]
 
 WORKSPACE_FENCE_PERMISSIONS = [
     FilesystemPermission(operations=["read", "write"], paths=WORKSPACE_FENCE_SUBTREES, mode="allow"),
+    FilesystemPermission(operations=["read"], paths=WORKSPACE_ARTIFACT_SUBTREES, mode="allow"),
     FilesystemPermission(operations=["read", "write"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
 ]
 

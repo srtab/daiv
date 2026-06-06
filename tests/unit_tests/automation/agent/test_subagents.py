@@ -565,4 +565,6 @@ class TestExplorePermissions:
         assert _check_fs_permission(perms, "read", "/workspace/repo/foo.py") == "allow"
         assert _check_fs_permission(perms, "read", "/workspace/skills/x/SKILL.md") == "allow"
         assert _check_fs_permission(perms, "read", "/workspace") == "deny"
-        assert _check_fs_permission(perms, "read", "/workspace/large_tool_results/x") == "deny"
+        # offloaded-artifact dirs are readable (eviction read-back) but stay write-denied (read-only agent)
+        assert _check_fs_permission(perms, "read", "/workspace/large_tool_results/x") == "allow"
+        assert _check_fs_permission(perms, "write", "/workspace/large_tool_results/x") == "deny"

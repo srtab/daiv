@@ -15,6 +15,7 @@ from automation.agent import BaseAgent
 from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
+    WORKSPACE_ARTIFACT_SUBTREES,
     WORKSPACE_FENCE_PERMISSIONS,
     WORKSPACE_FENCE_SUBTREES,
     filesystem_absolute_path_directive,
@@ -202,12 +203,15 @@ READ_ONLY_PERMISSIONS: list[FilesystemPermission] = [
     FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")
 ]
 
-# Disk-mode explore permissions: read-only (deny all writes) AND fenced to the three real
-# /workspace subtrees for reads, so the explore agent never surfaces bare-/workspace or
-# offloaded-artifact paths in its report. Sandbox mode keeps plain read-only (bash is unconstrained).
+# Disk-mode explore permissions: read-only (deny all writes) AND fenced for reads to the three real
+# /workspace subtrees plus the offloaded-artifact dirs (so the explore agent's own eviction read-back
+# still works — same asymmetry as WORKSPACE_FENCE_PERMISSIONS), denying bare /workspace and any other
+# path beneath it. Sandbox mode keeps plain read-only (bash is unconstrained).
 EXPLORE_DISK_PERMISSIONS: list[FilesystemPermission] = [
     *READ_ONLY_PERMISSIONS,
-    FilesystemPermission(operations=["read"], paths=WORKSPACE_FENCE_SUBTREES, mode="allow"),
+    FilesystemPermission(
+        operations=["read"], paths=[*WORKSPACE_FENCE_SUBTREES, *WORKSPACE_ARTIFACT_SUBTREES], mode="allow"
+    ),
     FilesystemPermission(operations=["read"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
 ]
 
