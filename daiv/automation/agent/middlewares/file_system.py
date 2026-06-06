@@ -30,8 +30,9 @@ from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
+from deepagents.middleware.filesystem import FilesystemPermission
 
-from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
+from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.schemas import (
     FsDeleteRequest,
@@ -109,6 +110,36 @@ def filesystem_absolute_path_directive(working_directory: str) -> str:
         f'not a repo-relative path like "/path/to/file.py".'
     )
 
+
+# Disk-mode fence. The disk composite routes /workspace/repo and /workspace/skills and lets
+# everything else under /workspace fall through to the scratch/artifacts backend. These rules keep
+# the agent's file tools inside the three real subtrees (repo, skills, tmp), grant read-only access
+# to the offloaded-artifact dirs (so eviction read-back works — see below), and deny bare /workspace
+# (which would not enumerate the routed subdirs) plus any other path beneath it. First-rule-wins,
+# default allow. Sandbox runs do NOT use this — bash is unconstrained there, so fencing only the file
+# tools would be inconsistent.
+WORKSPACE_FENCE_SUBTREES = [REPO_PATH, f"{REPO_PATH}/**", SKILLS_PATH, f"{SKILLS_PATH}/**", TMP_PATH, f"{TMP_PATH}/**"]
+
+# Offloaded-artifact dirs derived from ``artifacts_root`` (= /workspace in the disk composite).
+# deepagents' large-tool-result / conversation-history eviction and git_platform's ``output_to_file``
+# all WRITE here through the backend directly (bypassing the fence) and then hand the agent the path
+# to read back. Without an explicit read carve-out ahead of the deny, that read-back hits the
+# ``/workspace/**`` deny and dead-ends — the full content is written but unrecoverable. Write stays
+# denied (the agent never writes here itself; only the framework does, and that bypasses the fence).
+# These suffixes mirror deepagents' ``FilesystemMiddleware``; a drift-guard test pins them to the
+# framework's computed prefixes so a rename fails loudly instead of silently re-breaking read-back.
+WORKSPACE_ARTIFACT_SUBTREES = [
+    f"{WORKSPACE_PATH}/large_tool_results",
+    f"{WORKSPACE_PATH}/large_tool_results/**",
+    f"{WORKSPACE_PATH}/conversation_history",
+    f"{WORKSPACE_PATH}/conversation_history/**",
+]
+
+WORKSPACE_FENCE_PERMISSIONS = [
+    FilesystemPermission(operations=["read", "write"], paths=WORKSPACE_FENCE_SUBTREES, mode="allow"),
+    FilesystemPermission(operations=["read"], paths=WORKSPACE_ARTIFACT_SUBTREES, mode="allow"),
+    FilesystemPermission(operations=["read", "write"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
+]
 
 CUSTOM_TOOL_DESCRIPTIONS = {
     "grep": GREP_TOOL_DESCRIPTION,
@@ -223,6 +254,31 @@ class DAIVCompositeBackend(CompositeBackend):
         """
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend
+
+
+def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> DAIVCompositeBackend:
+    """Build the disk-backed composite that serves the unified ``/workspace`` namespace.
+
+    Routes:
+      - ``/workspace/repo/``   → the local git clone (``clone_dir``)
+      - ``/workspace/skills/`` → the shared global skills cache (``SKILLS_CACHE_PATH``)
+      - everything else under ``/workspace`` (the ``/workspace/tmp`` scratchpad and the offloaded
+        artifact dirs derived from ``artifacts_root``) → a per-run scratch backend rooted at the
+        clone's parent (the ``set_runtime_ctx`` tempdir, auto-removed at run end). Non-routed paths
+        reach this default with their full path, so they materialise under ``<parent>/workspace/``,
+        siblings to the clone and never committed.
+
+    The skills cache is a route (not copied per run) so the global-cache idempotency in
+    ``SkillsMiddleware`` is preserved.
+    """
+    repo_backend = DAIVFilesystemBackend(root_dir=clone_dir, virtual_mode=True)
+    skills_backend = DAIVFilesystemBackend(root_dir=skills_cache, virtual_mode=True)
+    scratch_backend = DAIVFilesystemBackend(root_dir=clone_dir.parent, virtual_mode=True)
+    return DAIVCompositeBackend(
+        default=scratch_backend,
+        routes={f"{REPO_PATH}/": repo_backend, f"{SKILLS_PATH}/": skills_backend},
+        artifacts_root=WORKSPACE_PATH,
+    )
 
 
 # Every fs soft failure now arrives in the 200 body as a structured ``FsError`` (the sandbox no

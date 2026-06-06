@@ -17,10 +17,7 @@ from langchain.agents.middleware import (
 from automation.agent.base import BaseAgent, ThinkingLevel
 from automation.agent.constants import (
     AGENTS_MEMORY_PATH,
-    GLOBAL_SKILLS_PATH,
-    GLOBAL_SKILLS_ROUTE,
     REPO_PATH,
-    SKILLS_CACHE_PATH,
     SKILLS_PATH,
     SKILLS_SOURCES,
     SUBAGENTS_SOURCES,
@@ -32,9 +29,10 @@ from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
+    WORKSPACE_FENCE_PERMISSIONS,
     DAIVCompositeBackend,
-    DAIVFilesystemBackend,
     SandboxFileBackend,
+    build_disk_workspace_backend,
     filesystem_absolute_path_directive,
 )
 from automation.agent.middlewares.git import GitMiddleware
@@ -59,6 +57,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from deepagents.backends.protocol import BackendProtocol
+    from deepagents.middleware.filesystem import FilesystemPermission
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.store.base import BaseStore
 
@@ -86,8 +85,8 @@ class _Unset:
 
 
 def _output_invariants_system_prompt(working_directory: str) -> str:
-    """Output invariants keyed to the run's absolute repo prefix (``/workspace/repo/`` for
-    sandbox runs, ``/<clone-name>/`` for disk-backed runs)."""
+    """Output invariants keyed to the run's absolute repo prefix (always ``/workspace/repo/`` —
+    unified across sandbox and disk-backed runs)."""
     prefix = working_directory.rstrip("/") + "/"
     return f"""\
 <output_invariants>
@@ -103,19 +102,6 @@ Applies to ALL user-visible text:
 </output_invariants>"""  # noqa: E501
 
 
-def _resolve_working_directory(context: RuntimeCtx) -> str:
-    """The run's absolute repo root (trailing slash) the model should address files under.
-
-    Sandbox-enabled runs operate under the sandbox-authoritative ``/workspace/repo``; disk-backed
-    runs see the local clone's basename. This mirrors ``create_daiv_agent``'s ``agent_root`` decision
-    (sandbox → ``REPO_PATH``, disk → ``/{clone-name}``) so the prompt's working directory and output
-    invariants match the paths the agent's tools and subagents address.
-    """
-    if context.sandbox and context.sandbox.enabled:
-        return f"{REPO_PATH}/"
-    return f"/{Path(context.gitrepo.working_dir).name}/"
-
-
 @dynamic_prompt
 async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
     """
@@ -128,7 +114,8 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         str: The dynamic prompt for the DAIV system.
     """
     context = cast("RuntimeCtx", request.runtime.context)
-    working_directory = _resolve_working_directory(context)
+    # Unified across modes: repo files live under /workspace/repo regardless of sandbox.
+    working_directory = f"{REPO_PATH}/"
 
     daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
         current_date=timezone.now().strftime("%d %B, %Y"),
@@ -219,47 +206,31 @@ async def create_daiv_agent(
     _web_fetch_enabled = web_fetch_enabled if web_fetch_enabled is not None else site_settings.web_fetch_enabled
     _web_search_enabled = web_search_enabled if web_search_enabled is not None else site_settings.web_search_enabled
 
+    # Unified workspace namespace: the agent addresses /workspace/repo, /workspace/skills and
+    # /workspace/tmp regardless of sandbox mode. Only the backend behind /workspace differs.
+    agent_root = REPO_PATH
+    global_skills_source = SKILLS_PATH
+
     sandbox_backend: SandboxFileBackend | None = None
     run_client = None
+    main_agent_permissions: list[FilesystemPermission] | None = None
     if _sandbox_enabled:
-        # Sandbox-authoritative: one backend serves all of /workspace (repo at
-        # /workspace/repo, seeded skills at /workspace/skills, scratchpad at
-        # /workspace/tmp). The agent uses these sandbox-absolute paths directly, so the
-        # backend is a pass-through, bound to the run's session by
-        # SandboxMiddleware.abefore_agent once the session exists.
-        agent_root = REPO_PATH
-        global_skills_source = SKILLS_PATH
-        # Read the run-scoped sandbox client opened by set_runtime_ctx EXACTLY ONCE, here, and inject
-        # it explicitly everywhere it's needed. The client is supplied to SandboxFileBackend at
-        # construction, so the FilesystemMiddleware/SummarizationMiddleware artifacts_root machinery
-        # (which needs a CompositeBackend) still works, and the session is bound late by
-        # SandboxMiddleware via bind_session — no composite-unwrapping required.
-        #
-        # Wrap the single /workspace backend in a composite purely to carry an
-        # ``artifacts_root`` under /workspace. The middlewares that offload to the
-        # filesystem (FilesystemMiddleware tool-result + HumanMessage eviction,
-        # SummarizationMiddleware history) derive their write prefix from
-        # ``artifacts_root`` *only when the backend is a CompositeBackend*, defaulting
-        # to "/" otherwise. A bare SandboxFileBackend would send those writes to
-        # ``/large_tool_results`` / ``/conversation_history`` at the container root —
-        # outside /workspace, which the sandbox rejects — so eviction would silently
-        # no-op. There is no route: every /workspace path falls through to the default
-        # backend with its full path, identity-mapped into the sandbox.
+        # Sandbox-authoritative: one pass-through SandboxFileBackend serves all of /workspace, bound
+        # to the run's session by SandboxMiddleware.abefore_agent. It is wrapped in a composite only
+        # so the offloading middlewares get an ``artifacts_root`` under /workspace (a bare backend
+        # would default to "/" and write evictions outside /workspace, which the sandbox rejects).
         run_client = get_run_sandbox_client()
         sandbox_backend = SandboxFileBackend(client=run_client)
         backend: BackendProtocol = DAIVCompositeBackend(
             default=sandbox_backend, routes={}, artifacts_root=WORKSPACE_PATH
         )
     else:
-        # Sandbox-disabled runs keep the disk-backed composite: repo files from disk;
-        # ``/skills/`` from the shared SKILLS_CACHE_PATH so per-turn skill uploads become a
-        # no-op once primed. Preserves repoless/no-sandbox flows.
-        agent_path = Path(ctx.gitrepo.working_dir)
-        agent_root = f"/{agent_path.name}"
-        global_skills_source = GLOBAL_SKILLS_PATH
-        repo_backend = DAIVFilesystemBackend(root_dir=agent_path.parent, virtual_mode=True)
-        skills_backend = DAIVFilesystemBackend(root_dir=SKILLS_CACHE_PATH, virtual_mode=True)
-        backend = DAIVCompositeBackend(default=repo_backend, routes={GLOBAL_SKILLS_ROUTE: skills_backend})
+        # Disk-backed: a composite maps the same /workspace namespace onto the local clone
+        # (/workspace/repo), the shared skills cache (/workspace/skills) and a per-run scratch dir
+        # (/workspace/tmp + offloaded artifacts). The fence keeps the agent's file tools inside
+        # those three subtrees; bash is sandbox-only so it needs no equivalent here.
+        backend = build_disk_workspace_backend(Path(ctx.gitrepo.working_dir))
+        main_agent_permissions = WORKSPACE_FENCE_PERMISSIONS
 
     # The run's absolute repo root, shared with subagents so their filesystem path directives name
     # the same root the main agent's prompt does (``dynamic_daiv_system_prompt`` derives the same value).
@@ -278,7 +249,7 @@ async def create_daiv_agent(
             client=run_client,
             sandbox_backend=sandbox_backend,
         ),
-        create_explore_subagent(backend, working_directory),
+        create_explore_subagent(backend, working_directory, sandbox_enabled=_sandbox_enabled),
     ]
 
     custom_subagents = await load_custom_subagents(
@@ -345,6 +316,7 @@ async def create_daiv_agent(
         subagents=subagents,
         memory=[f"{agent_root}/{ctx.config.context_file_name}", f"{agent_root}/{AGENTS_MEMORY_PATH}"],
         backend=backend,
+        permissions=main_agent_permissions,
         interrupt_on=interrupt_on,
         context_schema=RuntimeCtx,
         checkpointer=checkpointer,

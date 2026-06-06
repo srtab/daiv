@@ -146,6 +146,36 @@ class TestGeneralPurposeMiddleware:
         )
         assert not any(isinstance(m, ModelFallbackMiddleware) for m in middleware)
 
+    def test_disk_mode_applies_workspace_fence(self, mock_model, mock_backend, mock_runtime_ctx):
+        from deepagents.middleware.filesystem import FilesystemMiddleware
+
+        from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
+
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=False,
+            web_search_enabled=False,
+            web_fetch_enabled=False,
+        )
+        fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
+        assert fs._permissions == WORKSPACE_FENCE_PERMISSIONS
+
+    def test_sandbox_mode_has_no_fence(self, mock_model, mock_backend, mock_runtime_ctx):
+        from deepagents.middleware.filesystem import FilesystemMiddleware
+
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            web_search_enabled=False,
+            web_fetch_enabled=False,
+        )
+        fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
+        assert fs._permissions == []
+
 
 class TestGeneralPurposeSubagent:
     """Tests for the public ``create_general_purpose_subagent`` factory."""
@@ -517,3 +547,24 @@ class TestCustomSubagents:
         names = {s["name"] for s in result}
         assert "bad-model" not in names
         assert "good" in names
+
+
+class TestExplorePermissions:
+    def test_sandbox_explore_is_read_only_only(self):
+        from automation.agent.subagents import READ_ONLY_PERMISSIONS, _explore_permissions
+
+        assert _explore_permissions(sandbox_enabled=True) == READ_ONLY_PERMISSIONS
+
+    def test_disk_explore_is_read_only_plus_read_fence(self):
+        from deepagents.middleware.filesystem import _check_fs_permission
+
+        from automation.agent.subagents import _explore_permissions
+
+        perms = _explore_permissions(sandbox_enabled=False)
+        assert _check_fs_permission(perms, "write", "/workspace/repo/foo.py") == "deny"
+        assert _check_fs_permission(perms, "read", "/workspace/repo/foo.py") == "allow"
+        assert _check_fs_permission(perms, "read", "/workspace/skills/x/SKILL.md") == "allow"
+        assert _check_fs_permission(perms, "read", "/workspace") == "deny"
+        # offloaded-artifact dirs are readable (eviction read-back) but stay write-denied (read-only agent)
+        assert _check_fs_permission(perms, "read", "/workspace/large_tool_results/x") == "allow"
+        assert _check_fs_permission(perms, "write", "/workspace/large_tool_results/x") == "deny"

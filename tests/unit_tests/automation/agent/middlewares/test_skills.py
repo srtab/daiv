@@ -64,7 +64,7 @@ class TestSkillsMiddleware:
         (builtin / "__pycache__" / "ignored.txt").write_text("ignored\n")
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
@@ -75,8 +75,8 @@ class TestSkillsMiddleware:
         assert set(skills) == {"skill-one", "skill-two"}
         assert skills["skill-one"]["description"] == "does one"
         assert skills["skill-two"]["description"] == "does two"
-        assert skills["skill-one"]["path"] == "/skills/skill-one/SKILL.md"
-        assert skills["skill-two"]["path"] == "/skills/skill-two/SKILL.md"
+        assert skills["skill-one"]["path"] == "/workspace/skills/skill-one/SKILL.md"
+        assert skills["skill-two"]["path"] == "/workspace/skills/skill-two/SKILL.md"
 
     async def test_skips_copy_global_skills_when_metadata_already_cached(self, tmp_path: Path):
         """Once skills_metadata is in state, abefore_agent must not re-walk the filesystem."""
@@ -94,7 +94,12 @@ class TestSkillsMiddleware:
         state = {
             "messages": [HumanMessage(content="hello")],
             "skills_metadata": [
-                {"name": "skill-one", "description": "ok", "path": "/skills/skill-one/SKILL.md", "metadata": {}}
+                {
+                    "name": "skill-one",
+                    "description": "ok",
+                    "path": "/workspace/skills/skill-one/SKILL.md",
+                    "metadata": {},
+                }
             ],
         }
 
@@ -125,7 +130,7 @@ class TestSkillsMiddleware:
         )
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills", f"/{repo_name}/.agents/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills", f"/{repo_name}/.agents/skills"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
@@ -157,12 +162,12 @@ class TestSkillsMiddleware:
         (builtin / "__pycache__" / "ignored.txt").write_text("ignored\n")
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
 
         with patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin):
             await middleware._copy_global_skills()
 
-        skills_root = tmp_path / "skills"
+        skills_root = tmp_path / "workspace" / "skills"
         assert (skills_root / "skill-one" / "SKILL.md").read_text() == _make_skill_md(
             name="skill-one", description="does one"
         )
@@ -184,7 +189,7 @@ class TestSkillsMiddleware:
 
         cache_root = tmp_path / "skills"
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
 
         existing_skill_md = cache_root / "skill-one" / "SKILL.md"
         existing_skill_md.parent.mkdir(parents=True, exist_ok=True)
@@ -198,7 +203,7 @@ class TestSkillsMiddleware:
 
         # SKILL.md must not be overwritten; sibling files are still uploaded.
         assert existing_skill_md.read_text() == _make_skill_md(name="skill-one", description="existing")
-        assert (tmp_path / "skills" / "skill-one" / "helpers" / "util.py").read_text() == "print('one')\n"
+        assert (tmp_path / "workspace" / "skills" / "skill-one" / "helpers" / "util.py").read_text() == "print('one')\n"
 
     async def test_raises_when_backend_returns_error(self, tmp_path: Path):
         builtin = tmp_path / "builtin_skills"
@@ -218,11 +223,16 @@ class TestSkillsMiddleware:
     def test_format_skills_list_renders_xml(self):
         middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
         formatted = middleware._format_skills_list([
-            {"name": "skill-one", "description": "does one", "path": "/skills/skill-one/SKILL.md", "metadata": {}},
+            {
+                "name": "skill-one",
+                "description": "does one",
+                "path": "/workspace/skills/skill-one/SKILL.md",
+                "metadata": {},
+            },
             {
                 "name": "custom-skill",
                 "description": "does custom",
-                "path": "/skills/custom-skill/SKILL.md",
+                "path": "/workspace/skills/custom-skill/SKILL.md",
                 "metadata": {},
             },
         ])
@@ -280,7 +290,7 @@ class TestSkillsMiddleware:
         tool = middleware._skill_tool_generator()
 
         runtime = Mock()
-        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
         with patch("skills.services.SkillInvocation.objects.acreate", new_callable=AsyncMock) as mock_acreate:
@@ -296,7 +306,7 @@ class TestSkillsMiddleware:
         tool = middleware._skill_tool_generator()
 
         runtime = Mock()
-        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
         with patch("skills.services.SkillInvocation.objects.acreate", new_callable=AsyncMock) as mock_acreate:
@@ -319,7 +329,7 @@ class TestSkillsMiddleware:
         tool = middleware._skill_tool_generator()
 
         runtime = Mock()
-        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
         with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
@@ -341,7 +351,7 @@ class TestSkillsMiddleware:
         tool = middleware._skill_tool_generator()
 
         runtime = Mock()
-        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
         with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
@@ -374,7 +384,7 @@ class TestSkillsMiddleware:
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = SkillsMiddleware(
-            backend=backend, sources=["/skills", *[f"/{repo_name}/{source}" for source in SKILLS_SOURCES]]
+            backend=backend, sources=["/workspace/skills", *[f"/{repo_name}/{source}" for source in SKILLS_SOURCES]]
         )
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
@@ -564,7 +574,7 @@ class TestCustomGlobalSkills:
         )
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with (
@@ -592,7 +602,7 @@ class TestCustomGlobalSkills:
         (custom_global / "plan" / "SKILL.md").write_text(_make_skill_md(name="plan", description="custom plan"))
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
         runtime = _make_runtime(repo_working_dir=str(tmp_path / repo_name))
 
         with (
@@ -619,7 +629,7 @@ class TestCustomGlobalSkills:
         )
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
 
         with (
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
@@ -628,7 +638,7 @@ class TestCustomGlobalSkills:
             await middleware._copy_global_skills()
 
         # File-level: custom global SKILL.md must have been materialized into the cache.
-        assert (tmp_path / "skills" / "global-skill" / "SKILL.md").exists()
+        assert (tmp_path / "workspace" / "skills" / "global-skill" / "SKILL.md").exists()
 
     async def test_per_repo_skill_overrides_custom_global(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -671,7 +681,7 @@ class TestCustomGlobalSkills:
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
 
         with (
             patch("automation.agent.middlewares.skills.BUILTIN_SKILLS_PATH", builtin),
@@ -680,7 +690,7 @@ class TestCustomGlobalSkills:
             assert await middleware._copy_global_skills() == []
 
         # Built-in skill was materialized.
-        assert (tmp_path / "skills" / "skill-one" / "SKILL.md").exists()
+        assert (tmp_path / "workspace" / "skills" / "skill-one" / "SKILL.md").exists()
 
     async def test_custom_global_skills_missing_path_does_not_surface_to_agent(self, tmp_path: Path):
         from deepagents.backends.filesystem import FilesystemBackend
@@ -690,7 +700,7 @@ class TestCustomGlobalSkills:
         (builtin / "skill-one" / "SKILL.md").write_text(_make_skill_md(name="skill-one", description="builtin one"))
 
         backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        middleware = SkillsMiddleware(backend=backend, sources=["/skills"])
+        middleware = SkillsMiddleware(backend=backend, sources=["/workspace/skills"])
         missing = tmp_path / "nonexistent"
 
         with (
@@ -702,7 +712,7 @@ class TestCustomGlobalSkills:
         # A misconfigured host path is an operator concern, not an agent one — it's logged
         # but must not surface in skills_load_errors where the agent would see it.
         assert errors == []
-        assert (tmp_path / "skills" / "skill-one" / "SKILL.md").exists()
+        assert (tmp_path / "workspace" / "skills" / "skill-one" / "SKILL.md").exists()
 
     async def test_custom_global_skills_oserror_surfaces_in_load_errors(self, tmp_path: Path):
         """An OSError raised while walking the custom-skills dir must reach skills_load_errors."""
@@ -850,7 +860,7 @@ class TestCustomGlobalSkills:
             _make_skill_md(name="leftover", description="staging leftover")
         )
 
-        project_skills_path = _Path("/skills")
+        project_skills_path = _Path("/workspace/skills")
         files_to_upload: list[tuple[str, bytes]] = []
         errors: list[str] = []
 
@@ -859,7 +869,7 @@ class TestCustomGlobalSkills:
 
         # Only files under demo/ should be collected. No .trash, .zips, or .tmp entries.
         dest_paths = [dest for dest, _ in files_to_upload]
-        assert dest_paths == ["/skills/demo/SKILL.md"]
+        assert dest_paths == ["/workspace/skills/demo/SKILL.md"]
         assert not any(".trash" in dest for dest in dest_paths)
         assert not any(".zips" in dest for dest in dest_paths)
         assert not any(".tmp" in dest for dest in dest_paths)
@@ -890,7 +900,7 @@ class TestSkillToolRecordsInvocation:
                 {
                     "name": "code-review",
                     "description": "review code",
-                    "path": "/skills/code-review/SKILL.md",
+                    "path": "/workspace/skills/code-review/SKILL.md",
                     "metadata": {},
                 }
             ]

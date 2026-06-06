@@ -27,7 +27,7 @@ def test_general_purpose_subagent_passes_backend_and_agent_root_to_sandbox_middl
     assert "SandboxMiddleware(" in src and "backend=backend" in src, (
         "subagents.py must construct SandboxMiddleware with backend"
     )
-    assert 'agent_root=f"/{agent_path.name}"' in src, "subagents.py must pass agent_root to SandboxMiddleware"
+    assert "agent_root=REPO_PATH" in src, "subagents.py must pass agent_root to SandboxMiddleware"
     assert "if sandbox_enabled:" in src, "subagents.py must gate SandboxMiddleware on sandbox_enabled"
 
 
@@ -51,15 +51,11 @@ def test_graph_constructs_sandbox_backend_without_root():
     assert "SandboxFileBackend(root=" not in src, "graph.py must NOT pass a root to SandboxFileBackend (pass-through)"
 
 
-def test_graph_sandbox_global_skills_source_is_workspace_skills():
+def test_global_skills_source_is_workspace_skills():
     src = inspect.getsource(graph_module)
-    # In sandbox mode the global-skills discovery source must be the real sandbox dir,
-    # not the route-relative "/skills" used by the disk-backed composite.
+    # global_skills_source is now unconditional (/workspace/skills) across sandbox and disk modes.
     assert "global_skills_source = SKILLS_PATH" in src, (
         "graph.py sandbox branch must use SKILLS_PATH (/workspace/skills) as the global-skills source"
-    )
-    assert "global_skills_source = GLOBAL_SKILLS_PATH" in src, (
-        "graph.py non-sandbox branch must keep GLOBAL_SKILLS_PATH (/skills) as the global-skills source"
     )
 
 

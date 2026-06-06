@@ -25,7 +25,10 @@ def test_list_builtins_returns_dicts_with_name_and_description():
 async def test_classify_source_builtin_when_no_override_row():
     # No GlobalSkill row for this name → built-in resolution wins.
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"code-review"})):
-        assert await _classify_source("code-review", "/skills/code-review/SKILL.md") == SkillInvocation.Source.BUILTIN
+        assert (
+            await _classify_source("code-review", "/workspace/skills/code-review/SKILL.md")
+            == SkillInvocation.Source.BUILTIN
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -36,19 +39,25 @@ async def test_classify_source_global_overrides_builtin_when_row_exists():
     from telemetry."""
     await GlobalSkill.objects.acreate(name="code-review", description="x", size_bytes=1, file_count=1, checksum="c")
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"code-review"})):
-        assert await _classify_source("code-review", "/skills/code-review/SKILL.md") == SkillInvocation.Source.GLOBAL
+        assert (
+            await _classify_source("code-review", "/workspace/skills/code-review/SKILL.md")
+            == SkillInvocation.Source.GLOBAL
+        )
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_classify_source_global_when_path_under_global_skills_path():
     await GlobalSkill.objects.acreate(name="custom-thing", description="x", size_bytes=1, file_count=1, checksum="c")
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()):
-        assert await _classify_source("custom-thing", "/skills/custom-thing/SKILL.md") == SkillInvocation.Source.GLOBAL
+        assert (
+            await _classify_source("custom-thing", "/workspace/skills/custom-thing/SKILL.md")
+            == SkillInvocation.Source.GLOBAL
+        )
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_classify_source_repo_when_path_outside_global_skills_path():
-    # Pin the invariant that GLOBAL_SKILLS_PATH is the only gate to BUILTIN —
+    # Pin the invariant that SKILLS_PATH is the only gate to BUILTIN —
     # a per-repo skill whose name happens to match a built-in must still be
     # classified REPO, so per-repo overrides aren't mis-attributed in telemetry.
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"repo-skill"})):
@@ -88,7 +97,7 @@ async def test_record_invocation_creates_row():
     tid = str(uuid.uuid4())
     rt = _runtime(repo_slug="org/repo", thread_id=tid)
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset({"code-review"})):
-        await _record_invocation(name="code-review", skill_path="/skills/code-review/SKILL.md", runtime=rt)
+        await _record_invocation(name="code-review", skill_path="/workspace/skills/code-review/SKILL.md", runtime=rt)
     row = await SkillInvocation.objects.aget()
     assert row.name == "code-review"
     assert row.source == SkillInvocation.Source.BUILTIN
@@ -108,7 +117,7 @@ async def test_record_invocation_swallows_db_errors(caplog):
         patch.object(SkillInvocation.objects, "acreate", new=AsyncMock(side_effect=DatabaseError("db down"))),
     ):
         # Must not raise — telemetry failure cannot abort a skill invocation.
-        await _record_invocation(name="anything", skill_path="/skills/anything/SKILL.md", runtime=rt)
+        await _record_invocation(name="anything", skill_path="/workspace/skills/anything/SKILL.md", runtime=rt)
     assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)
 
 
@@ -120,7 +129,7 @@ async def test_record_invocation_swallows_missing_thread_id(caplog):
     rt.context.repository.slug = "org/repo"
     rt.config = {"configurable": {}}  # no thread_id
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()):
-        await _record_invocation(name="anything", skill_path="/skills/anything/SKILL.md", runtime=rt)
+        await _record_invocation(name="anything", skill_path="/workspace/skills/anything/SKILL.md", runtime=rt)
     # No row created and the failure was logged.
     assert await SkillInvocation.objects.acount() == 0
     assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)
@@ -136,6 +145,6 @@ async def test_record_invocation_swallows_none_config(caplog):
     rt.context.repository.slug = "org/repo"
     rt.config = None
     with patch("skills.services.BUILTIN_SKILL_NAMES", frozenset()):
-        await _record_invocation(name="anything", skill_path="/skills/anything/SKILL.md", runtime=rt)
+        await _record_invocation(name="anything", skill_path="/workspace/skills/anything/SKILL.md", runtime=rt)
     assert await SkillInvocation.objects.acount() == 0
     assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)

@@ -6,10 +6,17 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from deepagents.middleware.filesystem import FilesystemMiddleware as UpstreamFilesystemMiddleware
+from deepagents.middleware.filesystem import _check_fs_permission
 from langchain_core.messages import ToolMessage
 
 from automation.agent.middlewares import file_system as fs_module
-from automation.agent.middlewares.file_system import EDIT_SUCCESS_PREFIX, WRITE_SUCCESS_PREFIX, DAIVFilesystemBackend
+from automation.agent.middlewares.file_system import (
+    EDIT_SUCCESS_PREFIX,
+    WORKSPACE_FENCE_PERMISSIONS,
+    WRITE_SUCCESS_PREFIX,
+    DAIVFilesystemBackend,
+    build_disk_workspace_backend,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -194,3 +201,83 @@ def test_filesystem_absolute_path_directive_normalizes_trailing_slash():
     from automation.agent.middlewares.file_system import filesystem_absolute_path_directive
 
     assert "/workspace/repo/path/to/file.py" in filesystem_absolute_path_directive("/workspace/repo")
+
+
+class TestWorkspaceFencePermissions:
+    """Disk-mode fence: allow read+write under the three real subtrees, read-only access to the
+    offloaded-artifact dirs (so eviction read-back works), and deny the bare /workspace root plus
+    any other path beneath it."""
+
+    def test_allows_real_subtrees(self):
+        for op in ("read", "write"):
+            for path in (
+                "/workspace/repo",
+                "/workspace/repo/daiv/foo.py",
+                "/workspace/skills",
+                "/workspace/skills/code-review/SKILL.md",
+                "/workspace/tmp",
+                "/workspace/tmp/scratch.txt",
+            ):
+                assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "allow", (op, path)
+
+    def test_denies_bare_root_and_unrelated_workspace_paths(self):
+        # Bare /workspace (the deny needs the literal pattern; /workspace/** does not match it) and
+        # any path under /workspace that isn't a real subtree or an artifact dir are denied both ways.
+        for op in ("read", "write"):
+            for path in ("/workspace", "/workspace/random", "/workspace/repofoo", "/workspace/repofoo/x"):
+                assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, op, path) == "deny", (op, path)
+
+    def test_artifact_dirs_are_readable_but_not_writable(self):
+        # Eviction / output_to_file write here through the backend directly (bypassing the fence);
+        # the agent must be able to read the offloaded file back, but never writes here itself.
+        for path in (
+            "/workspace/large_tool_results",
+            "/workspace/large_tool_results/call_abc",
+            "/workspace/conversation_history",
+            "/workspace/conversation_history/uuid.md",
+        ):
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", path) == "allow", path
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "write", path) == "deny", path
+
+    def test_fence_allows_framework_offload_prefixes(self, tmp_path):
+        """Drift-guard: the artifact read carve-out must cover whatever offload prefixes deepagents
+        derives from ``artifacts_root``. If a framework bump renames those dirs, this fails loudly
+        instead of silently re-breaking offload read-back in disk mode."""
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
+        middleware = UpstreamFilesystemMiddleware(backend=backend, _permissions=WORKSPACE_FENCE_PERMISSIONS)
+
+        for prefix in (middleware._large_tool_results_prefix, middleware._conversation_history_prefix):
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", f"{prefix}/some-id") == "allow", prefix
+            assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "write", f"{prefix}/some-id") == "deny", prefix
+
+    def test_paths_outside_workspace_default_allow(self):
+        assert _check_fs_permission(WORKSPACE_FENCE_PERMISSIONS, "read", "/etc/passwd") == "allow"
+
+
+class TestBuildDiskWorkspaceBackend:
+    """The disk composite maps the unified /workspace namespace onto local disk locations."""
+
+    async def test_routes_repo_skills_and_tmp(self, tmp_path):
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        skills_cache = tmp_path / "skills_cache"
+        skills_cache.mkdir()
+
+        backend = build_disk_workspace_backend(clone_dir, skills_cache=skills_cache)
+
+        assert (await backend.awrite("/workspace/repo/a.txt", "R")).error is None
+        assert (clone_dir / "a.txt").read_text() == "R"
+
+        assert (await backend.awrite("/workspace/skills/s.txt", "S")).error is None
+        assert (skills_cache / "s.txt").read_text() == "S"
+
+        assert (await backend.awrite("/workspace/tmp/t.txt", "T")).error is None
+        assert (clone_dir.parent / "workspace" / "tmp" / "t.txt").read_text() == "T"
+
+    def test_artifacts_root_is_workspace(self, tmp_path):
+        clone_dir = tmp_path / "repo"
+        clone_dir.mkdir()
+        backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
+        assert backend.artifacts_root == "/workspace"

@@ -16,7 +16,7 @@ from langgraph.types import Command
 from skills.services import _record_invocation
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH
 from automation.agent.middlewares.file_system import WRITE_TOOL_NAMES
 from automation.agent.utils import extract_body_from_frontmatter
 from codebase.context import RuntimeCtx  # noqa: TC001
@@ -104,7 +104,7 @@ AVAILABLE_SKILLS_TEMPLATE = PromptTemplate.from_template(
 class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     """
     Middleware that loads skill metadata and, in disk-backed (non-sandbox) mode, copies builtin
-    and custom global skills into the ``/skills`` cache so they are available even when the
+    and custom global skills into the ``/workspace/skills`` cache so they are available even when the
     project skills directory is not set up. In sandbox mode global skills are provisioned by the
     sandbox seed (SandboxMiddleware), so no upload happens here.
     """
@@ -122,7 +122,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     ) -> SkillsStateUpdate | dict | None:
         """
         Load skill metadata and (disk-mode only) materialize global skills into the
-        ``/skills`` cache. In sandbox mode global skills are provisioned by the sandbox
+        ``/workspace/skills`` cache. In sandbox mode global skills are provisioned by the sandbox
         seed (SandboxMiddleware), so no upload happens here; discovery reads the bound,
         seeded sandbox via ``super().abefore_agent``.
 
@@ -151,7 +151,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     async def _copy_global_skills(self) -> list[str]:
         """
-        Materialize builtin and custom global skills into the virtual ``GLOBAL_SKILLS_PATH``,
+        Materialize builtin and custom global skills into the virtual ``SKILLS_PATH``,
         sibling to the agent's working directory. Custom global skills override builtins with
         the same name at first cache population.
 
@@ -159,7 +159,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         """
         files_to_upload: list[tuple[str, bytes]] = []
         errors: list[str] = []
-        skills_path = Path(GLOBAL_SKILLS_PATH)
+        skills_path = Path(SKILLS_PATH)
 
         self._collect_skill_files(BUILTIN_SKILLS_PATH, skills_path, files_to_upload, errors)
 
@@ -213,7 +213,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     rel = source_path.relative_to(source_root)
                     # Real existence check on the disk-backed skills cache so per-turn
                     # uploads become a no-op once the cache is populated. ``dest_path``
-                    # is a virtual path under ``GLOBAL_SKILLS_PATH``, which never exists
+                    # is a virtual path under ``SKILLS_PATH``, which never exists
                     # on the host fs — the disk equivalent is ``SKILLS_CACHE_PATH/rel``.
                     dest_path = project_skills_path / rel
                     if (SKILLS_CACHE_PATH / rel).exists():
