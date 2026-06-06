@@ -174,3 +174,23 @@ def test_bind_session_rejects_cross_session_rebind():
     backend = SandboxFileBackend(client=object(), session_id="sess-1")
     with pytest.raises(RuntimeError, match="refusing"):
         backend.bind_session("sess-2")
+
+
+def test_filesystem_absolute_path_directive_names_the_repo_root():
+    """The directive names where repo files live so the model uses the full path instead of a
+    repo-relative slip (e.g. /daiv/...), without claiming that root is the only valid location."""
+    from automation.agent.middlewares.file_system import filesystem_absolute_path_directive
+
+    directive = filesystem_absolute_path_directive("/workspace/repo/")
+    assert "/workspace/repo/" in directive
+    assert "/workspace/repo/path/to/file.py" in directive  # full-path example
+    # Must NOT forbid the scratchpad / skills the sandbox prompt tells the model it may use.
+    assert "rejected" not in directive
+    assert "only" not in directive.lower()
+
+
+def test_filesystem_absolute_path_directive_normalizes_trailing_slash():
+    """Defensive: a caller passing the root without a trailing slash still yields a single one."""
+    from automation.agent.middlewares.file_system import filesystem_absolute_path_directive
+
+    assert "/workspace/repo/path/to/file.py" in filesystem_absolute_path_directive("/workspace/repo")

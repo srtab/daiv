@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Literal
 
-from pydantic import Base64Bytes, BaseModel, Field, field_validator, model_validator
+from pydantic import Base64Bytes, BaseModel, Field, computed_field, field_validator, model_validator
 
 MAX_OUTPUT_LENGTH = 2000
 
@@ -89,6 +90,29 @@ class ApplyMutationsResponse(BaseModel):
 # (tests/unit_tests/core/sandbox/test_schema_consistency.py) passes.
 
 
+class FsErrorCode(StrEnum):
+    """Stable, machine-branchable fs error codes. Mirrors daiv-sandbox ``FsErrorCode``;
+    the values (and their order, which the JSON-schema enum encodes) must match exactly."""
+
+    INVALID_PATH = "invalid_path"
+    NOT_FOUND = "not_found"
+    NOT_A_DIRECTORY = "not_a_directory"
+    IS_A_DIRECTORY = "is_a_directory"
+    NOT_A_TEXT_FILE = "not_a_text_file"
+    STRING_NOT_FOUND = "string_not_found"
+    MULTIPLE_OCCURRENCES = "multiple_occurrences"
+    ALREADY_EXISTS = "already_exists"
+    TOO_LARGE = "too_large"
+    INVALID_OFFSET = "invalid_offset"
+    PERMISSION_DENIED = "permission_denied"
+    EXEC_FAILED = "exec_failed"
+
+
+class FsError(BaseModel):
+    code: FsErrorCode = Field(description="Stable, machine-branchable error code.")
+    message: str = Field(min_length=1, description="Human-readable hint the agent can act on.")
+
+
 class FsLsRequest(BaseModel):
     path: str = Field(description="Absolute directory path under /workspace.")
 
@@ -100,7 +124,7 @@ class FsEntry(BaseModel):
 
 class FsLsResponse(BaseModel):
     entries: list[FsEntry] = Field(default_factory=list, description="Directory entries (empty on error).")
-    error: str | None = Field(default=None, description="Error message when the listing failed.")
+    error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 
 class FsReadRequest(BaseModel):
@@ -120,7 +144,7 @@ class FsReadResponse(BaseModel):
     encoding: Literal["utf-8", "base64"] | None = Field(
         default=None, description="Encoding of `content`: 'utf-8' for text, 'base64' for binary."
     )
-    error: str | None = Field(default=None, description="Error message when the read failed.")
+    error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 
 class FsGrepRequest(BaseModel):
@@ -137,7 +161,7 @@ class FsGrepMatch(BaseModel):
 
 class FsGrepResponse(BaseModel):
     matches: list[FsGrepMatch] = Field(default_factory=list, description="Matches found (empty on error).")
-    error: str | None = Field(default=None, description="Error message when the search failed.")
+    error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 
 class FsGlobRequest(BaseModel):
@@ -147,7 +171,7 @@ class FsGlobRequest(BaseModel):
 
 class FsGlobResponse(BaseModel):
     matches: list[FsEntry] = Field(default_factory=list, description="Matching entries (empty on error).")
-    error: str | None = Field(default=None, description="Error message when the glob failed.")
+    error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 
 class FsWriteRequest(BaseModel):
@@ -157,8 +181,16 @@ class FsWriteRequest(BaseModel):
 
 
 class FsWriteResponse(BaseModel):
-    ok: bool
-    error: str | None = None
+    error: FsError | None = Field(default=None, description="Structured error; null on success.")
+
+    # ``ok`` is derived, not stored, and serialization-only: daiv branches on ``error`` directly
+    # (nothing reads ``resp.ok``), and Pydantic omits computed fields from the *validation* schema —
+    # which is exactly why this matches the sandbox dump the drift test pins. Kept only for wire
+    # parity with daiv-sandbox; do not reintroduce ``if resp.ok`` checks in the client/backend.
+    @computed_field(description="True on success; derived from `error` (success ⇔ no error).")
+    @property
+    def ok(self) -> bool:
+        return self.error is None
 
 
 class FsEditRequest(BaseModel):
@@ -170,7 +202,7 @@ class FsEditRequest(BaseModel):
 
 class FsEditResponse(BaseModel):
     occurrences: int | None = Field(default=None, description="Number of replacements made.")
-    error: str | None = Field(default=None, description="Error code/message on failure.")
+    error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 
 class FsDeleteRequest(BaseModel):
@@ -178,5 +210,15 @@ class FsDeleteRequest(BaseModel):
 
 
 class FsDeleteResponse(BaseModel):
-    ok: bool
-    error: str | None = None
+    removed: bool = Field(
+        default=False,
+        description="True if a file was actually removed; False if it was already absent. "
+        "Meaningful only on success (`error is None`); unspecified when `error` is set.",
+    )
+    error: FsError | None = Field(default=None, description="Structured error; null on success.")
+
+    # See ``FsWriteResponse.ok``: derived, serialization-only, kept solely for wire parity.
+    @computed_field(description="True on success; derived from `error` (success ⇔ no error).")
+    @property
+    def ok(self) -> bool:
+        return self.error is None

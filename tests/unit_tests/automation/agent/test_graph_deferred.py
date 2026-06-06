@@ -105,3 +105,29 @@ def test_output_invariants_prompt_keys_off_working_directory():
 
     disk = _output_invariants_system_prompt("/myrepo/")
     assert '"/myrepo/"' in disk
+
+
+def test_resolve_working_directory_derivation_per_runtime():
+    """``_resolve_working_directory`` derives the prompt's repo root from runtime context, mirroring
+    ``create_daiv_agent``'s ``agent_root``: a sandbox run roots at ``REPO_PATH`` (sandbox-authoritative,
+    ignoring the on-disk ``working_dir``); a disk-backed run roots at the clone basename. Pinning this
+    (previously untested) keeps the main agent's prompt from silently desyncing from the paths its
+    tools and subagents address."""
+    from automation.agent.constants import REPO_PATH
+    from automation.agent.graph import _resolve_working_directory
+
+    def _ctx(*, sandbox_enabled: bool, working_dir: str):
+        ctx = MagicMock()
+        ctx.sandbox.enabled = sandbox_enabled
+        ctx.gitrepo.working_dir = working_dir
+        return ctx
+
+    # Sandbox: rooted at the sandbox-authoritative REPO_PATH, ignoring the on-disk working_dir basename.
+    assert _resolve_working_directory(_ctx(sandbox_enabled=True, working_dir="/on/disk/clone")) == f"{REPO_PATH}/"
+    # Disk-backed: rooted at the clone basename.
+    assert _resolve_working_directory(_ctx(sandbox_enabled=False, working_dir="/home/app/myclone")) == "/myclone/"
+    # A null sandbox runtime is treated as disabled (disk-backed), not an attribute error.
+    no_sandbox = MagicMock()
+    no_sandbox.sandbox = None
+    no_sandbox.gitrepo.working_dir = "/home/app/other"
+    assert _resolve_working_directory(no_sandbox) == "/other/"

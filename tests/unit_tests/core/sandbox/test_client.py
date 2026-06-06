@@ -168,6 +168,40 @@ async def test_fs_read_parses_response(fake_settings, mock_post):
     assert resp.content == "hello" and resp.encoding == "utf-8"
 
 
+async def test_fs_delete_parses_removed_flag(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsDeleteRequest
+
+    # The wire still carries the derived ``ok``; the client ignores it on input and recomputes it,
+    # while ``removed`` distinguishes a real delete from an idempotent no-op.
+    mock_post["json_body"] = {"ok": True, "removed": True, "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_delete("sid-1", FsDeleteRequest(path="/workspace/a.txt"))
+    assert resp.removed is True and resp.ok is True and resp.error is None
+
+    mock_post["json_body"] = {"ok": True, "removed": False, "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_delete("sid-1", FsDeleteRequest(path="/workspace/gone.txt"))
+    assert resp.removed is False and resp.ok is True
+
+
+async def test_fs_response_parses_structured_error(fake_settings, mock_post):
+    """A structured ``error`` deserialises into ``FsError`` with a branchable ``code`` and a
+    message, and ``ok`` is derived to False."""
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsErrorCode, FsWriteRequest
+
+    mock_post["json_body"] = {"error": {"code": "already_exists", "message": "target exists"}}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_write(
+            "sid-1", FsWriteRequest(path="/workspace/a.txt", content=base64.b64encode(b"hi"), mode=0o644)
+        )
+    assert resp.error is not None
+    assert resp.error.code is FsErrorCode.ALREADY_EXISTS
+    assert resp.error.message == "target exists"
+    assert resp.ok is False
+
+
 @pytest.mark.parametrize(
     ("method_name", "make_request", "json_body", "expected_url"),
     [

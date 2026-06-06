@@ -31,10 +31,13 @@ from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
 
+from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
 from core.sandbox.schemas import (
     FsDeleteRequest,
     FsEditRequest,
+    FsError,
+    FsErrorCode,
     FsGlobRequest,
     FsGrepRequest,
     FsLsRequest,
@@ -86,9 +89,26 @@ WRITE_TOOL_NAMES = frozenset({WRITE_FILE_TOOL, EDIT_FILE_TOOL})
 WRITE_SUCCESS_PREFIX = "Updated file"
 EDIT_SUCCESS_PREFIX = "Successfully replaced"
 
-FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE = (
-    'Filesystem tool-call arguments (ls/read_file/edit_file/etc.) MUST use absolute paths (start with "/").'
-)
+
+def filesystem_absolute_path_directive(working_directory: str) -> str:
+    """Path directive naming where the repository lives for this run.
+
+    The bare "start with /" rule let the model address repo files with the workspace prefix dropped
+    (e.g. ``/daiv/foo`` instead of ``/workspace/repo/daiv/foo``); in a sandbox run the backend now
+    resolves such slips under the repo root (:meth:`SandboxFileBackend._abs`), but a slip is still
+    ambiguous (it could land on the wrong file), and disk-backed runs do NOT auto-correct it (the
+    path resolves outside the clone), so the model must name the full repo path in either mode. This
+    states where repo files live (``/workspace/repo/`` in a sandbox, ``/<clone-name>/`` on disk)
+    WITHOUT claiming it is the only writable location — the sandbox scratchpad (``/workspace/tmp``)
+    and skills (``/workspace/skills``) are also valid.
+    """
+    root = working_directory.rstrip("/") + "/"
+    return (
+        "Filesystem tool-call arguments (ls/read_file/edit_file/grep/glob/etc.) MUST be absolute paths. "
+        f'Repository files live under "{root}" — address them with the full path (e.g. "{root}path/to/file.py"), '
+        f'not a repo-relative path like "/path/to/file.py".'
+    )
+
 
 CUSTOM_TOOL_DESCRIPTIONS = {
     "grep": GREP_TOOL_DESCRIPTION,
@@ -205,15 +225,45 @@ class DAIVCompositeBackend(CompositeBackend):
         return backend
 
 
+# Every fs soft failure now arrives in the 200 body as a structured ``FsError`` (the sandbox no
+# longer raises HTTP 400 for a bad path on ls/grep/glob — that is an ``invalid_path`` error in the
+# body like every other op). A non-200 status is therefore a genuine fault (404 = session reaped,
+# 5xx = infra) that the model cannot fix by changing its arguments, so the client's
+# ``raise_for_status`` is left to propagate.
+#
+# Codes that point the agent at a *different tool* get a DAIV-authored routing hint; the rest fall
+# through to the sandbox ``message``, which already carries the actionable detail (edit retry hints,
+# the offending offset, the rejected path, the underlying failure). Distinct codes stay distinct —
+# they are never collapsed into a single generic "operation failed".
+#
+# Each hint (and the fall-through ``message``) is a sentence *fragment* meant to read as the tail of
+# a ``"<path>": `` prefix the call site supplies (e.g. ``File '/x': is a directory — …``). Phrase new
+# hints/messages to follow that prefix, not as standalone capitalised sentences.
+_FS_CODE_HINTS: dict[FsErrorCode, str] = {
+    FsErrorCode.NOT_FOUND: "does not exist",
+    FsErrorCode.IS_A_DIRECTORY: "is a directory — list it with the ls/glob tools, not read_file/edit_file",
+    FsErrorCode.NOT_A_DIRECTORY: "is not a directory — read it with read_file, not the ls/glob tools",
+    FsErrorCode.ALREADY_EXISTS: "already exists — modify it with edit_file (write_file only creates new files)",
+    FsErrorCode.NOT_A_TEXT_FILE: "is not a UTF-8 text file and cannot be edited",
+}
+
+
+def _fs_error_text(error: FsError) -> str:
+    """Render a structured sandbox error as an actionable, agent-facing string."""
+    return _FS_CODE_HINTS.get(error.code, error.message)
+
+
 class SandboxFileBackend(BackendProtocol):
     """Deepagents backend whose files live in a sandbox workspace, and the run's
     command-execution handle (``run_commands``).
 
     The agent addresses files by their sandbox-absolute path (``/workspace/repo``,
-    ``/workspace/skills``, ``/workspace/tmp``); the backend is a thin pass-through to
-    ``DAIVSandboxClient`` — the sandbox is authoritative, so there is no path translation
-    or local mirror. Every op is one RPC over ``DAIVSandboxClient``; there is no local
-    copy, so no rollback/desync machinery.
+    ``/workspace/skills``, ``/workspace/tmp``); the backend is a thin proxy to
+    ``DAIVSandboxClient`` — the sandbox is authoritative, so there is no local mirror.
+    Paths already under ``/workspace`` pass through unchanged; the only translation is in
+    :meth:`_abs`, which maps the virtual root ``/`` (and repo paths sent with the workspace
+    prefix dropped) onto the workspace/repo root so they don't error on the sandbox. Every op
+    is one RPC over ``DAIVSandboxClient``; there is no local copy, so no rollback/desync machinery.
 
     The client is supplied at construction; the backend is **bound** to the run's session via
     :meth:`bind_session` once ``SandboxMiddleware.abefore_agent`` has started (or reused) it. Any
@@ -269,48 +319,60 @@ class SandboxFileBackend(BackendProtocol):
         client, session_id = self._require_bound()
         return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast))
 
-    # -- path mapping (identity) --------------------------------------------
+    # -- path mapping -------------------------------------------------------
     # The sandbox is authoritative and the agent addresses files by their
     # sandbox-absolute path (/workspace/repo, /workspace/skills, /workspace/tmp).
-    # There is no translation: paths pass straight through. Kept as helpers so the
-    # async methods below need no change and an empty path normalises to "/".
+    # The sandbox rejects anything outside WORKSPACE_PATH (an ``invalid_path`` error), so two
+    # common model inputs need normalising before they reach the wire:
+    #   - the deepagents virtual root "/" (a path-less glob/grep/ls default) → the
+    #     workspace root, so those defaults search /workspace rather than being rejected;
+    #   - a repo path with the workspace prefix dropped (e.g. "/daiv/foo" instead of
+    #     "/workspace/repo/daiv/foo") → resolved under the repo root, so a common slip
+    #     lands on the intended file instead of failing.
+    # Paths already under /workspace pass straight through unchanged.
     def _abs(self, backend_path: str) -> str:
-        return backend_path or "/"
+        if not backend_path or backend_path == "/":
+            return WORKSPACE_PATH
+        if backend_path == WORKSPACE_PATH or backend_path.startswith(f"{WORKSPACE_PATH}/"):
+            return backend_path
+        return f"{REPO_PATH}/{backend_path.lstrip('/')}"
 
     def _rel(self, abs_path: str) -> str:
         return abs_path or "/"
 
     # -- async protocol methods ---------------------------------------------
-    # The Fs*Response list types carry an ``error`` field (populated, with an empty list,
-    # on a soft sandbox failure returned as 200). Propagate it into the deepagents result's
-    # ``error`` so the filesystem middleware surfaces it to the model — otherwise a real
-    # failure reads as a clean "empty directory / no matches".
+    # The Fs*Response types carry a structured ``error`` (an ``FsError`` with a stable ``code``),
+    # populated alongside an empty list on a soft sandbox failure returned as 200. Map it into the
+    # deepagents result's ``error`` so the filesystem middleware surfaces an actionable message to
+    # the model. A missing path now carries ``code=not_found`` (distinct from an empty directory /
+    # no match, which has ``error=None``), so absence reads as "does not exist" instead of a clean
+    # "empty directory / no matches".
     async def als(self, path: str) -> LsResult:
         client, session_id = self._require_bound()
         resp = await client.fs_ls(session_id, FsLsRequest(path=self._abs(path)))
         if resp.error is not None:
-            return LsResult(error=f"Listing '{path}': {resp.error}")
+            return LsResult(error=f"Listing '{path}': {_fs_error_text(resp.error)}")
         return LsResult(entries=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.entries])
 
     async def aread(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
         client, session_id = self._require_bound()
         resp = await client.fs_read(session_id, FsReadRequest(path=self._abs(file_path), offset=offset, limit=limit))
         if resp.error is not None:
-            return ReadResult(error=f"File '{file_path}': {resp.error}")
+            return ReadResult(error=f"File '{file_path}': {_fs_error_text(resp.error)}")
         return ReadResult(file_data=FileData(content=resp.content or "", encoding=resp.encoding or "utf-8"))
 
     async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
         client, session_id = self._require_bound()
         resp = await client.fs_grep(session_id, FsGrepRequest(pattern=pattern, path=self._abs(path or "/"), glob=glob))
         if resp.error is not None:
-            return GrepResult(error=f"Grep '{pattern}': {resp.error}")
+            return GrepResult(error=f"Grep '{pattern}': {_fs_error_text(resp.error)}")
         return GrepResult(matches=[GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches])
 
     async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
         client, session_id = self._require_bound()
         resp = await client.fs_glob(session_id, FsGlobRequest(pattern=pattern, path=self._abs(path)))
         if resp.error is not None:
-            return GlobResult(error=f"Glob '{pattern}': {resp.error}")
+            return GlobResult(error=f"Glob '{pattern}': {_fs_error_text(resp.error)}")
         return GlobResult(matches=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.matches])
 
     async def awrite(self, file_path: str, content: str) -> WriteResult:
@@ -319,8 +381,8 @@ class SandboxFileBackend(BackendProtocol):
             session_id,
             FsWriteRequest(path=self._abs(file_path), content=base64.b64encode(content.encode("utf-8")), mode=0o644),
         )
-        if not resp.ok:
-            return WriteResult(error=f"Failed to write file '{file_path}': {resp.error or 'unknown sandbox error'}")
+        if resp.error is not None:
+            return WriteResult(error=f"Failed to write file '{file_path}': {_fs_error_text(resp.error)}")
         return WriteResult(path=file_path)
 
     async def aedit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
@@ -330,7 +392,7 @@ class SandboxFileBackend(BackendProtocol):
             FsEditRequest(path=self._abs(file_path), old=old_string, new=new_string, replace_all=replace_all),
         )
         if resp.error is not None:
-            return EditResult(error=f"Error editing file '{file_path}': {resp.error}")
+            return EditResult(error=f"Error editing file '{file_path}': {_fs_error_text(resp.error)}")
         return EditResult(path=file_path, occurrences=resp.occurrences if resp.occurrences is not None else 1)
 
     async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
@@ -340,11 +402,9 @@ class SandboxFileBackend(BackendProtocol):
             resp = await client.fs_write(
                 session_id, FsWriteRequest(path=self._abs(path), content=base64.b64encode(data), mode=0o644)
             )
-            # A failed write with no error string would otherwise be reported as success
-            # (error=None); fall back to a generic message so ok=False always carries one.
-            error = None if resp.ok else (resp.error or "unknown sandbox error")
             # deepagents annotates ``error`` as the narrow ``FileOperationError`` literal but
             # documents accepting backend-specific strings; the sandbox returns its own messages.
+            error = None if resp.error is None else _fs_error_text(resp.error)
             out.append(FileUploadResponse(path=path, error=error))  # ty: ignore[invalid-argument-type]
         return out
 
@@ -353,12 +413,15 @@ class SandboxFileBackend(BackendProtocol):
         out: list[FileDownloadResponse] = []
         for path in paths:
             resp = await client.fs_read(session_id, FsReadRequest(path=self._abs(path)))
-            if resp.error == FILE_NOT_FOUND:
+            if resp.error is not None and resp.error.code == FsErrorCode.NOT_FOUND:
+                # Normalise absence onto deepagents' FILE_NOT_FOUND sentinel so its callers can branch
+                # on it. (The old code compared the raw error string to this sentinel, which silently
+                # stopped matching once the wire error became a structured object.)
                 out.append(FileDownloadResponse(path=path, error=FILE_NOT_FOUND))
             elif resp.error is not None:
                 # See ``aupload_files``: deepagents accepts backend-specific error strings.
                 out.append(
-                    FileDownloadResponse(path=path, error=resp.error)  # ty: ignore[invalid-argument-type]
+                    FileDownloadResponse(path=path, error=_fs_error_text(resp.error))  # ty: ignore[invalid-argument-type]
                 )
             elif resp.encoding == "base64":
                 out.append(FileDownloadResponse(path=path, content=base64.b64decode(resp.content or "")))
@@ -370,11 +433,16 @@ class SandboxFileBackend(BackendProtocol):
     async def delete(self, virtual_path: str) -> bool:
         client, session_id = self._require_bound()
         resp = await client.fs_delete(session_id, FsDeleteRequest(path=self._abs(virtual_path)))
-        if not resp.ok:
+        if resp.error is not None:
             # The protocol return is a bare bool, so the sandbox's reason would otherwise be lost;
             # log it so a failed delete is diagnosable rather than a silent ``False``.
-            logger.warning("Sandbox delete failed for %s: %s", virtual_path, resp.error or "unknown sandbox error")
-        return resp.ok
+            logger.warning("Sandbox delete failed for %s: %s", virtual_path, _fs_error_text(resp.error))
+            return False
+        if not resp.removed:
+            # Idempotent success: the path was already absent. Match ``DAIVFilesystemBackend.delete``
+            # (``unlink(missing_ok=True)``), which also reports success for a no-op delete.
+            logger.debug("Sandbox delete: %s was already absent (nothing removed)", virtual_path)
+        return True
 
     async def stat_mode(self, virtual_path: str) -> int:
         return 0o644

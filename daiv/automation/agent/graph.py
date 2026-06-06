@@ -32,10 +32,10 @@ from automation.agent.mcp.toolkits import MCPToolkit
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
-    FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE,
     DAIVCompositeBackend,
     DAIVFilesystemBackend,
     SandboxFileBackend,
+    filesystem_absolute_path_directive,
 )
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
@@ -99,8 +99,21 @@ Applies to ALL user-visible text:
 - Code reference labels MUST be repo-relative paths (e.g. `daiv/core/utils.py:42`), but hrefs should use platform-native blob URLs with branch refs.
 - Before emitting any user-visible text, check for "{prefix}" and rewrite to repo-relative form.
 
-{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}
+{filesystem_absolute_path_directive(working_directory)}
 </output_invariants>"""  # noqa: E501
+
+
+def _resolve_working_directory(context: RuntimeCtx) -> str:
+    """The run's absolute repo root (trailing slash) the model should address files under.
+
+    Sandbox-enabled runs operate under the sandbox-authoritative ``/workspace/repo``; disk-backed
+    runs see the local clone's basename. This mirrors ``create_daiv_agent``'s ``agent_root`` decision
+    (sandbox → ``REPO_PATH``, disk → ``/{clone-name}``) so the prompt's working directory and output
+    invariants match the paths the agent's tools and subagents address.
+    """
+    if context.sandbox and context.sandbox.enabled:
+        return f"{REPO_PATH}/"
+    return f"/{Path(context.gitrepo.working_dir).name}/"
 
 
 @dynamic_prompt
@@ -115,13 +128,7 @@ async def dynamic_daiv_system_prompt(request: ModelRequest) -> str:
         str: The dynamic prompt for the DAIV system.
     """
     context = cast("RuntimeCtx", request.runtime.context)
-    # Sandbox-enabled runs operate under the sandbox-authoritative /workspace/repo; disk-backed
-    # runs see the local clone's basename. Mirror create_daiv_agent's agent_root decision so the
-    # prompt's working directory and output invariants match the paths the agent's tools use.
-    if context.sandbox and context.sandbox.enabled:
-        working_directory = f"{REPO_PATH}/"
-    else:
-        working_directory = f"/{Path(context.gitrepo.working_dir).name}/"
+    working_directory = _resolve_working_directory(context)
 
     daiv_system_prompt = await DAIV_SYSTEM_PROMPT.aformat(
         current_date=timezone.now().strftime("%d %B, %Y"),
@@ -254,11 +261,16 @@ async def create_daiv_agent(
         skills_backend = DAIVFilesystemBackend(root_dir=SKILLS_CACHE_PATH, virtual_mode=True)
         backend = DAIVCompositeBackend(default=repo_backend, routes={GLOBAL_SKILLS_ROUTE: skills_backend})
 
+    # The run's absolute repo root, shared with subagents so their filesystem path directives name
+    # the same root the main agent's prompt does (``dynamic_daiv_system_prompt`` derives the same value).
+    working_directory = f"{agent_root}/"
+
     subagents = [
         create_general_purpose_subagent(
             model,
             backend,
             ctx,
+            working_directory,
             sandbox_enabled=_sandbox_enabled,
             web_search_enabled=_web_search_enabled,
             web_fetch_enabled=_web_fetch_enabled,
@@ -266,7 +278,7 @@ async def create_daiv_agent(
             client=run_client,
             sandbox_backend=sandbox_backend,
         ),
-        create_explore_subagent(backend),
+        create_explore_subagent(backend, working_directory),
     ]
 
     custom_subagents = await load_custom_subagents(
@@ -274,6 +286,7 @@ async def create_daiv_agent(
         backend=backend,
         runtime=ctx,
         sources=[f"{agent_root}/{source}" for source in SUBAGENTS_SOURCES],
+        working_directory=working_directory,
         sandbox_enabled=_sandbox_enabled,
         web_search_enabled=_web_search_enabled,
         web_fetch_enabled=_web_fetch_enabled,

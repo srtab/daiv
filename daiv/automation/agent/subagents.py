@@ -13,7 +13,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
 
 from automation.agent import BaseAgent
-from automation.agent.middlewares.file_system import CUSTOM_TOOL_DESCRIPTIONS, FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE
+from automation.agent.middlewares.file_system import CUSTOM_TOOL_DESCRIPTIONS, filesystem_absolute_path_directive
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
@@ -37,13 +37,17 @@ logger = logging.getLogger("daiv.agent")
 
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
 
-GENERAL_PURPOSE_SYSTEM_PROMPT = f"""You are an agent for DAIV. Given the user's message, you should use the tools available to complete the task. Do exactly what has been asked. When you complete the task respond with a detailed writeup.
 
+def _general_purpose_system_prompt(working_directory: str) -> str:
+    root = working_directory.rstrip("/") + "/"
+    return f"""You are an agent for DAIV. Given the user's message, you should use the tools available to complete the task. Do exactly what has been asked. When you complete the task respond with a detailed writeup.
+
+- Your working directory is {root}.
 - For file searches: Use `grep` or `glob` when you need to search broadly. Use `read_file` when you know the specific file path.
 - NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested.
-- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., /repo/src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
+- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., {root}src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
 
-{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}
+{filesystem_absolute_path_directive(working_directory)}
 """  # noqa: E501
 
 
@@ -109,6 +113,7 @@ def create_general_purpose_subagent(
     model: BaseChatModel,
     backend: BackendProtocol,
     runtime: RuntimeCtx,
+    working_directory: str,
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
@@ -122,7 +127,7 @@ def create_general_purpose_subagent(
     runnable = create_agent(
         model=model,
         tools=[],
-        system_prompt=GENERAL_PURPOSE_SYSTEM_PROMPT,
+        system_prompt=_general_purpose_system_prompt(working_directory),
         middleware=_build_general_purpose_middleware(
             model,
             backend,
@@ -139,8 +144,12 @@ def create_general_purpose_subagent(
     return CompiledSubAgent(name=GENERAL_PURPOSE_NAME, description=GENERAL_PURPOSE_DESCRIPTION, runnable=runnable)
 
 
-EXPLORE_SYSTEM_PROMPT = f"""\
+def _explore_system_prompt(working_directory: str) -> str:
+    root = working_directory.rstrip("/") + "/"
+    return f"""\
 You are a file search specialist for DAIV. You excel at thoroughly navigating and exploring codebases.
+
+Your working directory is {root}.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
 This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
@@ -162,7 +171,7 @@ Guidelines:
 - Use `grep` for searching file contents with regex
 - Use `read_file` when you know the specific file path you need to read
 - Adapt your search approach based on the thoroughness level specified by the caller
-- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., /repo/src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
+- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., {root}src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
 - For clear communication, avoid using emojis
 - Communicate your final report directly as a regular message - do NOT attempt to create files
 
@@ -173,8 +182,9 @@ NOTE: You are meant to be a fast agent that returns output as quickly as possibl
 
 Complete the user's search request efficiently and report your findings clearly.
 
-{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}
+{filesystem_absolute_path_directive(working_directory)}
 """  # noqa: E501
+
 
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 
@@ -187,7 +197,7 @@ READ_ONLY_PERMISSIONS: list[FilesystemPermission] = [
 ]
 
 
-def create_explore_subagent(backend: BackendProtocol, **kwargs) -> CompiledSubAgent:
+def create_explore_subagent(backend: BackendProtocol, working_directory: str, **kwargs) -> CompiledSubAgent:
     """
     Create the explore subagent.
     """
@@ -225,7 +235,11 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> CompiledSubAg
             )
 
     runnable = create_agent(
-        model=model, tools=[], system_prompt=EXPLORE_SYSTEM_PROMPT, middleware=middleware, name=EXPLORE_NAME
+        model=model,
+        tools=[],
+        system_prompt=_explore_system_prompt(working_directory),
+        middleware=middleware,
+        name=EXPLORE_NAME,
     )
     return CompiledSubAgent(name=EXPLORE_NAME, description=EXPLORE_SUBAGENT_DESCRIPTION, runnable=runnable)
 
@@ -288,6 +302,7 @@ async def load_custom_subagents(
     backend: BackendProtocol,
     runtime: RuntimeCtx,
     sources: list[str],
+    working_directory: str,
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
@@ -306,6 +321,8 @@ async def load_custom_subagents(
         backend: The filesystem backend.
         runtime: The runtime context.
         sources: List of paths to scan for subagent definitions.
+        working_directory: The run's absolute repo root (e.g. ``/workspace/repo/``), baked into the
+            subagent's filesystem path directive so it addresses files under the right root.
         sandbox_enabled: Whether to enable the sandbox middleware.
         web_search_enabled: Whether to enable web search middleware.
         web_fetch_enabled: Whether to enable web fetch middleware.
@@ -360,7 +377,7 @@ async def load_custom_subagents(
             runnable = create_agent(
                 model=subagent_model,
                 tools=[],
-                system_prompt=f"{body}\n\n{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}",
+                system_prompt=f"{body}\n\n{filesystem_absolute_path_directive(working_directory)}",
                 middleware=_build_general_purpose_middleware(
                     subagent_model,
                     backend,

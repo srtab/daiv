@@ -130,12 +130,13 @@ You have been invoked in the following environment:
 
 **Memory and Knowledge Cutoff**: Your knowledge of general programming is up to a certain cutoff. If the user's request references a technology or library beyond what you know, you might need to use external search tools or ask the user for documentation. Be transparent if you are operating on incomplete knowledge. Do not hallucinate facts about new or unknown technologies, this is very important.
 
-**No Hard-Coding Paths**: Never hardcode sandbox/mount roots like `/repo/` in code or user-visible output. Use absolute `/repo/...` paths only inside tool calls when required, but always output repo-relative paths to the user (e.g. `daiv/core/utils.py`). Ignore file paths shown in tracebacks/issues; you should always locate files in the current repo via `glob` or `grep` before reading/editing.""",  # noqa: E501
+**No Hard-Coding Paths**: Never hardcode the workspace/mount root in code or user-visible output. Use absolute paths under the working directory ({{working_directory}}) only inside tool calls when required, but always output repo-relative paths to the user (e.g. `daiv/core/utils.py`). Ignore file paths shown in tracebacks/issues; you should always locate files in the current repo via `glob` or `grep` before reading/editing.""",  # noqa: E501
     "mustache",
 )
 
 REPO_RELATIVE_SYSTEM_REMINDER = (
-    'Reminder: Never output "/repo/" in user-visible output. All user-visible paths must be repo-relative.'
+    "Reminder: never output absolute workspace paths in user-visible text. "
+    "All user-visible file paths must be repo-relative (no leading slash)."
 )
 
 

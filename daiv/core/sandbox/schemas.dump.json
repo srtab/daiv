@@ -114,27 +114,66 @@
     "type": "object"
   },
   "FsDeleteResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
     "properties": {
       "error": {
         "anyOf": [
           {
-            "type": "string"
+            "$ref": "#/$defs/FsError"
           },
           {
             "type": "null"
           }
         ],
         "default": null,
-        "title": "Error"
+        "description": "Structured error; null on success."
       },
-      "ok": {
-        "title": "Ok",
+      "removed": {
+        "default": false,
+        "description": "True if a file was actually removed; False if it was already absent.",
+        "title": "Removed",
         "type": "boolean"
       }
     },
-    "required": [
-      "ok"
-    ],
     "title": "FsDeleteResponse",
     "type": "object"
   },
@@ -171,19 +210,58 @@
     "type": "object"
   },
   "FsEditResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
     "properties": {
       "error": {
         "anyOf": [
           {
-            "type": "string"
+            "$ref": "#/$defs/FsError"
           },
           {
             "type": "null"
           }
         ],
         "default": null,
-        "description": "Error code/message on failure.",
-        "title": "Error"
+        "description": "Structured error; null on success."
       },
       "occurrences": {
         "anyOf": [
@@ -263,21 +341,58 @@
         ],
         "title": "FsEntry",
         "type": "object"
+      },
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
       }
     },
     "properties": {
       "error": {
         "anyOf": [
           {
-            "type": "string"
+            "$ref": "#/$defs/FsError"
           },
           {
             "type": "null"
           }
         ],
         "default": null,
-        "description": "Error message when the glob failed.",
-        "title": "Error"
+        "description": "Structured error; null on success."
       },
       "matches": {
         "description": "Matching entries (empty on error).",
@@ -352,6 +467,44 @@
   },
   "FsGrepResponse": {
     "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      },
       "FsGrepMatch": {
         "properties": {
           "line": {
@@ -383,15 +536,14 @@
       "error": {
         "anyOf": [
           {
-            "type": "string"
+            "$ref": "#/$defs/FsError"
           },
           {
             "type": "null"
           }
         ],
         "default": null,
-        "description": "Error message when the search failed.",
-        "title": "Error"
+        "description": "Structured error; null on success."
       },
       "matches": {
         "description": "Matches found (empty on error).",
@@ -440,6 +592,44 @@
         ],
         "title": "FsEntry",
         "type": "object"
+      },
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
       }
     },
     "properties": {
@@ -454,15 +644,14 @@
       "error": {
         "anyOf": [
           {
-            "type": "string"
+            "$ref": "#/$defs/FsError"
           },
           {
             "type": "null"
           }
         ],
         "default": null,
-        "description": "Error message when the listing failed.",
-        "title": "Error"
+        "description": "Structured error; null on success."
       }
     },
     "title": "FsLsResponse",
@@ -497,6 +686,46 @@
     "type": "object"
   },
   "FsReadResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
     "properties": {
       "content": {
         "anyOf": [
@@ -531,15 +760,14 @@
       "error": {
         "anyOf": [
           {
-            "type": "string"
+            "$ref": "#/$defs/FsError"
           },
           {
             "type": "null"
           }
         ],
         "default": null,
-        "description": "Error message when the read failed.",
-        "title": "Error"
+        "description": "Structured error; null on success."
       }
     },
     "title": "FsReadResponse",
@@ -575,27 +803,60 @@
     "type": "object"
   },
   "FsWriteResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
     "properties": {
       "error": {
         "anyOf": [
           {
-            "type": "string"
+            "$ref": "#/$defs/FsError"
           },
           {
             "type": "null"
           }
         ],
         "default": null,
-        "title": "Error"
-      },
-      "ok": {
-        "title": "Ok",
-        "type": "boolean"
+        "description": "Structured error; null on success."
       }
     },
-    "required": [
-      "ok"
-    ],
     "title": "FsWriteResponse",
     "type": "object"
   },

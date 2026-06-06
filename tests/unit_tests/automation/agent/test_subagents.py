@@ -167,12 +167,23 @@ class TestGeneralPurposeSubagent:
         return ctx
 
     def test_returns_compiled_subagent(self, mock_model, mock_backend, mock_runtime_ctx):
-        result = create_general_purpose_subagent(mock_model, mock_backend, mock_runtime_ctx)
+        result = create_general_purpose_subagent(mock_model, mock_backend, mock_runtime_ctx, "/workspace/repo/")
 
         assert isinstance(result, dict)
         assert result["name"] == "general-purpose"
         assert result["description"]
         assert "runnable" in result
+
+    def test_prompt_names_the_working_directory(self):
+        """The whole point of threading working_directory: the subagent prompt must embed it (and
+        drop the stale /repo/ example), so the model addresses files under the right root. A revert
+        to a static prompt would silently regress this."""
+        from automation.agent.subagents import _general_purpose_system_prompt
+
+        prompt = _general_purpose_system_prompt("/workspace/repo/")
+        assert "/workspace/repo/" in prompt
+        assert "e.g., /workspace/repo/src/app/utils.py" in prompt  # example is rooted at the workspace
+        assert "e.g., /repo/src" not in prompt  # not the stale bare-/repo/ example
 
 
 @pytest.mark.django_db
@@ -190,12 +201,21 @@ class TestExploreSubagent:
         p.is_enabled = True
         p.save()
 
-        result = create_explore_subagent(Mock())
+        result = create_explore_subagent(Mock(), "/workspace/repo/")
 
         assert isinstance(result, dict)
         assert result["name"] == "explore"
         assert result["description"]
         assert "runnable" in result
+
+    def test_prompt_names_the_working_directory(self):
+        """The explore subagent previously had no working-directory info; its prompt must now embed
+        it (and drop the stale /repo/ example) so it returns sandbox-absolute paths to the caller."""
+        from automation.agent.subagents import _explore_system_prompt
+
+        prompt = _explore_system_prompt("/myrepo/")
+        assert "/myrepo/" in prompt
+        assert "/repo/src/app/utils.py" not in prompt
 
     def test_read_only_permissions_deny_all_writes(self):
         """Locks the explore subagent's read-only contract: relaxing this constant would
@@ -241,7 +261,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 1
@@ -271,6 +295,7 @@ class TestCustomSubagents:
                 backend=backend,
                 runtime=mock_runtime_ctx,
                 sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
                 client=sentinel_client,
                 sandbox_backend=sentinel_backend,
             )
@@ -291,7 +316,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         names = {s["name"] for s in result}
@@ -307,7 +336,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 1
@@ -323,7 +356,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 1
@@ -338,7 +375,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 0
@@ -352,7 +393,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 0
@@ -366,7 +411,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 0
@@ -380,7 +429,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 0
@@ -390,7 +443,30 @@ class TestCustomSubagents:
         backend.als = AsyncMock(side_effect=FileNotFoundError("not found"))
 
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
+        )
+
+        assert result == []
+
+    async def test_returns_empty_when_source_reports_not_found(self, mock_model, mock_runtime_ctx):
+        """An optional source the sandbox now reports as ``not_found`` arrives as a returned
+        ``LsResult`` with an error (not a raised exception). The loader must still treat it as absent
+        and skip it — an absent optional source is not a failure to surface."""
+        from deepagents.backends.protocol import LsResult
+
+        backend = Mock()
+        backend.als = AsyncMock(return_value=LsResult(error="Listing '/repo/.agents/subagents': does not exist"))
+
+        result = await load_custom_subagents(
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert result == []
@@ -408,7 +484,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         names = {s["name"] for s in result}
@@ -427,7 +507,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         names = {s["name"] for s in result}
