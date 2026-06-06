@@ -1,0 +1,28 @@
+{% load i18n %}
+{% if builtin_servers %}
+<table>
+    <thead>
+        <tr>
+            <th>{% translate "Name" %}</th>
+            <th>{% translate "Enabled" %}</th>
+            <th>{% translate "Actions" %}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in builtin_servers %}
+        <tr>
+            <td><a href="{% url 'mcp_servers:detail' s.name %}">{{ s.name }}</a></td>
+            <td>{{ s.enabled|yesno }}</td>
+            <td>
+                <form method="post" action="{% url 'mcp_servers:toggle' s.name %}" style="display:inline">
+                    {% csrf_token %}
+                    <button type="submit">{% if s.enabled %}{% translate "Disable" %}{% else %}{% translate "Enable" %}{% endif %}</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>{% translate "No built-in servers registered." %}</p>
+{% endif %}

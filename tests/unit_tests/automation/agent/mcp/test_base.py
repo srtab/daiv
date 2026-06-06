@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from langchain_mcp_adapters.sessions import SSEConnection
 
@@ -37,12 +39,6 @@ class CustomEnabledMCPServer(MCPServer):
 
 
 class TestMCPServer:
-    def test_mcp_server_has_required_attributes(self):
-        """Test that MCPServer has the required class attributes."""
-        assert hasattr(MCPServer, "__annotations__")
-        assert "name" in MCPServer.__annotations__
-        assert MCPServer.__annotations__["name"] is str
-
     def test_concrete_server_can_be_instantiated(self):
         """Test that a concrete implementation can be instantiated."""
         server = ConcreteMCPServer()
@@ -50,11 +46,13 @@ class TestMCPServer:
         assert isinstance(server, MCPServer)
         assert server.name == "concrete_server"
 
-    def test_default_is_enabled_returns_true(self):
-        """Test that the default is_enabled method returns True."""
+    def test_is_enabled_delegates_to_db_enabled(self):
+        """is_enabled() returns False when the DB row is disabled — the regression to catch is
+        is_enabled() short-circuiting True without consulting the DB."""
         server = ConcreteMCPServer()
 
-        assert server.is_enabled() is True
+        with patch.object(ConcreteMCPServer, "_db_enabled", return_value=False):
+            assert server.is_enabled() is False
 
     def test_is_enabled_can_be_overridden(self):
         """Test that the is_enabled method can be overridden in subclasses."""

@@ -19,6 +19,7 @@ LOCAL_APPS = [
     "codebase",
     "core",
     "mcp_server",
+    "mcp_servers",
     "notifications",
     "sandbox_envs",
     "schedules",

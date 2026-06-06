@@ -1,0 +1,11 @@
+{% load i18n %}
+{% if tools %}
+<table>
+  <thead><tr><th>{% translate "Tool" %}</th><th>{% translate "Description" %}</th></tr></thead>
+  <tbody>
+  {% for t in tools %}
+    <tr><td>{{ t.name }}</td><td>{{ t.description }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p>{% translate "No tools discovered (server unreachable or empty)." %}</p>{% endif %}

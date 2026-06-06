@@ -22,9 +22,14 @@ def _get_connection_url(conn) -> str:
 class MCPToolkit(BaseToolkit):
     @classmethod
     async def get_tools(cls) -> list[BaseTool]:
+        from asgiref.sync import sync_to_async
+        from mcp_servers.services import build_runtime_servers
+
         from automation.agent.mcp.registry import mcp_registry
 
-        connections, tool_filters = mcp_registry.get_connections_and_filters()
+        user_servers = await sync_to_async(build_runtime_servers)()
+        # Built-in ``is_enabled()`` hits the DB; marshal off the event loop.
+        connections, tool_filters = await sync_to_async(mcp_registry.get_connections_and_filters)(user_servers)
 
         if not connections:
             return []
@@ -32,18 +37,20 @@ class MCPToolkit(BaseToolkit):
         server_urls = {name: _get_connection_url(conn) for name, conn in connections.items()}
         logger.debug("Connecting to MCP servers: %s", server_urls)
 
-        client = MultiServerMCPClient(connections, tool_name_prefix=True)
-
-        try:
-            tools = await client.get_tools()
-        except Exception:
-            logger.warning("Error getting tools from MCP servers: %s", server_urls, exc_info=True)
-            tools = []
+        # Fetch per server: a single failing endpoint must not blank tools from healthy peers.
+        tools: list[BaseTool] = []
+        for server_name, connection in connections.items():
+            client = MultiServerMCPClient({server_name: connection}, tool_name_prefix=True)
+            try:
+                tools.extend(await client.get_tools())
+            except Exception:
+                logger.exception(
+                    "Error getting tools from MCP server %r (%s)", server_name, _get_connection_url(connection)
+                )
 
         if tool_filters:
             tools = _apply_tool_filters(tools, tool_filters)
 
-        # Handle tool errors and validation errors gracefully to allow the agent to continue
         for tool in tools:
             tool.handle_tool_error = True
             tool.handle_validation_error = True
@@ -54,11 +61,6 @@ class MCPToolkit(BaseToolkit):
 
 
 def _apply_tool_filters(tools: list[BaseTool], filters: dict[str, ToolFilter]) -> list[BaseTool]:
-    """
-    Apply tool filters from MCP server configurations.
-
-    Tools from MCP servers are prefixed with the server name (e.g., "sentry_find_organizations").
-    """
     filtered = []
     for tool in tools:
         matched = False

@@ -1,7 +1,9 @@
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from automation.agent.mcp.schemas import ToolFilter
-from automation.agent.mcp.toolkits import _apply_tool_filters
+from automation.agent.mcp.toolkits import MCPToolkit, _apply_tool_filters
 
 
 def _make_tool(name: str) -> MagicMock:
@@ -87,3 +89,139 @@ class TestApplyToolFilters:
         assert "sentry_delete_project" not in names
         assert "context7_query-docs" in names
         assert "context7_resolve-library-id" not in names
+
+
+class TestMCPToolkitGetTools:
+    async def test_returns_empty_when_no_connections(self, monkeypatch):
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters", lambda user_servers: ({}, {})
+        )
+
+        result = await MCPToolkit.get_tools()
+
+        assert result == []
+
+    async def test_one_failing_server_does_not_blank_the_others(self, monkeypatch):
+        """A single broken endpoint must not remove tools from healthy peers."""
+        good_tool = MagicMock()
+        good_tool.name = "good_t"
+        good_tool.tags = []
+        good_tool.metadata = {}
+
+        bad_conn = {"transport": "streamable_http", "url": "http://bad/mcp"}
+        good_conn = {"transport": "streamable_http", "url": "http://good/mcp"}
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            lambda user_servers: ({"bad": bad_conn, "good": good_conn}, {}),
+        )
+
+        def _client_factory(connections, **kwargs):
+            client = MagicMock()
+            name = next(iter(connections))
+            if name == "bad":
+                client.get_tools = AsyncMock(side_effect=RuntimeError("dns fail"))
+            else:
+                client.get_tools = AsyncMock(return_value=[good_tool])
+            return client
+
+        with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory):
+            result = await MCPToolkit.get_tools()
+
+        assert [t.name for t in result] == ["good_t"]
+
+    async def test_passes_user_servers_to_registry(self, monkeypatch):
+        captured = {}
+
+        def fake_build():
+            return [("my-server", MagicMock())]
+
+        def fake_get_connections(user_servers):
+            captured["user_servers"] = user_servers
+            return ({}, {})
+
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", fake_build)
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters", fake_get_connections
+        )
+
+        await MCPToolkit.get_tools()
+
+        assert len(captured["user_servers"]) == 1
+        assert captured["user_servers"][0][0] == "my-server"
+
+    async def test_returns_tools_from_client(self, monkeypatch):
+        mock_tool = MagicMock()
+        mock_tool.name = "sentry_search_issues"
+        mock_tool.tags = []
+        mock_tool.metadata = {}
+
+        fake_connection = {"type": "streamable_http", "url": "http://example.com/mcp"}
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            lambda user_servers: ({"sentry": fake_connection}, {}),
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_tools = AsyncMock(return_value=[mock_tool])
+
+        with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=mock_client):
+            result = await MCPToolkit.get_tools()
+
+        assert len(result) == 1
+        assert result[0].name == "sentry_search_issues"
+        assert result[0].handle_tool_error is True
+        assert result[0].handle_validation_error is True
+        assert "mcp_server" in result[0].tags
+
+    async def test_returns_empty_on_client_error(self, monkeypatch):
+        fake_connection = {"type": "streamable_http", "url": "http://example.com/mcp"}
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            lambda user_servers: ({"sentry": fake_connection}, {}),
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_tools = AsyncMock(side_effect=Exception("connection refused"))
+
+        with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", return_value=mock_client):
+            result = await MCPToolkit.get_tools()
+
+        assert result == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_end_to_end_db_row_yields_tool():
+    """Exercise the full DB → build_runtime_servers → registry → client chain so a rename of any
+    boundary symbol breaks this test instead of slipping through the mocked happy path."""
+    from asgiref.sync import sync_to_async
+    from mcp_servers.models import MCPServer
+
+    @sync_to_async
+    def _create():
+        MCPServer.objects.create(
+            name="acme", transport=MCPServer.Transport.HTTP, url="http://acme.test/mcp", enabled=True
+        )
+
+    await _create()
+
+    def _client_factory(connections, **kwargs):
+        name = next(iter(connections))
+        client = MagicMock()
+        if name == "acme":
+            tool = MagicMock()
+            tool.name = "acme_search"
+            tool.tags = []
+            tool.metadata = {}
+            client.get_tools = AsyncMock(return_value=[tool])
+        else:
+            client.get_tools = AsyncMock(return_value=[])
+        return client
+
+    with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory):
+        result = await MCPToolkit.get_tools()
+
+    assert "acme_search" in [t.name for t in result]

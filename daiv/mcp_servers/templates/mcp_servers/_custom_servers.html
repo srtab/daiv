@@ -1,0 +1,44 @@
+{% load i18n %}
+{% if custom_servers %}
+<table>
+    <thead>
+        <tr>
+            <th>{% translate "Name" %}</th>
+            <th>{% translate "URL" %}</th>
+            <th>{% translate "Transport" %}</th>
+            <th>{% translate "Enabled" %}</th>
+            <th>{% translate "Health" %}</th>
+            <th>{% translate "Actions" %}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in custom_servers %}
+        <tr>
+            <td><a href="{% url 'mcp_servers:detail' s.name %}">{{ s.name }}</a></td>
+            <td>{{ s.url }}</td>
+            <td>{{ s.get_transport_display }}</td>
+            <td>{{ s.enabled|yesno }}</td>
+            <td>
+                {% if s.health.ok %}
+                    <span class="text-emerald-400">{% translate "OK" %}</span>
+                {% else %}
+                    <span class="text-amber-400" title="{{ s.health.reason }}">{% translate "Broken" %}: {{ s.health.reason }}</span>
+                {% endif %}
+            </td>
+            <td>
+                <form method="post" action="{% url 'mcp_servers:toggle' s.name %}" style="display:inline">
+                    {% csrf_token %}
+                    <button type="submit">{% if s.enabled %}{% translate "Disable" %}{% else %}{% translate "Enable" %}{% endif %}</button>
+                </form>
+                <a href="{% url 'mcp_servers:edit' s.name %}">{% translate "Edit" %}</a>
+                <a href="{% url 'mcp_servers:delete' s.name %}">{% translate "Delete" %}</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>{% translate "No custom servers configured." %}</p>
+{% endif %}
+
+<p><a href="{% url 'mcp_servers:create' %}">{% translate "Add MCP server" %}</a></p>

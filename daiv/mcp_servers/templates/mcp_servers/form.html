@@ -1,0 +1,63 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %} — DAIV{% endblock %}
+
+{% block app_content %}
+<h1>{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}</h1>
+
+{% if form.non_field_errors %}
+  {% for e in form.non_field_errors %}<p class="error">{{ e }}</p>{% endfor %}
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+
+  <p>
+    {{ form.name.label_tag }} {{ form.name }}
+    {% for e in form.name.errors %}<span class="error">{{ e }}</span>{% endfor %}
+  </p>
+  <p>
+    {{ form.description.label_tag }} {{ form.description }}
+    {% for e in form.description.errors %}<span class="error">{{ e }}</span>{% endfor %}
+  </p>
+  <p>
+    {{ form.transport.label_tag }}
+    {% if builtin %}{{ form.transport.value|default:"" }} <em>({% translate "managed by built-in code" %})</em>{% else %}{{ form.transport }}{% endif %}
+    {% for e in form.transport.errors %}<span class="error">{{ e }}</span>{% endfor %}
+  </p>
+  <p>
+    {{ form.url.label_tag }}
+    {% if builtin %}{{ form.url.value|default:"" }} <em>({% translate "managed by built-in code" %})</em>{% else %}{{ form.url }}{% endif %}
+    {% for e in form.url.errors %}<span class="error">{{ e }}</span>{% endfor %}
+  </p>
+  <p>
+    {{ form.enabled.label_tag }} {{ form.enabled }}
+    {% for e in form.enabled.errors %}<span class="error">{{ e }}</span>{% endfor %}
+  </p>
+
+  <fieldset {% if builtin %}disabled{% endif %}>
+    <legend>{% translate "Tool filter" %}</legend>
+    <p>
+      {{ form.tool_filter_mode.label_tag }} {{ form.tool_filter_mode }}
+      {% for e in form.tool_filter_mode.errors %}<span class="error">{{ e }}</span>{% endfor %}
+    </p>
+    <p>{{ form.tool_filter_items.label_tag }} {{ form.tool_filter_items }}</p>
+    {% for e in form.tool_filter_items.errors %}<p class="error">{{ e }}</p>{% endfor %}
+  </fieldset>
+
+  <fieldset {% if builtin or headers_locked %}disabled{% endif %}>
+    <legend>{% translate "Headers" %}</legend>
+    {{ formset.management_form }}
+    {% if formset.non_form_errors %}
+      {% for e in formset.non_form_errors %}<p class="error">{{ e }}</p>{% endfor %}
+    {% endif %}
+    {% for header_form in formset %}
+      {{ header_form.as_p }}
+    {% endfor %}
+  </fieldset>
+
+  <button type="submit" {% if headers_locked %}disabled{% endif %}>{% translate "Save" %}</button>
+  <a href="{% url 'mcp_servers:list' %}">{% translate "Cancel" %}</a>
+</form>
+{% endblock app_content %}

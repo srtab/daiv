@@ -8,8 +8,9 @@ class TestSentryMCPServer:
         server = SentryMCPServer()
         assert server.name == "sentry"
 
+    @patch("automation.agent.mcp.base.MCPServer._db_enabled", return_value=True)
     @patch("automation.agent.mcp.servers.settings")
-    def test_sentry_server_is_enabled_when_url_set(self, mock_settings):
+    def test_sentry_server_is_enabled_when_url_set(self, mock_settings, _mock_db):
         mock_settings.SENTRY_URL = "http://mcp-sentry:8000/mcp"
         server = SentryMCPServer()
 
@@ -45,8 +46,9 @@ class TestContext7MCPServer:
         server = Context7MCPServer()
         assert server.name == "context7"
 
+    @patch("automation.agent.mcp.base.MCPServer._db_enabled", return_value=True)
     @patch("automation.agent.mcp.servers.settings")
-    def test_context7_server_is_enabled_when_url_set(self, mock_settings):
+    def test_context7_server_is_enabled_when_url_set(self, mock_settings, _mock_db):
         mock_settings.CONTEXT7_URL = "http://mcp-context7:8000/mcp"
         server = Context7MCPServer()
 
