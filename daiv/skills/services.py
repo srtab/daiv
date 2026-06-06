@@ -21,7 +21,7 @@ from django.db.utils import Error as DjangoDBError
 import yaml
 
 from automation.agent.conf import settings as agent_settings
-from automation.agent.constants import BUILTIN_SKILLS_PATH, GLOBAL_SKILLS_PATH, SKILLS_CACHE_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, SKILLS_CACHE_PATH, SKILLS_PATH
 from skills.constants import (
     ALLOWED_SUFFIXES,
     FORBIDDEN_PATH_PARTS,
@@ -298,11 +298,11 @@ async def _classify_source(name: str, skill_path: str) -> SkillInvocation.Source
 
     A custom global skill shadows a built-in of the same name, so a
     ``GlobalSkill`` row wins over ``BUILTIN_SKILL_NAMES`` membership when both
-    match. Anything outside ``GLOBAL_SKILLS_PATH`` is treated as per-repo; if
+    match. Anything outside ``SKILLS_PATH`` is treated as per-repo; if
     a new skill location is introduced and not added here, the caller logs a
     warning.
     """
-    if skill_path.startswith(GLOBAL_SKILLS_PATH + "/"):
+    if skill_path.startswith(SKILLS_PATH + "/"):
         if await GlobalSkill.objects.filter(name=name).aexists():
             return SkillInvocation.Source.GLOBAL
         if name in BUILTIN_SKILL_NAMES:

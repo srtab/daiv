@@ -94,7 +94,12 @@ class TestSkillsMiddleware:
         state = {
             "messages": [HumanMessage(content="hello")],
             "skills_metadata": [
-                {"name": "skill-one", "description": "ok", "path": "/skills/skill-one/SKILL.md", "metadata": {}}
+                {
+                    "name": "skill-one",
+                    "description": "ok",
+                    "path": "/workspace/skills/skill-one/SKILL.md",
+                    "metadata": {},
+                }
             ],
         }
 
@@ -218,11 +223,16 @@ class TestSkillsMiddleware:
     def test_format_skills_list_renders_xml(self):
         middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
         formatted = middleware._format_skills_list([
-            {"name": "skill-one", "description": "does one", "path": "/skills/skill-one/SKILL.md", "metadata": {}},
+            {
+                "name": "skill-one",
+                "description": "does one",
+                "path": "/workspace/skills/skill-one/SKILL.md",
+                "metadata": {},
+            },
             {
                 "name": "custom-skill",
                 "description": "does custom",
-                "path": "/skills/custom-skill/SKILL.md",
+                "path": "/workspace/skills/custom-skill/SKILL.md",
                 "metadata": {},
             },
         ])
@@ -280,7 +290,7 @@ class TestSkillsMiddleware:
         tool = middleware._skill_tool_generator()
 
         runtime = Mock()
-        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
         with patch("skills.services.SkillInvocation.objects.acreate", new_callable=AsyncMock) as mock_acreate:
@@ -296,7 +306,7 @@ class TestSkillsMiddleware:
         tool = middleware._skill_tool_generator()
 
         runtime = Mock()
-        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
         with patch("skills.services.SkillInvocation.objects.acreate", new_callable=AsyncMock) as mock_acreate:
@@ -319,7 +329,7 @@ class TestSkillsMiddleware:
         tool = middleware._skill_tool_generator()
 
         runtime = Mock()
-        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
         with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
@@ -341,7 +351,7 @@ class TestSkillsMiddleware:
         tool = middleware._skill_tool_generator()
 
         runtime = Mock()
-        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/skills/demo/SKILL.md"}]}
+        runtime.state = {"skills_metadata": [{"name": "demo", "path": "/workspace/skills/demo/SKILL.md"}]}
         runtime.tool_call_id = "call_1"
 
         with patch("automation.agent.middlewares.skills._record_invocation", new_callable=AsyncMock):
@@ -850,7 +860,7 @@ class TestCustomGlobalSkills:
             _make_skill_md(name="leftover", description="staging leftover")
         )
 
-        project_skills_path = _Path("/skills")
+        project_skills_path = _Path("/workspace/skills")
         files_to_upload: list[tuple[str, bytes]] = []
         errors: list[str] = []
 
@@ -859,7 +869,7 @@ class TestCustomGlobalSkills:
 
         # Only files under demo/ should be collected. No .trash, .zips, or .tmp entries.
         dest_paths = [dest for dest, _ in files_to_upload]
-        assert dest_paths == ["/skills/demo/SKILL.md"]
+        assert dest_paths == ["/workspace/skills/demo/SKILL.md"]
         assert not any(".trash" in dest for dest in dest_paths)
         assert not any(".zips" in dest for dest in dest_paths)
         assert not any(".tmp" in dest for dest in dest_paths)
@@ -890,7 +900,7 @@ class TestSkillToolRecordsInvocation:
                 {
                     "name": "code-review",
                     "description": "review code",
-                    "path": "/skills/code-review/SKILL.md",
+                    "path": "/workspace/skills/code-review/SKILL.md",
                     "metadata": {},
                 }
             ]
