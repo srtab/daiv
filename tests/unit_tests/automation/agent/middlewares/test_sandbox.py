@@ -348,8 +348,10 @@ class TestRunBashCommands:
 
         assert await self._run_with_error(httpx.RequestError("boom")) is BashFailure.TRANSIENT
 
-    @pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+    @pytest.mark.parametrize("status", [408, 409, 425, 429, 500, 502, 503, 504])
     async def test_retryable_status_is_transient(self, status: int):
+        """409 is the per-session lock contention ("Session is busy"): the op never ran, so a retry
+        once the lock frees is safe — it must be transient, not permanent."""
         import httpx
 
         err = httpx.HTTPStatusError("busy", request=httpx.Request("POST", "x"), response=httpx.Response(status))

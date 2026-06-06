@@ -65,6 +65,28 @@ def get_run_sandbox_client() -> DAIVSandboxClient:
     return client
 
 
+# Sandbox HTTP statuses a retry might clear: request-timeout (408), session-busy (409 — the
+# per-session lock was held, so the operation never ran), too-early (425), rate-limit (429), and the
+# transient 5xx family. Every other status — auth (401/403), session-gone (404), bad-request
+# (400/422), not-implemented (501) — is permanent: a retry only burns a tool call. Shared by the bash
+# tool (``SandboxMiddleware``) and the ``/workspace`` file backend so both classify a transport fault
+# the same way; it lives here (the transport's own module) to keep them from drifting and to avoid an
+# import cycle (``sandbox.py`` imports the backend, so the backend can't import from ``sandbox.py``).
+TRANSIENT_SANDBOX_STATUS: frozenset[int] = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
+
+def is_transient_sandbox_error(exc: httpx.HTTPError) -> bool:
+    """Classify an ``httpx`` error from the sandbox as transient (a retry may clear it) vs permanent.
+
+    An ``httpx.HTTPStatusError`` is transient iff its status is in ``TRANSIENT_SANDBOX_STATUS``; any
+    other ``httpx.HTTPError`` (i.e. an ``httpx.RequestError`` — no response was received: timeout,
+    connection refused, network blip) is transient.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in TRANSIENT_SANDBOX_STATUS
+    return True
+
+
 class DAIVSandboxClient:
     """
     Client to interact with the daiv-sandbox service.

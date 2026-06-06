@@ -321,20 +321,79 @@ def _http_status_error(status_code: int, detail: str | None = None):
     return httpx.HTTPStatusError(f"{status_code}", request=request, response=response)
 
 
-async def test_fs_op_http_error_propagates(backend, client):
-    """A non-200 HTTP error is a genuine infra fault (the session was reaped, the sandbox is down)
-    and must NOT be masked as 'no results' — it propagates so the run fails loudly."""
-    client.fs_glob.side_effect = _http_status_error(500)
-    with pytest.raises(Exception, match="500"):
-        await backend.aglob("**/*.py")
+async def test_busy_409_degrades_to_a_soft_retryable_error_not_a_crash(backend, client):
+    """The reported failure: two grep tool calls run concurrently against one session, the sandbox
+    serializes them on its per-session lock and the loser gets 409 "Session is busy". That op never
+    ran, so it must surface as a soft, retryable tool result — never propagate and abort the run."""
+    client.fs_grep.side_effect = _http_status_error(409, "Session is busy")
+    result = await backend.agrep("slash_command", path="/workspace", glob=None)
+    assert result.matches is None
+    assert result.error is not None
+    assert result.error.startswith("Grep 'slash_command':") and "retry" in result.error
 
 
-async def test_fs_op_404_session_gone_propagates(backend, client):
-    """A 404 (session reaped/closed mid-run) is unrecoverable by the model and must propagate, not
-    be downgraded to an empty 'no matches' result."""
-    client.fs_ls.side_effect = _http_status_error(404, "Session not found or already closed")
-    with pytest.raises(Exception, match="404"):
-        await backend.als("/workspace/repo")
+@pytest.mark.parametrize("status", [408, 409, 429, 500, 503])
+async def test_transient_http_error_degrades_to_retry_hint(backend, client, status, caplog):
+    """A retryable status (lock contention, timeout, rate-limit, transient 5xx) becomes a soft
+    'retry once' result on an agent-facing op rather than crashing the run, logged at WARNING (not
+    ERROR) so a routine, recoverable contention doesn't surface as a tracked error."""
+    client.fs_ls.side_effect = _http_status_error(status)
+    with caplog.at_level("WARNING", logger="daiv.tools"):
+        result = await backend.als("/workspace/repo")
+    assert result.entries is None
+    assert result.error is not None and "retry" in result.error
+    fs_records = [r for r in caplog.records if r.name == "daiv.tools"]
+    assert any(r.levelname == "WARNING" for r in fs_records) and not any(r.levelname == "ERROR" for r in fs_records)
+    assert "transport failure" in caplog.text
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 422])
+async def test_permanent_http_error_tells_agent_tools_unavailable(backend, client, status, caplog):
+    """A non-retryable status (auth, session-gone, bad-request) becomes a soft 'tools unavailable'
+    result so the model can wind down gracefully, instead of the run aborting with a stack trace.
+    Logged at ERROR (with traceback) so the genuine fault still reaches the logs / Sentry rather than
+    vanishing into a tool message."""
+    client.fs_read.side_effect = _http_status_error(status, "nope")
+    with caplog.at_level("ERROR", logger="daiv.tools"):
+        result = await backend.aread("/workspace/repo/x.py")
+    assert result.file_data is None
+    assert result.error is not None and "unavailable" in result.error
+    assert any(r.levelname == "ERROR" and r.name == "daiv.tools" for r in caplog.records)
+    assert "transport failure" in caplog.text
+
+
+async def test_transport_error_with_no_response_is_transient(backend, client):
+    """A transport error with no HTTP response at all (timeout/connection blip) is transient — the
+    op did not run, so the agent is told to retry once."""
+    import httpx
+
+    client.fs_glob.side_effect = httpx.ConnectError("connection refused")
+    result = await backend.aglob("**/*.py")
+    assert result.matches is None and result.error is not None and "retry" in result.error
+
+
+async def test_write_busy_409_degrades_to_retry_hint(backend, client):
+    """write_file keeps its own per-op prefix and never raises on a busy-409."""
+    client.fs_write.side_effect = _http_status_error(409, "Session is busy")
+    result = await backend.awrite("/workspace/repo/new.py", "x")
+    assert result.path is None
+    assert result.error is not None and result.error.startswith("Failed to write file") and "retry" in result.error
+
+
+async def test_edit_busy_409_degrades_to_retry_hint(backend, client):
+    client.fs_edit.side_effect = _http_status_error(409, "Session is busy")
+    result = await backend.aedit("/workspace/repo/a.py", "old", "new")
+    assert result.path is None
+    assert result.error is not None and result.error.startswith("Error editing file") and "retry" in result.error
+
+
+async def test_delete_transport_error_returns_false_and_logs(backend, client, caplog):
+    """``delete`` has no error channel (bare bool), so a transport fault is a failed delete — logged
+    so it is diagnosable rather than a silent False."""
+    client.fs_delete.side_effect = _http_status_error(409, "Session is busy")
+    with caplog.at_level("WARNING", logger="daiv.tools"):
+        assert await backend.delete("/workspace/repo/a.py") is False
+    assert "transport failure" in caplog.text
 
 
 async def test_run_commands_forwards_to_client(backend, client):

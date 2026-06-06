@@ -322,3 +322,39 @@ def test_set_get_reset_run_sandbox_client_roundtrip():
         reset_run_sandbox_client(token)
     with pytest.raises(RuntimeError):
         get_run_sandbox_client()
+
+
+def _status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "http://sandbox.test/session/sid/fs/grep")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError(str(status_code), request=request, response=response)
+
+
+def test_transient_sandbox_status_includes_busy_409():
+    """409 "Session is busy" is per-session lock contention — the op never ran, so a retry once the
+    lock frees is safe. It must be classified transient, alongside the timeout/rate-limit/5xx family."""
+    from core.sandbox.client import TRANSIENT_SANDBOX_STATUS
+
+    assert 409 in TRANSIENT_SANDBOX_STATUS
+    assert {408, 425, 429, 500, 502, 503, 504} <= TRANSIENT_SANDBOX_STATUS
+
+
+@pytest.mark.parametrize("status", [408, 409, 425, 429, 500, 502, 503, 504])
+def test_is_transient_sandbox_error_true_for_retryable_status(status: int):
+    from core.sandbox.client import is_transient_sandbox_error
+
+    assert is_transient_sandbox_error(_status_error(status)) is True
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422, 501])
+def test_is_transient_sandbox_error_false_for_permanent_status(status: int):
+    from core.sandbox.client import is_transient_sandbox_error
+
+    assert is_transient_sandbox_error(_status_error(status)) is False
+
+
+def test_is_transient_sandbox_error_true_for_request_error_with_no_response():
+    """A RequestError carries no response (timeout/connection blip), so it is always transient."""
+    from core.sandbox.client import is_transient_sandbox_error
+
+    assert is_transient_sandbox_error(httpx.ConnectError("refused")) is True

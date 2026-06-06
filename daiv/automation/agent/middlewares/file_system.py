@@ -7,6 +7,7 @@ import stat
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
+import httpx
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.protocol import (
@@ -33,7 +34,7 @@ from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRIT
 from deepagents.middleware.filesystem import FilesystemPermission
 
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
-from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
+from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.schemas import (
     FsDeleteRequest,
     FsEditRequest,
@@ -281,11 +282,17 @@ def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS
     )
 
 
-# Every fs soft failure now arrives in the 200 body as a structured ``FsError`` (the sandbox no
-# longer raises HTTP 400 for a bad path on ls/grep/glob — that is an ``invalid_path`` error in the
-# body like every other op). A non-200 status is therefore a genuine fault (404 = session reaped,
-# 5xx = infra) that the model cannot fix by changing its arguments, so the client's
-# ``raise_for_status`` is left to propagate.
+# Every fs *soft* failure arrives in the 200 body as a structured ``FsError`` (the sandbox no longer
+# raises HTTP 400 for a bad path on ls/grep/glob — that is an ``invalid_path`` error in the body like
+# every other op), mapped to the agent below via ``_fs_error_text``.
+#
+# A non-200 carries no structured body — it is a transport/HTTP fault (the per-session-lock 409
+# "Session is busy", a request timeout, a 5xx, or no response at all), which the model cannot fix by
+# changing its arguments. The client's ``raise_for_status`` turns these into ``httpx.HTTPError``;
+# rather than let one abort the whole run, each agent-facing method below catches it and returns a
+# soft result error via ``_fs_transport_failure_text``, mirroring the bash tool's transient/permanent
+# split (see ``BashFailure``): a transient fault invites one retry, a permanent one tells the agent
+# the file tools are unusable for the rest of the run.
 #
 # Codes that point the agent at a *different tool* get a DAIV-authored routing hint; the rest fall
 # through to the sandbox ``message``, which already carries the actionable detail (edit retry hints,
@@ -307,6 +314,40 @@ _FS_CODE_HINTS: dict[FsErrorCode, str] = {
 def _fs_error_text(error: FsError) -> str:
     """Render a structured sandbox error as an actionable, agent-facing string."""
     return _FS_CODE_HINTS.get(error.code, error.message)
+
+
+# Tails for a sandbox transport/HTTP fault (no structured body), phrased to read after the per-op
+# ``"<op> '<arg>': "`` prefix each method builds, exactly like ``_fs_error_text``. The transient text
+# is kept free of status codes / per-call detail so identical retries read identically to the model.
+# "may or may not have run" (not "did not run"): a busy-409 is raised at lock acquisition so the op
+# provably never ran, but a transient transport error (a lost-response timeout) can also reach here,
+# and on a mutating op (write/edit) the request may have executed before the response was lost. Match
+# the bash tool's hedge (``_BASH_TRANSIENT_ERROR``) rather than make a false "did not run" claim.
+_FS_TRANSPORT_TRANSIENT_TEXT = (
+    "the workspace was momentarily busy or unreachable, so the operation may or may not have run — "
+    "this is usually transient; retry the same call once."
+)
+_FS_TRANSPORT_PERMANENT_TEXT = (
+    "the workspace is unavailable for the rest of this run (the sandbox rejected the call in a way a "
+    "retry will not fix); stop using the file tools and verify your work by other means."
+)
+
+
+def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> str:
+    """Log a sandbox transport/HTTP fault and render it as an actionable, agent-facing string.
+
+    Returning the fault as a soft result (instead of letting it propagate) would otherwise drop the
+    only record of it — the client raises without logging — so log here first: a transient
+    (retryable) fault at WARNING, a permanent one at ERROR with the traceback, so a genuine
+    infra/auth/session-gone fault still reaches the logs (and Sentry) rather than vanishing into a
+    tool message. The returned text is the tail of the per-op ``"<op> '<arg>': "`` prefix the caller
+    builds (transient ⇒ retry once; permanent ⇒ the file tools are unusable for the rest of the run).
+    """
+    if is_transient_sandbox_error(exc):
+        logger.warning("Sandbox %s transport failure for %r (transient, retryable): %s", op, target, exc)
+        return _FS_TRANSPORT_TRANSIENT_TEXT
+    logger.error("Sandbox %s transport failure for %r (permanent)", op, target, exc_info=exc)
+    return _FS_TRANSPORT_PERMANENT_TEXT
 
 
 class SandboxFileBackend(BackendProtocol):
@@ -405,48 +446,76 @@ class SandboxFileBackend(BackendProtocol):
     # "empty directory / no matches".
     async def als(self, path: str) -> LsResult:
         client, session_id = self._require_bound()
-        resp = await client.fs_ls(session_id, FsLsRequest(path=self._abs(path)))
+        try:
+            resp = await client.fs_ls(session_id, FsLsRequest(path=self._abs(path)))
+        except httpx.HTTPError as exc:
+            return LsResult(error=f"Listing '{path}': {_fs_transport_failure_text(exc, 'ls', path)}")
         if resp.error is not None:
             return LsResult(error=f"Listing '{path}': {_fs_error_text(resp.error)}")
         return LsResult(entries=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.entries])
 
     async def aread(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
         client, session_id = self._require_bound()
-        resp = await client.fs_read(session_id, FsReadRequest(path=self._abs(file_path), offset=offset, limit=limit))
+        try:
+            resp = await client.fs_read(
+                session_id, FsReadRequest(path=self._abs(file_path), offset=offset, limit=limit)
+            )
+        except httpx.HTTPError as exc:
+            return ReadResult(error=f"File '{file_path}': {_fs_transport_failure_text(exc, 'read', file_path)}")
         if resp.error is not None:
             return ReadResult(error=f"File '{file_path}': {_fs_error_text(resp.error)}")
         return ReadResult(file_data=FileData(content=resp.content or "", encoding=resp.encoding or "utf-8"))
 
     async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
         client, session_id = self._require_bound()
-        resp = await client.fs_grep(session_id, FsGrepRequest(pattern=pattern, path=self._abs(path or "/"), glob=glob))
+        try:
+            resp = await client.fs_grep(
+                session_id, FsGrepRequest(pattern=pattern, path=self._abs(path or "/"), glob=glob)
+            )
+        except httpx.HTTPError as exc:
+            return GrepResult(error=f"Grep '{pattern}': {_fs_transport_failure_text(exc, 'grep', pattern)}")
         if resp.error is not None:
             return GrepResult(error=f"Grep '{pattern}': {_fs_error_text(resp.error)}")
         return GrepResult(matches=[GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches])
 
     async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
         client, session_id = self._require_bound()
-        resp = await client.fs_glob(session_id, FsGlobRequest(pattern=pattern, path=self._abs(path)))
+        try:
+            resp = await client.fs_glob(session_id, FsGlobRequest(pattern=pattern, path=self._abs(path)))
+        except httpx.HTTPError as exc:
+            return GlobResult(error=f"Glob '{pattern}': {_fs_transport_failure_text(exc, 'glob', pattern)}")
         if resp.error is not None:
             return GlobResult(error=f"Glob '{pattern}': {_fs_error_text(resp.error)}")
         return GlobResult(matches=[FileInfo(path=self._rel(e.path), is_dir=e.is_dir) for e in resp.matches])
 
     async def awrite(self, file_path: str, content: str) -> WriteResult:
         client, session_id = self._require_bound()
-        resp = await client.fs_write(
-            session_id,
-            FsWriteRequest(path=self._abs(file_path), content=base64.b64encode(content.encode("utf-8")), mode=0o644),
-        )
+        try:
+            resp = await client.fs_write(
+                session_id,
+                FsWriteRequest(
+                    path=self._abs(file_path), content=base64.b64encode(content.encode("utf-8")), mode=0o644
+                ),
+            )
+        except httpx.HTTPError as exc:
+            return WriteResult(
+                error=f"Failed to write file '{file_path}': {_fs_transport_failure_text(exc, 'write', file_path)}"
+            )
         if resp.error is not None:
             return WriteResult(error=f"Failed to write file '{file_path}': {_fs_error_text(resp.error)}")
         return WriteResult(path=file_path)
 
     async def aedit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
         client, session_id = self._require_bound()
-        resp = await client.fs_edit(
-            session_id,
-            FsEditRequest(path=self._abs(file_path), old=old_string, new=new_string, replace_all=replace_all),
-        )
+        try:
+            resp = await client.fs_edit(
+                session_id,
+                FsEditRequest(path=self._abs(file_path), old=old_string, new=new_string, replace_all=replace_all),
+            )
+        except httpx.HTTPError as exc:
+            return EditResult(
+                error=f"Error editing file '{file_path}': {_fs_transport_failure_text(exc, 'edit', file_path)}"
+            )
         if resp.error is not None:
             return EditResult(error=f"Error editing file '{file_path}': {_fs_error_text(resp.error)}")
         return EditResult(path=file_path, occurrences=resp.occurrences if resp.occurrences is not None else 1)
@@ -488,10 +557,15 @@ class SandboxFileBackend(BackendProtocol):
     # -- DAIVBackendProtocol -------------------------------------------------
     async def delete(self, virtual_path: str) -> bool:
         client, session_id = self._require_bound()
-        resp = await client.fs_delete(session_id, FsDeleteRequest(path=self._abs(virtual_path)))
+        # ``delete``'s protocol return is a bare bool with no error channel, so any failure — a
+        # transport fault or a sandbox-reported reason — can only be reported as ``False``. Log it
+        # first in both branches so a failed delete is diagnosable rather than a silent ``False``.
+        try:
+            resp = await client.fs_delete(session_id, FsDeleteRequest(path=self._abs(virtual_path)))
+        except httpx.HTTPError as exc:
+            logger.warning("Sandbox delete transport failure for %s: %s", virtual_path, exc)
+            return False
         if resp.error is not None:
-            # The protocol return is a bare bool, so the sandbox's reason would otherwise be lost;
-            # log it so a failed delete is diagnosable rather than a silent ``False``.
             logger.warning("Sandbox delete failed for %s: %s", virtual_path, _fs_error_text(resp.error))
             return False
         if not resp.removed:

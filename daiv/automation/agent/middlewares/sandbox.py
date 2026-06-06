@@ -22,7 +22,7 @@ from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend  # noqa: TC001
 from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
-from core.sandbox.client import DAIVSandboxClient  # noqa: TC001
+from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.command_parser import CommandParseError, parse_command
 from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
 from core.sandbox.schemas import RunCommandsResponse, StartSessionRequest
@@ -307,11 +307,6 @@ class BashFailure(Enum):
     PERMANENT = "permanent"
 
 
-# Sandbox HTTP statuses a retry might clear (timeout, too-early, rate-limit, and the transient 5xx
-# family). Every other status — auth (401/403), session-gone (404), bad-request (400/422),
-# not-implemented (501) — is permanent: retrying only burns a tool call.
-_TRANSIENT_SANDBOX_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
-
 # Agent-facing guidance for a bash call that returned no result. Both deliberately start with
 # `error:` so the agent treats them as infrastructure failures, not command output (per the tool
 # description and system prompt). The TRANSIENT text is kept byte-stable (no status codes, no
@@ -352,9 +347,8 @@ async def _run_bash_commands(backend: SandboxFileBackend, commands: list[str]) -
         logger.exception("Transport error calling sandbox API; treating as transient.")
         return BashFailure.TRANSIENT
     except httpx.HTTPStatusError as e:
-        status = e.response.status_code
-        logger.exception("Status code %s calling sandbox API: %s", status, e.response.text)
-        return BashFailure.TRANSIENT if status in _TRANSIENT_SANDBOX_STATUS else BashFailure.PERMANENT
+        logger.exception("Status code %s calling sandbox API: %s", e.response.status_code, e.response.text)
+        return BashFailure.TRANSIENT if is_transient_sandbox_error(e) else BashFailure.PERMANENT
 
 
 class SandboxState(AgentState):
