@@ -27,7 +27,7 @@ def test_general_purpose_subagent_passes_backend_and_agent_root_to_sandbox_middl
     assert "SandboxMiddleware(" in src and "backend=backend" in src, (
         "subagents.py must construct SandboxMiddleware with backend"
     )
-    assert 'agent_root=f"/{agent_path.name}"' in src, "subagents.py must pass agent_root to SandboxMiddleware"
+    assert "agent_root=REPO_PATH" in src, "subagents.py must pass agent_root to SandboxMiddleware"
     assert "if sandbox_enabled:" in src, "subagents.py must gate SandboxMiddleware on sandbox_enabled"
 
 

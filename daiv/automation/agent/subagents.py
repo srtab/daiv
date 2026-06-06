@@ -1,6 +1,5 @@
 import logging
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -13,7 +12,13 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
 
 from automation.agent import BaseAgent
-from automation.agent.middlewares.file_system import CUSTOM_TOOL_DESCRIPTIONS, filesystem_absolute_path_directive
+from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
+from automation.agent.middlewares.file_system import (
+    CUSTOM_TOOL_DESCRIPTIONS,
+    WORKSPACE_FENCE_PERMISSIONS,
+    WORKSPACE_FENCE_SUBTREES,
+    filesystem_absolute_path_directive,
+)
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
@@ -74,7 +79,11 @@ def _build_general_purpose_middleware(
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
-        FilesystemMiddleware(backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS),
+        FilesystemMiddleware(
+            backend=backend,
+            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            _permissions=None if sandbox_enabled else WORKSPACE_FENCE_PERMISSIONS,
+        ),
         GitPlatformMiddleware(git_platform=runtime.git_platform, backend=backend),
         SummarizationMiddleware(
             model=model,
@@ -96,11 +105,8 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if sandbox_enabled:
-        agent_path = Path(runtime.gitrepo.working_dir)
         middleware.append(
-            SandboxMiddleware(
-                agent_root=f"/{agent_path.name}", client=client, sandbox_backend=sandbox_backend, close_session=False
-            )
+            SandboxMiddleware(agent_root=REPO_PATH, client=client, sandbox_backend=sandbox_backend, close_session=False)
         )
 
     if fallback_models:
@@ -196,8 +202,24 @@ READ_ONLY_PERMISSIONS: list[FilesystemPermission] = [
     FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")
 ]
 
+# Disk-mode explore permissions: read-only (deny all writes) AND fenced to the three real
+# /workspace subtrees for reads, so the explore agent never surfaces bare-/workspace or
+# offloaded-artifact paths in its report. Sandbox mode keeps plain read-only (bash is unconstrained).
+EXPLORE_DISK_PERMISSIONS: list[FilesystemPermission] = [
+    *READ_ONLY_PERMISSIONS,
+    FilesystemPermission(operations=["read"], paths=WORKSPACE_FENCE_SUBTREES, mode="allow"),
+    FilesystemPermission(operations=["read"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
+]
 
-def create_explore_subagent(backend: BackendProtocol, working_directory: str, **kwargs) -> CompiledSubAgent:
+
+def _explore_permissions(*, sandbox_enabled: bool) -> list[FilesystemPermission]:
+    """Read-only everywhere; additionally fence reads to the real subtrees in disk mode."""
+    return READ_ONLY_PERMISSIONS if sandbox_enabled else EXPLORE_DISK_PERMISSIONS
+
+
+def create_explore_subagent(
+    backend: BackendProtocol, working_directory: str, *, sandbox_enabled: bool = True, **kwargs
+) -> CompiledSubAgent:
     """
     Create the explore subagent.
     """
@@ -210,7 +232,9 @@ def create_explore_subagent(backend: BackendProtocol, working_directory: str, **
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         FilesystemMiddleware(
-            backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS, _permissions=READ_ONLY_PERMISSIONS
+            backend=backend,
+            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            _permissions=_explore_permissions(sandbox_enabled=sandbox_enabled),
         ),
         SummarizationMiddleware(
             model=model,
