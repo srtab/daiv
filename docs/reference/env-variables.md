@@ -175,7 +175,21 @@ OAuth credentials can be configured via environment variables (shown below) or t
 | `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation  | *(none)*  | `random-webhook-secret` |
 
 !!! note
-    The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a personal access token with the `api` scope.
+    The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a
+    personal access token with the `api` scope.
+
+    For git clone/push, DAIV does not embed this PAT in the repository workspace. Instead, it mints
+    a short-lived project access token per repository (`write_repository` scope, Developer access
+    level, ~48–72h lifetime), limiting what the credential inside the workspace can reach. This
+    requires the PAT user to have at least the **Maintainer** role on each project and, on
+    GitLab.com, the Premium or Ultimate tier (any tier works on self-managed instances). Each token
+    appears as a `daiv-clone` bot member on the project; GitLab removes expired bots ~30 days after
+    expiry. When a token cannot be created, DAIV logs a warning and falls back to embedding the PAT.
+    The token pushes at Developer level: if branch protection rules match the branches DAIV pushes to
+    (e.g. a wildcard pattern restricting pushes to Maintainers), allow Developers to push on that
+    pattern — otherwise pushes fail. A sandbox session resumed days after it was created may hold an
+    expired clone token — pushes from such a session fail until a fresh session re-clones the
+    repository.
 
 ### GitHub Integration
 
