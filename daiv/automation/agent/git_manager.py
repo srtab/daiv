@@ -375,6 +375,7 @@ def _raise_for_push_failure(push_args: list[str], result: _GitResult) -> None:
     anything else → the raw ``GitCommandError``. Auth is checked first so it always wins.
     """
     if _is_push_auth_error_text(result.output):
+        logger.warning("git push auth failure: %s", result.output)
         raise GitPushPermissionError(
             "Failed to push changes to the remote repository due to authentication or permission issues."
         )
