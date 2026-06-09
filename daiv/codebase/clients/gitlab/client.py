@@ -28,6 +28,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri
 from daiv import USER_AGENT
@@ -305,13 +306,28 @@ class GitLabClient(RepoClient):
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
             parsed = urlparse(repository.clone_url)
-            clone_url = f"{parsed.scheme}://oauth2:{self.client.private_token}@{parsed.netloc}{parsed.path}"
+            clone_url = f"{parsed.scheme}://oauth2:{self._get_clone_token(repository)}@{parsed.netloc}{parsed.path}"
 
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
             repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
             self._configure_commit_identity(repo)
             yield repo
+
+    def _get_clone_token(self, repository: Repository) -> str:
+        """
+        Resolve the credential embedded in the clone URL.
+
+        Prefers a short-lived project-scoped access token so the credential persisted in the
+        clone's .git/config (which travels into the sandbox) cannot reach beyond this project's
+        repository. Falls back to the configured PAT when the token cannot be provisioned
+        (e.g. PAT user below Maintainer, GitLab.com Free tier). Commit identity is unaffected:
+        _configure_commit_identity resolves the DAIV user through the PAT-authenticated client
+        either way.
+        """
+        if token := get_ephemeral_clone_token(self.client, repository.pk):
+            return token
+        return cast("str", self.client.private_token)
 
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:

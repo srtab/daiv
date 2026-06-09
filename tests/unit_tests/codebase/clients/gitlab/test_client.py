@@ -87,7 +87,10 @@ class TestGitLabClient:
             git_platform=GitPlatform.GITLAB,
         )
 
-        with gitlab_client.load_repo(repository, "main") as loaded_repo:
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
+            gitlab_client.load_repo(repository, "main") as loaded_repo,
+        ):
             assert loaded_repo == mock_repo
 
         clone_url, clone_dir = mock_clone_from.call_args.args[:2]
@@ -97,6 +100,56 @@ class TestGitLabClient:
         assert branch == "main"
         mock_writer.set_value.assert_any_call("user", "name", "daiv-agent-test")
         mock_writer.set_value.assert_any_call("user", "email", "daiv-agent-test@users.noreply.gitlab.com")
+
+    @pytest.fixture
+    def clone_setup(self, gitlab_client, monkeypatch):
+        """Patched clone environment: yields (repository, clone_from mock)."""
+        mock_repo = Mock()
+        mock_writer = Mock()
+        mock_repo.config_writer.return_value.__enter__ = Mock(return_value=mock_writer)
+        mock_repo.config_writer.return_value.__exit__ = Mock(return_value=None)
+
+        gitlab_client.client.private_token = "pat-token"  # noqa: S105
+        gitlab_client.client.user = Mock(username="daiv", public_email="daiv@users.noreply.gitlab.com")
+        gitlab_client.client.auth = Mock()
+        monkeypatch.setattr(type(gitlab_client), "current_user", User(id=1, username="daiv", name="DAIV"))
+
+        repository = Repository(
+            pk=1,
+            slug="group/repo",
+            name="repo",
+            clone_url="https://gitlab.com/group/repo.git",
+            html_url="https://gitlab.com/group/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITLAB,
+        )
+        with patch("codebase.clients.gitlab.client.Repo.clone_from", return_value=mock_repo) as clone_from:
+            yield repository, clone_from
+
+    def test_load_repo_prefers_ephemeral_token(self, gitlab_client, clone_setup):
+        """When provisioning succeeds, the ephemeral token is embedded in the clone URL, not the PAT."""
+        repository, clone_from = clone_setup
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph") as get_token,
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        get_token.assert_called_once_with(gitlab_client.client, 1)
+        assert clone_from.call_args.args[0] == "https://oauth2:glpat-eph@gitlab.com/group/repo.git"
+
+    def test_load_repo_falls_back_to_pat_when_provisioning_fails(self, gitlab_client, clone_setup):
+        """When provisioning returns None (tier/role/API failure), the PAT keeps clones working."""
+        repository, clone_from = clone_setup
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        assert clone_from.call_args.args[0] == "https://oauth2:pat-token@gitlab.com/group/repo.git"
 
     def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
         """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""
