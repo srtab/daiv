@@ -4,6 +4,7 @@ from unittest.mock import Mock
 from django.core.cache import cache
 
 import pytest
+import requests
 from gitlab.exceptions import GitlabError
 
 from codebase.clients.gitlab.clone_tokens import (
@@ -55,6 +56,15 @@ class TestGetEphemeralCloneToken:
 
         assert get_ephemeral_clone_token(gl_client, 42) is None
         # Second call must not retry the API: the failure is negative-cached.
+        assert get_ephemeral_clone_token(gl_client, 42) is None
+        assert gl_client.projects.get.return_value.access_tokens.create.call_count == 1
+
+    def test_returns_none_and_negative_caches_on_transport_error(self, gl_client):
+        gl_client.projects.get.return_value.access_tokens.create.side_effect = requests.ConnectionError(
+            "connection refused"
+        )
+
+        assert get_ephemeral_clone_token(gl_client, 42) is None
         assert get_ephemeral_clone_token(gl_client, 42) is None
         assert gl_client.projects.get.return_value.access_tokens.create.call_count == 1
 

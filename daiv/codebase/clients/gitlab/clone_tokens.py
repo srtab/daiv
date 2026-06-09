@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 
+import requests
 from gitlab.exceptions import GitlabError
 
 if TYPE_CHECKING:
@@ -65,9 +66,11 @@ def _create_token(client: Gitlab, project_pk: int) -> str | None:
             "access_level": CLONE_TOKEN_ACCESS_LEVEL,
             "expires_at": expires_at,
         })
-    except GitlabError as e:
+    except (GitlabError, requests.RequestException) as e:
         logger.warning(
-            "Could not create an ephemeral clone token for project %s; falling back to the PAT: %s", project_pk, e
+            "Could not create an ephemeral clone token for project %s (the clone will fall back to the PAT): %s",
+            project_pk,
+            e,
         )
         return None
-    return token.token
+    return token.token or None
