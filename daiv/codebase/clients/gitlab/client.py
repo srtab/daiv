@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
+from django.core.exceptions import ImproperlyConfigured
+
 from git import Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.exceptions import GitlabError
@@ -28,6 +30,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri
 from daiv import USER_AGENT
@@ -305,13 +308,39 @@ class GitLabClient(RepoClient):
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
             parsed = urlparse(repository.clone_url)
-            clone_url = f"{parsed.scheme}://oauth2:{self.client.private_token}@{parsed.netloc}{parsed.path}"
+            clone_url = f"{parsed.scheme}://oauth2:{self._get_clone_token(repository)}@{parsed.netloc}{parsed.path}"
 
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
             repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
             self._configure_commit_identity(repo)
             yield repo
+
+    def _get_clone_token(self, repository: Repository) -> str:
+        """
+        Resolve the credential embedded in the clone URL.
+
+        Prefers a short-lived project-scoped access token so the credential persisted in the
+        clone's .git/config (which travels into the sandbox) cannot reach beyond this project's
+        repository. Falls back to the configured PAT when the token cannot be provisioned
+        (e.g. PAT user below Maintainer, GitLab.com Free tier). Commit identity is unaffected:
+        _configure_commit_identity resolves the DAIV user through the PAT-authenticated client
+        either way.
+
+        Logged per clone: the mint-time warning in clone_tokens fires once per negative-cache
+        window on a single worker, while every clone in that window embeds the full-API PAT —
+        each one should say so in its own log stream.
+        """
+        if token := get_ephemeral_clone_token(self.client, repository.pk):
+            logger.debug("Cloning %s with an ephemeral project access token", repository.slug)
+            return token
+        if not self.client.private_token:
+            raise ImproperlyConfigured(
+                "Cannot authenticate the git clone: no ephemeral clone token could be provisioned "
+                "and CODEBASE_GITLAB_AUTH_TOKEN is not configured."
+            )
+        logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
+        return self.client.private_token
 
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
