@@ -155,7 +155,10 @@ services:
         condition: service_healthy
 
   sandbox:
-    image: ghcr.io/srtab/daiv-sandbox:main
+    build:
+      context: ./../daiv-sandbox
+      args:
+        DOCKER_GID: 999
     profiles:
       - sandbox
       - full
@@ -170,6 +173,7 @@ services:
       - "8888:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./../daiv-sandbox/daiv_sandbox:/home/app/daiv_sandbox
     depends_on:
       redis:
         condition: service_healthy
@@ -238,3 +242,9 @@ services:
       app:
         condition: service_healthy
         restart: true
+
+# Pin the default network name so sandbox-launched containers can attach to it by a stable
+# name (DAIV_SANDBOX_NETWORK), independent of the compose project/directory name.
+networks:
+  default:
+    name: daiv_default
