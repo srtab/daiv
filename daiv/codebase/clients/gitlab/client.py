@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
+from django.core.exceptions import ImproperlyConfigured
+
 from git import Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.exceptions import GitlabError
@@ -324,10 +326,21 @@ class GitLabClient(RepoClient):
         (e.g. PAT user below Maintainer, GitLab.com Free tier). Commit identity is unaffected:
         _configure_commit_identity resolves the DAIV user through the PAT-authenticated client
         either way.
+
+        Logged per clone: the mint-time warning in clone_tokens fires once per negative-cache
+        window on a single worker, while every clone in that window embeds the full-API PAT —
+        each one should say so in its own log stream.
         """
         if token := get_ephemeral_clone_token(self.client, repository.pk):
+            logger.debug("Cloning %s with an ephemeral project access token", repository.slug)
             return token
-        return cast("str", self.client.private_token)
+        if not self.client.private_token:
+            raise ImproperlyConfigured(
+                "Cannot authenticate the git clone: no ephemeral clone token could be provisioned "
+                "and CODEBASE_GITLAB_AUTH_TOKEN is not configured."
+            )
+        logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
+        return self.client.private_token
 
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:

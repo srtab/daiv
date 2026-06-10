@@ -183,13 +183,17 @@ OAuth credentials can be configured via environment variables (shown below) or t
     level, ~48–72h lifetime), limiting what the credential inside the workspace can reach. This
     requires the PAT user to have at least the **Maintainer** role on each project and, on
     GitLab.com, the Premium or Ultimate tier (any tier works on self-managed instances). Each token
-    appears as a `daiv-clone` bot member on the project; GitLab removes expired bots ~30 days after
-    expiry. When a token cannot be created, DAIV logs a warning and falls back to embedding the PAT.
+    appears as a `daiv-clone` bot member on the project — with daily minting and ~3-day lifetimes,
+    expect a few of them at a time; GitLab removes expired bots automatically (on GitLab 17.9+ they
+    are retained for ~30 days first). When a token cannot be created, DAIV logs a warning and falls
+    back to embedding the PAT.
     The token pushes at Developer level: if branch protection rules match the branches DAIV pushes to
     (e.g. a wildcard pattern restricting pushes to Maintainers), allow Developers to push on that
-    pattern — otherwise pushes fail. A sandbox session resumed days after it was created may hold an
-    expired clone token — pushes from such a session fail until a fresh session re-clones the
-    repository.
+    pattern — otherwise pushes fail. A sandbox session resumed a day or more after it was created may
+    hold an expired clone token — pushes from such a session fail until a fresh session re-clones the
+    repository. Avoid revoking `daiv-clone` tokens early: DAIV caches the active token for up to 24
+    hours, so clones keep using the revoked credential (failing with auth errors) until the cache
+    entry (`codebase:gitlab:clone-token:<project-id>`) expires or is cleared.
 
 ### GitHub Integration
 
