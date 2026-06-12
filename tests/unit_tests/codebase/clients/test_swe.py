@@ -2,9 +2,21 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from git import Repo
 
 from codebase.base import GitPlatform
 from codebase.clients.swe import SWERepoClient
+
+
+def _mock_cloned_repo(working_dir: str) -> Mock:
+    """A clone mock that survives ``_sanitize_history`` (iterable refs, real-ish git_dir)."""
+    mock_repo = Mock()
+    mock_repo.working_dir = working_dir
+    mock_repo.branches = []
+    mock_repo.remotes = []
+    mock_repo.tags = []
+    mock_repo.git_dir = str(Path(working_dir) / ".git")
+    return mock_repo
 
 
 class TestSWERepoClient:
@@ -61,11 +73,10 @@ class TestSWERepoClient:
     @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
     def test_load_repo_success(self, mock_tempdir, mock_clone, swe_client):
         """Test successful repository loading."""
-        mock_repo = Mock()
-        mock_repo.git.checkout = Mock()
+        mock_tmpdir = "/tmp/test-repo"  # NOQA
+        mock_repo = _mock_cloned_repo(mock_tmpdir)
         mock_clone.return_value = mock_repo
 
-        mock_tmpdir = "/tmp/test-repo"  # NOQA
         mock_tempdir.return_value.__enter__ = Mock(return_value=mock_tmpdir)
         mock_tempdir.return_value.__exit__ = Mock(return_value=None)
 
@@ -74,14 +85,13 @@ class TestSWERepoClient:
         with swe_client.load_repo(repository, "abc123") as repo:
             assert repo == mock_repo
             mock_clone.assert_called_once_with("https://github.com/psf/requests.git", Path(mock_tmpdir) / "repo")
-            mock_repo.git.checkout.assert_called_once_with("abc123")
+            mock_repo.git.checkout.assert_called_once_with("--detach", "abc123")
 
     @patch("codebase.clients.swe.Repo.clone_from")
     @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
     def test_get_repository_file_success(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test successful file retrieval."""
-        mock_repo = Mock()
-        mock_repo.working_dir = str(tmp_path)
+        mock_repo = _mock_cloned_repo(str(tmp_path))
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = str(tmp_path)
@@ -102,8 +112,7 @@ class TestSWERepoClient:
     @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
     def test_get_repository_file_not_found(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test file retrieval when file doesn't exist."""
-        mock_repo = Mock()
-        mock_repo.working_dir = str(tmp_path)
+        mock_repo = _mock_cloned_repo(str(tmp_path))
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = str(tmp_path)
@@ -121,8 +130,7 @@ class TestSWERepoClient:
     @patch("codebase.clients.swe.Path.read_text")
     def test_get_repository_file_binary(self, mock_read_text, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test file retrieval when file is binary."""
-        mock_repo = Mock()
-        mock_repo.working_dir = str(tmp_path)
+        mock_repo = _mock_cloned_repo(str(tmp_path))
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = str(tmp_path)
@@ -144,8 +152,7 @@ class TestSWERepoClient:
     @patch("codebase.clients.swe.tempfile.TemporaryDirectory")
     def test_get_project_uploaded_file_success(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test successful uploaded file retrieval."""
-        mock_repo = Mock()
-        mock_repo.working_dir = str(tmp_path)
+        mock_repo = _mock_cloned_repo(str(tmp_path))
         mock_clone.return_value = mock_repo
 
         mock_tmpdir = str(tmp_path)
@@ -161,6 +168,40 @@ class TestSWERepoClient:
             result = swe_client.get_project_uploaded_file("psf/requests", "image.png")
 
         assert result == b"image content"
+
+    def test_load_repo_sanitizes_future_history(self, swe_client, tmp_path):
+        """The clone must not expose commits made after the base commit: in real eval runs
+        agents found the upstream fix for the issue under evaluation via ``git log --all``
+        on the full clone's remote refs. Tags on ancestors stay — VCS-versioning tools
+        (setuptools-scm, hatch-vcs) need them for editable installs."""
+        origin = Repo.init(tmp_path / "origin", initial_branch="main")
+        with origin.config_writer() as cw:
+            cw.set_value("user", "name", "Test").set_value("user", "email", "test@example.com")
+
+        (Path(origin.working_dir) / "file.txt").write_text("base")
+        origin.index.add(["file.txt"])
+        base_commit = origin.index.commit("base commit")
+        origin.create_tag("v1.0.0")
+
+        (Path(origin.working_dir) / "file.txt").write_text("the future fix")
+        origin.index.add(["file.txt"])
+        origin.index.commit("fix: the very issue under evaluation")
+        origin.create_tag("v1.1.0")
+        origin.create_head("future-branch")
+
+        repository = swe_client.get_repository("psf/requests")
+        repository = repository.model_copy(update={"clone_url": str(tmp_path / "origin")})
+
+        with swe_client.load_repo(repository, base_commit.hexsha) as repo:
+            assert repo.head.is_detached
+            assert repo.head.commit.hexsha == base_commit.hexsha
+            assert (Path(repo.working_dir) / "file.txt").read_text() == "base"
+
+            assert list(repo.branches) == []
+            assert list(repo.remotes) == []
+            assert [tag.name for tag in repo.tags] == ["v1.0.0"]
+            assert not (Path(repo.git_dir) / "logs").exists()
+            assert "the very issue under evaluation" not in repo.git.log("--all", "--oneline")
 
     def test_current_user(self, swe_client):
         """Test current_user property."""
