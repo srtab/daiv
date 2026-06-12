@@ -42,6 +42,7 @@ from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMidd
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
+from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
@@ -300,6 +301,9 @@ async def create_daiv_agent(
             if deferred_settings.ENABLED
             else []
         ),
+        # Before the caching middleware so the cache-control placement sees the final
+        # message list, including any injected budget reminder.
+        StepBudgetMiddleware(),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
@@ -332,4 +336,9 @@ async def create_daiv_agent(
         debug=debug,
         name="DAIV Agent",
     )
+    # recursion_limit counts graph supersteps, not model turns. With every per-turn
+    # middleware implemented via wrap_model_call (zero extra nodes), one model+tools cycle
+    # costs 2 supersteps, so the default 500 ≈ 250 tool-call turns. Registering a
+    # before_model/after_model hook adds a node to EVERY cycle and silently shrinks that
+    # budget (3 steps/turn ≈ 165 turns) — keep per-turn hooks out of the stack.
     return deep_agent.with_config({"recursion_limit": site_settings.agent_recursion_limit})
