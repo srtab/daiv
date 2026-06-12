@@ -15,6 +15,7 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
+from automation.agent.git_manager import SandboxGitProtocolError
 from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
@@ -104,10 +105,19 @@ class GitState(AgentState):
 
     model_patch: NotRequired[str]
     """
-    Unified diff of the run's working-tree changes vs ``HEAD``, captured at turn end when
-    the middleware runs with ``capture_patch=True`` (eval harnesses). Public on the output
-    schema — like ``merge_request`` — so callers read it straight from ``ainvoke``'s
-    returned state. Absent on normal runs.
+    Unified diff of the run's working-tree changes vs ``HEAD`` (untracked files included),
+    captured at turn end when the middleware runs with ``capture_patch=True`` (eval
+    harnesses). Public on the output schema — like ``merge_request`` — so callers read it
+    straight from ``ainvoke``'s returned state. Absent on normal runs.
+    """
+
+    pre_run_dirty_files: NotRequired[list[str]]
+    """
+    Files already differing from ``HEAD`` *before* the agent acted, detected at run start
+    on ``capture_patch=True`` runs. Pre-existing dirt ends up inside ``model_patch`` (the
+    capture is a plain working-tree diff), so eval harnesses need this machine-readable
+    signal to flag/exclude the run instead of grading a poisoned patch. Public on the
+    output schema like ``model_patch``; absent on normal runs and on clean starts.
     """
 
 
@@ -174,7 +184,18 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         is seeded from that clone — so the workspace already reflects the MR's source branch
         before this hook runs. A post-seed checkout would only touch the now non-authoritative
         local clone, so the resolved MR is just recorded in state for the prompt and safeguard.
+
+        On capture-patch runs the workspace is also checked for pre-existing changes: the
+        captured ``model_patch`` is a working-tree diff vs ``HEAD`` (untracked files included)
+        at turn end, so any dirt present *before* the agent acts (e.g. seeding artifacts)
+        pollutes every patch and can break eval grading. Detection is loud-but-non-fatal —
+        the run proceeds, with the dirty file list exposed as ``pre_run_dirty_files`` in
+        state and on the LangSmith run tree so harnesses can flag the run programmatically.
         """
+        pre_run_dirty_files: list[str] = []
+        if self.capture_patch:
+            pre_run_dirty_files = await self._acheck_pre_run_dirty(runtime)
+
         merge_request = state.get("merge_request")
 
         if runtime.context.scope == Scope.MERGE_REQUEST:
@@ -187,7 +208,46 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # runs always start on the default branch, where this lookup short-circuits.
             merge_request = await self._alookup_open_mr(runtime.context)
 
-        return {"merge_request": merge_request, "code_changes": False, "protected_branch_fallback_source": None}
+        update: dict[str, Any] = {
+            "merge_request": merge_request,
+            "code_changes": False,
+            "protected_branch_fallback_source": None,
+        }
+        if pre_run_dirty_files:
+            update["pre_run_dirty_files"] = pre_run_dirty_files
+        return update
+
+    async def _acheck_pre_run_dirty(self, runtime: Runtime[RuntimeCtx]) -> list[str]:
+        """
+        Detect and loudly report files already differing from ``HEAD`` before the agent acts.
+
+        Pre-existing dirt ends up verbatim inside the captured ``model_patch``, making empty
+        runs look like wrong fixes and able to delete fixtures in an eval grading container —
+        so besides the ERROR log, the file list is tagged on the LangSmith run tree and
+        returned for the state update (see ``GitState.pre_run_dirty_files``). Non-fatal by
+        design: the check is diagnostic, and a check failure must not abort an otherwise
+        healthy run. The catch is deliberately narrow — wiring bugs (mode-mismatch
+        ``RuntimeError``, asyncio misuse) must propagate, not degrade into a skipped check.
+        """
+        try:
+            async with open_git_manager(
+                sandbox_backend=self._sandbox_backend, gitrepo=runtime.context.gitrepo
+            ) as git_manager:
+                dirty_files = await git_manager.get_changed_files()
+        except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
+            logger.exception("Pre-run dirty-tree check failed; cannot verify the workspace is clean")
+            return []
+
+        if dirty_files:
+            logger.error(
+                "Workspace is dirty before the agent run; the captured model_patch will include "
+                "pre-existing changes to %d file(s): %s",
+                len(dirty_files),
+                ", ".join(dirty_files[:20]) + (", …" if len(dirty_files) > 20 else ""),
+            )
+            if rt := get_current_run_tree():
+                rt.metadata["pre_run_dirty_files"] = dirty_files
+        return dirty_files
 
     @staticmethod
     async def _alookup_open_mr(context: RuntimeCtx) -> MergeRequest | None:
@@ -300,7 +360,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                     sandbox_backend=self._sandbox_backend, gitrepo=runtime.context.gitrepo
                 ) as git_manager:
                     update["model_patch"] = await git_manager.get_diff()
-            except GitCommandError, httpx.HTTPError, RuntimeError:
+            except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
+                # Narrow on purpose: sandbox wire anomalies degrade, but wiring bugs (bare
+                # RuntimeError from mode-mismatch guards, asyncio misuse) always propagate.
                 # Not publishing (eval harnesses): the patch IS the run's artifact — fail loudly
                 # rather than record an empty patch indistinguishable from "agent made no changes".
                 if not self.auto_commit_changes:

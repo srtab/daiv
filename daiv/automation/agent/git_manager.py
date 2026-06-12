@@ -52,6 +52,15 @@ class RepoStatus:
     has_unpushed: bool
 
 
+class SandboxGitProtocolError(RuntimeError):
+    """The sandbox returned a malformed/missing result for a git command (wire-level anomaly).
+
+    Distinct from a bare ``RuntimeError`` so callers that degrade git faults to soft
+    failures can catch this without also swallowing programming bugs (mode-mismatch
+    guards, asyncio misuse), which must propagate.
+    """
+
+
 class GitManager:
     """Run git operations against a repository in one of two mutually-exclusive modes:
 
@@ -125,7 +134,7 @@ class GitManager:
         if not response.results:
             # The sandbox always returns one result per command; an empty list is a wire-level
             # anomaly. Fail with context rather than a bare IndexError on ``results[0]``.
-            raise RuntimeError(f"Sandbox returned no result for: git {' '.join(args)}")
+            raise SandboxGitProtocolError(f"Sandbox returned no result for: git {' '.join(args)}")
         result = response.results[0]
         return _GitResult(exit_code=result.exit_code, output=result.output)
 
@@ -160,7 +169,9 @@ class GitManager:
             ]
             response = await self._sandbox_backend.run_commands(cmd_strs, fail_fast=False)
             if len(response.results) != len(commands):
-                raise RuntimeError(f"Sandbox returned {len(response.results)} results for {len(commands)} git commands")
+                raise SandboxGitProtocolError(
+                    f"Sandbox returned {len(response.results)} results for {len(commands)} git commands"
+                )
             return [_GitResult(exit_code=r.exit_code, output=r.output) for r in response.results]
         return list(await asyncio.gather(*(self._git_local(args) for args in commands)))
 
@@ -201,6 +212,27 @@ class GitManager:
         untracked = [line.strip() for line in untracked_res.output.splitlines() if line.strip()]
         batch_b = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
         return self._append_untracked(diff_res.output, untracked, batch_b)
+
+    async def get_changed_files(self, ref: str = "HEAD") -> list[str]:
+        """Paths changed in the working tree vs ``ref``, including untracked files.
+
+        The same scope as :meth:`get_diff` (so the two stay symmetric for callers that
+        diagnose one via the other), but names come straight from git — no diff-header
+        parsing, so paths with spaces/quotes are exact. One batched round-trip.
+        """
+        changed_res, untracked_res = await self._git_batch([
+            ("diff", "--name-only", ref),
+            ("ls-files", "--others", "--exclude-standard"),
+        ])
+        if changed_res.exit_code != 0:
+            raise GitCommandError(["git", "diff", "--name-only", ref], changed_res.exit_code, changed_res.output)
+        if untracked_res.exit_code != 0:
+            raise GitCommandError(
+                ["git", "ls-files", "--others", "--exclude-standard"], untracked_res.exit_code, untracked_res.output
+            )
+        changed = [line.strip() for line in changed_res.output.splitlines() if line.strip()]
+        untracked = [line.strip() for line in untracked_res.output.splitlines() if line.strip()]
+        return changed + untracked
 
     async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
         """Collect everything the publisher needs in at most two sandbox round-trips.

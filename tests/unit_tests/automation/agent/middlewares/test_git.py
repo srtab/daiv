@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from git import GitCommandError
 
-from automation.agent.git_manager import GitPushPermissionError
+from automation.agent.git_manager import GitPushPermissionError, SandboxGitProtocolError
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome
 from codebase.base import MergeRequest, Scope, User
@@ -192,6 +192,118 @@ class TestGitMiddleware:
 
         lookup.assert_not_called()
         assert result["merge_request"] is runtime.context.merge_request
+
+    async def test_abefore_agent_surfaces_dirty_workspace_on_capture_patch(self, caplog):
+        """Pre-run dirt vs HEAD ends up verbatim inside the captured model_patch — flag it
+        loudly AND machine-readably (state + run tree), but never abort the run over a
+        diagnostic."""
+        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = AsyncMock()
+        gm.get_changed_files.return_value = ["tests/demo/symlink.txt", "my file.txt"]
+        run_tree = MagicMock(metadata={})
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, {})),
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.git.get_current_run_tree", return_value=run_tree),
+            caplog.at_level("ERROR"),
+        ):
+            result = await middleware.abefore_agent({}, runtime)
+
+        assert "dirty" in caplog.text
+        # Names come from `git diff --name-only`, not header parsing — exact even with spaces.
+        assert "tests/demo/symlink.txt" in caplog.text
+        assert "my file.txt" in caplog.text
+        assert result["pre_run_dirty_files"] == ["tests/demo/symlink.txt", "my file.txt"]
+        assert run_tree.metadata["pre_run_dirty_files"] == ["tests/demo/symlink.txt", "my file.txt"]
+
+    async def test_abefore_agent_dirty_log_truncates_long_file_lists(self, caplog):
+        """The ERROR log samples the first 20 names with an ellipsis; the state field keeps
+        the full list."""
+        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = AsyncMock()
+        gm.get_changed_files.return_value = [f"f{i}.py" for i in range(21)]
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, {})),
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
+            patch("automation.agent.middlewares.git.get_current_run_tree", return_value=None),
+            caplog.at_level("ERROR"),
+        ):
+            result = await middleware.abefore_agent({}, runtime)
+
+        assert "21 file(s)" in caplog.text
+        assert "f19.py, …" in caplog.text
+        assert "f20.py" not in caplog.text
+        assert len(result["pre_run_dirty_files"]) == 21
+
+    async def test_abefore_agent_clean_workspace_logs_nothing(self, caplog):
+        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = AsyncMock()
+        gm.get_changed_files.return_value = []
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, {})),
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
+            caplog.at_level("ERROR"),
+        ):
+            result = await middleware.abefore_agent({}, runtime)
+
+        assert "dirty" not in caplog.text
+        assert "pre_run_dirty_files" not in result
+
+    async def test_abefore_agent_skips_dirty_check_when_capture_disabled(self):
+        """Normal (non-eval) runs must not pay the extra git RPC."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager") as open_gm,
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
+        ):
+            result = await middleware.abefore_agent({}, runtime)
+
+        open_gm.assert_not_called()
+        assert "pre_run_dirty_files" not in result
+
+    @pytest.mark.parametrize(
+        "fault", [GitCommandError("git diff", 128), SandboxGitProtocolError("Sandbox returned no result")]
+    )
+    async def test_abefore_agent_dirty_check_failure_is_non_fatal(self, caplog, fault):
+        """The check is diagnostic only: a git/wire fault must be logged, not raised."""
+        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = AsyncMock()
+        gm.get_changed_files.side_effect = fault
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, {})),
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
+            caplog.at_level("ERROR"),
+        ):
+            result = await middleware.abefore_agent({}, runtime)
+
+        assert "dirty-tree check failed" in caplog.text
+        assert result is not None
+
+    async def test_abefore_agent_dirty_check_propagates_wiring_bugs(self):
+        """The non-fatal catch is deliberately narrow: a bare RuntimeError signals a
+        programming error (mode mismatch, asyncio misuse) and must fail the run loudly,
+        not degrade into a silently skipped check."""
+        middleware = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = AsyncMock()
+        gm.get_changed_files.side_effect = RuntimeError("GitManager is not in sandbox mode")
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, {})),
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
+            pytest.raises(RuntimeError, match="not in sandbox mode"),
+        ):
+            await middleware.abefore_agent({}, runtime)
 
     async def test_alookup_open_mr_returns_platform_mr(self):
         runtime = _make_runtime()
@@ -555,6 +667,23 @@ class TestGitMiddleware:
 
         assert result["merge_request"].merge_request_id == 7
         assert "model_patch" not in result
+
+    async def test_aafter_agent_capture_wiring_bug_propagates_even_when_publishing(self):
+        """The capture catch is deliberately narrow: a bare RuntimeError is a programming
+        error (mode mismatch, asyncio misuse), not a degradable git fault — it must fail
+        the run loudly instead of being masked as "publishing without model_patch"."""
+        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=object())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = MagicMock(get_diff=AsyncMock(side_effect=RuntimeError("GitManager is not in sandbox mode")))
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, {})),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
+            pytest.raises(RuntimeError, match="not in sandbox mode"),
+        ):
+            await mw.aafter_agent({"merge_request": None}, runtime)
+
+        pub_cls.assert_not_called()
 
     async def test_aafter_agent_passes_through_none_when_no_fallback(self):
         """When publish completes without protection fallback, the value stays None

@@ -117,6 +117,17 @@ async def main(
                     print(f"[{item['instance_id']}] run failed:", file=sys.stderr)  # noqa: T201
                     traceback.print_exc()
                 finally:
+                    # GitMiddleware sets this when the workspace differed from HEAD before the
+                    # agent acted — the patch below is poisoned with changes the agent never
+                    # made. Surface it next to the run so a bad grading batch is explainable
+                    # without grepping server logs. (Kept out of the predictions file: SWE-bench
+                    # loaders may be strict about its schema.)
+                    if result is not None and (dirty := result.get("pre_run_dirty_files")):
+                        print(  # noqa: T201
+                            f"[{item['instance_id']}] WARNING: workspace was dirty before the run; "
+                            f"model_patch includes pre-existing changes to: {', '.join(dirty)}",
+                            file=sys.stderr,
+                        )
                     # A failed run degrades to an empty patch (the traceback above is the
                     # signal); a *successful* run missing the key means capture_patch wiring
                     # drifted — let the KeyError kill the eval rather than silently emit a

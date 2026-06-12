@@ -498,6 +498,50 @@ async def test_get_diff_raises_on_diff_failure() -> None:
         await gm.get_diff()
 
 
+# ---------------------------------------------------------------------------
+# get_changed_files (same scope as get_diff, names straight from git)
+# ---------------------------------------------------------------------------
+
+
+async def test_get_changed_files_local_includes_tracked_and_untracked(tmp_path: Path) -> None:
+    """Names come from `diff --name-only` + `ls-files`, so paths with spaces are exact —
+    the whole point of this method over diff-header parsing."""
+    repo, _ = _init_repo_with_origin(tmp_path)
+    repo_dir = tmp_path / "work"
+    (repo_dir / "README.md").write_text("changed\n")
+    (repo_dir / "my file.txt").write_text("with space\n")
+
+    changed = await GitManager.for_local(repo).get_changed_files()
+
+    assert "README.md" in changed
+    assert "my file.txt" in changed
+
+
+async def test_get_changed_files_local_empty_when_clean(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    assert await GitManager.for_local(repo).get_changed_files() == []
+
+
+async def test_get_changed_files_sandbox_single_round_trip() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(("a.py\nb.py\n", 0), ("new.py\n", 0)))
+    gm = GitManager.for_sandbox(_backend_for(client))
+
+    changed = await gm.get_changed_files()
+
+    assert changed == ["a.py", "b.py", "new.py"]
+    assert client.run_commands.await_count == 1
+    sent = client.run_commands.await_args.args[1]
+    assert any("diff --name-only HEAD" in command for command in sent.commands)
+    assert any("ls-files --others --exclude-standard" in command for command in sent.commands)
+
+
+async def test_get_changed_files_raises_on_failure() -> None:
+    gm, _ = _sandbox_manager({"diff --name-only HEAD": (128, "fatal: bad revision"), "ls-files": (0, "")})
+    with pytest.raises(GitCommandError):
+        await gm.get_changed_files()
+
+
 async def test_get_diff_raises_on_ls_files_failure() -> None:
     gm, _ = _sandbox_manager({"ls-files": (128, "fatal: boom")})
     with pytest.raises(GitCommandError):
