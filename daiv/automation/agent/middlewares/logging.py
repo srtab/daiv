@@ -46,11 +46,14 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         Returns:
             ToolMessage | Command: The result of the tool call.
         """
+        agent_name = self._agent_name(request)
         tool_name = self._tool_name(request)
         tool_call_id = self._tool_call_id(request)
         tool_args = request.tool_call.get("args") if isinstance(request.tool_call, dict) else None
 
-        logger.info("[%s] Tool call (id=%s, %s)", tool_name, tool_call_id, self._format_args(tool_args))
+        logger.info(
+            "[%s] [%s] Tool call (id=%s, %s)", agent_name, tool_name, tool_call_id, self._format_args(tool_args)
+        )
 
         return await handler(request)
 
@@ -76,6 +79,26 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
                     items.append(f"{k}={repr(v)}")
             return ", ".join(items)
         return ""
+
+    def _agent_name(self, request: ToolCallRequest) -> str:
+        """
+        Get the name of the agent (main agent or subagent) executing the tool call.
+
+        Both `create_agent(name=...)` and deepagents' `SubAgentMiddleware` bake the agent
+        name into the run config as `metadata["lc_agent_name"]`.
+
+        Args:
+            request: The tool call request.
+
+        Returns:
+            The agent name, or `<unknown-agent>` if it cannot be determined from the run config.
+        """
+        config = getattr(request.runtime, "config", None)
+        if isinstance(config, dict):
+            metadata = config.get("metadata")
+            if isinstance(metadata, dict) and metadata.get("lc_agent_name"):
+                return str(metadata["lc_agent_name"])
+        return "<unknown-agent>"
 
     def _tool_name(self, request: ToolCallRequest) -> str:
         """
