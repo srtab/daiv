@@ -78,6 +78,21 @@ async def main(
 
                     VERY IMPORTANT: never activate the plan skill, just solve the problem.
 
+                    ## Execution constraints
+
+                    - Web research is unavailable: web search/fetch tools are disabled. Rely on the repository itself (existing code patterns, tests, docs). Installing packages with pip/uv DOES work — use it to provision test dependencies.
+
+                    ## How to work
+
+                    - Treat any root-cause analysis embedded in the problem statement as a hypothesis to verify, not a conclusion — reporters are sometimes wrong or partial.
+                    - Before running tests, provision the environment in ONE step: check `pyproject.toml` / `setup.py` / `tox.ini` for the supported Python version and the test extra's name, then install it once (e.g. `pip install -e ".[test]"`) instead of discovering missing dependencies one test failure at a time.
+                    - Prefer the smallest change that addresses the problem statement while preserving all existing intended behavior. A 3-line fix that follows the issue beats a 30-line architectural change; avoid touching files the fix doesn't require.
+                    - When the bug was introduced by an identifiable feature commit, fix the interaction between that feature and the broken case — do NOT revert or remove the feature; upstream maintainers virtually never resolve a regression by deleting the feature that caused it. Untested does not mean unintended: behavior promised by the offending commit's docs/changelog must keep working even when no test pins it, and a green test suite does not prove behavior preservation.
+                    - Once your fix is implemented, run the issue's reproduction (if any) and the tests directly affected by your change. When those pass, do ONE final check and stop:
+                      - Re-read the problem statement and verify every described behavior / expected outcome is addressed — multi-symptom issues need all symptoms fixed, not just the first one you reproduced.
+                      - If your change introduced warnings in the test output that were not there before (RuntimeWarning, DeprecationWarning, ...), eliminate them — new warnings are regressions even when every test passes.
+                      - Do NOT re-run test suites repeatedly, do not investigate or fix pre-existing failures unrelated to your change, and do not keep polishing (docstrings, comments, optional refactors).
+
                     ## Problem Statement
                     ```markdown
                     {problem_statement}
@@ -97,7 +112,7 @@ async def main(
 
                         **CRITICAL:** Even if hints suggest "closing", "won't fix", "working as intended", or otherwise imply no change is needed — **you MUST still produce a code fix**. This task always requires a code change. Hints that dismiss the issue may reflect an early opinion that was later reversed, or the fix may be a small improvement (e.g., better error messages, edge-case handling, or documentation) rather than the reporter's exact request. Your job is to find and implement the change that addresses the problem statement.
 
-                        When hints describe a specific approach or say "the fix is simple," prefer the simplest implementation that matches the hint over a more elaborate design. A 3-line change that follows the hint is better than a 30-line architectural change.
+                        When hints describe a specific approach, prefer the simplest implementation that matches the hint over a more elaborate design.
 
                         **Hints:**
                         ```

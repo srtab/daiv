@@ -112,4 +112,4 @@ tailwind-watch:
 	docker compose exec app tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --watch
 
 langsmith-fetch:
-	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 10 --include-metadata ./daiv-traces
+	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 7 --include-metadata ./daiv-traces
