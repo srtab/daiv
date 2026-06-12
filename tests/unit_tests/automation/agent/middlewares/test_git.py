@@ -1,11 +1,25 @@
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from git import GitCommandError
 
 from automation.agent.git_manager import GitPushPermissionError
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome
 from codebase.base import MergeRequest, Scope, User
+
+
+def _fake_open_git_manager(gm, calls: dict):
+    """Stand-in for the ``open_git_manager`` seam: records the kwargs it was opened with
+    (mode selection itself is pinned in test_git_utils.py) and yields ``gm``."""
+
+    @asynccontextmanager
+    async def _open(**kwargs):
+        calls.update(kwargs)
+        yield gm
+
+    return _open
 
 
 def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
@@ -383,6 +397,112 @@ class TestGitMiddleware:
 
         assert "merge request #7" in captured["system_prompt"]
         assert "merge request #999" not in captured["system_prompt"]
+
+    async def test_aafter_agent_captures_patch_in_sandbox_mode(self):
+        """``capture_patch=True`` + a bound backend: the diff is taken through the run's
+        mode-matched git handle (``open_git_manager`` receives the backend — git runs in the
+        authoritative /workspace/repo) and surfaced in state."""
+        sentinel_backend = object()
+        mw = GitMiddleware(auto_commit_changes=False, capture_patch=True, sandbox_backend=sentinel_backend)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = MagicMock(get_diff=AsyncMock(return_value="diff --git a/x b/x\n"))
+        calls = {}
+
+        with patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, calls)):
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        assert calls == {"sandbox_backend": sentinel_backend, "gitrepo": runtime.context.gitrepo}
+        assert result == {"model_patch": "diff --git a/x b/x\n"}
+
+    async def test_aafter_agent_captures_patch_in_local_mode(self):
+        """No sandbox backend (disk-backed run): ``open_git_manager`` gets ``sandbox_backend=None``
+        and falls back to the local clone."""
+        mw = GitMiddleware(auto_commit_changes=False, capture_patch=True)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = MagicMock(get_diff=AsyncMock(return_value="local diff\n"))
+        calls = {}
+
+        with patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, calls)):
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        assert calls == {"sandbox_backend": None, "gitrepo": runtime.context.gitrepo}
+        assert result == {"model_patch": "local diff\n"}
+
+    async def test_aafter_agent_no_patch_key_when_capture_disabled(self):
+        """Default (capture off): normal runs never carry a patch through state — the key would
+        otherwise stream in AG-UI STATE_SNAPSHOT events."""
+        mw = GitMiddleware(auto_commit_changes=False)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+
+        with patch("automation.agent.middlewares.git.open_git_manager") as open_gm:
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        open_gm.assert_not_called()
+        assert result is None
+
+    async def test_aafter_agent_captures_patch_before_publish(self):
+        """With both flags on, capture must run BEFORE publish — the publisher's commit moves
+        HEAD, which would empty a diff-vs-HEAD taken afterwards."""
+        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=object())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        order: list[str] = []
+
+        async def fake_get_diff(*args, **kwargs):  # noqa: ARG001
+            order.append("capture")
+            return "patch\n"
+
+        async def fake_publish(*args, **kwargs):  # noqa: ARG001
+            order.append("publish")
+            return PublishOutcome(merge_request=_mr(), published=True)
+
+        with (
+            patch(
+                "automation.agent.middlewares.git.open_git_manager",
+                new=_fake_open_git_manager(MagicMock(get_diff=fake_get_diff), {}),
+            ),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
+        ):
+            pub_cls.return_value.publish = fake_publish
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        assert order == ["capture", "publish"]
+        assert result["model_patch"] == "patch\n"
+        assert result["merge_request"].merge_request_id == 7
+        assert result["code_changes"] is True
+
+    async def test_aafter_agent_propagates_capture_failure_when_not_publishing(self):
+        """Eval path (auto_commit off): the patch IS the run's artifact — a capture failure must
+        fail loudly, not degrade to an empty patch indistinguishable from "agent made no
+        changes" (the exact failure mode capture_patch exists to fix)."""
+        mw = GitMiddleware(auto_commit_changes=False, capture_patch=True, sandbox_backend=object())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = MagicMock(get_diff=AsyncMock(side_effect=GitCommandError(["git", "diff"], 128, "boom")))
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, {})),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
+            pytest.raises(GitCommandError),
+        ):
+            await mw.aafter_agent({"merge_request": None}, runtime)
+
+        pub_cls.assert_not_called()
+
+    async def test_aafter_agent_capture_failure_does_not_block_publish(self):
+        """Capture is read-only observability; when the turn publishes, a capture failure must
+        not abort the publish — the agent's work would be stranded uncommitted in the sandbox."""
+        mw = GitMiddleware(auto_commit_changes=True, capture_patch=True, sandbox_backend=object())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        gm = MagicMock(get_diff=AsyncMock(side_effect=GitCommandError(["git", "diff"], 128, "boom")))
+
+        with (
+            patch("automation.agent.middlewares.git.open_git_manager", new=_fake_open_git_manager(gm, {})),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls,
+        ):
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        assert result["merge_request"].merge_request_id == 7
+        assert "model_patch" not in result
 
     async def test_aafter_agent_passes_through_none_when_no_fallback(self):
         """When publish completes without protection fallback, the value stays None

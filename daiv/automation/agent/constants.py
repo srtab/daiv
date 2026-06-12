@@ -69,12 +69,10 @@ class ModelName(StrEnum):
     GPT_5_4_MINI = "openrouter:openai/gpt-5.4-mini"
 
     # z-ai models
-    Z_AI_GLM_5 = "openrouter:z-ai/glm-5"
-    Z_AI_GLM_5_TURBO = "openrouter:z-ai/glm-5-turbo"
+    Z_AI_GLM_5_1 = "openrouter:z-ai/glm-5.1"
 
     # minimax models
-    MINIMAX_M2_5 = "openrouter:minimax/minimax-m2.5"
-    MINIMAX_M2_7 = "openrouter:minimax/minimax-m2.7"
+    MINIMAX_M3 = "openrouter:minimax/minimax-m3"
 
     # MoonshotAI models
-    MOONSHOTAI_KIMI_K2_5 = "openrouter:moonshotai/kimi-k2.5"
+    MOONSHOTAI_KIMI_K2_6 = "openrouter:moonshotai/kimi-k2.6"

@@ -159,6 +159,7 @@ async def create_daiv_agent(
     *,
     ctx: RuntimeCtx,
     auto_commit_changes: bool = True,
+    capture_patch: bool = False,
     checkpointer: BaseCheckpointSaver | None = None,
     store: BaseStore | None = None,
     debug: bool = False,
@@ -177,6 +178,8 @@ async def create_daiv_agent(
         thinking_level: The thinking level to use for the agent.
         ctx: The runtime context.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
+        capture_patch: Whether to expose the run's working-tree diff as ``model_patch`` in the
+            output state at turn end. For eval harnesses; keep ``False`` for normal runs.
         checkpointer: The checkpointer to use for the agent.
         store: The store to use for the agent.
         debug: Whether to enable debug mode for the agent.
@@ -300,7 +303,12 @@ async def create_daiv_agent(
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         ensure_non_empty_response,
-        GitMiddleware(auto_commit_changes=auto_commit_changes, sandbox_backend=sandbox_backend),
+        # Must stay after SandboxMiddleware: after_agent hooks run in REVERSE registration order,
+        # so the turn-end publish/patch-capture runs while the sandbox session is still alive
+        # (SandboxMiddleware.aafter_agent closes it).
+        GitMiddleware(
+            auto_commit_changes=auto_commit_changes, capture_patch=capture_patch, sandbox_backend=sandbox_backend
+        ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
         *(middleware or []),

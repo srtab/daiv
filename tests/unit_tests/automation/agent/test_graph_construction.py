@@ -93,6 +93,24 @@ def test_slash_command_middleware_receives_subagents():
     assert "SlashCommandMiddleware(subagents=subagents)" in src
 
 
+def test_git_middleware_registered_after_sandbox_middleware():
+    # after_agent hooks run in REVERSE registration order, so GitMiddleware must come after
+    # SandboxMiddleware — otherwise turn-end publish/patch-capture would hit a closed session.
+    src = inspect.getsource(graph_module)
+    sandbox = src.index("SandboxMiddleware(agent_root=agent_root")
+    git = src.index("GitMiddleware(")
+    assert sandbox < git, "GitMiddleware must be registered after SandboxMiddleware"
+
+
+def test_git_middleware_receives_capture_patch_flag():
+    src = inspect.getsource(graph_module)
+    git_call = _balanced_call_args(src, "GitMiddleware(")
+    assert "capture_patch=capture_patch" in git_call, (
+        "GitMiddleware must receive the capture_patch flag from create_daiv_agent — eval harnesses "
+        "rely on it to read the run's patch from ainvoke output state"
+    )
+
+
 def test_slash_command_middleware_registered_only_when_enabled():
     # The enabled check lives at registration time (like sandbox/web middleware), not inside the
     # middleware — so a disabled config drops the middleware entirely rather than no-op'ing per turn.

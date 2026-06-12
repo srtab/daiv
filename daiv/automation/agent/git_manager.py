@@ -181,6 +181,27 @@ class GitManager:
         return diff
 
     # -- queries -------------------------------------------------------------
+    async def get_diff(self, ref: str = "HEAD") -> str:
+        """Unified diff of the working tree vs ``ref``, including untracked files.
+
+        Untracked files are folded in via per-file ``diff --no-index`` (a second
+        round-trip, only when any exist). Unlike :meth:`status_snapshot` this never
+        touches the remote, so it works on detached/offline clones (eval harnesses).
+        ``ref`` must resolve — there is no empty-repo (``--cached``) fallback like the
+        pre-sandbox implementation had.
+        """
+        diff_res, untracked_res = await self._git_batch([("diff", ref), ("ls-files", "--others", "--exclude-standard")])
+        if diff_res.exit_code != 0:
+            raise GitCommandError(["git", "diff", ref], diff_res.exit_code, diff_res.output)
+        if untracked_res.exit_code != 0:
+            raise GitCommandError(
+                ["git", "ls-files", "--others", "--exclude-standard"], untracked_res.exit_code, untracked_res.output
+            )
+
+        untracked = [line.strip() for line in untracked_res.output.splitlines() if line.strip()]
+        batch_b = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
+        return self._append_untracked(diff_res.output, untracked, batch_b)
+
     async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
         """Collect everything the publisher needs in at most two sandbox round-trips.
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, NotRequired, cast
 
 import httpx
 from asgiref.sync import sync_to_async
+from git import GitCommandError
 from github import GithubException
 from gitlab.exceptions import GitlabError
 from langchain.agents import AgentState
@@ -13,6 +14,7 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
+from automation.agent.git_utils import open_git_manager
 from automation.agent.publishers import GitChangePublisher
 from codebase.base import MergeRequest, Scope
 from codebase.clients import RepoClient
@@ -91,6 +93,14 @@ class GitState(AgentState):
     posted as a separate comment.
     """
 
+    model_patch: NotRequired[str]
+    """
+    Unified diff of the run's working-tree changes vs ``HEAD``, captured at turn end when
+    the middleware runs with ``capture_patch=True`` (eval harnesses). Public on the output
+    schema — like ``merge_request`` — so callers read it straight from ``ainvoke``'s
+    returned state. Absent on normal runs.
+    """
+
 
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     """
@@ -103,10 +113,14 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     Args:
         skip_ci: Whether to prefix the commit with ``[skip ci]``.
         auto_commit_changes: Whether the run publishes its changes at all. When ``False`` the
-            middleware is inert.
+            turn-end publish is skipped.
+        capture_patch: Whether to capture the run's working-tree diff (vs ``HEAD``) at turn end
+            and expose it as ``model_patch`` in the output state. Used by eval harnesses to read
+            the patch from ``ainvoke``'s result; keep ``False`` for normal runs so potentially
+            large patches never stream through ``STATE_SNAPSHOT`` events.
         sandbox_backend: Run's bound :class:`SandboxFileBackend` injected by ``create_daiv_agent``;
-            forwarded to :class:`GitChangePublisher` so the turn-end publish runs git inside the
-            sandbox. ``None`` for sandbox-disabled / local runs.
+            forwarded to :class:`GitChangePublisher` (and used for patch capture) so turn-end git
+            runs inside the sandbox. ``None`` for sandbox-disabled / local runs.
 
     Example:
         ```python
@@ -131,6 +145,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         *,
         skip_ci: bool = False,
         auto_commit_changes: bool = True,
+        capture_patch: bool = False,
         sandbox_backend: SandboxFileBackend | None = None,
     ) -> None:
         """
@@ -138,6 +153,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         """
         self.skip_ci = skip_ci
         self.auto_commit_changes = auto_commit_changes
+        self.capture_patch = capture_patch
         self._sandbox_backend = sandbox_backend
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
@@ -250,24 +266,44 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
-        After the agent finishes, publish any new changes and reflect the resolved MR in state.
+        After the agent finishes, optionally capture the run's patch, then publish any new changes.
 
-        The publish *decision* lives in :meth:`GitChangePublisher.publish`, which returns a
-        :class:`PublishOutcome`: a no-op turn (clean tree already on its MR, or no changes at all)
-        publishes nothing. We map the outcome onto the streamed ``merge_request`` field and the
-        private ``code_changes`` / ``protected_branch_fallback_source`` flags.
+        Capture runs first: the publisher's commit moves ``HEAD``, which would empty a
+        diff-vs-``HEAD`` taken afterwards. A capture failure raises when the run doesn't
+        publish (the patch is the run's only artifact) but is logged-and-skipped when it
+        does (capture is observability; the publish must not be aborted by it). The publish
+        *decision* lives in :meth:`GitChangePublisher.publish`, which returns a
+        :class:`PublishOutcome`: a no-op turn (clean tree already on its MR, or no changes at
+        all) publishes nothing. We map the outcome onto the streamed ``merge_request`` field
+        and the private ``code_changes`` / ``protected_branch_fallback_source`` flags.
         """
+        update: dict[str, Any] = {}
+        if self.capture_patch:
+            try:
+                async with open_git_manager(
+                    sandbox_backend=self._sandbox_backend, gitrepo=runtime.context.gitrepo
+                ) as git_manager:
+                    update["model_patch"] = await git_manager.get_diff()
+            except GitCommandError, httpx.HTTPError, RuntimeError:
+                # Not publishing (eval harnesses): the patch IS the run's artifact — fail loudly
+                # rather than record an empty patch indistinguishable from "agent made no changes".
+                if not self.auto_commit_changes:
+                    raise
+                # Publishing: capture is read-only observability — never strand the agent's work
+                # uncommitted over it.
+                logger.exception("Patch capture failed; publishing without model_patch")
+
         if not self.auto_commit_changes:
-            return None
+            return update or None
 
         publisher = GitChangePublisher(runtime.context, sandbox_backend=self._sandbox_backend)
         outcome = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
 
         if outcome.merge_request is None:
-            return None
+            return update or None
 
         self._record_issue_mr(outcome.merge_request, runtime)
-        update: dict[str, Any] = {"merge_request": outcome.merge_request, "code_changes": True}
+        update |= {"merge_request": outcome.merge_request, "code_changes": True}
         if outcome.published:
             update["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
         return update

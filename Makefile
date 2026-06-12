@@ -86,14 +86,14 @@ swebench-clean:
 	rm -rf /tmp/swebench
 
 swerebench:
-	uv run evals/swebench.py --dataset-path "nebius/SWE-rebench-leaderboard" --dataset-split "2026_01" --output-path swerebench-predictions.json --num-samples 1
+	uv run evals/swebench.py --dataset-path "nebius/SWE-rebench-leaderboard" --dataset-split "2026_03" --output-path swerebench-predictions.json --num-samples 10
 
 swerebench-evaluate: swerebench-clean
 	mkdir -p /tmp/swerebench
 	git clone https://github.com/SWE-rebench/SWE-bench-fork /tmp/swerebench
 	cd /tmp/swerebench; uv venv --python 3.11; uv pip install -e .; uv run -m swebench.harness.run_evaluation \
 		--dataset_name nebius/SWE-rebench-leaderboard \
-		--split 2026_01 \
+		--split 2026_03 \
 		--max_workers 4 \
 		--predictions_path /tmp/predictions.json \
 		--namespace "swerebench" \
@@ -112,4 +112,4 @@ tailwind-watch:
 	docker compose exec app tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --watch
 
 langsmith-fetch:
-	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 50 --include-metadata ./daiv-traces
+	uv run langsmith-fetch traces --project-uuid 00d1a04e-0087-4813-9a18-5995cd5bee5c --limit 10 --include-metadata ./daiv-traces

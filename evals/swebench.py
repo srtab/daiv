@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import sys
 import traceback
 from pathlib import Path
 from textwrap import dedent
@@ -10,12 +11,15 @@ import django
 from datasets import load_dataset
 from langgraph.store.memory import InMemoryStore
 
-from automation.agent import ThinkingLevel
-from automation.agent.constants import ModelName
-from automation.agent.graph import create_daiv_agent
-from codebase.base import GitPlatform, Scope
-from codebase.context import set_runtime_ctx
-from codebase.utils import GitManager
+# The first-party imports below define Django models at import time, so the app
+# registry must be populated before them.
+django.setup()
+
+from automation.agent import ThinkingLevel  # noqa: E402
+from automation.agent.constants import ModelName  # noqa: E402
+from automation.agent.graph import create_daiv_agent  # noqa: E402
+from codebase.base import GitPlatform, Scope  # noqa: E402
+from codebase.context import set_runtime_ctx  # noqa: E402
 
 
 async def main(
@@ -59,6 +63,12 @@ async def main(
                     store=store,
                     # checkpointer=checkpointer,  # noqa: ERA001
                     auto_commit_changes=False,
+                    # On sandbox-enabled runs the agent's edits live in the sandbox
+                    # /workspace/repo, not in this local clone (it only seeds the session), so
+                    # a local diff here would be empty. capture_patch makes GitMiddleware take
+                    # the diff at turn end from whichever workspace is authoritative and expose
+                    # it as `model_patch` in the output state.
+                    capture_patch=True,
                     web_search_enabled=False,
                     web_fetch_enabled=False,
                 )
@@ -96,24 +106,23 @@ async def main(
                         """  # noqa: E501
                     ).format(hints_text=item["hints_text"])
 
+                result = None
                 try:
-                    await daiv_agent.ainvoke(
+                    result = await daiv_agent.ainvoke(
                         {"messages": [human_message]},
                         context=ctx,
                         config={"configurable": {"thread_id": item["instance_id"]}},
                     )
                 except Exception:
+                    print(f"[{item['instance_id']}] run failed:", file=sys.stderr)  # noqa: T201
                     traceback.print_exc()
-                    continue
                 finally:
-                    # FIXME(sandbox-authoritative): with the sandbox as the single source of
-                    # truth, the agent's edits live in the sandbox /workspace/repo, not in this
-                    # local clone (which only seeds the session and is closed by the time we get
-                    # here). This local diff is therefore empty for sandbox-enabled runs. Capturing
-                    # the prediction patch from the sandbox before the session closes is follow-up
-                    # eval-harness work; see the sandbox-authoritative-workspace design.
+                    # A failed run degrades to an empty patch (the traceback above is the
+                    # signal); a *successful* run missing the key means capture_patch wiring
+                    # drifted — let the KeyError kill the eval rather than silently emit a
+                    # predictions file full of empty patches.
                     predictions.append({
-                        "model_patch": await GitManager.for_local(ctx.gitrepo).get_diff(),
+                        "model_patch": result["model_patch"] if result is not None else "",
                         "model_name_or_path": ", ".join(model_names),
                         "instance_id": item["instance_id"],
                     })
@@ -125,13 +134,11 @@ async def main(
 
 
 if __name__ == "__main__":
-    django.setup()
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-path", type=str, default="princeton-nlp/SWE-bench_Verified")
     parser.add_argument("--dataset-split", type=str, default="test")
     parser.add_argument("--num-samples", type=int, default=10)
-    parser.add_argument("--model-names", type=str, nargs="+", default=[ModelName.CLAUDE_SONNET_4_6])
+    parser.add_argument("--model-names", type=str, nargs="+", default=[ModelName.MINIMAX_M3])
     parser.add_argument("--instance-ids", type=str, nargs="+")
     parser.add_argument("--output-path", type=str, default="predictions.json")
 

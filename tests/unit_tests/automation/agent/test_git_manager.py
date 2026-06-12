@@ -421,3 +421,84 @@ async def test_status_snapshot_raises_on_result_count_mismatch() -> None:
     gm = GitManager.for_sandbox(_backend_for(client))
     with pytest.raises(RuntimeError, match="results for"):
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+
+
+# ---------------------------------------------------------------------------
+# get_diff (working-tree patch vs a ref, incl. untracked — eval patch capture)
+# ---------------------------------------------------------------------------
+
+
+async def test_get_diff_local_includes_tracked_changes_and_untracked(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    repo_dir = tmp_path / "work"
+    (repo_dir / "README.md").write_text("changed\n")
+    (repo_dir / "new.py").write_text("print('hi')\n")
+
+    diff = await GitManager.for_local(repo).get_diff()
+
+    assert "a/README.md" in diff
+    assert "+changed" in diff
+    assert "new.py" in diff
+    assert "+print('hi')" in diff
+    assert diff.endswith("\n")
+
+
+async def test_get_diff_local_empty_when_clean(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    assert await GitManager.for_local(repo).get_diff() == ""
+
+
+async def test_get_diff_sandbox_single_round_trip_when_no_untracked() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(("diff --git a/x b/x\n", 0), ("", 0)))
+    gm = GitManager.for_sandbox(_backend_for(client))
+
+    diff = await gm.get_diff()
+
+    assert diff == "diff --git a/x b/x\n"
+    assert client.run_commands.await_count == 1
+    sent = client.run_commands.await_args.args[1]
+    assert any("diff HEAD" in command for command in sent.commands)
+    assert any("ls-files --others --exclude-standard" in command for command in sent.commands)
+
+
+async def test_get_diff_sandbox_folds_untracked_in_second_round_trip() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[
+            _resp(("diff --git a/x b/x\n", 0), ("new.py\n", 0)),
+            # `diff --no-index` exits 1 when it finds differences — expected, keep the output.
+            _resp(("+++ b/new.py\n+hello\n", 1)),
+        ]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+
+    diff = await gm.get_diff()
+
+    assert "diff --git a/x b/x" in diff
+    assert "+++ b/new.py" in diff
+    assert diff.endswith("\n")
+    assert client.run_commands.await_count == 2
+
+
+async def test_get_diff_diffs_against_given_ref() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(("", 0), ("", 0)))
+    gm = GitManager.for_sandbox(_backend_for(client))
+
+    await gm.get_diff("abc123")
+
+    sent = client.run_commands.await_args.args[1]
+    assert any("diff abc123" in command for command in sent.commands)
+
+
+async def test_get_diff_raises_on_diff_failure() -> None:
+    gm, _ = _sandbox_manager({"diff HEAD": (128, "fatal: bad revision"), "ls-files": (0, "")})
+    with pytest.raises(GitCommandError):
+        await gm.get_diff()
+
+
+async def test_get_diff_raises_on_ls_files_failure() -> None:
+    gm, _ = _sandbox_manager({"ls-files": (128, "fatal: boom")})
+    with pytest.raises(GitCommandError):
+        await gm.get_diff()
