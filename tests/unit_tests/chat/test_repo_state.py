@@ -110,6 +110,23 @@ async def test_swallows_errors_from_client_call():
     assert result is None
 
 
+async def test_swallows_requests_transport_errors():
+    """The platform SDKs (python-gitlab, PyGithub) are requests-based: a network blip
+    surfaces as a requests exception, not a Gitlab/Github API error — it must degrade
+    to "no MR" like any other platform hiccup."""
+    import requests
+
+    repo_client = MagicMock()
+    repo_client.get_merge_request_by_branches.side_effect = requests.ConnectionError("dns failure")
+    with (
+        patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
+        patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
+    ):
+        result = await aget_existing_mr_payload("a/b", "feature-x")
+
+    assert result is None
+
+
 async def test_propagates_unexpected_errors():
     """Bugs (KeyError/AttributeError/TypeError) must NOT be silently caught —
     they should surface as 500s rather than masking as a fake 'no MR'.

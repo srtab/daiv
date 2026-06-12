@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 import httpx
+import requests
 from asgiref.sync import sync_to_async
 from github import GithubException
 from gitlab.exceptions import GitlabError
@@ -21,10 +22,18 @@ from codebase.repo_config import RepositoryConfig
 
 logger = logging.getLogger("daiv.chat")
 
-# Platform / transport errors that warrant a soft "no MR" fallback. Anything
-# else (bugs, ConfigErrors, AttributeError, etc.) propagates so the caller's
-# error handling can surface it instead of silently masking it as "no MR".
-_PLATFORM_ERRORS: tuple[type[BaseException], ...] = (GitlabError, GithubException, httpx.HTTPError)
+# Platform / transport errors that warrant a soft "no MR" fallback. The platform
+# SDKs (python-gitlab, PyGithub) are requests-based, so raw network failures
+# surface as requests exceptions; httpx covers the repo-config fetch inside the
+# same try block. Anything else (bugs, ConfigErrors, AttributeError, etc.)
+# propagates so the caller's error handling can surface it instead of silently
+# masking it as "no MR".
+_PLATFORM_ERRORS: tuple[type[BaseException], ...] = (
+    GitlabError,
+    GithubException,
+    httpx.HTTPError,
+    requests.RequestException,
+)
 
 
 def mr_to_payload(mr: object) -> dict[str, Any] | None:

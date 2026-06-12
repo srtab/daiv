@@ -30,6 +30,7 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     runtime.context.repository = Mock(slug="a/b")
     runtime.context.config = Mock(default_branch="main")
     runtime.context.gitrepo = Mock()
+    runtime.context.gitrepo.head.is_detached = False
     return runtime
 
 
@@ -207,6 +208,39 @@ class TestGitMiddleware:
         assert mr is existing_mr
         client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x", "main")
 
+    async def test_alookup_open_mr_skips_detached_head(self):
+        """Commit-pinned runs (SWE-bench evals check out a raw SHA) have no branch, so
+        no MR can exist — the lookup must short-circuit before any platform call."""
+        runtime = _make_runtime()
+        runtime.context.gitrepo.head.is_detached = True
+
+        with (
+            patch(
+                "automation.agent.middlewares.git.get_repo_ref", return_value="80e486c6dce6d10b13ef1705a8e9255bbc4a521b"
+            ),
+            patch("automation.agent.middlewares.git.RepoClient.create_instance") as create,
+        ):
+            mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
+
+        assert mr is None
+        create.assert_not_called()
+
+    async def test_alookup_open_mr_uses_run_platform_client(self):
+        """The lookup must query the run's platform, not the settings default — a run
+        whose repo lives elsewhere would otherwise 404 against the configured platform
+        or, worse, match a same-named repo's MR."""
+        runtime = _make_runtime()
+        client = MagicMock()
+        client.get_merge_request_by_branches = MagicMock(return_value=None)
+
+        with (
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client) as create,
+        ):
+            await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
+
+        create.assert_called_once_with(git_platform=runtime.context.git_platform)
+
     async def test_alookup_open_mr_skips_default_branch(self):
         runtime = _make_runtime()
 
@@ -225,6 +259,24 @@ class TestGitMiddleware:
         runtime = _make_runtime()
         client = MagicMock()
         client.get_merge_request_by_branches = MagicMock(side_effect=GitlabError("gitlab down"))
+
+        with (
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch("automation.agent.middlewares.git.RepoClient.create_instance", return_value=client),
+        ):
+            mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
+
+        assert mr is None
+
+    async def test_alookup_open_mr_swallows_transport_errors(self):
+        """The platform SDKs (python-gitlab, PyGithub) are requests-based: a network blip
+        surfaces as a requests exception, not a Gitlab/Github API error. This lookup is
+        best-effort — a transient outage must degrade to "no MR", not crash the run."""
+        import requests
+
+        runtime = _make_runtime()
+        client = MagicMock()
+        client.get_merge_request_by_branches = MagicMock(side_effect=requests.ConnectionError("dns failure"))
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),

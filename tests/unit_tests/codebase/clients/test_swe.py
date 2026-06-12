@@ -37,6 +37,21 @@ class TestSWERepoClient:
 
         assert repo.clone_url == "https://github.example.com/owner/repo.git"
 
+    def test_get_repository_requires_repo_host(self):
+        """Constructing without ``repo_host`` must work (``RepoClient.create_instance(
+        git_platform=GitPlatform.SWE)`` from GitMiddleware passes no kwargs) — but the
+        cloning path must fail fast rather than silently default to a host: a wrong-host
+        clone of a same-named repo would corrupt an entire eval with zero signal."""
+        client = SWERepoClient()
+
+        with pytest.raises(ValueError, match="repo_host"):
+            client.get_repository("psf/requests")
+
+    def test_get_merge_request_by_branches_returns_none(self, swe_client):
+        """SWE runs have no merge-request concept: report "no open MR" instead of raising,
+        so platform-agnostic callers (GitMiddleware's MR lookup) fall through gracefully."""
+        assert swe_client.get_merge_request_by_branches("psf/requests", "feature-x", "main") is None
+
     def test_list_repositories_not_supported(self, swe_client):
         """Test that listing repositories raises NotImplementedError."""
         with pytest.raises(NotImplementedError, match="does not support listing repositories"):

@@ -42,12 +42,16 @@ class SWERepoClient(RepoClient):
     client: None = None  # No API client needed
     git_platform = GitPlatform.SWE
 
-    def __init__(self, repo_host: str):
+    def __init__(self, repo_host: str | None = None):
         """
         Initialize the SWE client.
 
         Args:
-            repo_host: The repository host to use for cloning.
+            repo_host: The repository host to use for cloning. Optional so that
+                ``RepoClient.create_instance(git_platform=GitPlatform.SWE)`` works without
+                kwargs — callers like ``GitMiddleware`` only know the run's platform and
+                never clone. Cloning paths (:meth:`get_repository`) fail fast without it
+                rather than silently defaulting to a host.
         """
         self.repo_host = repo_host
         self._loaded_repo: Repo | None = None
@@ -62,6 +66,13 @@ class SWERepoClient(RepoClient):
         Returns:
             The repository object.
         """
+        if self.repo_host is None:
+            # A defaulted host could silently clone a same-named repo from the wrong
+            # place and corrupt an entire eval — require an explicit choice.
+            raise ValueError(
+                "SWERepoClient was constructed without repo_host; building clone URLs requires "
+                "an explicit host (pass repo_host= to RepoClient.create_instance / set_runtime_ctx)."
+            )
         if "/" not in repo_id:
             raise ValueError(f"Invalid repo_id format: {repo_id}. Expected format: 'owner/name'")
 
@@ -294,8 +305,12 @@ class SWERepoClient(RepoClient):
     def get_merge_request_by_branches(
         self, repo_id: str, source_branch: str, target_branch: str
     ) -> MergeRequest | None:
-        """Not supported for SWE client."""
-        raise NotImplementedError("SWERepoClient does not support merge requests")
+        """SWE runs have no merge-request concept: there is never an open MR, so report
+        none rather than raising — platform-agnostic callers (e.g. GitMiddleware's
+        pre-run MR lookup) then fall through gracefully. Defense in depth: that lookup
+        already short-circuits on the detached HEAD typical of SWE runs, so this only
+        fires for hypothetical branch-based ones."""
+        return None
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """Not supported for SWE client."""
