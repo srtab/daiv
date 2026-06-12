@@ -170,6 +170,17 @@ async def test_agrep_no_match_is_not_an_error(backend, client):
     assert result.matches == []
 
 
+async def test_agrep_no_match_with_regex_looking_pattern_does_not_hint_here(backend, client):
+    """The literal-semantics hint deliberately does NOT live at this level: the composite
+    treats a sub-backend GrepResult.error as a backend failure and would suppress real
+    matches from sibling backends. A zero-match here stays a clean empty result; the hint
+    fires on the aggregate in DAIVCompositeBackend.agrep (tested in test_file_system.py)."""
+    client.fs_grep.return_value = FsGrepResponse(matches=[])
+    result = await backend.agrep("get_catalog|list_relations", path="/workspace", glob=None)
+    assert result.error is None
+    assert result.matches == []
+
+
 async def test_aedit_success_and_error_passthrough(backend, client):
     client.fs_edit.return_value = FsEditResponse(occurrences=2)
     ok = await backend.aedit("/workspace/repo/a.py", "old", "new", replace_all=True)
@@ -211,10 +222,13 @@ async def test_als_propagates_error(backend, client):
 
 
 async def test_agrep_propagates_error(backend, client):
+    """A real sandbox failure passes through verbatim — even for a regex-looking pattern, the
+    literal-semantics hint must never replace a genuine error (grep never ran)."""
     client.fs_grep.return_value = FsGrepResponse(matches=[], error=_err(FsErrorCode.EXEC_FAILED, "grep failed"))
-    result = await backend.agrep("x", path="/workspace", glob=None)
+    result = await backend.agrep("foo|bar", path="/workspace", glob=None)
     assert result.matches is None
     assert result.error is not None and "grep failed" in result.error
+    assert "LITERAL" not in result.error
 
 
 async def test_aglob_returns_paths_and_propagates_error(backend, client):

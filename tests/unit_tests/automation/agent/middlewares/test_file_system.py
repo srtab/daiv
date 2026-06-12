@@ -146,6 +146,58 @@ class TestDAIVCompositeBackend:
         assert stat.S_IMODE(skills_mode) == 0o755, "skills-routed stat_mode reads real bits"
         assert stat.S_IMODE(repo_mode) == 0o644, "default-routed stat_mode reads real bits"
 
+    async def test_agrep_hints_on_regexy_zero_match(self, tmp_path: Path):
+        """A zero-match aggregate for a regex-shaped pattern (the backends grep literally)
+        returns an explicit literal-semantics hint instead of a bare "no matches" the model
+        would misread as "the symbol does not exist"."""
+        composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
+        (skills_root / "a.md").write_text("nothing relevant\n")
+
+        result = await composite.agrep("get_catalog|list_relations")
+
+        assert result.error is not None
+        assert "LITERAL" in result.error
+        assert "get_catalog|list_relations" in result.error
+
+    async def test_agrep_literal_zero_match_stays_clean(self, tmp_path: Path):
+        """Bare parens/dots are common in genuinely literal code searches; a zero-match for
+        them is a real answer, not a hint trigger."""
+        composite, _skills, _repo, _skills_root, _repo_root = self._make_composite(tmp_path)
+
+        for pattern in ("plainmissing", "def __init__(self):"):
+            result = await composite.agrep(pattern)
+            assert result.error is None, pattern
+            assert not result.matches, pattern
+
+    async def test_agrep_routed_matches_survive_regexy_pattern(self, tmp_path: Path):
+        """The hint must fire on the *aggregate*, never per-backend: a routed backend's real
+        matches must come back even when other backends found nothing for a regexy pattern —
+        a per-backend hint would abort the composite's aggregation and suppress them."""
+        composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
+        (skills_root / "doc.md").write_text("literally contains foo|bar here\n")
+
+        result = await composite.agrep("foo|bar")
+
+        assert result.error is None
+        assert result.matches
+
+    async def test_agrep_subbackend_error_wins_over_hint(self, tmp_path: Path):
+        """A genuine backend failure (grep never ran) must pass through verbatim — masking it
+        with the no-matches hint would tell the model the symbol doesn't exist."""
+        from deepagents.backends.protocol import GrepResult
+
+        composite, _skills, _repo, _skills_root, _repo_root = self._make_composite(tmp_path)
+
+        async def failing_agrep(*args, **kwargs):
+            return GrepResult(error="grep failed")
+
+        composite.default.agrep = failing_agrep
+
+        result = await composite.agrep("foo|bar")
+
+        assert result.error == "grep failed"
+        assert "LITERAL" not in result.error
+
     async def test_resolve_backend_for_returns_route_target(self, tmp_path: Path):
         composite, skills, repo, _skills_root, _repo_root = self._make_composite(tmp_path)
 

@@ -256,6 +256,22 @@ class DAIVCompositeBackend(CompositeBackend):
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend
 
+    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+        """Grep with a literal-semantics hint on suspicious zero-match patterns.
+
+        The hint lives here — on the *aggregate* result — and not in the sub-backends on
+        purpose: ``CompositeBackend.agrep`` treats any sub-backend ``error`` as a backend
+        failure and aborts aggregation, so a hint raised below this level would suppress
+        real matches from the other backends and affirmatively tell the model a symbol
+        doesn't exist. At this level the hint fires only when *every* backend found
+        nothing and none errored, and it covers sandbox and disk modes alike. Async-only,
+        like the rest of DAIV's backend surface (the agent path never calls sync).
+        """
+        result = await super().agrep(pattern, path=path, glob=glob)
+        if result.error is None and not result.matches and (hint := _literal_grep_no_match_hint(pattern)):
+            return GrepResult(error=hint)
+        return result
+
 
 def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> DAIVCompositeBackend:
     """Build the disk-backed composite that serves the unified ``/workspace`` namespace.
@@ -348,6 +364,32 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
         return _FS_TRANSPORT_TRANSIENT_TEXT
     logger.error("Sandbox %s transport failure for %r (permanent)", op, target, exc_info=exc)
     return _FS_TRANSPORT_PERMANENT_TEXT
+
+
+# High-signal regex constructs in a pattern destined for the *literal* grep backends. Despite the
+# deepagents grep tool description saying "literal string, not regex", models routinely send
+# `foo|bar|baz` and get a silent zero-match back — and then conclude the symbol doesn't exist.
+# Only unambiguous fragments are listed: bare parens/dots/brackets are common in genuinely literal
+# code searches (`def __init__(self):`) and must not trigger the hint.
+_REGEX_LOOKING_FRAGMENTS = ("|", ".*", "\\w", "\\s", "\\d", "\\b")
+
+
+def _literal_grep_no_match_hint(pattern: str) -> str | None:
+    """An agent-facing hint for a zero-match grep whose pattern looks like a regex, else ``None``.
+
+    Returned as the ``GrepResult.error`` so the model sees it verbatim instead of a bare
+    "No matches found" it would misread as "the symbol does not exist". The caller must
+    only invoke this on an empty, error-free aggregate match set — the message asserts
+    "No matches found" (see ``DAIVCompositeBackend.agrep`` for why the composite is the
+    only valid call site).
+    """
+    if not any(fragment in pattern for fragment in _REGEX_LOOKING_FRAGMENTS):
+        return None
+    return (
+        f"No matches found for {pattern!r}. Reminder: grep patterns match as LITERAL text, not regex — "
+        "'|' is not alternation and '.*'/escape classes have no special meaning, so this pattern was "
+        "searched verbatim. Search each term with its own grep call."
+    )
 
 
 class SandboxFileBackend(BackendProtocol):
