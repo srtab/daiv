@@ -5,10 +5,10 @@ import base64
 import logging
 import stat
 from pathlib import Path
-from typing import Protocol, cast, runtime_checkable
+from typing import Annotated, Literal, Protocol, cast, runtime_checkable
 
 import httpx
-from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.composite import CompositeBackend, _remap_grep_path, _route_for_path
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.protocol import (
     FILE_NOT_FOUND,
@@ -25,13 +25,25 @@ from deepagents.backends.protocol import (
     ReadResult,
     WriteResult,
 )
+from deepagents.backends.utils import format_grep_matches, truncate_if_too_long, validate_path
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import FilesystemPermission
+from deepagents.middleware.filesystem import (
+    FilesystemMiddleware,
+    FilesystemPermission,
+    FilesystemState,
+    _check_fs_permission,
+    _filter_grep_matches_by_permission,
+)
+from langchain.tools import (
+    ToolRuntime,  # noqa: TC002  (runtime import: get_type_hints resolves the grep tool's annotations at ToolNode build)
+)
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool, StructuredTool
+from pydantic import BaseModel, Field
 
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
@@ -74,7 +86,31 @@ def _with_path_reminder(base: str, *extras: str) -> str:
     return "\n".join((base, *extras, REMINDER_ABSOLUTE_PATHS))
 
 
-GREP_TOOL_DESCRIPTION = _with_path_reminder(GREP_TOOL_DESCRIPTION_BASE)
+# DAIV authors its own grep description (it does NOT inherit deepagents'
+# ``GREP_TOOL_DESCRIPTION_BASE``, which still says "literal string, not regex"): the sandbox grep is
+# ripgrep-backed and regex is always on, mirroring Claude Code's Grep tool. Documents the extended
+# params (output_mode/head_limit/case_insensitive/multiline) exposed by ``DAIVFilesystemMiddleware``.
+GREP_TOOL_DESCRIPTION_OWN = """A powerful search tool over file contents.
+
+- `pattern` is a regular expression (ripgrep / Rust regex syntax) and is ALWAYS interpreted as a \
+regex — there is no literal mode. To match a metacharacter literally (e.g. `.`, `(`, `)`, `{`, `}`, \
+`*`, `+`, `?`, `|`, `[`, `]`, `\\`), escape it with a backslash (e.g. `foo\\(bar\\)` to find the \
+literal text `foo(bar)`).
+- `path` restricts the search to a file or directory (absolute path; defaults to the workspace root).
+- `glob` restricts which files are searched by filename (e.g. `*.py`, `**/*.ts`).
+- `output_mode` controls what is returned:
+  - `files_with_matches` (default): matching file paths only.
+  - `content`: matching lines.
+  - `count`: match counts per file.
+- `head_limit` caps the number of results returned (omit for no cap).
+- `case_insensitive` makes the match case-insensitive (like ripgrep `-i`).
+- `multiline` lets a match span lines and `.` match newlines (like ripgrep `--multiline`).
+
+Usage notes:
+- Prefer this tool over running `grep`/`rg` through bash.
+- For an exact-substring search, escape any regex metacharacters in the pattern."""
+
+GREP_TOOL_DESCRIPTION = _with_path_reminder(GREP_TOOL_DESCRIPTION_OWN)
 GLOB_TOOL_DESCRIPTION = _with_path_reminder(GLOB_TOOL_DESCRIPTION_BASE)
 LIST_FILES_TOOL_DESCRIPTION = _with_path_reminder(LIST_FILES_TOOL_DESCRIPTION_BASE)
 READ_FILE_TOOL_DESCRIPTION = _with_path_reminder(READ_FILE_TOOL_DESCRIPTION_BASE)
@@ -256,21 +292,78 @@ class DAIVCompositeBackend(CompositeBackend):
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend
 
-    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
-        """Grep with a literal-semantics hint on suspicious zero-match patterns.
+    async def agrep(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        *,
+        case_insensitive: bool = False,
+        multiline: bool = False,
+        head_limit: int | None = None,
+    ) -> GrepResult:
+        """Routing grep that threads DAIV's extended (ripgrep) options to sub-backends.
 
-        The hint lives here — on the *aggregate* result — and not in the sub-backends on
-        purpose: ``CompositeBackend.agrep`` treats any sub-backend ``error`` as a backend
-        failure and aborts aggregation, so a hint raised below this level would suppress
-        real matches from the other backends and affirmatively tell the model a symbol
-        doesn't exist. At this level the hint fires only when *every* backend found
-        nothing and none errored, and it covers sandbox and disk modes alike. Async-only,
-        like the rest of DAIV's backend surface (the agent path never calls sync).
+        ``pattern`` is a regular expression (ripgrep/Rust regex syntax) — the sandbox backend
+        evaluates it as such; the disk ``FilesystemBackend`` only supports literal/3-arg grep, so
+        the extended options are forwarded **only** to backends that accept them (the sandbox
+        backend) and silently dropped for backends that do not. Upstream ``CompositeBackend.agrep``
+        hardcodes the 3-arg ``agrep(pattern, path, glob)`` call to its sub-backends and cannot carry
+        the extra kwargs, so the routing is reimplemented here. Async-only, like the rest of DAIV's
+        backend surface (the agent path never calls sync).
         """
-        result = await super().agrep(pattern, path=path, glob=glob)
-        if result.error is None and not result.matches and (hint := _literal_grep_no_match_hint(pattern)):
-            return GrepResult(error=hint)
-        return result
+
+        async def _grep(backend: BackendProtocol, p: str, search_path: str | None) -> GrepResult:
+            # Only DAIV's sandbox backend understands the extended ripgrep options; the disk
+            # FilesystemBackend keeps the fixed 3-arg protocol signature, so don't pass them there.
+            if isinstance(backend, SandboxFileBackend):
+                return self._coerce_grep_result(
+                    await backend.agrep(
+                        p,
+                        search_path,
+                        glob,
+                        case_insensitive=case_insensitive,
+                        multiline=multiline,
+                        head_limit=head_limit,
+                    )
+                )
+            return self._coerce_grep_result(await backend.agrep(p, search_path, glob))
+
+        if path is not None:
+            backend, backend_path, route_prefix = _route_for_path(
+                default=self.default, sorted_routes=self.sorted_routes, path=path
+            )
+            if route_prefix is not None:
+                grep_result = await _grep(backend, pattern, backend_path)
+                if grep_result.error:
+                    return grep_result
+                remapped = [_remap_grep_path(m, route_prefix) for m in (grep_result.matches or [])]
+                # A sandbox backend already self-capped; a disk backend never received head_limit, so
+                # apply it here too to keep the cap meaningful regardless of which backend was routed.
+                if head_limit is not None:
+                    remapped = remapped[:head_limit]
+                return GrepResult(matches=remapped)
+
+        if path is None or path == "/":
+            all_matches: list[GrepMatch] = []
+            default_result = await _grep(self.default, pattern, path)
+            if default_result.error:
+                return default_result
+            all_matches.extend(default_result.matches or [])
+            for route_prefix, backend in self.routes.items():
+                grep_result = await _grep(backend, pattern, "/")
+                if grep_result.error:
+                    return grep_result
+                all_matches.extend(_remap_grep_path(m, route_prefix) for m in (grep_result.matches or []))
+            # Each sub-backend self-caps at head_limit, but the merged total can exceed it, so apply
+            # the cap once more across the aggregate — otherwise "at most N" silently becomes "up to
+            # N per backend" once more than one backend is routed.
+            if head_limit is not None:
+                all_matches = all_matches[:head_limit]
+            return GrepResult(matches=all_matches)
+
+        # Path specified but doesn't match a route - search only the default backend.
+        return await _grep(self.default, pattern, path)
 
 
 def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> DAIVCompositeBackend:
@@ -364,32 +457,6 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
         return _FS_TRANSPORT_TRANSIENT_TEXT
     logger.error("Sandbox %s transport failure for %r (permanent)", op, target, exc_info=exc)
     return _FS_TRANSPORT_PERMANENT_TEXT
-
-
-# High-signal regex constructs in a pattern destined for the *literal* grep backends. Despite the
-# deepagents grep tool description saying "literal string, not regex", models routinely send
-# `foo|bar|baz` and get a silent zero-match back — and then conclude the symbol doesn't exist.
-# Only unambiguous fragments are listed: bare parens/dots/brackets are common in genuinely literal
-# code searches (`def __init__(self):`) and must not trigger the hint.
-_REGEX_LOOKING_FRAGMENTS = ("|", ".*", "\\w", "\\s", "\\d", "\\b")
-
-
-def _literal_grep_no_match_hint(pattern: str) -> str | None:
-    """An agent-facing hint for a zero-match grep whose pattern looks like a regex, else ``None``.
-
-    Returned as the ``GrepResult.error`` so the model sees it verbatim instead of a bare
-    "No matches found" it would misread as "the symbol does not exist". The caller must
-    only invoke this on an empty, error-free aggregate match set — the message asserts
-    "No matches found" (see ``DAIVCompositeBackend.agrep`` for why the composite is the
-    only valid call site).
-    """
-    if not any(fragment in pattern for fragment in _REGEX_LOOKING_FRAGMENTS):
-        return None
-    return (
-        f"No matches found for {pattern!r}. Reminder: grep patterns match as LITERAL text, not regex — "
-        "'|' is not alternation and '.*'/escape classes have no special meaning, so this pattern was "
-        "searched verbatim. Search each term with its own grep call."
-    )
 
 
 class SandboxFileBackend(BackendProtocol):
@@ -508,11 +575,35 @@ class SandboxFileBackend(BackendProtocol):
             return ReadResult(error=f"File '{file_path}': {_fs_error_text(resp.error)}")
         return ReadResult(file_data=FileData(content=resp.content or "", encoding=resp.encoding or "utf-8"))
 
-    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+    async def agrep(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        *,
+        case_insensitive: bool = False,
+        multiline: bool = False,
+        head_limit: int | None = None,
+    ) -> GrepResult:
+        """Regex grep over the sandbox workspace (ripgrep semantics).
+
+        ``pattern`` is a regular expression; the extended options map straight onto the wire
+        ``FsGrepRequest`` fields. An ``invalid_pattern`` sandbox error (a regex that the engine could
+        not parse) is surfaced verbatim — ``_fs_error_text`` has no hint for that code, so the
+        engine's own parse message reaches the model unchanged, which is the actionable detail.
+        """
         client, session_id = self._require_bound()
         try:
             resp = await client.fs_grep(
-                session_id, FsGrepRequest(pattern=pattern, path=self._abs(path or "/"), glob=glob)
+                session_id,
+                FsGrepRequest(
+                    pattern=pattern,
+                    path=self._abs(path or "/"),
+                    glob=glob,
+                    case_insensitive=case_insensitive,
+                    multiline=multiline,
+                    head_limit=head_limit,
+                ),
             )
         except httpx.HTTPError as exc:
             return GrepResult(error=f"Grep '{pattern}': {_fs_transport_failure_text(exc, 'grep', pattern)}")
@@ -618,3 +709,159 @@ class SandboxFileBackend(BackendProtocol):
 
     async def stat_mode(self, virtual_path: str) -> int:
         return 0o644
+
+
+# ---------------------------------------------------------------------------
+# Filesystem middleware
+# ---------------------------------------------------------------------------
+
+
+class DAIVGrepSchema(BaseModel):
+    """Input schema for DAIV's extended ``grep`` tool.
+
+    Mirrors deepagents' ``GrepSchema`` (pattern/path/glob/output_mode) and adds the ripgrep-backed
+    options DAIV's sandbox grep supports (head_limit/case_insensitive/multiline). ``pattern`` is a
+    regular expression — there is no literal mode (see ``GREP_TOOL_DESCRIPTION_OWN``).
+    """
+
+    pattern: str = Field(description="Regular expression to search for (ripgrep / Rust regex syntax).")
+    path: str | None = Field(
+        default=None, description="File or directory to search in. Defaults to the workspace root."
+    )
+    glob: str | None = Field(default=None, description="Glob pattern to filter which files to search (e.g., '*.py').")
+    output_mode: Literal["files_with_matches", "content", "count"] = Field(
+        default="files_with_matches",
+        description=(
+            "Output format: 'files_with_matches' (file paths only, default), 'content' (matching lines), "
+            "'count' (match counts per file)."
+        ),
+    )
+    head_limit: int | None = Field(
+        default=None, ge=1, description="Cap the number of results returned. Omit for no cap."
+    )
+    case_insensitive: bool = Field(default=False, description="Match case-insensitively (like ripgrep `-i`).")
+    multiline: bool = Field(
+        default=False,
+        description="Allow a match to span lines and let `.` match newlines (like ripgrep `--multiline`).",
+    )
+
+
+class DAIVFilesystemMiddleware(FilesystemMiddleware):
+    """``FilesystemMiddleware`` whose ``grep`` tool exposes DAIV's extended ripgrep signature.
+
+    Upstream hardcodes the grep tool's schema (pattern/path/glob/output_mode) in
+    ``_create_grep_tool`` and only its *description* is overridable. To expose the new
+    ``head_limit``/``case_insensitive``/``multiline`` params (threaded down to the sandbox
+    ``fs_grep`` call via :meth:`DAIVCompositeBackend.agrep`), the method is overridden here. Every
+    other tool (ls/read_file/write_file/edit_file/glob/execute) is inherited unchanged; a parity
+    guard test pins the registered tool-name set to upstream's so a deepagents bump that adds or
+    removes a filesystem tool fails loudly.
+
+    The override keeps upstream's behaviour for the pre-existing params: the same path validation
+    (``validate_path``), the same read-permission check, and the same ``format_grep_matches`` /
+    ``truncate_if_too_long`` result rendering and permission filtering.
+    """
+
+    def _create_grep_tool(self) -> BaseTool:
+        tool_description = self._custom_tool_descriptions.get("grep") or GREP_TOOL_DESCRIPTION
+
+        def _validate(path: str | None, runtime: ToolRuntime[None, FilesystemState]) -> ToolMessage | str | None:
+            """Run upstream's path validation + read-permission gate; return an error ToolMessage or
+            the validated path (``None`` when no path was supplied)."""
+            if path is None:
+                return None
+            try:
+                path = validate_path(path)
+            except ValueError as e:
+                return ToolMessage(
+                    content=f"Error: {e}", name="grep", tool_call_id=runtime.tool_call_id, status="error"
+                )
+            if _check_fs_permission(self._permissions, "read", path) == "deny":
+                return ToolMessage(
+                    content=f"Error: permission denied for read on {path}",
+                    name="grep",
+                    tool_call_id=runtime.tool_call_id,
+                    status="error",
+                )
+            return path
+
+        def _render(
+            grep_result: GrepResult, output_mode: str, runtime: ToolRuntime[None, FilesystemState]
+        ) -> ToolMessage:
+            if grep_result.error:
+                return ToolMessage(
+                    content=grep_result.error, name="grep", tool_call_id=runtime.tool_call_id, status="error"
+                )
+            matches = grep_result.matches or []
+            filtered = _filter_grep_matches_by_permission(self._permissions, matches, operation="read")
+            formatted = format_grep_matches(filtered, output_mode)  # ty: ignore[invalid-argument-type]
+            return ToolMessage(
+                content=truncate_if_too_long(formatted),
+                tool_call_id=runtime.tool_call_id,
+                name="grep",
+                status="success",
+            )
+
+        def sync_grep(
+            pattern: Annotated[str, "Regular expression to search for (ripgrep / Rust regex syntax)."],
+            runtime: ToolRuntime[None, FilesystemState],
+            path: Annotated[str | None, "File or directory to search in. Defaults to the workspace root."] = None,
+            glob: Annotated[str | None, "Glob pattern to filter which files to search (e.g., '*.py')."] = None,
+            output_mode: Annotated[
+                Literal["files_with_matches", "content", "count"],
+                "Output format: 'files_with_matches' (default), 'content', or 'count'.",
+            ] = "files_with_matches",
+            head_limit: Annotated[int | None, "Cap the number of results returned. Omit for no cap."] = None,
+            case_insensitive: Annotated[bool, "Match case-insensitively."] = False,
+            multiline: Annotated[bool, "Allow a match to span lines and let `.` match newlines."] = False,
+        ) -> ToolMessage:
+            # The agent path is async-only (see SandboxFileBackend); DAIV's extended ripgrep options
+            # are wired only through ``agrep``. ``DAIVCompositeBackend.grep`` (sync) keeps the fixed
+            # 3-arg protocol signature, so the extended params are not threaded here. ``_``-prefixing
+            # the unused params keeps the public tool schema (DAIVGrepSchema) intact while signalling
+            # they are intentionally dropped on the sync path.
+            del head_limit, case_insensitive, multiline
+            validated = _validate(path, runtime)
+            if isinstance(validated, ToolMessage):
+                return validated
+            backend = self._get_backend(runtime)
+            grep_result = backend.grep(pattern, path=validated, glob=glob)
+            return _render(grep_result, output_mode, runtime)
+
+        async def async_grep(
+            pattern: Annotated[str, "Regular expression to search for (ripgrep / Rust regex syntax)."],
+            runtime: ToolRuntime[None, FilesystemState],
+            path: Annotated[str | None, "File or directory to search in. Defaults to the workspace root."] = None,
+            glob: Annotated[str | None, "Glob pattern to filter which files to search (e.g., '*.py')."] = None,
+            output_mode: Annotated[
+                Literal["files_with_matches", "content", "count"],
+                "Output format: 'files_with_matches' (default), 'content', or 'count'.",
+            ] = "files_with_matches",
+            head_limit: Annotated[int | None, "Cap the number of results returned. Omit for no cap."] = None,
+            case_insensitive: Annotated[bool, "Match case-insensitively."] = False,
+            multiline: Annotated[bool, "Allow a match to span lines and let `.` match newlines."] = False,
+        ) -> ToolMessage:
+            validated = _validate(path, runtime)
+            if isinstance(validated, ToolMessage):
+                return validated
+            # DAIV always wires the agent backend as a DAIVCompositeBackend, whose ``agrep`` accepts
+            # the extended ripgrep options; ``_get_backend`` is typed to the base ``BackendProtocol``.
+            backend = cast("DAIVCompositeBackend", self._get_backend(runtime))
+            grep_result = await backend.agrep(
+                pattern,
+                path=validated,
+                glob=glob,
+                case_insensitive=case_insensitive,
+                multiline=multiline,
+                head_limit=head_limit,
+            )
+            return _render(grep_result, output_mode, runtime)
+
+        return StructuredTool.from_function(
+            name="grep",
+            description=tool_description,
+            func=sync_grep,
+            coroutine=async_grep,
+            infer_schema=False,
+            args_schema=DAIVGrepSchema,
+        )

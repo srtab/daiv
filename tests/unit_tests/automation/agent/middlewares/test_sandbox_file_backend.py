@@ -170,15 +170,37 @@ async def test_agrep_no_match_is_not_an_error(backend, client):
     assert result.matches == []
 
 
-async def test_agrep_no_match_with_regex_looking_pattern_does_not_hint_here(backend, client):
-    """The literal-semantics hint deliberately does NOT live at this level: the composite
-    treats a sub-backend GrepResult.error as a backend failure and would suppress real
-    matches from sibling backends. A zero-match here stays a clean empty result; the hint
-    fires on the aggregate in DAIVCompositeBackend.agrep (tested in test_file_system.py)."""
+async def test_agrep_threads_extended_options_to_wire(backend, client):
+    """The ripgrep options map straight onto the FsGrepRequest sent to the sandbox."""
     client.fs_grep.return_value = FsGrepResponse(matches=[])
-    result = await backend.agrep("get_catalog|list_relations", path="/workspace", glob=None)
-    assert result.error is None
-    assert result.matches == []
+    await backend.agrep("fo+", path="/workspace", glob="*.py", case_insensitive=True, multiline=True, head_limit=5)
+    req = client.fs_grep.call_args.args[1]
+    assert req.pattern == "fo+"
+    assert req.glob == "*.py"
+    assert req.case_insensitive is True
+    assert req.multiline is True
+    assert req.head_limit == 5
+
+
+async def test_agrep_defaults_leave_extended_options_off(backend, client):
+    """Omitting the extended options sends the schema defaults (regex on, everything else off)."""
+    client.fs_grep.return_value = FsGrepResponse(matches=[])
+    await backend.agrep("foo", path="/workspace", glob=None)
+    req = client.fs_grep.call_args.args[1]
+    assert req.case_insensitive is False
+    assert req.multiline is False
+    assert req.head_limit is None
+
+
+async def test_agrep_invalid_pattern_surfaces_engine_message_verbatim(backend, client):
+    """A regex the engine cannot parse comes back as invalid_pattern; the engine's own parse
+    message must reach the model unchanged (no DAIV-authored hint for this code)."""
+    client.fs_grep.return_value = FsGrepResponse(
+        matches=[], error=_err(FsErrorCode.INVALID_PATTERN, "regex parse error: unclosed group")
+    )
+    result = await backend.agrep("foo(", path="/workspace", glob=None)
+    assert result.matches is None
+    assert result.error is not None and "regex parse error: unclosed group" in result.error
 
 
 async def test_aedit_success_and_error_passthrough(backend, client):
@@ -222,13 +244,11 @@ async def test_als_propagates_error(backend, client):
 
 
 async def test_agrep_propagates_error(backend, client):
-    """A real sandbox failure passes through verbatim — even for a regex-looking pattern, the
-    literal-semantics hint must never replace a genuine error (grep never ran)."""
+    """A real sandbox failure passes through verbatim (grep never ran)."""
     client.fs_grep.return_value = FsGrepResponse(matches=[], error=_err(FsErrorCode.EXEC_FAILED, "grep failed"))
     result = await backend.agrep("foo|bar", path="/workspace", glob=None)
     assert result.matches is None
     assert result.error is not None and "grep failed" in result.error
-    assert "LITERAL" not in result.error
 
 
 async def test_aglob_returns_paths_and_propagates_error(backend, client):

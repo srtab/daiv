@@ -27,10 +27,6 @@ def _normalize(schema):
 # StartSessionRequest accepts a Dockerfile alternative, and StartSessionResponse
 # isn't modelled on the daiv side.
 _SHARED_TYPES = [
-    "ApplyMutationsRequest",
-    "ApplyMutationsResponse",
-    "MutationResult",
-    "PutMutation",
     "FsLsRequest",
     "FsEntry",
     "FsLsResponse",
@@ -50,7 +46,21 @@ _SHARED_TYPES = [
 ]
 
 # Types that exist on both sides but are deliberately allowed to diverge.
-_INTENTIONALLY_DIVERGENT = {"RunCommandsRequest", "RunCommandsResponse", "RunCommandResult", "StartSessionRequest"}
+#
+# ApplyMutations*/MutationResult/PutMutation: the sandbox dropped these from its public
+# schema dump (the file-mutation endpoint was restructured server-side), but daiv keeps
+# them as a stable client-side API for ``SandboxClient.apply_file_mutations``. They no
+# longer appear in the dump at all, so they can't be drift-checked against it.
+_INTENTIONALLY_DIVERGENT = {
+    "RunCommandsRequest",
+    "RunCommandsResponse",
+    "RunCommandResult",
+    "StartSessionRequest",
+    "ApplyMutationsRequest",
+    "ApplyMutationsResponse",
+    "MutationResult",
+    "PutMutation",
+}
 
 
 @pytest.mark.parametrize("type_name", _SHARED_TYPES)

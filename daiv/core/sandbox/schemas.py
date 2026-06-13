@@ -99,6 +99,7 @@ class FsErrorCode(StrEnum):
     NOT_A_DIRECTORY = "not_a_directory"
     IS_A_DIRECTORY = "is_a_directory"
     NOT_A_TEXT_FILE = "not_a_text_file"
+    INVALID_PATTERN = "invalid_pattern"
     STRING_NOT_FOUND = "string_not_found"
     MULTIPLE_OCCURRENCES = "multiple_occurrences"
     ALREADY_EXISTS = "already_exists"
@@ -148,9 +149,36 @@ class FsReadResponse(BaseModel):
 
 
 class FsGrepRequest(BaseModel):
-    pattern: str = Field(description="Literal substring to search for (not a regex).")
+    pattern: str = Field(
+        description=(
+            "Regular expression to search for (Rust regex syntax, as evaluated by ripgrep). Regex is "
+            "ALWAYS on — there is intentionally no literal mode, mirroring Claude Code's Grep tool. "
+            "Metacharacters (e.g. `.`, `(`, `{`, `*`, `+`, `?`, `|`, `[`, `\\`) must be escaped to match "
+            "them literally. When ripgrep is unavailable on the task image the search falls back to POSIX "
+            "ERE (`grep -E`), whose flavor differs (libc ERE, not Rust regex)."
+        )
+    )
     path: str = Field(description="Absolute directory/file path under /workspace.")
     glob: str | None = Field(default=None, description="Optional filename glob to restrict the search.")
+    case_insensitive: bool = Field(
+        default=False, description="Match case-insensitively (ripgrep `-i` / POSIX `grep -i`)."
+    )
+    multiline: bool = Field(
+        default=False,
+        description=(
+            "Allow matches to span multiple lines, letting `.` match newlines (ripgrep `--multiline`). "
+            "Not supported on the POSIX fallback, where it is silently ignored."
+        ),
+    )
+    head_limit: int | None = Field(
+        default=None,
+        ge=1,
+        description="Cap on the number of matches returned. None means uncapped (return every match).",
+    )
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Directory basenames/globs to prune from the search (extends the server defaults).",
+    )
 
 
 class FsGrepMatch(BaseModel):
@@ -167,6 +195,10 @@ class FsGrepResponse(BaseModel):
 class FsGlobRequest(BaseModel):
     pattern: str = Field(description="Glob pattern (supports *, **, ?, [abc]).")
     path: str = Field(description="Absolute base directory under /workspace.")
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Directory basenames/globs to prune from the search (extends the server defaults).",
+    )
 
 
 class FsGlobResponse(BaseModel):

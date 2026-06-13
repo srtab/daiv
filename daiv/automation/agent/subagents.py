@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 from deepagents.middleware import SummarizationMiddleware
-from deepagents.middleware.filesystem import FilesystemMiddleware, FilesystemPermission
+from deepagents.middleware.filesystem import FilesystemPermission
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.summarization import compute_summarization_defaults
@@ -18,6 +18,7 @@ from automation.agent.middlewares.file_system import (
     WORKSPACE_ARTIFACT_SUBTREES,
     WORKSPACE_FENCE_PERMISSIONS,
     WORKSPACE_FENCE_SUBTREES,
+    DAIVFilesystemMiddleware,
     filesystem_absolute_path_directive,
 )
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
@@ -80,7 +81,7 @@ def _build_general_purpose_middleware(
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
-        FilesystemMiddleware(
+        DAIVFilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             _permissions=None if sandbox_enabled else WORKSPACE_FENCE_PERMISSIONS,
@@ -235,7 +236,7 @@ def create_explore_subagent(
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
-        FilesystemMiddleware(
+        DAIVFilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             _permissions=_explore_permissions(sandbox_enabled=sandbox_enabled),
