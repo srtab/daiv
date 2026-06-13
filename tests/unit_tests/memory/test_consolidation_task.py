@@ -29,7 +29,7 @@ async def _create_pending(repo_id: str, n: int):
     ]
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_consolidation_writes_memory_and_marks_observations():
     await _create_pending("group/project", 3)
     doc = "## Pitfalls\n- observed thing"
@@ -53,7 +53,7 @@ async def test_consolidation_writes_memory_and_marks_observations():
     )
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_consolidation_enforces_budget_on_oversized_output():
     await _create_pending("group/project", 1)
     oversized = "\n".join(f"- line {i}" for i in range(MEMORY_MAX_LINES * 2))
@@ -70,7 +70,7 @@ async def test_consolidation_enforces_budget_on_oversized_output():
     assert len(memory.content.encode("utf-8")) <= MEMORY_MAX_BYTES
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_consolidation_noop_when_disabled_or_nothing_pending():
     with patch("memory.tasks.RepositoryConfig") as cfg, patch("memory.tasks._build_structured_llm") as build:
         cfg.get_config.return_value = _enabled_config(enabled=False)
@@ -84,7 +84,7 @@ async def test_consolidation_noop_when_disabled_or_nothing_pending():
     assert not await RepositoryMemory.objects.filter(repo_id="group/empty-repo").aexists()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_consolidation_noop_when_model_unconfigured():
     await _create_pending("group/unconfigured-model", 1)
 

@@ -13,9 +13,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from automation.agent.base import BaseAgent
 from automation.agent.constants import ModelName
 from codebase.repo_config import RepositoryConfig
+from core.checkpointer import open_checkpointer
 from memory.models import MemoryObservation, ObservationStatus, RepositoryMemory
-from memory.prompts import consolidation_human, consolidation_system
-from memory.schemas import ConsolidatedMemory
+from memory.prompts import consolidation_human, consolidation_system, extraction_human, extraction_system
+from memory.schemas import ConsolidatedMemory, ExtractedObservations
+from memory.transcript import serialize_transcript
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -60,7 +62,7 @@ def enforce_memory_budget(content: str, *, max_lines: int = MEMORY_MAX_LINES, ma
     return content
 
 
-@task()
+@task(dedup=True)
 async def consolidate_memory_task(repo_id: str) -> None:
     """Rewrite the repository memory document from pending observations ("dreaming").
 
@@ -120,3 +122,98 @@ async def consolidate_memory_task(repo_id: str) -> None:
         status=ObservationStatus.CONSOLIDATED
     )
     logger.info("consolidate_memory_task: consolidated %d observations for repo %s", len(observations), repo_id)
+
+
+@task()
+async def extract_observations_task(activity_id: str) -> None:
+    """Extract candidate memory observations from a finished run's transcript.
+
+    Transcripts live in the Redis checkpointer behind a TTL, so this must run
+    promptly after the run finishes; an expired checkpoint is a silent skip.
+    Every precondition failure is log + return — never an error that could be
+    confused with a run failure.
+    """
+    from activity.models import Activity
+
+    activity = await Activity.objects.filter(pk=activity_id).afirst()
+    if activity is None or not activity.thread_id:
+        logger.warning("extract_observations_task: activity %s missing or has no thread_id, skipping", activity_id)
+        return
+
+    config = await asyncio.to_thread(RepositoryConfig.get_config, activity.repo_id)
+    if not config.memory.enabled:
+        logger.info("extract_observations_task: memory disabled for repo %s, skipping", activity.repo_id)
+        return
+
+    async with open_checkpointer() as checkpointer:
+        checkpoint_tuple = await checkpointer.aget_tuple({"configurable": {"thread_id": activity.thread_id}})
+
+    channel_values = (checkpoint_tuple.checkpoint or {}).get("channel_values", {}) if checkpoint_tuple else {}
+    if not (messages := channel_values.get("messages", [])):
+        logger.info(
+            "extract_observations_task: checkpoint missing/expired for thread %s (activity=%s), skipping",
+            activity.thread_id,
+            activity_id,
+        )
+        return
+
+    transcript = serialize_transcript(messages)
+
+    try:
+        structured_llm = _build_structured_llm(ExtractedObservations, EXTRACTION_MODEL_NAMES)
+    except RuntimeError:
+        logger.exception("extract_observations_task: extraction model not configured, skipping")
+        return
+
+    result = cast(
+        "ExtractedObservations",
+        await structured_llm.with_config(
+            run_name="MemoryExtraction",
+            tags=["MemoryExtraction"],
+            metadata={"repo_id": activity.repo_id, "activity_id": str(activity.pk)},
+        ).ainvoke([
+            SystemMessage(content=cast("str", extraction_system.format().content)),
+            HumanMessage(
+                content=cast(
+                    "str",
+                    extraction_human.format(
+                        repo_id=activity.repo_id, status=activity.status, transcript=transcript
+                    ).content,
+                )
+            ),
+        ]),
+    )
+
+    if result and result.observations:
+        await MemoryObservation.objects.abulk_create([
+            MemoryObservation(repo_id=activity.repo_id, activity=activity, category=obs.category, content=obs.content)
+            for obs in result.observations
+        ])
+        logger.info(
+            "extract_observations_task: stored %d observations for repo %s (activity=%s)",
+            len(result.observations),
+            activity.repo_id,
+            activity_id,
+        )
+
+    await _maybe_trigger_consolidation(activity.repo_id)
+
+
+async def _maybe_trigger_consolidation(repo_id: str) -> None:
+    """Piggyback consolidation scheduling on extraction (no cron exists).
+
+    Enqueue when the repo accumulated >= CONSOLIDATION_MIN_PENDING observations and
+    the last consolidation is older than CONSOLIDATION_MIN_INTERVAL (or never ran).
+    """
+    pending = await MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).acount()
+    if pending < CONSOLIDATION_MIN_PENDING:
+        return
+    memory = await RepositoryMemory.objects.filter(repo_id=repo_id).afirst()
+    if (
+        memory
+        and memory.last_consolidated_at
+        and timezone.now() - memory.last_consolidated_at < CONSOLIDATION_MIN_INTERVAL
+    ):
+        return
+    await consolidate_memory_task.aenqueue(repo_id)
+    logger.info("_maybe_trigger_consolidation: enqueued consolidation for repo %s (%d pending)", repo_id, pending)
