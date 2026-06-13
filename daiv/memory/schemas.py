@@ -34,4 +34,6 @@ class ExtractedObservations(BaseModel):
 class ConsolidatedMemory(BaseModel):
     """Structured output for the consolidation pass."""
 
-    content: str = Field(description="The full rewritten memory document in markdown. No preamble or commentary.")
+    content: str = Field(
+        min_length=1, description="The full rewritten memory document in markdown. No preamble or commentary."
+    )

@@ -85,6 +85,44 @@ async def test_consolidation_noop_when_disabled_or_nothing_pending():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_consolidation_preserves_existing_memory_on_empty_output():
+    # A whitespace-only response survives schema validation (min_length=1) but is empty
+    # after strip() — it must NOT wipe the document or burn the pending observations.
+    await _create_pending("group/project", 2)
+    await RepositoryMemory.objects.acreate(repo_id="group/project", content="## Pitfalls\n- keep me")
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning("   \n  ")),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await consolidate_memory_task.func("group/project")
+
+    memory = await RepositoryMemory.objects.aget(repo_id="group/project")
+    assert memory.content == "## Pitfalls\n- keep me"  # untouched
+    assert memory.last_consolidated_at is None  # never marked consolidated
+    assert (
+        await MemoryObservation.objects.filter(repo_id="group/project", status=ObservationStatus.PENDING).acount() == 2
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_feeds_existing_memory_to_llm():
+    await _create_pending("group/project", 1)
+    await RepositoryMemory.objects.acreate(repo_id="group/project", content="## Existing\n- prior fact")
+    llm = _structured_llm_returning("## Existing\n- prior fact\n- new fact")
+
+    with patch("memory.tasks.RepositoryConfig") as cfg, patch("memory.tasks._build_structured_llm", return_value=llm):
+        cfg.get_config.return_value = _enabled_config()
+        await consolidate_memory_task.func("group/project")
+
+    # The prior document is passed to the consolidation prompt so the LLM can merge it.
+    (messages,), _ = llm.with_config.return_value.ainvoke.call_args
+    human_content = messages[-1].content
+    assert "## Existing\n- prior fact" in human_content
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_consolidation_noop_when_model_unconfigured():
     await _create_pending("group/unconfigured-model", 1)
 
@@ -115,3 +153,21 @@ def test_enforce_memory_budget_truncates_lines_and_bytes():
 
     fits = "## Build & test\n- short"
     assert enforce_memory_budget(fits) == fits
+
+
+def test_enforce_memory_budget_line_boundary():
+    exactly_at_limit = "\n".join(f"line {i}" for i in range(MEMORY_MAX_LINES))
+    # Exactly at the cap is left untouched; one over truncates to exactly the cap.
+    assert enforce_memory_budget(exactly_at_limit) == exactly_at_limit
+    one_over = "\n".join(f"line {i}" for i in range(MEMORY_MAX_LINES + 1))
+    assert len(enforce_memory_budget(one_over).splitlines()) == MEMORY_MAX_LINES
+
+
+def test_enforce_memory_budget_byte_boundary_keeps_valid_utf8():
+    # A byte cap that lands inside a 2-byte char must drop the partial char (errors="ignore"),
+    # never emit invalid UTF-8.
+    content = "é" * 10  # 20 bytes
+    result = enforce_memory_budget(content, max_bytes=5)  # cut mid-char (bytes 4-5 of the 3rd "é")
+    assert result == "éé"  # partial trailing char dropped
+    assert len(result.encode("utf-8")) <= 5
+    result.encode("utf-8").decode("utf-8")  # round-trips, i.e. valid UTF-8

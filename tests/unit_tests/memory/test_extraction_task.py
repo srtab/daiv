@@ -94,6 +94,26 @@ async def test_extraction_skips_when_checkpoint_expired():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_extraction_warns_when_checkpoint_has_no_messages(caplog):
+    # A present checkpoint with an empty message list is a defect signature, distinct from
+    # a missing/expired checkpoint: it skips like the expired case but logs at WARNING.
+    activity = await _create_activity()
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with([])),
+        patch("memory.tasks._build_structured_llm") as build,
+        caplog.at_level("WARNING", logger="daiv.memory"),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(activity.pk))  # must not raise
+
+    build.assert_not_called()
+    assert await MemoryObservation.objects.acount() == 0
+    assert any("has no messages" in record.message for record in caplog.records)
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_extraction_respects_daiv_yml_flag():
     activity = await _create_activity()
 

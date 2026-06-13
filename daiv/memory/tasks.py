@@ -5,8 +5,10 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
+from django.db import transaction
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from django_tasks import task
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -62,13 +64,16 @@ def enforce_memory_budget(content: str, *, max_lines: int = MEMORY_MAX_LINES, ma
     return content
 
 
-@task(dedup=True)
+@task()
 async def consolidate_memory_task(repo_id: str) -> None:
     """Rewrite the repository memory document from pending observations ("dreaming").
 
     Merges duplicates, resolves contradictions (newest wins), prunes stale items and
     generalizes recurring observations. Failures propagate to django-tasks (logged +
     marked failed); agent runs are never affected — this runs out-of-band.
+
+    Throttling is the caller's job (see ``_maybe_trigger_consolidation``); this is not
+    deduplicated, so a redundant trigger simply finds 0 pending observations and no-ops.
     """
     config = await asyncio.to_thread(RepositoryConfig.get_config, repo_id)
     if not config.memory.enabled:
@@ -115,12 +120,31 @@ async def consolidate_memory_task(repo_id: str) -> None:
         ]),
     )
 
-    memory.content = enforce_memory_budget(result.content.strip())
-    memory.last_consolidated_at = timezone.now()
-    await memory.asave(update_fields=["content", "last_consolidated_at", "updated_at"])
-    await MemoryObservation.objects.filter(pk__in=[obs.pk for obs in observations]).aupdate(
-        status=ObservationStatus.CONSOLIDATED
-    )
+    consolidated = enforce_memory_budget(result.content.strip())
+    if not consolidated:
+        # Never let a degenerate (empty/whitespace) LLM response wipe the accumulated
+        # document. Keep the existing memory and leave observations pending to retry.
+        logger.error(
+            "consolidate_memory_task: LLM returned empty content for repo %s; keeping existing memory "
+            "and leaving %d observations pending",
+            repo_id,
+            len(observations),
+        )
+        return
+
+    @sync_to_async
+    def _persist() -> None:
+        # Content write and status flip must commit together: a crash between them would
+        # otherwise orphan observations as CONSOLIDATED against a stale/un-updated document.
+        with transaction.atomic():
+            memory.content = consolidated
+            memory.last_consolidated_at = timezone.now()
+            memory.save(update_fields=["content", "last_consolidated_at", "updated_at"])
+            MemoryObservation.objects.filter(pk__in=[obs.pk for obs in observations]).update(
+                status=ObservationStatus.CONSOLIDATED
+            )
+
+    await _persist()
     logger.info("consolidate_memory_task: consolidated %d observations for repo %s", len(observations), repo_id)
 
 
@@ -150,11 +174,22 @@ async def extract_observations_task(activity_id: str) -> None:
 
     channel_values = (checkpoint_tuple.checkpoint or {}).get("channel_values", {}) if checkpoint_tuple else {}
     if not (messages := channel_values.get("messages", [])):
-        logger.info(
-            "extract_observations_task: checkpoint missing/expired for thread %s (activity=%s), skipping",
-            activity.thread_id,
-            activity_id,
-        )
+        if checkpoint_tuple is None:
+            # Benign: the checkpoint expired from Redis before this task ran.
+            logger.info(
+                "extract_observations_task: checkpoint missing/expired for thread %s (activity=%s), skipping",
+                activity.thread_id,
+                activity_id,
+            )
+        else:
+            # A present checkpoint with no messages signals a real defect (serialization
+            # or channel-name drift), not normal TTL expiry — surface it louder.
+            logger.warning(
+                "extract_observations_task: checkpoint present but has no messages for thread %s (activity=%s), "
+                "skipping",
+                activity.thread_id,
+                activity_id,
+            )
         return
 
     transcript = serialize_transcript(messages)

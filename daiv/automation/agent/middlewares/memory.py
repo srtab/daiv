@@ -43,7 +43,7 @@ class RepositoryMemoryMiddleware(AgentMiddleware):
         if self._content is _Unloaded:
             try:
                 memory = await RepositoryMemory.objects.filter(repo_id=repo_id).afirst()
-                self._content = memory.content.strip() if memory and memory.content.strip() else ""
+                self._content = memory.content.strip() if memory else ""
             except Exception:
                 logger.exception("RepositoryMemoryMiddleware: failed to load memory for repo %s", repo_id)
                 self._content = ""
