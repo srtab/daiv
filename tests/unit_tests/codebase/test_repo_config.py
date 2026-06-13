@@ -44,3 +44,17 @@ def test_default_thinking_level_degrades_invalid_value_to_none(monkeypatch):
 
     monkeypatch.setattr(site_settings, "agent_thinking_level", "")
     assert RepositoryConfig().models.agent.thinking_level is None
+
+
+def test_memory_section_defaults_enabled():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig()
+    assert config.memory.enabled is True
+
+
+def test_memory_section_can_be_disabled():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig(**{"memory": {"enabled": False}})
+    assert config.memory.enabled is False
