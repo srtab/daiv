@@ -146,44 +146,9 @@ class TestDAIVCompositeBackend:
         assert stat.S_IMODE(skills_mode) == 0o755, "skills-routed stat_mode reads real bits"
         assert stat.S_IMODE(repo_mode) == 0o644, "default-routed stat_mode reads real bits"
 
-    async def test_agrep_hints_on_regexy_zero_match(self, tmp_path: Path):
-        """A zero-match aggregate for a regex-shaped pattern (the backends grep literally)
-        returns an explicit literal-semantics hint instead of a bare "no matches" the model
-        would misread as "the symbol does not exist"."""
-        composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
-        (skills_root / "a.md").write_text("nothing relevant\n")
-
-        result = await composite.agrep("get_catalog|list_relations")
-
-        assert result.error is not None
-        assert "LITERAL" in result.error
-        assert "get_catalog|list_relations" in result.error
-
-    async def test_agrep_literal_zero_match_stays_clean(self, tmp_path: Path):
-        """Bare parens/dots are common in genuinely literal code searches; a zero-match for
-        them is a real answer, not a hint trigger."""
-        composite, _skills, _repo, _skills_root, _repo_root = self._make_composite(tmp_path)
-
-        for pattern in ("plainmissing", "def __init__(self):"):
-            result = await composite.agrep(pattern)
-            assert result.error is None, pattern
-            assert not result.matches, pattern
-
-    async def test_agrep_routed_matches_survive_regexy_pattern(self, tmp_path: Path):
-        """The hint must fire on the *aggregate*, never per-backend: a routed backend's real
-        matches must come back even when other backends found nothing for a regexy pattern —
-        a per-backend hint would abort the composite's aggregation and suppress them."""
-        composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
-        (skills_root / "doc.md").write_text("literally contains foo|bar here\n")
-
-        result = await composite.agrep("foo|bar")
-
-        assert result.error is None
-        assert result.matches
-
-    async def test_agrep_subbackend_error_wins_over_hint(self, tmp_path: Path):
-        """A genuine backend failure (grep never ran) must pass through verbatim — masking it
-        with the no-matches hint would tell the model the symbol doesn't exist."""
+    async def test_agrep_subbackend_error_passes_through(self, tmp_path: Path):
+        """A genuine backend failure (grep never ran) must pass through verbatim so the model
+        sees the real error rather than a misleading "no matches"."""
         from deepagents.backends.protocol import GrepResult
 
         composite, _skills, _repo, _skills_root, _repo_root = self._make_composite(tmp_path)
@@ -196,7 +161,6 @@ class TestDAIVCompositeBackend:
         result = await composite.agrep("foo|bar")
 
         assert result.error == "grep failed"
-        assert "LITERAL" not in result.error
 
     async def test_resolve_backend_for_returns_route_target(self, tmp_path: Path):
         composite, skills, repo, _skills_root, _repo_root = self._make_composite(tmp_path)
@@ -333,3 +297,189 @@ class TestBuildDiskWorkspaceBackend:
         clone_dir.mkdir()
         backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
         assert backend.artifacts_root == "/workspace"
+
+
+# ---------------------------------------------------------------------------
+# DAIVFilesystemMiddleware (extended grep)
+# ---------------------------------------------------------------------------
+
+
+class TestDAIVFilesystemMiddleware:
+    """DAIV's FilesystemMiddleware subclass that exposes the extended (ripgrep) grep signature."""
+
+    def _middlewares(self, root):
+        from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
+
+        backend = DAIVFilesystemBackend(root_dir=root, virtual_mode=True)
+        daiv = DAIVFilesystemMiddleware(backend=backend)
+        upstream = UpstreamFilesystemMiddleware(backend=backend)
+        return daiv, upstream
+
+    def test_tool_name_set_matches_upstream(self, tmp_path):
+        """A deepagents bump that adds/removes a filesystem tool must fail loudly here rather than
+        silently changing the subclass's surface (it only overrides grep, inheriting the rest)."""
+        daiv, upstream = self._middlewares(tmp_path)
+        assert {t.name for t in daiv.tools} == {t.name for t in upstream.tools}
+
+    def test_grep_tool_schema_exposes_extended_fields(self, tmp_path):
+        """The grep tool keeps upstream's params and adds DAIV's ripgrep options."""
+        daiv, _ = self._middlewares(tmp_path)
+        grep = next(t for t in daiv.tools if t.name == "grep")
+        fields = set(grep.args.keys())
+        assert {"pattern", "path", "glob", "output_mode"} <= fields, "upstream params must remain"
+        assert {"head_limit", "case_insensitive", "multiline"} <= fields, "extended params must be present"
+
+    def test_subclass_name_differs_from_upstream(self, tmp_path):
+        """The subclass must NOT share upstream's ``.name`` — langchain rejects two middleware with
+        the same name in one stack, and the main agent appends this beside framework middleware."""
+        daiv, upstream = self._middlewares(tmp_path)
+        assert daiv.name == "DAIVFilesystemMiddleware"
+        assert daiv.name != upstream.name
+
+    @staticmethod
+    def _grep_coroutine(middleware):
+        return next(t for t in middleware.tools if t.name == "grep").coroutine
+
+    async def test_grep_tool_denies_read_outside_fence(self, tmp_path):
+        """The read-permission gate must reject a fenced path with an error ToolMessage BEFORE any
+        backend call — a regression here would let a fenced subagent grep outside its subtree."""
+        from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
+
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        daiv = DAIVFilesystemMiddleware(backend=backend, _permissions=WORKSPACE_FENCE_PERMISSIONS)
+        grep = self._grep_coroutine(daiv)
+
+        # `/workspace/secret` is denied by the fence (only repo/skills/tmp subtrees are allowed).
+        msg = await grep(pattern="x", runtime=_runtime(state={}, working_dir=tmp_path), path="/workspace/secret")
+
+        assert msg.status == "error"
+        assert "permission denied" in msg.content.lower()
+
+    async def test_grep_tool_rejects_traversal_path(self, tmp_path):
+        """Path validation must reject a traversal path with an error ToolMessage, before any
+        backend call (a relative path is normalized by validate_path, but ``..`` is rejected)."""
+        from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
+
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        daiv = DAIVFilesystemMiddleware(backend=backend)
+        grep = self._grep_coroutine(daiv)
+
+        msg = await grep(pattern="x", runtime=_runtime(state={}, working_dir=tmp_path), path="../escape")
+
+        assert msg.status == "error"
+
+    async def test_grep_tool_async_happy_path_forwards_extended_options(self, tmp_path):
+        """The async tool body must thread the extended ripgrep options through to the backend's
+        agrep and render a success ToolMessage — this is the actual main-agent code path."""
+        from unittest.mock import AsyncMock
+
+        from deepagents.backends.protocol import GrepResult
+
+        from automation.agent.middlewares.file_system import (
+            DAIVCompositeBackend,
+            DAIVFilesystemMiddleware,
+            SandboxFileBackend,
+        )
+
+        sandbox = SandboxFileBackend(client=AsyncMock())
+        sandbox.bind_session("sid")
+        sandbox.agrep = AsyncMock(
+            return_value=GrepResult(matches=[{"path": "/workspace/repo/a.py", "line": 2, "text": "hit"}])
+        )
+        composite = DAIVCompositeBackend(default=sandbox, routes={}, artifacts_root="/workspace")
+        daiv = DAIVFilesystemMiddleware(backend=composite)
+        grep = self._grep_coroutine(daiv)
+
+        msg = await grep(
+            pattern="h.t",
+            runtime=_runtime(state={}, working_dir=tmp_path),
+            path="/workspace/repo",
+            case_insensitive=True,
+            multiline=True,
+            head_limit=5,
+        )
+
+        assert msg.status == "success"
+        _, kwargs = sandbox.agrep.call_args
+        assert kwargs["case_insensitive"] is True
+        assert kwargs["multiline"] is True
+        assert kwargs["head_limit"] == 5
+
+
+class TestDAIVCompositeAgrepForwarding:
+    """DAIVCompositeBackend.agrep must forward the extended options to a backend that accepts them
+    and drop them for one that does not (the fixed-signature disk backend)."""
+
+    async def test_forwards_extended_options_to_sandbox_backend(self):
+        from unittest.mock import AsyncMock
+
+        from deepagents.backends.protocol import GrepResult
+
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend, SandboxFileBackend
+
+        sandbox = SandboxFileBackend(client=AsyncMock())
+        sandbox.bind_session("sid")
+        sandbox.agrep = AsyncMock(return_value=GrepResult(matches=[]))
+        composite = DAIVCompositeBackend(default=sandbox, routes={}, artifacts_root="/workspace")
+
+        await composite.agrep("fo+", path="/workspace", glob="*.py", case_insensitive=True, head_limit=3)
+
+        _, kwargs = sandbox.agrep.call_args
+        assert kwargs["case_insensitive"] is True
+        assert kwargs["head_limit"] == 3
+
+    async def test_disk_backend_call_omits_extended_options(self, tmp_path):
+        """The disk FilesystemBackend keeps the fixed 3-arg agrep signature, so the composite must
+        not pass it the extended kwargs (which would TypeError)."""
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend
+
+        (tmp_path / "a.py").write_text("foo\n")
+        disk = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        composite = DAIVCompositeBackend(default=disk, routes={})
+
+        # Must not raise despite passing the extended options.
+        result = await composite.agrep("foo", path="/", case_insensitive=True, multiline=True, head_limit=1)
+        assert result.error is None
+
+    @staticmethod
+    def _sandbox_returning(paths):
+        """A bound SandboxFileBackend whose agrep returns one match per path (kwargs ignored)."""
+        from unittest.mock import AsyncMock
+
+        from deepagents.backends.protocol import GrepResult
+
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        backend = SandboxFileBackend(client=AsyncMock())
+        backend.bind_session("sid")
+        backend.agrep = AsyncMock(return_value=GrepResult(matches=[{"path": p, "line": 1, "text": "x"} for p in paths]))
+        return backend
+
+    async def test_head_limit_caps_merged_total_across_backends(self):
+        """Each sub-backend self-caps, but the aggregate (path='/') merge must re-apply head_limit so
+        'at most N' doesn't silently become 'up to N per backend' once a route is present."""
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend
+
+        default = self._sandbox_returning(["/a.py", "/b.py", "/c.py"])
+        route = self._sandbox_returning(["/d.py", "/e.py", "/f.py"])
+        composite = DAIVCompositeBackend(default=default, routes={"/skills/": route}, artifacts_root="/workspace")
+
+        result = await composite.agrep("x", path="/", head_limit=4)
+
+        assert result.error is None
+        assert len(result.matches or []) == 4, "3 default + 3 route = 6, must be capped to 4"
+
+    async def test_single_route_remaps_paths_and_caps(self):
+        """The routed-path branch must remap matches with the route prefix AND honor head_limit
+        (a disk-routed backend never receives head_limit, so the composite must cap it)."""
+        from automation.agent.middlewares.file_system import DAIVCompositeBackend
+
+        route = self._sandbox_returning(["/x1.py", "/x2.py", "/x3.py"])
+        default = self._sandbox_returning([])
+        composite = DAIVCompositeBackend(default=default, routes={"/skills/": route}, artifacts_root="/workspace")
+
+        result = await composite.agrep("x", path="/skills/sub", head_limit=2)
+
+        assert result.error is None
+        assert len(result.matches or []) == 2, "route returned 3, must be capped to 2"
+        assert all(m["path"].startswith("/skills") for m in result.matches or []), "routed paths must be remapped"

@@ -1,104 +1,4 @@
 {
-  "ApplyMutationsRequest": {
-    "$defs": {
-      "PutMutation": {
-        "properties": {
-          "content": {
-            "description": "Base64-encoded full file content.",
-            "format": "base64",
-            "title": "Content",
-            "type": "string"
-          },
-          "mode": {
-            "description": "POSIX mode bits to set on the file.",
-            "maximum": 4095,
-            "minimum": 0,
-            "title": "Mode",
-            "type": "integer"
-          },
-          "path": {
-            "description": "Absolute path inside the sandbox, must be under /workspace/repo.",
-            "title": "Path",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path",
-          "content",
-          "mode"
-        ],
-        "title": "PutMutation",
-        "type": "object"
-      }
-    },
-    "properties": {
-      "mutations": {
-        "items": {
-          "$ref": "#/$defs/PutMutation"
-        },
-        "maxItems": 64,
-        "minItems": 1,
-        "title": "Mutations",
-        "type": "array"
-      }
-    },
-    "required": [
-      "mutations"
-    ],
-    "title": "ApplyMutationsRequest",
-    "type": "object"
-  },
-  "ApplyMutationsResponse": {
-    "$defs": {
-      "MutationResult": {
-        "properties": {
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Per-item error message when ok=False.",
-            "title": "Error"
-          },
-          "ok": {
-            "description": "Whether the mutation was applied successfully.",
-            "title": "Ok",
-            "type": "boolean"
-          },
-          "path": {
-            "description": "The path the mutation targeted.",
-            "title": "Path",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path",
-          "ok"
-        ],
-        "title": "MutationResult",
-        "type": "object"
-      }
-    },
-    "properties": {
-      "results": {
-        "items": {
-          "$ref": "#/$defs/MutationResult"
-        },
-        "title": "Results",
-        "type": "array"
-      }
-    },
-    "required": [
-      "results"
-    ],
-    "title": "ApplyMutationsResponse",
-    "type": "object"
-  },
   "FsDeleteRequest": {
     "properties": {
       "path": {
@@ -142,6 +42,7 @@
           "not_a_directory",
           "is_a_directory",
           "not_a_text_file",
+          "invalid_pattern",
           "string_not_found",
           "multiple_occurrences",
           "already_exists",
@@ -238,6 +139,7 @@
           "not_a_directory",
           "is_a_directory",
           "not_a_text_file",
+          "invalid_pattern",
           "string_not_found",
           "multiple_occurrences",
           "already_exists",
@@ -302,6 +204,14 @@
   },
   "FsGlobRequest": {
     "properties": {
+      "exclude": {
+        "description": "Directory basenames/globs to prune from the search (extends the server defaults).",
+        "items": {
+          "type": "string"
+        },
+        "title": "Exclude",
+        "type": "array"
+      },
       "path": {
         "description": "Absolute base directory under /workspace.",
         "title": "Path",
@@ -369,6 +279,7 @@
           "not_a_directory",
           "is_a_directory",
           "not_a_text_file",
+          "invalid_pattern",
           "string_not_found",
           "multiple_occurrences",
           "already_exists",
@@ -434,6 +345,20 @@
   },
   "FsGrepRequest": {
     "properties": {
+      "case_insensitive": {
+        "default": false,
+        "description": "Match case-insensitively (ripgrep `-i` / POSIX `grep -i`).",
+        "title": "Case Insensitive",
+        "type": "boolean"
+      },
+      "exclude": {
+        "description": "Directory basenames/globs to prune from the search (extends the server defaults).",
+        "items": {
+          "type": "string"
+        },
+        "title": "Exclude",
+        "type": "array"
+      },
       "glob": {
         "anyOf": [
           {
@@ -447,13 +372,33 @@
         "description": "Optional filename glob to restrict the search.",
         "title": "Glob"
       },
+      "head_limit": {
+        "anyOf": [
+          {
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Cap on the number of matches returned. None means uncapped (return every match).",
+        "title": "Head Limit"
+      },
+      "multiline": {
+        "default": false,
+        "description": "Allow matches to span multiple lines, letting `.` match newlines (ripgrep `--multiline`). Not supported on the POSIX fallback, where it is silently ignored.",
+        "title": "Multiline",
+        "type": "boolean"
+      },
       "path": {
         "description": "Absolute directory/file path under /workspace.",
         "title": "Path",
         "type": "string"
       },
       "pattern": {
-        "description": "Literal substring to search for (not a regex).",
+        "description": "Regular expression to search for (Rust regex syntax, as evaluated by ripgrep). Regex is ALWAYS on \u2014 there is intentionally no literal mode, mirroring Claude Code's Grep tool. Metacharacters (e.g. `.`, `(`, `{`, `*`, `+`, `?`, `|`, `[`, `\\`) must be escaped to match them literally. When ripgrep is unavailable on the task image the search falls back to POSIX ERE (`grep -E`), whose flavor differs (libc ERE, not Rust regex).",
         "title": "Pattern",
         "type": "string"
       }
@@ -494,6 +439,7 @@
           "not_a_directory",
           "is_a_directory",
           "not_a_text_file",
+          "invalid_pattern",
           "string_not_found",
           "multiple_occurrences",
           "already_exists",
@@ -620,6 +566,7 @@
           "not_a_directory",
           "is_a_directory",
           "not_a_text_file",
+          "invalid_pattern",
           "string_not_found",
           "multiple_occurrences",
           "already_exists",
@@ -714,6 +661,7 @@
           "not_a_directory",
           "is_a_directory",
           "not_a_text_file",
+          "invalid_pattern",
           "string_not_found",
           "multiple_occurrences",
           "already_exists",
@@ -831,6 +779,7 @@
           "not_a_directory",
           "is_a_directory",
           "not_a_text_file",
+          "invalid_pattern",
           "string_not_found",
           "multiple_occurrences",
           "already_exists",
@@ -858,68 +807,6 @@
       }
     },
     "title": "FsWriteResponse",
-    "type": "object"
-  },
-  "MutationResult": {
-    "properties": {
-      "error": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "default": null,
-        "description": "Per-item error message when ok=False.",
-        "title": "Error"
-      },
-      "ok": {
-        "description": "Whether the mutation was applied successfully.",
-        "title": "Ok",
-        "type": "boolean"
-      },
-      "path": {
-        "description": "The path the mutation targeted.",
-        "title": "Path",
-        "type": "string"
-      }
-    },
-    "required": [
-      "path",
-      "ok"
-    ],
-    "title": "MutationResult",
-    "type": "object"
-  },
-  "PutMutation": {
-    "properties": {
-      "content": {
-        "description": "Base64-encoded full file content.",
-        "format": "base64",
-        "title": "Content",
-        "type": "string"
-      },
-      "mode": {
-        "description": "POSIX mode bits to set on the file.",
-        "maximum": 4095,
-        "minimum": 0,
-        "title": "Mode",
-        "type": "integer"
-      },
-      "path": {
-        "description": "Absolute path inside the sandbox, must be under /workspace/repo.",
-        "title": "Path",
-        "type": "string"
-      }
-    },
-    "required": [
-      "path",
-      "content",
-      "mode"
-    ],
-    "title": "PutMutation",
     "type": "object"
   },
   "RunRequest": {
