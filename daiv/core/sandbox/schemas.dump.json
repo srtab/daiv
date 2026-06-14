@@ -148,7 +148,8 @@
           "too_large",
           "invalid_offset",
           "permission_denied",
-          "exec_failed"
+          "exec_failed",
+          "invalid_pattern"
         ],
         "title": "FsErrorCode",
         "type": "string"
@@ -244,7 +245,8 @@
           "too_large",
           "invalid_offset",
           "permission_denied",
-          "exec_failed"
+          "exec_failed",
+          "invalid_pattern"
         ],
         "title": "FsErrorCode",
         "type": "string"
@@ -375,7 +377,8 @@
           "too_large",
           "invalid_offset",
           "permission_denied",
-          "exec_failed"
+          "exec_failed",
+          "invalid_pattern"
         ],
         "title": "FsErrorCode",
         "type": "string"
@@ -500,7 +503,8 @@
           "too_large",
           "invalid_offset",
           "permission_denied",
-          "exec_failed"
+          "exec_failed",
+          "invalid_pattern"
         ],
         "title": "FsErrorCode",
         "type": "string"
@@ -552,6 +556,12 @@
         },
         "title": "Matches",
         "type": "array"
+      },
+      "truncated": {
+        "default": false,
+        "description": "True when matches were capped server-side; narrow the search to see the rest.",
+        "title": "Truncated",
+        "type": "boolean"
       }
     },
     "title": "FsGrepResponse",
@@ -626,7 +636,8 @@
           "too_large",
           "invalid_offset",
           "permission_denied",
-          "exec_failed"
+          "exec_failed",
+          "invalid_pattern"
         ],
         "title": "FsErrorCode",
         "type": "string"
@@ -720,7 +731,8 @@
           "too_large",
           "invalid_offset",
           "permission_denied",
-          "exec_failed"
+          "exec_failed",
+          "invalid_pattern"
         ],
         "title": "FsErrorCode",
         "type": "string"
@@ -837,7 +849,8 @@
           "too_large",
           "invalid_offset",
           "permission_denied",
-          "exec_failed"
+          "exec_failed",
+          "invalid_pattern"
         ],
         "title": "FsErrorCode",
         "type": "string"

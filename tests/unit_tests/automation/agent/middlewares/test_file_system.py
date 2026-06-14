@@ -79,6 +79,29 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     )
 
 
+class TestDiskBackendRegexGrep:
+    def _backend(self, tmp_path: Path):
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        (tmp_path / "a.py").write_text("alpha line\ngamma line\n")
+        (tmp_path / "b.py").write_text("beta line\n")
+        return DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+    async def test_disk_grep_alternation_matches(self, tmp_path: Path):
+        backend = self._backend(tmp_path)
+        result = await backend.agrep("alpha|beta")
+        assert result.error is None
+        texts = sorted(m["text"] for m in (result.matches or []))
+        assert texts == ["alpha line", "beta line"]
+
+    async def test_disk_grep_invalid_regex_is_clean_error(self, tmp_path: Path):
+        backend = self._backend(tmp_path)
+        result = await backend.agrep("alpha(")
+        assert result.error is not None
+        assert "invalid regular expression" in result.error
+        assert not result.matches
+
+
 class TestDAIVCompositeBackend:
     """Composite routing must preserve the prefix-stripping invariant for DAIV's two
     extension methods (``delete``/``stat_mode``) and the dispatch helper
@@ -146,57 +169,23 @@ class TestDAIVCompositeBackend:
         assert stat.S_IMODE(skills_mode) == 0o755, "skills-routed stat_mode reads real bits"
         assert stat.S_IMODE(repo_mode) == 0o644, "default-routed stat_mode reads real bits"
 
-    async def test_agrep_hints_on_regexy_zero_match(self, tmp_path: Path):
-        """A zero-match aggregate for a regex-shaped pattern (the backends grep literally)
-        returns an explicit literal-semantics hint instead of a bare "no matches" the model
-        would misread as "the symbol does not exist"."""
+    async def test_agrep_alternation_matches_via_composite(self, tmp_path: Path):
+        """With regex grep, a `foo|bar` alternation returns real matches across routed backends —
+        no literal-semantics hint, no false 'symbol does not exist'.
+
+        ``_make_composite`` layers ``skills-mount`` *under* the default backend's root (``tmp_path``),
+        so a file in the skills route is also visible to the default backend and surfaces from both
+        (production roots are siblings and don't overlap); dedupe the texts so the assertion pins the
+        alternation behavior, not the fixture's incidental double-count.
+        """
         composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
-        (skills_root / "a.md").write_text("nothing relevant\n")
-
-        result = await composite.agrep("get_catalog|list_relations")
-
-        assert result.error is not None
-        assert "LITERAL" in result.error
-        assert "get_catalog|list_relations" in result.error
-
-    async def test_agrep_literal_zero_match_stays_clean(self, tmp_path: Path):
-        """Bare parens/dots are common in genuinely literal code searches; a zero-match for
-        them is a real answer, not a hint trigger."""
-        composite, _skills, _repo, _skills_root, _repo_root = self._make_composite(tmp_path)
-
-        for pattern in ("plainmissing", "def __init__(self):"):
-            result = await composite.agrep(pattern)
-            assert result.error is None, pattern
-            assert not result.matches, pattern
-
-    async def test_agrep_routed_matches_survive_regexy_pattern(self, tmp_path: Path):
-        """The hint must fire on the *aggregate*, never per-backend: a routed backend's real
-        matches must come back even when other backends found nothing for a regexy pattern —
-        a per-backend hint would abort the composite's aggregation and suppress them."""
-        composite, _skills, _repo, skills_root, _repo_root = self._make_composite(tmp_path)
-        (skills_root / "doc.md").write_text("literally contains foo|bar here\n")
+        (skills_root / "doc.md").write_text("has foo here\nand bar there\n")
 
         result = await composite.agrep("foo|bar")
 
         assert result.error is None
-        assert result.matches
-
-    async def test_agrep_subbackend_error_wins_over_hint(self, tmp_path: Path):
-        """A genuine backend failure (grep never ran) must pass through verbatim — masking it
-        with the no-matches hint would tell the model the symbol doesn't exist."""
-        from deepagents.backends.protocol import GrepResult
-
-        composite, _skills, _repo, _skills_root, _repo_root = self._make_composite(tmp_path)
-
-        async def failing_agrep(*args, **kwargs):
-            return GrepResult(error="grep failed")
-
-        composite.default.agrep = failing_agrep
-
-        result = await composite.agrep("foo|bar")
-
-        assert result.error == "grep failed"
-        assert "LITERAL" not in result.error
+        texts = sorted({m["text"] for m in (result.matches or [])})
+        assert texts == ["and bar there", "has foo here"]
 
     async def test_resolve_backend_for_returns_route_target(self, tmp_path: Path):
         composite, skills, repo, _skills_root, _repo_root = self._make_composite(tmp_path)
@@ -333,3 +322,64 @@ class TestBuildDiskWorkspaceBackend:
         clone_dir.mkdir()
         backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
         assert backend.artifacts_root == "/workspace"
+
+
+class TestSandboxGrepTruncation:
+    def _bound_backend(self, fs_grep_response):
+        from unittest.mock import AsyncMock
+
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        client = AsyncMock()
+        client.fs_grep = AsyncMock(return_value=fs_grep_response)
+        backend = SandboxFileBackend(client=client, session_id="sess-1")
+        return backend
+
+    async def test_truncated_response_appends_a_note_match(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsGrepMatch, FsGrepResponse
+
+        resp = FsGrepResponse(
+            matches=[FsGrepMatch(path=f"{REPO_PATH}/f{i}.py", line=1, text="x") for i in range(3)], truncated=True
+        )
+        backend = self._bound_backend(resp)
+
+        result = await backend.agrep("x", path=REPO_PATH)
+
+        assert result.error is None
+        note = result.matches[-1]
+        # The guidance must live in `path` (not just `text`): the default `files_with_matches` output
+        # mode renders only paths, so a text-only note would be invisible to the model there.
+        assert note["path"].startswith("(grep results truncated")
+        assert "narrow the path" in note["path"]
+        assert note["text"] == note["path"]
+        assert len(result.matches) == 4  # 3 real + 1 note
+
+    async def test_untruncated_response_has_no_note(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsGrepMatch, FsGrepResponse
+
+        resp = FsGrepResponse(matches=[FsGrepMatch(path=f"{REPO_PATH}/a.py", line=1, text="x")], truncated=False)
+        backend = self._bound_backend(resp)
+
+        result = await backend.agrep("x", path=REPO_PATH)
+
+        assert len(result.matches) == 1
+        assert all(not m["path"].startswith("(grep results truncated") for m in result.matches)
+
+    async def test_invalid_pattern_error_maps_to_model_hint(self):
+        """The sandbox returns `invalid_pattern`; the backend must rewrite it to the actionable hint
+        (this is the production path — daiv doesn't validate the regex itself for the sandbox)."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsError, FsErrorCode, FsGrepResponse
+
+        resp = FsGrepResponse(error=FsError(code=FsErrorCode.INVALID_PATTERN, message="invalid regular expression"))
+        backend = self._bound_backend(resp)
+
+        result = await backend.agrep("foo(", path=REPO_PATH)
+
+        assert not result.matches
+        assert result.error is not None
+        assert result.error.startswith("Grep 'foo(': ")
+        assert "not a valid regular expression" in result.error
+        assert "escape regex metacharacters" in result.error
