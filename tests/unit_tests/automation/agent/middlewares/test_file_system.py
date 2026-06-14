@@ -347,8 +347,12 @@ class TestSandboxGrepTruncation:
         result = await backend.agrep("x", path=REPO_PATH)
 
         assert result.error is None
-        assert result.matches[-1]["path"] == "(grep results truncated)"
-        assert "Narrow" in result.matches[-1]["text"]
+        note = result.matches[-1]
+        # The guidance must live in `path` (not just `text`): the default `files_with_matches` output
+        # mode renders only paths, so a text-only note would be invisible to the model there.
+        assert note["path"].startswith("(grep results truncated")
+        assert "narrow the path" in note["path"]
+        assert note["text"] == note["path"]
         assert len(result.matches) == 4  # 3 real + 1 note
 
     async def test_untruncated_response_has_no_note(self):
@@ -361,4 +365,21 @@ class TestSandboxGrepTruncation:
         result = await backend.agrep("x", path=REPO_PATH)
 
         assert len(result.matches) == 1
-        assert all(m["path"] != "(grep results truncated)" for m in result.matches)
+        assert all(not m["path"].startswith("(grep results truncated") for m in result.matches)
+
+    async def test_invalid_pattern_error_maps_to_model_hint(self):
+        """The sandbox returns `invalid_pattern`; the backend must rewrite it to the actionable hint
+        (this is the production path — daiv doesn't validate the regex itself for the sandbox)."""
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsError, FsErrorCode, FsGrepResponse
+
+        resp = FsGrepResponse(error=FsError(code=FsErrorCode.INVALID_PATTERN, message="invalid regular expression"))
+        backend = self._bound_backend(resp)
+
+        result = await backend.agrep("foo(", path=REPO_PATH)
+
+        assert not result.matches
+        assert result.error is not None
+        assert result.error.startswith("Grep 'foo(': ")
+        assert "not a valid regular expression" in result.error
+        assert "escape regex metacharacters" in result.error

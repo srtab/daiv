@@ -81,6 +81,10 @@ Common constructs work: alternation `foo|bar`, anchors `^def `/`;$`, character c
 quantifiers `+ * ? {2,3}`, and groups `(...)`. To match a regex metacharacter literally, escape it
 with a backslash, e.g. `def __init__\(self\)` or `value\.attr`.
 
+Stick to portable syntax: Perl-style escapes (`\d` `\w` `\s` `\b`), lookaround `(?=...)`, and
+backreferences are NOT valid POSIX ERE and will match differently (often nothing) on sandbox runs —
+use `[0-9]`, `[A-Za-z0-9_]`, `[[:space:]]`, and explicit alternation instead.
+
 Parameters:
 - pattern: the regular expression.
 - path: absolute file or directory to search (defaults to the workspace root).
@@ -533,16 +537,16 @@ class SandboxFileBackend(BackendProtocol):
         matches = [GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches]
         if resp.truncated:
             logger.warning("grep results truncated for pattern %r under %s", pattern, path)
-            matches.append(
-                GrepMatch(
-                    path="(grep results truncated)",
-                    line=0,
-                    text=(
-                        f"Showing the first {len(resp.matches)} matches. Narrow the path, add a glob, "
-                        "or use a more specific pattern to see the rest."
-                    ),
-                )
+            # The deepagents grep tool formats `matches` itself and, in the default
+            # `files_with_matches` output mode, renders ONLY the paths (the `text` is dropped). So the
+            # actionable guidance must live in the sentinel `path` to survive every output mode; the
+            # bracketed prose can't be mistaken for a real file to read. `text` repeats it for
+            # `content` mode. This is the only fork-free channel to the model.
+            note = (
+                f"(grep results truncated — showing the first {len(resp.matches)} matches; "
+                "narrow the path, add a glob, or use a more specific pattern to see the rest)"
             )
+            matches.append(GrepMatch(path=note, line=0, text=note))
         return GrepResult(matches=matches)
 
     async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
