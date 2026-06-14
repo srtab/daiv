@@ -234,7 +234,7 @@ class DAIVFilesystemBackend(FilesystemBackend):
             return GrepResult(error=f"Error searching path '{path or '.'}': {exc}", matches=[])
         results = self._python_search(pattern, base_full, glob)
         matches = [
-            {"path": fpath, "line": int(line_num), "text": line_text}
+            GrepMatch(path=fpath, line=int(line_num), text=line_text)
             for fpath, items in results.items()
             for (line_num, line_text) in items
         ]
