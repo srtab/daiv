@@ -322,3 +322,43 @@ class TestBuildDiskWorkspaceBackend:
         clone_dir.mkdir()
         backend = build_disk_workspace_backend(clone_dir, skills_cache=tmp_path / "skills_cache")
         assert backend.artifacts_root == "/workspace"
+
+
+class TestSandboxGrepTruncation:
+    def _bound_backend(self, fs_grep_response):
+        from unittest.mock import AsyncMock
+
+        from automation.agent.middlewares.file_system import SandboxFileBackend
+
+        client = AsyncMock()
+        client.fs_grep = AsyncMock(return_value=fs_grep_response)
+        backend = SandboxFileBackend(client=client, session_id="sess-1")
+        return backend
+
+    async def test_truncated_response_appends_a_note_match(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsGrepMatch, FsGrepResponse
+
+        resp = FsGrepResponse(
+            matches=[FsGrepMatch(path=f"{REPO_PATH}/f{i}.py", line=1, text="x") for i in range(3)], truncated=True
+        )
+        backend = self._bound_backend(resp)
+
+        result = await backend.agrep("x", path=REPO_PATH)
+
+        assert result.error is None
+        assert result.matches[-1]["path"] == "(grep results truncated)"
+        assert "Narrow" in result.matches[-1]["text"]
+        assert len(result.matches) == 4  # 3 real + 1 note
+
+    async def test_untruncated_response_has_no_note(self):
+        from automation.agent.constants import REPO_PATH
+        from core.sandbox.schemas import FsGrepMatch, FsGrepResponse
+
+        resp = FsGrepResponse(matches=[FsGrepMatch(path=f"{REPO_PATH}/a.py", line=1, text="x")], truncated=False)
+        backend = self._bound_backend(resp)
+
+        result = await backend.agrep("x", path=REPO_PATH)
+
+        assert len(result.matches) == 1
+        assert all(m["path"] != "(grep results truncated)" for m in result.matches)

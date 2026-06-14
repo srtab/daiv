@@ -530,7 +530,20 @@ class SandboxFileBackend(BackendProtocol):
             return GrepResult(error=f"Grep '{pattern}': {_fs_transport_failure_text(exc, 'grep', pattern)}")
         if resp.error is not None:
             return GrepResult(error=f"Grep '{pattern}': {_fs_error_text(resp.error)}")
-        return GrepResult(matches=[GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches])
+        matches = [GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches]
+        if resp.truncated:
+            logger.warning("grep results truncated for pattern %r under %s", pattern, path)
+            matches.append(
+                GrepMatch(
+                    path="(grep results truncated)",
+                    line=0,
+                    text=(
+                        f"Showing the first {len(resp.matches)} matches. Narrow the path, add a glob, "
+                        "or use a more specific pattern to see the rest."
+                    ),
+                )
+            )
+        return GrepResult(matches=matches)
 
     async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
         client, session_id = self._require_bound()
