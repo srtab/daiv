@@ -79,6 +79,29 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     )
 
 
+class TestDiskBackendRegexGrep:
+    def _backend(self, tmp_path: Path):
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        (tmp_path / "a.py").write_text("alpha line\ngamma line\n")
+        (tmp_path / "b.py").write_text("beta line\n")
+        return DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+    async def test_disk_grep_alternation_matches(self, tmp_path: Path):
+        backend = self._backend(tmp_path)
+        result = await backend.agrep("alpha|beta")
+        assert result.error is None
+        texts = sorted(m["text"] for m in (result.matches or []))
+        assert texts == ["alpha line", "beta line"]
+
+    async def test_disk_grep_invalid_regex_is_clean_error(self, tmp_path: Path):
+        backend = self._backend(tmp_path)
+        result = await backend.agrep("alpha(")
+        assert result.error is not None
+        assert "invalid regular expression" in result.error
+        assert not result.matches
+
+
 class TestDAIVCompositeBackend:
     """Composite routing must preserve the prefix-stripping invariant for DAIV's two
     extension methods (``delete``/``stat_mode``) and the dispatch helper

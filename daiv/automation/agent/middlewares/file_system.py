@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import stat
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
@@ -189,6 +190,42 @@ class DAIVFilesystemBackend(FilesystemBackend):
             logger.exception("disk stat failed for %s; mirroring with 0o644 fallback", virtual_path)
             return 0o644
         return stat.S_IMODE(st.st_mode)
+
+    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+        """Regex grep (convergence with the sandbox's ERE search and Claude Code).
+
+        Validates the pattern with Python ``re`` up front so an invalid regex is a clean,
+        model-fixable error rather than a silent zero-match (the inherited backend greps literally
+        via ``rg -F``/``re.escape``; ripgrep also exits 2 quietly on a bad regex). Reuses the
+        parent's ``_python_search`` with the *raw* (unescaped) pattern, which compiles it as a
+        regex — trading ripgrep's speed for correct semantics on local/disk runs (the deployed
+        path is the sandbox backend).
+        """
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            return GrepResult(error=f"invalid regular expression: {pattern!r} ({exc})")
+        return await asyncio.to_thread(self._regex_grep, pattern, path, glob)
+
+    def _regex_grep(self, pattern: str, path: str | None, glob: str | None) -> GrepResult:
+        try:
+            base_full = self._resolve_path(path or ".")
+        except ValueError:
+            return GrepResult(matches=[])
+        except (OSError, RuntimeError) as exc:
+            return GrepResult(error=f"Error searching path '{path or '.'}': {exc}", matches=[])
+        try:
+            if not base_full.exists():
+                return GrepResult(matches=[])
+        except OSError as exc:
+            return GrepResult(error=f"Error searching path '{path or '.'}': {exc}", matches=[])
+        results = self._python_search(pattern, base_full, glob)
+        matches = [
+            {"path": fpath, "line": int(line_num), "text": line_text}
+            for fpath, items in results.items()
+            for (line_num, line_text) in items
+        ]
+        return GrepResult(matches=matches)
 
 
 @runtime_checkable
