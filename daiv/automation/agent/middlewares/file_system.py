@@ -28,7 +28,6 @@ from deepagents.backends.protocol import (
 )
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
@@ -75,7 +74,21 @@ def _with_path_reminder(base: str, *extras: str) -> str:
     return "\n".join((base, *extras, REMINDER_ABSOLUTE_PATHS))
 
 
-GREP_TOOL_DESCRIPTION = _with_path_reminder(GREP_TOOL_DESCRIPTION_BASE)
+_GREP_DESCRIPTION = r"""Search file contents with a regular expression and return matching files or lines.
+
+The pattern is a REGULAR EXPRESSION (POSIX extended / ERE in sandbox runs; Python `re` on local runs).
+Common constructs work: alternation `foo|bar`, anchors `^def `/`;$`, character classes `[A-Z]`,
+quantifiers `+ * ? {2,3}`, and groups `(...)`. To match a regex metacharacter literally, escape it
+with a backslash, e.g. `def __init__\(self\)` or `value\.attr`.
+
+Parameters:
+- pattern: the regular expression.
+- path: absolute file or directory to search (defaults to the workspace root).
+- glob: optional filename glob to restrict the search (e.g. `*.py`).
+- output_mode: `files_with_matches` (default), `content`, or `count`.
+
+Prefer this tool over shell `grep`/`rg` in bash for searching workspace files."""
+GREP_TOOL_DESCRIPTION = _with_path_reminder(_GREP_DESCRIPTION)
 GLOB_TOOL_DESCRIPTION = _with_path_reminder(GLOB_TOOL_DESCRIPTION_BASE)
 LIST_FILES_TOOL_DESCRIPTION = _with_path_reminder(LIST_FILES_TOOL_DESCRIPTION_BASE)
 READ_FILE_TOOL_DESCRIPTION = _with_path_reminder(READ_FILE_TOOL_DESCRIPTION_BASE)
@@ -345,6 +358,10 @@ _FS_CODE_HINTS: dict[FsErrorCode, str] = {
     FsErrorCode.NOT_A_DIRECTORY: "is not a directory — read it with read_file, not the ls/glob tools",
     FsErrorCode.ALREADY_EXISTS: "already exists — modify it with edit_file (write_file only creates new files)",
     FsErrorCode.NOT_A_TEXT_FILE: "is not a UTF-8 text file and cannot be edited",
+    FsErrorCode.INVALID_PATTERN: (
+        "is not a valid regular expression — fix the syntax, or escape regex metacharacters "
+        "(e.g. \\( \\. \\|) to match them literally"
+    ),
 }
 
 

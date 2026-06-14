@@ -63,7 +63,7 @@ Intended use:
 Do NOT use bash for file operations when dedicated tools exist:
 - File listing: use `ls` tool (not shell ls)
 - File search: use `glob` (not find)
-- Content search: use dedicated `grep` tool (not shell grep/rg)
+- Content search: use the dedicated `grep` tool — it takes a regex (not shell grep/rg)
 - Read files: use `read_file` (not cat/head/tail)
 - Edit files: use `edit_file` (not sed/awk)
 - Write files: use `write_file` (not echo/heredocs)
