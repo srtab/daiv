@@ -103,7 +103,7 @@ def test_glob_description_steers_over_find(setup):
     desc = setup.tools["glob"].description
     low = desc.lower()
     assert "prefer this tool" in low
-    assert "find" in low  # names the shell tool it replaces
+    assert "shell `find`" in low  # names the shell tool it replaces
     assert "**/" in desc  # the anchoring guidance the model must learn
     assert fs_module._GLOB_EXTRA in desc
 
