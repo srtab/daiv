@@ -17,7 +17,7 @@
             "type": "integer"
           },
           "path": {
-            "description": "Absolute path inside the sandbox, must be under /repo.",
+            "description": "Absolute path inside the sandbox, must be under /workspace/repo.",
             "title": "Path",
             "type": "string"
           }
@@ -99,6 +99,780 @@
     "title": "ApplyMutationsResponse",
     "type": "object"
   },
+  "FsDeleteRequest": {
+    "properties": {
+      "path": {
+        "description": "Absolute file path under /workspace.",
+        "title": "Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "title": "FsDeleteRequest",
+    "type": "object"
+  },
+  "FsDeleteResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed",
+          "invalid_pattern"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "error": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FsError"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Structured error; null on success."
+      },
+      "removed": {
+        "default": false,
+        "description": "True if a file was actually removed; False if it was already absent.",
+        "title": "Removed",
+        "type": "boolean"
+      }
+    },
+    "title": "FsDeleteResponse",
+    "type": "object"
+  },
+  "FsEditRequest": {
+    "properties": {
+      "new": {
+        "description": "Replacement string.",
+        "title": "New",
+        "type": "string"
+      },
+      "old": {
+        "description": "Exact substring to replace.",
+        "title": "Old",
+        "type": "string"
+      },
+      "path": {
+        "description": "Absolute file path under /workspace.",
+        "title": "Path",
+        "type": "string"
+      },
+      "replace_all": {
+        "default": false,
+        "description": "Replace every occurrence.",
+        "title": "Replace All",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "path",
+      "old",
+      "new"
+    ],
+    "title": "FsEditRequest",
+    "type": "object"
+  },
+  "FsEditResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed",
+          "invalid_pattern"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "error": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FsError"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Structured error; null on success."
+      },
+      "occurrences": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Number of replacements made.",
+        "title": "Occurrences"
+      }
+    },
+    "title": "FsEditResponse",
+    "type": "object"
+  },
+  "FsEntry": {
+    "properties": {
+      "is_dir": {
+        "description": "Whether the entry is a directory.",
+        "title": "Is Dir",
+        "type": "boolean"
+      },
+      "path": {
+        "description": "Absolute path of the entry.",
+        "title": "Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "is_dir"
+    ],
+    "title": "FsEntry",
+    "type": "object"
+  },
+  "FsGlobRequest": {
+    "properties": {
+      "path": {
+        "description": "Absolute base directory under /workspace.",
+        "title": "Path",
+        "type": "string"
+      },
+      "pattern": {
+        "description": "Glob pattern (supports *, **, ?, [abc]).",
+        "title": "Pattern",
+        "type": "string"
+      }
+    },
+    "required": [
+      "pattern",
+      "path"
+    ],
+    "title": "FsGlobRequest",
+    "type": "object"
+  },
+  "FsGlobResponse": {
+    "$defs": {
+      "FsEntry": {
+        "properties": {
+          "is_dir": {
+            "description": "Whether the entry is a directory.",
+            "title": "Is Dir",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Absolute path of the entry.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "is_dir"
+        ],
+        "title": "FsEntry",
+        "type": "object"
+      },
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed",
+          "invalid_pattern"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "error": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FsError"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Structured error; null on success."
+      },
+      "matches": {
+        "description": "Matching entries (empty on error).",
+        "items": {
+          "$ref": "#/$defs/FsEntry"
+        },
+        "title": "Matches",
+        "type": "array"
+      }
+    },
+    "title": "FsGlobResponse",
+    "type": "object"
+  },
+  "FsGrepMatch": {
+    "properties": {
+      "line": {
+        "description": "1-indexed line number of the match.",
+        "title": "Line",
+        "type": "integer"
+      },
+      "path": {
+        "description": "Absolute path of the matching file.",
+        "title": "Path",
+        "type": "string"
+      },
+      "text": {
+        "description": "Text of the matching line.",
+        "title": "Text",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "line",
+      "text"
+    ],
+    "title": "FsGrepMatch",
+    "type": "object"
+  },
+  "FsGrepRequest": {
+    "properties": {
+      "glob": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional filename glob to restrict the search.",
+        "title": "Glob"
+      },
+      "path": {
+        "description": "Absolute directory/file path under /workspace.",
+        "title": "Path",
+        "type": "string"
+      },
+      "pattern": {
+        "description": "Literal substring to search for (not a regex).",
+        "title": "Pattern",
+        "type": "string"
+      }
+    },
+    "required": [
+      "pattern",
+      "path"
+    ],
+    "title": "FsGrepRequest",
+    "type": "object"
+  },
+  "FsGrepResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed",
+          "invalid_pattern"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      },
+      "FsGrepMatch": {
+        "properties": {
+          "line": {
+            "description": "1-indexed line number of the match.",
+            "title": "Line",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Absolute path of the matching file.",
+            "title": "Path",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text of the matching line.",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "line",
+          "text"
+        ],
+        "title": "FsGrepMatch",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "error": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FsError"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Structured error; null on success."
+      },
+      "matches": {
+        "description": "Matches found (empty on error).",
+        "items": {
+          "$ref": "#/$defs/FsGrepMatch"
+        },
+        "title": "Matches",
+        "type": "array"
+      },
+      "truncated": {
+        "default": false,
+        "description": "True when matches were capped server-side; narrow the search to see the rest.",
+        "title": "Truncated",
+        "type": "boolean"
+      }
+    },
+    "title": "FsGrepResponse",
+    "type": "object"
+  },
+  "FsLsRequest": {
+    "properties": {
+      "path": {
+        "description": "Absolute directory path under /workspace.",
+        "title": "Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "title": "FsLsRequest",
+    "type": "object"
+  },
+  "FsLsResponse": {
+    "$defs": {
+      "FsEntry": {
+        "properties": {
+          "is_dir": {
+            "description": "Whether the entry is a directory.",
+            "title": "Is Dir",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Absolute path of the entry.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "is_dir"
+        ],
+        "title": "FsEntry",
+        "type": "object"
+      },
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed",
+          "invalid_pattern"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "entries": {
+        "description": "Directory entries (empty on error).",
+        "items": {
+          "$ref": "#/$defs/FsEntry"
+        },
+        "title": "Entries",
+        "type": "array"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FsError"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Structured error; null on success."
+      }
+    },
+    "title": "FsLsResponse",
+    "type": "object"
+  },
+  "FsReadRequest": {
+    "properties": {
+      "limit": {
+        "default": 2000,
+        "description": "Maximum number of lines (text files only).",
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "offset": {
+        "default": 0,
+        "description": "0-indexed start line (text files only).",
+        "minimum": 0,
+        "title": "Offset",
+        "type": "integer"
+      },
+      "path": {
+        "description": "Absolute file path under /workspace.",
+        "title": "Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "title": "FsReadRequest",
+    "type": "object"
+  },
+  "FsReadResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed",
+          "invalid_pattern"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "content": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "File content (utf-8 text or base64 binary). For an empty file this is a human-readable sentinel string (with encoding 'utf-8'), not the file's bytes.",
+        "title": "Content"
+      },
+      "encoding": {
+        "anyOf": [
+          {
+            "enum": [
+              "utf-8",
+              "base64"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Encoding of `content`: 'utf-8' for text, 'base64' for binary.",
+        "title": "Encoding"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FsError"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Structured error; null on success."
+      }
+    },
+    "title": "FsReadResponse",
+    "type": "object"
+  },
+  "FsWriteRequest": {
+    "properties": {
+      "content": {
+        "description": "Base64-encoded full file content.",
+        "format": "base64",
+        "title": "Content",
+        "type": "string"
+      },
+      "mode": {
+        "default": 420,
+        "description": "POSIX mode bits to set on the file.",
+        "maximum": 4095,
+        "minimum": 0,
+        "title": "Mode",
+        "type": "integer"
+      },
+      "path": {
+        "description": "Absolute file path under /workspace.",
+        "title": "Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "content"
+    ],
+    "title": "FsWriteRequest",
+    "type": "object"
+  },
+  "FsWriteResponse": {
+    "$defs": {
+      "FsError": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/FsErrorCode",
+            "description": "Stable, machine-branchable error code."
+          },
+          "message": {
+            "description": "Human-readable hint the agent can act on.",
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FsError",
+        "type": "object"
+      },
+      "FsErrorCode": {
+        "enum": [
+          "invalid_path",
+          "not_found",
+          "not_a_directory",
+          "is_a_directory",
+          "not_a_text_file",
+          "string_not_found",
+          "multiple_occurrences",
+          "already_exists",
+          "too_large",
+          "invalid_offset",
+          "permission_denied",
+          "exec_failed",
+          "invalid_pattern"
+        ],
+        "title": "FsErrorCode",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "error": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FsError"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Structured error; null on success."
+      }
+    },
+    "title": "FsWriteResponse",
+    "type": "object"
+  },
   "MutationResult": {
     "properties": {
       "error": {
@@ -148,7 +922,7 @@
         "type": "integer"
       },
       "path": {
-        "description": "Absolute path inside the sandbox, must be under /repo.",
+        "description": "Absolute path inside the sandbox, must be under /workspace/repo.",
         "title": "Path",
         "type": "string"
       }
@@ -234,18 +1008,6 @@
       }
     },
     "properties": {
-      "patch": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "description": "Base64-encoded patch with the changes.",
-        "title": "Patch"
-      },
       "results": {
         "description": "List of results of each command.",
         "items": {
@@ -256,8 +1018,7 @@
       }
     },
     "required": [
-      "results",
-      "patch"
+      "results"
     ],
     "title": "RunResponse",
     "type": "object"
@@ -329,12 +1090,6 @@
         "default": null,
         "description": "Environment variables to set in the container at startup.",
         "title": "Environment"
-      },
-      "extract_patch": {
-        "default": false,
-        "description": "Whether to extract a patch with the changes made by the executed commands.",
-        "title": "Extract Patch",
-        "type": "boolean"
       },
       "memory_bytes": {
         "anyOf": [

@@ -3,10 +3,11 @@ from typing import TYPE_CHECKING, Any
 
 from langgraph.store.memory import InMemoryStore
 
+from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.publishers import GitChangePublisher
 from automation.agent.results import NO_SNAPSHOT, AgentResult, build_agent_result
 from codebase.clients import RepoClient
-from codebase.utils import GitManager
+from core.sandbox.client import get_run_sandbox_client
 
 if TYPE_CHECKING:
     from langchain.agents import CompiledAgent
@@ -29,7 +30,6 @@ class BaseManager:
         self.ctx = runtime_ctx
         self.client = RepoClient.create_instance()
         self.store = InMemoryStore()
-        self.git_manager = GitManager(self.ctx.gitrepo)
 
     async def _recover_draft(
         self, agent: CompiledAgent, config: RunnableConfig, *, entity_label: str, entity_id: int | str
@@ -44,15 +44,23 @@ class BaseManager:
             snapshot = await agent.aget_state(config=config)
             snapshot_mr = snapshot.values.get("merge_request")
 
-            publisher = GitChangePublisher(self.ctx)
-            published_mr = await publisher.publish(
+            # Sandbox-mode publish runs git through the run's bound backend. Recovery runs in the same
+            # run scope as the agent (client still open), but doesn't hold the agent's backend instance,
+            # so it reconstructs the bound handle from the run-scoped client + the persisted session id.
+            sandbox_backend = None
+            if self.ctx.sandbox is not None and self.ctx.sandbox.enabled and (sid := snapshot.values.get("session_id")):
+                sandbox_backend = SandboxFileBackend(client=get_run_sandbox_client())
+                sandbox_backend.bind_session(sid)
+
+            publisher = GitChangePublisher(self.ctx, sandbox_backend=sandbox_backend)
+            outcome = await publisher.publish(
                 merge_request=snapshot_mr, as_draft=(snapshot_mr is None or snapshot_mr.draft)
             )
 
-            if published_mr:
-                update_values: dict[str, Any] = {"merge_request": published_mr}
-                if publisher.protected_branch_fallback_source:
-                    update_values["protected_branch_fallback_source"] = publisher.protected_branch_fallback_source
+            if outcome.merge_request is not None:
+                update_values: dict[str, Any] = {"merge_request": outcome.merge_request}
+                if outcome.protected_branch_fallback_source:
+                    update_values["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
                 await agent.aupdate_state(config=config, values=update_values)
                 return True
         except Exception:

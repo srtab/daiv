@@ -9,7 +9,7 @@ which middlewares to compose.
 """
 
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from deepagents.middleware.filesystem import FilesystemMiddleware
@@ -28,9 +28,6 @@ from automation.agent.subagents import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-pytestmark = pytest.mark.usefixtures("bypass_gitignore_check")
 
 
 class TestGeneralPurposeMiddleware:
@@ -68,6 +65,28 @@ class TestGeneralPurposeMiddleware:
         sandbox_middlewares = [m for m in middleware if isinstance(m, SandboxMiddleware)]
         assert len(sandbox_middlewares) == 1
         assert sandbox_middlewares[0].close_session is False
+
+    def test_threads_client_and_sandbox_backend_into_sandbox_middleware(
+        self, mock_model, mock_backend, mock_runtime_ctx
+    ):
+        """The run-scoped client and the parent's bound backend must reach the subagent's
+        SandboxMiddleware: the subagent's bash tool runs through the shared backend, so a dropped
+        argument would make that bash raise ``...bound the sandbox backend`` at runtime."""
+        sentinel_client = Mock()
+        sentinel_backend = Mock()
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            web_search_enabled=True,
+            web_fetch_enabled=True,
+            client=sentinel_client,
+            sandbox_backend=sentinel_backend,
+        )
+        sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
+        assert sandbox_mw._client is sentinel_client
+        assert sandbox_mw._sandbox_backend is sentinel_backend
 
     def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend, mock_runtime_ctx):
         middleware = _build_general_purpose_middleware(
@@ -127,76 +146,35 @@ class TestGeneralPurposeMiddleware:
         )
         assert not any(isinstance(m, ModelFallbackMiddleware) for m in middleware)
 
-    async def test_subagent_write_file_uses_parent_session_id(self, tmp_path, mock_model):
-        """The subagent's sandbox-mirroring write_file must thread the parent's session_id into the sandbox call.
+    def test_disk_mode_applies_workspace_fence(self, mock_model, mock_backend, mock_runtime_ctx):
+        from deepagents.middleware.filesystem import FilesystemMiddleware
 
-        DAIV-custom contract: a subagent inheriting the parent runtime's ``session_id`` calls the
-        sandbox under that same session, never opening a fresh one. Exercises the production
-        intercept path: ``_build_general_purpose_middleware`` → ``SandboxMiddleware.awrap_tool_call``
-        → ``SandboxSyncer.mirror``.
-        """
-        from types import SimpleNamespace
+        from automation.agent.middlewares.file_system import WORKSPACE_FENCE_PERMISSIONS
 
-        from langchain_core.messages import ToolMessage
-        from langgraph.prebuilt.tool_node import ToolCallRequest
-
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend, SandboxSyncer
-        from core.sandbox.schemas import ApplyMutationsResponse, MutationResult
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        ctx = Mock()
-        ctx.gitrepo.working_dir = str(repo_dir)
-
-        fake_client = AsyncMock()
-        fake_client.apply_file_mutations.return_value = ApplyMutationsResponse(
-            results=[MutationResult(path="/repo/sub.py", ok=True, error=None)]
-        )
-
-        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         middleware = _build_general_purpose_middleware(
-            mock_model, backend, ctx, sandbox_enabled=True, web_search_enabled=False, web_fetch_enabled=False
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=False,
+            web_search_enabled=False,
+            web_fetch_enabled=False,
         )
+        fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
+        assert fs._permissions == WORKSPACE_FENCE_PERMISSIONS
 
-        fs_mw = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
-        sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
-        # Inject fake client + syncer to skip network setup that abefore_agent would otherwise drive.
-        sandbox_mw._client = fake_client
-        sandbox_mw._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=fake_client)
+    def test_sandbox_mode_has_no_fence(self, mock_model, mock_backend, mock_runtime_ctx):
+        from deepagents.middleware.filesystem import FilesystemMiddleware
 
-        write = next(t for t in fs_mw.tools if t.name == "write_file")
-        runtime = SimpleNamespace(
-            state={"session_id": "parent-sid"},
-            context=SimpleNamespace(gitrepo=SimpleNamespace(working_dir=str(repo_dir)), has_repo=True),
-            tool_call_id="call_subagent",
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            web_search_enabled=False,
+            web_fetch_enabled=False,
         )
-
-        request = ToolCallRequest(
-            tool_call={
-                "name": "write_file",
-                "args": {"file_path": f"/{repo_dir.name}/sub.py", "content": "x"},
-                "id": "call_subagent",
-                "type": "tool_call",
-            },
-            tool=write,
-            state=runtime.state,
-            runtime=runtime,
-        )
-
-        async def handler(req: ToolCallRequest) -> ToolMessage:
-            result = await req.tool.coroutine(**req.tool_call["args"], runtime=req.runtime)
-            if isinstance(result, ToolMessage):
-                return result
-            return ToolMessage(content=result, tool_call_id=req.tool_call["id"], name=req.tool.name)
-
-        result = await sandbox_mw.awrap_tool_call(request, handler)
-
-        assert isinstance(result, ToolMessage)
-        assert isinstance(result.content, str)
-        assert "Updated file" in result.content
-        fake_client.apply_file_mutations.assert_awaited_once()
-        call_session_id = fake_client.apply_file_mutations.call_args.args[0]
-        assert call_session_id == "parent-sid"
+        fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
+        assert fs._permissions == []
 
 
 class TestGeneralPurposeSubagent:
@@ -219,12 +197,23 @@ class TestGeneralPurposeSubagent:
         return ctx
 
     def test_returns_compiled_subagent(self, mock_model, mock_backend, mock_runtime_ctx):
-        result = create_general_purpose_subagent(mock_model, mock_backend, mock_runtime_ctx)
+        result = create_general_purpose_subagent(mock_model, mock_backend, mock_runtime_ctx, "/workspace/repo/")
 
         assert isinstance(result, dict)
         assert result["name"] == "general-purpose"
         assert result["description"]
         assert "runnable" in result
+
+    def test_prompt_names_the_working_directory(self):
+        """The whole point of threading working_directory: the subagent prompt must embed it (and
+        drop the stale /repo/ example), so the model addresses files under the right root. A revert
+        to a static prompt would silently regress this."""
+        from automation.agent.subagents import _general_purpose_system_prompt
+
+        prompt = _general_purpose_system_prompt("/workspace/repo/")
+        assert "/workspace/repo/" in prompt
+        assert "e.g., /workspace/repo/src/app/utils.py" in prompt  # example is rooted at the workspace
+        assert "e.g., /repo/src" not in prompt  # not the stale bare-/repo/ example
 
 
 @pytest.mark.django_db
@@ -242,12 +231,21 @@ class TestExploreSubagent:
         p.is_enabled = True
         p.save()
 
-        result = create_explore_subagent(Mock())
+        result = create_explore_subagent(Mock(), "/workspace/repo/")
 
         assert isinstance(result, dict)
         assert result["name"] == "explore"
         assert result["description"]
         assert "runnable" in result
+
+    def test_prompt_names_the_working_directory(self):
+        """The explore subagent previously had no working-directory info; its prompt must now embed
+        it (and drop the stale /repo/ example) so it returns sandbox-absolute paths to the caller."""
+        from automation.agent.subagents import _explore_system_prompt
+
+        prompt = _explore_system_prompt("/myrepo/")
+        assert "/myrepo/" in prompt
+        assert "/repo/src/app/utils.py" not in prompt
 
     def test_read_only_permissions_deny_all_writes(self):
         """Locks the explore subagent's read-only contract: relaxing this constant would
@@ -293,13 +291,50 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 1
         assert result[0]["name"] == "my-agent"
         assert result[0]["description"] == "Does custom things"
         assert "runnable" in result[0]
+
+    async def test_threads_client_and_sandbox_backend_into_middleware(
+        self, tmp_path: Path, mock_model, mock_runtime_ctx
+    ):
+        """The run-scoped client + parent backend are forwarded (positionally, as the last two
+        args) into each custom subagent's middleware builder, so a custom subagent's bash tool runs
+        through the shared backend rather than raising at runtime. Guards the positional pass-through
+        in ``load_custom_subagents``."""
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
+
+        sentinel_client = Mock()
+        sentinel_backend = Mock()
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        with patch("automation.agent.subagents._build_general_purpose_middleware", return_value=[]) as build_mw:
+            result = await load_custom_subagents(
+                model=mock_model,
+                backend=backend,
+                runtime=mock_runtime_ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+                client=sentinel_client,
+                sandbox_backend=sentinel_backend,
+            )
+
+        assert len(result) == 1
+        build_mw.assert_called_once()
+        # client and sandbox_backend are the last two positional args (see load_custom_subagents).
+        assert build_mw.call_args.args[-2] is sentinel_client
+        assert build_mw.call_args.args[-1] is sentinel_backend
 
     async def test_loads_multiple_subagents(self, tmp_path: Path, mock_model, mock_runtime_ctx):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend
@@ -311,7 +346,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         names = {s["name"] for s in result}
@@ -327,7 +366,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 1
@@ -343,7 +386,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 1
@@ -358,7 +405,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 0
@@ -372,7 +423,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 0
@@ -386,7 +441,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 0
@@ -400,7 +459,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert len(result) == 0
@@ -410,7 +473,30 @@ class TestCustomSubagents:
         backend.als = AsyncMock(side_effect=FileNotFoundError("not found"))
 
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
+        )
+
+        assert result == []
+
+    async def test_returns_empty_when_source_reports_not_found(self, mock_model, mock_runtime_ctx):
+        """An optional source the sandbox now reports as ``not_found`` arrives as a returned
+        ``LsResult`` with an error (not a raised exception). The loader must still treat it as absent
+        and skip it — an absent optional source is not a failure to surface."""
+        from deepagents.backends.protocol import LsResult
+
+        backend = Mock()
+        backend.als = AsyncMock(return_value=LsResult(error="Listing '/repo/.agents/subagents': does not exist"))
+
+        result = await load_custom_subagents(
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         assert result == []
@@ -428,7 +514,11 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         names = {s["name"] for s in result}
@@ -447,9 +537,34 @@ class TestCustomSubagents:
 
         backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
         result = await load_custom_subagents(
-            model=mock_model, backend=backend, runtime=mock_runtime_ctx, sources=["/repo/.agents/subagents"]
+            model=mock_model,
+            backend=backend,
+            runtime=mock_runtime_ctx,
+            sources=["/repo/.agents/subagents"],
+            working_directory="/workspace/repo/",
         )
 
         names = {s["name"] for s in result}
         assert "bad-model" not in names
         assert "good" in names
+
+
+class TestExplorePermissions:
+    def test_sandbox_explore_is_read_only_only(self):
+        from automation.agent.subagents import READ_ONLY_PERMISSIONS, _explore_permissions
+
+        assert _explore_permissions(sandbox_enabled=True) == READ_ONLY_PERMISSIONS
+
+    def test_disk_explore_is_read_only_plus_read_fence(self):
+        from deepagents.middleware.filesystem import _check_fs_permission
+
+        from automation.agent.subagents import _explore_permissions
+
+        perms = _explore_permissions(sandbox_enabled=False)
+        assert _check_fs_permission(perms, "write", "/workspace/repo/foo.py") == "deny"
+        assert _check_fs_permission(perms, "read", "/workspace/repo/foo.py") == "allow"
+        assert _check_fs_permission(perms, "read", "/workspace/skills/x/SKILL.md") == "allow"
+        assert _check_fs_permission(perms, "read", "/workspace") == "deny"
+        # offloaded-artifact dirs are readable (eviction read-back) but stay write-denied (read-only agent)
+        assert _check_fs_permission(perms, "read", "/workspace/large_tool_results/x") == "allow"
+        assert _check_fs_permission(perms, "write", "/workspace/large_tool_results/x") == "deny"

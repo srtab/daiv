@@ -175,7 +175,25 @@ OAuth credentials can be configured via environment variables (shown below) or t
 | `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation  | *(none)*  | `random-webhook-secret` |
 
 !!! note
-    The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a personal access token with the `api` scope.
+    The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a
+    personal access token with the `api` scope.
+
+    For git clone/push, DAIV does not embed this PAT in the repository workspace. Instead, it mints
+    a short-lived project access token per repository (`write_repository` scope, Developer access
+    level, ~48–72h lifetime), limiting what the credential inside the workspace can reach. This
+    requires the PAT user to have at least the **Maintainer** role on each project and, on
+    GitLab.com, the Premium or Ultimate tier (any tier works on self-managed instances). Each token
+    appears as a `daiv-clone` bot member on the project — with daily minting and ~3-day lifetimes,
+    expect a few of them at a time; GitLab removes expired bots automatically (on GitLab 17.9+ they
+    are retained for ~30 days first). When a token cannot be created, DAIV logs a warning and falls
+    back to embedding the PAT.
+    The token pushes at Developer level: if branch protection rules match the branches DAIV pushes to
+    (e.g. a wildcard pattern restricting pushes to Maintainers), allow Developers to push on that
+    pattern — otherwise pushes fail. A sandbox session resumed a day or more after it was created may
+    hold an expired clone token — pushes from such a session fail until a fresh session re-clones the
+    repository. Avoid revoking `daiv-clone` tokens early: DAIV caches the active token for up to 24
+    hours, so clones keep using the revoked credential (failing with auth errors) until the cache
+    entry (`codebase:gitlab:clone-token:<project-id>`) expires or is cleared.
 
 ### GitHub Integration
 
@@ -269,6 +287,7 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 | `MCP_SERVERS_CONFIG_FILE`       | Path to user-defined MCP servers JSON config file              | *(none)*                       | `/path/to/mcp.json` |
 | `MCP_SENTRY_URL`                | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable) | `http://mcp-sentry:8000/mcp`   | `http://localhost:8001/mcp` |
 | `MCP_CONTEXT7_URL`              | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp-context7:8000/mcp` | `http://localhost:8002/mcp` |
+| `MCP_TOOL_LOAD_TIMEOUT`         | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30` | `10` |
 
 !!! info
     For detailed MCP server configuration including user-defined servers, see [MCP Tools](../customization/mcp-tools.md).

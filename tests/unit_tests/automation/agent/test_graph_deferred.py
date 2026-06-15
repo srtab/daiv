@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 def _common_patches():
     """Patches that disable side effects unrelated to the deferred-tools wiring."""
     return [
-        patch("automation.agent.graph.DAIVFilesystemBackend"),
+        patch("automation.agent.graph.build_disk_workspace_backend"),
         patch("automation.agent.graph.DAIVCompositeBackend"),
         patch("automation.agent.graph.create_general_purpose_subagent"),
         patch("automation.agent.graph.create_explore_subagent"),
@@ -93,3 +93,15 @@ class TestCreateDaivAgentDeferredFlag:
         assert kwargs["tools"] == []
         middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
         assert "DeferredToolsMiddleware" in middleware_types
+
+
+def test_output_invariants_prompt_keys_off_working_directory():
+    """The output-invariants block strips the run's actual repo prefix (sandbox => /workspace/repo/)."""
+    from automation.agent.graph import _output_invariants_system_prompt
+
+    sandbox = _output_invariants_system_prompt("/workspace/repo/")
+    assert '"/workspace/repo/"' in sandbox
+    assert '"/repo/"' not in sandbox
+
+    disk = _output_invariants_system_prompt("/myrepo/")
+    assert '"/myrepo/"' in disk

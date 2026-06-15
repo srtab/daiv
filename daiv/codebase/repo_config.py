@@ -49,6 +49,26 @@ class SlashCommands(BaseModel):
     enabled: bool = Field(default=True, description="Enable slash command features.")
 
 
+def _default_thinking_level() -> ThinkingLevel | None:
+    """Coerce ``site_settings.agent_thinking_level`` into a ``ThinkingLevel`` member.
+
+    The site setting comes back as a raw string when set via the DB or an env var,
+    and pydantic does not validate ``default_factory`` results — a raw string would
+    sit unvalidated in the enum-typed field and trigger
+    ``PydanticSerializationUnexpectedValue`` warnings on every ``model_dump``.
+    Invalid values degrade to ``None`` (thinking disabled) instead of failing
+    every repository config load.
+    """
+    raw = site_settings.agent_thinking_level
+    if not raw:
+        return None
+    try:
+        return ThinkingLevel(raw)
+    except ValueError:
+        logger.warning("Invalid agent thinking level %r in site settings; ignoring it.", raw)
+        return None
+
+
 class AgentModelConfig(BaseModel):
     """
     Model configuration for the DAIV agent.
@@ -65,7 +85,7 @@ class AgentModelConfig(BaseModel):
         ),
     )
     thinking_level: ThinkingLevel | None = Field(
-        default_factory=lambda: site_settings.agent_thinking_level,
+        default_factory=_default_thinking_level,
         description=("Thinking level for DAIV tasks. Overrides DAIV_AGENT_THINKING_LEVEL environment variable."),
     )
 

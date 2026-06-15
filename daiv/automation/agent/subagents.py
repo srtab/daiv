@@ -1,6 +1,5 @@
 import logging
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -13,7 +12,14 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
 
 from automation.agent import BaseAgent
-from automation.agent.middlewares.file_system import CUSTOM_TOOL_DESCRIPTIONS, FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE
+from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
+from automation.agent.middlewares.file_system import (
+    CUSTOM_TOOL_DESCRIPTIONS,
+    WORKSPACE_ARTIFACT_SUBTREES,
+    WORKSPACE_FENCE_PERMISSIONS,
+    WORKSPACE_FENCE_SUBTREES,
+    filesystem_absolute_path_directive,
+)
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
@@ -26,7 +32,9 @@ if TYPE_CHECKING:
     from deepagents.backends import BackendProtocol
     from langchain.chat_models import BaseChatModel
 
+    from automation.agent.middlewares.file_system import SandboxFileBackend
     from codebase.context import RuntimeCtx
+    from core.sandbox.client import DAIVSandboxClient
 
 GENERAL_PURPOSE_NAME = "general-purpose"
 EXPLORE_NAME = "explore"
@@ -35,13 +43,17 @@ logger = logging.getLogger("daiv.agent")
 
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
 
-GENERAL_PURPOSE_SYSTEM_PROMPT = f"""You are an agent for DAIV. Given the user's message, you should use the tools available to complete the task. Do exactly what has been asked. When you complete the task respond with a detailed writeup.
 
+def _general_purpose_system_prompt(working_directory: str) -> str:
+    root = working_directory.rstrip("/") + "/"
+    return f"""You are an agent for DAIV. Given the user's message, you should use the tools available to complete the task. Do exactly what has been asked. When you complete the task respond with a detailed writeup.
+
+- Your working directory is {root}.
 - For file searches: Use `grep` or `glob` when you need to search broadly. Use `read_file` when you know the specific file path.
 - NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested.
-- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., /repo/src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
+- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., {root}src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
 
-{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}
+{filesystem_absolute_path_directive(working_directory)}
 """  # noqa: E501
 
 
@@ -53,6 +65,8 @@ def _build_general_purpose_middleware(
     web_search_enabled: bool,
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
@@ -66,8 +80,12 @@ def _build_general_purpose_middleware(
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
-        FilesystemMiddleware(backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS),
-        GitPlatformMiddleware(git_platform=runtime.git_platform),
+        FilesystemMiddleware(
+            backend=backend,
+            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            _permissions=None if sandbox_enabled else WORKSPACE_FENCE_PERMISSIONS,
+        ),
+        GitPlatformMiddleware(git_platform=runtime.git_platform, backend=backend),
         SummarizationMiddleware(
             model=model,
             backend=backend,
@@ -88,8 +106,9 @@ def _build_general_purpose_middleware(
         middleware.append(WebFetchMiddleware())
 
     if sandbox_enabled:
-        agent_path = Path(runtime.gitrepo.working_dir)
-        middleware.append(SandboxMiddleware(backend=backend, agent_root=f"/{agent_path.name}", close_session=False))
+        middleware.append(
+            SandboxMiddleware(agent_root=REPO_PATH, client=client, sandbox_backend=sandbox_backend, close_session=False)
+        )
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
@@ -101,10 +120,13 @@ def create_general_purpose_subagent(
     model: BaseChatModel,
     backend: BackendProtocol,
     runtime: RuntimeCtx,
+    working_directory: str,
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
 ) -> CompiledSubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
@@ -112,17 +134,29 @@ def create_general_purpose_subagent(
     runnable = create_agent(
         model=model,
         tools=[],
-        system_prompt=GENERAL_PURPOSE_SYSTEM_PROMPT,
+        system_prompt=_general_purpose_system_prompt(working_directory),
         middleware=_build_general_purpose_middleware(
-            model, backend, runtime, sandbox_enabled, web_search_enabled, web_fetch_enabled, fallback_models
+            model,
+            backend,
+            runtime,
+            sandbox_enabled,
+            web_search_enabled,
+            web_fetch_enabled,
+            fallback_models,
+            client,
+            sandbox_backend,
         ),
         name=GENERAL_PURPOSE_NAME,
     )
     return CompiledSubAgent(name=GENERAL_PURPOSE_NAME, description=GENERAL_PURPOSE_DESCRIPTION, runnable=runnable)
 
 
-EXPLORE_SYSTEM_PROMPT = f"""\
+def _explore_system_prompt(working_directory: str) -> str:
+    root = working_directory.rstrip("/") + "/"
+    return f"""\
 You are a file search specialist for DAIV. You excel at thoroughly navigating and exploring codebases.
+
+Your working directory is {root}.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
 This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
@@ -144,7 +178,7 @@ Guidelines:
 - Use `grep` for searching file contents with regex
 - Use `read_file` when you know the specific file path you need to read
 - Adapt your search approach based on the thoroughness level specified by the caller
-- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., /repo/src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
+- CRITICAL: All file paths in your response MUST be absolute paths exactly as returned by the tools (e.g., {root}src/app/utils.py). Never strip prefixes or convert to relative paths — the caller uses your paths directly in tool calls.
 - For clear communication, avoid using emojis
 - Communicate your final report directly as a regular message - do NOT attempt to create files
 
@@ -155,8 +189,9 @@ NOTE: You are meant to be a fast agent that returns output as quickly as possibl
 
 Complete the user's search request efficiently and report your findings clearly.
 
-{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}
+{filesystem_absolute_path_directive(working_directory)}
 """  # noqa: E501
+
 
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 
@@ -168,8 +203,27 @@ READ_ONLY_PERMISSIONS: list[FilesystemPermission] = [
     FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")
 ]
 
+# Disk-mode explore permissions: read-only (deny all writes) AND fenced for reads to the three real
+# /workspace subtrees plus the offloaded-artifact dirs (so the explore agent's own eviction read-back
+# still works — same asymmetry as WORKSPACE_FENCE_PERMISSIONS), denying bare /workspace and any other
+# path beneath it. Sandbox mode keeps plain read-only (bash is unconstrained).
+EXPLORE_DISK_PERMISSIONS: list[FilesystemPermission] = [
+    *READ_ONLY_PERMISSIONS,
+    FilesystemPermission(
+        operations=["read"], paths=[*WORKSPACE_FENCE_SUBTREES, *WORKSPACE_ARTIFACT_SUBTREES], mode="allow"
+    ),
+    FilesystemPermission(operations=["read"], paths=[WORKSPACE_PATH, f"{WORKSPACE_PATH}/**"], mode="deny"),
+]
 
-def create_explore_subagent(backend: BackendProtocol, **kwargs) -> CompiledSubAgent:
+
+def _explore_permissions(*, sandbox_enabled: bool) -> list[FilesystemPermission]:
+    """Read-only everywhere; additionally fence reads to the real subtrees in disk mode."""
+    return READ_ONLY_PERMISSIONS if sandbox_enabled else EXPLORE_DISK_PERMISSIONS
+
+
+def create_explore_subagent(
+    backend: BackendProtocol, working_directory: str, *, sandbox_enabled: bool = True, **kwargs
+) -> CompiledSubAgent:
     """
     Create the explore subagent.
     """
@@ -182,7 +236,9 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> CompiledSubAg
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         FilesystemMiddleware(
-            backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS, _permissions=READ_ONLY_PERMISSIONS
+            backend=backend,
+            custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
+            _permissions=_explore_permissions(sandbox_enabled=sandbox_enabled),
         ),
         SummarizationMiddleware(
             model=model,
@@ -207,7 +263,11 @@ def create_explore_subagent(backend: BackendProtocol, **kwargs) -> CompiledSubAg
             )
 
     runnable = create_agent(
-        model=model, tools=[], system_prompt=EXPLORE_SYSTEM_PROMPT, middleware=middleware, name=EXPLORE_NAME
+        model=model,
+        tools=[],
+        system_prompt=_explore_system_prompt(working_directory),
+        middleware=middleware,
+        name=EXPLORE_NAME,
     )
     return CompiledSubAgent(name=EXPLORE_NAME, description=EXPLORE_SUBAGENT_DESCRIPTION, runnable=runnable)
 
@@ -270,10 +330,13 @@ async def load_custom_subagents(
     backend: BackendProtocol,
     runtime: RuntimeCtx,
     sources: list[str],
+    working_directory: str,
     sandbox_enabled: bool = True,
     web_search_enabled: bool = True,
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
 ) -> list[CompiledSubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -286,6 +349,8 @@ async def load_custom_subagents(
         backend: The filesystem backend.
         runtime: The runtime context.
         sources: List of paths to scan for subagent definitions.
+        working_directory: The run's absolute repo root (e.g. ``/workspace/repo/``), baked into the
+            subagent's filesystem path directive so it addresses files under the right root.
         sandbox_enabled: Whether to enable the sandbox middleware.
         web_search_enabled: Whether to enable web search middleware.
         web_fetch_enabled: Whether to enable web fetch middleware.
@@ -340,7 +405,7 @@ async def load_custom_subagents(
             runnable = create_agent(
                 model=subagent_model,
                 tools=[],
-                system_prompt=f"{body}\n\n{FILESYSTEM_ABSOLUTE_PATH_DIRECTIVE}",
+                system_prompt=f"{body}\n\n{filesystem_absolute_path_directive(working_directory)}",
                 middleware=_build_general_purpose_middleware(
                     subagent_model,
                     backend,
@@ -349,6 +414,8 @@ async def load_custom_subagents(
                     web_search_enabled,
                     web_fetch_enabled,
                     fallback_models,
+                    client,
+                    sandbox_backend,
                 ),
                 name=frontmatter["name"],
             )

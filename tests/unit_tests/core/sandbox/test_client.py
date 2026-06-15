@@ -1,5 +1,5 @@
 import base64
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import pytest
@@ -142,3 +142,219 @@ async def test_call_before_open_raises(fake_settings):
     client = DAIVSandboxClient()
     with pytest.raises(AttributeError):
         await client.run_commands("sid", RunCommandsRequest(commands=["echo"], fail_fast=True))
+
+
+async def test_fs_write_posts_to_fs_write(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsWriteRequest
+
+    mock_post["json_body"] = {"ok": True, "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_write(
+            "sid-1", FsWriteRequest(path="/workspace/a.txt", content=base64.b64encode(b"hi"), mode=0o644)
+        )
+    assert mock_post["url"] == "session/sid-1/fs/write"
+    assert resp.ok is True
+
+
+async def test_fs_read_parses_response(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsReadRequest
+
+    mock_post["json_body"] = {"content": "hello", "encoding": "utf-8", "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_read("sid-1", FsReadRequest(path="/workspace/a.txt"))
+    assert mock_post["url"] == "session/sid-1/fs/read"
+    assert resp.content == "hello" and resp.encoding == "utf-8"
+
+
+async def test_fs_delete_parses_removed_flag(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsDeleteRequest
+
+    # The wire still carries the derived ``ok``; the client ignores it on input and recomputes it,
+    # while ``removed`` distinguishes a real delete from an idempotent no-op.
+    mock_post["json_body"] = {"ok": True, "removed": True, "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_delete("sid-1", FsDeleteRequest(path="/workspace/a.txt"))
+    assert resp.removed is True and resp.ok is True and resp.error is None
+
+    mock_post["json_body"] = {"ok": True, "removed": False, "error": None}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_delete("sid-1", FsDeleteRequest(path="/workspace/gone.txt"))
+    assert resp.removed is False and resp.ok is True
+
+
+async def test_fs_response_parses_structured_error(fake_settings, mock_post):
+    """A structured ``error`` deserialises into ``FsError`` with a branchable ``code`` and a
+    message, and ``ok`` is derived to False."""
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import FsErrorCode, FsWriteRequest
+
+    mock_post["json_body"] = {"error": {"code": "already_exists", "message": "target exists"}}
+    async with DAIVSandboxClient() as client:
+        resp = await client.fs_write(
+            "sid-1", FsWriteRequest(path="/workspace/a.txt", content=base64.b64encode(b"hi"), mode=0o644)
+        )
+    assert resp.error is not None
+    assert resp.error.code is FsErrorCode.ALREADY_EXISTS
+    assert resp.error.message == "target exists"
+    assert resp.ok is False
+
+
+@pytest.mark.parametrize(
+    ("method_name", "make_request", "json_body", "expected_url"),
+    [
+        ("fs_ls", lambda s: s.FsLsRequest(path="/workspace/d"), {"entries": [], "error": None}, "session/sid/fs/ls"),
+        (
+            "fs_grep",
+            lambda s: s.FsGrepRequest(pattern="x", path="/workspace/d"),
+            {"matches": [], "error": None},
+            "session/sid/fs/grep",
+        ),
+        (
+            "fs_glob",
+            lambda s: s.FsGlobRequest(pattern="*.py", path="/workspace/d"),
+            {"matches": [], "error": None},
+            "session/sid/fs/glob",
+        ),
+        (
+            "fs_edit",
+            lambda s: s.FsEditRequest(path="/workspace/a", old="a", new="b"),
+            {"occurrences": 1, "error": None},
+            "session/sid/fs/edit",
+        ),
+        (
+            "fs_delete",
+            lambda s: s.FsDeleteRequest(path="/workspace/a"),
+            {"ok": True, "error": None},
+            "session/sid/fs/delete",
+        ),
+    ],
+)
+async def test_fs_methods_post_to_expected_url(
+    fake_settings, mock_post, method_name, make_request, json_body, expected_url
+):
+    """Pin the endpoint string of every fs_* method so a wrong route (e.g. fs/delete→fs/remove)
+    is caught — the backend tests use a mock client and wouldn't notice."""
+    from core.sandbox import schemas
+    from core.sandbox.client import DAIVSandboxClient
+
+    mock_post["json_body"] = json_body
+    async with DAIVSandboxClient() as client:
+        await getattr(client, method_name)("sid", make_request(schemas))
+    assert mock_post["url"] == expected_url
+
+
+async def test_session_exists_true_on_204():
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    client._client.get = AsyncMock(return_value=Mock(status_code=204, raise_for_status=Mock()))
+    assert await client.session_exists("sid") is True
+    client._client.get.assert_awaited_once_with("session/sid/")
+
+
+async def test_session_exists_false_on_404():
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    client._client.get = AsyncMock(return_value=Mock(status_code=404))
+    assert await client.session_exists("sid") is False
+
+
+async def test_session_exists_raises_on_non_404_error():
+    """A transient sandbox error (e.g. 500) must propagate, not be treated as "session gone" —
+    the caller falls back to a cold create only on a real HTTP error, never silently discards a
+    live session on a blip."""
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    err = httpx.HTTPStatusError("boom", request=httpx.Request("GET", "x"), response=httpx.Response(500))
+    client._client.get = AsyncMock(return_value=Mock(status_code=500, raise_for_status=Mock(side_effect=err)))
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.session_exists("sid")
+
+
+async def test_close_session_default_stops_via_force_false():
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    client._client.delete = AsyncMock(return_value=Mock(raise_for_status=Mock()))
+    await client.close_session("sid")
+    client._client.delete.assert_awaited_once_with("session/sid/", params={"force": False})
+
+
+async def test_close_session_force_removes():
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    client._client.delete = AsyncMock(return_value=Mock(raise_for_status=Mock()))
+    await client.close_session("sid", force=True)
+    client._client.delete.assert_awaited_once_with("session/sid/", params={"force": True})
+
+
+def test_get_run_sandbox_client_raises_when_unset():
+    from core.sandbox.client import get_run_sandbox_client
+
+    with pytest.raises(RuntimeError, match="No run-scoped sandbox client"):
+        get_run_sandbox_client()
+
+
+def test_set_get_reset_run_sandbox_client_roundtrip():
+    from core.sandbox.client import (
+        DAIVSandboxClient,
+        get_run_sandbox_client,
+        reset_run_sandbox_client,
+        set_run_sandbox_client,
+    )
+
+    client = DAIVSandboxClient()
+    token = set_run_sandbox_client(client)
+    try:
+        assert get_run_sandbox_client() is client
+    finally:
+        reset_run_sandbox_client(token)
+    with pytest.raises(RuntimeError):
+        get_run_sandbox_client()
+
+
+def _status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "http://sandbox.test/session/sid/fs/grep")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError(str(status_code), request=request, response=response)
+
+
+def test_transient_sandbox_status_includes_busy_409():
+    """409 "Session is busy" is per-session lock contention — the op never ran, so a retry once the
+    lock frees is safe. It must be classified transient, alongside the timeout/rate-limit/5xx family."""
+    from core.sandbox.client import TRANSIENT_SANDBOX_STATUS
+
+    assert 409 in TRANSIENT_SANDBOX_STATUS
+    assert {408, 425, 429, 500, 502, 503, 504} <= TRANSIENT_SANDBOX_STATUS
+
+
+@pytest.mark.parametrize("status", [408, 409, 425, 429, 500, 502, 503, 504])
+def test_is_transient_sandbox_error_true_for_retryable_status(status: int):
+    from core.sandbox.client import is_transient_sandbox_error
+
+    assert is_transient_sandbox_error(_status_error(status)) is True
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422, 501])
+def test_is_transient_sandbox_error_false_for_permanent_status(status: int):
+    from core.sandbox.client import is_transient_sandbox_error
+
+    assert is_transient_sandbox_error(_status_error(status)) is False
+
+
+def test_is_transient_sandbox_error_true_for_request_error_with_no_response():
+    """A RequestError carries no response (timeout/connection blip), so it is always transient."""
+    from core.sandbox.client import is_transient_sandbox_error
+
+    assert is_transient_sandbox_error(httpx.ConnectError("refused")) is True

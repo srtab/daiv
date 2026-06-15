@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -9,10 +10,14 @@ from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  #
 from codebase.clients import RepoClient
 from codebase.exceptions import SingleRepoRequiredError
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
+from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+
+logger = logging.getLogger("daiv.codebase")
 
 
 @dataclass(frozen=True)
@@ -162,23 +167,51 @@ async def set_runtime_ctx(
     global_default = await get_global_default()
     sandbox = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
 
-    with repo_client.load_repo(repository, sha=ref) as repo:
-        handle = RepoHandle(
-            repo_id=repo_id, git_platform=repo_client.git_platform, repository=repository, gitrepo=repo, config=config
-        )
-        ctx = RuntimeCtx(
-            bot_username=repo_client.current_user.username,
-            repos=(handle,),
-            sandbox=sandbox,
-            scope=scope,
-            issue=issue,
-            merge_request=merge_request,
-        )
-        token = runtime_ctx.set(ctx)
-        try:
-            yield ctx
-        finally:
-            runtime_ctx.reset(token)
+    # Own the sandbox transport for the whole run: one httpx connection pool, injected into the
+    # backend + middlewares by create_daiv_agent (and read by the manager recovery path). Opening
+    # the client is cheap (httpx connects lazily on first request), so idling through the
+    # clone/graph-build phase costs nothing. Gated on `sandbox.enabled` so sandbox-disabled /
+    # file-only flows never construct one.
+    sandbox_client: DAIVSandboxClient | None = None
+    client_token = None
+    if sandbox.enabled:
+        sandbox_client = DAIVSandboxClient()
+        await sandbox_client.open()
+        client_token = set_run_sandbox_client(sandbox_client)
+
+    try:
+        with repo_client.load_repo(repository, sha=ref) as repo:
+            handle = RepoHandle(
+                repo_id=repo_id,
+                git_platform=repo_client.git_platform,
+                repository=repository,
+                gitrepo=repo,
+                config=config,
+            )
+            ctx = RuntimeCtx(
+                bot_username=repo_client.current_user.username,
+                repos=(handle,),
+                sandbox=sandbox,
+                scope=scope,
+                issue=issue,
+                merge_request=merge_request,
+            )
+            token = runtime_ctx.set(ctx)
+            try:
+                yield ctx
+            finally:
+                runtime_ctx.reset(token)
+    finally:
+        if sandbox_client is not None and client_token is not None:
+            try:
+                await sandbox_client.close()
+            except Exception:
+                # A transport-level close failure must not mask whatever the run was already raising,
+                # and the contextvar reset below must still run so it is never left bound to a closed
+                # client. Log and continue.
+                logger.exception("Failed to close run-scoped sandbox client")
+            finally:
+                reset_run_sandbox_client(client_token)
 
 
 def get_runtime_ctx() -> RuntimeCtx:

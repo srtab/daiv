@@ -7,13 +7,17 @@ from daiv.settings.components import PROJECT_DIR
 # Path where the builtin skills are stored in the filesystem to be copied to the repository.
 BUILTIN_SKILLS_PATH = PROJECT_DIR / "automation" / "agent" / "skills"
 
-# Virtual path the composite backend serves global skills from. Mounted onto
-# ``SKILLS_CACHE_PATH`` on disk so per-turn skill uploads are idempotent and writes
-# under ``/skills/`` don't round-trip through the agent's state.
-GLOBAL_SKILLS_PATH = "/skills"
-GLOBAL_SKILLS_ROUTE = f"{GLOBAL_SKILLS_PATH}/"
+# Unified sandbox workspace. One backend (sandbox-authoritative) serves all of /workspace.
+# The sandbox holds the one true workspace: repo at /workspace/repo, seeded skills at
+# /workspace/skills, and the per-run scratchpad at /workspace/tmp.
+WORKSPACE_PATH = "/workspace"
+REPO_PATH = "/workspace/repo"
+SKILLS_PATH = "/workspace/skills"
+# Per-run ephemeral scratchpad. In sandbox mode it is a real sandbox dir; in disk mode it is the
+# composite's default fall-through area (alongside offloaded artifacts).
+TMP_PATH = "/workspace/tmp"
 
-# On-disk root the composite backend mounts at ``GLOBAL_SKILLS_PATH``. Created at module
+# On-disk root the composite backend mounts at ``SKILLS_PATH``. Created at module
 # import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup
 # ImportError on production, or a confusing pytest collection error locally).
 #
@@ -65,12 +69,10 @@ class ModelName(StrEnum):
     GPT_5_4_MINI = "openrouter:openai/gpt-5.4-mini"
 
     # z-ai models
-    Z_AI_GLM_5 = "openrouter:z-ai/glm-5"
-    Z_AI_GLM_5_TURBO = "openrouter:z-ai/glm-5-turbo"
+    Z_AI_GLM_5_1 = "openrouter:z-ai/glm-5.1"
 
     # minimax models
-    MINIMAX_M2_5 = "openrouter:minimax/minimax-m2.5"
-    MINIMAX_M2_7 = "openrouter:minimax/minimax-m2.7"
+    MINIMAX_M3 = "openrouter:minimax/minimax-m3"
 
     # MoonshotAI models
-    MOONSHOTAI_KIMI_K2_5 = "openrouter:moonshotai/kimi-k2.5"
+    MOONSHOTAI_KIMI_K2_6 = "openrouter:moonshotai/kimi-k2.6"

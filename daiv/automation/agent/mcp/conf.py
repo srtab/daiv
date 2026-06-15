@@ -24,5 +24,13 @@ class MCPSettings(BaseSettings):
         description="The streamable HTTP URL of the Context7 supergateway container",
     )
 
+    TOOL_LOAD_TIMEOUT: float = Field(
+        default=30.0,
+        description=(
+            "Max seconds to wait for a single MCP server to return its tools. A server that exceeds "
+            "this (e.g. a broken handshake) is skipped so it cannot freeze chats and runs."
+        ),
+    )
+
 
 settings = MCPSettings()

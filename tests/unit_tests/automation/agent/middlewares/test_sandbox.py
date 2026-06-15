@@ -1,16 +1,21 @@
-import base64
 import io
+import json
 import tarfile
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
 from git import Repo
 
-from automation.agent.middlewares.file_system import DAIVFilesystemBackend
-from automation.agent.middlewares.sandbox import SANDBOX_SYSTEM_PROMPT, SandboxMiddleware, _run_bash_commands
+from automation.agent.middlewares.file_system import SandboxFileBackend
+from automation.agent.middlewares.sandbox import (
+    SANDBOX_SYSTEM_PROMPT,
+    BashFailure,
+    SandboxMiddleware,
+    _run_bash_commands,
+)
 from core.conf import settings as core_settings
-from core.sandbox.client import DAIVSandboxClient
-from core.sandbox.schemas import RunCommandsResponse
+from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -74,98 +79,55 @@ def _make_bash_runtime(repo: Repo, disallow=(), allow=()) -> Mock:
 
 
 def _make_middleware(*, close_session: bool = True) -> SandboxMiddleware:
-    """Build a SandboxMiddleware with a dummy backend; tests that don't exercise
-    write-sync never read it."""
-    return SandboxMiddleware(backend=Mock(), agent_root="/dummy", close_session=close_session)
+    """Build a SandboxMiddleware with no injected client/backend; tests that exercise the bash
+    tool install a client afterwards, and abefore/aafter tests inject their own."""
+    return SandboxMiddleware(agent_root="/dummy", close_session=close_session)
+
+
+def _make_runtime() -> MagicMock:
+    """A minimal agent runtime whose ``ctx.sandbox`` carries valid StartSessionRequest inputs."""
+    runtime = MagicMock()
+    sb = runtime.context.sandbox
+    sb.base_image = "img"
+    sb.network_enabled = False
+    sb.memory_bytes = 1
+    sb.cpus = 1
+    sb.env_vars = None
+    runtime.context.gitrepo.working_dir = "/tmp/repo"  # noqa: S108
+    return runtime
 
 
 def _bash_tool_with_fake_client(client: Mock):
-    """Build a fresh SandboxMiddleware with ``client`` pre-installed and return its bash tool."""
+    """Build a fresh SandboxMiddleware with a bound backend over ``client`` and return its bash tool."""
+    backend = SandboxFileBackend(client=client)
+    backend.bind_session("sess_1")
     middleware = _make_middleware()
-    middleware._client = client
+    middleware._sandbox_backend = backend
     return middleware.tools[0]
 
 
 class TestBashTool:
-    async def test_bash_tool_applies_patch_and_returns_results_json(self, tmp_path: Path):
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        repo = Repo.init(repo_dir)
+    async def test_bash_tool_returns_commands_json(self):
+        """The bash tool surfaces the sandbox's per-command results as ``{"commands": [...]}``.
 
-        # Configure git identity for commits
-        with repo.config_writer() as writer:
-            writer.set_value("user", "name", "Test User")
-            writer.set_value("user", "email", "test@example.com")
+        The sandbox is authoritative — there is no local checkout to keep in sync — so the
+        output carries only ``commands`` (no ``files_changed``)."""
+        response = RunCommandsResponse(results=[RunCommandResult(command="echo ok", output="ok", exit_code=0)])
 
-        file_path = repo_dir / "hello.txt"
-        file_path.write_text("old\n")
-        repo.git.add("-A")
-        repo.index.commit("init")
-
-        # Create a real patch via git diff.
-        file_path.write_text("new\n")
-        patch_text = repo.git.diff("HEAD")
-        if patch_text and not patch_text.endswith("\n"):
-            patch_text += "\n"
-        # Restore file so the patch application is observable.
-        repo.git.checkout("--", "hello.txt")
-
-        assert file_path.read_text() == "old\n"
-
-        response = RunCommandsResponse(results=[], patch=base64.b64encode(patch_text.encode("utf-8")).decode("utf-8"))
-
-        runtime = _make_bash_runtime(repo)
+        runtime = _make_bash_runtime(Mock())
         client = Mock()
         client.run_commands = AsyncMock(return_value=response)
-        middleware = SandboxMiddleware(
-            backend=Mock(spec=DAIVFilesystemBackend), agent_root=f"/{repo_dir.name}", close_session=True
-        )
-        middleware._client = client
-        bash_tool = middleware.tools[0]
+        bash_tool = _bash_tool_with_fake_client(client)
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
-        assert file_path.read_text() == "new\n"
-        import json as _json
-
-        payload = _json.loads(output)
-        assert payload["commands"] == []
-        # The patch just edits hello.txt — nothing added/deleted/renamed.
-        assert payload["files_changed"] == [{"path": "hello.txt", "op": "modified"}]
+        payload = json.loads(output)
+        assert payload == {"commands": [{"command": "echo ok", "output": "ok", "exit_code": 0}]}
+        assert "files_changed" not in payload
         client.run_commands.assert_awaited_once()
 
-    async def test_bash_tool_returns_error_when_apply_patch_raises(self, tmp_path: Path):
-        """If ``GitManager.apply_patch`` raises (e.g. malformed sandbox patch), the bash tool
-        must surface a "Failed to persist" error string instead of returning the JSON
-        success payload — otherwise the agent's local filesystem silently desyncs from
-        the sandbox while bash claims success."""
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        repo = Repo.init(repo_dir)
-
-        # Non-empty patch so the response.patch branch is taken.
-        response = RunCommandsResponse(
-            results=[], patch=base64.b64encode(b"diff --git a/x b/x\nbogus\n").decode("utf-8")
-        )
-
-        runtime = _make_bash_runtime(repo)
-        client = Mock()
-        client.run_commands = AsyncMock(return_value=response)
-        middleware = SandboxMiddleware(
-            backend=Mock(spec=DAIVFilesystemBackend), agent_root=f"/{repo_dir.name}", close_session=True
-        )
-        middleware._client = client
-        bash_tool = middleware.tools[0]
-
-        with patch(
-            "automation.agent.middlewares.sandbox.GitManager.apply_patch",
-            side_effect=RuntimeError("simulated apply failure"),
-        ):
-            output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
-
-        assert output.startswith("error: Failed to persist")
-
-    async def test_bash_tool_returns_error_when_sandbox_call_fails(self, tmp_path: Path):
+    async def test_bash_tool_transient_failure_invites_single_retry(self, tmp_path: Path):
+        """A transport error (no HTTP response) yields transient guidance: retry once, then stop."""
         import httpx
 
         repo_dir = tmp_path / "repoX"
@@ -179,21 +141,37 @@ class TestBashTool:
 
         output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
-        assert output.startswith("error: Sandbox call failed")
+        assert output.startswith("error:")
+        assert "retry this exact command once" in output.lower()
+        # Must NOT carry the permanent "stop forever" framing — a retry is still warranted.
+        assert "unavailable for the rest of this conversation" not in output.lower()
 
-    async def test_bash_tool_raises_when_client_not_opened(self, tmp_path: Path):
-        """Calling the bash tool before ``abefore_agent`` opens the client must fail loud."""
-        import pytest
+    async def test_bash_tool_permanent_failure_tells_agent_to_stop(self, tmp_path: Path):
+        """A non-retryable status (e.g. 403) tells the agent the tool is gone for the run."""
+        import httpx
 
-        repo_dir = tmp_path / "repoX"
+        repo_dir = tmp_path / "repoY"
         repo_dir.mkdir(parents=True)
         repo = Repo.init(repo_dir)
 
         runtime = _make_bash_runtime(repo)
-        middleware = _make_middleware(close_session=True)
-        bash_tool = middleware.tools[0]
+        err = httpx.HTTPStatusError("forbidden", request=httpx.Request("POST", "x"), response=httpx.Response(403))
+        client = Mock()
+        client.run_commands = AsyncMock(side_effect=err)
+        bash_tool = _bash_tool_with_fake_client(client)
 
-        with pytest.raises(RuntimeError, match="bash tool invoked before abefore_agent"):
+        output = await bash_tool.coroutine(command="echo ok", runtime=runtime)
+
+        assert output.startswith("error:")
+        assert "unavailable for the rest of this conversation" in output.lower()
+        assert "do not call" in output.lower()
+
+    async def test_bash_tool_raises_when_backend_not_set(self):
+        """Calling the bash tool before abefore_agent bound the backend must fail loud."""
+        runtime = _make_bash_runtime(Mock())
+        middleware = _make_middleware()  # no backend installed
+        bash_tool = middleware.tools[0]
+        with pytest.raises(RuntimeError, match="bound the sandbox backend"):
             await bash_tool.coroutine(command="echo ok", runtime=runtime)
 
 
@@ -214,7 +192,7 @@ class TestBashToolPolicyEnforcement:
         runtime.state["session_id"] = "sess_policy"
 
         client = Mock()
-        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
+        run_mock = AsyncMock(return_value=RunCommandsResponse(results=[]))
         client.run_commands = run_mock
         bash_tool = _bash_tool_with_fake_client(client)
 
@@ -345,324 +323,284 @@ class TestBashToolPolicyEnforcement:
 
 
 class TestRunBashCommands:
-    async def test_run_bash_commands_no_archive_field(self):
-        """_run_bash_commands no longer tarballs the working dir; archive is gone from RunCommandsRequest."""
-        run_commands_mock = AsyncMock(return_value=RunCommandsResponse(results=[], patch=None))
-        client = Mock()
-        client.run_commands = run_commands_mock
+    async def test_run_bash_commands_forwards_to_backend(self):
+        """_run_bash_commands forwards the command list to the bound backend with fail_fast=True."""
+        backend = SandboxFileBackend(client=Mock())
+        backend.bind_session("sess_1")
+        backend.run_commands = AsyncMock(return_value=RunCommandsResponse(results=[]))
 
-        response = await _run_bash_commands(client, ["echo ok"], "sess_1")
+        response = await _run_bash_commands(backend, ["echo ok"])
 
         assert response is not None
-        run_commands_mock.assert_awaited_once()
-        _session_id, request = run_commands_mock.call_args.args
+        backend.run_commands.assert_awaited_once()
+        assert backend.run_commands.await_args.args[0] == ["echo ok"]
+        assert backend.run_commands.await_args.kwargs["fail_fast"] is True
 
-        # The RunCommandsRequest schema no longer has an archive field.
-        dumped = request.model_dump()
-        assert "archive" not in dumped
-        assert dumped["commands"] == ["echo ok"]
+    async def _run_with_error(self, error: Exception) -> object:
+        backend = SandboxFileBackend(client=Mock())
+        backend.bind_session("sess_1")
+        backend.run_commands = AsyncMock(side_effect=error)
+        return await _run_bash_commands(backend, ["echo ok"])
 
+    async def test_transport_error_is_transient(self):
+        """No HTTP response (timeout/connection blip) → transient: a retry may connect."""
+        import httpx
 
-class TestResolveRepoBackend:
-    """Validate the helper that the patch-apply and gitignore-guard dispatches rely on:
-    with composite present, the underlying repo backend is unwrapped (so isinstance
-    dispatch works); without composite, the backend passes through.
-    """
+        assert await self._run_with_error(httpx.RequestError("boom")) is BashFailure.TRANSIENT
 
-    def test_composite_returns_underlying_default(self, tmp_path: Path):
-        from automation.agent.middlewares.file_system import DAIVCompositeBackend, DAIVFilesystemBackend
-        from automation.agent.middlewares.sandbox import _resolve_repo_backend
+    @pytest.mark.parametrize("status", [408, 409, 425, 429, 500, 502, 503, 504])
+    async def test_retryable_status_is_transient(self, status: int):
+        """409 is the per-session lock contention ("Session is busy"): the op never ran, so a retry
+        once the lock frees is safe — it must be transient, not permanent."""
+        import httpx
 
-        skills = DAIVFilesystemBackend(root_dir=tmp_path / "s", virtual_mode=True)
-        (tmp_path / "s").mkdir()
-        repo = DAIVFilesystemBackend(root_dir=tmp_path / "r", virtual_mode=True)
-        (tmp_path / "r").mkdir()
-        composite = DAIVCompositeBackend(default=repo, routes={"/skills/": skills})
+        err = httpx.HTTPStatusError("busy", request=httpx.Request("POST", "x"), response=httpx.Response(status))
+        assert await self._run_with_error(err) is BashFailure.TRANSIENT
 
-        assert _resolve_repo_backend(composite, "/myrepo") is repo
+    @pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+    async def test_non_retryable_status_is_permanent(self, status: int):
+        import httpx
 
-    def test_bare_backend_passes_through(self, tmp_path: Path):
-        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
-        from automation.agent.middlewares.sandbox import _resolve_repo_backend
-
-        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
-        assert _resolve_repo_backend(backend, "/myrepo") is backend
+        err = httpx.HTTPStatusError("nope", request=httpx.Request("POST", "x"), response=httpx.Response(status))
+        assert await self._run_with_error(err) is BashFailure.PERMANENT
 
 
 class TestSandboxMiddleware:
-    @staticmethod
-    def _patch_client_lifecycle():
-        """Stub ``DAIVSandboxClient.open``/``close`` so no real httpx.AsyncClient is created."""
-        return (
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=AsyncMock(return_value=None)),
+    async def test_abefore_agent_first_turn_creates_and_binds_with_injected_client(self):
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess-1")
+        client.seed_session = AsyncMock()
+        sandbox_backend = SandboxFileBackend(client=client)
+        mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
+
+        with (
+            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient") as ctor,
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
+        ):
+            result = await mw.abefore_agent({}, _make_runtime())  # empty state => first turn
+
+        ctor.assert_not_called()  # no client constructed inside the middleware
+        assert result == {"session_id": "sess-1"}
+        assert sandbox_backend._session_id == "sess-1"  # session bound onto the injected backend
+
+    async def test_abefore_agent_reuses_live_session_from_state_without_reseeding(self):
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=True)
+        client.start_session = AsyncMock()
+        sandbox_backend = SandboxFileBackend(client=client)
+        mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
+
+        result = await mw.abefore_agent({"session_id": "sess-prev"}, _make_runtime())
+
+        assert result == {"session_id": "sess-prev"}
+        client.start_session.assert_not_awaited()  # warm reuse — no new session, no re-seed
+        assert sandbox_backend._session_id == "sess-prev"
+
+    async def test_abefore_agent_recreates_when_state_session_is_dead(self):
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=False)
+        client.start_session = AsyncMock(return_value="sess-new")
+        client.seed_session = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
         )
 
-    async def test_abefore_agent_starts_session_and_sets_session_id(self, tmp_path: Path):
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        (repo_dir / "README.md").write_text("hello")
-        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
-
-        open_patch, close_patch = self._patch_client_lifecycle()
         with (
-            open_patch,
-            close_patch,
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
-                new=AsyncMock(return_value="sess_1"),
-            ) as start_session_mock,
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
-            ) as seed_session_mock,
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
         ):
-            middleware = _make_middleware(close_session=True)
-            update = await middleware.abefore_agent({}, runtime)
+            result = await mw.abefore_agent({"session_id": "sess-stale"}, _make_runtime())
 
-        assert update == {"session_id": "sess_1"}
-        start_session_mock.assert_awaited_once()
-        seed_session_mock.assert_awaited_once()
-        _args, kwargs = seed_session_mock.call_args
-        assert isinstance(kwargs.get("repo_archive"), (bytes, bytearray))
-        assert kwargs.get("skills_archive") is None
-        assert middleware._client is not None
+        assert result == {"session_id": "sess-new"}
+        client.start_session.assert_awaited_once()
 
-    async def test_abefore_agent_closes_session_on_seed_failure(self, tmp_path: Path):
-        """If seed_session raises, the started session is closed and the client is released (no leak)."""
+    async def test_abefore_agent_closes_session_on_seed_failure(self):
+        """If seed_session raises, the started session is force-removed; the injected client is NOT closed."""
         import pytest
 
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        (repo_dir / "README.md").write_text("hello")
-        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
-
-        close_session_mock = AsyncMock(return_value=None)
-        client_close_mock = AsyncMock(return_value=None)
-
-        with (
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
-                new=AsyncMock(return_value="sess_leaky"),
-            ),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session",
-                new=AsyncMock(side_effect=RuntimeError("simulated seed failure")),
-            ),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_session_mock),
-        ):
-            middleware = _make_middleware(close_session=True)
-            with pytest.raises(RuntimeError, match="simulated seed failure"):
-                await middleware.abefore_agent({}, runtime)
-
-        close_session_mock.assert_awaited_once_with("sess_leaky")
-        client_close_mock.assert_awaited_once()
-        assert middleware._client is None
-
-    async def test_abefore_agent_releases_client_on_start_session_failure(self, tmp_path: Path):
-        """If start_session raises (sandbox unreachable / 5xx), the just-opened client is released."""
-        import pytest
-
-        repo_dir = tmp_path / "repoX"
-        repo_dir.mkdir(parents=True)
-        runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
-
-        close_session_mock = AsyncMock(return_value=None)
-        client_close_mock = AsyncMock(return_value=None)
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess-leaky")
+        client.seed_session = AsyncMock(side_effect=RuntimeError("simulated seed failure"))
+        client.close_session = AsyncMock()
+        client.close = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
 
         with (
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
-                new=AsyncMock(side_effect=RuntimeError("sandbox unreachable")),
-            ),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=close_session_mock),
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
+            pytest.raises(RuntimeError, match="simulated seed failure"),
         ):
-            middleware = _make_middleware(close_session=True)
-            with pytest.raises(RuntimeError, match="sandbox unreachable"):
-                await middleware.abefore_agent({}, runtime)
+            await mw.abefore_agent({}, _make_runtime())
 
-        # No session was started, so close_session must NOT be called.
-        close_session_mock.assert_not_awaited()
-        # But the client we opened must be released.
-        client_close_mock.assert_awaited_once()
-        assert middleware._client is None
+        client.close_session.assert_awaited_once_with("sess-leaky", force=True)
+        client.close.assert_not_awaited()  # the run owns the transport, not the middleware
 
-    async def test_aafter_agent_releases_client_when_close_session_raises_unexpected(self, tmp_path: Path):
-        """``finally`` releases the client even when close_session raises an unhandled exception."""
-        import pytest
+    async def test_subagent_path_returns_without_binding(self):
+        client = MagicMock()
+        mw = SandboxMiddleware(agent_root="/x", client=client, sandbox_backend=None, close_session=False)
+        assert await mw.abefore_agent({"session_id": "sess-1"}, _make_runtime()) is None
 
-        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
-        state = {"session_id": "sess_1"}
+    async def test_aafter_agent_resumable_keeps_session_warm_and_in_state(self):
+        client = MagicMock()
+        client.close = AsyncMock()
+        client.close_session = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+        with patch.object(mw, "_conversation_thread_id", return_value="thread-1"):
+            result = await mw.aafter_agent({"session_id": "sess-1"}, _make_runtime())
+        client.close_session.assert_awaited_once_with("sess-1", force=False)  # stop, keep warm
+        client.close.assert_not_awaited()  # injected transport is the run's, not the middleware's
+        assert result is None  # session_id NOT nulled => next turn reuses it from state
 
-        client_close_mock = AsyncMock(return_value=None)
-        with (
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session",
-                new=AsyncMock(side_effect=RuntimeError("unexpected")),
-            ),
-        ):
-            middleware = _make_middleware(close_session=True)
-            middleware._client = DAIVSandboxClient()
-            with pytest.raises(RuntimeError, match="unexpected"):
-                await middleware.aafter_agent(state, runtime)
+    async def test_aafter_agent_one_shot_force_removes_and_clears_state(self):
+        client = MagicMock()
+        client.close = AsyncMock()
+        client.close_session = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+        with patch.object(mw, "_conversation_thread_id", return_value=None):
+            result = await mw.aafter_agent({"session_id": "sess-1"}, _make_runtime())
+        client.close_session.assert_awaited_once_with("sess-1", force=True)
+        client.close.assert_not_awaited()
+        assert result == {"session_id": None}
 
-        client_close_mock.assert_awaited_once()
-        assert middleware._client is None
+    async def test_aafter_agent_swallows_already_closed_session(self):
+        """A 404 from close_session (warm session reaped) is swallowed; resumable run still keeps state."""
+        import httpx
 
-    async def test_abefore_agent_reuses_session_id_when_close_session_false(self, tmp_path: Path):
-        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
-        state = {"session_id": "sess_existing"}
+        err = httpx.HTTPStatusError("gone", request=httpx.Request("DELETE", "x"), response=httpx.Response(404))
+        client = MagicMock()
+        client.close = AsyncMock()
+        client.close_session = AsyncMock(side_effect=err)
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+        with patch.object(mw, "_conversation_thread_id", return_value="thread-1"):
+            result = await mw.aafter_agent({"session_id": "warm-1"}, _make_runtime())
+        assert result is None
+        client.close.assert_not_awaited()
 
-        open_patch, close_patch = self._patch_client_lifecycle()
-        with (
-            open_patch,
-            close_patch,
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
-                new=AsyncMock(return_value="sess_1"),
-            ) as start_session_mock,
-        ):
-            middleware = _make_middleware(close_session=False)
-            update = await middleware.abefore_agent(state, runtime)
-
-        assert update is None
-        start_session_mock.assert_not_awaited()
-        assert middleware._client is not None
-
-    async def test_aafter_agent_closes_session_and_clears_session_id(self, tmp_path: Path):
-        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
-        state = {"session_id": "sess_1"}
-
-        client_close_mock = AsyncMock(return_value=None)
-        with (
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
-            ) as close_session_mock,
-        ):
-            middleware = _make_middleware(close_session=True)
-            middleware._client = DAIVSandboxClient()
-            update = await middleware.aafter_agent(state, runtime)
-
-        assert update == {"session_id": None}
-        close_session_mock.assert_awaited_once_with("sess_1")
-        client_close_mock.assert_awaited_once()
-        assert middleware._client is None
-
-    async def test_aafter_agent_does_not_close_session_when_close_session_false(self, tmp_path: Path):
-        runtime = _make_agent_runtime(repo_working_dir=str(tmp_path / "repoX"))
-        state = {"session_id": "sess_1"}
-
-        client_close_mock = AsyncMock(return_value=None)
-        with (
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.open", new=AsyncMock(return_value=None)),
-            patch("automation.agent.middlewares.sandbox.DAIVSandboxClient.close", new=client_close_mock),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.close_session", new=AsyncMock(return_value=None)
-            ) as close_session_mock,
-        ):
-            middleware = _make_middleware(close_session=False)
-            middleware._client = DAIVSandboxClient()
-            update = await middleware.aafter_agent(state, runtime)
-
-        assert update is None
-        close_session_mock.assert_not_awaited()
-        # Subagent path: session is the parent's, but the client we opened still must be released.
-        client_close_mock.assert_awaited_once()
-        assert middleware._client is None
+    async def test_aafter_agent_subagent_does_not_close_session(self):
+        client = MagicMock()
+        client.close = AsyncMock()
+        client.close_session = AsyncMock()
+        mw = SandboxMiddleware(agent_root="/x", client=client, sandbox_backend=None, close_session=False)
+        result = await mw.aafter_agent({"session_id": "sess-1"}, _make_runtime())
+        assert result is None
+        client.close_session.assert_not_awaited()
+        client.close.assert_not_awaited()
 
     async def test_abefore_agent_passes_skills_archive_when_skills_dir_populated(self, tmp_path: Path):
         repo_dir = tmp_path / "repoX"
         repo_dir.mkdir(parents=True)
         (repo_dir / "README.md").write_text("hello")
 
-        skills_dir = tmp_path / "skills"
-        (skills_dir / "skill-one").mkdir(parents=True)
-        (skills_dir / "skill-one" / "SKILL.md").write_text("hi")
+        builtin = tmp_path / "builtin"
+        (builtin / "skill-one").mkdir(parents=True)
+        (builtin / "skill-one" / "SKILL.md").write_text("hi")
 
         runtime = _make_agent_runtime(repo_working_dir=str(repo_dir))
 
-        open_patch, close_patch = self._patch_client_lifecycle()
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess_skills")
+        client.seed_session = AsyncMock()
+
         with (
-            open_patch,
-            close_patch,
-            patch("automation.agent.middlewares.sandbox.SKILLS_CACHE_PATH", skills_dir),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
-                new=AsyncMock(return_value="sess_skills"),
-            ),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
-            ) as seed_session_mock,
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
         ):
-            middleware = SandboxMiddleware(backend=Mock(), agent_root=f"/{repo_dir.name}", close_session=True)
+            settings.CUSTOM_SKILLS_PATH = None
+            middleware = SandboxMiddleware(
+                agent_root=f"/{repo_dir.name}", client=client, sandbox_backend=SandboxFileBackend(client=client)
+            )
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_skills"}
-        seed_session_mock.assert_awaited_once()
-        _args, kwargs = seed_session_mock.call_args
+        client.seed_session.assert_awaited_once()
+        _args, kwargs = client.seed_session.call_args
         assert isinstance(kwargs.get("repo_archive"), (bytes, bytearray))
         assert isinstance(kwargs.get("skills_archive"), (bytes, bytearray))
 
-    def test_make_skills_archive_returns_none_when_dir_missing(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+    def test_make_global_skills_archive_packs_builtin_and_custom(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        assert _make_skills_archive(tmp_path / "nonexistent") is None
+        builtin = tmp_path / "builtin"
+        custom = tmp_path / "custom"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
+        (custom / "deploy").mkdir(parents=True)
+        (custom / "deploy" / "SKILL.md").write_text("yo")
 
-    def test_make_skills_archive_returns_none_when_dir_empty(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = custom
+            archive = _make_global_skills_archive()
 
-        empty = tmp_path / "skills"
-        empty.mkdir()
-        assert _make_skills_archive(empty) is None
-
-    def test_make_skills_archive_packs_children_relative_to_root(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
-
-        skills = tmp_path / "skills"
-        (skills / "skill-one").mkdir(parents=True)
-        (skills / "skill-one" / "SKILL.md").write_text("hello")
-        (skills / "skill-two").mkdir()
-        (skills / "skill-two" / "SKILL.md").write_text("world")
-
-        archive = _make_skills_archive(skills)
-        assert isinstance(archive, bytes)
-
+        assert isinstance(archive, (bytes, bytearray))
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
-            names = sorted(tf.getnames())
-        assert "skill-one/SKILL.md" in names
-        assert "skill-two/SKILL.md" in names
-        # No top-level wrapper directory.
-        assert not any(n.startswith("skills/") for n in names)
+            names = set(tf.getnames())
+        assert "code-review/SKILL.md" in names
+        assert "deploy/SKILL.md" in names
 
-    def test_make_skills_archive_returns_none_on_iterdir_oserror(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+    def test_make_global_skills_archive_none_when_no_skills(self, tmp_path: Path):
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        skills = tmp_path / "skills"
-        skills.mkdir()
+        empty = tmp_path / "builtin-empty"
+        empty.mkdir()
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", empty),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            assert _make_global_skills_archive() is None
 
-        with patch("automation.agent.middlewares.sandbox.Path.iterdir", side_effect=PermissionError("denied")):
-            result = _make_skills_archive(skills)
+    def test_make_global_skills_archive_skips_unreadable_root_and_still_packs_builtins(self, tmp_path: Path):
+        """An OSError reading one root (e.g. a bad-perms custom dir) must not abort the whole
+        archive — builtins still seed. (Multi-root behavior change vs the old single-root helper.)"""
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
 
-        assert result is None
+        builtin = tmp_path / "builtin"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
 
-    def test_make_skills_archive_returns_none_on_tar_error(self, tmp_path: Path):
-        from automation.agent.middlewares.sandbox import _make_skills_archive
+        bad_custom = Mock()
+        bad_custom.is_dir.return_value = True
+        bad_custom.iterdir.side_effect = PermissionError("denied")
 
-        skills = tmp_path / "skills"
-        (skills / "skill-one").mkdir(parents=True)
-        (skills / "skill-one" / "SKILL.md").write_text("hello")
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+        ):
+            settings.CUSTOM_SKILLS_PATH = bad_custom
+            archive = _make_global_skills_archive()
 
-        with patch("automation.agent.middlewares.sandbox.tarfile.open", side_effect=tarfile.TarError("boom")):
-            result = _make_skills_archive(skills)
+        assert isinstance(archive, (bytes, bytearray))
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+            names = set(tf.getnames())
+        assert "code-review/SKILL.md" in names
 
-        assert result is None
+    def test_make_global_skills_archive_returns_none_on_tar_error(self, tmp_path: Path):
+        """A TarError mid-build must not abort the whole sandbox seed — returns None (seed without skills)."""
+        from automation.agent.middlewares.sandbox import _make_global_skills_archive
+
+        builtin = tmp_path / "builtin"
+        (builtin / "code-review").mkdir(parents=True)
+        (builtin / "code-review" / "SKILL.md").write_text("hi")
+
+        with (
+            patch("automation.agent.middlewares.sandbox.BUILTIN_SKILLS_PATH", builtin),
+            patch("automation.agent.middlewares.sandbox.agent_settings") as settings,
+            patch("automation.agent.middlewares.sandbox.tarfile.open", side_effect=tarfile.TarError("boom")),
+        ):
+            settings.CUSTOM_SKILLS_PATH = None
+            assert _make_global_skills_archive() is None
 
     async def test_awrap_model_call_appends_sandbox_system_prompt(self, tmp_path: Path):
         from langchain.agents.middleware import ModelRequest, ModelResponse
@@ -722,19 +660,16 @@ class TestSandboxMiddleware:
             captured["req"] = req
             return "sess_ctx"
 
-        open_patch, close_patch = self._patch_client_lifecycle()
+        client = MagicMock()
+        client.start_session = AsyncMock(side_effect=fake_start_session)
+        client.seed_session = AsyncMock()
         with (
-            open_patch,
-            close_patch,
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.start_session",
-                new=AsyncMock(side_effect=fake_start_session),
-            ),
-            patch(
-                "automation.agent.middlewares.sandbox.DAIVSandboxClient.seed_session", new=AsyncMock(return_value=None)
-            ),
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
         ):
-            middleware = _make_middleware(close_session=True)
+            middleware = SandboxMiddleware(
+                agent_root="/repoX", client=client, sandbox_backend=SandboxFileBackend(client=client)
+            )
             update = await middleware.abefore_agent({}, runtime)
 
         assert update == {"session_id": "sess_ctx"}
@@ -797,217 +732,32 @@ class TestSandboxMiddleware:
         assert "repo_disallow" in result
 
 
-class TestAwrapToolCall:
-    """Tool dispatch is intercepted at ToolNode level, not via ``awrap_model_call``.
+def test_sandbox_prompt_uses_workspace_paths():
+    """The bash + scratchpad prompt blocks point at the /workspace layout (not /repo, /scratch)."""
+    from automation.agent.middlewares.sandbox import BASH_TOOL_DESCRIPTION, SANDBOX_SYSTEM_PROMPT
 
-    These tests pin the entry point: ``awrap_tool_call`` must intercept dispatched
-    write_file/edit_file calls so that the mirror runs against ``ToolNode.tools_by_name``,
-    which is built once at agent-creation time and not updated by ``awrap_model_call``.
-    """
+    assert "/workspace/tmp" in SANDBOX_SYSTEM_PROMPT
+    assert "/scratch" not in SANDBOX_SYSTEM_PROMPT
+    assert "/workspace/repo" in BASH_TOOL_DESCRIPTION
+    assert "/repos/" not in BASH_TOOL_DESCRIPTION
 
-    @staticmethod
-    def _request(tool_name: str, args: dict, *, runtime=None):
-        from langgraph.prebuilt.tool_node import ToolCallRequest
 
-        tool = Mock(spec_set=["name"])
-        tool.name = tool_name
-        return ToolCallRequest(
-            tool_call={"name": tool_name, "args": args, "id": "call_1", "type": "tool_call"},
-            tool=tool,
-            state={},
-            runtime=runtime or Mock(),
-        )
+class TestSessionExists:
+    """The liveness check that gates state-based warm reuse in ``abefore_agent``."""
 
-    async def test_passes_through_when_tool_is_not_write_or_edit(self, tmp_path: Path):
-        request = self._request("read_file", {"file_path": "/repo/foo.py"})
-        middleware = _make_middleware()
-        middleware._syncer = Mock()  # set so we don't bypass on syncer-missing path
+    async def test_returns_client_result_when_alive(self):
+        client = Mock(session_exists=AsyncMock(return_value=True))
+        assert await SandboxMiddleware._session_exists(client, "warm-1") is True
+        client.session_exists.assert_awaited_once_with("warm-1")
 
-        sentinel = object()
+    async def test_returns_false_when_session_gone(self):
+        client = Mock(session_exists=AsyncMock(return_value=False))
+        assert await SandboxMiddleware._session_exists(client, "stale-1") is False
 
-        async def handler(req):
-            assert req is request
-            return sentinel
+    async def test_soft_fails_to_false_on_transport_error(self):
+        """A transient ``session_exists`` HTTP error falls back to a cold create rather than
+        failing the run."""
+        import httpx
 
-        result = await middleware.awrap_tool_call(request, handler)
-        assert result is sentinel
-
-    async def test_passes_through_when_syncer_not_initialized(self, tmp_path: Path):
-        """Pre-``abefore_agent`` dispatch is rare but must not raise."""
-        request = self._request("write_file", {"file_path": "/repo/foo.py", "content": "x"})
-        middleware = _make_middleware()
-        # _syncer is None — abefore_agent never ran.
-
-        sentinel = object()
-
-        async def handler(req):
-            return sentinel
-
-        result = await middleware.awrap_tool_call(request, handler)
-        assert result is sentinel
-
-    async def test_passes_through_when_tool_is_none(self, tmp_path: Path):
-        """Unregistered tool calls reach awrap_tool_call with ``request.tool=None``."""
-        from langgraph.prebuilt.tool_node import ToolCallRequest
-
-        request = ToolCallRequest(
-            tool_call={"name": "unknown", "args": {}, "id": "call_1", "type": "tool_call"},
-            tool=None,
-            state={},
-            runtime=Mock(),
-        )
-        middleware = _make_middleware()
-        middleware._syncer = Mock()
-
-        sentinel = object()
-
-        async def handler(req):
-            return sentinel
-
-        result = await middleware.awrap_tool_call(request, handler)
-        assert result is sentinel
-
-    async def test_write_file_refused_outside_agent_root(self, tmp_path: Path):
-        """A write to ``/skills/...`` (or any path outside agent_root) must be refused
-        before dispatch. The skills mount is shared across concurrent agent runs in this
-        process; an errant write here would later trigger a rollback ``backend.delete``
-        that clobbers a file other runs depend on.
-        """
-        from langchain_core.messages import ToolMessage
-
-        from automation.agent.middlewares.file_system import SandboxSyncer
-
-        backend = Mock(spec=DAIVFilesystemBackend)
-        runtime = Mock()
-        runtime.context = Mock(has_repo=True)
-        runtime.state = {"session_id": "sess_1"}
-
-        middleware = _make_middleware()
-        middleware._backend = backend
-        middleware._agent_root = "/myrepo"
-        middleware._syncer = SandboxSyncer(backend=backend, agent_root="/myrepo", client=Mock())
-
-        request = self._request(
-            "write_file", {"file_path": "/skills/some-skill/SKILL.md", "content": "x"}, runtime=runtime
-        )
-        handler = AsyncMock()
-
-        result = await middleware.awrap_tool_call(request, handler)
-
-        assert isinstance(result, ToolMessage)
-        assert result.status == "error"
-        assert "Refused" in result.content
-        assert "/myrepo/" in result.content
-        handler.assert_not_called()
-        backend.delete.assert_not_called()
-
-    async def test_write_file_dispatches_when_resolve_target_fails(self, tmp_path: Path):
-        """Pre-dispatch path-resolution failure must fall through to upstream, not
-        synthesize a refusal — upstream owns the canonical "invalid path" error."""
-        from langchain_core.messages import ToolMessage
-
-        from automation.agent.middlewares.file_system import SandboxSyncer
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        repo = Repo.init(repo_dir)
-
-        backend = Mock(spec=DAIVFilesystemBackend)
-        backend._resolve_path = Mock(side_effect=ValueError("traversal"))
-
-        runtime = Mock()
-        runtime.context = Mock(gitrepo=repo, has_repo=True)
-        runtime.state = {"session_id": "sess_1"}
-
-        middleware = _make_middleware()
-        middleware._backend = backend
-        middleware._agent_root = f"/{repo_dir.name}"
-        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
-
-        request = self._request("write_file", {"file_path": f"/{repo_dir.name}/foo", "content": "x"}, runtime=runtime)
-        sentinel = ToolMessage(content="upstream error", tool_call_id="call_1", name="write_file", status="error")
-        handler = AsyncMock(return_value=sentinel)
-
-        result = await middleware.awrap_tool_call(request, handler)
-
-        handler.assert_called_once()
-        assert result is sentinel
-
-    async def test_write_file_refused_when_path_is_gitignored(self, tmp_path: Path):
-        """write_file on a `.gitignore`-matching path must be refused before the upstream
-        handler runs — `git add -A` would silently drop the file, so the agent would
-        report success while the change never reached the merge request."""
-        from langchain_core.messages import ToolMessage
-
-        from automation.agent.middlewares.file_system import SandboxSyncer
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        repo = Repo.init(repo_dir)
-        (repo_dir / ".gitignore").write_text(".python-version\n")
-
-        target = repo_dir / ".python-version"
-
-        backend = Mock(spec=DAIVFilesystemBackend)
-        backend._to_path = Mock(return_value=target)
-
-        runtime = Mock()
-        runtime.context = Mock(gitrepo=repo, has_repo=True)
-        runtime.state = {"session_id": "sess_1"}
-
-        middleware = _make_middleware()
-        middleware._backend = backend
-        middleware._agent_root = f"/{repo_dir.name}"
-        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
-
-        request = self._request(
-            "write_file", {"file_path": f"/{repo_dir.name}/.python-version", "content": "3.11\n"}, runtime=runtime
-        )
-        handler = AsyncMock()
-
-        result = await middleware.awrap_tool_call(request, handler)
-
-        assert isinstance(result, ToolMessage)
-        assert result.status == "error"
-        assert ".gitignore" in result.content
-        assert not target.exists()
-        handler.assert_not_called()
-
-    async def test_write_file_refused_when_gitignore_check_unknown(self, tmp_path: Path):
-        """If `git check-ignore` itself fails (corrupt repo, missing binary, permissions),
-        the helper returns ``IgnoreCheck.UNKNOWN`` and the write must be refused — failing
-        open here would silently re-introduce the `git add -A` drop the guard prevents."""
-        from langchain_core.messages import ToolMessage
-
-        from automation.agent.middlewares.file_system import SandboxSyncer
-        from codebase.utils import GitManager, IgnoreCheck
-
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        repo = Repo.init(repo_dir)
-        target = repo_dir / "foo.py"
-
-        backend = Mock(spec=DAIVFilesystemBackend)
-        backend._to_path = Mock(return_value=target)
-
-        runtime = Mock()
-        runtime.context = Mock(gitrepo=repo, has_repo=True)
-        runtime.state = {"session_id": "sess_1"}
-
-        middleware = _make_middleware()
-        middleware._backend = backend
-        middleware._agent_root = f"/{repo_dir.name}"
-        middleware._syncer = SandboxSyncer(backend=backend, agent_root=f"/{repo_dir.name}", client=Mock())
-
-        request = self._request(
-            "write_file", {"file_path": f"/{repo_dir.name}/foo.py", "content": "x\n"}, runtime=runtime
-        )
-        handler = AsyncMock()
-
-        with patch.object(GitManager, "is_path_ignored", return_value=IgnoreCheck.UNKNOWN):
-            result = await middleware.awrap_tool_call(request, handler)
-
-        assert isinstance(result, ToolMessage)
-        assert result.status == "error"
-        assert "could not determine" in result.content
-        handler.assert_not_called()
+        client = Mock(session_exists=AsyncMock(side_effect=httpx.HTTPError("boom")))
+        assert await SandboxMiddleware._session_exists(client, "warm-1") is False

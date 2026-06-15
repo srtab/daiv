@@ -1,3 +1,9 @@
+import warnings
+
+from core.models import ThinkingLevelChoices
+from core.site_settings import site_settings
+
+
 def test_repo_config_ignores_legacy_sandbox_block():
     """A repo with a legacy `sandbox:` block in .daiv.yml still parses; the
     block is silently dropped after this redesign. Users are expected to
@@ -8,3 +14,33 @@ def test_repo_config_ignores_legacy_sandbox_block():
     config = RepositoryConfig(**yaml_data)
     assert not hasattr(config, "sandbox"), "sandbox field should be removed"
     assert config.default_branch == "main"
+
+
+def test_default_thinking_level_coerces_raw_site_settings_string(monkeypatch):
+    """Site settings return raw strings for DB/env-set values, and pydantic skips
+    validation of default_factory results — without coercion the raw string sits in
+    the enum-typed field and every full model_dump() emits
+    PydanticSerializationUnexpectedValue warnings."""
+    from codebase.repo_config import RepositoryConfig
+
+    monkeypatch.setattr(site_settings, "agent_thinking_level", "xhigh")
+    config = RepositoryConfig()
+
+    assert config.models.agent.thinking_level is ThinkingLevelChoices.XHIGH
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        config.model_dump()
+    assert not [w for w in caught if "Pydantic serializer warnings" in str(w.message)]
+
+
+def test_default_thinking_level_degrades_invalid_value_to_none(monkeypatch):
+    """An invalid DAIV_AGENT_THINKING_LEVEL env value must not break repository
+    config loading; it degrades to None (thinking disabled)."""
+    from codebase.repo_config import RepositoryConfig
+
+    monkeypatch.setattr(site_settings, "agent_thinking_level", "banana")
+    assert RepositoryConfig().models.agent.thinking_level is None
+
+    monkeypatch.setattr(site_settings, "agent_thinking_level", "")
+    assert RepositoryConfig().models.agent.thinking_level is None
