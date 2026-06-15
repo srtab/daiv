@@ -84,7 +84,7 @@ def test_grep_arg_schema_describes_regex(setup):
 
     deepagents ships ``GrepSchema`` with a "literal string, not regex" ``pattern`` description (and a
     "current working directory" ``path`` default) that the model sees in the tool's input schema
-    alongside DAIV's regex-aware tool description — a direct contradiction. ``_align_grep_arg_schema``
+    alongside DAIV's regex-aware tool description — a direct contradiction. ``_align_arg_schema``
     rewrites both at import; pin them here so a deepagents bump that reworks GrepSchema fails loudly
     instead of silently restoring the contradiction.
     """
@@ -95,6 +95,42 @@ def test_grep_arg_schema_describes_regex(setup):
     assert "literal" not in pattern_desc.lower()
     assert pattern_desc == fs_module._GREP_PATTERN_ARG_DESCRIPTION
     assert props["path"]["description"] == fs_module._GREP_PATH_ARG_DESCRIPTION
+
+
+def test_glob_description_steers_over_find(setup):
+    """glob's own description must steer the model away from shell `find` and warn about the
+    `/`-anchoring footgun, mirroring grep's 'prefer over bash' treatment."""
+    desc = setup.tools["glob"].description
+    low = desc.lower()
+    assert "prefer this tool" in low
+    assert "shell `find`" in low  # names the shell tool it replaces
+    assert "**/" in desc  # the anchoring guidance the model must learn
+    assert fs_module._GLOB_EXTRA in desc
+
+
+def test_glob_arg_schema_warns_root_anchoring(setup):
+    """deepagents ships GlobSchema with a bare `*.txt` pattern example and a "Defaults to root '/'"
+    path description. `_align_arg_schema` rewrites both at import; pin them so a deepagents bump
+    that reworks GlobSchema fails loudly instead of silently regressing."""
+    props = setup.tools["glob"].args_schema.model_json_schema()["properties"]
+    assert props["pattern"]["description"] == fs_module._GLOB_PATTERN_ARG_DESCRIPTION
+    assert props["path"]["description"] == fs_module._GLOB_PATH_ARG_DESCRIPTION
+    # the bare `*.txt` example (no `**/` prefix) must be replaced
+    assert "*.txt" not in props["pattern"]["description"]
+    # the path description must warn it is NOT the repository root
+    assert "filesystem root" in props["path"]["description"].lower()
+
+
+def test_ls_description_steers_over_shell_ls(setup):
+    """ls's own description must steer the model away from shell `ls`, reframe it as a directory
+    explorer (not only a read precursor), and state that `path` is required/absolute (shell `ls`
+    defaults to cwd; the dedicated tool errors with no path)."""
+    desc = setup.tools["ls"].description
+    low = desc.lower()
+    assert "prefer this tool" in low
+    assert "shell `ls`" in low
+    assert "required" in low  # the no-implicit-cwd footgun
+    assert fs_module._LS_EXTRA in desc
 
 
 class TestDiskBackendRegexGrep:
