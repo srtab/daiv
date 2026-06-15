@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import stat
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
@@ -27,11 +28,10 @@ from deepagents.backends.protocol import (
 )
 from deepagents.middleware.filesystem import EDIT_FILE_TOOL_DESCRIPTION as EDIT_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import GREP_TOOL_DESCRIPTION as GREP_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import FilesystemPermission
+from deepagents.middleware.filesystem import FilesystemPermission, GrepSchema
 
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
@@ -74,7 +74,65 @@ def _with_path_reminder(base: str, *extras: str) -> str:
     return "\n".join((base, *extras, REMINDER_ABSOLUTE_PATHS))
 
 
-GREP_TOOL_DESCRIPTION = _with_path_reminder(GREP_TOOL_DESCRIPTION_BASE)
+# One description for both backends, on purpose. The model's grep description is set once per
+# process — via the harness profile for the main agent (``create_deep_agent`` auto-adds its
+# FilesystemMiddleware from the globally-registered profile, no per-call override) and via
+# ``custom_tool_descriptions`` for subagents — and a run's backend (sandbox ERE vs. disk Python
+# ``re``) is only known per-run, so the text cannot branch on it without racing concurrent runs.
+# It therefore targets the subset both dialects share: the sandbox runs ``grep -E`` on busybox/musl
+# images where Perl-style escapes and lookaround don't work, while Python ``re`` (the disk backend)
+# rejects POSIX bracket classes like ``[[:space:]]`` — so the description sticks to anchors,
+# alternation, ``[...]`` ranges and escaping, which behave identically on both.
+_GREP_DESCRIPTION = r"""Search file contents with a regular expression and return matching files or lines.
+
+The pattern is a REGULAR EXPRESSION (POSIX extended / ERE in sandbox runs; Python `re` on local runs).
+Common constructs work: alternation `foo|bar`, anchors `^def `/`;$`, character classes `[A-Z]`,
+quantifiers `+ * ? {2,3}`, and groups `(...)`. To match a regex metacharacter literally, escape it
+with a backslash, e.g. `def __init__\(self\)` or `value\.attr`.
+
+Avoid non-portable constructs: Perl-style escapes (`\d` `\w` `\s` `\b`), lookaround `(?=...)`, and
+backreferences are NOT valid POSIX ERE and will match differently (often nothing) on sandbox runs —
+use `[0-9]`, `[A-Za-z0-9_]`, a literal space, and explicit alternation instead.
+
+Examples:
+- Search every file: `grep(pattern="TODO")`
+- Anchored alternation in Python files: `grep(pattern="^def |^class ", glob="*.py")`
+- Show the matching lines: `grep(pattern="raise [A-Za-z]+Error", output_mode="content")`
+- Match metacharacters literally (escape them): `grep(pattern="value\.attr")`
+- Count matches per file: `grep(pattern="import", output_mode="count")`
+
+Prefer this tool over shell `grep`/`rg` in bash for searching workspace files."""
+GREP_TOOL_DESCRIPTION = _with_path_reminder(_GREP_DESCRIPTION)
+
+
+# ``_GREP_DESCRIPTION`` (above) overrides only the grep tool's *top-level* description. The model is
+# also shown the tool's INPUT SCHEMA, which deepagents builds from a hardcoded ``GrepSchema`` whose
+# ``pattern``/``path`` fields still read "literal string, not regex" / "current working directory" —
+# a direct contradiction of the regex description that ``custom_tool_descriptions`` cannot reach.
+# Both backends grep by regex now, so realign the arg schema in place. The override is process-wide
+# and constant (never per-run, so race-free) and reaches the main agent and every subagent alike,
+# since they all share this one ``GrepSchema`` class object. Pinned by
+# tests/.../test_file_system.py::test_grep_arg_schema_describes_regex so a deepagents bump that
+# reworks GrepSchema (or restores the literal wording) fails loudly instead of silently regressing.
+_GREP_PATTERN_ARG_DESCRIPTION = "Regular expression to search for (POSIX extended / ERE syntax)."
+_GREP_PATH_ARG_DESCRIPTION = "Absolute file or directory to search. Defaults to the workspace root."
+
+
+def _align_grep_arg_schema() -> None:
+    """Rewrite deepagents' ``GrepSchema`` arg descriptions to match DAIV's regex grep semantics."""
+    overrides = {"pattern": _GREP_PATTERN_ARG_DESCRIPTION, "path": _GREP_PATH_ARG_DESCRIPTION}
+    changed = False
+    for name, description in overrides.items():
+        if (field := GrepSchema.model_fields.get(name)) is not None:
+            field.description = description
+            changed = True
+    if changed:
+        # Pydantic caches the generated JSON schema; force a rebuild so the new descriptions reach
+        # ``model_json_schema()`` — the shape the model is actually shown.
+        GrepSchema.model_rebuild(force=True)
+
+
+_align_grep_arg_schema()
 GLOB_TOOL_DESCRIPTION = _with_path_reminder(GLOB_TOOL_DESCRIPTION_BASE)
 LIST_FILES_TOOL_DESCRIPTION = _with_path_reminder(LIST_FILES_TOOL_DESCRIPTION_BASE)
 READ_FILE_TOOL_DESCRIPTION = _with_path_reminder(READ_FILE_TOOL_DESCRIPTION_BASE)
@@ -190,6 +248,42 @@ class DAIVFilesystemBackend(FilesystemBackend):
             return 0o644
         return stat.S_IMODE(st.st_mode)
 
+    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+        """Regex grep (convergence with the sandbox's ERE search and Claude Code).
+
+        Validates the pattern with Python ``re`` up front so an invalid regex is a clean,
+        model-fixable error rather than a silent zero-match (the inherited backend greps literally
+        via ``rg -F``/``re.escape``; ripgrep also exits 2 quietly on a bad regex). Reuses the
+        parent's ``_python_search`` with the *raw* (unescaped) pattern, which compiles it as a
+        regex — trading ripgrep's speed for correct semantics on local/disk runs (the deployed
+        path is the sandbox backend).
+        """
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            return GrepResult(error=f"invalid regular expression: {pattern!r} ({exc})")
+        return await asyncio.to_thread(self._regex_grep, pattern, path, glob)
+
+    def _regex_grep(self, pattern: str, path: str | None, glob: str | None) -> GrepResult:
+        try:
+            base_full = self._resolve_path(path or ".")
+        except ValueError:
+            return GrepResult(matches=[])
+        except (OSError, RuntimeError) as exc:
+            return GrepResult(error=f"Error searching path '{path or '.'}': {exc}", matches=[])
+        try:
+            if not base_full.exists():
+                return GrepResult(matches=[])
+        except OSError as exc:
+            return GrepResult(error=f"Error searching path '{path or '.'}': {exc}", matches=[])
+        results = self._python_search(pattern, base_full, glob)
+        matches = [
+            GrepMatch(path=fpath, line=int(line_num), text=line_text)
+            for fpath, items in results.items()
+            for (line_num, line_text) in items
+        ]
+        return GrepResult(matches=matches)
+
 
 @runtime_checkable
 class DAIVBackendProtocol(Protocol):
@@ -256,22 +350,6 @@ class DAIVCompositeBackend(CompositeBackend):
         backend, _ = self._get_backend_and_key(virtual_path)
         return backend
 
-    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
-        """Grep with a literal-semantics hint on suspicious zero-match patterns.
-
-        The hint lives here — on the *aggregate* result — and not in the sub-backends on
-        purpose: ``CompositeBackend.agrep`` treats any sub-backend ``error`` as a backend
-        failure and aborts aggregation, so a hint raised below this level would suppress
-        real matches from the other backends and affirmatively tell the model a symbol
-        doesn't exist. At this level the hint fires only when *every* backend found
-        nothing and none errored, and it covers sandbox and disk modes alike. Async-only,
-        like the rest of DAIV's backend surface (the agent path never calls sync).
-        """
-        result = await super().agrep(pattern, path=path, glob=glob)
-        if result.error is None and not result.matches and (hint := _literal_grep_no_match_hint(pattern)):
-            return GrepResult(error=hint)
-        return result
-
 
 def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS_CACHE_PATH) -> DAIVCompositeBackend:
     """Build the disk-backed composite that serves the unified ``/workspace`` namespace.
@@ -324,6 +402,10 @@ _FS_CODE_HINTS: dict[FsErrorCode, str] = {
     FsErrorCode.NOT_A_DIRECTORY: "is not a directory — read it with read_file, not the ls/glob tools",
     FsErrorCode.ALREADY_EXISTS: "already exists — modify it with edit_file (write_file only creates new files)",
     FsErrorCode.NOT_A_TEXT_FILE: "is not a UTF-8 text file and cannot be edited",
+    FsErrorCode.INVALID_PATTERN: (
+        "is not a valid regular expression — fix the syntax, or escape regex metacharacters "
+        "(e.g. \\( \\. \\|) to match them literally"
+    ),
 }
 
 
@@ -364,32 +446,6 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
         return _FS_TRANSPORT_TRANSIENT_TEXT
     logger.error("Sandbox %s transport failure for %r (permanent)", op, target, exc_info=exc)
     return _FS_TRANSPORT_PERMANENT_TEXT
-
-
-# High-signal regex constructs in a pattern destined for the *literal* grep backends. Despite the
-# deepagents grep tool description saying "literal string, not regex", models routinely send
-# `foo|bar|baz` and get a silent zero-match back — and then conclude the symbol doesn't exist.
-# Only unambiguous fragments are listed: bare parens/dots/brackets are common in genuinely literal
-# code searches (`def __init__(self):`) and must not trigger the hint.
-_REGEX_LOOKING_FRAGMENTS = ("|", ".*", "\\w", "\\s", "\\d", "\\b")
-
-
-def _literal_grep_no_match_hint(pattern: str) -> str | None:
-    """An agent-facing hint for a zero-match grep whose pattern looks like a regex, else ``None``.
-
-    Returned as the ``GrepResult.error`` so the model sees it verbatim instead of a bare
-    "No matches found" it would misread as "the symbol does not exist". The caller must
-    only invoke this on an empty, error-free aggregate match set — the message asserts
-    "No matches found" (see ``DAIVCompositeBackend.agrep`` for why the composite is the
-    only valid call site).
-    """
-    if not any(fragment in pattern for fragment in _REGEX_LOOKING_FRAGMENTS):
-        return None
-    return (
-        f"No matches found for {pattern!r}. Reminder: grep patterns match as LITERAL text, not regex — "
-        "'|' is not alternation and '.*'/escape classes have no special meaning, so this pattern was "
-        "searched verbatim. Search each term with its own grep call."
-    )
 
 
 class SandboxFileBackend(BackendProtocol):
@@ -518,7 +574,20 @@ class SandboxFileBackend(BackendProtocol):
             return GrepResult(error=f"Grep '{pattern}': {_fs_transport_failure_text(exc, 'grep', pattern)}")
         if resp.error is not None:
             return GrepResult(error=f"Grep '{pattern}': {_fs_error_text(resp.error)}")
-        return GrepResult(matches=[GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches])
+        matches = [GrepMatch(path=self._rel(m.path), line=m.line, text=m.text) for m in resp.matches]
+        if resp.truncated:
+            logger.warning("grep results truncated for pattern %r under %s", pattern, path)
+            # The deepagents grep tool formats `matches` itself and, in the default
+            # `files_with_matches` output mode, renders ONLY the paths (the `text` is dropped). So the
+            # actionable guidance must live in the sentinel `path` to survive every output mode; the
+            # bracketed prose can't be mistaken for a real file to read. `text` repeats it for
+            # `content` mode. This is the only fork-free channel to the model.
+            note = (
+                f"(grep results truncated — showing the first {len(resp.matches)} matches; "
+                "narrow the path, add a glob, or use a more specific pattern to see the rest)"
+            )
+            matches.append(GrepMatch(path=note, line=0, text=note))
+        return GrepResult(matches=matches)
 
     async def aglob(self, pattern: str, path: str = "/") -> GlobResult:
         client, session_id = self._require_bound()

@@ -106,6 +106,7 @@ class FsErrorCode(StrEnum):
     INVALID_OFFSET = "invalid_offset"
     PERMISSION_DENIED = "permission_denied"
     EXEC_FAILED = "exec_failed"
+    INVALID_PATTERN = "invalid_pattern"
 
 
 class FsError(BaseModel):
@@ -148,7 +149,7 @@ class FsReadResponse(BaseModel):
 
 
 class FsGrepRequest(BaseModel):
-    pattern: str = Field(description="Literal substring to search for (not a regex).")
+    pattern: str = Field(description="Regular expression to search for (POSIX extended / ERE syntax).")
     path: str = Field(description="Absolute directory/file path under /workspace.")
     glob: str | None = Field(default=None, description="Optional filename glob to restrict the search.")
 
@@ -161,6 +162,9 @@ class FsGrepMatch(BaseModel):
 
 class FsGrepResponse(BaseModel):
     matches: list[FsGrepMatch] = Field(default_factory=list, description="Matches found (empty on error).")
+    truncated: bool = Field(
+        default=False, description="True when matches were capped server-side; narrow the search to see the rest."
+    )
     error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 
