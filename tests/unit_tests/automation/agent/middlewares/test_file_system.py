@@ -121,6 +121,18 @@ def test_glob_arg_schema_warns_root_anchoring(setup):
     assert "filesystem root" in props["path"]["description"].lower()
 
 
+def test_ls_description_steers_over_shell_ls(setup):
+    """ls's own description must steer the model away from shell `ls`, reframe it as a directory
+    explorer (not only a read precursor), and state that `path` is required/absolute (shell `ls`
+    defaults to cwd; the dedicated tool errors with no path)."""
+    desc = setup.tools["ls"].description
+    low = desc.lower()
+    assert "prefer this tool" in low
+    assert "shell `ls`" in low
+    assert "required" in low  # the no-implicit-cwd footgun
+    assert fs_module._LS_EXTRA in desc
+
+
 class TestDiskBackendRegexGrep:
     def _backend(self, tmp_path: Path):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend

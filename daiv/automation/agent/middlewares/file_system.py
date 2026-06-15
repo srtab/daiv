@@ -175,7 +175,14 @@ _GLOB_EXTRA = (
     "`grep` have no glob equivalent — those remain legitimate uses of bash `find`.)"
 )
 GLOB_TOOL_DESCRIPTION = _with_path_reminder(GLOB_TOOL_DESCRIPTION_BASE, _GLOB_EXTRA)
-LIST_FILES_TOOL_DESCRIPTION = _with_path_reminder(LIST_FILES_TOOL_DESCRIPTION_BASE)
+_LS_EXTRA = (
+    "Use this to explore directory layout AND to confirm a path before read_file/edit_file. "
+    "`path` is REQUIRED and must be absolute: there is no implicit working directory, so calling `ls` "
+    "with no path errors — pass e.g. the repository root. "
+    "Prefer this tool over shell `ls` in bash. To list files by pattern or recursively use `glob`, and "
+    "to filter by content use `grep`, rather than piping shell `ls` output."
+)
+LIST_FILES_TOOL_DESCRIPTION = _with_path_reminder(LIST_FILES_TOOL_DESCRIPTION_BASE, _LS_EXTRA)
 READ_FILE_TOOL_DESCRIPTION = _with_path_reminder(READ_FILE_TOOL_DESCRIPTION_BASE)
 WRITE_FILE_TOOL_DESCRIPTION = _with_path_reminder(WRITE_FILE_TOOL_DESCRIPTION_BASE, _WRITE_FILE_EXTRA)
 EDIT_FILE_TOOL_DESCRIPTION = _with_path_reminder(EDIT_FILE_TOOL_DESCRIPTION_BASE)
