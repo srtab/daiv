@@ -133,10 +133,16 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # Skip the filesystem walk once skills_metadata is in state — upstream also
-        # short-circuits on the same condition, so re-walking is pure waste on turns 2+.
+        # In disk (non-sandbox) mode, materialize global skills on every turn rather than only when
+        # ``skills_metadata`` is unset: the ``SKILLS_PATH`` cache is per-container while
+        # ``skills_metadata`` is persisted in the Redis checkpoint, so a turn that resumes on a fresh
+        # worker (rolling deploy, scale-up, pod restart) would otherwise hit ``file_not_found`` when
+        # the ``skill`` tool downloads ``SKILL.md`` from disk. ``_collect_skill_files`` is idempotent
+        # via a per-file existence check, so warm containers only pay an ``iterdir`` + per-file
+        # ``stat``. In sandbox mode the sandbox seed (SandboxMiddleware) provisions global skills, so
+        # nothing is copied here.
         local_load_errors: list[str] = []
-        if "skills_metadata" not in state and not self._sandbox_enabled:
+        if not self._sandbox_enabled:
             local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
@@ -343,6 +349,14 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     if SKILL_ARGUMENTS_PLACEHOLDER in body
                     else f"{body}\n\n{SKILL_ARGUMENTS_PLACEHOLDER}: {arg_str}"
                 )
+
+            # Skill names can collide between the global tree and per-repo .agents/skills/,
+            # so inject the resolved root for relative references inside SKILL.md.
+            skill_root = str(Path(loaded_skill["path"]).parent)
+            body = (
+                f"<skill_root>{skill_root}</skill_root>\n"
+                f"Relative paths in this skill resolve under the skill root above.\n\n{body}"
+            )
 
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
             update: dict = {

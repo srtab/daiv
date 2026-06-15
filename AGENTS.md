@@ -62,7 +62,7 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 
 **Bot labels** — `daiv` triggers agent, `daiv-max` uses max model, `daiv-auto` enables auto-addressing. Constants live in `daiv/core/constants.py`; do not hardcode the strings.
 
-**Per-repo agent memory** — agent reads `.agents/AGENTS.md`; custom skills from `.agents/skills/`; subagents from `.agents/subagents/`.
+**Per-repo agent memory** — agent reads `.agents/AGENTS.md`; custom skills from `.agents/skills/`; subagents from `.agents/subagents/`. A custom skill with the same name as a built-in **shadows** the built-in (runtime + storage are consistent; the UI flags the card with "Overrides built-in").
 
 **Django settings** — test module is `daiv.settings.test`; `NINJA_SKIP_REGISTRY=true` is injected automatically in tests.
 
@@ -78,6 +78,8 @@ uv run --all-extras python scripts/dump_schemas.py \
 
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
+**Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/code-review/scripts/marker.py` as the reference.
+
 **Icons in templates** — never hand-roll an inline `<svg>` for a UI icon. Use `{% load icon_tags %}{% icon "name" "css-classes" %}`; see `DESIGN.md` §Icon System for the mechanism and the icon directory. Exceptions (keep inline): animated spinners, SVGs that need `<title>`/Alpine `:class` on the element itself, and brand/logo `<img>` tags.
 
 **Views split by content type** — server-rendered HTML (dashboard pages, forms) lives in `daiv/<app>/views.py` as **CBVs** subclassing `View` / `TemplateView` / `ListView` / `UpdateView` with `LoginRequiredMixin` / `AdminRequiredMixin`. JSON endpoints (including those consumed by dashboard JS like autocompletes and the agent-picker catalog) live in `daiv/<app>/api/views.py` (or `api/router.py` — both names exist) as a **django-ninja `Router`** with `auth=django_auth` for session callers, registered on the central `NinjaAPI` in `daiv/daiv/api.py` (`api.add_router("/<app>", <app>_router)`). Set `url_name="..."` on each route and reverse via `{% url 'api:<route_name>' %}` from templates (or pass the URL into JS as an init prop instead of hardcoding `/api/...` paths); see `daiv/automation/api/views.py` + `_agent_picker.html` for the reference pair.
@@ -87,7 +89,7 @@ uv run --all-extras python scripts/dump_schemas.py \
 | Change type | Start here |
 |---|---|
 | New agent tool | `daiv/automation/agent/tools/` |
-| New built-in skill | `daiv/automation/agent/skills/<name>/` |
+| New built-in skill | `daiv/automation/agent/skills/<name>/` — add `SKILL.md` + optional `scripts/` and `examples/` |
 | New agent middleware | `daiv/automation/agent/middlewares/` |
 | Auth / user model | `daiv/accounts/models.py`, `daiv/accounts/views.py` |
 | Git platform client | `daiv/codebase/clients/` |
