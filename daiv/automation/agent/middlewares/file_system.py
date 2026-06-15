@@ -31,7 +31,7 @@ from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import FilesystemPermission, GrepSchema
+from deepagents.middleware.filesystem import FilesystemPermission, GlobSchema, GrepSchema
 
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
@@ -133,7 +133,48 @@ def _align_grep_arg_schema() -> None:
 
 
 _align_grep_arg_schema()
-GLOB_TOOL_DESCRIPTION = _with_path_reminder(GLOB_TOOL_DESCRIPTION_BASE)
+
+# deepagents' ``GlobSchema`` ships a ``pattern`` field description carrying a bare `*.txt` example and a
+# ``path`` default of "/" that actively mislead: glob's base directory defaults to the FILESYSTEM
+# root, not the repository, so a bare repo-relative pattern (`tests/**/*.py`) silently matches
+# nothing. The model sees this arg schema alongside the tool description, so realign it in place —
+# same process-wide-constant, race-free mechanism as ``_align_grep_arg_schema``. Pinned by
+# tests/.../test_file_system.py::test_glob_arg_schema_warns_root_anchoring.
+_GLOB_PATTERN_ARG_DESCRIPTION = (
+    "Glob pattern (supports *, **, ?, [abc]). Lead with `**/` to match anywhere beneath the search "
+    "root, e.g. `**/*.py` or `**/test_*.py`."
+)
+_GLOB_PATH_ARG_DESCRIPTION = (
+    "Absolute base directory to search from. Defaults to the filesystem root `/` — which is NOT the "
+    "repository. Set it to the repository root to scope the search there, or lead the pattern with `**/`."
+)
+
+
+def _align_glob_arg_schema() -> None:
+    """Rewrite deepagents' ``GlobSchema`` arg descriptions to flag the `/`-anchored default and `**/`."""
+    overrides = {"pattern": _GLOB_PATTERN_ARG_DESCRIPTION, "path": _GLOB_PATH_ARG_DESCRIPTION}
+    changed = False
+    for name, description in overrides.items():
+        if (field := GlobSchema.model_fields.get(name)) is not None:
+            field.description = description
+            changed = True
+    if changed:
+        # Pydantic caches the generated JSON schema; force a rebuild so the new descriptions reach
+        # ``model_json_schema()`` — the shape the model is actually shown.
+        GlobSchema.model_rebuild(force=True)
+
+
+_align_glob_arg_schema()
+
+_GLOB_EXTRA = (
+    "Prefer this tool over shell `find` in bash to locate files by name or pattern inside the "
+    "workspace. IMPORTANT: `path` defaults to the FILESYSTEM ROOT `/`, not the repository, so a bare "
+    "pattern like `tests/**/*.py` matches nothing under the repo. Either lead the pattern with `**/` "
+    "(e.g. `**/test_*.py`) so it descends into the repo, or set `path` to the repository root. "
+    "(Searching outside the workspace, `find`-style `-path` predicates, and piping matches into "
+    "`grep` have no glob equivalent — those remain legitimate uses of bash `find`.)"
+)
+GLOB_TOOL_DESCRIPTION = _with_path_reminder(GLOB_TOOL_DESCRIPTION_BASE, _GLOB_EXTRA)
 LIST_FILES_TOOL_DESCRIPTION = _with_path_reminder(LIST_FILES_TOOL_DESCRIPTION_BASE)
 READ_FILE_TOOL_DESCRIPTION = _with_path_reminder(READ_FILE_TOOL_DESCRIPTION_BASE)
 WRITE_FILE_TOOL_DESCRIPTION = _with_path_reminder(WRITE_FILE_TOOL_DESCRIPTION_BASE, _WRITE_FILE_EXTRA)
