@@ -79,6 +79,24 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     )
 
 
+def test_grep_arg_schema_describes_regex(setup):
+    """The grep tool's input schema must describe ``pattern`` as a regex, not literal text.
+
+    deepagents ships ``GrepSchema`` with a "literal string, not regex" ``pattern`` description (and a
+    "current working directory" ``path`` default) that the model sees in the tool's input schema
+    alongside DAIV's regex-aware tool description — a direct contradiction. ``_align_grep_arg_schema``
+    rewrites both at import; pin them here so a deepagents bump that reworks GrepSchema fails loudly
+    instead of silently restoring the contradiction.
+    """
+    props = setup.tools["grep"].args_schema.model_json_schema()["properties"]
+
+    pattern_desc = props["pattern"]["description"]
+    assert "regular expression" in pattern_desc.lower()
+    assert "literal" not in pattern_desc.lower()
+    assert pattern_desc == fs_module._GREP_PATTERN_ARG_DESCRIPTION
+    assert props["path"]["description"] == fs_module._GREP_PATH_ARG_DESCRIPTION
+
+
 class TestDiskBackendRegexGrep:
     def _backend(self, tmp_path: Path):
         from automation.agent.middlewares.file_system import DAIVFilesystemBackend

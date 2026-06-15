@@ -31,7 +31,7 @@ from deepagents.middleware.filesystem import GLOB_TOOL_DESCRIPTION as GLOB_TOOL_
 from deepagents.middleware.filesystem import LIST_FILES_TOOL_DESCRIPTION as LIST_FILES_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import READ_FILE_TOOL_DESCRIPTION as READ_FILE_TOOL_DESCRIPTION_BASE
 from deepagents.middleware.filesystem import WRITE_FILE_TOOL_DESCRIPTION as WRITE_FILE_TOOL_DESCRIPTION_BASE
-from deepagents.middleware.filesystem import FilesystemPermission
+from deepagents.middleware.filesystem import FilesystemPermission, GrepSchema
 
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
@@ -74,6 +74,15 @@ def _with_path_reminder(base: str, *extras: str) -> str:
     return "\n".join((base, *extras, REMINDER_ABSOLUTE_PATHS))
 
 
+# One description for both backends, on purpose. The model's grep description is set once per
+# process — via the harness profile for the main agent (``create_deep_agent`` auto-adds its
+# FilesystemMiddleware from the globally-registered profile, no per-call override) and via
+# ``custom_tool_descriptions`` for subagents — and a run's backend (sandbox ERE vs. disk Python
+# ``re``) is only known per-run, so the text cannot branch on it without racing concurrent runs.
+# It therefore targets the subset both dialects share: the sandbox runs ``grep -E`` on busybox/musl
+# images where Perl-style escapes and lookaround don't work, while Python ``re`` (the disk backend)
+# rejects POSIX bracket classes like ``[[:space:]]`` — so the description sticks to anchors,
+# alternation, ``[...]`` ranges and escaping, which behave identically on both.
 _GREP_DESCRIPTION = r"""Search file contents with a regular expression and return matching files or lines.
 
 The pattern is a REGULAR EXPRESSION (POSIX extended / ERE in sandbox runs; Python `re` on local runs).
@@ -81,18 +90,49 @@ Common constructs work: alternation `foo|bar`, anchors `^def `/`;$`, character c
 quantifiers `+ * ? {2,3}`, and groups `(...)`. To match a regex metacharacter literally, escape it
 with a backslash, e.g. `def __init__\(self\)` or `value\.attr`.
 
-Stick to portable syntax: Perl-style escapes (`\d` `\w` `\s` `\b`), lookaround `(?=...)`, and
+Avoid non-portable constructs: Perl-style escapes (`\d` `\w` `\s` `\b`), lookaround `(?=...)`, and
 backreferences are NOT valid POSIX ERE and will match differently (often nothing) on sandbox runs —
-use `[0-9]`, `[A-Za-z0-9_]`, `[[:space:]]`, and explicit alternation instead.
+use `[0-9]`, `[A-Za-z0-9_]`, a literal space, and explicit alternation instead.
 
-Parameters:
-- pattern: the regular expression.
-- path: absolute file or directory to search (defaults to the workspace root).
-- glob: optional filename glob to restrict the search (e.g. `*.py`).
-- output_mode: `files_with_matches` (default), `content`, or `count`.
+Examples:
+- Search every file: `grep(pattern="TODO")`
+- Anchored alternation in Python files: `grep(pattern="^def |^class ", glob="*.py")`
+- Show the matching lines: `grep(pattern="raise [A-Za-z]+Error", output_mode="content")`
+- Match metacharacters literally (escape them): `grep(pattern="value\.attr")`
+- Count matches per file: `grep(pattern="import", output_mode="count")`
 
 Prefer this tool over shell `grep`/`rg` in bash for searching workspace files."""
 GREP_TOOL_DESCRIPTION = _with_path_reminder(_GREP_DESCRIPTION)
+
+
+# ``_GREP_DESCRIPTION`` (above) overrides only the grep tool's *top-level* description. The model is
+# also shown the tool's INPUT SCHEMA, which deepagents builds from a hardcoded ``GrepSchema`` whose
+# ``pattern``/``path`` fields still read "literal string, not regex" / "current working directory" —
+# a direct contradiction of the regex description that ``custom_tool_descriptions`` cannot reach.
+# Both backends grep by regex now, so realign the arg schema in place. The override is process-wide
+# and constant (never per-run, so race-free) and reaches the main agent and every subagent alike,
+# since they all share this one ``GrepSchema`` class object. Pinned by
+# tests/.../test_file_system.py::test_grep_arg_schema_describes_regex so a deepagents bump that
+# reworks GrepSchema (or restores the literal wording) fails loudly instead of silently regressing.
+_GREP_PATTERN_ARG_DESCRIPTION = "Regular expression to search for (POSIX extended / ERE syntax)."
+_GREP_PATH_ARG_DESCRIPTION = "Absolute file or directory to search. Defaults to the workspace root."
+
+
+def _align_grep_arg_schema() -> None:
+    """Rewrite deepagents' ``GrepSchema`` arg descriptions to match DAIV's regex grep semantics."""
+    overrides = {"pattern": _GREP_PATTERN_ARG_DESCRIPTION, "path": _GREP_PATH_ARG_DESCRIPTION}
+    changed = False
+    for name, description in overrides.items():
+        if (field := GrepSchema.model_fields.get(name)) is not None:
+            field.description = description
+            changed = True
+    if changed:
+        # Pydantic caches the generated JSON schema; force a rebuild so the new descriptions reach
+        # ``model_json_schema()`` — the shape the model is actually shown.
+        GrepSchema.model_rebuild(force=True)
+
+
+_align_grep_arg_schema()
 GLOB_TOOL_DESCRIPTION = _with_path_reminder(GLOB_TOOL_DESCRIPTION_BASE)
 LIST_FILES_TOOL_DESCRIPTION = _with_path_reminder(LIST_FILES_TOOL_DESCRIPTION_BASE)
 READ_FILE_TOOL_DESCRIPTION = _with_path_reminder(READ_FILE_TOOL_DESCRIPTION_BASE)
