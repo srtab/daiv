@@ -154,10 +154,9 @@ def filesystem_absolute_path_directive(working_directory: str) -> str:
     """Path directive naming where the repository lives for this run.
 
     The bare "start with /" rule let the model address repo files with the workspace prefix dropped
-    (e.g. ``/daiv/foo`` instead of ``/workspace/repo/daiv/foo``); in a sandbox run the backend now
-    resolves such slips under the repo root (:meth:`SandboxFileBackend._abs`), but a slip is still
-    ambiguous (it could land on the wrong file), and disk-backed runs do NOT auto-correct it (the
-    path resolves outside the clone), so the model must name the full repo path in either mode. This
+    (e.g. ``/daiv/foo`` instead of ``/workspace/repo/daiv/foo``). Neither backend auto-corrects such a
+    slip (the sandbox rejects it; disk-backed runs resolve it outside the clone — see
+    :meth:`SandboxFileBackend._abs`), so the model must name the full repo path in either mode. This
     states where repo files live (``/workspace/repo/`` in a sandbox, ``/<clone-name>/`` on disk)
     WITHOUT claiming it is the only writable location — the sandbox scratchpad (``/workspace/tmp``)
     and skills (``/workspace/skills``) are also valid.
@@ -394,9 +393,17 @@ def build_disk_workspace_backend(clone_dir: Path, *, skills_cache: Path = SKILLS
 # they are never collapsed into a single generic "operation failed".
 #
 # Each hint (and the fall-through ``message``) is a sentence *fragment* meant to read as the tail of
-# a ``"<path>": `` prefix the call site supplies (e.g. ``File '/x': is a directory — …``). Phrase new
-# hints/messages to follow that prefix, not as standalone capitalised sentences.
+# the ``"<op> '<arg>': "`` prefix the call site supplies (e.g. ``File '/x': is a directory — …``).
+# ``<arg>`` is the path for most ops but the *pattern* for grep/glob (``Grep 'foo|bar': …``), so a
+# hint that is really about the path must not phrase itself as a claim about ``<arg>`` (e.g. "is not a
+# path" reads false after a pattern). Phrase new hints to follow that prefix, not as standalone
+# capitalised sentences.
 _FS_CODE_HINTS: dict[FsErrorCode, str] = {
+    FsErrorCode.INVALID_PATH: (
+        "targets a path outside the accessible workspace — the file tools only reach /workspace (the "
+        "repo, skills and tmp subtrees) and reject '..' segments; pass an absolute path under "
+        "/workspace, or use the bash tool to inspect files elsewhere in the sandbox"
+    ),
     FsErrorCode.NOT_FOUND: "does not exist",
     FsErrorCode.IS_A_DIRECTORY: "is a directory — list it with the ls/glob tools, not read_file/edit_file",
     FsErrorCode.NOT_A_DIRECTORY: "is not a directory — read it with read_file, not the ls/glob tools",
@@ -455,10 +462,10 @@ class SandboxFileBackend(BackendProtocol):
     The agent addresses files by their sandbox-absolute path (``/workspace/repo``,
     ``/workspace/skills``, ``/workspace/tmp``); the backend is a thin proxy to
     ``DAIVSandboxClient`` — the sandbox is authoritative, so there is no local mirror.
-    Paths already under ``/workspace`` pass through unchanged; the only translation is in
-    :meth:`_abs`, which maps the virtual root ``/`` (and repo paths sent with the workspace
-    prefix dropped) onto the workspace/repo root so they don't error on the sandbox. Every op
-    is one RPC over ``DAIVSandboxClient``; there is no local copy, so no rollback/desync machinery.
+    The only translation is in :meth:`_abs`, which maps the virtual root ``/`` (and the empty path)
+    onto the workspace root; every other path is passed through verbatim for the sandbox to accept
+    (when under ``/workspace``) or reject. Every op is one RPC over ``DAIVSandboxClient``; there is no
+    local copy, so no rollback/desync machinery.
 
     The client is supplied at construction; the backend is **bound** to the run's session via
     :meth:`bind_session` once ``SandboxMiddleware.abefore_agent`` has started (or reused) it. Any
@@ -515,22 +522,22 @@ class SandboxFileBackend(BackendProtocol):
         return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast))
 
     # -- path mapping -------------------------------------------------------
-    # The sandbox is authoritative and the agent addresses files by their
-    # sandbox-absolute path (/workspace/repo, /workspace/skills, /workspace/tmp).
-    # The sandbox rejects anything outside WORKSPACE_PATH (an ``invalid_path`` error), so two
-    # common model inputs need normalising before they reach the wire:
-    #   - the deepagents virtual root "/" (a path-less glob/grep/ls default) → the
-    #     workspace root, so those defaults search /workspace rather than being rejected;
-    #   - a repo path with the workspace prefix dropped (e.g. "/daiv/foo" instead of
-    #     "/workspace/repo/daiv/foo") → resolved under the repo root, so a common slip
-    #     lands on the intended file instead of failing.
-    # Paths already under /workspace pass straight through unchanged.
+    # The sandbox is authoritative and the agent addresses files by their sandbox-absolute path
+    # (/workspace/repo, /workspace/skills, /workspace/tmp). The ONLY normalisation here is the
+    # deepagents virtual root "/" (and the empty path) — the path-less glob/grep/ls default — onto
+    # the workspace root, so those defaults search /workspace rather than being rejected. Every other
+    # path passes straight through to the sandbox unchanged.
+    #
+    # We deliberately do NOT re-home an out-of-workspace path under the repo root. A repo slip (dropped
+    # "/workspace/repo" prefix, e.g. "/daiv/foo") is indistinguishable from a path the model means
+    # literally (an installed package under the sandbox home, "/home/daiv-sandbox/.local/.../dbt/impl.py"),
+    # so re-homing the latter to a bogus "/workspace/repo/home/..." once reported a misleading "does not
+    # exist" for a file that exists. Passing the path through lets the sandbox reject it with an honest
+    # ``invalid_path`` instead of guessing — matching disk-backed runs, which never auto-corrected either.
     def _abs(self, backend_path: str) -> str:
         if not backend_path or backend_path == "/":
             return WORKSPACE_PATH
-        if backend_path == WORKSPACE_PATH or backend_path.startswith(f"{WORKSPACE_PATH}/"):
-            return backend_path
-        return f"{REPO_PATH}/{backend_path.lstrip('/')}"
+        return backend_path
 
     def _rel(self, abs_path: str) -> str:
         return abs_path or "/"
