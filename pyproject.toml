@@ -177,16 +177,13 @@ lint.isort.split-on-trailing-comma = false
 keep_full_version = true
 
 [tool.ty]
+src.exclude = [ "**/docs/**", "**/tests/**" ]
 environment.python-version = "3.14"
-src.exclude = [ "**/tests/**", "**/docs/**" ]
 rules.unresolved-import = "ignore"
 
 [tool.pytest]
-ini_options.DJANGO_SETTINGS_MODULE = "daiv.settings.test"
-ini_options.pythonpath = [ "daiv", "." ]
-ini_options.python_files = "test_*.py"
-ini_options.python_classes = "Test *Test"
 ini_options.testpaths = [ "tests" ]
+ini_options.pythonpath = [ "daiv", "." ]
 ini_options.norecursedirs = [
   ".venv",
   "data",
@@ -196,9 +193,12 @@ ini_options.norecursedirs = [
   "node_modules",
   "static",
 ]
+ini_options.python_files = "test_*.py"
+ini_options.python_classes = "Test *Test"
 ini_options.addopts = "--cov --cov-config=.coveragerc -p no:warnings"
-ini_options.asyncio_mode = "auto"
 ini_options.asyncio_default_fixture_loop_scope = "function"
+ini_options.asyncio_mode = "auto"
+ini_options.DJANGO_SETTINGS_MODULE = "daiv.settings.test"
 
 [tool.pytest_env]
 DJANGO_SETTINGS_MODULE = "daiv.settings.test"
