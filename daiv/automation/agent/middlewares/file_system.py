@@ -6,7 +6,7 @@ import logging
 import re
 import stat
 from pathlib import Path
-from typing import Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 import httpx
 from deepagents.backends.composite import CompositeBackend
@@ -48,6 +48,9 @@ from core.sandbox.schemas import (
     RunCommandsRequest,
     RunCommandsResponse,
 )
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 logger = logging.getLogger("daiv.tools")
 
@@ -118,27 +121,32 @@ _GREP_PATTERN_ARG_DESCRIPTION = "Regular expression to search for (POSIX extende
 _GREP_PATH_ARG_DESCRIPTION = "Absolute file or directory to search. Defaults to the workspace root."
 
 
-def _align_grep_arg_schema() -> None:
-    """Rewrite deepagents' ``GrepSchema`` arg descriptions to match DAIV's regex grep semantics."""
-    overrides = {"pattern": _GREP_PATTERN_ARG_DESCRIPTION, "path": _GREP_PATH_ARG_DESCRIPTION}
+def _align_arg_schema(schema_cls: type[BaseModel], overrides: dict[str, str]) -> None:
+    """Rewrite a deepagents arg-schema's field descriptions in place.
+
+    deepagents builds each tool's INPUT SCHEMA from a hardcoded Pydantic model that
+    ``custom_tool_descriptions`` cannot reach, so its field text can contradict DAIV's overridden tool
+    description. The override is process-wide and constant (never per-run, so race-free) and reaches the
+    main agent and every subagent alike, since they all share the one schema class object.
+    """
     changed = False
     for name, description in overrides.items():
-        if (field := GrepSchema.model_fields.get(name)) is not None:
+        if (field := schema_cls.model_fields.get(name)) is not None:
             field.description = description
             changed = True
     if changed:
         # Pydantic caches the generated JSON schema; force a rebuild so the new descriptions reach
         # ``model_json_schema()`` — the shape the model is actually shown.
-        GrepSchema.model_rebuild(force=True)
+        schema_cls.model_rebuild(force=True)
 
 
-_align_grep_arg_schema()
+_align_arg_schema(GrepSchema, {"pattern": _GREP_PATTERN_ARG_DESCRIPTION, "path": _GREP_PATH_ARG_DESCRIPTION})
 
 # deepagents' ``GlobSchema`` ships a ``pattern`` field description carrying a bare `*.txt` example and a
 # ``path`` default of "/" that actively mislead: glob's base directory defaults to the FILESYSTEM
 # root, not the repository, so a bare repo-relative pattern (`tests/**/*.py`) silently matches
 # nothing. The model sees this arg schema alongside the tool description, so realign it in place —
-# same process-wide-constant, race-free mechanism as ``_align_grep_arg_schema``. Pinned by
+# same process-wide-constant, race-free mechanism as the grep alignment above. Pinned by
 # tests/.../test_file_system.py::test_glob_arg_schema_warns_root_anchoring.
 _GLOB_PATTERN_ARG_DESCRIPTION = (
     "Glob pattern (supports *, **, ?, [abc]). Lead with `**/` to match anywhere beneath the search "
@@ -148,23 +156,7 @@ _GLOB_PATH_ARG_DESCRIPTION = (
     "Absolute base directory to search from. Defaults to the filesystem root `/` — which is NOT the "
     "repository. Set it to the repository root to scope the search there, or lead the pattern with `**/`."
 )
-
-
-def _align_glob_arg_schema() -> None:
-    """Rewrite deepagents' ``GlobSchema`` arg descriptions to flag the `/`-anchored default and `**/`."""
-    overrides = {"pattern": _GLOB_PATTERN_ARG_DESCRIPTION, "path": _GLOB_PATH_ARG_DESCRIPTION}
-    changed = False
-    for name, description in overrides.items():
-        if (field := GlobSchema.model_fields.get(name)) is not None:
-            field.description = description
-            changed = True
-    if changed:
-        # Pydantic caches the generated JSON schema; force a rebuild so the new descriptions reach
-        # ``model_json_schema()`` — the shape the model is actually shown.
-        GlobSchema.model_rebuild(force=True)
-
-
-_align_glob_arg_schema()
+_align_arg_schema(GlobSchema, {"pattern": _GLOB_PATTERN_ARG_DESCRIPTION, "path": _GLOB_PATH_ARG_DESCRIPTION})
 
 _GLOB_EXTRA = (
     "Prefer this tool over shell `find` in bash to locate files by name or pattern inside the "

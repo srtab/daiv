@@ -84,7 +84,7 @@ def test_grep_arg_schema_describes_regex(setup):
 
     deepagents ships ``GrepSchema`` with a "literal string, not regex" ``pattern`` description (and a
     "current working directory" ``path`` default) that the model sees in the tool's input schema
-    alongside DAIV's regex-aware tool description — a direct contradiction. ``_align_grep_arg_schema``
+    alongside DAIV's regex-aware tool description — a direct contradiction. ``_align_arg_schema``
     rewrites both at import; pin them here so a deepagents bump that reworks GrepSchema fails loudly
     instead of silently restoring the contradiction.
     """
@@ -110,7 +110,7 @@ def test_glob_description_steers_over_find(setup):
 
 def test_glob_arg_schema_warns_root_anchoring(setup):
     """deepagents ships GlobSchema with a bare `*.txt` pattern example and a "Defaults to root '/'"
-    path description. `_align_glob_arg_schema` rewrites both at import; pin them so a deepagents bump
+    path description. `_align_arg_schema` rewrites both at import; pin them so a deepagents bump
     that reworks GlobSchema fails loudly instead of silently regressing."""
     props = setup.tools["glob"].args_schema.model_json_schema()["properties"]
     assert props["pattern"]["description"] == fs_module._GLOB_PATTERN_ARG_DESCRIPTION
