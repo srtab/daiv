@@ -191,6 +191,22 @@ class GitManager:
             diff += "\n"
         return diff
 
+    @staticmethod
+    def _require_ok(args: tuple[str, ...], res: _GitResult) -> _GitResult:
+        """Raise ``GitCommandError`` if a batched git command exited non-zero; else return it.
+
+        Query methods run their commands with ``check=False`` (via ``_git_batch``) and gate each
+        result through here so a real ref never silently parses a failure as "no output".
+        """
+        if res.exit_code != 0:
+            raise GitCommandError(["git", *args], res.exit_code, res.output)
+        return res
+
+    @staticmethod
+    def _nonempty_lines(output: str) -> list[str]:
+        """Stripped, non-blank lines of git output (untracked/changed file lists)."""
+        return [line.strip() for line in output.splitlines() if line.strip()]
+
     # -- queries -------------------------------------------------------------
     async def get_diff(self, ref: str = "HEAD") -> str:
         """Unified diff of the working tree vs ``ref``, including untracked files.
@@ -201,15 +217,12 @@ class GitManager:
         ``ref`` must resolve — there is no empty-repo (``--cached``) fallback like the
         pre-sandbox implementation had.
         """
-        diff_res, untracked_res = await self._git_batch([("diff", ref), ("ls-files", "--others", "--exclude-standard")])
-        if diff_res.exit_code != 0:
-            raise GitCommandError(["git", "diff", ref], diff_res.exit_code, diff_res.output)
-        if untracked_res.exit_code != 0:
-            raise GitCommandError(
-                ["git", "ls-files", "--others", "--exclude-standard"], untracked_res.exit_code, untracked_res.output
-            )
+        specs: list[tuple[str, ...]] = [("diff", ref), ("ls-files", "--others", "--exclude-standard")]
+        diff_res, untracked_res = await self._git_batch(specs)
+        self._require_ok(specs[0], diff_res)
+        self._require_ok(specs[1], untracked_res)
 
-        untracked = [line.strip() for line in untracked_res.output.splitlines() if line.strip()]
+        untracked = self._nonempty_lines(untracked_res.output)
         batch_b = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
         return self._append_untracked(diff_res.output, untracked, batch_b)
 
@@ -220,19 +233,11 @@ class GitManager:
         diagnose one via the other), but names come straight from git — no diff-header
         parsing, so paths with spaces/quotes are exact. One batched round-trip.
         """
-        changed_res, untracked_res = await self._git_batch([
-            ("diff", "--name-only", ref),
-            ("ls-files", "--others", "--exclude-standard"),
-        ])
-        if changed_res.exit_code != 0:
-            raise GitCommandError(["git", "diff", "--name-only", ref], changed_res.exit_code, changed_res.output)
-        if untracked_res.exit_code != 0:
-            raise GitCommandError(
-                ["git", "ls-files", "--others", "--exclude-standard"], untracked_res.exit_code, untracked_res.output
-            )
-        changed = [line.strip() for line in changed_res.output.splitlines() if line.strip()]
-        untracked = [line.strip() for line in untracked_res.output.splitlines() if line.strip()]
-        return changed + untracked
+        specs: list[tuple[str, ...]] = [("diff", "--name-only", ref), ("ls-files", "--others", "--exclude-standard")]
+        changed_res, untracked_res = await self._git_batch(specs)
+        self._require_ok(specs[0], changed_res)
+        self._require_ok(specs[1], untracked_res)
+        return self._nonempty_lines(changed_res.output) + self._nonempty_lines(untracked_res.output)
 
     async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
         """Collect everything the publisher needs in at most two sandbox round-trips.
@@ -260,20 +265,12 @@ class GitManager:
         # Exit-code discipline (same as the per-method versions): a real ref never exits non-zero for
         # "differences found", and an empty branch list from a failing ls-remote would risk a colliding
         # branch name, so raise rather than silently parse.
-        if status_res.exit_code != 0:
-            raise GitCommandError(["git", "status", "--porcelain"], status_res.exit_code, status_res.output)
-        if diff_res.exit_code != 0:
-            raise GitCommandError(["git", "diff", f"origin/{base_branch}"], diff_res.exit_code, diff_res.output)
-        if untracked_res.exit_code != 0:
-            raise GitCommandError(
-                ["git", "ls-files", "--others", "--exclude-standard"], untracked_res.exit_code, untracked_res.output
-            )
-        if lsremote_res.exit_code != 0:
-            raise GitCommandError(
-                ["git", "ls-remote", "--heads", "origin"], lsremote_res.exit_code, lsremote_res.output
-            )
+        self._require_ok(batch_a[0], status_res)
+        self._require_ok(batch_a[1], diff_res)
+        self._require_ok(batch_a[2], untracked_res)
+        self._require_ok(batch_a[3], lsremote_res)
 
-        untracked = [line.strip() for line in untracked_res.output.splitlines() if line.strip()]
+        untracked = self._nonempty_lines(untracked_res.output)
         batch_b = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
         diff = self._append_untracked(diff_res.output, untracked, batch_b)
 
@@ -319,10 +316,6 @@ class GitManager:
             _raise_for_push_failure(push_args, push)
         return branch
 
-    def unique_branch_name(self, original_branch_name: str, existing_branch_names: list[str]) -> str:
-        """Public wrapper over :meth:`_gen_unique_branch_name` for callers outside this class."""
-        return self._gen_unique_branch_name(original_branch_name, existing_branch_names)
-
     # -- helpers -------------------------------------------------------------
     @staticmethod
     def _parse_remote_branches(output: str) -> list[str]:
@@ -334,7 +327,7 @@ class GitManager:
                 branches.append(ref[len("refs/heads/") :])
         return branches
 
-    def _gen_unique_branch_name(
+    def unique_branch_name(
         self, original_branch_name: str, existing_branch_names: list[str], max_attempts: int = BRANCH_NAME_MAX_ATTEMPTS
     ) -> str:
         """

@@ -1,7 +1,5 @@
 import fnmatch
-import logging
 import re
-import subprocess  # noqa: S404
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
@@ -12,11 +10,7 @@ from unidiff.patch import Line
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
-logger = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from git import Repo
 
     from codebase.base import Discussion, Note, Scope, User
@@ -134,36 +128,3 @@ def redact_diff_content(
                     Line("[Diff content was intentionally excluded by the repository configuration]", LINE_TYPE_CONTEXT)
                 )
     return str(patch_set) if not as_patch_set else patch_set
-
-
-def apply_patch_to_dir(patch: str, working_dir: Path) -> None:
-    """Apply a unified diff to ``working_dir`` using ``git apply``.
-
-    ``git apply`` does not require a ``.git`` directory and is transactional within a
-    single invocation, so one subprocess call covers both repo-bound and repoless
-    callers. The ``"No valid patches in input"`` stderr line is git's signal for an
-    empty or no-op patch and is treated as success.
-    """
-    if not patch or not patch.strip():
-        return
-
-    if not patch.endswith("\n"):
-        patch += "\n"
-
-    result = subprocess.run(  # noqa: S603
-        ["git", "apply", "--whitespace=nowarn", "-"],  # noqa: S607
-        cwd=working_dir,
-        input=patch.encode("utf-8", "surrogateescape"),
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode == 0:
-        return
-
-    stderr = result.stderr.decode("utf-8", "replace").strip()
-    stdout = result.stdout.decode("utf-8", "replace").strip()
-    if "No valid patches in input" in stderr:
-        logger.debug("apply_patch_to_dir: empty/no-op patch, skipping (cwd=%s, stderr=%r)", working_dir, stderr)
-        return
-    detail = stderr or stdout or "<no diagnostic output>"
-    raise RuntimeError(f"git apply failed (rc={result.returncode}, cwd={working_dir}): {detail}")
