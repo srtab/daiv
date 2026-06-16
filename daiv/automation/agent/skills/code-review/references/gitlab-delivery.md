@@ -92,9 +92,25 @@ A rename is *not* inline-eligible — a `suggestion` block patches only the decl
 
 If an inline finding's diff position cannot be constructed reliably (file renamed across the diff, line moved within a hunk, anchor ambiguous), **demote it to discussion-only**. Never post a misaligned suggestion or a misanchored question.
 
-## Step 4 — Apply dedup
+## Step 4 — Resolve the line, then apply dedup
 
-For each candidate, compute the anchor with `scripts/marker.py anchor --target "<target line>" --next "<next non-blank new-side line>"` and form the fingerprint `["inline", archetype, file, anchor]`. Always pass `--next` (the next non-blank new-side line) on every call — the script uses it only when it needs to disambiguate a short or all-separator target (`references/marker-format.md` has the exact rule), so there's no judgment call about when to pass it. **Skip if the fingerprint matches the dedup set** — do not rephrase, do not "post a stronger version." Only surface fingerprints not already present.
+**Get `new_line` and the target line with `grep -n` — never by counting hunk lines.** The repo is checked out at `head_sha`, so a file's own line numbers *are* its new-side diff line numbers; counting `@@` hunks by hand is what misplaces comments onto the wrong line. For each candidate, from the repo root run:
+
+```
+grep -Fn "<distinctive snippet of the target line>" <new_path>
+```
+
+`-F` matches the snippet literally — without it, regex metacharacters that are everywhere in code (`.`, `[`, `*`, `$`) silently break or mis-target the match. Pick a long, distinctive, quote-free run of the line so the match is unique. The leading number is `new_line`; the text after the first colon is the **full** target line — pass that whole line to `--target` below (not a snippet). If grep returns several matches, pick the one inside the finding's diff hunk — the target must be a line shown in the diff. If it returns none, the target is a pure deletion (no new-side line) — demote to summary.
+
+**A context-line target also needs `old_line`.** Most findings anchor on an added (`+`) line, whose position carries `new_line` only. But Step 3 also allows anchoring on an unchanged (context) line — e.g. an inline question about a line shown in the diff but not modified — and GitLab requires *both* `old_line` and `new_line` for an unchanged line. A context line is byte-identical in the base revision, so get `old_line` the same deterministic way, pointed at `base_sha`:
+
+```
+git show <base_sha>:<new_path> | grep -Fn "<same snippet>"
+```
+
+The leading number there is `old_line`. (Added-line targets have no `old_line` — leave it out.)
+
+Then compute the anchor with `scripts/marker.py anchor --target "<full line from grep>" --next "<next non-blank new-side line>"` and form the fingerprint `["inline", archetype, file, anchor]`. Always pass `--next` (the next non-blank new-side line — `grep -n -A2` shows it) on every call — the script uses it only when it needs to disambiguate a short or all-separator target (`references/marker-format.md` has the exact rule), so there's no judgment call about when to pass it. **Skip if the fingerprint matches the dedup set** — do not rephrase, do not "post a stronger version." Only surface fingerprints not already present.
 
 The fingerprint is anchored on line *content*, so two distinct findings on byte-identical target lines in different hunks of the same file (same archetype) collide on one fingerprint (`references/marker-format.md` documents why). Two cases, opposite handling:
 
@@ -105,8 +121,8 @@ The fingerprint is anchored on line *content*, so two distinct findings on byte-
 
 For each surviving inline finding:
 
-1. Build the marker line with `scripts/marker.py build --kind inline --sha <head_sha> --archetype <X> --file <new_path> --line <new_line> --anchor <anchor>`. Capture the output verbatim — it is the first physical line of the note body.
-2. Post via `gitlab project-merge-request-discussion create` with `--position`. Follow the position-construction and suggestion-block guidance already documented on the `gitlab` tool — do not invent your own conventions.
+1. Build the marker line with `scripts/marker.py build --kind inline --sha <head_sha> --archetype <X> --file <new_path> --line <new_line> --anchor <anchor>` — `<new_line>` is the `grep` number from Step 4. Capture the output verbatim — it is the first physical line of the note body.
+2. Post via `gitlab project-merge-request-discussion create` with `--position`, using that same `new_line` (and the `old_line` from Step 4 when the target is a context line). Follow the position-construction and suggestion-block guidance already documented on the `gitlab` tool — do not invent your own conventions.
 
 Body shape depends on the archetype:
 
