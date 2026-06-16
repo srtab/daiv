@@ -30,6 +30,8 @@ from automation.agent.middlewares.web_search import WebSearchMiddleware
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from deepagents.backends import BackendProtocol
     from langchain.chat_models import BaseChatModel
 
@@ -129,6 +131,8 @@ def _build_detector_middleware(
     runtime: RuntimeCtx,
     sandbox_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
 ) -> list:
     """Build the middleware stack for a code-review detector subagent.
 
@@ -136,6 +140,10 @@ def _build_detector_middleware(
     read the diff + surrounding code), the sandbox is kept so detectors can run ``git``
     reads (it's a full bash sandbox, not git-restricted), and there is no git-platform
     middleware (detectors never post), no web tools, and no ``TodoListMiddleware``.
+
+    Like the general-purpose subagent, the sandbox is rooted at the unified ``/workspace/repo``
+    and reuses the run's bound ``client``/``sandbox_backend`` so the detector's bash runs in the
+    parent's session (``close_session=False``).
     """
     _summarization_defaults = compute_summarization_defaults(model)
 
@@ -157,8 +165,9 @@ def _build_detector_middleware(
     ]
 
     if sandbox_enabled:
-        agent_path = Path(runtime.gitrepo.working_dir)
-        middleware.append(SandboxMiddleware(backend=backend, agent_root=f"/{agent_path.name}", close_session=False))
+        middleware.append(
+            SandboxMiddleware(agent_root=REPO_PATH, client=client, sandbox_backend=sandbox_backend, close_session=False)
+        )
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
@@ -189,6 +198,8 @@ def load_builtin_code_review_detectors(
     working_directory: str,
     sandbox_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
     *,
     agents_dir: Path = CODE_REVIEW_AGENTS_PATH,
     schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH,
@@ -247,7 +258,9 @@ def load_builtin_code_review_detectors(
                 failed.append(md_file.stem)
                 continue
 
-        middleware = _build_detector_middleware(detector_model, backend, runtime, sandbox_enabled, fallback_models)
+        middleware = _build_detector_middleware(
+            detector_model, backend, runtime, sandbox_enabled, fallback_models, client, sandbox_backend
+        )
         detectors.append(
             _compile_subagent(
                 name=frontmatter["name"],

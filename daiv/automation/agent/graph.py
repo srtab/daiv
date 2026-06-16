@@ -260,7 +260,14 @@ async def create_daiv_agent(
         ),
         create_explore_subagent(backend, working_directory, sandbox_enabled=_sandbox_enabled),
         *load_builtin_code_review_detectors(
-            model, backend, ctx, working_directory, sandbox_enabled=_sandbox_enabled, fallback_models=fallback_models
+            model,
+            backend,
+            ctx,
+            working_directory,
+            sandbox_enabled=_sandbox_enabled,
+            fallback_models=fallback_models,
+            client=run_client,
+            sandbox_backend=sandbox_backend,
         ),
     ]
 
