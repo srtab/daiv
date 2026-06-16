@@ -128,7 +128,6 @@ services:
         prometheus_monitoring['enable'] = false
         gitlab_kas['enable'] = false
         registry['enable'] = false
-        mattermost['enable'] = false
         gitlab_pages['enable'] = false
     ports:
       - "8929:8929"
