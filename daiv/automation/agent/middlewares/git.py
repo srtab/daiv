@@ -352,7 +352,21 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         :class:`PublishOutcome`: a no-op turn (clean tree already on its MR, or no changes at
         all) publishes nothing. We map the outcome onto the streamed ``merge_request`` field
         and the private ``code_changes`` / ``protected_branch_fallback_source`` flags.
+
+        Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
+        straight to the after_agent chain) skip ``SandboxMiddleware.abefore_agent``, so the run's
+        sandbox backend is never bound and the agent loop never ran — nothing was captured or changed.
+        Probing git through the unbound backend would raise (``SandboxFileBackend is not bound to a
+        sandbox session``), so detect it and no-op. Disk-backed runs pass ``sandbox_backend=None`` and
+        keep a usable local clone, so they fall through and correctly report a clean tree.
         """
+        if self._sandbox_backend is not None and not self._sandbox_backend.is_bound():
+            logger.debug(
+                "Sandbox backend not bound at turn end (run short-circuited before the agent loop); "
+                "skipping patch capture and publish"
+            )
+            return None
+
         update: dict[str, Any] = {}
         if self.capture_patch:
             try:

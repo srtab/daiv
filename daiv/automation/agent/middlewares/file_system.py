@@ -541,7 +541,16 @@ class SandboxFileBackend(BackendProtocol):
             )
         self._session_id = session_id
 
+    def is_bound(self) -> bool:
+        """Whether a client and session are attached, i.e. :meth:`_require_bound` would succeed.
+
+        The non-raising counterpart of :meth:`_require_bound`, for callers that may legitimately
+        run before binding (see ``GitMiddleware.aafter_agent``) and want to skip rather than raise.
+        """
+        return self._client is not None and bool(self._session_id)
+
     def _require_bound(self) -> tuple[DAIVSandboxClient, str]:
+        # Inline (not via is_bound) so the type checker narrows _client/_session_id for the return.
         if self._client is None or not self._session_id:
             raise RuntimeError("SandboxFileBackend is not bound to a sandbox session")
         return self._client, self._session_id
