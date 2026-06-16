@@ -194,6 +194,12 @@ class TestMerge:
         result = findings.merge([f])
         assert result["findings"][0]["suggestion"] == "del x"
 
+    def test_merge_empty_input(self):
+        # A clean diff yields zero findings. The skill still runs merge in some paths and reads
+        # candidates/dropped/merged for its Step 7 status line, so an empty array must reduce to
+        # all-zero counts rather than crash.
+        assert findings.merge([]) == {"findings": [], "candidates": 0, "dropped": 0, "merged": 0}
+
 
 class TestMergeCli:
     def test_cli_rejects_non_array(self, monkeypatch, capsys):
@@ -227,9 +233,17 @@ class TestSchemaSingleSource:
         assert tuple(schema["required"]) == findings.REQUIRED_FIELDS
 
     def test_bar_rank_orders_defect_highest(self):
-        # Independent guard: a schema edit that reorders the `bar` enum would silently
-        # invert dedupe severity. Lock the semantic invariant here, not via the schema.
+        # Independent guard on the explicit ranking: defect outranks structural outranks question.
+        # A typo'd rank that inverted severity would be caught here.
         assert findings._BAR_RANK["defect"] > findings._BAR_RANK["structural"] > findings._BAR_RANK["question"]
+
+    def test_bar_rank_is_explicit_and_covers_every_bar(self):
+        # Severity ranking is declared EXPLICITLY in findings.py, not derived from the bar enum's
+        # array position — so reordering the enum in finding.schema.json cannot silently invert
+        # dedup severity. Every bar must carry an explicit, distinct rank: a new bar has to be
+        # ranked, not silently defaulted to the lowest (findings.py raises at import otherwise).
+        assert set(findings._BAR_RANK) == set(findings.BARS)
+        assert len(set(findings._BAR_RANK.values())) == len(findings.BARS)
 
     def test_valid_finding_has_every_required_schema_field(self):
         schema = json.loads((_FINDINGS_PATH.parent / "finding.schema.json").read_text(encoding="utf-8"))

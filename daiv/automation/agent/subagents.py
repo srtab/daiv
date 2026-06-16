@@ -66,6 +66,30 @@ def _general_purpose_system_prompt(working_directory: str) -> str:
 """  # noqa: E501
 
 
+def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) -> list[AgentMiddleware[Any, Any, Any]]:
+    """The summarization + observability tail common to every subagent stack.
+
+    Shared by the general-purpose, explore, and code-review detector builders: context
+    summarization, prompt caching, tool-call logging, and tool-call patching, in that order.
+    Callers prepend their own head (todos / filesystem permissions / git-platform / web tools)
+    and append the conditional sandbox + fallback middleware.
+    """
+    summarization_defaults = compute_summarization_defaults(model)
+    return [
+        SummarizationMiddleware(
+            model=model,
+            backend=backend,
+            trigger=summarization_defaults["trigger"],
+            keep=summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+        ),
+        AnthropicPromptCachingMiddleware(),
+        ToolCallLoggingMiddleware(),
+        PatchToolCallsMiddleware(),
+    ]
+
+
 def _build_general_purpose_middleware(
     model: BaseChatModel,
     backend: BackendProtocol,
@@ -85,8 +109,6 @@ def _build_general_purpose_middleware(
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
-    _summarization_defaults = compute_summarization_defaults(model)
-
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(
@@ -95,17 +117,7 @@ def _build_general_purpose_middleware(
             _permissions=None if sandbox_enabled else WORKSPACE_FENCE_PERMISSIONS,
         ),
         GitPlatformMiddleware(git_platform=runtime.git_platform, backend=backend),
-        SummarizationMiddleware(
-            model=model,
-            backend=backend,
-            trigger=_summarization_defaults["trigger"],
-            keep=_summarization_defaults["keep"],
-            trim_tokens_to_summarize=None,
-            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
-        ),
-        AnthropicPromptCachingMiddleware(),
-        ToolCallLoggingMiddleware(),
-        PatchToolCallsMiddleware(),
+        *_shared_subagent_middleware(model, backend),
     ]
 
     if web_search_enabled:
@@ -143,25 +155,15 @@ def _build_detector_middleware(
 
     Like the general-purpose subagent, the sandbox is rooted at the unified ``/workspace/repo``
     and reuses the run's bound ``client``/``sandbox_backend`` so the detector's bash runs in the
-    parent's session (``close_session=False``).
+    parent's session (``close_session=False``). ``runtime`` is accepted for call-signature parity
+    with ``_build_general_purpose_middleware``; detectors have no git-platform middleware, so it is
+    otherwise unused here.
     """
-    _summarization_defaults = compute_summarization_defaults(model)
-
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         FilesystemMiddleware(
             backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS, _permissions=READ_ONLY_PERMISSIONS
         ),
-        SummarizationMiddleware(
-            model=model,
-            backend=backend,
-            trigger=_summarization_defaults["trigger"],
-            keep=_summarization_defaults["keep"],
-            trim_tokens_to_summarize=None,
-            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
-        ),
-        AnthropicPromptCachingMiddleware(),
-        ToolCallLoggingMiddleware(),
-        PatchToolCallsMiddleware(),
+        *_shared_subagent_middleware(model, backend),
     ]
 
     if sandbox_enabled:
@@ -219,7 +221,15 @@ def load_builtin_code_review_detectors(
         logger.warning("Code-review detector dir %s not found; skipping detector subagents", agents_dir)
         return []
 
-    response_format = _load_detector_response_format(schema_path)
+    try:
+        response_format = _load_detector_response_format(schema_path)
+    except OSError, json.JSONDecodeError:
+        # Same graceful-degradation contract as the missing-dir guard above: a missing or corrupt
+        # finding schema must disable code-review detectors only, never abort the whole agent build.
+        # This loader runs inside create_daiv_agent on every run (chat, jobs, issues) — not just
+        # reviews — so an unguarded read here would take down all agent invocations over one asset.
+        logger.exception("Code-review finding schema %s missing or invalid; skipping detector subagents", schema_path)
+        return []
     detectors: list[CompiledSubAgent] = []
     failed: list[str] = []  # charter file stems that were present but didn't compile
 
@@ -401,7 +411,6 @@ def create_explore_subagent(
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
     model = BaseAgent.get_model(model=site_settings.agent_explore_model_name)
-    _summarization_defaults = compute_summarization_defaults(model)
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
@@ -410,17 +419,7 @@ def create_explore_subagent(
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             _permissions=_explore_permissions(sandbox_enabled=sandbox_enabled),
         ),
-        SummarizationMiddleware(
-            model=model,
-            backend=backend,
-            trigger=_summarization_defaults["trigger"],
-            keep=_summarization_defaults["keep"],
-            trim_tokens_to_summarize=None,
-            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
-        ),
-        AnthropicPromptCachingMiddleware(),
-        ToolCallLoggingMiddleware(),
-        PatchToolCallsMiddleware(),
+        *_shared_subagent_middleware(model, backend),
     ]
 
     if fallback_model_name := site_settings.agent_explore_fallback_model_name:

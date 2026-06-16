@@ -619,6 +619,30 @@ class TestDetectorMiddleware:
         middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False)
         assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
 
+    def test_threads_client_and_sandbox_backend_into_sandbox_middleware(
+        self, mock_model, mock_backend, mock_runtime_ctx
+    ):
+        # Detectors reuse the run's bound client/sandbox_backend so their bash runs in the parent's
+        # session (close_session=False). A dropped/flipped kwarg would make every detector's bash
+        # raise "SandboxFileBackend is not bound to a sandbox session" at runtime — guard the
+        # threading exactly like the general-purpose builder's equivalent test does.
+        from automation.agent.subagents import _build_detector_middleware
+
+        sentinel_client = Mock()
+        sentinel_backend = Mock()
+        middleware = _build_detector_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            client=sentinel_client,
+            sandbox_backend=sentinel_backend,
+        )
+        sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
+        assert sandbox_mw._client is sentinel_client
+        assert sandbox_mw._sandbox_backend is sentinel_backend
+        assert sandbox_mw.close_session is False
+
 
 class TestShippedDetectorCharters:
     """Lock the five detector charter files that ship inside the code-review skill."""
@@ -925,3 +949,113 @@ class TestBuiltinCodeReviewDetectors:
                 agents_dir=agents_dir,
             )
         assert not [r for r in caplog.records if "failed to load" in r.message]
+
+    def test_detectors_compiled_with_structured_response_format(
+        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx
+    ):
+        # The whole fan-out depends on each detector emitting {"findings": [...]} via structured
+        # output — the orchestrator parses that envelope in Stage 2. _load_detector_response_format
+        # builds the schema once; assert it actually reaches EVERY compiled detector. A dropped
+        # response_format= kwarg would silently return free-form prose and break the merge, and no
+        # other test would fail (test_response_format_wraps_finding_schema only checks the builder).
+        from automation.agent.subagents import _load_detector_response_format, load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Correctness detector", body="Find correctness bugs.")
+        )
+        (agents_dir / "cr-security.md").write_text(
+            _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
+        )
+
+        expected_rf = _load_detector_response_format()
+        with patch("automation.agent.subagents.create_agent") as mock_create:
+            mock_create.return_value = Mock()
+            load_builtin_code_review_detectors(
+                mock_model,
+                mock_backend,
+                mock_runtime_ctx,
+                working_directory="/workspace/repo/",
+                sandbox_enabled=False,
+                agents_dir=agents_dir,
+            )
+
+        assert mock_create.call_count == 2
+        assert all(call.kwargs["response_format"] == expected_rf for call in mock_create.call_args_list)
+
+    def test_returns_empty_when_schema_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
+        # A missing finding schema must degrade code-review to no detectors, NOT abort the whole
+        # agent build (this loader runs inside create_daiv_agent on every run). Mirrors the
+        # missing-dir guard: return [] and surface the cause at ERROR.
+        import logging
+
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            result = load_builtin_code_review_detectors(
+                mock_model,
+                mock_backend,
+                mock_runtime_ctx,
+                working_directory="/workspace/repo/",
+                sandbox_enabled=False,
+                agents_dir=agents_dir,
+                schema_path=tmp_path / "missing.json",
+            )
+        assert result == []
+        assert any("missing or invalid" in r.message for r in caplog.records)
+
+    def test_returns_empty_when_schema_corrupt(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        # A malformed schema (JSONDecodeError) degrades the same way as a missing one.
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+        bad_schema = tmp_path / "bad.json"
+        bad_schema.write_text("{ not valid json")
+
+        result = load_builtin_code_review_detectors(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            working_directory="/workspace/repo/",
+            sandbox_enabled=False,
+            agents_dir=agents_dir,
+            schema_path=bad_schema,
+        )
+        assert result == []
+
+    def test_detector_model_override_used_when_valid(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        # A charter `model:` override must actually replace the default for that detector. The two
+        # failure branches (config typo / env error) are tested; pin the happy path so a regression
+        # that ignored the override (always compiling with the parent model) would be caught.
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-security.md").write_text(
+            _make_subagent_md(name="cr-security", description="Good", body="y", model="some:override")
+        )
+        override_model = Mock()
+
+        with (
+            patch("automation.agent.subagents.BaseAgent.get_model", return_value=override_model) as get_model,
+            patch("automation.agent.subagents.create_agent") as mock_create,
+        ):
+            mock_create.return_value = Mock()
+            load_builtin_code_review_detectors(
+                mock_model,
+                mock_backend,
+                mock_runtime_ctx,
+                working_directory="/workspace/repo/",
+                sandbox_enabled=False,
+                agents_dir=agents_dir,
+            )
+
+        get_model.assert_called_once_with(model="some:override")
+        assert mock_create.call_args.kwargs["model"] is override_model

@@ -279,7 +279,8 @@ def build_langsmith_config(
         trigger: What triggered this invocation (e.g. "job", "chat", "label", "mention", "diff_to_metadata").
         model: The primary model name used for this invocation.
         thinking_level: The thinking level, if applicable.
-        agent_name: The agent name to include in tags (e.g. "DAIV Agent").
+        agent_name: The agent name (e.g. "DAIV Agent"); recorded as the ``lc_agent_name`` metadata
+            field (overriding the value bound at graph-build time) and also added as a run tag.
         extra_metadata: Additional metadata fields specific to the callsite.
         extra_tags: Additional tags specific to the callsite.
         configurable: Configurable dict (e.g. thread_id for checkpointed agents).

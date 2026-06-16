@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 
 # Domain pydantic models that may live in checkpointed agent state. Listing a model
 # here lets DAIVRedisSerializer both encode it to RedisJSON and revive it on read.
+# Encode is generic (``_default_handler`` wraps any plain pydantic model), so a new
+# checkpointed domain model round-trips even if unlisted — but append it here anyway to
+# keep it on the documented decode allowlist (``allowed_json_modules``).
 CHECKPOINT_JSON_TYPES: tuple[type, ...] = (MergeRequest,)
 
 
@@ -30,13 +33,20 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
     blows up RedisJSON serialization with ``TypeError: not JSON serializable`` and
     fails the run when the checkpointer tries to persist agent state.
 
-    Decode is unaffected: the redis read path (``_revive_if_needed``) reconstructs
-    ``lc:2`` envelopes for any importable class via its ``_reconstruct_from_constructor``
-    fallback, so the encoded model revives regardless. We still register our models on
-    ``allowed_json_modules`` as defense-in-depth -- that is the *documented* decode gate
-    (``_revive_lc2``), so reconstruction stays correct should a future upstream route the
-    read path through it. LangChain objects (messages) carry ``to_json`` and keep flowing
-    through the parent's safe path untouched.
+    On the happy path decode round-trips: the redis read path (``_revive_if_needed``)
+    reconstructs the ``lc:2`` envelope for any importable class via
+    ``_reconstruct_from_constructor``. But that reviver swallows reconstruction failures
+    (``except Exception: pass``) and returns the raw envelope ``dict`` -- so if a model's
+    schema drifts across a deploy (a field renamed/required/retyped, or the class relocated),
+    a checkpointed model silently comes back as a ``dict`` with no log. Consumers must therefore
+    not assume the revived value is the model: ``GitMiddleware`` guards its ``merge_request``
+    read (``_state_merge_request``) and fails loud rather than letting an ``AttributeError``
+    surface far downstream. We also register our models on ``allowed_json_modules`` -- but note
+    the read path taken here (``_reconstruct_from_constructor``) does **not** consult that
+    allowlist; it is kept only so the *documented* decode gate (``_revive_lc2``) stays correct
+    should a future upstream route the read path through it, not as a runtime guarantee today.
+    LangChain objects (messages) carry ``to_json`` and keep flowing through the parent's safe
+    path untouched.
     """
 
     def __init__(self, **kwargs: Any) -> None:

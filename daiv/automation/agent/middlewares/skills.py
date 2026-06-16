@@ -160,9 +160,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             baseline = list(dict.fromkeys([*state.get("skills_load_errors", []), *from_super]))
             merged = list(dict.fromkeys([*baseline, *local_load_errors]))
             if merged != baseline:
-                if skills_update is None:
-                    skills_update = {}
-                skills_update["skills_load_errors"] = merged
+                skills_update = {**(skills_update or {}), "skills_load_errors": merged}
 
         if clear_skill_mode:
             return {**(skills_update or {}), "active_skill_mode": None}

@@ -24,9 +24,14 @@ DETECTORS = tuple(_PROPS["detector"]["enum"])
 BARS = tuple(_PROPS["bar"]["enum"])
 ARCHETYPES = tuple(_PROPS["archetype"]["enum"])
 REQUIRED_FIELDS = tuple(_SCHEMA["required"])
-# reversed(BARS): the schema lists bars highest-severity-first, so reversed() makes rank 1 the lowest.
-# Derived from BARS so a new bar can't be accepted by is_valid yet KeyError in dedupe.
-_BAR_RANK = {bar: rank for rank, bar in enumerate(reversed(BARS), start=1)}
+# Dedup precedence: the higher rank wins when two findings collapse to one key. Declared EXPLICITLY
+# (not derived from the BARS enum's array order) so reordering the enum in finding.schema.json can't
+# silently invert severity. Kept out of the schema file itself because that schema is also embedded as
+# the detectors' structured-output response_format, which must stay a clean JSON-Schema subset — so the
+# rank lives here and is coverage-checked against BARS (a new bar must get an explicit rank, below).
+_BAR_RANK = {"defect": 3, "structural": 2, "question": 1}
+if set(_BAR_RANK) != set(BARS):
+    raise ValueError(f"_BAR_RANK must cover exactly the bar enum {BARS}; got {tuple(_BAR_RANK)}")
 
 
 def is_valid(finding: object) -> bool:

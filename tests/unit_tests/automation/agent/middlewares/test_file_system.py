@@ -278,6 +278,18 @@ def test_bind_session_rejects_cross_session_rebind():
         backend.bind_session("sess-2")
 
 
+def test_is_bound_requires_both_client_and_session():
+    # is_bound is the non-raising counterpart of _require_bound and drives GitMiddleware's
+    # slash-command short-circuit. BOTH conditions must hold (client AND session): an `or` slip,
+    # or checking only the session, would pass the git tests (which always supply a client) yet
+    # wrongly report a client-less backend as bound — so guard the two-condition logic directly.
+    from automation.agent.middlewares.file_system import SandboxFileBackend
+
+    assert SandboxFileBackend(client=None).is_bound() is False
+    assert SandboxFileBackend(client=object()).is_bound() is False  # client, no session
+    assert SandboxFileBackend(client=object(), session_id="sess-1").is_bound() is True
+
+
 def test_filesystem_absolute_path_directive_names_the_repo_root():
     """The directive names where repo files live so the model uses the full path instead of a
     repo-relative slip (e.g. /daiv/...), without claiming that root is the only valid location."""

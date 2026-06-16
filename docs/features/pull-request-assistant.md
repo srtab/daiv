@@ -92,6 +92,6 @@ Define team-specific review rules in `.agents/review-rules.md` at the repository
 
 The code review agent checks for rule sources at the start of every review and, when any exist, runs a dedicated `custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
 
-You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` (or the file named by `context_file_name` in `.daiv.yml`) and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped only when none of these files exist.
+You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped only when none of these files exist.
 
 Every custom-rule finding passes the same false-positive checks as built-in findings, so a noisy `AGENTS.md` will not flood the review.

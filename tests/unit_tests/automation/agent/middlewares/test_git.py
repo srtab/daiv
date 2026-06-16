@@ -206,7 +206,7 @@ class TestGitMiddleware:
     async def test_abefore_agent_skips_lookup_when_state_has_mr(self):
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.GLOBAL)
-        state_mr = MagicMock(source_branch="feature-x")
+        state_mr = _mr(branch="feature-x")
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
@@ -221,7 +221,7 @@ class TestGitMiddleware:
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.MERGE_REQUEST)
         runtime.context.merge_request = MagicMock(source_branch="feature-y")
-        stale_state_mr = MagicMock(source_branch="feature-x")
+        stale_state_mr = _mr(branch="feature-x")
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-y"),
@@ -483,7 +483,7 @@ class TestGitMiddleware:
         turn and may pick a different MR than the publisher will write to."""
         middleware = GitMiddleware()
         runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
-        state_mr = MagicMock(merge_request_id=42, source_branch="feature-x")
+        state_mr = _mr(iid=42, branch="feature-x")
 
         captured = {}
 
@@ -508,7 +508,7 @@ class TestGitMiddleware:
         it to the model on subsequent turns."""
         middleware = GitMiddleware()
         runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
-        state_mr = MagicMock(merge_request_id=42, source_branch="feature-x")
+        state_mr = _mr(iid=42, branch="feature-x")
 
         captured = {}
 
@@ -591,7 +591,7 @@ class TestGitMiddleware:
 
         request = MagicMock()
         request.runtime = runtime
-        request.state = {"merge_request": MagicMock(merge_request_id=999)}  # stale
+        request.state = {"merge_request": _mr(iid=999, branch="feature-x")}  # stale
         request.system_prompt = ""
         request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
 
@@ -756,3 +756,23 @@ def test_effective_mr_iid_drops_stale_state_mr():
 
 def test_effective_mr_iid_none_when_no_mr():
     assert GitMiddleware._effective_mr_iid(context_mr=None, state_mr=None, current_ref="main") is None
+
+
+def test_state_merge_request_returns_model_when_valid():
+    mr = _mr()
+    assert GitMiddleware._state_merge_request({"merge_request": mr}) is mr
+
+
+def test_state_merge_request_returns_none_when_absent():
+    assert GitMiddleware._state_merge_request({}) is None
+    assert GitMiddleware._state_merge_request({"merge_request": None}) is None
+
+
+def test_state_merge_request_raises_on_degraded_dict(caplog):
+    # A checkpointed MergeRequest that failed to revive comes back as the raw lc:2 envelope dict
+    # (langgraph-checkpoint-redis swallows the reconstruction error). Fail loud at the read site
+    # instead of letting `.source_branch` raise a confusing AttributeError far downstream.
+    envelope = {"lc": 2, "type": "constructor", "id": ["codebase.base", "MergeRequest"], "kwargs": {}}
+    with caplog.at_level("ERROR"), pytest.raises(TypeError, match="expected MergeRequest"):
+        GitMiddleware._state_merge_request({"merge_request": envelope})
+    assert "did not revive to a MergeRequest" in caplog.text
