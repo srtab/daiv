@@ -62,15 +62,16 @@ async def run_job_task(
                 agent_model=agent_model,
                 agent_thinking_level=agent_thinking_level,
             )
+            daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
             config = build_langsmith_config(
                 runtime_ctx,
                 trigger="job",
                 model=agent_kwargs["model_names"][0],
                 thinking_level=agent_kwargs["thinking_level"],
+                agent_name=daiv_agent.get_name(),
                 extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
                 configurable={"thread_id": thread_id},
             )
-            daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
             with track_usage_metadata() as usage_handler:
                 result = await daiv_agent.ainvoke(input_data, config=config, context=runtime_ctx)
     except Exception:

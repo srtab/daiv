@@ -297,6 +297,11 @@ def build_langsmith_config(
         metadata["scope"] = ctx.scope
     if thinking_level is not None:
         metadata["thinking_level"] = thinking_level
+    if agent_name:
+        # Invocation-time ``metadata`` replaces the agent's bound ``lc_agent_name`` (set by
+        # create_deep_agent) rather than merging, so without mirroring it here the tool-call
+        # logger reads ``<unknown-agent>``.
+        metadata["lc_agent_name"] = agent_name
     if extra_metadata:
         metadata.update(extra_metadata)
 
