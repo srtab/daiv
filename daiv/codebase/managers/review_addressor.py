@@ -408,6 +408,8 @@ class CommentsAddressorManager(BaseManager):
             fallback_footer: Pre-rendered protected-branch fallback footer to bundle into
                 the note when the publisher swapped to a fresh MR.
         """
+        if not self._claim_unable_note():
+            return
         body = render_to_string(
             "codebase/unable_address_review.txt",
             {
