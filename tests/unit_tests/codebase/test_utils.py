@@ -1,8 +1,16 @@
+import logging
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from codebase.base import Discussion, Note, NoteableType, Scope, User
-from codebase.utils import compute_thread_id, discussion_has_daiv_mentions, note_mentions_daiv, notes_to_messages
+from codebase.utils import (
+    compute_thread_id,
+    discussion_has_daiv_mentions,
+    note_mentions_daiv,
+    notes_to_messages,
+    redact_diff_content,
+)
 from core.constants import BOT_NAME
 
 
@@ -290,3 +298,68 @@ class TestComputeThreadId:
     def test_rejects_falsy_inputs(self, repo_slug, scope, entity_iid):
         with pytest.raises(ValueError):
             compute_thread_id(repo_slug=repo_slug, scope=scope, entity_iid=entity_iid)
+
+
+class TestRedactDiffContent:
+    def test_redacts_omitted_file_content(self):
+        diff = (
+            "diff --git a/secrets.lock b/secrets.lock\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/secrets.lock\n"
+            "+++ b/secrets.lock\n"
+            "@@ -1 +1 @@\n"
+            "-old secret\n"
+            "+new secret\n"
+        )
+        redacted = redact_diff_content(diff, ("*.lock",))
+        assert "old secret" not in redacted
+        assert "new secret" not in redacted
+        assert "intentionally excluded" in redacted
+
+    def test_keeps_non_omitted_file_content(self):
+        diff = (
+            "diff --git a/app.py b/app.py\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/app.py\n"
+            "+++ b/app.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "-x = 1\n"
+            "+x = 2\n"
+        )
+        redacted = redact_diff_content(diff, ("*.lock",))
+        assert "x = 2" in redacted
+
+    def test_tolerates_truncated_diff(self, caplog):
+        """A diff cut mid-hunk (truncated upstream, then folded onto a later file section) must not raise.
+
+        ``redact_diff_content`` feeds the non-critical diff-to-metadata step; a parse failure
+        there must never abort ``GitMiddleware.aafter_agent`` and discard the agent's committed
+        work. It degrades to best-effort (returns the diff text) instead — and logs a warning,
+        which is the only signal that redaction was bypassed.
+        """
+        # views.py's hunk header declares 60 lines, but the body was truncated upstream after a
+        # few; the next (untracked) django.po section is then folded on by ``_append_untracked``.
+        truncated = (
+            "diff --git a/daiv/activity/views.py b/daiv/activity/views.py\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/daiv/activity/views.py\n"
+            "+++ b/daiv/activity/views.py\n"
+            "@@ -1,60 +1,60 @@\n"
+            " ctx 0\n"
+            " ctx 1\n"
+            " ctx 2\n"
+            "\n"
+            "diff --git a/daiv/activity/locale/pt/LC_MESSAGES/django.po"
+            " b/daiv/activity/locale/pt/LC_MESSAGES/django.po\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/daiv/activity/locale/pt/LC_MESSAGES/django.po\n"
+            "@@ -0,0 +1,1 @@\n"
+            '+msgid "x"\n'
+        )
+        with caplog.at_level(logging.WARNING, logger="daiv.codebase"):
+            result = redact_diff_content(truncated, ("*.lock",))
+        assert isinstance(result, str)
+        assert "django.po" in result
+        # The degrade must be loud: a dropped/downgraded warning would let unredacted diffs pass silently.
+        assert any(r.levelno == logging.WARNING for r in caplog.records)

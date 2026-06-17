@@ -1,10 +1,12 @@
 import fnmatch
+import logging
 import re
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from unidiff import PatchSet
 from unidiff.constants import LINE_TYPE_CONTEXT
+from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
 from core.constants import BOT_NAME
@@ -14,6 +16,8 @@ if TYPE_CHECKING:
     from git import Repo
 
     from codebase.base import Discussion, Note, Scope, User
+
+logger = logging.getLogger("daiv.codebase")
 
 
 def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
@@ -104,21 +108,34 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
     return messages
 
 
-def redact_diff_content(
-    diff: str, omit_content_patterns: tuple[str, ...], as_patch_set: bool = False
-) -> str | PatchSet:
+def redact_diff_content(diff: str, omit_content_patterns: tuple[str, ...]) -> str:
     """
     Redact the diff content of the file that are marked as omit_content_patterns.
 
     Args:
         diff: The diff to redact.
         omit_content_patterns: The patterns to omit from the diff.
-        as_patch_set: Whether to return the diff as a PatchSet.
 
     Returns:
-        The redacted diff as a string or a PatchSet.
+        The redacted diff as a string.
+
+    A diff that ``unidiff`` cannot parse (e.g. truncated upstream — a section cut mid-hunk,
+    then folded together with later file sections by ``GitManager``) degrades to best-effort:
+    the original diff text is returned unredacted. This helper feeds the non-critical
+    diff-to-metadata step, so a parse error must never abort the publish and discard the
+    agent's committed work.
     """
-    patch_set = PatchSet.from_string(diff)
+    try:
+        patch_set = PatchSet.from_string(diff)
+    except UnidiffParseError:
+        # Name the skipped patterns so an operator triaging this can see what was left unredacted.
+        logger.warning(
+            "Could not parse diff for content redaction (%d chars); using it unredacted (omit patterns skipped: %r).",
+            len(diff),
+            omit_content_patterns,
+            exc_info=True,
+        )
+        return diff
 
     for patch_file in patch_set:
         for hunk in patch_file:
@@ -127,4 +144,4 @@ def redact_diff_content(
                 hunk.append(
                     Line("[Diff content was intentionally excluded by the repository configuration]", LINE_TYPE_CONTEXT)
                 )
-    return str(patch_set) if not as_patch_set else patch_set
+    return str(patch_set)

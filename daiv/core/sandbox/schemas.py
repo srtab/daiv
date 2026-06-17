@@ -5,8 +5,6 @@ from typing import Literal
 
 from pydantic import Base64Bytes, BaseModel, Field, computed_field, field_validator, model_validator
 
-MAX_OUTPUT_LENGTH = 2000
-
 
 class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
@@ -37,13 +35,15 @@ class RunCommandResult(BaseModel):
     """
 
     command: str
-    output: str = Field(description=f"The output of the command. Truncated to {MAX_OUTPUT_LENGTH} lines.")
+    output: str = Field(
+        description=(
+            "The full stdout+stderr of the command, never truncated. Internal callers (e.g. the "
+            "GitManager's `git diff`) parse this in-process and require it complete; only "
+            "agent-facing tool results (the `bash` tool) are subject to the filesystem "
+            "middleware's token-threshold eviction, which offloads oversized results to a file."
+        )
+    )
     exit_code: int
-
-    @field_validator("output")
-    @classmethod
-    def validate_output(cls, v):
-        return "\n".join(v.split("\n")[:MAX_OUTPUT_LENGTH]) if v else ""
 
 
 class RunCommandsResponse(BaseModel):
