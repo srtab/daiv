@@ -14,6 +14,7 @@ from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware
 
 from automation.agent import BaseAgent
 from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, WORKSPACE_PATH
+from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
     WORKSPACE_ARTIFACT_SUBTREES,
@@ -24,7 +25,7 @@ from automation.agent.middlewares.file_system import (
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
-from automation.agent.middlewares.sandbox import SandboxMiddleware
+from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.todos import DAIVTodoListMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 
     from deepagents.backends import BackendProtocol
     from langchain.chat_models import BaseChatModel
+    from langchain_core.tools import BaseTool
 
     from automation.agent.middlewares.file_system import SandboxFileBackend
     from codebase.context import RuntimeCtx
@@ -67,13 +69,32 @@ def _general_purpose_system_prompt(working_directory: str) -> str:
 """  # noqa: E501
 
 
+# Tools kept eagerly bound on a subagent's model; web search/fetch, git-platform, and the MCP toolset
+# are all deferred behind tool_search — the same policy as the main agent. This mirrors
+# ALWAYS_LOADED_TOOLS (graph.py) minus `skill`/`task` (subagents spawn neither). A deferred tool stays
+# loaded for the rest of the subagent's session once loaded, so a delegate that needs web/git pays at
+# most one tool_search. DAIV-owned tool names reference their canonical constant; deepagents-provided
+# names (filesystem, write_todos) stay as literals.
+SUBAGENT_ALWAYS_LOADED_TOOLS = frozenset({
+    "ls",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "glob",
+    "grep",
+    BASH_TOOL_NAME,
+    "write_todos",
+})
+
+
 def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) -> list[AgentMiddleware[Any, Any, Any]]:
     """The summarization + observability tail common to every subagent stack.
 
     Shared by the general-purpose, explore, and code-review detector builders: context
     summarization, prompt caching, tool-call logging, and tool-call patching, in that order.
     Callers prepend their own head (todos / filesystem permissions / git-platform / web tools)
-    and append the conditional sandbox + fallback middleware.
+    and append the conditional sandbox + fallback middleware (plus, for the general-purpose and
+    custom builders, a deferred-tools middleware exposing the parent's MCP toolset).
     """
     summarization_defaults = compute_summarization_defaults(model)
     return [
@@ -101,11 +122,16 @@ def _build_general_purpose_middleware(
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
+    mcp_tools: list[BaseTool] | None = None,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
 
     ``close_session=False`` lets the subagent reuse the parent agent's sandbox session.
+
+    ``mcp_tools`` is the parent agent's MCP toolset; when deferral is enabled it is exposed to the
+    subagent via a ``DeferredToolsMiddleware`` (otherwise bound directly by the caller). This lets a
+    ``task`` delegation actually call MCP tools instead of failing with ``command not found``.
     """
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
@@ -134,6 +160,8 @@ def _build_general_purpose_middleware(
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
+
+    middleware.extend(deferred_tools_middleware(SUBAGENT_ALWAYS_LOADED_TOOLS, mcp_tools))
 
     return middleware
 
@@ -308,13 +336,14 @@ def create_general_purpose_subagent(
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
+    mcp_tools: list[BaseTool] | None = None,
 ) -> CompiledSubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
     """
     runnable = create_agent(
         model=model,
-        tools=[],
+        tools=direct_mcp_tools(mcp_tools),
         system_prompt=_general_purpose_system_prompt(working_directory),
         middleware=_build_general_purpose_middleware(
             model,
@@ -326,6 +355,7 @@ def create_general_purpose_subagent(
             fallback_models,
             client,
             sandbox_backend,
+            mcp_tools=mcp_tools,
         ),
         name=GENERAL_PURPOSE_NAME,
     )
@@ -509,15 +539,18 @@ def _compile_subagent(
     middleware: list,
     working_directory: str,
     response_format: dict | type | None = None,
+    tools: list[BaseTool] | None = None,
 ) -> CompiledSubAgent:
     """Compile a system-prompt body + middleware stack into a ``CompiledSubAgent``.
 
     Shared by ``load_custom_subagents`` (per-repo markdown subagents) and
-    ``load_builtin_code_review_detectors`` (skill-shipped detector charters).
+    ``load_builtin_code_review_detectors`` (skill-shipped detector charters). ``tools`` binds
+    extra tools directly on the model (used by custom subagents to eagerly bind MCP tools when
+    deferral is off); detectors pass none.
     """
     runnable = create_agent(
         model=model,
-        tools=[],
+        tools=tools or [],
         system_prompt=f"{body}\n\n{filesystem_absolute_path_directive(working_directory)}",
         middleware=middleware,
         name=name,
@@ -538,6 +571,7 @@ async def load_custom_subagents(
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
+    mcp_tools: list[BaseTool] | None = None,
 ) -> list[CompiledSubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -556,6 +590,8 @@ async def load_custom_subagents(
         web_search_enabled: Whether to enable web search middleware.
         web_fetch_enabled: Whether to enable web fetch middleware.
         fallback_models: Optional fallback models for model failover.
+        mcp_tools: The parent agent's MCP toolset, exposed to each custom subagent (deferred behind
+            tool_search when deferral is on, bound directly when off) so a delegated MCP call works.
 
     Returns:
         List of CompiledSubAgent dicts for the loaded custom subagents.
@@ -613,6 +649,7 @@ async def load_custom_subagents(
                 fallback_models,
                 client,
                 sandbox_backend,
+                mcp_tools=mcp_tools,
             )
             subagents.append(
                 _compile_subagent(
@@ -622,6 +659,7 @@ async def load_custom_subagents(
                     body=body,
                     middleware=middleware,
                     working_directory=working_directory,
+                    tools=direct_mcp_tools(mcp_tools),
                 )
             )
 

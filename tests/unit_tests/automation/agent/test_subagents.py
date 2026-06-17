@@ -216,6 +216,230 @@ class TestGeneralPurposeSubagent:
         assert "e.g., /repo/src" not in prompt  # not the stale bare-/repo/ example
 
 
+class TestSubagentMcpTools:
+    """MCP tools must reach the general-purpose and custom subagents.
+
+    Without this, a ``task`` delegation that calls an MCP tool (e.g. ``rt_search_tickets``)
+    fails — the tool isn't in the subagent's registry, so the model tries it as a shell
+    command and gets ``command not found``. The subagent mirrors the main agent: MCP tools
+    are deferred behind ``tool_search`` when deferral is on, bound directly when it's off.
+    """
+
+    @pytest.fixture
+    def mock_backend(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_model(self):
+        return Mock()
+
+    @pytest.fixture
+    def mock_runtime_ctx(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        ctx = Mock()
+        ctx.gitrepo.working_dir = str(repo_dir)
+        return ctx
+
+    @pytest.fixture
+    def mcp_tool(self):
+        from langchain_core.tools import StructuredTool
+
+        return StructuredTool.from_function(func=lambda **k: "x", name="rt_search_tickets", description="Search RT")
+
+    def test_builder_defers_mcp_tools_when_deferral_enabled(self, mock_model, mock_backend, mock_runtime_ctx, mcp_tool):
+        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+        from automation.agent.subagents import SUBAGENT_ALWAYS_LOADED_TOOLS
+
+        with patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds:
+            ds.ENABLED = True
+            ds.TOP_K_DEFAULT = 3
+            ds.TOP_K_MAX = 10
+            middleware = _build_general_purpose_middleware(
+                mock_model,
+                mock_backend,
+                mock_runtime_ctx,
+                sandbox_enabled=True,
+                web_search_enabled=True,
+                web_fetch_enabled=True,
+                mcp_tools=[mcp_tool],
+            )
+
+        dtm = next(m for m in middleware if isinstance(m, DeferredToolsMiddleware))
+        assert dtm._extra_tools == [mcp_tool]
+        # The subagent's own tools stay always-loaded — only MCP tools are deferred.
+        assert dtm._always_loaded >= SUBAGENT_ALWAYS_LOADED_TOOLS
+
+    def test_builder_still_installs_deferred_middleware_without_mcp_tools(
+        self, mock_model, mock_backend, mock_runtime_ctx
+    ):
+        # Even with no MCP tools, a subagent still gets DeferredToolsMiddleware when deferral is on:
+        # it defers the subagent's own web search/fetch + git-platform tools (not in
+        # SUBAGENT_ALWAYS_LOADED_TOOLS), mirroring the main agent.
+        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+
+        with patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds:
+            ds.ENABLED = True
+            ds.TOP_K_DEFAULT = 3
+            ds.TOP_K_MAX = 10
+            middleware = _build_general_purpose_middleware(
+                mock_model,
+                mock_backend,
+                mock_runtime_ctx,
+                sandbox_enabled=True,
+                web_search_enabled=True,
+                web_fetch_enabled=True,
+                mcp_tools=[],
+            )
+
+        dtm = next(m for m in middleware if isinstance(m, DeferredToolsMiddleware))
+        assert dtm._extra_tools == []
+
+    def test_builder_omits_deferred_middleware_when_deferral_disabled(
+        self, mock_model, mock_backend, mock_runtime_ctx, mcp_tool
+    ):
+        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+
+        with patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds:
+            ds.ENABLED = False
+            middleware = _build_general_purpose_middleware(
+                mock_model,
+                mock_backend,
+                mock_runtime_ctx,
+                sandbox_enabled=True,
+                web_search_enabled=True,
+                web_fetch_enabled=True,
+                mcp_tools=[mcp_tool],
+            )
+
+        assert not any(isinstance(m, DeferredToolsMiddleware) for m in middleware)
+
+    def test_web_git_and_mcp_deferred_file_bash_core_stays_loaded(
+        self, mock_model, mock_backend, mock_runtime_ctx, mcp_tool
+    ):
+        # Subagents mirror the main agent: the file/bash/todo core stays eagerly bound, while web
+        # search/fetch, git-platform, and MCP tools all fall behind tool_search.
+        from langchain_core.tools import StructuredTool
+
+        from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+
+        native = [
+            StructuredTool.from_function(func=lambda **k: "", name=n, description=n)
+            for n in ("read_file", "bash", "web_search", "gitlab")
+        ]
+        with patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds:
+            ds.ENABLED = True
+            ds.TOP_K_DEFAULT = 3
+            ds.TOP_K_MAX = 10
+            middleware = _build_general_purpose_middleware(
+                mock_model,
+                mock_backend,
+                mock_runtime_ctx,
+                sandbox_enabled=True,
+                web_search_enabled=True,
+                web_fetch_enabled=True,
+                mcp_tools=[mcp_tool],
+            )
+
+        dtm = next(m for m in middleware if isinstance(m, DeferredToolsMiddleware))
+        deferred = {e.name for e in dtm._build_index(native).deferred_entries()}
+        assert deferred == {"web_search", "gitlab", "rt_search_tickets"}  # web/git + MCP deferred
+        assert "read_file" not in deferred and "bash" not in deferred  # file/bash core stays loaded
+
+    def test_general_purpose_binds_mcp_tools_directly_when_deferral_disabled(
+        self, mock_model, mock_backend, mock_runtime_ctx, mcp_tool
+    ):
+        with (
+            patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds,
+            patch("automation.agent.subagents.create_agent") as mock_create,
+        ):
+            ds.ENABLED = False
+            mock_create.return_value = Mock()
+            create_general_purpose_subagent(
+                mock_model, mock_backend, mock_runtime_ctx, "/workspace/repo/", mcp_tools=[mcp_tool]
+            )
+
+        assert mock_create.call_args.kwargs["tools"] == [mcp_tool]
+
+    def test_general_purpose_passes_empty_tools_when_deferral_enabled(
+        self, mock_model, mock_backend, mock_runtime_ctx, mcp_tool
+    ):
+        # Deferral on: the MCP tools ride on DeferredToolsMiddleware, so create_agent gets none
+        # directly (the middleware already registers them; binding them directly too is redundant).
+        with (
+            patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds,
+            patch("automation.agent.subagents.create_agent") as mock_create,
+        ):
+            ds.ENABLED = True
+            ds.TOP_K_DEFAULT = 3
+            ds.TOP_K_MAX = 10
+            mock_create.return_value = Mock()
+            create_general_purpose_subagent(
+                mock_model, mock_backend, mock_runtime_ctx, "/workspace/repo/", mcp_tools=[mcp_tool]
+            )
+
+        assert mock_create.call_args.kwargs["tools"] == []
+
+    async def test_custom_subagents_receive_mcp_tools(self, tmp_path, mock_model, mock_runtime_ctx, mcp_tool):
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
+
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        with patch("automation.agent.subagents._build_general_purpose_middleware", return_value=[]) as build_mw:
+            await load_custom_subagents(
+                model=mock_model,
+                backend=backend,
+                runtime=mock_runtime_ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+                mcp_tools=[mcp_tool],
+            )
+
+        build_mw.assert_called_once()
+        assert build_mw.call_args.kwargs["mcp_tools"] == [mcp_tool]
+
+    async def test_custom_subagents_bind_mcp_tools_directly_when_deferral_disabled(
+        self, tmp_path, mock_model, mock_runtime_ctx, mcp_tool
+    ):
+        # Custom subagents are a distinct create_agent call site (_compile_subagent), so the
+        # deferral-off direct-bind path needs its own coverage alongside the general-purpose one.
+        from automation.agent.middlewares.file_system import DAIVFilesystemBackend
+
+        subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
+        subagents_dir.mkdir(parents=True)
+        (subagents_dir / "my-agent.md").write_text(_make_subagent_md(name="my-agent", description="Does things"))
+
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        with (
+            patch("automation.agent.middlewares.deferred_tools.deferred_settings") as ds,
+            patch("automation.agent.subagents.create_agent") as mock_create,
+        ):
+            ds.ENABLED = False
+            mock_create.return_value = Mock()
+            await load_custom_subagents(
+                model=mock_model,
+                backend=backend,
+                runtime=mock_runtime_ctx,
+                sources=["/repo/.agents/subagents"],
+                working_directory="/workspace/repo/",
+                mcp_tools=[mcp_tool],
+            )
+
+        assert mock_create.call_args.kwargs["tools"] == [mcp_tool]
+
+    def test_direct_mcp_tools_returns_empty_for_none_or_empty(self):
+        # ``mcp_tools`` defaults to None on every subagent factory, so the helper must guard None/[]
+        # before ``list(mcp_tools)`` — a caller that omits MCP tools never hits an AttributeError.
+        # Both cases return [] regardless of the deferral flag (the ``not mcp_tools`` guard fires first).
+        from automation.agent.middlewares.deferred_tools import direct_mcp_tools
+
+        assert direct_mcp_tools(None) == []
+        assert direct_mcp_tools([]) == []
+
+
 @pytest.mark.django_db
 class TestExploreSubagent:
     """Tests for the public ``create_explore_subagent`` factory."""

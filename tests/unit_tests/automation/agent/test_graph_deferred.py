@@ -11,7 +11,9 @@ def _common_patches():
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
         patch("automation.agent.graph.create_deep_agent"),
         patch("automation.agent.graph.MCPToolkit"),
-        patch("automation.agent.graph.deferred_settings"),
+        # The defer-or-bind decision now reads deferred_settings through the shared helpers in
+        # middlewares.deferred_tools (used by both the main agent and subagents), so patch it there.
+        patch("automation.agent.middlewares.deferred_tools.deferred_settings"),
         patch("automation.agent.graph.BaseAgent"),
         patch("automation.agent.graph.site_settings"),
         # Middleware constructors that validate input — replaced with no-op mocks
@@ -24,7 +26,7 @@ def _common_patches():
 
 
 class TestCreateDaivAgentDeferredFlag:
-    async def _run(self, *, flag_on: bool):
+    async def _run(self, *, flag_on: bool, tools: list | None = None):
         from langchain_core.tools import StructuredTool
 
         from automation.agent.graph import create_daiv_agent
@@ -51,7 +53,8 @@ class TestCreateDaivAgentDeferredFlag:
             mock_deferred_settings.TOP_K_MAX = 10
 
             mcp_tool = StructuredTool.from_function(func=lambda **k: "x", name="t1", description="d")
-            mock_toolkit.get_tools = AsyncMock(return_value=[mcp_tool])
+            # tools=None => default single-tool list; pass tools=[] to exercise the empty-toolset path.
+            mock_toolkit.get_tools = AsyncMock(return_value=[mcp_tool] if tools is None else tools)
 
             mock_base_agent.get_model.return_value = MagicMock()
 
@@ -71,13 +74,20 @@ class TestCreateDaivAgentDeferredFlag:
             ctx.git_platform = MagicMock()
 
             await create_daiv_agent(ctx=ctx, auto_commit_changes=False)
-            return mock_create_deep_agent, mock_toolkit, mcp_tool
+            return (
+                mock_create_deep_agent,
+                mock_toolkit,
+                mcp_tool,
+                mock_create_gp,
+                mock_load_custom,
+                mock_create_explore,
+            )
         finally:
             for p in patches:
                 p.stop()
 
     async def test_flag_off_passes_eager_tools(self):
-        mock_create_deep_agent, mock_toolkit, mcp_tool = await self._run(flag_on=False)
+        mock_create_deep_agent, mock_toolkit, mcp_tool, *_ = await self._run(flag_on=False)
 
         mock_toolkit.get_tools.assert_awaited()
         kwargs = mock_create_deep_agent.call_args.kwargs
@@ -86,7 +96,7 @@ class TestCreateDaivAgentDeferredFlag:
         assert "DeferredToolsMiddleware" not in middleware_types
 
     async def test_flag_on_passes_empty_tools_and_adds_middleware(self):
-        mock_create_deep_agent, mock_toolkit, _ = await self._run(flag_on=True)
+        mock_create_deep_agent, mock_toolkit, _, *_ = await self._run(flag_on=True)
 
         mock_toolkit.get_tools.assert_awaited()
         kwargs = mock_create_deep_agent.call_args.kwargs
@@ -101,11 +111,37 @@ class TestCreateDaivAgentDeferredFlag:
         # compiled subagents handed to create_deep_agent must include every cr-* detector name.
         from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES
 
-        mock_create_deep_agent, _, _ = await self._run(flag_on=False)
+        mock_create_deep_agent, _, _, *_ = await self._run(flag_on=False)
 
         subagents = mock_create_deep_agent.call_args.kwargs["subagents"]
         registered = {s["name"] for s in subagents if isinstance(s, dict) and "name" in s}
         assert set(CODE_REVIEW_DETECTOR_NAMES) <= registered
+
+    async def test_threads_mcp_tools_into_general_purpose_and_custom_subagents(self):
+        # P1 harness fix: a `task` delegation that needs an MCP tool fails with "command not
+        # found" unless the subagent's tool registry carries the MCP toolset. The general-purpose
+        # and custom-subagent builders must therefore receive the parent's mcp_tools; explore and
+        # the code-review detectors stay deliberately scoped and do not.
+        _, mock_toolkit, mcp_tool, mock_create_gp, mock_load_custom, mock_create_explore = await self._run(flag_on=True)
+
+        assert mock_create_gp.call_args.kwargs["mcp_tools"] == [mcp_tool]
+        assert mock_load_custom.await_args.kwargs["mcp_tools"] == [mcp_tool]
+        # Explore is deliberately scoped to file search and must NOT receive the MCP toolset. Its
+        # factory takes **kwargs, so a stray mcp_tools= would be silently swallowed rather than
+        # error — assert the graph never passes it. (Detectors are excluded structurally: their
+        # loader has no mcp_tools parameter, so passing it would raise TypeError.)
+        assert "mcp_tools" not in mock_create_explore.call_args.kwargs
+
+    async def test_main_agent_defers_with_empty_toolset_when_flag_on(self):
+        # The main agent's web/git-platform tools are not in ALWAYS_LOADED_TOOLS, so
+        # DeferredToolsMiddleware must still be installed even with zero MCP tools — otherwise those
+        # tools would be silently eager-bound (the exact bloat deferral exists to prevent).
+        mock_create_deep_agent, *_ = await self._run(flag_on=True, tools=[])
+
+        kwargs = mock_create_deep_agent.call_args.kwargs
+        assert kwargs["tools"] == []
+        middleware_types = [type(m).__name__ for m in kwargs["middleware"]]
+        assert "DeferredToolsMiddleware" in middleware_types
 
 
 def test_output_invariants_prompt_keys_off_working_directory():
