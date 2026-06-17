@@ -10,7 +10,7 @@ from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.summarization import compute_summarization_defaults
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
+from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware
 
 from automation.agent import BaseAgent
 from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, WORKSPACE_PATH
@@ -25,6 +25,7 @@ from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
+from automation.agent.middlewares.todos import DAIVTodoListMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from core.site_settings import site_settings
@@ -110,7 +111,7 @@ def _build_general_purpose_middleware(
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
+        DAIVTodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
@@ -413,7 +414,7 @@ def create_explore_subagent(
     model = BaseAgent.get_model(model=site_settings.agent_explore_model_name)
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
+        DAIVTodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,

@@ -8,9 +8,15 @@ of merge-conflict or refactor that silently disables sandbox sync.
 """
 
 import inspect
+import re
 
 from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
+
+# Matches a constructor call to the *bare* upstream ``TodoListMiddleware(`` while excluding the
+# ``DAIVTodoListMiddleware(`` subclass (the negative lookbehind rejects the ``…V`` prefix). Catches
+# both kwarg and positional reverts, unlike a ``"TodoListMiddleware(system_prompt="`` substring check.
+_BARE_TODO_CTOR = re.compile(r"(?<![A-Za-z0-9_])TodoListMiddleware\(")
 
 
 def test_graph_passes_backend_and_agent_root_to_sandbox_middleware():
@@ -109,6 +115,26 @@ def test_git_middleware_receives_capture_patch_flag():
         "GitMiddleware must receive the capture_patch flag from create_daiv_agent — eval harnesses "
         "rely on it to read the run's patch from ainvoke output state"
     )
+
+
+def _assert_uses_daiv_todo_subclass(module):
+    # DAIV's todo middleware must be the DAIVTodoListMiddleware subclass, never the bare upstream
+    # class: the harness profile excludes the base by exact type, so a bare instance would be dropped
+    # (alongside the one create_deep_agent auto-adds), leaving the agent with no write_todos.
+    src = inspect.getsource(module)
+    assert "DAIVTodoListMiddleware(" in src, f"{module.__name__} must build todo middleware as DAIVTodoListMiddleware"
+    assert not _BARE_TODO_CTOR.search(src), f"{module.__name__} must NOT construct the bare upstream TodoListMiddleware"
+
+
+def test_graph_uses_daiv_todo_subclass_not_upstream_base():
+    # The main agent runs through create_deep_agent, where a bare TodoListMiddleware would be excluded.
+    _assert_uses_daiv_todo_subclass(graph_module)
+
+
+def test_subagents_use_daiv_todo_subclass_not_upstream_base():
+    # Subagents don't hit the profile filter, but use the same subclass uniformly (mirrors how DAIV's
+    # AnthropicPromptCachingMiddleware subclass is used in both the main agent and subagents).
+    _assert_uses_daiv_todo_subclass(subagents_module)
 
 
 def test_slash_command_middleware_registered_only_when_enabled():
