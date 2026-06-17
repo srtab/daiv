@@ -77,7 +77,7 @@ dev = [
   "djade==1.9.0",
   "openevals==0.2.0",
   "prek==0.4.5",
-  "pyproject-fmt==2.24.1",
+  "pyproject-fmt==2.25.0",
   "pytest==9.1.0",
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
