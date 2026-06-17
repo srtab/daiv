@@ -23,9 +23,8 @@ from automation.agent.constants import (
     WORKSPACE_PATH,
     ModelName,
 )
-from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.mcp.toolkits import MCPToolkit
-from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
+from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
     WORKSPACE_FENCE_PERMISSIONS,
@@ -39,7 +38,7 @@ from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
-from automation.agent.middlewares.skills import SkillsMiddleware
+from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.todos import DAIVTodoListMiddleware
@@ -72,6 +71,9 @@ logger = logging.getLogger("daiv.agent")
 
 
 # Tools always bound to the model; everything else is deferred behind tool_search.
+# DAIV-owned tool names reference their canonical constant (so a rename propagates here);
+# deepagents/langchain-provided names (filesystem, write_todos, task) have no authoritative DAIV
+# constant and stay as literals.
 ALWAYS_LOADED_TOOLS = frozenset({
     "ls",
     "read_file",
@@ -79,9 +81,9 @@ ALWAYS_LOADED_TOOLS = frozenset({
     "edit_file",
     "glob",
     "grep",
-    "bash",
+    BASH_TOOL_NAME,
     "write_todos",
-    "skill",
+    SKILLS_TOOL_NAME,
     "task",
 })
 
@@ -245,6 +247,12 @@ async def create_daiv_agent(
     # the same root the main agent's prompt does (``dynamic_daiv_system_prompt`` derives the same value).
     working_directory = f"{agent_root}/"
 
+    # Fetched before subagents are built so the general-purpose and custom subagents inherit the
+    # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
+    # "command not found". Explore and the code-review detectors stay deliberately scoped and don't
+    # receive it.
+    mcp_tools = await MCPToolkit.get_tools()
+
     subagents = [
         create_general_purpose_subagent(
             model,
@@ -257,6 +265,7 @@ async def create_daiv_agent(
             fallback_models=fallback_models,
             client=run_client,
             sandbox_backend=sandbox_backend,
+            mcp_tools=mcp_tools,
         ),
         create_explore_subagent(backend, working_directory, sandbox_enabled=_sandbox_enabled),
         *load_builtin_code_review_detectors(
@@ -283,10 +292,9 @@ async def create_daiv_agent(
         fallback_models=fallback_models,
         client=run_client,
         sandbox_backend=sandbox_backend,
+        mcp_tools=mcp_tools,
     )
     subagents.extend(custom_subagents)
-
-    mcp_tools = await MCPToolkit.get_tools()
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         # DAIVTodoListMiddleware (a subclass), not the bare TodoListMiddleware: the harness profile
@@ -307,18 +315,9 @@ async def create_daiv_agent(
         *([WebSearchMiddleware()] if _web_search_enabled else []),
         *([WebFetchMiddleware()] if _web_fetch_enabled else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
-        *(
-            [
-                DeferredToolsMiddleware(
-                    always_loaded=ALWAYS_LOADED_TOOLS,
-                    extra_tools=mcp_tools,
-                    top_k_default=deferred_settings.TOP_K_DEFAULT,
-                    top_k_max=deferred_settings.TOP_K_MAX,
-                )
-            ]
-            if deferred_settings.ENABLED
-            else []
-        ),
+        # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
+        # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
+        *deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
         StepBudgetMiddleware(),
@@ -336,7 +335,7 @@ async def create_daiv_agent(
         *(middleware or []),
     ]
 
-    initial_tools = [] if deferred_settings.ENABLED else mcp_tools
+    initial_tools = direct_mcp_tools(mcp_tools)
 
     deep_agent = create_deep_agent(
         model=model,
