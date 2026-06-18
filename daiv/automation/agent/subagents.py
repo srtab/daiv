@@ -13,7 +13,8 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware
 
 from automation.agent import BaseAgent
-from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, WORKSPACE_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, SUBAGENT_OUTPUT_PATH, WORKSPACE_PATH
+from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
 from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
@@ -174,6 +175,9 @@ def _build_detector_middleware(
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
+    *,
+    name: str,
+    output_dir: str = SUBAGENT_OUTPUT_PATH,
 ) -> list:
     """Build the middleware stack for a code-review detector subagent.
 
@@ -202,6 +206,11 @@ def _build_detector_middleware(
 
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
+
+    # Keep this last: after_agent hooks fire in reverse append order, so appending last makes this
+    # run first in the exit chain — it reads structured_response and writes the file via the backend
+    # before SandboxMiddleware's after_agent could tear the (shared) session down.
+    middleware.append(DeferredOutputMiddleware(backend=backend, name=name, output_dir=output_dir))
 
     return middleware
 
@@ -298,7 +307,14 @@ def load_builtin_code_review_detectors(
                 continue
 
         middleware = _build_detector_middleware(
-            detector_model, backend, runtime, sandbox_enabled, fallback_models, client, sandbox_backend
+            detector_model,
+            backend,
+            runtime,
+            sandbox_enabled,
+            fallback_models,
+            client,
+            sandbox_backend,
+            name=frontmatter["name"],
         )
         detectors.append(
             _compile_subagent(

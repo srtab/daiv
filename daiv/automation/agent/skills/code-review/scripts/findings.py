@@ -2,7 +2,7 @@
 """Finding helpers for the code-review skill (detector fan-out + verify).
 
 Subcommand:
-  merge   validate + cross-detector dedup a JSON array of raw findings on stdin
+  merge   validate + cross-detector dedup detector output files passed by path
 
 The detectors (dispatched as subagents) emit findings as JSON; this script owns
 the deterministic parts — schema validation and cross-detector dedup — so the
@@ -115,20 +115,55 @@ def merge(raw: list) -> dict:
     return {"findings": deduped, "candidates": len(deduped), "dropped": dropped, "merged": len(valid) - len(deduped)}
 
 
+def read_findings_from_files(paths: list) -> tuple[list, int]:
+    """Read raw findings from detector output files.
+
+    Each path is a detector's ``{"findings": [...]}`` object (a bare ``[...]`` array is tolerated).
+    A missing or unparseable file is skipped with a stderr note — one absent or corrupt detector
+    output must not abort the whole merge.
+
+    Returns ``(raw_findings, skipped_count)`` where ``skipped_count`` is the number of files that
+    could not be read (missing, OSError/JSONDecodeError, or a dict whose ``findings`` is not a list).
+    """
+    raw: list = []
+    skipped = 0
+    for path in paths:
+        try:
+            with Path(path).open(encoding="utf-8") as fh:
+                data = json.load(fh)
+        except FileNotFoundError:
+            sys.stderr.write(f"skipping missing findings file: {path}\n")
+            skipped += 1
+            continue
+        except (OSError, json.JSONDecodeError) as exc:
+            sys.stderr.write(f"skipping unreadable findings file {path}: {exc}\n")
+            skipped += 1
+            continue
+        items = data.get("findings", []) if isinstance(data, dict) else data
+        if isinstance(items, list):
+            raw.extend(items)
+        else:
+            sys.stderr.write(f"skipping findings file {path}: no 'findings' array\n")
+            skipped += 1
+    return raw, skipped
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().split("\n\n", 1)[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("merge", help="Validate + cross-detector dedup raw findings (JSON array on stdin).")
+    merge_parser = sub.add_parser("merge", help="Validate + cross-detector dedup detector output files.")
+    merge_parser.add_argument(
+        "paths", nargs="*", help='Detector output JSON files (each a {"findings": [...]} object).'
+    )
     args = parser.parse_args()
 
     if args.cmd == "merge":
-        try:
-            raw = json.load(sys.stdin)
-        except json.JSONDecodeError as exc:
-            sys.stderr.write(f"invalid JSON on stdin: {exc}\n")
-            return 1
-        if not isinstance(raw, list):
-            sys.stderr.write("expected a JSON array of findings on stdin\n")
+        raw, skipped = read_findings_from_files(args.paths)
+        if args.paths and skipped == len(args.paths):
+            sys.stderr.write(
+                f"all {len(args.paths)} detector output file(s) were skipped; findings were lost "
+                "(see messages above). Treating as a failed merge, not an empty review.\n"
+            )
             return 1
         json.dump(merge(raw), sys.stdout)
         sys.stdout.write("\n")

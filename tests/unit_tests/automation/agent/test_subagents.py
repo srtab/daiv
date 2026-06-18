@@ -816,7 +816,9 @@ class TestDetectorMiddleware:
 
         from automation.agent.subagents import READ_ONLY_PERMISSIONS, _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True)
+        middleware = _build_detector_middleware(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
+        )
         fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
         assert fs._permissions == READ_ONLY_PERMISSIONS
 
@@ -829,7 +831,9 @@ class TestDetectorMiddleware:
         from automation.agent.middlewares.web_search import WebSearchMiddleware
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True)
+        middleware = _build_detector_middleware(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
+        )
         assert any(isinstance(m, SandboxMiddleware) for m in middleware)
         assert not any(isinstance(m, GitPlatformMiddleware) for m in middleware)
         assert not any(isinstance(m, WebSearchMiddleware) for m in middleware)
@@ -840,7 +844,9 @@ class TestDetectorMiddleware:
         from automation.agent.middlewares.sandbox import SandboxMiddleware
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False)
+        middleware = _build_detector_middleware(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, name="cr-correctness"
+        )
         assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
 
     def test_threads_client_and_sandbox_backend_into_sandbox_middleware(
@@ -861,11 +867,25 @@ class TestDetectorMiddleware:
             sandbox_enabled=True,
             client=sentinel_client,
             sandbox_backend=sentinel_backend,
+            name="cr-correctness",
         )
         sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
         assert sandbox_mw._client is sentinel_client
         assert sandbox_mw._sandbox_backend is sentinel_backend
         assert sandbox_mw.close_session is False
+
+    def test_includes_deferred_output_middleware(self, mock_model, mock_backend, mock_runtime_ctx):
+        from automation.agent.constants import SUBAGENT_OUTPUT_PATH
+        from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
+        from automation.agent.subagents import _build_detector_middleware
+
+        middleware = _build_detector_middleware(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
+        )
+        deferred = [m for m in middleware if isinstance(m, DeferredOutputMiddleware)]
+        assert len(deferred) == 1
+        assert deferred[0]._name == "cr-correctness"
+        assert deferred[0]._output_dir == SUBAGENT_OUTPUT_PATH
 
 
 class TestShippedDetectorCharters:

@@ -39,7 +39,7 @@ The detectors already carry their charter, the Signal-filter bars, and the never
 
 ### Finding schema
 
-Each detector returns a structured object `{"findings": [ ... ]}` whose items are objects in this exact shape (canonical machine copy: `scripts/finding.schema.json`):
+Each detector returns a structured object `{"findings": [ ... ]}` — delivered to you as a file pointer (Stage 2), not inline — whose items are objects in this exact shape (canonical machine copy: `scripts/finding.schema.json`):
 
 ```json
 {"detector":"correctness|security|performance|structure|custom-rules","file":"<new_path>","line":42,"bar":"defect|structural|question","archetype":"remove_dead_lines|use_framework_idiom|replace_with_constant|swap_library_call|question|discussion","title":"<one line>","rationale":"<why it's a problem>","suggestion":"<optional, fix archetypes only>","source":"<custom-rules only: the rule enforced>"}
@@ -54,11 +54,15 @@ Each detector returns a structured object `{"findings": [ ... ]}` whose items ar
 
 ## Stage 2 — Verify (adjudicate)
 
-Collect each detector's `findings` array (from its returned `{"findings": [...]}` object) and concatenate them into one JSON array. **If every detector returned an empty array, skip the merge entirely** — there is nothing to validate or dedup; treat `candidates`, `dropped`, and `merged` as `0`. In **interactive mode** this means "No findings." In **delivery mode** an empty result does *not* mean skip delivery: the reconciliation steps still run (`gitlab-delivery.md` covers exactly which). Run the merge only when at least one finding exists:
+Each detector deferred its findings to a file: its `task` result is a one-line pointer naming an absolute `.json` path (e.g. `/workspace/tmp/subagent-output/cr-correctness-<hash>.json`), not the findings themselves. Collect those paths — one per detector that ran — and pass them all to the merge script:
 
 ```
-echo '<combined findings JSON array>' | python3 scripts/findings.py merge
+python3 scripts/findings.py merge <path1.json> <path2.json> ...
 ```
+
+`merge` reads each file, concatenates the `findings`, validates, and dedupes. **You do not check for emptiness yourself**: if every detector's file is empty (or a detector produced no file but the path was readable), `merge` returns `{"findings": [], "candidates": 0, "dropped": 0, "merged": 0}` with exit 0. In **interactive mode** an all-zero result means "No findings." In **delivery mode** an empty result does *not* mean skip delivery: the reconciliation steps still run (`gitlab-delivery.md` covers exactly which).
+
+**Non-zero exit from `merge` is a distinct signal**: if `merge` exits non-zero it means every detector output file was unreadable or missing — the findings were **lost**, not legitimately absent. This is a failed review step, not "no findings": surface the error (it will have printed a diagnostic to stderr), retry the affected detectors if possible, and do **not** deliver an empty review as though detection succeeded.
 
 `merge` validates each finding against the schema (dropping malformed ones) and collapses cross-detector duplicates on `(file, line, archetype)`, keeping the strongest `bar`. The prose archetypes (`discussion`, `question`) key on `detector` **as well**: they are catch-alls, so two genuinely distinct findings can share one line (e.g. a `security` concern and a `custom-rules` violation), and keying them apart stops one — along with a `custom-rules` `source` — from being silently dropped. The four inline fix archetypes keep the bare `(file, line, archetype)` key, where the same line + archetype really is the same concrete fix. It returns `{"findings":[...], "candidates":N, "dropped":M, "merged":K}`; the `merge()` docstring in `scripts/findings.py` defines each field. Carry `candidates` (the pre-refutation count) into the status line, and note `merged` there when nonzero so a reviewer knows findings sharing a dedup key were collapsed. This is the pre-delivery cross-detector dedup — distinct from the anchor-based delivery dedup on `(kind, archetype, file, anchor)` in `gitlab-delivery.md` Step 4.
 
