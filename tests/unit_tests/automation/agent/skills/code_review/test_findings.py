@@ -201,25 +201,51 @@ class TestMerge:
         assert findings.merge([]) == {"findings": [], "candidates": 0, "dropped": 0, "merged": 0}
 
 
+class TestReadFindingsFromFiles:
+    def test_reads_object_files(self, tmp_path):
+        p1 = tmp_path / "a.json"
+        p1.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
+        p2 = tmp_path / "b.json"
+        p2.write_text(json.dumps({"findings": [_f(bar="question")]}), encoding="utf-8")
+        raw = findings.read_findings_from_files([str(p1), str(p2)])
+        assert len(raw) == 2
+
+    def test_tolerates_bare_array(self, tmp_path):
+        p = tmp_path / "a.json"
+        p.write_text(json.dumps([_f()]), encoding="utf-8")
+        assert findings.read_findings_from_files([str(p)]) == [_f()]
+
+    def test_skips_missing_file(self, tmp_path, capsys):
+        p = tmp_path / "a.json"
+        p.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
+        raw = findings.read_findings_from_files([str(tmp_path / "nope.json"), str(p)])
+        assert len(raw) == 1
+        assert "missing" in capsys.readouterr().err
+
+    def test_skips_invalid_json(self, tmp_path, capsys):
+        bad = tmp_path / "bad.json"
+        bad.write_text("not json", encoding="utf-8")
+        good = tmp_path / "g.json"
+        good.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
+        raw = findings.read_findings_from_files([str(bad), str(good)])
+        assert len(raw) == 1
+        assert "unreadable" in capsys.readouterr().err
+
+
 class TestMergeCli:
-    def test_cli_rejects_non_array(self, monkeypatch, capsys):
-        monkeypatch.setattr(sys, "stdin", _StringIOStdin('{"not": "array"}'))
-        monkeypatch.setattr(sys, "argv", ["findings.py", "merge"])
-        assert findings.main() == 1
-        assert "expected a JSON array" in capsys.readouterr().err
+    def test_cli_merges_files(self, tmp_path, monkeypatch, capsys):
+        p = tmp_path / "a.json"
+        p.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["findings.py", "merge", str(p)])
+        assert findings.main() == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["candidates"] == 1
 
-    def test_cli_rejects_malformed(self, monkeypatch, capsys):
-        monkeypatch.setattr(sys, "stdin", _StringIOStdin("not json"))
-        monkeypatch.setattr(sys, "argv", ["findings.py", "merge"])
-        assert findings.main() == 1
-        assert "invalid JSON" in capsys.readouterr().err
-
-    def test_cli_happy(self, monkeypatch, capsys):
-        monkeypatch.setattr(sys, "stdin", _StringIOStdin(json.dumps([_f()])))
+    def test_cli_no_paths_returns_zeros(self, monkeypatch, capsys):
         monkeypatch.setattr(sys, "argv", ["findings.py", "merge"])
         assert findings.main() == 0
         out = json.loads(capsys.readouterr().out)
-        assert out == {"findings": [_f()], "candidates": 1, "dropped": 0, "merged": 0}
+        assert out == {"findings": [], "candidates": 0, "dropped": 0, "merged": 0}
 
 
 class TestSchemaSingleSource:
@@ -251,13 +277,3 @@ class TestSchemaSingleSource:
         assert findings.is_valid(sample)
         for field in schema["required"]:
             assert field in sample
-
-
-class _StringIOStdin:
-    # ``sys.stdin`` replacement that returns a fixed string. ``json.load`` needs
-    # a ``.read()`` method, and pytest's capsys doesn't replace stdin for us.
-    def __init__(self, text: str) -> None:
-        self._text = text
-
-    def read(self) -> str:
-        return self._text

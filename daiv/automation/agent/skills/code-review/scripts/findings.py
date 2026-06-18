@@ -115,22 +115,43 @@ def merge(raw: list) -> dict:
     return {"findings": deduped, "candidates": len(deduped), "dropped": dropped, "merged": len(valid) - len(deduped)}
 
 
+def read_findings_from_files(paths: list) -> list:
+    """Read raw findings from detector output files.
+
+    Each path is a detector's ``{"findings": [...]}`` object (a bare ``[...]`` array is tolerated).
+    A missing or unparseable file is skipped with a stderr note — one absent or corrupt detector
+    output must not abort the whole merge.
+    """
+    raw: list = []
+    for path in paths:
+        try:
+            with Path(path).open(encoding="utf-8") as fh:
+                data = json.load(fh)
+        except FileNotFoundError:
+            sys.stderr.write(f"skipping missing findings file: {path}\n")
+            continue
+        except (OSError, json.JSONDecodeError) as exc:
+            sys.stderr.write(f"skipping unreadable findings file {path}: {exc}\n")
+            continue
+        items = data.get("findings", []) if isinstance(data, dict) else data
+        if isinstance(items, list):
+            raw.extend(items)
+        else:
+            sys.stderr.write(f"skipping findings file {path}: no 'findings' array\n")
+    return raw
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().split("\n\n", 1)[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("merge", help="Validate + cross-detector dedup raw findings (JSON array on stdin).")
+    merge_parser = sub.add_parser("merge", help="Validate + cross-detector dedup detector output files.")
+    merge_parser.add_argument(
+        "paths", nargs="*", help='Detector output JSON files (each a {"findings": [...]} object).'
+    )
     args = parser.parse_args()
 
     if args.cmd == "merge":
-        try:
-            raw = json.load(sys.stdin)
-        except json.JSONDecodeError as exc:
-            sys.stderr.write(f"invalid JSON on stdin: {exc}\n")
-            return 1
-        if not isinstance(raw, list):
-            sys.stderr.write("expected a JSON array of findings on stdin\n")
-            return 1
-        json.dump(merge(raw), sys.stdout)
+        json.dump(merge(read_findings_from_files(args.paths)), sys.stdout)
         sys.stdout.write("\n")
         return 0
 
