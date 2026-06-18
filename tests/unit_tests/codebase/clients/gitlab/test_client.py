@@ -1,14 +1,18 @@
 import logging
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from django.core.exceptions import ImproperlyConfigured
 
 import pytest
-from gitlab.exceptions import GitlabGetError
+from gitlab.exceptions import GitlabCreateError, GitlabGetError
 
 from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
 from codebase.clients.base import Emoji
-from codebase.clients.gitlab.client import GitLabClient
+from codebase.clients.gitlab.client import (
+    MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS,
+    GitLabClient,
+    _is_source_branch_missing_error,
+)
 
 _POSITION = {
     "position_type": "text",
@@ -182,6 +186,130 @@ class TestGitLabClient:
         result = gitlab_client.create_merge_request_inline_discussion("ns/proj", 99, "body text", _POSITION)
 
         assert result == "unique-id-xyz"
+
+    @staticmethod
+    def _merge_request_mock(source_branch="feat/x"):
+        """A GitLab merge request object shaped for `_serialize_merge_request`."""
+        mock_mr = Mock()
+        mock_mr.get_id.return_value = 42
+        mock_mr.source_branch = source_branch
+        mock_mr.target_branch = "main"
+        mock_mr.title = "Title"
+        mock_mr.description = "Desc"
+        mock_mr.labels = ["daiv"]
+        mock_mr.web_url = "https://gitlab.com/group/repo/-/merge_requests/42"
+        mock_mr.sha = "deadbeef"
+        mock_mr.author = {"id": 1, "username": "daiv", "name": "DAIV"}
+        mock_mr.work_in_progress = False
+        return mock_mr
+
+    @staticmethod
+    def _branch_missing_error():
+        """The 400 GitLab raises when a just-pushed branch isn't visible to MR-create yet."""
+        return GitlabCreateError(error_message={"source_branch": ["does not exist"]}, response_code=400)
+
+    def test_update_or_create_merge_request_retries_past_branch_visibility_race(self, gitlab_client):
+        """A just-pushed branch can be briefly invisible to MR-create; retry on the documented backoff until it lands.
+
+        Drives a failure for every backoff step then a success, so it pins both that the eventual MR is
+        returned/serialized and that the waits follow the exact schedule the module comment promises.
+        """
+        backoff = MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = [
+            *(self._branch_missing_error() for _ in backoff),
+            self._merge_request_mock(source_branch="feat/x"),
+        ]
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep:
+            result = gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert result.source_branch == "feat/x"
+        assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
+
+    def test_update_or_create_merge_request_raises_when_branch_never_appears(self, gitlab_client):
+        """If the branch stays invisible past the retry budget, the create error surfaces."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError):
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        # One attempt per backoff step, plus the final attempt after the retries are exhausted.
+        expected_attempts = len(MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS) + 1
+        assert mock_project.mergerequests.create.call_count == expected_attempts
+
+    def test_update_or_create_merge_request_does_not_retry_unrelated_400(self, gitlab_client):
+        """A 400 that isn't the branch-visibility race must fail fast (no retry/sleep)."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = GitlabCreateError(
+            error_message={"title": ["can't be blank"]}, response_code=400
+        )
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep, pytest.raises(GitlabCreateError):
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        mock_project.mergerequests.create.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_update_or_create_merge_request_updates_existing_on_conflict(self, gitlab_client):
+        """A 409 means an MR already exists for this branch pair -> update it in place, no retry."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = GitlabCreateError(
+            error_message="Another open merge request already exists", response_code=409
+        )
+        existing_mr = self._merge_request_mock(source_branch="feat/x")
+        mock_iterator = Mock()
+        mock_iterator.next.return_value = existing_mr
+        mock_project.mergerequests.list.return_value = mock_iterator
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep:
+            result = gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo",
+                source_branch="feat/x",
+                target_branch="main",
+                title="New Title",
+                description="New Desc",
+                labels=["daiv"],
+            )
+
+        assert result.source_branch == "feat/x"
+        existing_mr.save.assert_called_once()
+        mock_project.mergerequests.create.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("error_message", "response_code", "expected"),
+        [
+            # The real post-push race: GitLab surfaces the parsed body as a dict.
+            pytest.param({"source_branch": ["does not exist"]}, 400, True, id="dict-body-is-the-race"),
+            # python-gitlab can also surface the body as a str; the docstring promises this works.
+            pytest.param("{'source_branch': ['does not exist']}", 400, True, id="str-body-is-the-race"),
+            # Non-400 codes short-circuit before the body is inspected (409 must reach the update path).
+            pytest.param({"source_branch": ["does not exist"]}, 409, False, id="conflict-short-circuits"),
+            pytest.param({"source_branch": ["does not exist"]}, 404, False, id="not-found-short-circuits"),
+            # Unrelated 400s must not retry.
+            pytest.param({"title": ["can't be blank"]}, 400, False, id="unrelated-400"),
+            # Both substrings are required: mentioning the field without "does not exist" must not fire...
+            pytest.param({"source_branch": ["already exists"]}, 400, False, id="source-branch-but-not-missing"),
+            # ...nor "does not exist" without naming source_branch.
+            pytest.param("target_branch does not exist", 400, False, id="missing-but-not-source-branch"),
+        ],
+    )
+    def test_is_source_branch_missing_error(self, error_message, response_code, expected):
+        """The retry predicate fires only on a 400 whose body names source_branch AND says it's missing."""
+        error = GitlabCreateError(error_message=error_message, response_code=response_code)
+        assert _is_source_branch_missing_error(error) is expected
 
     def test_get_merge_request_diff_stats_standard_diff(self, gitlab_client):
         """Test diff stats parsing with a standard unified diff."""
