@@ -44,15 +44,16 @@ class DeferredOutputMiddleware(AgentMiddleware[AgentState[Any], RuntimeCtx]):
 
     async def aafter_agent(self, state: AgentState[Any], runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:  # noqa: ARG002
         try:
-            payload, ext = self._extract(state)
+            extracted = self._extract(state)
         except Exception:
             logger.exception(
                 "DeferredOutputMiddleware: failed to serialize output for %s; keeping inline output", self._name
             )
             return None
-        if payload is None:
+        if extracted is None:
             logger.debug("DeferredOutputMiddleware: nothing to defer for %s", self._name)
             return None
+        payload, ext = extracted
 
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:_DIGEST_LEN]
         path = f"{self._output_dir}/{self._name}-{digest}{ext}"
@@ -74,14 +75,14 @@ class DeferredOutputMiddleware(AgentMiddleware[AgentState[Any], RuntimeCtx]):
         pointer = f"Output deferred to a file to keep it out of context. Read it when you need the contents: {path}"
         return {"structured_response": None, "messages": [AIMessage(content=pointer)]}
 
-    def _extract(self, state: AgentState[Any]) -> tuple[str | None, str]:
+    def _extract(self, state: AgentState[Any]) -> tuple[str, str] | None:
         structured = state.get("structured_response")
         if structured is not None:
             return self._serialize(structured), ".json"
         messages = state.get("messages") or []
         if messages and (text := messages[-1].text):
             return text, ".txt"
-        return None, ".txt"
+        return None
 
     @staticmethod
     def _serialize(structured: Any) -> str:

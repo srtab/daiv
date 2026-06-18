@@ -207,6 +207,9 @@ def _build_detector_middleware(
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
 
+    # Keep this last: after_agent hooks fire in reverse append order, so appending last makes this
+    # run first in the exit chain — it reads structured_response and writes the file via the backend
+    # before SandboxMiddleware's after_agent could tear the (shared) session down.
     middleware.append(DeferredOutputMiddleware(backend=backend, name=name, output_dir=output_dir))
 
     return middleware
