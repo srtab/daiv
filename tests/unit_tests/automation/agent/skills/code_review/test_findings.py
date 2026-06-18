@@ -207,19 +207,23 @@ class TestReadFindingsFromFiles:
         p1.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
         p2 = tmp_path / "b.json"
         p2.write_text(json.dumps({"findings": [_f(bar="question")]}), encoding="utf-8")
-        raw = findings.read_findings_from_files([str(p1), str(p2)])
+        raw, skipped = findings.read_findings_from_files([str(p1), str(p2)])
         assert len(raw) == 2
+        assert skipped == 0
 
     def test_tolerates_bare_array(self, tmp_path):
         p = tmp_path / "a.json"
         p.write_text(json.dumps([_f()]), encoding="utf-8")
-        assert findings.read_findings_from_files([str(p)]) == [_f()]
+        raw, skipped = findings.read_findings_from_files([str(p)])
+        assert raw == [_f()]
+        assert skipped == 0
 
     def test_skips_missing_file(self, tmp_path, capsys):
         p = tmp_path / "a.json"
         p.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
-        raw = findings.read_findings_from_files([str(tmp_path / "nope.json"), str(p)])
+        raw, skipped = findings.read_findings_from_files([str(tmp_path / "nope.json"), str(p)])
         assert len(raw) == 1
+        assert skipped == 1
         assert "missing" in capsys.readouterr().err
 
     def test_skips_invalid_json(self, tmp_path, capsys):
@@ -227,8 +231,9 @@ class TestReadFindingsFromFiles:
         bad.write_text("not json", encoding="utf-8")
         good = tmp_path / "g.json"
         good.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
-        raw = findings.read_findings_from_files([str(bad), str(good)])
+        raw, skipped = findings.read_findings_from_files([str(bad), str(good)])
         assert len(raw) == 1
+        assert skipped == 1
         assert "unreadable" in capsys.readouterr().err
 
     def test_skips_non_list_findings_value(self, tmp_path, capsys):
@@ -236,8 +241,9 @@ class TestReadFindingsFromFiles:
         bad.write_text(json.dumps({"findings": "not a list"}), encoding="utf-8")
         good = tmp_path / "g.json"
         good.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
-        raw = findings.read_findings_from_files([str(bad), str(good)])
+        raw, skipped = findings.read_findings_from_files([str(bad), str(good)])
         assert len(raw) == 1
+        assert skipped == 1
         assert "no 'findings' array" in capsys.readouterr().err
 
 
@@ -255,6 +261,14 @@ class TestMergeCli:
         assert findings.main() == 0
         out = json.loads(capsys.readouterr().out)
         assert out == {"findings": [], "candidates": 0, "dropped": 0, "merged": 0}
+
+    def test_cli_all_files_skipped_returns_error(self, tmp_path, monkeypatch, capsys):
+        missing = tmp_path / "nope.json"
+        monkeypatch.setattr(sys, "argv", ["findings.py", "merge", str(missing)])
+        assert findings.main() == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""  # no JSON emitted on the error path
+        assert "were skipped" in captured.err
 
 
 class TestSchemaSingleSource:
