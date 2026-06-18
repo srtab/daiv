@@ -43,8 +43,15 @@ class DeferredOutputMiddleware(AgentMiddleware[AgentState[Any], RuntimeCtx]):
         self._output_dir = output_dir.rstrip("/")
 
     async def aafter_agent(self, state: AgentState[Any], runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:  # noqa: ARG002
-        payload, ext = self._extract(state)
+        try:
+            payload, ext = self._extract(state)
+        except Exception:
+            logger.exception(
+                "DeferredOutputMiddleware: failed to serialize output for %s; keeping inline output", self._name
+            )
+            return None
         if payload is None:
+            logger.debug("DeferredOutputMiddleware: nothing to defer for %s", self._name)
             return None
 
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:_DIGEST_LEN]

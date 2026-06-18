@@ -231,6 +231,15 @@ class TestReadFindingsFromFiles:
         assert len(raw) == 1
         assert "unreadable" in capsys.readouterr().err
 
+    def test_skips_non_list_findings_value(self, tmp_path, capsys):
+        bad = tmp_path / "bad.json"
+        bad.write_text(json.dumps({"findings": "not a list"}), encoding="utf-8")
+        good = tmp_path / "g.json"
+        good.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
+        raw = findings.read_findings_from_files([str(bad), str(good)])
+        assert len(raw) == 1
+        assert "no 'findings' array" in capsys.readouterr().err
+
 
 class TestMergeCli:
     def test_cli_merges_files(self, tmp_path, monkeypatch, capsys):
