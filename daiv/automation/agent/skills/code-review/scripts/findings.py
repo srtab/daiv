@@ -2,7 +2,7 @@
 """Finding helpers for the code-review skill (detector fan-out + verify).
 
 Subcommand:
-  merge   validate + cross-detector dedup a JSON array of raw findings on stdin
+  merge   validate + cross-detector dedup detector output files passed by path
 
 The detectors (dispatched as subagents) emit findings as JSON; this script owns
 the deterministic parts — schema validation and cross-detector dedup — so the

@@ -46,6 +46,9 @@ async def test_text_output_written_as_txt():
 
     backend.awrite.assert_awaited_once_with(expected_path, "free text")
     assert result["structured_response"] is None
+    text = result["messages"][0].text
+    assert expected_path in text
+    assert "deferred to a file" in text
 
 
 async def test_write_failure_keeps_inline_output():

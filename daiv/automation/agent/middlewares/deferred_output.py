@@ -78,8 +78,9 @@ class DeferredOutputMiddleware(AgentMiddleware[AgentState[Any], RuntimeCtx]):
 
     @staticmethod
     def _serialize(structured: Any) -> str:
-        # Mirror deepagents' own serialization so the file is byte-identical to what would have been
-        # inlined (subagents.py _return_command_with_state_update).
+        # Mirror deepagents' serialization for dict and pydantic responses so the file matches what
+        # would have been inlined (subagents.py _return_command_with_state_update). Detector
+        # response_format is a JSON-schema dict, so this takes the json.dumps branch.
         if hasattr(structured, "model_dump_json"):
             return structured.model_dump_json()
         return json.dumps(structured)
