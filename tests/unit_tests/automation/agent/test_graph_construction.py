@@ -144,3 +144,21 @@ def test_slash_command_middleware_registered_only_when_enabled():
     assert "*([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else [])" in src, (
         "SlashCommandMiddleware must be conditionally registered on ctx.config.slash_commands.enabled"
     )
+
+
+def test_parent_stack_includes_loop_breaker_with_finalize_terminal():
+    src = inspect.getsource(graph_module)
+    breaker_call = _balanced_call_args(src, "LoopBreakerMiddleware(")
+    assert 'terminal="finalize"' in breaker_call, (
+        "graph.py must register LoopBreakerMiddleware with terminal='finalize' so a parent loop ends "
+        "cleanly (after_agent hooks run) instead of raising and discarding work"
+    )
+
+
+def test_loop_breaker_registered_before_prompt_caching():
+    # The injected reminder must be visible to AnthropicPromptCachingMiddleware, so the breaker is
+    # registered before it (same rationale as StepBudgetMiddleware).
+    src = inspect.getsource(graph_module)
+    breaker = src.index("LoopBreakerMiddleware(")
+    caching = src.index("AnthropicPromptCachingMiddleware(")
+    assert breaker < caching, "LoopBreakerMiddleware must be registered before AnthropicPromptCachingMiddleware"
