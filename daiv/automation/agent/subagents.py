@@ -25,6 +25,7 @@ from automation.agent.middlewares.file_system import (
 )
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
+from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.todos import DAIVTodoListMiddleware
@@ -107,6 +108,10 @@ def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) 
             trim_tokens_to_summarize=None,
             truncate_args_settings=summarization_defaults["truncate_args_settings"],
         ),
+        # Subagents (incl. cr-* detectors) are forced to tool_choice=required by structured output,
+        # so they have no natural stop; a stuck model loops to recursion_limit. Hard-stop via raise —
+        # contained by the parent ToolNode as a tool error.
+        LoopBreakerMiddleware(terminal="raise"),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),

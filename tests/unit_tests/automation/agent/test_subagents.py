@@ -16,10 +16,12 @@ from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents.middleware import ModelFallbackMiddleware
 
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
+from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.subagents import (
+    _build_detector_middleware,
     _build_general_purpose_middleware,
     create_explore_subagent,
     create_general_purpose_subagent,
@@ -175,6 +177,27 @@ class TestGeneralPurposeMiddleware:
         )
         fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
         assert fs._permissions == []
+
+    def test_includes_loop_breaker_with_raise_terminal(self, mock_model, mock_backend, mock_runtime_ctx):
+        middleware = _build_general_purpose_middleware(
+            mock_model,
+            mock_backend,
+            mock_runtime_ctx,
+            sandbox_enabled=True,
+            web_search_enabled=True,
+            web_fetch_enabled=True,
+        )
+        breakers = [m for m in middleware if isinstance(m, LoopBreakerMiddleware)]
+        assert len(breakers) == 1
+        assert breakers[0].terminal == "raise"
+
+    def test_detector_stack_includes_loop_breaker_with_raise_terminal(self, mock_model, mock_backend, mock_runtime_ctx):
+        middleware = _build_detector_middleware(
+            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
+        )
+        breakers = [m for m in middleware if isinstance(m, LoopBreakerMiddleware)]
+        assert len(breakers) == 1
+        assert breakers[0].terminal == "raise"
 
 
 class TestGeneralPurposeSubagent:
