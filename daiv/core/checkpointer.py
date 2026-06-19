@@ -47,11 +47,42 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
     should a future upstream route the read path through it, not as a runtime guarantee today.
     LangChain objects (messages) carry ``to_json`` and keep flowing through the parent's safe
     path untouched.
+
+    Sets need a matching decode override (``_reviver``). The adapter encodes a Python ``set``
+    as an ``lc:2`` envelope keyed by ``kwargs["__set_items__"]``, but the base reviver routes
+    ``("builtins", "set")`` (a SAFE_MSGPACK_TYPE) through ``_revive_lc2`` → ``set(**kwargs)`` →
+    ``TypeError``, which ``langgraph-checkpoint>=4.1.1`` turns into ``None`` -- silently nulling
+    every checkpointed set (e.g. ``loaded_tool_names``). No published adapter/base pairing
+    avoids this, so ``_reviver`` reconstructs the envelope before delegating.
     """
 
     def __init__(self, **kwargs: Any) -> None:
         kwargs.setdefault("allowed_json_modules", CHECKPOINT_JSON_TYPES)
         super().__init__(**kwargs)
+
+    def _reviver(self, value: Any) -> Any:
+        """Reconstruct adapter-encoded sets before the base reviver corrupts them to ``None``.
+
+        ``langgraph-checkpoint-redis==0.4.1`` serializes a ``set`` as
+        ``{"lc": 2, "type": "constructor", "id": ["builtins", "set"], "kwargs": {"__set_items__": [...]}}``
+        (``JsonPlusRedisSerializer._preprocess_interrupts``); only the adapter's own
+        ``_reconstruct_from_constructor`` understands ``__set_items__``. But the read path
+        (``_revive_if_needed``) runs *this* base reviver first, and ``set(**kwargs)`` raises,
+        so the value comes back ``None`` -- the adapter fallback never fires because it only
+        triggers when the base returns the *unchanged* dict. Intercept the envelope here.
+        ``frozenset`` is handled for symmetry though DAIV stores only plain ``set``.
+        """
+        if (
+            isinstance(value, dict)
+            and value.get("lc") == 2
+            and value.get("type") == "constructor"
+            and value.get("id") in (["builtins", "set"], ["builtins", "frozenset"])
+            and isinstance(value.get("kwargs"), dict)
+            and "__set_items__" in value["kwargs"]
+        ):
+            items = (self._revive_if_needed(item) for item in value["kwargs"]["__set_items__"])
+            return frozenset(items) if value["id"][-1] == "frozenset" else set(items)
+        return super()._reviver(value)
 
     def _default_handler(self, obj: Any) -> Any:
         # Only intercept plain pydantic models (those without ``to_json``). The parent
