@@ -4,7 +4,7 @@ from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware, LoopDetectedError, repeated_tool_streak
+from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware, repeated_tool_streak
 
 
 def _ai(name: str, args: dict, call_id: str) -> AIMessage:
@@ -40,6 +40,11 @@ async def _record_handler(seen: list):
 # --- repeated_tool_streak ---
 
 
+def test_streak_zero_on_empty_and_human_only_messages():
+    assert repeated_tool_streak([]) == 0
+    assert repeated_tool_streak([HumanMessage(content="t")]) == 0
+
+
 def test_streak_counts_identical_consecutive_calls():
     assert repeated_tool_streak(_loop(3)) == 3
 
@@ -71,29 +76,39 @@ def test_streak_zero_when_last_message_has_no_tool_calls():
 
 async def test_passes_through_below_threshold():
     seen: list = []
-    mw = LoopBreakerMiddleware(terminal="raise")
+    mw = LoopBreakerMiddleware(terminal="error")
     request = _request(_loop(2))
     await mw.awrap_model_call(request, await _record_handler(seen))
     assert seen[0] is request
 
 
-async def test_injects_ephemeral_reminder_at_threshold():
+@pytest.mark.parametrize("streak", [3, 4, 5])
+async def test_injects_ephemeral_reminder_at_threshold(streak: int):
     seen: list = []
-    mw = LoopBreakerMiddleware(terminal="raise")
-    request = _request(_loop(3))
+    mw = LoopBreakerMiddleware(terminal="error")
+    request = _request(_loop(streak))
     await mw.awrap_model_call(request, await _record_handler(seen))
-    assert "system-reminder" in seen[0].messages[-1].content
-    assert "grep" in seen[0].messages[-1].content
+    reminder_content = seen[0].messages[-1].content
+    assert "system-reminder" in reminder_content
+    assert "grep" in reminder_content
+    # countdown decreases as streak increases: at streak 3 → 3 left, streak 4 → 2 left, streak 5 → 1 left
+    expected_remaining = mw._terminal_streak - streak
+    assert f"repeat it {expected_remaining} more time(s)" in reminder_content
     # ephemeral: original request still ends with the tool result, no reminder persisted
     assert isinstance(request.messages[-1], ToolMessage)
 
 
-async def test_raises_at_terminal_streak():
+async def test_error_at_terminal_streak_returns_aimessage_without_calling_model():
     seen: list = []
-    mw = LoopBreakerMiddleware(terminal="raise")
-    with pytest.raises(LoopDetectedError):
-        await mw.awrap_model_call(_request(_loop(6)), await _record_handler(seen))
+    mw = LoopBreakerMiddleware(terminal="error")
+    result = await mw.awrap_model_call(_request(_loop(6)), await _record_handler(seen))
+    assert isinstance(result, AIMessage)
+    assert not result.tool_calls
     assert seen == []  # model never called
+    # result must unambiguously signal a failure, not "no findings"
+    assert "ERROR" in result.content
+    assert "did NOT complete" in result.content
+    assert "no findings" in result.content
 
 
 async def test_finalize_ends_loop_without_calling_model():
@@ -108,3 +123,9 @@ async def test_finalize_ends_loop_without_calling_model():
 def test_invalid_terminal_rejected():
     with pytest.raises(ValueError):
         LoopBreakerMiddleware(terminal="bogus")
+
+
+def test_invalid_terminal_raise_rejected():
+    # "raise" was the old value — must now be rejected
+    with pytest.raises(ValueError):
+        LoopBreakerMiddleware(terminal="raise")

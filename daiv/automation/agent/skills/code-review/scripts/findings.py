@@ -165,7 +165,9 @@ def main() -> int:
                 "(see messages above). Treating as a failed merge, not an empty review.\n"
             )
             return 1
-        json.dump(merge(raw), sys.stdout)
+        result = merge(raw)
+        result["skipped"] = skipped
+        json.dump(result, sys.stdout)
         sys.stdout.write("\n")
         return 0
 

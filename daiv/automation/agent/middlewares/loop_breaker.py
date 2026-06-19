@@ -25,15 +25,6 @@ REPEAT_THRESHOLD = 3
 MAX_REMINDERS = 3
 
 
-class LoopDetectedError(RuntimeError):
-    """Raised by ``LoopBreakerMiddleware`` when an agent repeats a tool call past the limit.
-
-    On a subagent this propagates out of the (un-try/excepted) ``task`` tool and is caught by the
-    parent's ``ToolNode`` (``handle_tool_errors=True``) as an error ``ToolMessage`` — contained,
-    not run-aborting.
-    """
-
-
 def _tool_signature(message: AIMessage) -> tuple[tuple[str, str], ...] | None:
     """Order-independent signature of a message's tool calls, or ``None`` if it has none."""
     if not message.tool_calls:
@@ -86,9 +77,12 @@ class LoopBreakerMiddleware(AgentMiddleware):
     asking the model to change approach or finalize; after ``max_reminders`` ignored reminders it
     takes a terminal action:
 
-    - ``terminal="raise"`` (subagents): raise ``LoopDetectedError``. Contained by the parent
-      ``ToolNode`` as an error ``ToolMessage``; the subagent's skipped ``after_agent`` simply means
-      no deferred output (a code-review detector then contributes zero findings).
+    - ``terminal="error"`` (subagents): return a tool-call-free ``AIMessage`` framed as a failure.
+      It flows back as the ``task`` tool's result for general-purpose/explore subagents, or — for
+      ``cr-*`` detectors — as the deferred-output text (``DeferredOutputMiddleware`` writes the last
+      message when there is no ``structured_response``). The stuck subagent ends cleanly (its
+      ``after_agent`` still runs), the parent run is NOT aborted, and the result reads as an error
+      rather than "no findings".
     - ``terminal="finalize"`` (parent): return a tool-call-free ``AIMessage`` so the graph routes to
       END and ``after_agent`` hooks (git publish, patch capture, sandbox teardown) still run.
     """
@@ -96,13 +90,13 @@ class LoopBreakerMiddleware(AgentMiddleware):
     def __init__(
         self,
         *,
-        terminal: Literal["raise", "finalize"] = "raise",
+        terminal: Literal["error", "finalize"] = "error",
         repeat_threshold: int = REPEAT_THRESHOLD,
         max_reminders: int = MAX_REMINDERS,
     ) -> None:
         super().__init__()
-        if terminal not in ("raise", "finalize"):
-            msg = f"terminal must be 'raise' or 'finalize', got {terminal!r}"
+        if terminal not in ("error", "finalize"):
+            msg = f"terminal must be 'error' or 'finalize', got {terminal!r}"
             raise ValueError(msg)
         self.terminal = terminal
         self.repeat_threshold = repeat_threshold
@@ -151,9 +145,14 @@ class LoopBreakerMiddleware(AgentMiddleware):
             self.max_reminders,
             self.terminal,
         )
-        if self.terminal == "raise":
-            msg = f"Aborted: the agent called '{label}' {streak} times in a row without progress."
-            raise LoopDetectedError(msg)
+        if self.terminal == "error":
+            return AIMessage(
+                content=(
+                    f"ERROR: stopped after calling '{label}' {streak} times in a row with identical arguments and "
+                    "no progress. The task did NOT complete — this is a failure, not a result. Do not treat this as a "
+                    "successful run or as 'no findings'; the work is incomplete."
+                )
+            )
         return AIMessage(
             content=(
                 f"I stopped because I called the '{label}' tool {streak} times in a row without making "

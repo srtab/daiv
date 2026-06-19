@@ -178,7 +178,7 @@ class TestGeneralPurposeMiddleware:
         fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
         assert fs._permissions == []
 
-    def test_includes_loop_breaker_with_raise_terminal(self, mock_model, mock_backend, mock_runtime_ctx):
+    def test_includes_loop_breaker_with_error_terminal(self, mock_model, mock_backend, mock_runtime_ctx):
         middleware = _build_general_purpose_middleware(
             mock_model,
             mock_backend,
@@ -189,15 +189,15 @@ class TestGeneralPurposeMiddleware:
         )
         breakers = [m for m in middleware if isinstance(m, LoopBreakerMiddleware)]
         assert len(breakers) == 1
-        assert breakers[0].terminal == "raise"
+        assert breakers[0].terminal == "error"
 
-    def test_detector_stack_includes_loop_breaker_with_raise_terminal(self, mock_model, mock_backend, mock_runtime_ctx):
+    def test_detector_stack_includes_loop_breaker_with_error_terminal(self, mock_model, mock_backend, mock_runtime_ctx):
         middleware = _build_detector_middleware(
             mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
         )
         breakers = [m for m in middleware if isinstance(m, LoopBreakerMiddleware)]
         assert len(breakers) == 1
-        assert breakers[0].terminal == "raise"
+        assert breakers[0].terminal == "error"
 
 
 class TestGeneralPurposeSubagent:

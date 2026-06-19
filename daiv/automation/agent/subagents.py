@@ -109,9 +109,12 @@ def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) 
             truncate_args_settings=summarization_defaults["truncate_args_settings"],
         ),
         # Subagents (incl. cr-* detectors) are forced to tool_choice=required by structured output,
-        # so they have no natural stop; a stuck model loops to recursion_limit. Hard-stop via raise —
-        # contained by the parent ToolNode as a tool error.
-        LoopBreakerMiddleware(terminal="raise"),
+        # so they have no natural stop; a stuck model loops to recursion_limit. On a stuck loop the
+        # breaker finalizes the subagent with an explicit ERROR message (NOT a raise — a raised
+        # exception would propagate out of the task tool's ToolNode and abort the whole parent run).
+        # The error message flows back as the task result / deferred-output text so the orchestrator
+        # sees a failed subagent, not "no findings".
+        LoopBreakerMiddleware(terminal="error"),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
