@@ -199,6 +199,16 @@ class TestGeneralPurposeMiddleware:
         assert len(breakers) == 1
         assert breakers[0].terminal == "error"
 
+    def test_subagents_loop_breaker_registered_before_prompt_caching(self):
+        import inspect
+
+        from automation.agent import subagents as subagents_module
+
+        src = inspect.getsource(subagents_module)
+        breaker = src.index("LoopBreakerMiddleware(terminal=")
+        caching = src.index("AnthropicPromptCachingMiddleware()")
+        assert breaker < caching
+
 
 class TestGeneralPurposeSubagent:
     """Tests for the public ``create_general_purpose_subagent`` factory."""

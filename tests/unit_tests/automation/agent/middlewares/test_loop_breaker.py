@@ -118,6 +118,25 @@ async def test_finalize_ends_loop_without_calling_model():
     assert isinstance(result, AIMessage)
     assert not result.tool_calls
     assert seen == []
+    assert "ERROR" not in result.content
+
+
+def test_streak_stops_at_midconversation_human_message():
+    """A HumanMessage mid-history is a turn boundary: the streak resets to the trailing run only."""
+    args = {"path": "/a", "pattern": "p"}
+    messages: list = [
+        HumanMessage(content="task"),
+        _ai("grep", args, "c0"),
+        ToolMessage(content="result", tool_call_id="c0", name="grep"),
+        _ai("grep", args, "c1"),
+        ToolMessage(content="result", tool_call_id="c1", name="grep"),
+        HumanMessage(content="continue"),
+        _ai("grep", args, "c2"),
+        ToolMessage(content="result", tool_call_id="c2", name="grep"),
+        _ai("grep", args, "c3"),
+        ToolMessage(content="result", tool_call_id="c3", name="grep"),
+    ]
+    assert repeated_tool_streak(messages) == 2
 
 
 def test_invalid_terminal_rejected():
@@ -129,3 +148,13 @@ def test_invalid_terminal_raise_rejected():
     # "raise" was the old value — must now be rejected
     with pytest.raises(ValueError):
         LoopBreakerMiddleware(terminal="raise")
+
+
+def test_repeat_threshold_below_one_rejected():
+    with pytest.raises(ValueError, match="repeat_threshold must be >= 1"):
+        LoopBreakerMiddleware(terminal="error", repeat_threshold=0)
+
+
+def test_max_reminders_below_zero_rejected():
+    with pytest.raises(ValueError, match="max_reminders must be >= 0"):
+        LoopBreakerMiddleware(terminal="error", max_reminders=-1)

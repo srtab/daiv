@@ -98,6 +98,12 @@ class LoopBreakerMiddleware(AgentMiddleware):
         if terminal not in ("error", "finalize"):
             msg = f"terminal must be 'error' or 'finalize', got {terminal!r}"
             raise ValueError(msg)
+        if repeat_threshold < 1:
+            msg = f"repeat_threshold must be >= 1, got {repeat_threshold!r}"
+            raise ValueError(msg)
+        if max_reminders < 0:
+            msg = f"max_reminders must be >= 0, got {max_reminders!r}"
+            raise ValueError(msg)
         self.terminal = terminal
         self.repeat_threshold = repeat_threshold
         self.max_reminders = max_reminders

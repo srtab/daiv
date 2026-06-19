@@ -60,7 +60,7 @@ Each detector deferred its findings to a file: its `task` result is a one-line p
 python3 scripts/findings.py merge <path1.json> <path2.json> ...
 ```
 
-`merge` reads each file, concatenates the `findings`, validates, and dedupes. **You do not check for emptiness yourself**: if every detector's file is empty (or a detector produced no file but the path was readable), `merge` returns `{"findings": [], "candidates": 0, "dropped": 0, "merged": 0}` with exit 0. In **interactive mode** an all-zero result means "No findings." In **delivery mode** an empty result does *not* mean skip delivery: the reconciliation steps still run (`gitlab-delivery.md` covers exactly which).
+`merge` reads each file, concatenates the `findings`, validates, and dedupes. **You do not check for emptiness yourself**: if every detector's file is empty (or a detector produced no file but the path was readable), `merge` returns `{"findings": [], "candidates": 0, "dropped": 0, "merged": 0, "skipped": 0}` with exit 0. In **interactive mode** an all-zero result means "No findings." In **delivery mode** an empty result does *not* mean skip delivery: the reconciliation steps still run (`gitlab-delivery.md` covers exactly which).
 
 **Non-zero exit from `merge` is a distinct signal**: if `merge` exits non-zero it means every detector output file was unreadable or missing — the findings were **lost**, not legitimately absent. This is a failed review step, not "no findings": surface the error (it will have printed a diagnostic to stderr), retry the affected detectors if possible, and do **not** deliver an empty review as though detection succeeded.
 
