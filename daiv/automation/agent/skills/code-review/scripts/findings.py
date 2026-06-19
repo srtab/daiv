@@ -165,7 +165,16 @@ def main() -> int:
                 "(see messages above). Treating as a failed merge, not an empty review.\n"
             )
             return 1
-        json.dump(merge(raw), sys.stdout)
+        if skipped:
+            sys.stderr.write(
+                f"{skipped}/{len(args.paths)} detector output file(s) were skipped (see messages above); "
+                "review coverage is incomplete.\n"
+            )
+        result = merge(raw)
+        # `skipped` comes from read_findings_from_files (file I/O), not from merge()'s pure transform,
+        # so it is injected here rather than added to merge()'s return dict.
+        result["skipped"] = skipped
+        json.dump(result, sys.stdout)
         sys.stdout.write("\n")
         return 0
 

@@ -255,12 +255,27 @@ class TestMergeCli:
         assert findings.main() == 0
         out = json.loads(capsys.readouterr().out)
         assert out["candidates"] == 1
+        assert out["skipped"] == 0
 
     def test_cli_no_paths_returns_zeros(self, monkeypatch, capsys):
         monkeypatch.setattr(sys, "argv", ["findings.py", "merge"])
         assert findings.main() == 0
         out = json.loads(capsys.readouterr().out)
-        assert out == {"findings": [], "candidates": 0, "dropped": 0, "merged": 0}
+        assert out == {"findings": [], "candidates": 0, "dropped": 0, "merged": 0, "skipped": 0}
+
+    def test_cli_partial_skip_exits_zero_and_reports_skipped(self, tmp_path, monkeypatch, capsys):
+        # One valid findings JSON + one .txt file (simulating a loop-stopped detector that emitted
+        # an error message as plain text via DeferredOutputMiddleware). The CLI must exit 0 (partial
+        # data is still usable), include the readable findings, AND report skipped == 1.
+        good = tmp_path / "cr-correctness-abc.json"
+        good.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
+        bad = tmp_path / "cr-security-xyz.txt"
+        bad.write_text("ERROR: stopped after calling 'grep' 6 times in a row", encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["findings.py", "merge", str(good), str(bad)])
+        assert findings.main() == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["candidates"] == 1
+        assert out["skipped"] == 1
 
     def test_cli_all_files_skipped_returns_error(self, tmp_path, monkeypatch, capsys):
         missing = tmp_path / "nope.json"

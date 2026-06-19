@@ -36,6 +36,7 @@ from automation.agent.middlewares.file_system import (
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
+from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
@@ -320,6 +321,9 @@ async def create_daiv_agent(
         *deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
+        # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch
+        # capture/sandbox teardown) and discard work — the failure mode StepBudget guards against.
+        LoopBreakerMiddleware(terminal="finalize"),
         StepBudgetMiddleware(),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
