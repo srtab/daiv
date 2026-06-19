@@ -100,21 +100,30 @@ class TestRenderProtectedBranchFooter:
         manager = _make_manager(stub_base_init)
         assert manager._render_protected_branch_footer(None) is None
 
-    def test_returns_none_when_source_branch_missing(self, stub_base_init):
+    def test_returns_none_silently_when_source_branch_missing(self, stub_base_init):
+        """No fallback happened: ``merge_request`` set with no fallback source is the ordinary
+        MR-scope state, not a partial checkpoint, so render must stay silent (no warning)."""
         manager = _make_manager(stub_base_init)
         snapshot = SimpleNamespace(values={"merge_request": _new_mr_value()})
-        assert manager._render_protected_branch_footer(snapshot) is None
+        with patch("codebase.managers.review_addressor.logger") as mock_logger:
+            assert manager._render_protected_branch_footer(snapshot) is None
+        mock_logger.warning.assert_not_called()
 
-    def test_returns_none_when_merge_request_missing(self, stub_base_init):
+    def test_warns_when_merge_request_missing_but_source_present(self, stub_base_init):
+        """A fallback source with no MR is genuinely partial/raced; surface it to the operator."""
         manager = _make_manager(stub_base_init)
         snapshot = SimpleNamespace(values={"protected_branch_fallback_source": "feature"})
-        assert manager._render_protected_branch_footer(snapshot) is None
+        with patch("codebase.managers.review_addressor.logger") as mock_logger:
+            assert manager._render_protected_branch_footer(snapshot) is None
+        mock_logger.warning.assert_called_once()
 
-    def test_returns_none_when_source_branch_empty_string(self, stub_base_init):
-        """An empty source-branch is the no-fallback signal; no footer should render."""
+    def test_returns_none_silently_when_source_branch_empty_string(self, stub_base_init):
+        """An empty source-branch is the no-fallback signal; no footer and no warning."""
         manager = _make_manager(stub_base_init)
         snapshot = SimpleNamespace(values={"protected_branch_fallback_source": "", "merge_request": _new_mr_value()})
-        assert manager._render_protected_branch_footer(snapshot) is None
+        with patch("codebase.managers.review_addressor.logger") as mock_logger:
+            assert manager._render_protected_branch_footer(snapshot) is None
+        mock_logger.warning.assert_not_called()
 
 
 class TestAppendFooter:
