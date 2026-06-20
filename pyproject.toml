@@ -54,7 +54,7 @@ dependencies = [
   "prompt-toolkit==3.0.52",
   "psycopg[pool]==3.3.4",
   "pydantic==2.13.4",
-  "pydantic-settings==2.14.1",
+  "pydantic-settings==2.14.2",
   "pygithub==2.9.1",
   "python-decouple==3.8.0",
   "python-gitlab==8.4.0",
