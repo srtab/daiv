@@ -19,6 +19,8 @@ Before detecting, check which rule sources the repo actually has on disk: `.agen
 
 ## Stage 1 — Detect (fan-out)
 
+**Write the shared diff file first.** Before dispatching, compute the change once and save it where the detectors can read it: `git diff <target>...<source> > /workspace/tmp/review-change.diff`. Every detector reads this one file instead of reconstructing the diff itself, so they all review the identical change. If the write fails, dispatch anyway — the detectors fall back to running `git diff` themselves.
+
 Dispatch the detectors **in parallel** with the `task` tool — one `task` call per detector, all issued in a single turn. Set each call's **`subagent_type`** to the detector's name: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, and (conditionally) `cr-custom-rules`. These are pre-defined subagents whose charter is their own system prompt, so you do **not** restate the charter.
 
 **Never dispatch the detection to `general-purpose`** (or any other agent) with the dimension described in the prompt. The `cr-*` subagents carry their charter *and* a structured `response_format` — a `general-purpose` dispatch returns free-form prose with no `findings` array, which breaks the Stage 2 merge. If a `cr-*` type is not in the `task` tool's agent list it failed to load; skip it and report the gap (below) — do **not** substitute `general-purpose`. Each detector returns a structured object `{"findings": [...]}` conforming to the finding schema below — and nothing else.
@@ -33,9 +35,9 @@ Dispatch the detectors **in parallel** with the `task` tool — one `task` call 
 
 Two naming registers, don't conflate them: the **subagent type** you pass to `task` is `cr-<dimension>` (e.g. `cr-custom-rules`), while the `detector` field each finding carries is the bare `<dimension>` (e.g. `custom-rules`). Subagent `cr-correctness` → `detector: "correctness"`, and so on.
 
-Pass into every detector's `task` prompt only the **scope**: the change under review as source/target refs + the SHA triplet and the changed-file list — **not the diff itself** (it can be long; the detector runs git commands to fetch the hunks it needs) — plus the new-side path scope, so all detectors review the same change. The `cr-custom-rules` detector additionally receives the **paths** of the rule sources that exist (not their contents — it opens them itself).
+Pass into every detector's `task` prompt only the **scope**: the change under review as source/target refs + the SHA triplet, the new-side path scope, and **the path to the shared diff file** (`/workspace/tmp/review-change.diff`) — not the diff text inline (it can be long; the detector reads the file, and runs further git reads for any extra context). All detectors get the same path, so they review the identical change. The `cr-custom-rules` detector additionally receives the **paths** of the rule sources that exist (not their contents — it opens them itself).
 
-The detectors already carry their charter, the Signal-filter bars, and the never-flag rules (style, formatting, whitespace, import ordering) in their system prompts; your prompt supplies only the scope.
+The detectors already carry their charter, the Signal-filter bars, and the never-flag rules (style, formatting, whitespace, import ordering) in their system prompts, and they return a structured `{"findings": [...]}` object on their own. Your `task` prompt supplies **only the scope** — never describe the detector's output (no result format, no "write the findings to a file", no "return a path").
 
 ### Finding schema
 
