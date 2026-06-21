@@ -26,10 +26,16 @@ This procedure decides only two things; the script does the rest:
 ## Step 1 — Acquire context and dedup state
 
 - Read `merge_request_id`, project, and the SHA triplet from the runtime merge-request context. If any field is missing, demote to interactive mode and return markdown.
-- Call the `gitlab` tool with `project-merge-request-discussion list --mr-iid <iid>` to list existing discussions on the MR. Then, in a separate `bash` call, feed that JSON to `scripts/marker.py parse-notes` on stdin (e.g. `echo '<json>' | python3 scripts/marker.py parse-notes`). The `gitlab` tool is not callable from `bash`, so you cannot compose the two with a shell pipe in a single call. `parse-notes` accepts no flags — its sole input is the discussion JSON on stdin. It returns:
+- **List existing discussions to a file, then parse that file** — do not transcribe the discussion JSON into your context. Call the `gitlab` tool with subcommand `project-merge-request-discussion list --mr-iid <iid> --get-all` and `output_to_file=true`:
+  - `--get-all` is **mandatory**. Dedup is only correct if `parse-notes` sees *every* discussion; without it the tool returns only the first page, so fingerprints on later pages are missed and prior findings get reposted.
+  - `output_to_file=true` writes the **full** discussion array to a file (it forces `--output json`, which is the only form `parse-notes` can read — the tool's inline output is human-readable text, not JSON) and returns a compact confirmation containing the file path. The discussion blob never enters your context, so you never retype it.
+  - Take the **absolute** path from that confirmation and, in a separate `bash` call, run `python3 scripts/marker.py parse-notes <path>`. The path is its sole argument (it still reads stdin if no path is given, but the file path is the path to use here).
+  - **Empty listing:** if the tool reports it wrote no file because the command produced no output, the MR has no existing discussions — there is no dedup state. Treat `inline_fingerprints`, `summary`, and `pending_replies` as empty and continue; do not call `parse-notes`.
+
+  `parse-notes` returns:
   ```json
   {"inline_fingerprints": [["inline", "<archetype>", "<file>", "<anchor>"], ...],
-   "summary": {"discussion_id": "...", "note_id": ...} | null,
+   "summary": {"discussion_id": "...", "note_id": ..., "body": "<prior summary markdown>"} | null,
    "pending_replies": [
      {"kind": "inline"|"summary",
       "discussion_id": "...",
@@ -37,7 +43,7 @@ This procedure decides only two things; the script does the rest:
      ...
    ]}
   ```
-  Keep all three: `inline_fingerprints` is the **dedup set** for Step 4; `summary` tells Step 6 whether to update in place or create a fresh discussion; `pending_replies` lists unresolved daiv threads with at least one note after daiv's last — usually a human reply, but the trailing note can be a system event (flagged `system: true`), handled in Step 2. The script projects each note down to `author` / `body` / `system` — that is all the model needs to choose a Step 2 outcome.
+  Keep all three: `inline_fingerprints` is the **dedup set** for Step 4; `summary` tells Step 6 whether to update in place or create a fresh discussion **and carries the prior summary's `body`** for the Step 6 carry-forward rule; `pending_replies` lists unresolved daiv threads with at least one note after daiv's last — usually a human reply, but the trailing note can be a system event (flagged `system: true`), handled in Step 2. The script projects each note down to `author` / `body` / `system` — that is all the model needs to choose a Step 2 outcome.
 
 ## Step 2 — Address pending replies
 
@@ -144,7 +150,7 @@ Compose **one** top-level summary containing:
 - A short **Questions** section for discussion-only questions (cross-file or un-anchored). Targeted questions go inline (see Step 3), not here.
 - A one-line index of the inline findings posted this run (filename + line + archetype), so a reviewer skimming the thread sees the full picture without expanding diffs.
 
-**Delta-only re-reviews must not shrink the summary.** When this run only re-examined a delta (`review-workflow.md` scope rule), its discussion-only findings cover only the changed area. A discussion-only finding has **no** inline fingerprint — only the single `kind=summary` marker exists — so `parse-notes` cannot recover it; the prior summary body is the only record, and you already have it in the Step 1 `discussion list` output (the JSON you fed to `parse-notes`). Re-read that body and **carry forward every discussion-only finding whose subject lies outside this run's delta**: it was not rechecked, so it is neither confirmed nor disproved, and rewriting the note without it would silently erase a still-valid finding. Drop a prior finding only when this run actively disproves it, or reposts it inline (the inline copy supersedes the summary prose). The body you post is the **union** of carried-forward prior findings and this run's new findings — never this run's findings alone. On a *full* re-review (every hunk re-detected) there is nothing outside the delta, so the union reduces to this run's findings and no special handling is needed.
+**Delta-only re-reviews must not shrink the summary.** When this run only re-examined a delta (`review-workflow.md` scope rule), its discussion-only findings cover only the changed area. A discussion-only finding has **no** inline fingerprint — only the single `kind=summary` marker exists — so `parse-notes` cannot surface it as a dedup entry. But `parse-notes` does return the prior summary's full markdown as `summary.body` (Step 1), and that body is the only record of these findings. Re-read it and **carry forward every discussion-only finding whose subject lies outside this run's delta**: it was not rechecked, so it is neither confirmed nor disproved, and rewriting the note without it would silently erase a still-valid finding. Drop a prior finding only when this run actively disproves it, or reposts it inline (the inline copy supersedes the summary prose). The body you post is the **union** of carried-forward prior findings and this run's new findings — never this run's findings alone. On a *full* re-review (every hunk re-detected) there is nothing outside the delta, so the union reduces to this run's findings and no special handling is needed.
 
 Build the marker with `scripts/marker.py build --kind summary --sha <head_sha>` and place its output as the first physical line of the body. Example:
 

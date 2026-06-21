@@ -6,7 +6,7 @@ Every note daiv posts begins with a single-line HTML comment carrying a JSON pay
 <!-- daiv-cr {"v":1,"kind":"inline","archetype":"...","file":"...","line":42,"anchor":"a1b2c3d4","sha":"abc1234"} -->
 ```
 
-`scripts/marker.py` is the canonical implementation — never compute anchors or assemble markers by hand. This file explains what each field means and why; the script's `anchor`, `build`, and `parse-notes` subcommands are the source of truth for *how*.
+`scripts/marker.py` is the canonical implementation — never compute anchors or assemble markers by hand. This file explains what each field means and why; the script's `anchor`, `build`, and `parse-notes` subcommands are the source of truth for *how*. This reference covers only the marker *payload* fields; the structure `parse-notes` *emits* (the dedup state — `inline_fingerprints`, `summary` including the prior summary's `body` used for Step 6 carry-forward, and `pending_replies`) is documented in `gitlab-delivery.md` Step 1.
 
 ## Fields
 

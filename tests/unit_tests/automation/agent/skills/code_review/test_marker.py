@@ -165,8 +165,9 @@ class TestParseNotes:
         ]
         out = marker.parse_notes(discussions)
         # The first summary wins; the second is ignored. This is the SKILL.md
-        # contract: exactly one summary note per MR.
-        assert out["summary"] == {"discussion_id": "d1", "note_id": 10}
+        # contract: exactly one summary note per MR. ``body`` carries the prior
+        # summary markdown forward for the Step 6 delta carry-forward rule.
+        assert out["summary"] == {"discussion_id": "d1", "note_id": 10, "body": summary_line}
 
     def test_pending_reply_when_user_follows_up(self):
         # daiv posted finding → user replied → thread unresolved.
@@ -212,6 +213,16 @@ class TestParseNotes:
         out = marker.parse_notes(discussions)
         assert out == {"inline_fingerprints": [], "summary": None, "pending_replies": []}
 
+    def test_summary_carries_full_body(self):
+        # The Step 6 delta carry-forward re-reads the prior summary's full markdown from
+        # ``summary.body`` — the prose *after* the marker line is exactly what gets carried
+        # forward, so the whole multi-line body must survive intact, not just the marker.
+        summary_line = marker.build_marker("summary", sha="abc")
+        body = f"{summary_line}\n\n## Findings\n\n**1. Prior finding** — file.py:7\n- still applies"
+        discussions = [{"id": "d1", "notes": [self._note(body, note_id=10)]}]
+        out = marker.parse_notes(discussions)
+        assert out["summary"]["body"] == body
+
 
 class TestCli:
     def test_parse_notes_rejects_non_array_stdin(self, monkeypatch, capsys):
@@ -237,6 +248,69 @@ class TestCli:
         assert rc == 0
         out = json.loads(capsys.readouterr().out)
         assert out == {"inline_fingerprints": [], "summary": None, "pending_replies": []}
+
+    def test_parse_notes_reads_from_file_path(self, tmp_path, monkeypatch, capsys):
+        # The delivery step passes the gitlab tool's output_to_file dump by path;
+        # the discussion JSON must never need to be piped through stdin. Garbage
+        # on stdin proves the file argument is the source that wins.
+        summary_line = marker.build_marker("summary", sha="abc")
+        path = tmp_path / "discussions.json"
+        path.write_text(json.dumps([{"id": "d1", "notes": [{"id": 10, "body": summary_line}]}]))
+        monkeypatch.setattr(sys, "stdin", _StringIOStdin("not json at all"))
+        monkeypatch.setattr(sys, "argv", ["marker.py", "parse-notes", str(path)])
+        rc = marker.main()
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        # ``body`` is surfaced for the Step 6 carry-forward, read straight from the file.
+        assert out["summary"] == {"discussion_id": "d1", "note_id": 10, "body": summary_line}
+
+    def test_parse_notes_missing_file(self, tmp_path, monkeypatch, capsys):
+        missing = tmp_path / "does-not-exist.json"
+        monkeypatch.setattr(sys, "argv", ["marker.py", "parse-notes", str(missing)])
+        rc = marker.main()
+        assert rc == 1
+        assert "file not found" in capsys.readouterr().err
+
+    def test_parse_notes_unreadable_path(self, tmp_path, monkeypatch, capsys):
+        # An existing-but-unreadable path hits the generic OSError branch, distinct from
+        # FileNotFoundError. A directory is the portable trigger (IsADirectoryError is an
+        # OSError); chmod-based tests would be flaky under root.
+        monkeypatch.setattr(sys, "argv", ["marker.py", "parse-notes", str(tmp_path)])
+        rc = marker.main()
+        assert rc == 1
+        assert "cannot read" in capsys.readouterr().err
+
+    def test_parse_notes_invalid_json_file_names_the_path(self, tmp_path, monkeypatch, capsys):
+        # The source-aware message must name the *file* (not "stdin") so an operator can find
+        # the bad dump — this is the whole reason the `source` variable exists.
+        path = tmp_path / "discussions.json"
+        path.write_text("not json at all")
+        monkeypatch.setattr(sys, "argv", ["marker.py", "parse-notes", str(path)])
+        rc = marker.main()
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "invalid JSON" in err
+        assert str(path) in err
+
+    def test_parse_notes_non_array_file_names_the_path(self, tmp_path, monkeypatch, capsys):
+        path = tmp_path / "discussions.json"
+        path.write_text('{"not": "an array"}')
+        monkeypatch.setattr(sys, "argv", ["marker.py", "parse-notes", str(path)])
+        rc = marker.main()
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "expected a JSON array" in err
+        assert str(path) in err
+
+    def test_parse_notes_non_utf8_file(self, tmp_path, monkeypatch, capsys):
+        # A non-UTF-8 dump must degrade to the clean "invalid JSON" message and exit 1, not
+        # escape as a raw UnicodeDecodeError traceback.
+        path = tmp_path / "discussions.json"
+        path.write_bytes(b"\xff\xfe not valid utf-8")
+        monkeypatch.setattr(sys, "argv", ["marker.py", "parse-notes", str(path)])
+        rc = marker.main()
+        assert rc == 1
+        assert "invalid JSON" in capsys.readouterr().err
 
 
 class _StringIOStdin:
