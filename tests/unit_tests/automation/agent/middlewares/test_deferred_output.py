@@ -93,3 +93,19 @@ async def test_nothing_to_defer_returns_none():
 
     assert result is None
     backend.awrite.assert_not_awaited()
+
+
+async def test_serialize_failure_keeps_inline_output_and_skips_write():
+    # The "never drop findings" contract has two halves: a backend write failure (covered above)
+    # AND serialization itself raising. A structured_response that isn't JSON-serializable (a set)
+    # makes json.dumps raise inside _extract; aafter_agent must swallow it, return None so
+    # deepagents re-inlines structured_response, and never even attempt the write.
+    backend = Mock()
+    backend.awrite = AsyncMock()
+
+    result = await _mw(backend).aafter_agent(
+        {"structured_response": {"findings": {1, 2, 3}}, "messages": [AIMessage(content="done")]}, Mock()
+    )
+
+    assert result is None
+    backend.awrite.assert_not_awaited()

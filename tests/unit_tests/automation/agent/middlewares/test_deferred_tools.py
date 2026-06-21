@@ -235,6 +235,15 @@ class TestDeferredToolsMiddleware:
 
 
 class TestDeferredToolsMiddlewareCorrectiveMessages:
+    # These drive the handler with a real ``ModelResponse`` (whose message list lives on ``.result``),
+    # NOT a MagicMock — a MagicMock fabricates whatever attribute the code reads, so it would mask a
+    # wrong attribute name (the corrective-nudge path reads/writes ``response.result``).
+    @staticmethod
+    def _response(*messages):
+        from langchain.agents.middleware.types import ModelResponse
+
+        return ModelResponse(result=list(messages))
+
     async def test_corrective_message_for_unloaded_tool_call(self):
         from langchain_core.messages import AIMessage, ToolMessage
 
@@ -244,16 +253,14 @@ class TestDeferredToolsMiddlewareCorrectiveMessages:
         ai_message = AIMessage(
             content="", tool_calls=[{"name": "github_create_issue", "id": "call_abc", "args": {}, "type": "tool_call"}]
         )
-        response = MagicMock()
-        response.messages = [ai_message]
 
         async def handler(req):
-            return response
+            return self._response(ai_message)
 
         request = _request(state={})
         result = await middleware.awrap_model_call(request, handler)
 
-        tool_messages = [m for m in result.messages if isinstance(m, ToolMessage)]
+        tool_messages = [m for m in result.result if isinstance(m, ToolMessage)]
         assert len(tool_messages) == 1
         assert tool_messages[0].tool_call_id == "call_abc"
         assert "tool_search" in tool_messages[0].content
@@ -268,16 +275,14 @@ class TestDeferredToolsMiddlewareCorrectiveMessages:
         ai_message = AIMessage(
             content="", tool_calls=[{"name": "github_create_issue", "id": "call_abc", "args": {}, "type": "tool_call"}]
         )
-        response = MagicMock()
-        response.messages = [ai_message]
 
         async def handler(req):
-            return response
+            return self._response(ai_message)
 
         request = _request(state={"loaded_tool_names": {"github_create_issue"}})
         result = await middleware.awrap_model_call(request, handler)
 
-        assert not [m for m in result.messages if isinstance(m, ToolMessage)]
+        assert not [m for m in result.result if isinstance(m, ToolMessage)]
 
     async def test_no_corrective_message_for_non_deferred_tool(self):
         from langchain_core.messages import AIMessage, ToolMessage
@@ -288,16 +293,14 @@ class TestDeferredToolsMiddlewareCorrectiveMessages:
             content="",
             tool_calls=[{"name": "read_file", "id": "call_xyz", "args": {"path": "/x"}, "type": "tool_call"}],
         )
-        response = MagicMock()
-        response.messages = [ai_message]
 
         async def handler(req):
-            return response
+            return self._response(ai_message)
 
         request = _request(state={})
         result = await middleware.awrap_model_call(request, handler)
 
-        assert not [m for m in result.messages if isinstance(m, ToolMessage)]
+        assert not [m for m in result.result if isinstance(m, ToolMessage)]
 
     async def test_corrective_message_for_each_unloaded_tool_call(self):
         from langchain_core.messages import AIMessage, ToolMessage
@@ -313,18 +316,18 @@ class TestDeferredToolsMiddlewareCorrectiveMessages:
                 {"name": "sentry_find_orgs", "id": "call_2", "args": {}, "type": "tool_call"},
             ],
         )
-        response = MagicMock()
-        response.messages = [ai_message]
 
         async def handler(req):
-            return response
+            return self._response(ai_message)
 
         result = await middleware.awrap_model_call(_request(state={}), handler)
 
-        tool_messages = [m for m in result.messages if isinstance(m, ToolMessage)]
+        tool_messages = [m for m in result.result if isinstance(m, ToolMessage)]
         assert sorted(m.tool_call_id for m in tool_messages) == ["call_1", "call_2"]
 
-    async def test_response_without_messages_attr_does_not_crash(self):
+    async def test_response_without_result_attr_does_not_crash(self):
+        # A handler that returns something other than a ModelResponse (no ``.result``) must degrade
+        # to "no nudge", not raise — the getattr-with-default guard in _inject_corrective_messages.
         middleware = DeferredToolsMiddleware(always_loaded=set())
 
         class _Bare:

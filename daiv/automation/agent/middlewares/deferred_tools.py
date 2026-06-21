@@ -117,7 +117,9 @@ class DeferredToolsMiddleware(AgentMiddleware):
 
     def _inject_corrective_messages(self, response: ModelResponse, loaded_names: set[str]) -> None:
         # Without this, the tool node emits a generic "unknown tool" error and the model often retries blindly.
-        messages = getattr(response, "messages", None)
+        # ModelResponse carries its messages on ``result`` (getattr-with-default so a non-ModelResponse
+        # handler return — e.g. a bare object — degrades to "no nudge" rather than raising).
+        messages = getattr(response, "result", None)
         if not messages or self._index is None:
             return
         last = messages[-1]
@@ -143,7 +145,7 @@ class DeferredToolsMiddleware(AgentMiddleware):
             )
 
         if corrective:
-            response.messages = [*messages, *corrective]
+            response.result = [*messages, *corrective]
 
 
 def direct_mcp_tools(mcp_tools: list[BaseTool] | None) -> list[BaseTool]:
