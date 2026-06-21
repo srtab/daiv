@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "title": "Finding",
+  "description": "One code-review finding emitted by a detector subagent.",
+  "properties": {
+    "detector": {"type": "string", "enum": ["correctness", "security", "performance", "structure", "custom-rules"]},
+    "file": {"type": "string", "minLength": 1, "description": "new_path from the diff"},
+    "line": {"type": "integer", "minimum": 1, "description": "new-side line number"},
+    "bar": {"type": "string", "enum": ["defect", "structural", "question"], "description": "Signal-filter class; defect is the highest severity, question the lowest"},
+    "archetype": {"type": "string", "enum": ["remove_dead_lines", "use_framework_idiom", "replace_with_constant", "swap_library_call", "question", "discussion"]},
+    "title": {"type": "string", "minLength": 1},
+    "rationale": {"type": "string", "minLength": 1},
+    "suggestion": {"type": "string", "description": "optional; fix archetypes only"},
+    "source": {"type": "string", "description": "custom-rules only: the rule enforced"}
+  },
+  "required": ["detector", "file", "line", "bar", "archetype", "title", "rationale"],
+  "additionalProperties": false
+}

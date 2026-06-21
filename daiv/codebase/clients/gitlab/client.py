@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import time
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
@@ -43,6 +44,30 @@ if TYPE_CHECKING:
     from codebase.clients.base import Emoji, WebhookSetupResult
 
 logger = logging.getLogger("daiv.clients")
+
+# GitLab does not guarantee a just-pushed branch is immediately visible to the merge-request-create
+# validation: the ref lands in Gitaly synchronously with the push HTTP response, but the branch view
+# that `POST /merge_requests` checks is refreshed by the (asynchronous) post-receive processing. A
+# sandbox-authoritative run pushes from inside the sandbox and creates the MR from the app in the same
+# instant, landing squarely in that window, so the create can fail with
+# `400 {'source_branch': ['does not exist']}` for a branch that was *just* pushed successfully. Retry
+# the create until the branch becomes visible (a successful create is the signal), sleeping these many
+# seconds between attempts (~15s of backoff over four retries) before one final attempt whose error
+# surfaces to the caller.
+MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+
+
+def _is_source_branch_missing_error(error: GitlabCreateError) -> bool:
+    """True when GitLab rejected MR creation because the source branch isn't visible yet.
+
+    Matches `400 {'source_branch': ['does not exist']}` — the signature of GitLab's post-push
+    branch-visibility race. Stringifies the body so it matches whether python-gitlab surfaced
+    ``error_message`` as the parsed dict or as a str.
+    """
+    if error.response_code != 400:
+        return False
+    body = str(error.error_message).lower()
+    return "source_branch" in body and "does not exist" in body
 
 
 class GitLabClient(RepoClient):
@@ -502,16 +527,17 @@ class GitLabClient(RepoClient):
             The merge request data.
         """
         project = self.client.projects.get(repo_id, lazy=True)
+        payload = {
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "title": title,
+            "description": description,
+            "labels": labels or [],
+            "assignee_id": assignee_id,
+            "work_in_progress": as_draft,
+        }
         try:
-            merge_request = project.mergerequests.create({
-                "source_branch": source_branch,
-                "target_branch": target_branch,
-                "title": title,
-                "description": description,
-                "labels": labels or [],
-                "assignee_id": assignee_id,
-                "work_in_progress": as_draft,
-            })
+            merge_request = self._create_merge_request_awaiting_branch(project, payload, source_branch)
             return self._serialize_merge_request(repo_id, merge_request)
         except GitlabCreateError as e:
             if e.response_code != 409:
@@ -528,6 +554,37 @@ class GitLabClient(RepoClient):
                 merge_request.save()
                 return self._serialize_merge_request(repo_id, merge_request)
             raise e
+
+    def _create_merge_request_awaiting_branch(
+        self, project: Any, payload: dict[str, Any], source_branch: str
+    ) -> ProjectMergeRequest:
+        """Create the merge request, retrying past GitLab's post-push branch-visibility race.
+
+        The agent commits and pushes ``source_branch`` (from inside the sandbox) and then asks the
+        GitLab API to open the MR in the same instant. GitLab can briefly report the just-pushed
+        branch as missing (see :func:`_is_source_branch_missing_error`); retry the create on the
+        backoff schedule until the branch is visible. Any other ``GitlabCreateError`` (e.g. the 409
+        for an MR that already exists) propagates immediately for the caller to handle.
+        """
+        retries = MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS
+        for attempt, delay in enumerate(retries, start=1):
+            try:
+                return project.mergerequests.create(payload)
+            except GitlabCreateError as e:
+                if not _is_source_branch_missing_error(e):
+                    raise
+                logger.warning(
+                    "MR create reported source branch '%s' missing right after push (retry %d/%d in %.1fs); "
+                    "GitLab's branch view is lagging the push.",
+                    source_branch,
+                    attempt,
+                    len(retries),
+                    delay,
+                )
+                time.sleep(delay)
+        # Retries exhausted: the branch should be visible now, so this final attempt's result — or its
+        # error, if the branch genuinely never appeared — is the caller's to handle.
+        return project.mergerequests.create(payload)
 
     def get_merge_request_by_branches(
         self, repo_id: str, source_branch: str, target_branch: str

@@ -4,8 +4,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import HumanMessage
 from langgraph.config import get_config
+
+from automation.agent.middlewares.reminders import append_system_reminder
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -68,7 +69,7 @@ class StepBudgetMiddleware(AgentMiddleware):
         reminder = self._budget_reminder()
         if reminder is None:
             return await handler(request)
-        return await handler(request.override(messages=[*request.messages, HumanMessage(content=reminder)]))
+        return await handler(append_system_reminder(request, reminder))
 
     def _budget_reminder(self) -> str | None:
         """Build the budget reminder for the current superstep, or ``None`` when far from the limit."""

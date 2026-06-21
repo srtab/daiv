@@ -17,6 +17,10 @@ SKILLS_PATH = "/workspace/skills"
 # composite's default fall-through area (alongside offloaded artifacts).
 TMP_PATH = "/workspace/tmp"
 
+# Per-run directory where subagents configured to defer their output write their result files,
+# consumed by the orchestrator (e.g. code-review's findings.py merge). Under the ephemeral scratchpad.
+SUBAGENT_OUTPUT_PATH = f"{TMP_PATH}/subagent-output"
+
 # On-disk root the composite backend mounts at ``SKILLS_PATH``. Created at module
 # import (loud failure if ``$TMPDIR`` is unwritable, which would manifest as a startup
 # ImportError on production, or a confusing pytest collection error locally).

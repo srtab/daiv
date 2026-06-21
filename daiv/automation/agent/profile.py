@@ -5,8 +5,10 @@ suppression of upstream's ``BASE_AGENT_PROMPT`` (DAIV ships its own system
 prompt via ``dynamic_daiv_system_prompt`` and the upstream content would
 otherwise be appended verbatim, causing duplicate identity/Core-Behavior/
 Doing-Tasks sections), exclusion of the auto-added ``TodoListMiddleware``
-(DAIV supplies its own instance with a custom ``system_prompt`` so main
-agent and subagents share the same todo guidance), filesystem tool
+(DAIV ships its own ``DAIVTodoListMiddleware`` subclass with a custom
+``system_prompt`` — a subclass precisely so the exact-type exclusion drops
+only the auto-added base instance and lets DAIV's own survive; main agent
+and subagents share the same todo guidance), filesystem tool
 description overrides, exclusion of upstream's
 ``AnthropicPromptCachingMiddleware`` (DAIV ships its own OpenRouter-aware
 subclass), and disabling the auto-added ``general-purpose`` subagent
@@ -22,9 +24,13 @@ from __future__ import annotations
 
 from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, register_harness_profile
 
-# Class-form exclusion (exact-type match). DAIV's subclass shares the same
-# ``__name__`` as upstream, so string-form would match both — class-form is
-# mandatory here.
+# Class-form exclusion (exact-type match) for both entries: the upstream base
+# instance is dropped while DAIV's subclass survives. Class-form is *mandatory*
+# for the prompt-cache subclass, which shares upstream's ``__name__`` — a
+# string-form ``"AnthropicPromptCachingMiddleware"`` entry would match the
+# subclass too and drop both. ``DAIVTodoListMiddleware`` has a distinct name, so
+# a string-form entry would already spare it; class-form is used here only for
+# consistency with the prompt-cache entry, not out of necessity.
 from langchain.agents.middleware import TodoListMiddleware
 from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware as _UpstreamAnthropicPromptCachingMiddleware
 

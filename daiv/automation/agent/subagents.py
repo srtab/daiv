@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -9,10 +10,12 @@ from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import CompiledSubAgent
 from deepagents.middleware.summarization import compute_summarization_defaults
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware, TodoListMiddleware
+from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware
 
 from automation.agent import BaseAgent
-from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
+from automation.agent.constants import BUILTIN_SKILLS_PATH, REPO_PATH, SUBAGENT_OUTPUT_PATH, WORKSPACE_PATH
+from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
+from automation.agent.middlewares.deferred_tools import deferred_tools_middleware, direct_mcp_tools
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
     WORKSPACE_ARTIFACT_SUBTREES,
@@ -22,15 +25,20 @@ from automation.agent.middlewares.file_system import (
 )
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
+from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
-from automation.agent.middlewares.sandbox import SandboxMiddleware
+from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
+from automation.agent.middlewares.todos import DAIVTodoListMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from deepagents.backends import BackendProtocol
     from langchain.chat_models import BaseChatModel
+    from langchain_core.tools import BaseTool
 
     from automation.agent.middlewares.file_system import SandboxFileBackend
     from codebase.context import RuntimeCtx
@@ -38,6 +46,27 @@ if TYPE_CHECKING:
 
 GENERAL_PURPOSE_NAME = "general-purpose"
 EXPLORE_NAME = "explore"
+
+CODE_REVIEW_DETECTOR_NAMES = ("cr-correctness", "cr-security", "cr-performance", "cr-structure", "cr-custom-rules")
+
+_CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / "code-review"
+CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"
+CODE_REVIEW_FINDING_SCHEMA_PATH = _CODE_REVIEW_SKILL_PATH / "scripts" / "finding.schema.json"
+
+# Prepended to every cr-* detector's charter at compile time (load_builtin_code_review_detectors).
+# Holds the parts that are identical across all detectors — how the change is delivered and read,
+# the read-only contract, and the archetype enum — so each charter file carries only its own
+# dimension (the "You are the X detector" line, its principles slice, its Signal-filter nuance, and
+# its `detector` value). One source instead of five copies. The read-only contract is prompt-layer
+# enforcement: the detector sandbox is a full bash shell with no per-subagent command policy, so this
+# is the only thing stopping a detector from mutating the shared workspace via bash — keep it here.
+SHARED_DETECTOR_PREAMBLE = """You are one of DAIV's code-review fan-out detectors. The procedure below is shared by every detector; the dimension you own — and the findings you may report — are defined after it.
+
+You will be given the change's scope: source/target refs, the SHA triplet, the new-side path scope, and the path to a pre-computed unified diff file. **Read that diff file** to see the change. If no diff path was provided or the file is unreadable, fall back to reconstructing the change yourself — run `git diff <target>...<source>`, or, when `bash` is unavailable (a disk-backed run with no sandbox), read the changed files directly with `read_file`/`grep` over the new-side path scope. Either way, read surrounding code for context before deciding; context is what keeps false positives down.
+
+**You are read-only.** Use `bash` only for read-only inspection: `git diff`/`show`/`log`/`status`, `grep`, `find`, `cat`, and read-mode `sed`/`awk` (never `sed -i`). Never mutate the workspace — no output redirects (`>`, `>>`, `tee`), no `sed -i` / `python -c` writes, no formatters, tests, builds, or package managers, and no `git add`/`commit`/`checkout`/`reset`/`restore`/`clean`. If confirming a finding would need code execution, raise it as a `question` finding instead of running it.
+
+Set `archetype` to one of the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else."""  # noqa: E501
 
 logger = logging.getLogger("daiv.agent")
 
@@ -57,6 +86,57 @@ def _general_purpose_system_prompt(working_directory: str) -> str:
 """  # noqa: E501
 
 
+# Tools kept eagerly bound on a subagent's model; web search/fetch, git-platform, and the MCP toolset
+# are all deferred behind tool_search — the same policy as the main agent. This mirrors
+# ALWAYS_LOADED_TOOLS (graph.py) minus `skill`/`task` (subagents spawn neither). A deferred tool stays
+# loaded for the rest of the subagent's session once loaded, so a delegate that needs web/git pays at
+# most one tool_search. DAIV-owned tool names reference their canonical constant; deepagents-provided
+# names (filesystem, write_todos) stay as literals.
+SUBAGENT_ALWAYS_LOADED_TOOLS = frozenset({
+    "ls",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "glob",
+    "grep",
+    BASH_TOOL_NAME,
+    "write_todos",
+})
+
+
+def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) -> list[AgentMiddleware[Any, Any, Any]]:
+    """The summarization + observability tail common to every subagent stack.
+
+    Shared by the general-purpose, explore, and code-review detector builders: context
+    summarization, loop-break detection, prompt caching, tool-call logging, and tool-call
+    patching, in that order. Callers prepend their own head (todos / filesystem permissions /
+    git-platform / web tools) and append the conditional sandbox + fallback middleware (plus,
+    for the general-purpose and custom builders, a deferred-tools middleware exposing the
+    parent's MCP toolset).
+    """
+    summarization_defaults = compute_summarization_defaults(model)
+    return [
+        SummarizationMiddleware(
+            model=model,
+            backend=backend,
+            trigger=summarization_defaults["trigger"],
+            keep=summarization_defaults["keep"],
+            trim_tokens_to_summarize=None,
+            truncate_args_settings=summarization_defaults["truncate_args_settings"],
+        ),
+        # Subagents (incl. cr-* detectors) are forced to tool_choice="any" by structured output,
+        # so they have no natural stop; a stuck model loops to recursion_limit. On a stuck loop the
+        # breaker finalizes the subagent with an explicit ERROR message (NOT a raise — a raised
+        # exception would propagate out of the task tool's ToolNode and abort the whole parent run).
+        # The error message flows back as the task result / deferred-output text so the orchestrator
+        # sees a failed subagent, not "no findings".
+        LoopBreakerMiddleware(terminal="error"),
+        AnthropicPromptCachingMiddleware(),
+        ToolCallLoggingMiddleware(),
+        PatchToolCallsMiddleware(),
+    ]
+
+
 def _build_general_purpose_middleware(
     model: BaseChatModel,
     backend: BackendProtocol,
@@ -67,36 +147,29 @@ def _build_general_purpose_middleware(
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
+    mcp_tools: list[BaseTool] | None = None,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
 
     ``close_session=False`` lets the subagent reuse the parent agent's sandbox session.
+
+    ``mcp_tools`` is the parent agent's MCP toolset; when deferral is enabled it is exposed to the
+    subagent via a ``DeferredToolsMiddleware`` (otherwise bound directly by the caller). This lets a
+    ``task`` delegation actually call MCP tools instead of failing with ``command not found``.
     """
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
-    _summarization_defaults = compute_summarization_defaults(model)
-
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
+        DAIVTodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=sandbox_enabled)),
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             _permissions=None if sandbox_enabled else WORKSPACE_FENCE_PERMISSIONS,
         ),
         GitPlatformMiddleware(git_platform=runtime.git_platform, backend=backend),
-        SummarizationMiddleware(
-            model=model,
-            backend=backend,
-            trigger=_summarization_defaults["trigger"],
-            keep=_summarization_defaults["keep"],
-            trim_tokens_to_summarize=None,
-            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
-        ),
-        AnthropicPromptCachingMiddleware(),
-        ToolCallLoggingMiddleware(),
-        PatchToolCallsMiddleware(),
+        *_shared_subagent_middleware(model, backend),
     ]
 
     if web_search_enabled:
@@ -113,7 +186,177 @@ def _build_general_purpose_middleware(
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
 
+    middleware.extend(deferred_tools_middleware(SUBAGENT_ALWAYS_LOADED_TOOLS, mcp_tools))
+
     return middleware
+
+
+def _build_detector_middleware(
+    model: BaseChatModel,
+    backend: BackendProtocol,
+    sandbox_enabled: bool = True,
+    fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
+    *,
+    name: str,
+) -> list:
+    """Build the middleware stack for a code-review detector subagent.
+
+    Narrower than the general-purpose stack: filesystem is read-only (detectors only
+    read the diff + surrounding code), the sandbox is kept so detectors can run ``git``
+    reads (it's a full bash sandbox, not git-restricted), and there is no git-platform
+    middleware (detectors never post), no web tools, and no ``TodoListMiddleware``.
+
+    Like the general-purpose subagent, the sandbox is rooted at the unified ``/workspace/repo``
+    and reuses the run's bound ``client``/``sandbox_backend`` so the detector's bash runs in the
+    parent's session (``close_session=False``).
+    """
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        FilesystemMiddleware(
+            backend=backend, custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS, _permissions=READ_ONLY_PERMISSIONS
+        ),
+        *_shared_subagent_middleware(model, backend),
+    ]
+
+    if sandbox_enabled:
+        middleware.append(
+            SandboxMiddleware(agent_root=REPO_PATH, client=client, sandbox_backend=sandbox_backend, close_session=False)
+        )
+
+    if fallback_models:
+        middleware.append(ModelFallbackMiddleware(*fallback_models))
+
+    # Keep this last: after_agent hooks fire in reverse append order, so appending last makes this
+    # run first in the exit chain. The detector's SandboxMiddleware is built with close_session=False,
+    # so it never closes the (parent-owned) shared session itself — the point of running first is to
+    # complete the backend write within the subagent's own after_agent pass, while the session is still
+    # alive, before control returns to the parent (which alone tears the session down, at parent END).
+    middleware.append(DeferredOutputMiddleware(backend=backend, name=name, output_dir=SUBAGENT_OUTPUT_PATH))
+
+    return middleware
+
+
+def _load_detector_response_format(schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH) -> dict:
+    """Wrap the canonical per-finding schema into the object schema a detector returns.
+
+    Detectors emit ``{"findings": [<finding>, ...]}``; deepagents serializes the
+    ``structured_response`` into the task ToolMessage for the orchestrator.
+    """
+    finding_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    return {
+        "type": "object",
+        "title": "DetectorFindings",
+        "properties": {"findings": {"type": "array", "items": finding_schema}},
+        "required": ["findings"],
+        "additionalProperties": False,
+    }
+
+
+def load_builtin_code_review_detectors(
+    model: BaseChatModel,
+    backend: BackendProtocol,
+    runtime: RuntimeCtx,
+    working_directory: str,
+    sandbox_enabled: bool = True,
+    fallback_models: list[BaseChatModel] | None = None,
+    client: DAIVSandboxClient | None = None,
+    sandbox_backend: SandboxFileBackend | None = None,
+    *,
+    agents_dir: Path = CODE_REVIEW_AGENTS_PATH,
+    schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH,
+) -> list[CompiledSubAgent]:
+    """Compile the code-review detector subagents from their charter markdown files.
+
+    Each ``*.md`` under ``agents_dir`` (shipped inside the code-review skill) becomes a
+    detector subagent whose body is its system prompt, with a read-only middleware stack
+    and a ``response_format`` derived from the canonical finding schema. A charter that
+    fails to parse (or names an invalid model) is skipped and logged — the review then
+    runs with the detectors that loaded. The loaded detectors appear in the ``task``
+    tool's available-agents list, which the skill reconciles against its expected set to
+    report a truthful "loaded/expected detectors" status; any shortfall is logged at
+    ERROR here with the missing names so a degraded deploy is visible server-side too.
+    """
+    if not agents_dir.is_dir():
+        logger.warning("Code-review detector dir %s not found; skipping detector subagents", agents_dir)
+        return []
+
+    try:
+        response_format = _load_detector_response_format(schema_path)
+    except OSError, json.JSONDecodeError:
+        # Same graceful-degradation contract as the missing-dir guard above: a missing or corrupt
+        # finding schema must disable code-review detectors only, never abort the whole agent build.
+        # This loader runs inside create_daiv_agent on every run (chat, jobs, issues) — not just
+        # reviews — so an unguarded read here would take down all agent invocations over one asset.
+        logger.exception("Code-review finding schema %s missing or invalid; skipping detector subagents", schema_path)
+        return []
+    detectors: list[CompiledSubAgent] = []
+    failed: list[str] = []  # charter file stems that were present but didn't compile
+
+    for md_file in sorted(agents_dir.glob("*.md")):
+        try:
+            content = md_file.read_text(encoding="utf-8")
+        except OSError:
+            logger.warning("Could not read detector charter %s; skipping", md_file)
+            failed.append(md_file.stem)
+            continue
+
+        parsed = _parse_subagent_frontmatter(
+            content, str(md_file), permitted_reserved_names=frozenset(CODE_REVIEW_DETECTOR_NAMES)
+        )
+        if parsed is None:
+            failed.append(md_file.stem)
+            continue
+
+        frontmatter, body = parsed
+
+        detector_model = model
+        if frontmatter_model := str(frontmatter.get("model", "")).strip():
+            try:
+                detector_model = BaseAgent.get_model(model=frontmatter_model)
+            except ValueError:
+                # Unknown/empty model spec — a charter config typo. Skip just this detector.
+                logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
+                failed.append(md_file.stem)
+                continue
+            except Exception:
+                # Anything else (disabled provider, missing API key, SDK init failure) is an
+                # environment problem, not a bad charter. Don't mislabel it "invalid model" —
+                # log the full traceback so it's distinguishable, then skip rather than abort
+                # the whole agent build over one detector.
+                logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, frontmatter_model)
+                failed.append(md_file.stem)
+                continue
+
+        middleware = _build_detector_middleware(
+            detector_model, backend, sandbox_enabled, fallback_models, client, sandbox_backend, name=frontmatter["name"]
+        )
+        detectors.append(
+            _compile_subagent(
+                name=frontmatter["name"],
+                description=frontmatter["description"],
+                model=detector_model,
+                # Every charter shares the same scope/read-only/archetype preamble; it lives in one
+                # constant and is prepended here so the charter files carry only their per-dimension
+                # slice (see SHARED_DETECTOR_PREAMBLE).
+                body=f"{SHARED_DETECTOR_PREAMBLE}\n\n{body}",
+                middleware=middleware,
+                working_directory=working_directory,
+                response_format=response_format,
+            )
+        )
+        logger.info("Loaded code-review detector '%s' from %s", frontmatter["name"], md_file)
+
+    # Ground-truth reconciliation: a charter that was present but didn't compile is a degraded
+    # review (a whole dimension silently absent). Surface the shortfall at ERROR with names so
+    # it's actionable from logs, independent of the model-authored status line.
+    if failed:
+        total = len(detectors) + len(failed)
+        logger.error(
+            "Code-review detectors failed to load: %s (loaded %d/%d)", ", ".join(failed), len(detectors), total
+        )
+
+    return detectors
 
 
 def create_general_purpose_subagent(
@@ -127,13 +370,14 @@ def create_general_purpose_subagent(
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
+    mcp_tools: list[BaseTool] | None = None,
 ) -> CompiledSubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
     """
     runnable = create_agent(
         model=model,
-        tools=[],
+        tools=direct_mcp_tools(mcp_tools),
         system_prompt=_general_purpose_system_prompt(working_directory),
         middleware=_build_general_purpose_middleware(
             model,
@@ -145,6 +389,7 @@ def create_general_purpose_subagent(
             fallback_models,
             client,
             sandbox_backend,
+            mcp_tools=mcp_tools,
         ),
         name=GENERAL_PURPOSE_NAME,
     )
@@ -231,26 +476,15 @@ def create_explore_subagent(
     from automation.agent.graph import dynamic_write_todos_system_prompt
 
     model = BaseAgent.get_model(model=site_settings.agent_explore_model_name)
-    _summarization_defaults = compute_summarization_defaults(model)
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
+        DAIVTodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
         FilesystemMiddleware(
             backend=backend,
             custom_tool_descriptions=CUSTOM_TOOL_DESCRIPTIONS,
             _permissions=_explore_permissions(sandbox_enabled=sandbox_enabled),
         ),
-        SummarizationMiddleware(
-            model=model,
-            backend=backend,
-            trigger=_summarization_defaults["trigger"],
-            keep=_summarization_defaults["keep"],
-            trim_tokens_to_summarize=None,
-            truncate_args_settings=_summarization_defaults["truncate_args_settings"],
-        ),
-        AnthropicPromptCachingMiddleware(),
-        ToolCallLoggingMiddleware(),
-        PatchToolCallsMiddleware(),
+        *_shared_subagent_middleware(model, backend),
     ]
 
     if fallback_model_name := site_settings.agent_explore_fallback_model_name:
@@ -272,19 +506,24 @@ def create_explore_subagent(
     return CompiledSubAgent(name=EXPLORE_NAME, description=EXPLORE_SUBAGENT_DESCRIPTION, runnable=runnable)
 
 
-# Names reserved for built-in subagents. Custom subagents may not use these names.
-BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({GENERAL_PURPOSE_NAME, EXPLORE_NAME})
+# Names reserved for built-in subagents. Custom (per-repo) subagents may not use these names.
+BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({GENERAL_PURPOSE_NAME, EXPLORE_NAME, *CODE_REVIEW_DETECTOR_NAMES})
 
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
-def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str] | None:
+def _parse_subagent_frontmatter(
+    content: str, file_path: str, *, permitted_reserved_names: frozenset[str] = frozenset()
+) -> tuple[dict, str] | None:
     """
     Parse YAML frontmatter and body from a subagent markdown file.
 
     Args:
         content: The full file content.
         file_path: Path to the file (for logging).
+        permitted_reserved_names: Built-in subagent names this caller is allowed to load
+            despite the reservation. Empty by default (per-repo subagents reject every
+            reserved name); the builtin detector loader passes the cr-* names.
 
     Returns:
         Tuple of (frontmatter dict, body string), or None if parsing fails.
@@ -310,7 +549,7 @@ def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str
         logger.warning("Skipping %s: missing required 'name' or 'description'", file_path)
         return None
 
-    if name in BUILTIN_SUBAGENT_NAMES:
+    if name in BUILTIN_SUBAGENT_NAMES - permitted_reserved_names:
         logger.warning("Skipping %s: name '%s' conflicts with a built-in subagent", file_path, name)
         return None
 
@@ -325,6 +564,35 @@ def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str
     return frontmatter, body
 
 
+def _compile_subagent(
+    *,
+    name: str,
+    description: str,
+    model: BaseChatModel,
+    body: str,
+    middleware: list,
+    working_directory: str,
+    response_format: dict | type | None = None,
+    tools: list[BaseTool] | None = None,
+) -> CompiledSubAgent:
+    """Compile a system-prompt body + middleware stack into a ``CompiledSubAgent``.
+
+    Shared by ``load_custom_subagents`` (per-repo markdown subagents) and
+    ``load_builtin_code_review_detectors`` (skill-shipped detector charters). ``tools`` binds
+    extra tools directly on the model (used by custom subagents to eagerly bind MCP tools when
+    deferral is off); detectors pass none.
+    """
+    runnable = create_agent(
+        model=model,
+        tools=tools or [],
+        system_prompt=f"{body}\n\n{filesystem_absolute_path_directive(working_directory)}",
+        middleware=middleware,
+        name=name,
+        response_format=response_format,
+    )
+    return CompiledSubAgent(name=name, description=description, runnable=runnable)
+
+
 async def load_custom_subagents(
     model: BaseChatModel,
     backend: BackendProtocol,
@@ -337,6 +605,7 @@ async def load_custom_subagents(
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
+    mcp_tools: list[BaseTool] | None = None,
 ) -> list[CompiledSubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -355,6 +624,8 @@ async def load_custom_subagents(
         web_search_enabled: Whether to enable web search middleware.
         web_fetch_enabled: Whether to enable web fetch middleware.
         fallback_models: Optional fallback models for model failover.
+        mcp_tools: The parent agent's MCP toolset, exposed to each custom subagent (deferred behind
+            tool_search when deferral is on, bound directly when off) so a delegated MCP call works.
 
     Returns:
         List of CompiledSubAgent dicts for the loaded custom subagents.
@@ -402,25 +673,28 @@ async def load_custom_subagents(
                     logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
                     continue
 
-            runnable = create_agent(
-                model=subagent_model,
-                tools=[],
-                system_prompt=f"{body}\n\n{filesystem_absolute_path_directive(working_directory)}",
-                middleware=_build_general_purpose_middleware(
-                    subagent_model,
-                    backend,
-                    runtime,
-                    sandbox_enabled,
-                    web_search_enabled,
-                    web_fetch_enabled,
-                    fallback_models,
-                    client,
-                    sandbox_backend,
-                ),
-                name=frontmatter["name"],
+            middleware = _build_general_purpose_middleware(
+                subagent_model,
+                backend,
+                runtime,
+                sandbox_enabled,
+                web_search_enabled,
+                web_fetch_enabled,
+                fallback_models,
+                client,
+                sandbox_backend,
+                mcp_tools=mcp_tools,
             )
             subagents.append(
-                CompiledSubAgent(name=frontmatter["name"], description=frontmatter["description"], runnable=runnable)
+                _compile_subagent(
+                    name=frontmatter["name"],
+                    description=frontmatter["description"],
+                    model=subagent_model,
+                    body=body,
+                    middleware=middleware,
+                    working_directory=working_directory,
+                    tools=direct_mcp_tools(mcp_tools),
+                )
             )
 
             logger.info("Loaded custom subagent '%s' from %s", frontmatter["name"], file_path)

@@ -37,6 +37,22 @@ def test_run_commands_response_no_patch():
     assert "patch" not in RunCommandsResponse.model_fields
 
 
+def test_run_command_result_preserves_full_output():
+    """Command output is returned in full — no line-count truncation.
+
+    The internal ``GitManager`` needs the complete ``git diff`` (a cut-mid-hunk diff is
+    unparseable), and the agent's ``bash`` tool offloads oversized output to a file via the
+    filesystem middleware's token-threshold eviction. So the wire type must not silently
+    drop lines.
+    """
+    from core.sandbox.schemas import RunCommandResult
+
+    output = "\n".join(f"line {i}" for i in range(5000))
+    result = RunCommandResult(command="git diff", output=output, exit_code=0)
+    assert result.output.count("\n") == output.count("\n")
+    assert result.output.endswith("line 4999")
+
+
 def test_fs_error_message_must_be_non_empty():
     from core.sandbox.schemas import FsError, FsErrorCode
 

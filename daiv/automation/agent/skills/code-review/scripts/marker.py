@@ -4,7 +4,7 @@
 Subcommands:
   anchor       compute the 8-hex anchor for an inline finding
   build        build a <!-- daiv-cr ... --> marker line (inline | summary | reply)
-  parse-notes  parse MR discussions on stdin; emit dedup state + pending replies
+  parse-notes  parse MR discussions (from a file path, or stdin); emit dedup state + pending replies
 
 The skill owns prose, severity, and posting via the gitlab tool. This script
 owns the parts that must be byte-identical across runs so dedup holds across
@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 import sys
+from pathlib import Path
 
 MARKER_PREFIX = "<!-- daiv-cr "
 MARKER_SUFFIX = " -->"
@@ -117,7 +118,14 @@ def parse_notes(discussions: list[dict]) -> dict:
             if all(seed_payload.get(k) for k in ("archetype", "file", "anchor")):
                 inline.append(["inline", seed_payload["archetype"], seed_payload["file"], seed_payload["anchor"]])
         elif seed_kind == "summary" and summary is None:
-            summary = {"discussion_id": disc.get("id"), "note_id": notes[seed_idx].get("id")}
+            # `body` lets the delivery step carry forward prior discussion-only findings on a
+            # delta re-review (gitlab-delivery.md Step 6) straight from this structured output —
+            # the raw discussion JSON is written to a file and never enters the agent's context.
+            summary = {
+                "discussion_id": disc.get("id"),
+                "note_id": notes[seed_idx].get("id"),
+                "body": notes[seed_idx].get("body", ""),
+            }
 
         last_daiv_idx = seed_idx
         for i in range(seed_idx + 1, len(notes)):
@@ -163,8 +171,16 @@ def main() -> int:
     p_build.add_argument("--line", type=int, help="Inline only: new_line from the diff.")
     p_build.add_argument("--anchor", help="Inline only: 8-hex anchor from `marker.py anchor`.")
 
-    sub.add_parser(
-        "parse-notes", help="Parse existing MR discussions on stdin (JSON array). Emit dedup state on stdout."
+    p_parse = sub.add_parser(
+        "parse-notes",
+        help="Parse existing MR discussions (JSON array) from a file path, or stdin. Emit dedup state on stdout.",
+    )
+    p_parse.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Path to a JSON file holding the discussion array (e.g. the gitlab tool's output_to_file "
+        "dump). Omit to read the array from stdin.",
     )
 
     args = parser.parse_args()
@@ -183,12 +199,25 @@ def main() -> int:
 
     if args.cmd == "parse-notes":
         try:
-            discussions = json.load(sys.stdin)
-        except json.JSONDecodeError as exc:
-            sys.stderr.write(f"invalid JSON on stdin: {exc}\n")
+            if args.path:
+                with Path(args.path).open(encoding="utf-8") as fh:
+                    discussions = json.load(fh)
+            else:
+                discussions = json.load(sys.stdin)
+        except FileNotFoundError:
+            sys.stderr.write(f"file not found: {args.path}\n")
+            return 1
+        except OSError as exc:
+            sys.stderr.write(f"cannot read {args.path}: {exc}\n")
+            return 1
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            # A non-UTF-8 dump (UnicodeDecodeError) is the same class of failure as malformed
+            # JSON: the file isn't parseable discussion data. Both are ValueError subclasses,
+            # disjoint from the OSError hierarchy above, so order against it is irrelevant.
+            sys.stderr.write(f"invalid JSON in {args.path or 'stdin'}: {exc}\n")
             return 1
         if not isinstance(discussions, list):
-            sys.stderr.write("expected a JSON array of discussions on stdin\n")
+            sys.stderr.write(f"expected a JSON array of discussions in {args.path or 'stdin'}\n")
             return 1
         json.dump(parse_notes(discussions), sys.stdout)
         sys.stdout.write("\n")
