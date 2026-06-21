@@ -97,6 +97,9 @@ x-app-environment-defaults: &app_environment_defaults
   EMAIL_USE_TLS: true
   # SANDBOX
   DAIV_SANDBOX_URL: http://sandbox:8000 (4)
+  # MCP (built-in supergateway containers)
+  MCP_SENTRY_URL: http://mcp-sentry:8000/mcp (17)
+  MCP_CONTEXT7_URL: http://mcp-context7:8000/mcp (17)
 
 x-deploy-defaults: &deploy_defaults
   replicas: 1
@@ -242,9 +245,14 @@ services:
     image: supercorp/supergateway:latest
     command:
       - --stdio
-      - "npx @sentry/mcp-server@latest --access-token=$$(cat /run/secrets/sentry_access_token)" (9)
+      - "SENTRY_ACCESS_TOKEN=$$(cat /run/secrets/sentry_access_token) npx @sentry/mcp-server@latest" (9)
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
+      - --stateful
+      - --sessionTimeout
+      - "300000"
     environment:
       SENTRY_HOST: your-sentry-host
     secrets:
@@ -263,8 +271,13 @@ services:
     command:
       - --stdio
       - "npx @upstash/context7-mcp@latest"
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
+      - --stateful
+      - --sessionTimeout
+      - "300000"
     networks:
       - internal
     healthcheck:
@@ -318,9 +331,10 @@ secrets:
 1. See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 1. **Required**: Sandbox needs Docker socket access to create isolated containers
 1. **Optional**: Remove this volume if you don't need private registry access
-1. The Sentry access token is read from the Docker secret at runtime via `--access-token`. Set `SENTRY_HOST` for self-hosted Sentry instances. These MCP services are optional — remove them if not needed
+1. The Sentry access token is read from the Docker secret and exported as the `SENTRY_ACCESS_TOKEN` environment variable that `@sentry/mcp-server` expects. Set `SENTRY_HOST` for self-hosted Sentry instances. These MCP services are optional — remove them if not needed
 1. **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
+1. Built-in MCP tools connect over streamable HTTP at the `/mcp` path. Set these explicitly so the hyphenated service names resolve — the built-in defaults assume `mcp_sentry` / `mcp_context7` (underscores). See [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md)
 
 ### Step 3: Deploy the stack
 
@@ -398,7 +412,10 @@ x-app-defaults: &x_app_default
     EMAIL_USE_TLS: true
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
-    # Authentication (configure via UI at /configuration/ or via env vars)
+    # MCP settings (built-in supergateway containers)
+    MCP_SENTRY_URL: http://mcp-sentry:8000/mcp (16)
+    MCP_CONTEXT7_URL: http://mcp-context7:8000/mcp (16)
+    # Authentication (configure via UI at /dashboard/configuration/ or via env vars)
     ALLAUTH_CLIENT_ID: oauth-client-id
     ALLAUTH_CLIENT_SECRET: oauth-client-secret
 
@@ -500,8 +517,13 @@ services:
     command:
       - --stdio
       - "npx @sentry/mcp-server@latest"
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
+      - --stateful
+      - --sessionTimeout
+      - "300000"
     env_file:
       - config.secrets.env (14)
     healthcheck:
@@ -518,8 +540,13 @@ services:
     command:
       - --stdio
       - "npx @upstash/context7-mcp@latest"
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
+      - --stateful
+      - --sessionTimeout
+      - "300000"
     env_file:
       - config.secrets.env
     healthcheck:
@@ -550,6 +577,7 @@ volumes:
 1. **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
 1. **Add MCP credentials** (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) to your env file. These MCP services are optional — remove them if not needed
 1. **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+1. Built-in MCP tools connect over streamable HTTP at the `/mcp` path. Set these explicitly so the hyphenated service names resolve — the built-in defaults assume `mcp_sentry` / `mcp_context7` (underscores). See [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md)
 1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
 
 ### Step 2: Run the compose file
@@ -678,7 +706,7 @@ This creates an admin user who can sign in using login-by-code (a one-time code 
 
 After the initial admin is created, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
 
-OAuth login can be configured and toggled on/off at any time via the **Configuration** page at `/configuration/` under the **Authentication** section.
+OAuth login can be configured and toggled on/off at any time via the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section.
 
 # Platform Setup
 
@@ -775,6 +803,7 @@ To confirm webhooks are configured, go to your GitLab repository → **Settings*
 - ✅ Push events
 - ✅ Issues events
 - ✅ Comments (Note events)
+- ✅ Merge request events
 
 Click **Test** → **Push events** to verify connectivity.
 
@@ -869,6 +898,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
    - ✅ Issues
    - ✅ Issue comment
    - ✅ Pull request review
+   - ✅ Pull request
 
    Centralized Webhook Configuration
 
@@ -991,6 +1021,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
      - ✅ Issues
      - ✅ Issue comment
      - ✅ Pull request review
+     - ✅ Pull request
 
 1. **Test Webhook Delivery**:
 
@@ -1066,6 +1097,152 @@ With your repository connected, you can now:
 - **[Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)** — learn how DAIV handles issues
 - **[Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)** — learn how DAIV reviews code
 
+# Accounts & Roles
+
+DAIV's web dashboard requires you to sign in. Every authenticated user has one of two roles — **admin** or **member** — which decide what they can see and change. Members manage their own work (agent runs, chats, schedules, and API keys); admins additionally manage the deployment: site configuration, users, global skills, and global sandbox environments.
+
+Self-service signup is **disabled**. Users either sign in with their Git platform account (when OAuth is enabled) or are pre-created by an admin and sign in with a one-time email code.
+
+## Roles
+
+DAIV ships exactly two roles. New users default to **member**.
+
+| Role       | Can do                                                                                                                                                                                                                                                                                        |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Member** | Start and view their own agent runs; use the dashboard chat workspace; create and manage their own [scheduled jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md); create and revoke their own API keys; manage their own notification channels.                         |
+| **Admin**  | Everything a member can, plus: edit **Site Configuration** at `/dashboard/configuration/`; create, edit, and delete users at `/accounts/users/`; manage global (shared) skills and global sandbox environments; view system-wide velocity metrics and the full API-key list on the dashboard. |
+
+How role checks work
+
+Admin-only pages are guarded by `AdminRequiredMixin`, which raises *permission denied* for any signed-in user whose role is not `admin`. In code this is the `user.is_admin` property. There are no other privilege levels — a user is either an admin or a member.
+
+## Signing in
+
+The login page lives at `/accounts/login/`. Two sign-in methods are available, depending on how the deployment is configured.
+
+### Git platform login (OAuth)
+
+When OAuth login is enabled, users can sign in with the same Git platform DAIV is connected to — **GitHub** or **GitLab** (including self-hosted GitLab). DAIV offers the provider that matches your configured platform; it does not offer both at once.
+
+OAuth is configured by an admin in **Site Configuration** under the **Authentication** section, not in code. The relevant settings are:
+
+| Setting                                       | Purpose                                                                                                                    |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Enable OAuth login** (`auth_login_enabled`) | Master toggle. When off, no social provider is offered on the login page.                                                  |
+| **Open social signup** (`auth_signup_open`)   | When on, anyone who authenticates via your Git platform gets an account. When off, only pre-registered emails can sign in. |
+| **OAuth client ID** / **OAuth client secret** | The OAuth application credentials for your platform. Set both, or neither.                                                 |
+| **GitLab URL**                                | Browser-facing URL of your GitLab instance (GitLab only).                                                                  |
+| **GitLab server URL**                         | Optional server-to-server URL for GitLab API calls inside a Docker-internal network. Leave empty to reuse the GitLab URL.  |
+
+Tip
+
+OAuth can be toggled on and off at any time from `/dashboard/configuration/` — you do not need to redeploy. The same credentials can also be seeded from the `ALLAUTH_CLIENT_ID`, `ALLAUTH_CLIENT_SECRET`, `ALLAUTH_GITLAB_URL`, and `ALLAUTH_GITLAB_SERVER_URL` environment variables. See [Authentication in the env-variables reference](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication) and [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md).
+
+### Email login-by-code
+
+Users can also sign in **without a password** using a one-time code emailed to them:
+
+1. On the login page, request a login code for your email address.
+1. DAIV emails a short, single-use code.
+1. Enter the code to complete sign-in.
+
+This is the path used by admin-created users and by the bootstrapped first admin — it works even when OAuth is not configured, as long as DAIV can send email.
+
+No password signup
+
+Standard email-and-password registration is turned off (`AccountAdapter.is_open_for_signup` returns `False`). Visiting the signup URL simply redirects back to the login page. New accounts come only from OAuth (when open signup is on) or from an admin creating them.
+
+## The first admin
+
+A fresh DAIV install has no users, so it has no admin. There are two ways to establish the first one.
+
+### First OAuth sign-in becomes admin
+
+On a fresh install with OAuth enabled, the **first user to sign in via a social provider is automatically promoted to admin**. The trigger is the *absence of any admin user* (not the absence of any user), so if two people happen to sign in at the same moment, the result is multiple admins (safe) rather than none.
+
+### Bootstrap command (headless)
+
+When OAuth is not yet configured, create the initial admin from a shell:
+
+```
+docker exec -it daiv-app python manage.py bootstrap_admin admin@example.com
+```
+
+The `bootstrap_admin` command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code).
+
+Info
+
+For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md).
+
+## Managing users (admin only)
+
+Admins manage accounts at `/accounts/users/`. The list supports searching by name, email, or username and filtering by role.
+
+- **Create a user**
+
+  ______________________________________________________________________
+
+  At `/accounts/users/create/`, set the user's **name**, **email**, and **role**. DAIV emails a welcome message with a sign-in link. The new account has no password — the user signs in via OAuth or login-by-code.
+
+- **Edit a user**
+
+  ______________________________________________________________________
+
+  At `/accounts/users/<id>/edit/`, change **name**, **email**, **role**, and **active** status. Use this to promote a member to admin or demote an admin to member.
+
+- **Delete a user**
+
+  ______________________________________________________________________
+
+  At `/accounts/users/<id>/delete/`, permanently remove an account after confirmation.
+
+DAIV enforces a few guardrails so a deployment can never be locked out of administration:
+
+- **You cannot delete your own account** from the user-management screen.
+- **The last active admin cannot be deleted, deactivated, or demoted.** Promote another user to admin first — the guard is `user.is_last_active_admin()`, applied on delete and on role/active changes.
+
+Deactivate vs. delete
+
+Setting a user to inactive blocks them from signing in while preserving their history and ownership of runs. Deleting removes the account outright. Prefer deactivation when you may want to restore access later.
+
+## Per-user settings
+
+Every signed-in user — member or admin — has these self-service pages:
+
+| Page                      | Route                 | What it does                                                                                              |
+| ------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Dashboard**             | `/dashboard/`         | Your activity summary and quick links. Admins also see system-wide velocity metrics and total user count. |
+| **API keys**              | `/accounts/api-keys/` | Create and revoke personal API keys for programmatic access.                                              |
+| **Notification channels** | `/accounts/channels/` | Choose how you're notified about your agent runs (in-app, email, and Rocket.Chat when enabled).           |
+
+API keys authenticate calls to the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) and the [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md). Members see only their own keys; admins see every user's keys in the list.
+
+## Related pages
+
+- **Deployment**
+
+  ______________________________________________________________________
+
+  Install DAIV, configure email, and bring up the first admin.
+
+  [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)
+
+- **Platform Setup**
+
+  ______________________________________________________________________
+
+  Connect DAIV to GitLab or GitHub — the same platform used for OAuth login.
+
+  [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md)
+
+- **Jobs API**
+
+  ______________________________________________________________________
+
+  Authenticate programmatic agent runs with a personal API key.
+
+  [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)
+
 # LLM Providers
 
 DAIV supports the following LLM providers:
@@ -1081,14 +1258,18 @@ You can mix providers — for example, use OpenRouter for the main agent and a d
 
 Models use a **prefix system** to identify the provider:
 
-| Prefix        | Provider               | Example                                  |
-| ------------- | ---------------------- | ---------------------------------------- |
-| `openrouter:` | OpenRouter             | `openrouter:anthropic/claude-sonnet-4.6` |
-| `claude`      | Anthropic (direct)     | `claude-sonnet-4.6`                      |
-| `gpt-`, `o4`  | OpenAI (direct)        | `gpt-5.3-codex`                          |
-| `gemini`      | Google Gemini (direct) | `gemini-2.5-pro-preview-05-06`           |
+| Prefix                 | Provider               | Example                                  |
+| ---------------------- | ---------------------- | ---------------------------------------- |
+| `openrouter:`          | OpenRouter             | `openrouter:anthropic/claude-sonnet-4.6` |
+| `claude`               | Anthropic (direct)     | `claude-sonnet-4.6`                      |
+| `gpt-4`, `gpt-5`, `o4` | OpenAI (direct)        | `gpt-5.3-codex`                          |
+| `gemini`               | Google Gemini (direct) | `gemini-2.5-pro-preview-05-06`           |
 
 DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.
+
+Tip
+
+In the dashboard, the agent picker offers a live model dropdown built from each enabled provider's API (cached for 15 minutes), so you can choose a model without memorizing its full spec. Free-text entry remains available as a fallback.
 
 ### Default models
 
@@ -1230,6 +1411,40 @@ models:
   agent:
     model: "gemini-2.5-pro-preview-05-06"
 ```
+
+______________________________________________________________________
+
+## Custom providers
+
+Beyond the four providers above, admins can register additional providers from the **Configuration UI** at `/dashboard/configuration/` (under the providers section). This is mainly for self-hosted, OpenAI-compatible endpoints — vLLM, llama.cpp, LiteLLM, or an internal gateway — but applies to any of the supported wire protocols.
+
+When you add a provider, you choose:
+
+| Field                       | Purpose                                                                                                                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Slug**                    | A short identifier that becomes the model prefix (`your-slug:model_name`). Must start with a lowercase letter; lowercase letters, digits, `-`, `_`; max 32 chars. Immutable after creation.                                                                         |
+| **Provider type**           | The wire protocol used to talk to the server — one of OpenAI, Anthropic, Google Gemini, or OpenRouter.                                                                                                                                                              |
+| **Base URL**                | The endpoint to call instead of the provider's default (for example, your vLLM server). For OpenAI-typed servers, include the version segment (e.g. `/v1`).                                                                                                         |
+| **API key**                 | The credential for the endpoint (encrypted at rest).                                                                                                                                                                                                                |
+| **Extra headers**           | A JSON object of additional request headers (e.g. `{"X-Foo": "bar"}`). Agent-managed headers take precedence.                                                                                                                                                       |
+| **Use Responses API**       | Only honored for OpenAI-typed providers. Enable for servers that expose `/v1/responses`; leave off for `/v1/chat/completions`-only servers (vLLM, llama.cpp, most LiteLLM setups).                                                                                  |
+| **Verify TLS certificates** | Disable only for self-hosted endpoints behind an internal or self-signed CA. Skipping verification exposes the connection to MITM attacks — prefer mounting the CA into the DAIV containers when possible. Honored only for OpenAI- and OpenRouter-typed providers. |
+
+Once the row exists, reference its models using the slug as a prefix:
+
+```
+your-slug:model_name
+```
+
+You can use this prefix anywhere a model is specified, including the `.daiv.yml` [model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
+
+Note
+
+The four built-in providers (OpenRouter, OpenAI, Anthropic, Google Gemini) are locked: their slug and provider type cannot be changed and the rows cannot be deleted. Custom providers you add are fully editable and removable.
+
+Admin only
+
+Managing providers requires an admin account. See [Automation: LLM Providers](https://srtab.github.io/daiv/dev/reference/env-variables/#automation-llm-providers) for how the built-in providers map to environment variables.
 # Features
 
 # Issue Addressing
@@ -1270,13 +1485,15 @@ Labels are case-insensitive (`DAIV`, `Daiv`, and `daiv` all work). You can combi
 
 By default, DAIV uses a **human-in-the-loop** approach. After generating a plan, it waits for explicit approval before making code changes.
 
-To approve a plan, comment on the issue:
+To approve a plan, comment on the issue and mention DAIV — for example:
 
 ```
 @daiv proceed
 ```
 
-You can also provide feedback or additional instructions in your approval comment, and DAIV will take them into account during implementation.
+The exact wording is not a keyword. DAIV reacts to any comment that mentions it (`@daiv`); it reads your comment together with the plan it posted and acts on your intent. A comment like `@daiv looks good, go ahead` works just as well as `@daiv proceed`.
+
+You can also provide feedback or additional instructions in your comment, and DAIV will take them into account — either applying them during implementation or revising the plan from your feedback.
 
 Tip
 
@@ -1303,7 +1520,7 @@ If an unexpected error occurs during execution, DAIV creates a **draft** merge/p
 
 When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), it automatically adds a comment suggesting you create one. The comment includes a one-click link that opens a pre-filled issue — just click and submit.
 
-If the created issue has the `daiv` label, DAIV will pick it up and use the `/init` skill to analyze your repository and generate the `AGENTS.md` file automatically.
+The one-click link pre-fills the issue with the `daiv-auto` label, so once you submit it DAIV picks it up and immediately runs the `/init` skill to analyze your repository and open a merge/pull request with the generated `AGENTS.md` — no approval step required.
 
 To disable this suggestion for a specific repository, add the following to `.daiv.yml`:
 
@@ -1426,6 +1643,120 @@ You don't need a dedicated `.agents/review-rules.md`: rules already written in y
 
 Every custom-rule finding passes the same false-positive checks as built-in findings, so a noisy `AGENTS.md` will not flood the review.
 
+# Chat
+
+Chat is an interactive workspace in the dashboard where you talk to the DAIV agent in real time against a repository and ref. You send a prompt, and the agent reads and edits code, runs commands in a sandbox, and streams its tool calls, todo list, and changed files back to you live — all on a single conversation thread you can leave and return to.
+
+Reach for chat when you want a back-and-forth with the agent: exploring an unfamiliar codebase, iterating on a change across several turns, or debugging interactively. For automated, hands-off work — addressing a labelled issue or responding to review comments — use the [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) and [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) flows instead, which DAIV drives from webhooks without you watching.
+
+Sign-in required
+
+Chat is a signed-in dashboard feature. Every page and the streaming endpoint require an authenticated session — there is no anonymous access.
+
+______________________________________________________________________
+
+## Starting a chat
+
+Go to **Dashboard > Chat** (`/dashboard/chat/`) for the list of your past conversations, then click **New chat** (`/dashboard/chat/new/`) to open the empty workspace.
+
+Before the composer appears, pick a **repository** in the hero picker. Each chat is bound to a repository and a ref:
+
+- Selecting a repository defaults the ref to its **default branch**; you can switch to any other branch.
+- If the chosen ref already has an open merge/pull request, the workspace surfaces it (see [Merge request awareness](#merge-request-awareness)).
+
+Once a repository is selected, the prompt box fades in and you can type your first message. The conversation gets its own thread URL (`/dashboard/chat/<thread_id>/`) so you can bookmark it or share the link with teammates who have access.
+
+A chat targets one repository and ref
+
+The repository and ref are fixed for the life of the thread. To work against a different repository or branch, start a new chat.
+
+### Continuing a run from Activity
+
+Any agent run recorded in the [Activity log](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) that still has live state can be opened as a chat. From an activity's detail page, the **Continue as chat** action bridges to `/dashboard/chat/from-activity/<activity_id>/`, which creates (or reuses) a chat thread for that run and redirects you into it — the conversation picks up where the run left off.
+
+Expired state
+
+Conversation state lives in the agent checkpointer and can expire. Opening an expired run shows an "expired" notice and prompts you to start a fresh chat; the composer is hidden for expired threads.
+
+______________________________________________________________________
+
+## What you can do
+
+Type a prompt describing the change, the bug, or what you want to explore, and press **Send** (or `Cmd+Enter` / `Ctrl+Enter`). The agent works the same way it does everywhere else in DAIV: it reads and edits files, runs shell commands inside a sandbox, and uses its skills and subagents.
+
+As the agent works, the workspace streams updates live (over AG-UI):
+
+- **Assistant text and reasoning** — the agent's replies render as Markdown; thinking/reasoning is shown in collapsible segments.
+- **Tool calls** — each tool call appears as an expandable card with its status (running, done, error), arguments, and result. Sub-agent activity is folded in.
+- **Todos** — when the agent plans with a todo list, the side rail shows the list with a `done/total` count.
+- **Files changed** — files the agent reads or edits (including files touched by sandbox shell commands) are collected in the rail; click one to jump to the tool call that touched it.
+
+A summary strip mirrors the essentials on narrower screens: `repository · ref · run status · todos · files`.
+
+While a run is streaming you can press **Stop** to abort it. Only one run can be in flight per thread at a time — opening the same conversation in a second tab and submitting there returns a "run already in progress" response.
+
+### Merge request awareness
+
+When the agent commits changes, DAIV creates or updates a merge/pull request on the thread's ref (the standard DAIV post-run behaviour). The workspace shows an MR/PR pill that links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
+
+______________________________________________________________________
+
+## Choosing the model and sandbox environment
+
+Each chat pins three choices, set in the hero before your first message and then locked for the rest of the thread:
+
+| Choice                  | What it controls                                                                                                                     | Default                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| **Agent model**         | Which configured LLM the agent runs on (the provider must be enabled)                                                                | The admin-configured system default   |
+| **Thinking level**      | Reasoning effort: Minimal, Low, Medium, High, or Extra high                                                                          | The admin-configured default (if any) |
+| **Sandbox environment** | The named [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) the agent's commands run in | **Auto** — resolved per repository    |
+
+These selections are **fixed at thread creation**. On later turns the composer shows them as locked pills (mirroring what the thread was created with) and the backend ignores any attempt to change them. To use a different model, effort level, or sandbox environment, start a new chat.
+
+Auto sandbox environment
+
+Leaving the sandbox environment on **Auto** lets DAIV resolve an environment for the repository when the run starts. The workspace then swaps the locked pill from "Auto" to the resolved environment's name once the run begins. See [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) for how environments are scoped and resolved.
+
+Pinned model no longer available
+
+If the model pinned to a thread has since been disabled or removed (for example, an admin turned off its provider), the next turn is refused with a message telling you to start a new thread to pick another model.
+
+______________________________________________________________________
+
+## Notes
+
+- **Visibility** — the chat list and every conversation are scoped to you: you only see and resume your own threads.
+- **Titles** — a thread's title is generated automatically from your first prompt; until it's ready the list shows "generating title…".
+- **Relation to the rest of DAIV** — a chat run is a first-class agent run, so it also appears in the [Activity log](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) (the chat thread and its activity share the same thread id). Per-run token usage and USD cost are surfaced there, alongside runs from webhooks, the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), the [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md), and [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md).
+
+______________________________________________________________________
+
+## Related
+
+- **Sandbox Environments**
+
+  ______________________________________________________________________
+
+  Configure the named environments the agent's commands run in, and how Auto resolution picks one.
+
+  [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md)
+
+- **Subagents**
+
+  ______________________________________________________________________
+
+  The specialised agents whose activity is folded into the chat transcript.
+
+  [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md)
+
+- **Activity Tracking**
+
+  ______________________________________________________________________
+
+  The unified log of every agent run — including chats — with timing, token usage, and cost.
+
+  [Activity Tracking](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md)
+
 # Jobs API
 
 The Jobs API lets you trigger DAIV agents programmatically — outside of the usual git webhook flow. Submit a prompt, get a job ID, and poll for the result.
@@ -1449,6 +1780,16 @@ python manage.py create_api_key <username> --name "my-key"
 
 This outputs a key in the format `prefix.secret`. Store it securely — it cannot be retrieved later.
 
+### Managing API keys
+
+You can also self-service your API keys from the dashboard at `/accounts/api-keys/`. There you can:
+
+- **Create** a key by giving it a name — the full secret is shown **only once**, right after creation, so copy it immediately.
+- **List** your keys (admins see every user's keys).
+- **Revoke** a key you no longer need; revoked keys stop authenticating immediately.
+
+The `create_api_key` management command remains available for headless/automated provisioning.
+
 ### Using the key
 
 Pass the key in the `Authorization` header:
@@ -1464,13 +1805,17 @@ curl -X POST https://daiv.example.com/api/jobs \
 
 Job submissions are rate-limited per authenticated user. The default limit is **20 requests per hour**. When exceeded, the API returns `429 Too Many Requests`.
 
-The rate can be configured via the `DAIV_JOBS_THROTTLE_RATE` environment variable:
+The rate is configured via the `jobs_throttle_rate` field in Site Configuration (default `20/hour`). Set it to a value like:
 
 ```
-DAIV_JOBS_THROTTLE_RATE=50/hour
+50/hour
 ```
 
-Valid formats: `N/second`, `N/minute`, `N/hour`, `N/day` (or short forms: `N/s`, `N/m`, `N/h`, `N/d`).
+Valid formats: `N/sec`, `N/min`, `N/hour`, `N/day` (or single-letter short forms: `N/s`, `N/m`, `N/h`, `N/d`).
+
+Note
+
+The same rate can also be set with the `DAIV_JOBS_THROTTLE_RATE` environment variable (or Docker secret). When set, it is a hard override that wins over the database value and **locks** the field in the Site Configuration UI.
 
 ## Endpoints
 
@@ -1482,12 +1827,19 @@ POST /api/jobs
 
 **Request body:**
 
-| Field       | Type             | Required | Description                                                                                                                                                                |
-| ----------- | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repos`     | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch-or-sha" }` — `ref` is optional and defaults to the repository's default branch. |
-| `prompt`    | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`.                                                            |
-| `use_max`   | boolean          | no       | Use the more capable model with thinking set to high. Defaults to `false`.                                                                                                 |
-| `notify_on` | string           | no       | Override the user's notification preference for this batch. One of `never`, `always`, `on_success`, `on_failure`.                                                          |
+| Field                  | Type             | Required | Description                                                                                                                                                                                                                                                                         |
+| ---------------------- | ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repos`                | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch-or-sha" }` — `ref` is optional and defaults to the repository's default branch.                                                                                                          |
+| `prompt`               | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`.                                                                                                                                                                     |
+| `agent_model`          | string           | no       | Override the model used for this batch. Invalid model / thinking-level combinations are rejected with `400`.                                                                                                                                                                        |
+| `agent_thinking_level` | string           | no       | Override the agent's reasoning effort. One of `minimal`, `low`, `medium`, `high`, `xhigh`. Invalid combinations are rejected with `400`.                                                                                                                                            |
+| `notify_on`            | string           | no       | Override the user's notification preference for this batch. One of `never`, `always`, `on_success`, `on_failure`.                                                                                                                                                                   |
+| `environment`          | string           | no       | Select a sandbox environment (by name or id) applied to every job in the batch. An unresolvable environment is rejected with `400`.                                                                                                                                                 |
+| `thread_id`            | string (UUID)    | no       | Continue an existing thread. Requires exactly one repo in `repos`, and the most recent run on that thread must belong to you (otherwise `400`). If a prior run on the thread is still in flight, the new job is created in `QUEUED` state and released FIFO when that run finishes. |
+
+Note
+
+The request body is validated strictly: unknown fields (including the removed `use_max` toggle) are rejected with `422`. Use `agent_model` and `agent_thinking_level` to control the model instead.
 
 **Example:**
 
@@ -1510,14 +1862,16 @@ curl -s -X POST https://daiv.example.com/api/jobs \
     {
       "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5",
       "repo_id": "mygroup/myproject",
-      "ref": null
+      "ref": null,
+      "thread_id": "9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90",
+      "status": "READY"
     }
   ],
   "failed": []
 }
 ```
 
-Each entry in `jobs` is an independent run — poll each `job_id` separately. Pre-enqueue rejections (e.g. unknown `repo_id`) are reported in `failed` as `{repo_id, ref, error}`; the rest of the batch still runs.
+Each entry in `jobs` is an independent run — poll each `job_id` separately. The `status` is `READY` for an immediately-runnable job, or `QUEUED` if another run is already in flight on the same `thread_id` (see [Job lifecycle](#job-lifecycle)). Pre-enqueue rejections (e.g. unknown `repo_id`) are reported in `failed` as `{repo_id, ref, error}`; the rest of the batch still runs.
 
 ### Poll job status
 
@@ -1531,6 +1885,7 @@ GET /api/jobs/{job_id}
 {
   "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5",
   "status": "SUCCESSFUL",
+  "thread_id": "9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90",
   "result": "Here are the Python files...",
   "merge_request_url": null,
   "error": null,
@@ -1540,35 +1895,51 @@ GET /api/jobs/{job_id}
 }
 ```
 
-`merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs).
+`merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs). `thread_id` identifies the thread this job ran on — pass it back as the `thread_id` field on a new submission to continue the conversation.
 
 **Status values:**
 
-| Status       | Meaning                                                 |
-| ------------ | ------------------------------------------------------- |
-| `READY`      | Job is queued, waiting for a worker                     |
-| `RUNNING`    | Agent is executing                                      |
-| `SUCCESSFUL` | Completed — `result` contains the agent's output        |
-| `FAILED`     | Agent encountered an error — `error` contains a message |
+| Status       | Meaning                                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QUEUED`     | Job is waiting for an earlier run on the same thread to finish; released FIFO. Only occurs for thread continuations (`thread_id` supplied). |
+| `READY`      | Job is queued, waiting for a worker                                                                                                         |
+| `RUNNING`    | Agent is executing                                                                                                                          |
+| `SUCCESSFUL` | Completed — `result` contains the agent's response summary                                                                                  |
+| `FAILED`     | Agent encountered an error — `error` contains a message                                                                                     |
 
 **Error responses:**
+
+For `GET /api/jobs/{job_id}`:
 
 | Code  | When                        |
 | ----- | --------------------------- |
 | `404` | Job ID not found or invalid |
 | `401` | Missing or invalid API key  |
 
+For `POST /api/jobs`:
+
+| Code  | When                                                                                                                                                                                    |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, unresolvable `environment`, or invalid `thread_id` continuation (unknown/unowned thread, or more than one repo). |
+| `422` | Malformed body or unknown fields (e.g. the removed `use_max`).                                                                                                                          |
+| `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)).                                                                                                                              |
+| `401` | Missing or invalid API key                                                                                                                                                              |
+
 ## Job lifecycle
 
 ```
 stateDiagram-v2
     [*] --> READY: POST /api/jobs
+    [*] --> QUEUED: POST /api/jobs (thread continuation, prior run in flight)
+    QUEUED --> READY: Prior run on the thread finishes (FIFO)
     READY --> RUNNING: Worker picks up job
     RUNNING --> SUCCESSFUL: Agent completes
     RUNNING --> FAILED: Agent errors
 ```
 
-Once a job reaches `SUCCESSFUL` or `FAILED`, the status is final. The `result` field contains the agent's full text output.
+A job only starts in `QUEUED` when you supply a `thread_id` and an earlier run on that thread is still in flight; it is released to `READY` (FIFO) when that run terminates. Every other submission starts at `READY`.
+
+Once a job reaches `SUCCESSFUL` or `FAILED`, the status is final. The `result` field contains the agent's text response summary (its last response, truncated to 2000 characters) — not necessarily the complete output.
 
 ## Examples
 
@@ -1653,7 +2024,7 @@ Store `DAIV_URL` and `DAIV_API_KEY` as CI/CD variables in your GitLab project se
 
 # Scheduled Jobs
 
-Scheduled Jobs let you run DAIV agents on a recurring basis — no CI pipeline or cron script required. Define a prompt, pick a repository and frequency, and DAIV handles the rest.
+Scheduled Jobs let you run DAIV agents on a recurring basis — no CI pipeline or cron script required. Define a prompt, pick one or more repositories and a frequency, and DAIV handles the rest.
 
 This is useful when you want to:
 
@@ -1664,41 +2035,51 @@ This is useful when you want to:
 
 ## Creating a schedule
 
-Navigate to **Dashboard > Scheduled Jobs > Create schedule** and fill in the form:
+Navigate to **Dashboard > Schedules > Create schedule** and fill in the form:
 
-| Field            | Description                                                          |
-| ---------------- | -------------------------------------------------------------------- |
-| **Name**         | A short label for the schedule (e.g., "Weekly dep audit")            |
-| **Prompt**       | What the agent should do — same format as a Jobs API prompt          |
-| **Repository**   | Repository identifier, e.g. `mygroup/myproject`                      |
-| **Branch / Ref** | Git branch or tag. Leave blank for the repository's default branch   |
-| **Frequency**    | How often the job runs (see [Frequency options](#frequency-options)) |
-| **Time**         | Time of day for Daily, Weekdays, and Weekly schedules                |
-| **Timezone**     | IANA timezone for the schedule (e.g., `Europe/Lisbon`, `UTC`)        |
+| Field                   | Description                                                                                                                                                                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Name**                | A short label for the schedule (e.g., "Weekly dep audit")                                                                                                                                                                           |
+| **Prompt**              | What the agent should do — same format as a Jobs API prompt                                                                                                                                                                         |
+| **Repositories**        | One to 20 repositories, added through the repo picker. Each entry has its own branch or ref — leave a repository's ref blank to start from its default branch. Each run [fans out](#how-it-works) into one agent run per repository |
+| **Agent model**         | The model and thinking level the runs use, chosen with the agent picker. Leave it on the default to use the instance's configured model                                                                                             |
+| **Frequency**           | How often the job runs (see [Frequency options](#frequency-options))                                                                                                                                                                |
+| **Time**                | Time of day for Daily, Weekdays, and Weekly schedules                                                                                                                                                                               |
+| **Date & time**         | The specific date and time a one-off (**Once**) schedule fires                                                                                                                                                                      |
+| **Notify on**           | When the owner (and any [subscribers](#subscribers)) get a finish notification — defaults to *Never*                                                                                                                                |
+| **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers))                                                                                                                                                    |
+| **Sandbox environment** | The named [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution                                                  |
 
-Once created, the schedule is **active** immediately. You can pause and resume it at any time from the edit page.
+Schedule times use the DAIV instance's configured timezone (set by the deployment); there is no per-schedule timezone choice. See [Timezone handling](#timezone-handling).
+
+Once created, the schedule is **active** immediately. You can pause and resume it at any time — directly from the list (see [Managing schedules](#managing-schedules)) or via the **Enabled** checkbox on the edit page.
 
 ## Frequency options
 
-| Frequency    | Cron equivalent     | Notes                                       |
-| ------------ | ------------------- | ------------------------------------------- |
-| **Hourly**   | `0 * * * *`         | Runs at the top of every hour               |
-| **Daily**    | `{mm} {HH} * * *`   | Runs once a day at the specified time       |
-| **Weekdays** | `{mm} {HH} * * 1-5` | Monday through Friday at the specified time |
-| **Weekly**   | `{mm} {HH} * * 1`   | Every Monday at the specified time          |
-| **Custom**   | *(user-provided)*   | Any valid five-field cron expression        |
+| Frequency    | Cron equivalent      | Notes                                                                    |
+| ------------ | -------------------- | ------------------------------------------------------------------------ |
+| **Hourly**   | `0 * * * *`          | Runs at the top of every hour                                            |
+| **Daily**    | `{mm} {HH} * * *`    | Runs once a day at the specified time                                    |
+| **Weekdays** | `{mm} {HH} * * 1-5`  | Monday through Friday at the specified time                              |
+| **Weekly**   | `{mm} {HH} * * 1`    | Every Monday at the specified time                                       |
+| **Custom**   | *(user-provided)*    | Any valid five-field cron expression                                     |
+| **Once**     | *(none — date/time)* | A one-off run at a specific **Date & time** instead of a cron expression |
 
 Tip
 
 The **Custom** frequency accepts standard five-field cron expressions (minute, hour, day-of-month, month, day-of-week). Use it for non-standard intervals like "every 6 hours" (`0 */6 * * *`) or "first Monday of the month" (`0 9 1-7 * 1`).
 
+One-off schedules
+
+A **Once** schedule runs a single time at the chosen date and time, then retires automatically — it is disabled, has no next run, and shows as a read-only **Fired** card. A fired one-off cannot be re-enabled; use **Duplicate** (see [Managing schedules](#managing-schedules)) to run it again.
+
 ## How it works
 
 A background task runs every minute and checks for schedules whose next run time has passed. For each due schedule it:
 
-1. Enqueues a job via the same task backend used by the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)
+1. Fans the schedule out into one agent run per target repository — enqueuing each via the same task backend used by the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) — and records the resulting batch ID
 1. Records the run timestamp and increments the run counter
-1. Computes the next run time based on the cron expression and the schedule's timezone
+1. Computes the next run time based on the cron expression and the configured timezone (a **Once** schedule retires instead)
 
 ```
 sequenceDiagram
@@ -1708,8 +2089,10 @@ sequenceDiagram
 
     Dispatcher->>DB: Query enabled schedules where next_run_at <= now
     loop For each due schedule
-        Dispatcher->>Worker: Enqueue job (repo_id, prompt, ref)
-        Dispatcher->>DB: Update last_run_at, run_count, next_run_at
+        loop For each target repository
+            Dispatcher->>Worker: Enqueue agent run (repo_id, prompt, ref)
+        end
+        Dispatcher->>DB: Update last_run_at, last_run_batch_id, run_count, next_run_at
     end
 ```
 
@@ -1723,12 +2106,21 @@ Schedule times are interpreted in the configured timezone. DAIV converts the loc
 
 ## Managing schedules
 
-From the **Scheduled Jobs** list you can:
+From the **Scheduled Jobs** list, each schedule's actions menu lets you:
 
-- **Edit** a schedule to change any field, including toggling the **Enabled** checkbox to pause or resume it
+- **Pause / Resume** a schedule directly from the list — no need to open the edit page (it is also available via the **Enabled** checkbox there)
+- **Run now** to dispatch an immediate batch run without waiting for the next scheduled time. You land on the resulting activity (or the [Activity](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) list filtered to the batch when it spans multiple repositories)
+- **Duplicate** a schedule to create a new one pre-filled from this one — the only way to re-run a fired one-off schedule
+- **Edit** a schedule to change any field, including the **Enabled** checkbox
 - **Delete** a schedule permanently — any currently running job will complete, but no new runs will be dispatched
 
-The list shows the schedule name, status (Active / Paused), frequency, repository, next run time, last run time, and total run count. Admin users also see the schedule owner. Clicking the run count opens the [Activity](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) page filtered to that schedule's runs.
+Fired one-off (**Once**) schedules only offer **Duplicate** and **Delete**.
+
+Each schedule card shows its name, status (**Active**, **Paused**, or **Fired**), frequency, the target repository (or "*N* repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the [Activity](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) page filtered to that schedule's runs.
+
+Note
+
+Non-admin users only see their own schedules; admins see everyone's. The owner avatar on each card makes it clear whose schedule it is.
 
 ## Subscribers
 
@@ -1771,7 +2163,7 @@ If you need programmatic control over scheduling (e.g., creating schedules from 
 
 Admins can curate reusable **schedule templates** so teammates start from a known-good configuration rather than assembling a schedule from scratch.
 
-Templates are managed at **Dashboard → Schedule templates** (admin nav). A template carries the same fields as a schedule (prompt, default repositories, frequency, time or cron, max mode, notification preference) plus an optional description that helps users pick the right one. The repo picker is optional on templates — leave it empty to let users choose at schedule-create time.
+Templates are managed at **Dashboard → Schedule templates** (admin nav). A template carries the same fields as a schedule (prompt, default repositories, frequency, time or cron, agent model and thinking level, notification preference) plus an optional description that helps users pick the right one. The repo picker is optional on templates — leave it empty to let users choose at schedule-create time.
 
 When at least one template exists, templates are discoverable in three places:
 
@@ -1792,6 +2184,10 @@ DAIV exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 
 The DAIV agent can read and modify code, run commands in a sandbox, create commits and branches, open merge requests or pull requests, and debug CI/CD pipelines. Through the MCP endpoint, your local assistant can offload these tasks to DAIV and get the results back.
 
 Authentication is handled via OAuth 2.0 — on first use a browser window opens for you to log in with your existing DAIV account. Your client manages tokens and refreshes them automatically.
+
+Tip
+
+Prefer the HTTP [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) instead? It uses API key authentication, and you can create a key self-service in the dashboard at `/accounts/api-keys/` (see [Creating an API key](https://srtab.github.io/daiv/dev/features/jobs-api/#creating-an-api-key)).
 
 ## Getting started
 
@@ -1831,14 +2227,25 @@ Any MCP client that supports Streamable HTTP transport can connect to DAIV using
 
 ## Available tools
 
-| Tool             | Description                                                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `submit_job`     | Submit a prompt to the DAIV agent for a repository. Returns a `job_id` for polling, or set `wait=True` to block until the result is ready (up to 10 minutes). |
-| `get_job_status` | Get the status and result of a previously submitted job. Also supports `wait=True` to block until completion.                                                 |
+| Tool                | Description                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `submit_job`        | Submit a prompt to the DAIV agent as a batch of jobs — one independent job per repository. Returns a `batch_id` and a `jobs` list, or set `wait=True` to block until every job in the batch completes (up to 10 minutes total). |
+| `get_job_status`    | Get the status and result of a previously submitted job. Also supports `wait=True` to block until completion.                                                                                                                   |
+| `list_repositories` | Discover repositories accessible to DAIV, optionally filtered by `search` (partial name match) or `topics`. Results are truncated at 40 — narrow with `search` or `topics` if you hit the limit.                                |
+| `list_environments` | List the sandbox environments visible to you (your own `USER` environments plus all `GLOBAL` ones). Use a returned `name` or `id` as `submit_job`'s `environment` argument.                                                     |
+| `get_environment`   | Look up a single sandbox environment by name or UUID. Returns full details with secret env-var values masked, or nothing if it is not in your visible scopes.                                                                   |
 
-`submit_job` accepts an optional `ref` parameter to target a specific branch or commit. If omitted, the repository's default branch is used. Set `use_max=True` to use the more capable model with thinking set to high.
+`submit_job` takes a `repos` list (1–20 entries) and a single `prompt` that runs as an independent job against each repository. Each entry is `{repo_id, ref}`, where `ref` is the starting branch or commit the agent reads from — it is optional and defaults to the repository's default branch. The response includes a `batch_id`, a `jobs` list (one entry per submitted job, each with its `job_id`, `repo_id`, `ref`, `thread_id`, and `status`), and a `failed` list for repositories that could not be enqueued.
 
-For the full request/response schema and job lifecycle, see the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md).
+`submit_job` also accepts these optional parameters:
+
+- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the system default.
+- `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the system default.
+- `notify_on` — when to be notified for each job: one of `never`, `always`, `on_success`, or `on_failure`. Omit to fall back to your default preference.
+- `environment` — the [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox/index.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
+- `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository, whose latest activity must belong to you.
+
+For the full request/response schema, the batch `repos` contract, and the job lifecycle, see the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md).
 
 ## Usage examples
 
@@ -1854,9 +2261,13 @@ Be specific in your prompts — include file paths, function names, error messag
 
 # Activity Tracking
 
-DAIV records every agent execution — whether triggered by a webhook, the Jobs API, an MCP tool call, or a scheduled job — in a single Activity log. This gives you a unified view of what DAIV has been doing across all your repositories.
+DAIV records every agent execution — whether triggered by a webhook, the Jobs API, an MCP tool call, a scheduled job, or a run you start from the dashboard — in a single Activity log. This gives you a unified view of what DAIV has been doing across your repositories.
 
-Navigate to **Dashboard > Activity** to see the full list, or click the run count on any [Scheduled Job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) to jump straight to that schedule's history.
+Navigate to **Dashboard > Activity** to see the list, or click the run count on any [Scheduled Job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) to jump straight to that schedule's history. You can also start a new run directly from this page (see [Starting a run from the dashboard](#starting-a-run-from-the-dashboard)).
+
+What you can see
+
+Admins see all activity across every repository. Regular users see their own runs, runs matched to their git platform username (from webhook payloads), and runs on [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) they subscribe to. The same scoping applies to the detail page, the live stream, and retries.
 
 ______________________________________________________________________
 
@@ -1866,9 +2277,10 @@ Each activity is tagged with the source that initiated it:
 
 | Trigger           | Source                                                                                            | Example                                        |
 | ----------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| **API Job**       | [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) `POST /api/jobs`          | A CI pipeline or script submits a prompt       |
-| **MCP Job**       | [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `submit_job` tool | Claude Code or Cursor delegates a task         |
-| **Scheduled Job** | [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) cron dispatch | A weekly dependency audit fires on Monday      |
+| **API Run**       | [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) `POST /api/jobs`          | A CI pipeline or script submits a prompt       |
+| **MCP Run**       | [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `submit_job` tool | Claude Code or Cursor delegates a task         |
+| **Scheduled Run** | [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) cron dispatch | A weekly dependency audit fires on Monday      |
+| **UI Run**        | Dashboard run composer (see below)                                                                | You start a run from **Dashboard > Activity**  |
 | **Issue Webhook** | GitLab/GitHub issue event                                                                         | An issue is labelled `daiv`                    |
 | **MR/PR Webhook** | GitLab/GitHub merge request event                                                                 | A reviewer mentions `@daiv` on a merge request |
 
@@ -1878,29 +2290,34 @@ ______________________________________________________________________
 
 The activity list shows all executions in reverse chronological order. Each entry displays:
 
-- **Status indicator** — colour-coded dot (pending, running, successful, failed)
-- **Summary** — the issue/MR number for webhook triggers, or the prompt text for jobs
+- **Status indicator** — colour-coded dot (queued, pending, running, successful, failed)
+- **Summary** — the issue/MR number for webhook triggers, or the prompt text for runs
 - **Repository** — which repository the agent operated on
 - **Trigger badge** — the trigger type (see above)
-- **Timing** — when the activity was created and how long it ran
+- **Timing and usage** — when the activity was created, how long it ran, and the total tokens consumed
+
+Queued runs
+
+API and MCP runs that continue a thread already in flight don't start immediately. The new run is created in the **Queued** state and released in FIFO order once the prior run on that thread finishes.
 
 ### Filtering
 
 You can narrow the list using the filter controls at the top of the page:
 
-| Filter           | Description                                                      |
-| ---------------- | ---------------------------------------------------------------- |
-| **Status**       | Pending, Running, Successful, or Failed                          |
-| **Trigger type** | API Job, MCP Job, Scheduled Job, Issue Webhook, or MR/PR Webhook |
-| **Repository**   | Search and select a specific repository                          |
-| **Date range**   | From / To date pickers                                           |
-| **Schedule**     | Pre-applied when navigating from a scheduled job's run count     |
+| Filter           | Description                                                                                                                 |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Status**       | Queued, Pending, Running, Successful, or Failed                                                                             |
+| **Trigger type** | API Run, MCP Run, Scheduled Run, UI Run, Issue Webhook, or MR/PR Webhook                                                    |
+| **Repository**   | Search and select a specific repository                                                                                     |
+| **Date range**   | From / To date pickers                                                                                                      |
+| **Schedule**     | Pre-applied when navigating from a scheduled job's run count                                                                |
+| **Batch**        | Pre-applied when viewing a multi-repo submission group (one prompt submitted across several repositories shares a batch ID) |
 
 Filters are combined with AND logic and are reflected in the URL query string, so filtered views can be bookmarked or shared.
 
 ### Live updates
 
-Activities that are still running (Pending or Running) update automatically via server-sent events. The status dot and timing update in real time without needing to refresh the page.
+Activities that are still in flight (Queued, Pending, or Running) update automatically via server-sent events. The status dot and timing update in real time without needing to refresh the page.
 
 ______________________________________________________________________
 
@@ -1909,15 +2326,40 @@ ______________________________________________________________________
 Click any activity to see its full detail page, which includes:
 
 - **Trigger and status badges**
-- **Metadata** — repository, branch/ref, timestamps (created, started, finished), duration, and linked schedule or issue/MR number
+- **Context** — repository, branch/ref, linked schedule or issue/MR (the MR/PR is a clickable link), the agent model and thinking level used for the run, and the sandbox environment. Admins viewing another user's run also see the owning user.
+- **Timing** — timestamps (created, started, finished) and duration
+- **Usage** — total tokens, estimated cost, the input/output token split, and an optional per-model breakdown when more than one model was used
 - **Prompt** — the full prompt sent to the agent (rendered as markdown)
 - **Result** — the agent's output for successful runs (rendered as markdown), or the error traceback for failed runs
+
+For successful runs you can copy the result or download it as a Markdown file. The download includes YAML front-matter with the repository, trigger, ref, timestamps, any issue/MR, and the token/cost totals.
 
 For in-flight activities, the detail page also updates in real time until the run completes.
 
 ### Result retention
 
-Activity records are permanent, but the underlying task result (which holds the full output and traceback) is subject to the task backend's retention policy. When the task result is pruned, the activity still shows a denormalized summary and error message captured at completion time.
+Activity records are permanent, but the underlying task result (which holds the full output and traceback) is subject to the task backend's retention policy. When the task result is pruned, the activity still shows a denormalized summary and error message captured at completion time, along with the token usage and cost figures — these are denormalized onto the activity and survive pruning.
+
+______________________________________________________________________
+
+## Starting a run from the dashboard
+
+You don't have to wait for a webhook, schedule, or external client — you can launch an agent run by hand from the dashboard. Click **Start a run** on the Activity page (or open **Dashboard > Runs > New**) to reach the run composer.
+
+The composer accepts:
+
+- **Prompt** — what you want the agent to do
+- **Repositories** — one or more repositories to run against. Submitting one prompt across multiple repositories creates a [batch](#filtering): each repository runs as an independent activity, and after submission you land on the batch-filtered Activity list.
+- **Ref** — the starting branch or commit each run reads from (defaults to the repository's default branch)
+- **Sandbox environment** — the [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) environment to run in
+- **Agent model and thinking level** — per-run overrides for the model and reasoning effort (leave empty to inherit the repo defaults)
+- **Notify me** — when to send a notification for this run
+
+Runs started this way are tagged with the **UI Run** trigger. A single-repository submission takes you straight to its detail page; a multi-repository submission takes you to the batch-filtered list.
+
+### Retrying a run
+
+Any finished, non-webhook run is **retryable**. Open its detail page and click **Retry** to open the run composer pre-filled with the original run's prompt, repository, ref, and agent model/thinking level (`?from=<activity-id>`). Adjust anything you like before submitting — the retry is a fresh run, not an edit of the original. Issue and MR/PR webhook runs are not retryable from the dashboard.
 
 ______________________________________________________________________
 
@@ -1942,6 +2384,136 @@ sequenceDiagram
 ```
 
 The `Activity` model denormalizes key fields (status, timestamps, result summary, error message) from the linked task result. This ensures the activity record remains useful even after the task result row is pruned by the retention policy.
+
+# Notifications
+
+DAIV tells you when your work finishes. When an agent run, a multi-repository batch, or a scheduled job reaches a terminal state, DAIV writes an in-app notification and — depending on your preference — also delivers it to external channels like email and Rocket Chat. You decide *when* to be told (never, always, only on success, only on failure) and *where* the message lands.
+
+Notifications are per-user: each recipient gets their own copy, with delivery resolved against that user's own channel bindings.
+
+## What produces a notification
+
+DAIV emits a notification when an activity finishes. There are three event types:
+
+| Event                                         | When it fires                                                                                               | Recipients                                                                                                                         |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Job finished** (`job.finished`)             | A single agent run reaches a terminal state (successful or failed)                                          | The user who started the run                                                                                                       |
+| **Job batch finished** (`job_batch.finished`) | Every run in a multi-run batch is terminal — a single rollup, not one message per run                       | The batch owner (and, for [scheduled](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) batches, any subscribers) |
+| **Schedule finished** (`schedule.finished`)   | A run tied to a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) finishes | The schedule owner and its subscribers                                                                                             |
+
+Batches collapse into one message
+
+A batch is a group of runs sharing a batch ID — for example a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs succeeded and failed.
+
+Webhook-triggered runs are silent
+
+Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) or the [pull request assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)) do **not** generate notifications — those flows already report back inside the issue or MR/PR thread.
+
+## Channels
+
+DAIV reaches you through channels. The in-app bell is always available; email and Rocket Chat are external delivery channels.
+
+- **In-app bell**
+
+  The notification bell in the dashboard header shows your unread count and a dropdown of recent items. The full history lives at `/dashboard/notifications/`.
+
+- **Email**
+
+  Delivered to your account email. DAIV keeps an email channel binding in sync with your account address automatically — there is nothing to connect.
+
+- **Rocket Chat**
+
+  A direct message from the DAIV bot, when your administrator has enabled Rocket Chat and you have bound your `@username`.
+
+### The in-app bell and list
+
+The bell entry is written for **every** terminal run that has a recipient, regardless of your notification preference — so the dashboard always reflects what happened. Your "Notify on" preference only controls whether DAIV *also* delivers to external channels (email, Rocket Chat).
+
+- The bell dropdown shows your ten most recent notifications and marks them read when you open it.
+- `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action.
+
+### Email
+
+Email needs no setup. When your account is created (or your email changes), DAIV maintains a verified email channel binding pointing at your account address. Email delivery is gated by your "Notify on" preference like any other external channel.
+
+### Rocket Chat
+
+Rocket Chat is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you bind your own Rocket Chat handle so DAIV can DM you.
+
+## Choosing when to be notified
+
+Every run carries a **Notify on** setting with four values:
+
+| Value                              | Behaviour                                            |
+| ---------------------------------- | ---------------------------------------------------- |
+| **Never** (`never`)                | No external delivery                                 |
+| **Always** (`always`)              | Deliver on any terminal outcome (success or failure) |
+| **On success only** (`on_success`) | Deliver only when the run succeeds                   |
+| **On failure only** (`on_failure`) | Deliver only when the run fails                      |
+
+This setting gates external channels only — the in-app bell entry is always recorded.
+
+### Where the effective value comes from
+
+DAIV resolves the preference that applies to a finished run by precedence, taking the first that is set:
+
+1. **The run's own "Notify on" override** — chosen when you start the run.
+1. **The schedule's "Notify on"** — for [scheduled-job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) runs that did not set a per-run override. Schedules default to **Never**.
+1. **Your default preference** — your account's `notify_on_jobs`, which applies to runs you start from the UI, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md). It defaults to **On failure only**.
+1. Otherwise, **Never**.
+
+### Setting "Notify on" per run
+
+- **Run composer** — the **Dashboard > Runs** composer (`/dashboard/runs/`) has a **Notify me** field, pre-filled from your default preference.
+- **[Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)** — pass `notify_on` in the submit payload.
+- **[MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)** — pass the `notify_on` argument to `submit_job`.
+- **[Scheduled jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md)** — the schedule's **Notify on** field, applied to every run it fans out (defaults to **Never**).
+
+Omit `notify_on` on a run and it falls through to the next level in the precedence chain above.
+
+## Connecting Rocket Chat
+
+If your administrator has enabled Rocket Chat for the instance, bind your handle so DAIV can message you:
+
+1. Open **`/accounts/channels/`**.
+1. In the **Rocket Chat** row, enter your `@username` and select **Connect**. (DAIV strips a leading `@` for you.)
+1. DAIV verifies the username against the Rocket Chat instance. On success the row shows a **Verified** badge and your handle; an unknown user or an unreachable instance surfaces an error and nothing is saved.
+
+Select **Disconnect** in the same row to remove the binding and stop Rocket Chat delivery.
+
+Verification can fail
+
+Connecting only succeeds when the configured Rocket Chat bot can look your username up. If the instance is temporarily unavailable or the user is not found, DAIV shows a message and leaves your channel unbound — no unverified binding is stored.
+
+Enabling Rocket Chat is an administrator task
+
+The Rocket Chat instance URL, bot user ID, and auth token are configured under **Dashboard > Configuration > Rocket Chat** (`/dashboard/configuration/rocketchat/`), which requires the **admin** role. Until an admin enables it there, the channel does not appear on your channels page.
+
+## How delivery works
+
+When a run finishes, DAIV records the notification and one delivery row per external channel, then dispatches each delivery on a background worker:
+
+- A channel with no usable binding (for example Rocket Chat before you connect, or an unknown channel) is recorded as **skipped** rather than attempted.
+- Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried.
+- The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails.
+
+## Related
+
+- **[Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md)**
+
+  Recurring runs with their own **Notify on** setting and subscriber list.
+
+- **[Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)**
+
+  Submit runs programmatically with a per-run `notify_on`.
+
+- **[Activity Tracking](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md)**
+
+  Every notification links to the run or batch in the activity log.
+
+- **[MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)**
+
+  Submit jobs from MCP clients, with `notify_on` support.
 
 # Merge Metrics
 
@@ -1973,23 +2545,24 @@ sequenceDiagram
 1. **Default branch filter** — Only merges targeting the repository's default branch are recorded. Merges to feature or release branches are ignored.
 1. **Background task** — A task fetches MR-level diff statistics and the pre-squash commit list from the platform API.
 1. **Commit-based attribution** — Each commit's author email is compared against DAIV's known commit email. Lines added/removed are split into DAIV and human contributions. This works correctly even with squash merges because the platform API retains the original commit list.
-1. **Dashboard** — The metrics are displayed in the "Code Velocity" section of the dashboard at `/dashboard/`, using the same period filter (7d / 30d / 90d / All time) as the agent activity counters.
+1. **Dashboard** — The metrics are displayed in the "Code Velocity" section of the dashboard at `/dashboard/` (visible to admin users only), using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to Today) as the agent activity counters.
 
 ______________________________________________________________________
 
 ## Dashboard
 
-The Code Velocity section shows five counters:
+The Code Velocity section is visible to admin users only. It shows a merges-and-lines block plus a separate **DAIV attribution** sub-section:
 
-| Counter               | Description                                                  |
-| --------------------- | ------------------------------------------------------------ |
-| **Total merges**      | Total MRs/PRs merged to default branches                     |
-| **Lines added**       | Total lines added across all merges                          |
-| **Lines removed**     | Total lines removed across all merges                        |
-| **DAIV contribution** | Percentage of total lines (added + removed) authored by DAIV |
-| **DAIV commit share** | Percentage of total commits authored by DAIV                 |
+| Metric                       | Description                                                                                                |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Total merges**             | MRs/PRs merged into default branches                                                                       |
+| **Lines added**              | Total lines added across all merges                                                                        |
+| **Lines removed**            | Total lines removed across all merges                                                                      |
+| **Net change**               | Lines added minus lines removed                                                                            |
+| **MRs involving DAIV**       | Percentage of merges containing at least one DAIV-authored commit, shown alongside DAIV vs human MR counts |
+| **Commits authored by DAIV** | Percentage of commits authored by DAIV, shown alongside DAIV vs human commit counts                        |
 
-All counters respect the period filter at the top of the dashboard.
+All metrics respect the period filter at the top of the dashboard.
 
 ______________________________________________________________________
 
@@ -2046,7 +2619,7 @@ The way diff statistics are collected differs between platforms:
 | **GitLab** | Parses unified diff text from `mr.changes()` API                  | Fetches `project.commits.get(sha).stats` per commit (N+1 calls, capped at 100 commits) |
 | **GitHub** | Reads `pr.additions`, `pr.deletions`, `pr.changed_files` directly | Fetches `commit.stats` per commit via lazy loading (N+1 calls, handled by PyGithub)    |
 
-If fetching diff stats or commits fails (e.g., due to API rate limits or network errors), the merge is still recorded with zero counts rather than being lost.
+The merge is always recorded even on partial failure (e.g., due to API rate limits or network errors). Each data source — MR-level diff stats, the bot commit email, and the commit list — is fetched independently. If MR-level diff stats fail while the commit list succeeds, the totals are derived from the per-commit sums, so only the field whose own fetch actually failed is left at zero.
 
 ______________________________________________________________________
 
@@ -2128,7 +2701,11 @@ Clears the conversation history for the current issue or merge/pull request. Use
 @daiv /clone-to-topics backend, api
 ```
 
-Clones the current issue (title, description, and labels) to all repositories matching **all** the specified topics. The current repository is excluded. Only available on issues.
+Clones the current issue (title, description, and labels) to all repositories matching the specified topics. The current repository is excluded. Only available on issues.
+
+Topic matching is platform-dependent
+
+On GitLab, a repository must carry **all** the listed topics to be included. On GitHub, a repository is included if it matches **any** of the listed topics.
 
 ## Built-in skills
 
@@ -2172,7 +2749,7 @@ Performs a dedicated security scan of the code changes, looking for injection fl
 @daiv /init
 ```
 
-Analyzes the repository structure and generates an `AGENTS.md` file with guidance for AI coding agents, following the recommendations from [the AGENTS.md research paper](https://arxiv.org/abs/2602.11988). If one already exists, it updates it.
+Analyzes the repository structure and generates an `AGENTS.md` file with short, repo-specific, high-leverage guidance for AI coding agents (verified commands, repo map, invariants and footguns, and where changes usually go). If one already exists, it updates it to reduce duplication and remove low-signal text.
 
 ### /skill-creator
 
@@ -2197,7 +2774,7 @@ Custom commands appear alongside built-in ones in `/help` and are invoked the sa
 
 DAIV's main agent can delegate work to specialized subagents. Each subagent is optimized for a specific type of task — one for fast codebase exploration, another for complex multi-step work. The main agent decides when to delegate based on the nature of the task.
 
-You can see the available subagents by running `/agents` on any issue or merge/pull request.
+You can see the available subagents by running `/agents` — it works in the global/chat scope as well as on any issue or merge/pull request. The output lists every available subagent, so alongside the two built-ins described below you may also see the code-review detectors and any custom subagents defined for the repository.
 
 ## Available subagents
 
@@ -2233,7 +2810,7 @@ The main agent chooses which subagent to use based on the task:
 - **Need to research, run commands, or do multi-step work?** → General-purpose subagent
 - **Need to make code changes directly?** → Main agent handles it itself
 
-Subagents run within the same conversation context. Their findings are returned to the main agent, which uses them to continue the task.
+Each subagent runs in its own isolated context — it does not see the main conversation and cannot exchange messages with the main agent. It works autonomously and returns a single final report, which the main agent uses to continue the task.
 
 ## Custom subagents
 
@@ -2319,10 +2896,14 @@ The sandbox is powered by [daiv-sandbox](https://github.com/srtab/daiv-sandbox/)
 With the sandbox enabled, DAIV can:
 
 - Run tests and linters to validate changes
-- Install and update dependencies (npm, pip, uv, etc.)
+- Install and update dependencies (npm, pip, uv, etc.) — requires network access, see the note below
 - Inspect git state (`git status`, `git diff`, `git log`)
 - Execute build scripts and generators
 - Run any command allowed by the command policy
+
+Network access is off by default
+
+Installing or updating dependencies reaches out to package registries (npm, PyPI, etc.), which needs network access. The sandbox runs with networking **disabled** by default, so these commands fail until you enable `network_enabled` on the relevant [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md).
 
 Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next.
 
@@ -2334,33 +2915,200 @@ Not all commands are safe for an AI agent to run. The sandbox enforces a layered
 
 The following commands are **always blocked** and cannot be overridden:
 
-| Category               | Blocked commands                                                         |
-| ---------------------- | ------------------------------------------------------------------------ |
-| Git history mutation   | `git commit`, `git push`, `git reset`, `git rebase`, `git filter-branch` |
-| Git index manipulation | `git add`, `git hash-object`, `git update-index`                         |
-| Destructive operations | `git clean`, `git checkout .`, `git restore .`                           |
-| Branch/tag deletion    | `git branch -D`, `git tag -d`                                            |
-| Git configuration      | `git config`                                                             |
-| Platform CLI tools     | `gitlab`, `gh`, `python -m gitlab`                                       |
+| Category               | Blocked commands                                                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Git history mutation   | `git commit`, `git push`, `git reset`, `git rebase`, `git reflog delete`, `git filter-branch`, `git filter-repo` |
+| Git index manipulation | `git add`, `git hash-object`, `git update-index`, `git commit-tree`                                              |
+| Destructive operations | `git clean`, `git checkout .`, `git restore .`                                                                   |
+| Branch/tag deletion    | `git branch -D` / `git branch --delete`, `git tag -d` / `git tag --delete`                                       |
+| Git configuration      | `git config`                                                                                                     |
+| Platform CLI tools     | `gitlab`, `gh`, `python -m gitlab`                                                                               |
 
 These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.
 
-### Per-repository rules
+### Global rules
 
-Custom allow and disallow rules were previously declared in `.daiv.yml`. Per-environment command policies are a future iteration; for now, only the built-in safety rules apply.
+In addition to the built-in safety rules, operators can configure global allow and disallow command prefixes via the `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` and `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` environment variables (see the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) reference). Each entry is a space-separated prefix (for example, `curl wget` or `my-safe-tool`).
+
+Per-repository (`.daiv.yml`) and per-environment command policies are a future iteration and are not yet available.
 
 ### Precedence
 
 When a command is evaluated, rules are checked in this order:
 
 1. **Built-in disallow** — always wins, cannot be overridden
-1. **Repository disallow** — cannot be overridden by allow
-1. **Repository allow** — permits commands not caught by 1 or 2
+1. **Configured disallow** — global `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` rules; cannot be overridden by allow
+1. **Configured allow** — global `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` rules; permit commands not caught by 1 or 2
 1. **Default** — everything else is allowed
 
 ## Configuring the sandbox
 
-Sandbox runtime configuration (`base_image`, `cpus`, `memory`, `network`, and environment variables) is managed through the **Sandbox Environments** admin page rather than `.daiv.yml`. Each environment can be bound to specific repositories (`owner/repo`); when an agent runs in a repo claimed by an environment, that environment is auto-selected. Personal (USER-scoped) environments override organization-wide (GLOBAL-scoped) environments for the running user. See the Sandbox Environments page for details.
+Sandbox runtime configuration (`base_image`, `cpus`, `memory`, `network`, and environment variables) is managed through the **Sandbox Environments** admin page rather than `.daiv.yml`. Each environment can be bound to specific repositories (`owner/repo`); when an agent runs in a repo claimed by an environment, that environment is auto-selected. Personal (USER-scoped) environments override organization-wide (GLOBAL-scoped) environments for the running user. See [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) for details.
+
+# Sandbox Environments
+
+A sandbox environment is a named, reusable [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) configuration — base image, CPU and memory limits, network access, encrypted environment variables, and the repositories it applies to. Define it once in the dashboard and DAIV reuses that runtime across every run, chat, scheduled job, and API/MCP call that lands in a matching repository, instead of reconfiguring the container each time.
+
+Manage environments at **Dashboard > Sandbox Environments** (`/dashboard/sandbox-envs/`). The page lists your own environments and, separately, the organization-wide ones.
+
+When you need one
+
+The sandbox runs with **networking disabled** and **no base image** unless an environment supplies them. If the agent needs to install dependencies, run a specific toolchain image, or read a secret (an API token, a private registry credential), capture that in an environment. See [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) for what the agent does with the runtime.
+
+## Scopes
+
+Every environment has one of two scopes:
+
+| Scope      | Visibility           | Who can manage it   | Repository default                               |
+| ---------- | -------------------- | ------------------- | ------------------------------------------------ |
+| **User**   | Private to you       | You (the owner)     | —                                                |
+| **Global** | Shared with everyone | Administrators only | One environment can be the single global default |
+
+When resolving the runtime for a repository, a **User** environment that claims that repository wins over a **Global** one, so you can override an organization-wide setup with your own for the repositories you care about.
+
+Global environments are admin-only
+
+Only administrators can create, edit, delete, or set the default of a **Global** environment. Non-admins can still *select* and *read* global environments (secret values stay masked), but the scope dropdown offers only **User** when you create one.
+
+### The single global default
+
+Exactly one **Global** environment may be marked as the default. It is the fallback the runtime uses when no other environment matches a repository (see [How an environment is resolved](#how-an-environment-is-resolved)). Administrators promote a different environment to default from the list (the **Set default** action, `POST /dashboard/sandbox-envs/<uuid>/set-default/`); promoting one automatically demotes the previous default. You cannot delete the current global default — promote another environment first.
+
+## Creating an environment
+
+Click **Create** on the list page to open the drawer (`/dashboard/sandbox-envs/create/`), or **Edit** an existing one (`/dashboard/sandbox-envs/<uuid>/edit/`). The form has these fields:
+
+| Field                     | Description                                                                                                                                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Name**                  | A short label, unique within its scope. Required                                                                                                                       |
+| **Description**           | Optional free text                                                                                                                                                     |
+| **Scope**                 | **User** (private) or **Global** (admin-only, shared)                                                                                                                  |
+| **Base image**            | The container image the sandbox runs, e.g. `python:3.14-slim`. Required                                                                                                |
+| **CPUs**                  | CPU limit (a number, up to two decimals). Switch from *default* to *custom* to set it; leave on *default* to inherit                                                   |
+| **Memory**                | Memory limit, entered as a value plus a **MiB** or **GiB** unit. Switch from *default* to *custom* to set it                                                           |
+| **Network**               | **Use default**, **On**, or **Off**. Controls outbound network access (needed to reach package registries)                                                             |
+| **Environment variables** | Name/value pairs injected into the sandbox; mark any as secret (see below). Up to 100 entries                                                                          |
+| **Repositories**          | The repository IDs this environment is bound to, as slash-separated paths like `owner/repo` or `group/subgroup/repo` (see [Repository bindings](#repository-bindings)) |
+
+Leaving **CPUs**, **Memory**, or **Network** on *default* means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time.
+
+### Environment variables (encrypted at rest)
+
+Environment-variable values are **Fernet-encrypted before they are stored** and decrypted only when a run needs them. Encryption uses `DAIV_ENCRYPTION_KEY` (see [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md)).
+
+- Each entry has a **name** (a valid shell identifier: letters, digits, underscores, not starting with a digit) and a **value**.
+- Mark a value as **secret** to mask it in the dashboard and in API/MCP responses (shown as `******`, never echoed back). Re-saving the form keeps a masked secret unchanged unless you type a new value.
+- Limits: at most **100** variables, and the encrypted blob may not exceed **32 KiB**.
+
+Rotating the encryption key
+
+If `DAIV_ENCRYPTION_KEY` changes and stored values can no longer be decrypted, the form blocks saving until you re-enter every secret value. Agent runs don't crash on this — they drop the unreadable variables and continue.
+
+### Repository bindings
+
+The **Repositories** field is a list of repository IDs (`owner/repo`, `group/subgroup/repo`, …) that this environment claims. Bindings drive [auto-resolution](#how-an-environment-is-resolved): when an agent runs in a bound repository and no environment is explicitly selected, this environment is chosen automatically.
+
+A repository ID may be claimed by at most one environment **within the same scope** for the same owner — saving a binding that overlaps another of your User environments (or another Global environment) is rejected with the name of the conflicting environment. The same repository can still appear in both a User environment and a Global one; the User binding takes precedence.
+
+## How an environment is resolved
+
+When a run starts in a repository, DAIV picks the per-run environment using this precedence (per repository):
+
+1. **Explicit selection** — an environment chosen for the run (the picker in the dashboard, the `environment` argument to the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)/[MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md), or the chat header). Selecting an environment overrides all binding/default logic.
+1. **User repository binding** — your **User** environment whose **Repositories** list contains this repository.
+1. **Global repository binding** — a **Global** (non-default) environment whose **Repositories** list contains this repository.
+1. **Global default** — the single **Global** environment marked as default.
+1. **None** — if nothing matches, the sandbox uses its built-in runtime defaults (no base image, networking off).
+
+The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, network, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
+
+Webhook-triggered runs
+
+Runs triggered by a webhook (for example, [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)) have no signed-in DAIV user, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
+
+```
+flowchart TD
+    A[Run starts for a repo] --> B{Environment<br/>explicitly selected?}
+    B -- Yes --> Z[Use it]
+    B -- No --> C{User env binds<br/>this repo?}
+    C -- Yes --> Z
+    C -- No --> D{Global env binds<br/>this repo?}
+    D -- Yes --> Z
+    D -- No --> E{Global default<br/>exists?}
+    E -- Yes --> Z
+    E -- No --> F[Built-in runtime defaults]
+```
+
+## Selecting an environment for a run
+
+You don't have to bind an environment to a repository — you can pick one explicitly per run. An explicit selection always wins over bindings and the default.
+
+### From the dashboard run composer
+
+When you start a run from **Dashboard > Activity** (or from an [Activity](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) detail page), the composer includes a **Sandbox environment** picker listing your User environments and all Global ones. Leave it on **(global default)** to use [auto-resolution](#how-an-environment-is-resolved).
+
+### From chat
+
+The dashboard [chat](https://srtab.github.io/daiv/dev/features/chat/index.md) workspace remembers the environment chosen when the thread is created (sent as the `X-Sandbox-Env` header, by name or UUID). Omitting it auto-resolves the environment for the thread's repository. The chosen environment is snapshotted on thread creation, so an existing thread keeps the environment it started with.
+
+### From a scheduled job
+
+A [Scheduled Job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) has a **Sandbox environment** field. Set it to pin every run of that schedule to one environment, or leave it unset to fall back to per-repository auto-resolution for each target repo.
+
+### From the Jobs API
+
+`POST /api/jobs` accepts an optional `environment` field (an environment **name or UUID**, visible to the calling user). It applies to every repository in the batch. Omit it to auto-resolve per repository.
+
+```
+{
+  "repos": [{"repo_id": "group/project", "ref": "main"}],
+  "prompt": "Run the test suite and fix any failures.",
+  "environment": "ci-python-3.14"
+}
+```
+
+See the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) reference for the full request shape.
+
+### From the MCP endpoint
+
+The [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `submit_job` tool takes an `environment` argument (name or UUID), applied to every job in the batch. Two companion tools help discover environments:
+
+- `list_environments` — your User environments plus all Global ones (env-var values are not included at all).
+- `get_environment` — full details for one environment by name or UUID (secret values masked as `******`).
+
+## Related pages
+
+- **Sandbox**
+
+  ______________________________________________________________________
+
+  What the agent runs inside the container, and the command policy that governs it.
+
+  [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md)
+
+- **Scheduled Jobs**
+
+  ______________________________________________________________________
+
+  Pin a sandbox environment to a recurring agent run.
+
+  [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md)
+
+- **Jobs API**
+
+  ______________________________________________________________________
+
+  Submit jobs over HTTP with an `environment` parameter.
+
+  [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)
+
+- **MCP Endpoint**
+
+  ______________________________________________________________________
+
+  Pick environments from Claude Code, Cursor, and other MCP clients.
+
+  [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)
 # Integrations
 
 # Request Tracker Triage
@@ -2449,24 +3197,24 @@ daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo
 
 ## Troubleshooting
 
-| Symptom                                                        | Likely cause                                                                           | Fix                                                                                                                                             |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| No log line at all after ticket create                         | Scrip not attached to the queue, or condition/stage is wrong                           | Re-check the Scrip's **Applies To** list and confirm Condition=`On Create`, Stage=`TransactionCreate`                                           |
-| `DAIV_URL or DAIV_API_KEY not set` in `rt.log`                 | `RT_SiteConfig.pm` not reloaded                                                        | `apache2ctl graceful`                                                                                                                           |
-| `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart                                          | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To"                                                                |
-| `failed to submit job … 401`                                   | Wrong or expired DAIV API key                                                          | Rotate via `python manage.py create_api_key` and update `RT_SiteConfig.pm`                                                                      |
-| `rate-limited for ticket … 429` (warning)                      | Jobs API rate limit exceeded (default 20/hour per user)                                | Raise `DAIV_JOBS_THROTTLE_RATE` on the DAIV host, or use a separate API-key user per queue. Logged at `warning` — safe to alert on `error` only |
-| `failed to submit job … <non-2xx, non-429>`                    | DAIV returned 4xx/5xx other than rate-limit                                            | Check the DAIV activity log and access log; the status line + body are captured                                                                 |
-| `exception in triage scrip: daiv-triage timeout`               | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS                                                            |
-| `exception in triage scrip: <other>`                           | Unexpected die from LWP, the RT ticket object, or elsewhere                            | Inspect `rt.log` around the timestamp; the captured `$@` will point at the source                                                               |
-| Job completes in DAIV but no comment on the ticket             | RT MCP auth user lacks comment rights on the queue, or MCP call errored                | Grant the MCP's RT user the `CommentOnTicket` right on the queue; inspect the run's tool calls in Activity                                      |
+| Symptom                                                        | Likely cause                                                                           | Fix                                                                                                                                                                      |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No log line at all after ticket create                         | Scrip not attached to the queue, or condition/stage is wrong                           | Re-check the Scrip's **Applies To** list and confirm Condition=`On Create`, Stage=`TransactionCreate`                                                                    |
+| `DAIV_URL or DAIV_API_KEY not set` in `rt.log`                 | `RT_SiteConfig.pm` not reloaded                                                        | `apache2ctl graceful`                                                                                                                                                    |
+| `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart                                          | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To"                                                                                         |
+| `failed to submit job … 401`                                   | Wrong or expired DAIV API key                                                          | Rotate via `python manage.py create_api_key` and update `RT_SiteConfig.pm`                                                                                               |
+| `rate-limited for ticket … 429` (warning)                      | Jobs API rate limit exceeded (default 20/hour per user)                                | Raise the jobs throttle rate in Site Configuration (`jobs_throttle_rate`), or use a separate API-key user per queue. Logged at `warning` — safe to alert on `error` only |
+| `failed to submit job … <non-2xx, non-429>`                    | DAIV returned 4xx/5xx other than rate-limit                                            | Check the DAIV activity log and access log; the status line + body are captured                                                                                          |
+| `exception in triage scrip: daiv-triage timeout`               | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS                                                                                     |
+| `exception in triage scrip: <other>`                           | Unexpected die from LWP, the RT ticket object, or elsewhere                            | Inspect `rt.log` around the timestamp; the captured `$@` will point at the source                                                                                        |
+| Job completes in DAIV but no comment on the ticket             | RT MCP auth user lacks comment rights on the queue, or MCP call errored                | Grant the MCP's RT user the `CommentOnTicket` right on the queue; inspect the run's tool calls in Activity                                                               |
 
 ## Cost considerations
 
-The Scrip submits with `use_max: true` — the more capable model with thinking set to high. This produces better triage but is more expensive. For high-volume queues, consider:
+The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](https://srtab.github.io/daiv/dev/features/jobs-api/#submit-a-job) on the Jobs API page. For high-volume queues, consider:
 
-- Dropping `use_max` to `false` in the Scrip body for a cheaper first pass.
-- Adding a queue-level rate limit via a separate DAIV API-key user with a lower `DAIV_JOBS_THROTTLE_RATE`.
+- Lowering or omitting `agent_thinking_level` in the Scrip body for a cheaper first pass — the system default model then runs at its default effort.
+- Adding a queue-level rate limit via a separate DAIV API-key user with a lower `jobs_throttle_rate` (Site Configuration).
 
 ## Files
 
@@ -2522,7 +3270,7 @@ models:
 | Option                 | Type          | Default            | Description                                                                                                                                                                                             |
 | ---------------------- | ------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `default_branch`       | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests.                                                                                                                                |
-| `context_file_name`    | `str \| null` | `"AGENTS.md"`      | Name of the [AGENTS.md](https://arxiv.org/abs/2602.11988) guidance file. Set to `null` to disable.                                                                                                      |
+| `context_file_name`    | `str \| null` | `"AGENTS.md"`      | Name of the [AGENTS.md](https://agents.md/) guidance file. Set to `null` to disable.                                                                                                                    |
 | `suggest_context_file` | `bool`        | `true`             | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](https://srtab.github.io/daiv/dev/features/issue-addressing/#agentsmd-suggestion). |
 
 Tip
@@ -2581,8 +3329,6 @@ slash_commands:
 | `pull_request_assistant` | `enabled` | `true`  | [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) |
 | `slash_commands`         | `enabled` | `true`  | [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md)        |
 
-# 
-
 ## Branch naming and commit conventions
 
 DAIV generates branch names and commit messages automatically. You can define your conventions in `AGENTS.md`:
@@ -2615,20 +3361,20 @@ Configuration priority (highest to lowest):
 
 The main DAIV agent used for issue addressing, pull request assistance, and all interactive tasks.
 
-| Option                        | Type                                               | Default             | Description                               |
-| ----------------------------- | -------------------------------------------------- | ------------------- | ----------------------------------------- |
-| `models.agent.model`          | `str`                                              | `claude-sonnet-4.6` | Primary model.                            |
-| `models.agent.fallback_model` | `str`                                              | `gpt-5.3-codex`     | Fallback if the primary model fails.      |
-| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| null` | `medium`            | Thinking depth. Set to `null` to disable. |
+| Option                        | Type                                                          | Default             | Description                               |
+| ----------------------------- | ------------------------------------------------------------- | ------------------- | ----------------------------------------- |
+| `models.agent.model`          | `str`                                                         | `claude-sonnet-4.6` | Primary model.                            |
+| `models.agent.fallback_model` | `str`                                                         | `gpt-5.3-codex`     | Fallback if the primary model fails.      |
+| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null` | `medium`            | Thinking depth. Set to `null` to disable. |
 
 ### Diff to metadata
 
 Generates pull request titles, descriptions, and commit messages from diffs.
 
-| Option                                   | Type  | Default             | Description                          |
-| ---------------------------------------- | ----- | ------------------- | ------------------------------------ |
-| `models.diff_to_metadata.model`          | `str` | `claude-sonnet-4.6` | Primary model.                       |
-| `models.diff_to_metadata.fallback_model` | `str` | `gpt-5.3-codex`     | Fallback if the primary model fails. |
+| Option                                   | Type  | Default            | Description                          |
+| ---------------------------------------- | ----- | ------------------ | ------------------------------------ |
+| `models.diff_to_metadata.model`          | `str` | `gpt-5.4-mini`     | Primary model.                       |
+| `models.diff_to_metadata.fallback_model` | `str` | `claude-haiku-4.5` | Fallback if the primary model fails. |
 
 Note
 
@@ -2664,16 +3410,16 @@ DAIV scans all three and loads skills from each. If multiple directories contain
 your-repository/
 ├── .agents/
 │   └── skills/
-│       ├── my-custom-skill/
-│       │   ├── SKILL.md           # Required
-│       │   └── scripts/
-│       │       └── helper.py      # Optional supporting files
-│       └── plan/                   # Built-in (auto-copied, gitignored)
-│           └── SKILL.md
+│       └── my-custom-skill/
+│           ├── SKILL.md           # Required
+│           └── scripts/
+│               └── helper.py      # Optional supporting files
 └── src/
 ```
 
-Built-in skills are automatically copied to `.agents/skills/` at agent startup with a `.gitignore` to prevent them from being committed. You can override any built-in skill by creating one with the same name and committing it to the repository.
+Built-in skills are **not** copied into your repository. They are loaded from DAIV's own global skills location (`/workspace/skills` inside the agent), registered as a separate "Global" source alongside the per-repository directories above. Nothing is written to `.agents/skills/` and no `.gitignore` is generated.
+
+You can still override any built-in skill by creating one with the same name in one of the per-repository directories and committing it: per-repository sources take precedence over the global source (see [Override priority](#override-priority)).
 
 ## Custom global skills
 
@@ -2704,20 +3450,55 @@ Custom global skills are user-defined skills that are available across **all rep
 
    The path inside the container is configurable via the `DAIV_AGENT_CUSTOM_SKILLS_PATH` environment variable (see [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/#daiv-agent)).
 
+### Manage skills from the dashboard
+
+Admin only
+
+The Skills dashboard requires an admin account.
+
+Admins can manage custom global skills from the web dashboard at **Skills** (`/dashboard/skills/`) instead of editing the mounted directory by hand. Both approaches write to the same `DAIV_AGENT_CUSTOM_SKILLS_PATH` location, so they coexist — the dashboard is an alternative to, not a replacement for, the Docker-volume approach.
+
+From the Skills page you can:
+
+- **List skills** — built-in and custom global skills are shown together, each with its invocation count. A custom skill whose name matches a built-in shadows it and is flagged **Overrides built-in**.
+- **Upload a skill** as a ZIP archive (see constraints below). Uploading a skill whose name already exists asks you to confirm before it replaces the existing one.
+- **View a skill** — its `SKILL.md`, file tree, and usage over the last 30 days.
+- **Download** a custom skill's original ZIP.
+- **Delete** a custom skill (built-in skills cannot be deleted; deleting a custom skill that shadowed a built-in restores the built-in).
+
+A successful upload writes the skill into `DAIV_AGENT_CUSTOM_SKILLS_PATH` and records an audit row attributing it to the uploading admin.
+
+#### ZIP requirements
+
+The uploaded archive is validated before it is stored:
+
+| Constraint          | Limit                                                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Top-level directory | Exactly one, named after the skill (a valid slug: lowercase alphanumeric and hyphens, max 63 chars)            |
+| `SKILL.md`          | Required at `<skill-name>/SKILL.md`, with `name` (matching the directory) and `description` in its frontmatter |
+| Compressed size     | 5 MiB max                                                                                                      |
+| Unpacked size       | 25 MiB max                                                                                                     |
+| File count          | 200 max                                                                                                        |
+| Path depth          | 8 levels max                                                                                                   |
+| Per-file size       | 1 MiB max                                                                                                      |
+| Allowed file types  | `.md`, `.py`, `.json`, `.yaml`, `.yml`, `.txt`, `.sh`, `.toml`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.gif`        |
+
+Symlinks, absolute paths, `..` path traversal, and hidden path segments are rejected; `__pycache__` and `.pyc` entries are dropped silently.
+
 ### Override priority
 
 Skills are resolved in this order (highest priority wins):
 
 1. **Per-repository skills** — committed in the repository's `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/`
-1. **Custom global skills** — mounted via Docker volume
+1. **Custom global skills** — mounted via Docker volume or uploaded from the dashboard
 1. **Built-in skills** — shipped with DAIV
 
 This means custom global skills override built-in skills with the same name, and per-repository skills override both.
 
 ### Notes
 
-- Skills are copied at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.
-- Custom global skills are marked with a `<global>` tag in the agent's system prompt so the LLM can distinguish them from built-in and per-repository skills.
+- Skills are materialized at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.
+- Custom global skills load from the agent's global skills source, which appears as **Global Skills** in the system prompt's skills-locations block. Per-repository sources are listed after it and marked `(higher priority)`, so the agent knows a per-repository skill of the same name wins.
 
 ## Creating a skill
 
@@ -2869,25 +3650,37 @@ Skills provide agents with instructions and access to scripts. Only use skills y
 
 The [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) gives DAIV access to your error tracking data.
 
-**Available tools:**
+**Available tools** (read-only allow-list):
 
-| Tool                 | Description                                     |
-| -------------------- | ----------------------------------------------- |
-| `find_organizations` | Discover Sentry organizations                   |
-| `find_projects`      | List projects in an organization                |
-| `search_issues`      | Search for issues by query                      |
-| `search_events`      | Search for events                               |
-| `get_issue_details`  | Get detailed information about a specific issue |
+| Tool                   | Description                            |
+| ---------------------- | -------------------------------------- |
+| `whoami`               | Identify the authenticated Sentry user |
+| `find_organizations`   | Discover Sentry organizations          |
+| `find_projects`        | List projects in an organization       |
+| `find_teams`           | List teams in an organization          |
+| `find_releases`        | List releases in a project             |
+| `search_issue`         | Look up a specific issue               |
+| `search_issue_events`  | Search events within an issue          |
+| `search_events`        | Search for events                      |
+| `get_issue_tag_values` | List tag values seen on an issue       |
+| `get_event_attachment` | Fetch an attachment from an event      |
+| `get_replay_details`   | Get details of a session replay        |
+| `get_profile_details`  | Get details of a profiling sample      |
+| `get_sentry_resource`  | Fetch a Sentry resource by reference   |
 
 **Use cases:** Analyzing error patterns when fixing bugs, correlating code changes with production errors, gathering debugging context.
 
 **Configuration:**
 
 ```
-MCP_SENTRY_URL=http://mcp-sentry:8000/mcp   # Default; set to None to disable
+MCP_SENTRY_URL=http://mcp_sentry:8000/mcp   # Default; set to None to disable
 ```
 
-`SENTRY_ACCESS_TOKEN` is consumed by the `mcp-sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
+`SENTRY_ACCESS_TOKEN` is consumed by the `mcp_sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
+
+Note
+
+The default hostname uses an underscore (`mcp_sentry`). Docker Swarm does **not** normalize service names with dashes to underscores on internal DNS, so a service declared as `mcp-sentry` (hyphen) is only reachable at the hyphenated hostname. If your deployment uses the hyphenated service name — as the [deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) stack examples do — set `MCP_SENTRY_URL=http://mcp-sentry:8000/mcp` explicitly so the service resolves.
 
 ### Context7
 
@@ -2905,10 +3698,10 @@ The [Context7 MCP Server](https://www.npmjs.com/package/@upstash/context7-mcp) p
 **Configuration:**
 
 ```
-MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp  # Default; set to None to disable
+MCP_CONTEXT7_URL=http://mcp_context7:8000/mcp  # Default; set to None to disable
 ```
 
-Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` container. Add them to your secrets env file.
+Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp_context7` container. Add them to your secrets env file. As with Sentry, the default hostname uses an underscore, and Swarm does **not** normalize dashes to underscores on internal DNS. If your deployment declares the service as `mcp-context7` (hyphen) — as the [deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) stack examples do — set `MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp` explicitly so the service resolves.
 
 ## User-defined MCP servers
 
@@ -3064,7 +3857,9 @@ Variables marked with:
 
 Configuration UI
 
-Many settings listed under [Automation: LLM Providers](#automation-llm-providers), [Automation: Tools](#automation-tools), and [Automation: Agents](#automation-agents) can also be managed through the **Configuration UI** at `/dashboard/configuration/`. These settings use a three-tier priority chain: **environment variable** (highest) > **database value** (set via UI) > **hardcoded default** (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked *env-only* are not available in the UI.
+Many settings listed under [Automation: Tools](#automation-tools) and [Automation: Agents](#automation-agents) can also be managed through the **Configuration UI** at `/dashboard/configuration/`. These settings use a three-tier priority chain: **environment variable** (highest) > **database value** (set via UI) > **hardcoded default** (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked *env-only* are not available in the UI.
+
+[Automation: LLM Providers](#automation-llm-providers) behaves differently: the provider API key variables are read **only once** to seed the provider records on first run — they do not participate in the runtime override chain (see the note in that section).
 
 ______________________________________________________________________
 
@@ -3172,22 +3967,23 @@ Global policy vs. repository policy
 
 DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `python manage.py bootstrap_admin <email>` to create one via login-by-code (see [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)).
 
-OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
+OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
 
-| Variable                    | Description                                                                                | Default                                       | Example                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------ |
-| `DAIV_AUTH_LOGIN_ENABLED`   | Enable OAuth login (social provider buttons on login page)                                 | `false`                                       | `true`                                           |
-| `ALLAUTH_CLIENT_ID`         | OAuth client ID for the configured Git platform                                            | *(none)*                                      | `Iv1.abc123`                                     |
-| `ALLAUTH_CLIENT_SECRET`     | OAuth client secret for the configured Git platform                                        | *(none)*                                      |                                                  |
-| `ALLAUTH_GITLAB_URL`        | GitLab instance URL (for OAuth redirects to the user's browser)                            | `https://gitlab.com`                          | `https://gitlab.example.com`                     |
-| `ALLAUTH_GITLAB_SERVER_URL` | GitLab server URL (for server-to-server API calls, if different from `ALLAUTH_GITLAB_URL`) | *(none)*                                      | `http://gitlab:8929`                             |
-| `EMAIL_BACKEND`             | Django email backend for login-by-code emails                                              | `django.core.mail.backends.smtp.EmailBackend` | `django.core.mail.backends.console.EmailBackend` |
-| `EMAIL_HOST`                | SMTP server hostname                                                                       | `localhost`                                   | `smtp.example.com`                               |
-| `EMAIL_PORT`                | SMTP server port                                                                           | `25`                                          | `587`                                            |
-| `EMAIL_HOST_USER`           | SMTP authentication username                                                               | *(empty)*                                     | `user@example.com`                               |
-| `EMAIL_HOST_PASSWORD`       | SMTP authentication password                                                               | *(empty)*                                     |                                                  |
-| `EMAIL_USE_TLS`             | Use TLS for SMTP connection                                                                | `False`                                       | `True`                                           |
-| `DEFAULT_FROM_EMAIL`        | Sender address for login-by-code emails                                                    | `noreply@daiv.dev`                            | `noreply@example.com`                            |
+| Variable                    | Description                                                                                                                               | Default                                       | Example                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------ |
+| `DAIV_AUTH_LOGIN_ENABLED`   | Enable OAuth login (social provider buttons on login page)                                                                                | `false`                                       | `true`                                           |
+| `DAIV_AUTH_SIGNUP_OPEN`     | Allow anyone authenticating via the configured Git platform to self-create an account. When off, only admin-pre-created users can sign in | `false`                                       | `true`                                           |
+| `ALLAUTH_CLIENT_ID`         | OAuth client ID for the configured Git platform                                                                                           | *(none)*                                      | `Iv1.abc123`                                     |
+| `ALLAUTH_CLIENT_SECRET`     | OAuth client secret for the configured Git platform                                                                                       | *(none)*                                      |                                                  |
+| `ALLAUTH_GITLAB_URL`        | GitLab instance URL (for OAuth redirects to the user's browser)                                                                           | `https://gitlab.com`                          | `https://gitlab.example.com`                     |
+| `ALLAUTH_GITLAB_SERVER_URL` | GitLab server URL (for server-to-server API calls, if different from `ALLAUTH_GITLAB_URL`)                                                | *(none)*                                      | `http://gitlab:8929`                             |
+| `EMAIL_BACKEND`             | Django email backend for login-by-code emails                                                                                             | `django.core.mail.backends.smtp.EmailBackend` | `django.core.mail.backends.console.EmailBackend` |
+| `EMAIL_HOST`                | SMTP server hostname                                                                                                                      | `localhost`                                   | `smtp.example.com`                               |
+| `EMAIL_PORT`                | SMTP server port                                                                                                                          | `25`                                          | `587`                                            |
+| `EMAIL_HOST_USER`           | SMTP authentication username                                                                                                              | *(empty)*                                     | `user@example.com`                               |
+| `EMAIL_HOST_PASSWORD`       | SMTP authentication password                                                                                                              | *(empty)*                                     |                                                  |
+| `EMAIL_USE_TLS`             | Use TLS for SMTP connection                                                                                                               | `False`                                       | `True`                                           |
+| `DEFAULT_FROM_EMAIL`        | Sender address for login-by-code emails                                                                                                   | `noreply@daiv.dev`                            | `noreply@example.com`                            |
 
 Setting up social providers
 
@@ -3198,6 +3994,17 @@ Setting up social providers
 Note
 
 OAuth login requires **all three** of: the **enable OAuth login** toggle turned on, a **client ID**, and a **client secret**. If only one credential is set, a warning is logged and the provider button is not shown on the login page. The active provider is determined by the `CODEBASE_CLIENT` setting (GitHub or GitLab).
+
+### Rocket Chat
+
+When enabled, Rocket Chat becomes available as a notification channel that users can opt into for their in-app and run notifications.
+
+| Variable                     | Description                                                  | Default  | Example                  |
+| ---------------------------- | ------------------------------------------------------------ | -------- | ------------------------ |
+| `DAIV_ROCKETCHAT_ENABLED`    | Offer Rocket Chat as a notification channel for users        | `false`  | `true`                   |
+| `DAIV_ROCKETCHAT_URL`        | Base URL of your Rocket Chat instance                        | *(none)* | `https://rc.example.com` |
+| `DAIV_ROCKETCHAT_USER_ID`    | The bot user's `_id`, sent as the `X-User-Id` header         | *(none)* | `abc123userid`           |
+| `DAIV_ROCKETCHAT_AUTH_TOKEN` | The bot user's auth token, sent as the `X-Auth-Token` header | *(none)* |                          |
 
 ### Other
 
@@ -3273,30 +4080,33 @@ Note
 
 At least one of the [supported providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md) should be configured to use the automation features.
 
+Provider keys are seed-only
+
+Unlike the rest of the configurable settings on this page, these provider API key variables are **not** part of the env > database > default override chain. They are read **only once** — on first run / upgrade — to seed the provider records, after which the authoritative, runtime-editable key and base URL live on the **Providers** section of the Configuration UI at `/dashboard/configuration/`. Changing a `*_API_KEY` environment variable after the provider record exists has no effect; edit the provider in the UI instead. The OpenRouter base URL is likewise a per-provider **Base URL** field in that section (it defaults to `https://openrouter.ai/api/v1`).
+
 ### OpenRouter (*default*)
 
-| Variable                   | Description             | Default                        | Example |
-| -------------------------- | ----------------------- | ------------------------------ | ------- |
-| `OPENROUTER_API_KEY`       | OpenRouter API key      | *(none)*                       |         |
-| `DAIV_OPENROUTER_API_BASE` | OpenRouter API base URL | `https://openrouter.ai/api/v1` |         |
+| Variable             | Description                                                            | Default  | Example |
+| -------------------- | ---------------------------------------------------------------------- | -------- | ------- |
+| `OPENROUTER_API_KEY` | OpenRouter API key (seeds the OpenRouter provider record on first run) | *(none)* |         |
 
 ### Anthropic
 
-| Variable            | Description       | Default  | Example |
-| ------------------- | ----------------- | -------- | ------- |
-| `ANTHROPIC_API_KEY` | Anthropic API key | *(none)* |         |
+| Variable            | Description                                                          | Default  | Example |
+| ------------------- | -------------------------------------------------------------------- | -------- | ------- |
+| `ANTHROPIC_API_KEY` | Anthropic API key (seeds the Anthropic provider record on first run) | *(none)* |         |
 
 ### OpenAI
 
-| Variable         | Description    | Default  | Example |
-| ---------------- | -------------- | -------- | ------- |
-| `OPENAI_API_KEY` | OpenAI API key | *(none)* |         |
+| Variable         | Description                                                    | Default  | Example |
+| ---------------- | -------------------------------------------------------------- | -------- | ------- |
+| `OPENAI_API_KEY` | OpenAI API key (seeds the OpenAI provider record on first run) | *(none)* |         |
 
 ### Google
 
-| Variable         | Description    | Default  | Example |
-| ---------------- | -------------- | -------- | ------- |
-| `GOOGLE_API_KEY` | Google API key | *(none)* |         |
+| Variable         | Description                                                    | Default  | Example |
+| ---------------- | -------------------------------------------------------------- | -------- | ------- |
+| `GOOGLE_API_KEY` | Google API key (seeds the Google provider record on first run) | *(none)* |         |
 
 ## Automation: Tools
 
@@ -3321,15 +4131,15 @@ This section documents the environment variables for each tool configuration use
 
 The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses a small/fast model to answer a prompt about the page content.
 
-| Variable                            | Description                                                          | Default            | Example                                    |
-| ----------------------------------- | -------------------------------------------------------------------- | ------------------ | ------------------------------------------ |
-| `DAIV_WEB_FETCH_ENABLED`            | Enable/disable the native `web_fetch` tool                           | `true`             | `false`                                    |
-| `DAIV_WEB_FETCH_MODEL_NAME`         | Model used by `web_fetch` to process page content with the prompt    | `claude-haiku-4.5` | `openrouter:openai/gpt-4.1-mini`           |
-| `DAIV_WEB_FETCH_CACHE_TTL_SECONDS`  | Cache TTL (seconds) for repeated fetches                             | `900`              | `1800`                                     |
-| `DAIV_WEB_FETCH_TIMEOUT_SECONDS`    | HTTP timeout for fetching (seconds)                                  | `15`               | `30`                                       |
-| `AUTOMATION_WEB_FETCH_PROXY_URL`    | Optional proxy URL for web fetch HTTP requests (env-only)            | *(none)*           | `http://proxy:8080`                        |
-| `DAIV_WEB_FETCH_MAX_CONTENT_CHARS`  | Max page content size (characters) to analyze in one pass            | `50000`            | `80000`                                    |
-| `AUTOMATION_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON, env-only) | `{}`               | `{"example.com": {"X-API-Key": "sk-abc"}}` |
+| Variable                           | Description                                                          | Default            | Example                                    |
+| ---------------------------------- | -------------------------------------------------------------------- | ------------------ | ------------------------------------------ |
+| `DAIV_WEB_FETCH_ENABLED`           | Enable/disable the native `web_fetch` tool                           | `true`             | `false`                                    |
+| `DAIV_WEB_FETCH_MODEL_NAME`        | Model used by `web_fetch` to process page content with the prompt    | `claude-haiku-4.5` | `openrouter:openai/gpt-4.1-mini`           |
+| `DAIV_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                             | `900`              | `1800`                                     |
+| `DAIV_WEB_FETCH_TIMEOUT_SECONDS`   | HTTP timeout for fetching (seconds)                                  | `15`               | `30`                                       |
+| `AUTOMATION_WEB_FETCH_PROXY_URL`   | Optional proxy URL for web fetch HTTP requests (env-only)            | *(none)*           | `http://proxy:8080`                        |
+| `DAIV_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass            | `50000`            | `80000`                                    |
+| `DAIV_WEB_FETCH_AUTH_HEADERS`      | Domain-to-headers mapping for authenticated fetches (JSON, env-only) | `{}`               | `{"example.com": {"X-API-Key": "sk-abc"}}` |
 
 ### MCP Tools
 
@@ -3338,13 +4148,23 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 | Variable                  | Description                                                                                                                                  | Default                        | Example                     |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | --------------------------- |
 | `MCP_SERVERS_CONFIG_FILE` | Path to user-defined MCP servers JSON config file                                                                                            | *(none)*                       | `/path/to/mcp.json`         |
-| `MCP_SENTRY_URL`          | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable)                                                         | `http://mcp-sentry:8000/mcp`   | `http://localhost:8001/mcp` |
-| `MCP_CONTEXT7_URL`        | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable)                                                       | `http://mcp-context7:8000/mcp` | `http://localhost:8002/mcp` |
+| `MCP_SENTRY_URL`          | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable)                                                         | `http://mcp_sentry:8000/mcp`   | `http://localhost:8001/mcp` |
+| `MCP_CONTEXT7_URL`        | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable)                                                       | `http://mcp_context7:8000/mcp` | `http://localhost:8002/mcp` |
 | `MCP_TOOL_LOAD_TIMEOUT`   | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30`                           | `10`                        |
 
 Info
 
 For detailed MCP server configuration including user-defined servers, see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md).
+
+### Deferred Tools (Tool Search)
+
+When enabled, tools outside the always-loaded set are deferred behind a `tool_search` tool instead of being bound to the model eagerly, keeping the active tool surface small. Most operators do not need to tune these.
+
+| Variable                       | Description                                                                    | Default | Example |
+| ------------------------------ | ------------------------------------------------------------------------------ | ------- | ------- |
+| `DEFERRED_TOOLS_ENABLED`       | Defer non-essential tools behind `tool_search` instead of binding them eagerly | `true`  | `false` |
+| `DEFERRED_TOOLS_TOP_K_DEFAULT` | Default number of results returned by a `tool_search` call                     | `3`     | `5`     |
+| `DEFERRED_TOOLS_TOP_K_MAX`     | Maximum number of results `tool_search` will return per call                   | `10`    | `20`    |
 
 ______________________________________________________________________
 
@@ -3356,25 +4176,26 @@ These variables control the models and behavior of DAIV's agents. You can also o
 
 The main agent used for issue addressing, pull request assistance, and all interactive tasks. Variables use the `DAIV_AGENT_` prefix.
 
-| Variable                                 | Description                                                                        | Default             |
-| ---------------------------------------- | ---------------------------------------------------------------------------------- | ------------------- |
-| `DAIV_AGENT_RECURSION_LIMIT`             | Maximum recursion depth for agent execution                                        | `500`               |
-| `DAIV_AGENT_MODEL_NAME`                  | Primary model for agent tasks                                                      | `claude-sonnet-4-6` |
-| `DAIV_AGENT_FALLBACK_MODEL_NAME`         | Fallback model if the primary model fails                                          | `gpt-5-3-codex`     |
-| `DAIV_AGENT_THINKING_LEVEL`              | Extended thinking level (`minimal`, `low`, `medium`, `high`, or `None` to disable) | `medium`            |
-| `DAIV_AGENT_MAX_MODEL_NAME`              | Model used when the `daiv-max` label is present                                    | `claude-opus-4-6`   |
-| `DAIV_AGENT_MAX_THINKING_LEVEL`          | Thinking level for `daiv-max` tasks                                                | `high`              |
-| `DAIV_AGENT_EXPLORE_MODEL_NAME`          | Model for the explore subagent (fast, read-only)                                   | `claude-haiku-4-5`  |
-| `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails                                          | `gpt-5-4-mini`      |
-| `DAIV_AGENT_CUSTOM_SKILLS_PATH`          | Path to custom global skills directory. Set to `None` to disable.                  | `~/data/skills`     |
+| Variable                                 | Description                                                                                                                 | Default             |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `DAIV_AGENT_RECURSION_LIMIT`             | Maximum recursion depth for agent execution                                                                                 | `500`               |
+| `DAIV_AGENT_MODEL_NAME`                  | Primary model for agent tasks                                                                                               | `claude-sonnet-4-6` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME`         | Fallback model if the primary model fails                                                                                   | `gpt-5-3-codex`     |
+| `DAIV_AGENT_THINKING_LEVEL`              | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, or empty to disable)                                  | `medium`            |
+| `DAIV_AGENT_FALLBACK_THINKING_LEVEL`     | Thinking level applied when the primary model fails over to the fallback model (independent of `DAIV_AGENT_THINKING_LEVEL`) | `medium`            |
+| `DAIV_AGENT_MAX_MODEL_NAME`              | Model used when the `daiv-max` label is present                                                                             | `claude-opus-4-6`   |
+| `DAIV_AGENT_MAX_THINKING_LEVEL`          | Thinking level for `daiv-max` tasks                                                                                         | `high`              |
+| `DAIV_AGENT_EXPLORE_MODEL_NAME`          | Model for the explore subagent (fast, read-only)                                                                            | `claude-haiku-4-5`  |
+| `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails                                                                                   | `gpt-5-4-mini`      |
+| `DAIV_AGENT_CUSTOM_SKILLS_PATH`          | Path to custom global skills directory. Set to `None` to disable.                                                           | `~/data/skills`     |
 
 ### Jobs API
 
 The [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) allows programmatic agent execution.
 
-| Variable                  | Description                                                                                                 | Default   |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------- | --------- |
-| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/second`, `N/minute`, `N/hour`, or `N/day` | `20/hour` |
+| Variable                  | Description                                                                                           | Default   |
+| ------------------------- | ----------------------------------------------------------------------------------------------------- | --------- |
+| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/sec`, `N/min`, `N/hour`, or `N/day` | `20/hour` |
 
 ### Diff to Metadata
 
@@ -3394,6 +4215,126 @@ Generates short titles for chat threads and activities from the user's initial p
 | `DAIV_TITLING_MODEL_NAME`          | Primary model for title generation        | `gpt-5.4-mini`     |
 | `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-4.5` |
 
+# Site Configuration
+
+Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area, stored in the database, and **override the matching environment-variable defaults** — so you can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off, all from the dashboard.
+
+It lives at `/dashboard/configuration/` and is reachable only by users with the **admin** role. Members do not see it.
+
+Admin only
+
+Both the index and the per-group pages are guarded by `AdminRequiredMixin`. A signed-in member who navigates to `/dashboard/configuration/` is denied access.
+
+## Where to find it
+
+Open `/dashboard/configuration/`. The index immediately redirects you to the first group, **Agent**, at `/dashboard/configuration/agent/`. Each group is a separate page reached at `/dashboard/configuration/<group_key>/`; an unknown key returns a 404.
+
+Saving a group writes only that group's fields, then shows a "Configuration saved." banner. A change you make here takes effect immediately: the save commits inside a transaction and invalidates the read cache on commit, so the next read sees the new value. The 5-minute read-cache TTL only matters for changes made outside this UI (for example, a direct database edit), which can take up to that long to propagate.
+
+## Setting groups
+
+The configuration is split into the following groups, organized by category.
+
+| Group                  | Category     | What it configures                                                                                                                                                                   |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Agent**              | AI tasks     | Primary, fallback, `daiv-max`, and explore models; their thinking levels; the agent recursion limit; and whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests. |
+| **Commit & PR Writer** | AI tasks     | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs.                                                                            |
+| **Titling**            | AI tasks     | Primary and fallback models that generate chat thread and activity titles from prompts.                                                                                              |
+| **Providers**          | Models       | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from.                                                                |
+| **Web Search**         | Agent tools  | Enable/disable the web search tool, pick the engine (DuckDuckGo or Tavily), set max results, and store the Tavily API key.                                                           |
+| **Web Fetch**          | Agent tools  | Enable/disable the web fetch tool, choose the model that processes fetched pages, set cache TTL / timeout / max content size, and define per-domain auth headers.                    |
+| **Sandbox**            | Runtime      | Sandbox request timeout and the sandbox API key.                                                                                                                                     |
+| **Jobs**               | Runtime      | Per-user rate limit for [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) submissions (e.g. `20/hour`).                                                        |
+| **Rocket Chat**        | Integrations | Enable Rocket Chat as a notification channel, with the instance URL, bot user ID, and auth token.                                                                                    |
+| **Authentication**     | Integrations | OAuth login with your Git platform — toggle login, control open signup, and store the OAuth client ID/secret and (for GitLab) instance URLs.                                         |
+
+Model pickers and providers
+
+The model fields in **Agent**, **Commit & PR Writer**, **Titling**, and **Web Fetch** only offer models from providers you configure under **Providers**. Selecting a model whose provider is disabled or has no API key is rejected on save with a message pointing you to the Providers section.
+
+## Relationship to environment variables
+
+Site Configuration shares a value space with DAIV's environment variables. Each configurable field resolves through a three-tier priority chain (highest to lowest):
+
+1. **Environment variable or Docker secret** — a hard override. When set, the matching UI field is shown **locked** with a "Locked by environment variable" tooltip and cannot be edited from the dashboard.
+1. **Database value** — the value you set through this UI (when non-empty).
+1. **Built-in default** — the hardcoded fallback DAIV ships with.
+
+So a value you save here is stored in the database and takes effect **only if no environment variable overrides it**; if you leave a field blank, DAIV falls back to the environment variable (if any) or the built-in default.
+
+The environment-variable name for a field follows the `DAIV_<FIELD_NAME>` convention (for example, `agent_recursion_limit` maps to `DAIV_AGENT_RECURSION_LIMIT`). The **Authentication** fields are the exception — they map to the `ALLAUTH_*` variables:
+
+| Field               | Environment variable        |
+| ------------------- | --------------------------- |
+| OAuth client ID     | `ALLAUTH_CLIENT_ID`         |
+| OAuth client secret | `ALLAUTH_CLIENT_SECRET`     |
+| GitLab URL          | `ALLAUTH_GITLAB_URL`        |
+| GitLab server URL   | `ALLAUTH_GITLAB_SERVER_URL` |
+
+For the full list of variables, their defaults, and which settings are env-only versus UI-manageable, see [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md).
+
+Secrets are encrypted at rest
+
+API keys, the OAuth client secret, the sandbox key, the Rocket Chat token, and per-domain web-fetch header values are stored Fernet-encrypted in the database. The UI never re-displays a stored secret — it shows a masked hint instead. Leaving a secret field blank keeps the existing value; use the field's **Clear** action to remove it. Encryption depends on `DAIV_ENCRYPTION_KEY`, so do not rotate that key without re-entering your secrets.
+
+## Providers and API keys
+
+The **Providers** group manages the LLM endpoints DAIV can call. Four provider rows (OpenAI, Anthropic, Google Gemini, and OpenRouter) are seeded on first run and **locked** — their slug and provider type cannot change and they cannot be deleted, though you still supply their API keys, base URLs, and toggle them on or off. You can add custom rows for OpenAI-compatible gateways (vLLM, LiteLLM, hosted proxies, and so on).
+
+Each row carries:
+
+- **Slug** — used as the `slug:model_name` prefix when selecting a model (immutable after creation).
+- **Provider type** — the wire protocol: OpenAI, Anthropic, Google Gemini, or OpenRouter.
+- **Base URL** and optional **extra headers** (a JSON object).
+- **API key** (encrypted at rest).
+- **Use Responses API** — only honored for OpenAI-typed providers; enable for servers exposing `/v1/responses`, disable for `/v1/chat/completions`-only servers.
+- **Verify TLS certificates** — disable only for self-hosted endpoints behind an internal CA.
+
+Enabled providers need a key
+
+Enabling a provider row requires an API key. A model field anywhere in the configuration will fail validation if it points at a provider that is disabled or unkeyed.
+
+For how model prefixes resolve and how to mix providers, see [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md).
+
+## Toggling OAuth login
+
+The **Authentication** group controls whether users can sign in with their Git platform account. The fields shown adapt to your configured Git platform (`CODEBASE_CLIENT`): GitLab installs see the GitLab URL fields; GitHub installs do not.
+
+- **Enable OAuth login** — the group's toggle; lets users sign in via the configured Git platform (GitHub or GitLab).
+- **Open social signup** — when enabled, anyone who authenticates via the Git platform can create an account; when disabled, only users an admin pre-created may sign in.
+- **OAuth client ID** and **client secret** — must be configured as a pair; saving one without the other is rejected.
+- **GitLab URL** / **GitLab server URL** — the browser-facing instance URL and the optional server-to-server URL for API calls in Docker-internal networks.
+
+Note
+
+Standard email signup is disabled in DAIV; account creation flows through the configured Git platform's OAuth.
+
+## Related pages
+
+- **Environment Variables**
+
+  ______________________________________________________________________
+
+  Every supported variable, its default, and which settings are UI-manageable.
+
+  [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md)
+
+- **LLM Providers**
+
+  ______________________________________________________________________
+
+  How model prefixes resolve and how to mix providers.
+
+  [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md)
+
+- **Deployment**
+
+  ______________________________________________________________________
+
+  Run DAIV with Docker, including the required secrets.
+
+  [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)
+
 # Agent Architecture
 
 DAIV uses a single AI agent built on [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep agent framework from [LangChain](https://python.langchain.com/) with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on [LangGraph](https://langchain-ai.github.io/langgraph/). This page covers the technical architecture for those who want to understand how DAIV works under the hood.
@@ -3403,7 +4344,7 @@ DAIV uses a single AI agent built on [Deep Agents](https://github.com/langchain-
 DAIV's architecture consists of:
 
 - **One main agent** — handles all tasks (issue addressing, code review, slash commands)
-- **Two subagents** — general-purpose (full tools) and explore (read-only, fast)
+- **Built-in subagents** — general-purpose (full tools), explore (read-only, fast), and a fan-out of read-only `cr-*` code-review detector subagents
 - **Middleware stack** — modular capabilities injected based on configuration
 - **MCP servers** — external tool integrations (Sentry, Context7)
 
@@ -3427,6 +4368,7 @@ graph TB
 
     SA --> GPAgent[General-Purpose]
     SA --> EXAgent[Explore]
+    SA --> CRAgent[Code-Review Detectors cr-*]
 
     AGENT --> PUB[Git Change Publisher]
     PUB --> COMMIT[Commit & Push]
@@ -3450,11 +4392,15 @@ Two managers orchestrate the agent:
 | `IssueAddressorManager`    | Issue with `daiv` label | Plans and implements issue solutions |
 | `CommentsAddressorManager` | `@daiv` mention on MR   | Responds to code review comments     |
 
-Both create a persistent conversation thread (stored in Redis with 90-day TTL) so the agent retains context across multiple interactions on the same issue or MR.
+Both create a persistent conversation thread (stored in Redis with a 7-day TTL by default, configurable via `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`) so the agent retains context across multiple interactions on the same issue or MR.
 
 ## Tools
 
 The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.
+
+Tools are deferred by default
+
+Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
 
 ### Filesystem
 
@@ -3469,9 +4415,9 @@ The agent's tools are injected via middlewares. Each middleware provides one or 
 
 ### Git platform
 
-| Tool                | Description                                                   |
-| ------------------- | ------------------------------------------------------------- |
-| `gitlab` / `github` | Inspect issues, merge requests, pipeline status, and job logs |
+| Tool            | Description                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| `gitlab` / `gh` | Inspect issues, merge requests, pipeline status, and job logs (the GitHub tool exposes the `gh` CLI) |
 
 ### Sandbox
 
@@ -3504,40 +4450,46 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 
 ### Always enabled
 
-| Middleware                         | Purpose                                                |
-| ---------------------------------- | ------------------------------------------------------ |
-| `FilesystemMiddleware`             | File operations (glob, grep, read, edit, write)        |
-| `GitMiddleware`                    | Branch management, auto-commit, MR creation            |
-| `GitPlatformMiddleware`            | Git platform CLI tool (issues, MRs, pipelines)         |
-| `SkillsMiddleware`                 | Skill loading and slash command execution              |
-| `SubAgentMiddleware`               | Delegates tasks to subagents                           |
-| `MemoryMiddleware`                 | Loads `AGENTS.md` and repository context               |
-| `TodoListMiddleware`               | Task tracking within conversations                     |
-| `SummarizationMiddleware`          | Compresses conversation history when it grows too long |
-| `AnthropicPromptCachingMiddleware` | Prompt caching for Anthropic models                    |
-| `ToolCallLoggingMiddleware`        | Logs all tool calls                                    |
-| `PatchToolCallsMiddleware`         | Fixes malformed tool calls from the LLM                |
+| Middleware                         | Purpose                                                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `FilesystemMiddleware`             | File operations (glob, grep, read, edit, write)                                                                    |
+| `GitMiddleware`                    | Branch management, auto-commit, MR creation                                                                        |
+| `GitPlatformMiddleware`            | Git platform CLI tool (issues, MRs, pipelines)                                                                     |
+| `SkillsMiddleware`                 | Skill loading and slash command execution                                                                          |
+| `SubAgentMiddleware`               | Delegates tasks to subagents                                                                                       |
+| `MemoryMiddleware`                 | Loads `AGENTS.md` and repository context                                                                           |
+| `TodoListMiddleware`               | Task tracking within conversations                                                                                 |
+| `SummarizationMiddleware`          | Compresses conversation history when it grows too long                                                             |
+| `AnthropicPromptCachingMiddleware` | Prompt caching for Anthropic models                                                                                |
+| `ToolCallLoggingMiddleware`        | Logs all tool calls                                                                                                |
+| `PatchToolCallsMiddleware`         | Fixes malformed tool calls from the LLM                                                                            |
+| `DeferredToolsMiddleware`          | Defers non-core tools behind a `tool_search` capability, loaded on demand                                          |
+| `LoopBreakerMiddleware`            | Detects verbatim tool-call repetition and finalizes the run (instead of raising) so end-of-run hooks still execute |
+| `StepBudgetMiddleware`             | Warns the model as the run approaches its per-run step budget                                                      |
+| `EnsureResponseMiddleware`         | Guarantees a non-empty final response by retrying empty LLM responses                                              |
 
 ### Conditionally enabled
 
-| Middleware                 | Condition                                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------- |
-| `SandboxMiddleware`        | A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists) |
-| `WebSearchMiddleware`      | `DAIV_WEB_SEARCH_ENABLED` is `true`                                                    |
-| `WebFetchMiddleware`       | `DAIV_WEB_FETCH_ENABLED` is `true`                                                     |
-| `ModelFallbackMiddleware`  | A fallback model is configured                                                         |
-| `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode)                                              |
+| Middleware                | Condition                                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `SandboxMiddleware`       | A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists)                            |
+| `WebSearchMiddleware`     | `DAIV_WEB_SEARCH_ENABLED` is `true`                                                                               |
+| `WebFetchMiddleware`      | `DAIV_WEB_FETCH_ENABLED` is `true`                                                                                |
+| `ModelFallbackMiddleware` | A fallback model is configured                                                                                    |
+| `SlashCommandMiddleware`  | Slash commands enabled in `.daiv.yml` (default on) — parses and dispatches `/commands` like `/agents` and `/help` |
 
 ## Subagents
 
-The main agent can delegate work to two subagents. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for the user-facing explanation.
+The main agent can delegate work to two general-use subagents. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for the user-facing explanation.
 
 | Subagent        | Model                   | Fallback           | Tools                | Use case                                     |
 | --------------- | ----------------------- | ------------------ | -------------------- | -------------------------------------------- |
 | General-purpose | Same as main agent      | Same as main agent | Full tool access     | Complex searches, multi-step research        |
 | Explore         | Claude Haiku 4.5 (fast) | GPT-5.4-mini       | Read-only filesystem | Quick file lookups, code structure questions |
 
-All subagents (including [custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents)) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
+In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-custom-rules`) is built and registered on every run. The [code review](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) skill fans out across these detectors, each running with a read-only tool stack and producing structured findings. [Custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents) defined per repository are also added to the available-agents list.
+
+All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
 
 ## Dynamic system prompt
 
@@ -3634,12 +4586,16 @@ Every agent run includes tags and metadata that make it easy to filter and build
 
 ### Tags
 
-All runs include two tags:
+Every root run carries the following tags:
 
-| Tag          | Description                       | Example            |
-| ------------ | --------------------------------- | ------------------ |
-| Agent name   | Always `DAIV Agent`               | `DAIV Agent`       |
-| Git platform | The platform handling the request | `gitlab`, `github` |
+| Tag             | Description                                 | Example                            |
+| --------------- | ------------------------------------------- | ---------------------------------- |
+| Git platform    | The platform handling the request           | `gitlab`, `github`                 |
+| Repository slug | The repository the run targets              | `group/project`                    |
+| Scope           | Conversation scope, present when one is set | `Issue`, `Merge Request`, `Global` |
+| Agent name      | The agent name                              | `DAIV Agent`                       |
+
+A typical labelled-issue run therefore carries the tags `gitlab`, `group/project`, `Issue`, `DAIV Agent`. Individual callsites may append additional tags.
 
 ### Metadata by trigger
 
@@ -3655,7 +4611,7 @@ All runs include two tags:
   "issue_id": 42,
   "labels": ["daiv", "bug"],
   "scope": "Issue",
-  "model": "claude-sonnet-4-6",
+  "model": "openrouter:anthropic/claude-sonnet-4.6",
   "thinking_level": "medium"
 }
 ```
@@ -3671,7 +4627,7 @@ All runs include two tags:
   "git_platform": "gitlab",
   "merge_request_id": 123,
   "scope": "Merge Request",
-  "model": "claude-sonnet-4-6",
+  "model": "openrouter:anthropic/claude-sonnet-4.6",
   "thinking_level": "medium"
 }
 ```
@@ -3680,13 +4636,18 @@ All runs include two tags:
 
 ```
 {
-  "repo_id": "group/project",
-  "ref": "main",
+  "repository": "group/project",
+  "git_platform": "gitlab",
+  "scope": "Global",
   "trigger": "job",
-  "model": "claude-sonnet-4-6",
-  "thinking_level": "medium"
+  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "thinking_level": "medium",
+  "ref": "main",
+  "override_source": "explicit"
 }
 ```
+
+The `override_source` field is `explicit` when the job supplied an explicit model override, otherwise `null`.
 
 The `scope` field distinguishes how the agent was triggered: `Issue`, `Merge Request`, or `Global`.
 
@@ -3750,7 +4711,7 @@ python manage.py setup_langsmith_dashboard --recreate
 
 - **By trigger type** — filter by `scope` or by metadata key `issue_id` vs `merge_request_id`
 - **By user** — filter or group by `author`
-- **By model** — group by `model` to compare performance across models (e.g. `claude-sonnet-4-6` vs `claude-opus-4-6`)
+- **By model** — group by `model` to compare performance across models (the value is the full configured model identifier, e.g. `openrouter:anthropic/claude-sonnet-4.6` vs `openrouter:anthropic/claude-opus-4.6`)
 - **Performance** — monitor execution time and token usage per run
 
 ______________________________________________________________________
@@ -3761,7 +4722,7 @@ DAIV tracks token usage and estimated cost for every agent execution internally 
 
 ### How it works
 
-1. Each agent invocation runs inside the `track_usage_metadata()` context manager (in `daiv/automation/agent/usage_tracking.py`), which binds a `UsageMetadataCallbackHandler` to a module-level `ContextVar` registered with LangChain's `register_configure_hook`. The handler is automatically inherited by every nested `Runnable` — including subagent invocations — without needing to thread callbacks through `RunnableConfig`.
+1. Each agent invocation runs inside the `track_usage_metadata()` context manager (in `daiv/automation/agent/usage_tracking.py`), which binds a `CostAwareUsageMetadataCallbackHandler` (a subclass of LangChain's `UsageMetadataCallbackHandler` that prices each LLM call individually) to a module-level `ContextVar` registered with LangChain's `register_configure_hook`. The handler is automatically inherited by every nested `Runnable` — including subagent invocations — without needing to thread callbacks through `RunnableConfig`.
 1. The handler captures `usage_metadata` from every LLM call during graph execution — including fallback model invocations, tool-internal model calls, and subagents spawned via the `task` tool.
 1. After the run, token counts are aggregated per model and cost is calculated using [genai-prices](https://github.com/pydantic/genai-prices) (maintained by Pydantic).
 1. The usage summary is stored in the `AgentResult` and denormalized onto the `Activity` record for long-term retention.
@@ -3792,7 +4753,7 @@ Token detail buckets (when available from the provider):
 - **Summarization middleware calls** may not be tracked if the middleware overrides the config.
 - If a model is **not in the genai-prices database**, token usage is still recorded but cost is stored as `null`. A warning is logged.
 - Cost estimates are **approximations** based on published list prices. Actual billing may differ based on your provider agreement.
-- **Chat API flows** attach the tracker for callback propagation but do not persist usage to Activity records (chat does not create Activity records).
+- **Chat API flows** do not attach the usage tracker and do not persist usage. Chat uses `ChatThread` records, not `Activity` records.
 
 ### Relationship to LangSmith
 
@@ -3849,3 +4810,27 @@ ______________________________________________________________________
 
 - Verify the project name matches across all services
 - Ensure Docker secrets are properly mounted (Swarm deployments)
+# Community
+
+# Community
+
+DAIV is open-source and contributions are welcome — code, documentation, testing, or feedback.
+
+## Contributing
+
+For contribution guidelines, code style, testing requirements, and the pull request process, see [CONTRIBUTING.md](https://github.com/srtab/daiv/blob/main/CONTRIBUTING.md).
+
+## Reporting issues
+
+Use [GitHub Issues](https://github.com/srtab/daiv/issues) for bug reports, feature requests, and questions. When reporting:
+
+- Search existing issues first
+- Include environment details, steps to reproduce, and any relevant logs or screenshots
+- For security issues, please report privately rather than opening a public GitHub Issue
+
+## Resources
+
+- [GitHub Repository](https://github.com/srtab/daiv)
+- [Documentation](https://srtab.github.io/daiv/)
+- [Issue Tracker](https://github.com/srtab/daiv/issues)
+- [CONTRIBUTING.md](https://github.com/srtab/daiv/blob/main/CONTRIBUTING.md)

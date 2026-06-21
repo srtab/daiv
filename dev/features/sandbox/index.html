@@ -18,7 +18,7 @@
         <link rel="prev" href="../subagents/">
       
       
-        <link rel="next" href="../../integrations/rt/">
+        <link rel="next" href="../sandbox-environments/">
       
       
         
@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -546,6 +574,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../jobs-api/" class="md-nav__link">
         
   
@@ -638,6 +694,34 @@
     
   
     Activity Tracking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
   
 
     
@@ -836,10 +920,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#per-repository-rules" class="md-nav__link">
+  <a href="#global-rules" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Per-repository rules
+        Global rules
       
     </span>
   </a>
@@ -877,6 +961,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1191,6 +1303,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
@@ -1335,10 +1475,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#per-repository-rules" class="md-nav__link">
+  <a href="#global-rules" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Per-repository rules
+        Global rules
       
     </span>
   </a>
@@ -1452,11 +1592,18 @@
 <p>With the sandbox enabled, DAIV can:</p>
 <ul>
 <li>Run tests and linters to validate changes</li>
-<li>Install and update dependencies (npm, pip, uv, etc.)</li>
+<li>Install and update dependencies (npm, pip, uv, etc.) — requires network access, see the note below</li>
 <li>Inspect git state (<code>git status</code>, <code>git diff</code>, <code>git log</code>)</li>
 <li>Execute build scripts and generators</li>
 <li>Run any command allowed by the command policy</li>
 </ul>
+<div class="admonition warning">
+<p class="admonition-title">Network access is off by default</p>
+<p>Installing or updating dependencies reaches out to package registries (npm,
+PyPI, etc.), which needs network access. The sandbox runs with networking
+<strong>disabled</strong> by default, so these commands fail until you enable
+<code>network_enabled</code> on the relevant <a href="../sandbox-environments/">Sandbox Environment</a>.</p>
+</div>
 <p>Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next.</p>
 <h2 id="command-policy">Command policy</h2>
 <p>Not all commands are safe for an AI agent to run. The sandbox enforces a layered command policy that controls what's allowed.</p>
@@ -1472,11 +1619,11 @@
 <tbody>
 <tr>
 <td>Git history mutation</td>
-<td><code>git commit</code>, <code>git push</code>, <code>git reset</code>, <code>git rebase</code>, <code>git filter-branch</code></td>
+<td><code>git commit</code>, <code>git push</code>, <code>git reset</code>, <code>git rebase</code>, <code>git reflog delete</code>, <code>git filter-branch</code>, <code>git filter-repo</code></td>
 </tr>
 <tr>
 <td>Git index manipulation</td>
-<td><code>git add</code>, <code>git hash-object</code>, <code>git update-index</code></td>
+<td><code>git add</code>, <code>git hash-object</code>, <code>git update-index</code>, <code>git commit-tree</code></td>
 </tr>
 <tr>
 <td>Destructive operations</td>
@@ -1484,7 +1631,7 @@
 </tr>
 <tr>
 <td>Branch/tag deletion</td>
-<td><code>git branch -D</code>, <code>git tag -d</code></td>
+<td><code>git branch -D</code> / <code>git branch --delete</code>, <code>git tag -d</code> / <code>git tag --delete</code></td>
 </tr>
 <tr>
 <td>Git configuration</td>
@@ -1497,15 +1644,20 @@
 </tbody>
 </table>
 <p>These rules exist because DAIV manages git operations (commits, pushes, branches) through its own tools with proper safeguards. The sandbox is for everything else.</p>
-<h3 id="per-repository-rules">Per-repository rules</h3>
-<p>Custom allow and disallow rules were previously declared in <code>.daiv.yml</code>. Per-environment
-command policies are a future iteration; for now, only the built-in safety rules apply.</p>
+<h3 id="global-rules">Global rules</h3>
+<p>In addition to the built-in safety rules, operators can configure global allow and
+disallow command prefixes via the <code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code> and
+<code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code> environment variables (see the
+<a href="../../reference/env-variables/">Environment Variables</a> reference). Each entry is a
+space-separated prefix (for example, <code>curl wget</code> or <code>my-safe-tool</code>).</p>
+<p>Per-repository (<code>.daiv.yml</code>) and per-environment command policies are a future
+iteration and are not yet available.</p>
 <h3 id="precedence">Precedence</h3>
 <p>When a command is evaluated, rules are checked in this order:</p>
 <ol>
 <li><strong>Built-in disallow</strong> — always wins, cannot be overridden</li>
-<li><strong>Repository disallow</strong> — cannot be overridden by allow</li>
-<li><strong>Repository allow</strong> — permits commands not caught by 1 or 2</li>
+<li><strong>Configured disallow</strong> — global <code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code> rules; cannot be overridden by allow</li>
+<li><strong>Configured allow</strong> — global <code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code> rules; permit commands not caught by 1 or 2</li>
 <li><strong>Default</strong> — everything else is allowed</li>
 </ol>
 <h2 id="configuring-the-sandbox">Configuring the sandbox</h2>
@@ -1515,7 +1667,7 @@ page rather than <code>.daiv.yml</code>. Each environment can be bound to specif
 repositories (<code>owner/repo</code>); when an agent runs in a repo claimed by an
 environment, that environment is auto-selected. Personal (USER-scoped)
 environments override organization-wide (GLOBAL-scoped) environments for the
-running user. See the Sandbox Environments page for details.</p>
+running user. See <a href="../sandbox-environments/">Sandbox Environments</a> for details.</p>
 
 
 
@@ -1538,7 +1690,7 @@ running user. See the Sandbox Environments page for details.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -1548,7 +1700,7 @@ running user. See the Sandbox Environments page for details.</p>
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

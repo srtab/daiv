@@ -69,12 +69,16 @@ Every agent run includes tags and metadata that make it easy to filter and build
 
 ### Tags
 
-All runs include two tags:
+Every root run carries the following tags:
 
-| Tag          | Description                       | Example            |
-| ------------ | --------------------------------- | ------------------ |
-| Agent name   | Always `DAIV Agent`               | `DAIV Agent`       |
-| Git platform | The platform handling the request | `gitlab`, `github` |
+| Tag             | Description                                 | Example                            |
+| --------------- | ------------------------------------------- | ---------------------------------- |
+| Git platform    | The platform handling the request           | `gitlab`, `github`                 |
+| Repository slug | The repository the run targets              | `group/project`                    |
+| Scope           | Conversation scope, present when one is set | `Issue`, `Merge Request`, `Global` |
+| Agent name      | The agent name                              | `DAIV Agent`                       |
+
+A typical labelled-issue run therefore carries the tags `gitlab`, `group/project`, `Issue`, `DAIV Agent`. Individual callsites may append additional tags.
 
 ### Metadata by trigger
 
@@ -90,7 +94,7 @@ All runs include two tags:
   "issue_id": 42,
   "labels": ["daiv", "bug"],
   "scope": "Issue",
-  "model": "claude-sonnet-4-6",
+  "model": "openrouter:anthropic/claude-sonnet-4.6",
   "thinking_level": "medium"
 }
 ```
@@ -106,7 +110,7 @@ All runs include two tags:
   "git_platform": "gitlab",
   "merge_request_id": 123,
   "scope": "Merge Request",
-  "model": "claude-sonnet-4-6",
+  "model": "openrouter:anthropic/claude-sonnet-4.6",
   "thinking_level": "medium"
 }
 ```
@@ -115,13 +119,18 @@ All runs include two tags:
 
 ```
 {
-  "repo_id": "group/project",
-  "ref": "main",
+  "repository": "group/project",
+  "git_platform": "gitlab",
+  "scope": "Global",
   "trigger": "job",
-  "model": "claude-sonnet-4-6",
-  "thinking_level": "medium"
+  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "thinking_level": "medium",
+  "ref": "main",
+  "override_source": "explicit"
 }
 ```
+
+The `override_source` field is `explicit` when the job supplied an explicit model override, otherwise `null`.
 
 The `scope` field distinguishes how the agent was triggered: `Issue`, `Merge Request`, or `Global`.
 
@@ -185,7 +194,7 @@ python manage.py setup_langsmith_dashboard --recreate
 
 - **By trigger type** — filter by `scope` or by metadata key `issue_id` vs `merge_request_id`
 - **By user** — filter or group by `author`
-- **By model** — group by `model` to compare performance across models (e.g. `claude-sonnet-4-6` vs `claude-opus-4-6`)
+- **By model** — group by `model` to compare performance across models (the value is the full configured model identifier, e.g. `openrouter:anthropic/claude-sonnet-4.6` vs `openrouter:anthropic/claude-opus-4.6`)
 - **Performance** — monitor execution time and token usage per run
 
 ______________________________________________________________________
@@ -196,7 +205,7 @@ DAIV tracks token usage and estimated cost for every agent execution internally 
 
 ### How it works
 
-1. Each agent invocation runs inside the `track_usage_metadata()` context manager (in `daiv/automation/agent/usage_tracking.py`), which binds a `UsageMetadataCallbackHandler` to a module-level `ContextVar` registered with LangChain's `register_configure_hook`. The handler is automatically inherited by every nested `Runnable` — including subagent invocations — without needing to thread callbacks through `RunnableConfig`.
+1. Each agent invocation runs inside the `track_usage_metadata()` context manager (in `daiv/automation/agent/usage_tracking.py`), which binds a `CostAwareUsageMetadataCallbackHandler` (a subclass of LangChain's `UsageMetadataCallbackHandler` that prices each LLM call individually) to a module-level `ContextVar` registered with LangChain's `register_configure_hook`. The handler is automatically inherited by every nested `Runnable` — including subagent invocations — without needing to thread callbacks through `RunnableConfig`.
 1. The handler captures `usage_metadata` from every LLM call during graph execution — including fallback model invocations, tool-internal model calls, and subagents spawned via the `task` tool.
 1. After the run, token counts are aggregated per model and cost is calculated using [genai-prices](https://github.com/pydantic/genai-prices) (maintained by Pydantic).
 1. The usage summary is stored in the `AgentResult` and denormalized onto the `Activity` record for long-term retention.
@@ -227,7 +236,7 @@ Token detail buckets (when available from the provider):
 - **Summarization middleware calls** may not be tracked if the middleware overrides the config.
 - If a model is **not in the genai-prices database**, token usage is still recorded but cost is stored as `null`. A warning is logged.
 - Cost estimates are **approximations** based on published list prices. Actual billing may differ based on your provider agreement.
-- **Chat API flows** attach the tracker for callback propagation but do not persist usage to Activity records (chat does not create Activity records).
+- **Chat API flows** do not attach the usage tracker and do not persist usage. Chat uses `ChatThread` records, not `Activity` records.
 
 ### Relationship to LangSmith
 

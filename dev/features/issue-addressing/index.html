@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -670,6 +698,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../jobs-api/" class="md-nav__link">
         
   
@@ -782,6 +838,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../merge-metrics/" class="md-nav__link">
         
   
@@ -874,6 +958,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1176,6 +1288,34 @@
     
   
     Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
   
 
     
@@ -1499,10 +1639,11 @@
 <p>Labels are case-insensitive (<code>DAIV</code>, <code>Daiv</code>, and <code>daiv</code> all work). You can combine them — for example, <code>daiv-auto</code> + <code>daiv-max</code> will auto-execute using the more capable model.</p>
 <h2 id="plan-approval">Plan approval</h2>
 <p>By default, DAIV uses a <strong>human-in-the-loop</strong> approach. After generating a plan, it waits for explicit approval before making code changes.</p>
-<p>To approve a plan, comment on the issue:</p>
+<p>To approve a plan, comment on the issue and mention DAIV — for example:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>@daiv proceed
 </code></pre></div></td></tr></table></div>
-<p>You can also provide feedback or additional instructions in your approval comment, and DAIV will take them into account during implementation.</p>
+<p>The exact wording is not a keyword. DAIV reacts to any comment that mentions it (<code>@daiv</code>); it reads your comment together with the plan it posted and acts on your intent. A comment like <code>@daiv looks good, go ahead</code> works just as well as <code>@daiv proceed</code>.</p>
+<p>You can also provide feedback or additional instructions in your comment, and DAIV will take them into account — either applying them during implementation or revising the plan from your feedback.</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>If you don't agree with the plan, comment with the changes you'd like and DAIV will update the plan accordingly.</p>
@@ -1536,7 +1677,7 @@
 <p>If an unexpected error occurs during execution, DAIV creates a <strong>draft</strong> merge/pull request to preserve any changes already made.</p>
 <h2 id="agentsmd-suggestion">AGENTS.md suggestion</h2>
 <p>When DAIV creates a merge request for a repository that doesn't have an <a href="https://agents.md/"><code>AGENTS.md</code></a> file (or whatever <code>context_file_name</code> is configured to), it automatically adds a comment suggesting you create one. The comment includes a one-click link that opens a pre-filled issue — just click and submit.</p>
-<p>If the created issue has the <code>daiv</code> label, DAIV will pick it up and use the <code>/init</code> skill to analyze your repository and generate the <code>AGENTS.md</code> file automatically.</p>
+<p>The one-click link pre-fills the issue with the <code>daiv-auto</code> label, so once you submit it DAIV picks it up and immediately runs the <code>/init</code> skill to analyze your repository and open a merge/pull request with the generated <code>AGENTS.md</code> — no approval step required.</p>
 <p>To disable this suggestion for a specific repository, add the following to <code>.daiv.yml</code>:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nt">suggest_context_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </code></pre></div></td></tr></table></div>
@@ -1571,7 +1712,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -1581,7 +1722,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

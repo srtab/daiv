@@ -7,7 +7,7 @@ DAIV uses a single AI agent built on [Deep Agents](https://github.com/langchain-
 DAIV's architecture consists of:
 
 - **One main agent** — handles all tasks (issue addressing, code review, slash commands)
-- **Two subagents** — general-purpose (full tools) and explore (read-only, fast)
+- **Built-in subagents** — general-purpose (full tools), explore (read-only, fast), and a fan-out of read-only `cr-*` code-review detector subagents
 - **Middleware stack** — modular capabilities injected based on configuration
 - **MCP servers** — external tool integrations (Sentry, Context7)
 
@@ -31,6 +31,7 @@ graph TB
 
     SA --> GPAgent[General-Purpose]
     SA --> EXAgent[Explore]
+    SA --> CRAgent[Code-Review Detectors cr-*]
 
     AGENT --> PUB[Git Change Publisher]
     PUB --> COMMIT[Commit & Push]
@@ -54,11 +55,15 @@ Two managers orchestrate the agent:
 | `IssueAddressorManager`    | Issue with `daiv` label | Plans and implements issue solutions |
 | `CommentsAddressorManager` | `@daiv` mention on MR   | Responds to code review comments     |
 
-Both create a persistent conversation thread (stored in Redis with 90-day TTL) so the agent retains context across multiple interactions on the same issue or MR.
+Both create a persistent conversation thread (stored in Redis with a 7-day TTL by default, configurable via `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`) so the agent retains context across multiple interactions on the same issue or MR.
 
 ## Tools
 
 The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.
+
+Tools are deferred by default
+
+Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
 
 ### Filesystem
 
@@ -73,9 +78,9 @@ The agent's tools are injected via middlewares. Each middleware provides one or 
 
 ### Git platform
 
-| Tool                | Description                                                   |
-| ------------------- | ------------------------------------------------------------- |
-| `gitlab` / `github` | Inspect issues, merge requests, pipeline status, and job logs |
+| Tool            | Description                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| `gitlab` / `gh` | Inspect issues, merge requests, pipeline status, and job logs (the GitHub tool exposes the `gh` CLI) |
 
 ### Sandbox
 
@@ -108,40 +113,46 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 
 ### Always enabled
 
-| Middleware                         | Purpose                                                |
-| ---------------------------------- | ------------------------------------------------------ |
-| `FilesystemMiddleware`             | File operations (glob, grep, read, edit, write)        |
-| `GitMiddleware`                    | Branch management, auto-commit, MR creation            |
-| `GitPlatformMiddleware`            | Git platform CLI tool (issues, MRs, pipelines)         |
-| `SkillsMiddleware`                 | Skill loading and slash command execution              |
-| `SubAgentMiddleware`               | Delegates tasks to subagents                           |
-| `MemoryMiddleware`                 | Loads `AGENTS.md` and repository context               |
-| `TodoListMiddleware`               | Task tracking within conversations                     |
-| `SummarizationMiddleware`          | Compresses conversation history when it grows too long |
-| `AnthropicPromptCachingMiddleware` | Prompt caching for Anthropic models                    |
-| `ToolCallLoggingMiddleware`        | Logs all tool calls                                    |
-| `PatchToolCallsMiddleware`         | Fixes malformed tool calls from the LLM                |
+| Middleware                         | Purpose                                                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `FilesystemMiddleware`             | File operations (glob, grep, read, edit, write)                                                                    |
+| `GitMiddleware`                    | Branch management, auto-commit, MR creation                                                                        |
+| `GitPlatformMiddleware`            | Git platform CLI tool (issues, MRs, pipelines)                                                                     |
+| `SkillsMiddleware`                 | Skill loading and slash command execution                                                                          |
+| `SubAgentMiddleware`               | Delegates tasks to subagents                                                                                       |
+| `MemoryMiddleware`                 | Loads `AGENTS.md` and repository context                                                                           |
+| `TodoListMiddleware`               | Task tracking within conversations                                                                                 |
+| `SummarizationMiddleware`          | Compresses conversation history when it grows too long                                                             |
+| `AnthropicPromptCachingMiddleware` | Prompt caching for Anthropic models                                                                                |
+| `ToolCallLoggingMiddleware`        | Logs all tool calls                                                                                                |
+| `PatchToolCallsMiddleware`         | Fixes malformed tool calls from the LLM                                                                            |
+| `DeferredToolsMiddleware`          | Defers non-core tools behind a `tool_search` capability, loaded on demand                                          |
+| `LoopBreakerMiddleware`            | Detects verbatim tool-call repetition and finalizes the run (instead of raising) so end-of-run hooks still execute |
+| `StepBudgetMiddleware`             | Warns the model as the run approaches its per-run step budget                                                      |
+| `EnsureResponseMiddleware`         | Guarantees a non-empty final response by retrying empty LLM responses                                              |
 
 ### Conditionally enabled
 
-| Middleware                 | Condition                                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------- |
-| `SandboxMiddleware`        | A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists) |
-| `WebSearchMiddleware`      | `DAIV_WEB_SEARCH_ENABLED` is `true`                                                    |
-| `WebFetchMiddleware`       | `DAIV_WEB_FETCH_ENABLED` is `true`                                                     |
-| `ModelFallbackMiddleware`  | A fallback model is configured                                                         |
-| `HumanInTheLoopMiddleware` | Plan approval is required (non-auto mode)                                              |
+| Middleware                | Condition                                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `SandboxMiddleware`       | A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists)                            |
+| `WebSearchMiddleware`     | `DAIV_WEB_SEARCH_ENABLED` is `true`                                                                               |
+| `WebFetchMiddleware`      | `DAIV_WEB_FETCH_ENABLED` is `true`                                                                                |
+| `ModelFallbackMiddleware` | A fallback model is configured                                                                                    |
+| `SlashCommandMiddleware`  | Slash commands enabled in `.daiv.yml` (default on) — parses and dispatches `/commands` like `/agents` and `/help` |
 
 ## Subagents
 
-The main agent can delegate work to two subagents. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for the user-facing explanation.
+The main agent can delegate work to two general-use subagents. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for the user-facing explanation.
 
 | Subagent        | Model                   | Fallback           | Tools                | Use case                                     |
 | --------------- | ----------------------- | ------------------ | -------------------- | -------------------------------------------- |
 | General-purpose | Same as main agent      | Same as main agent | Full tool access     | Complex searches, multi-step research        |
 | Explore         | Claude Haiku 4.5 (fast) | GPT-5.4-mini       | Read-only filesystem | Quick file lookups, code structure questions |
 
-All subagents (including [custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents)) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
+In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-custom-rules`) is built and registered on every run. The [code review](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) skill fans out across these detectors, each running with a read-only tool stack and producing structured findings. [Custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents) defined per repository are also added to the available-agents list.
+
+All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
 
 ## Dynamic system prompt
 

@@ -9,20 +9,24 @@ DAIV is an open-source async software engineering agent that integrates natively
 
 - [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md): How to deploy DAIV with Docker
 - [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md): Setting up GitLab or GitHub integration
+- [Accounts & Roles](https://srtab.github.io/daiv/dev/getting-started/accounts/index.md): Dashboard sign-in, admin/member roles, and user management
 - [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md): Configuring LLM providers
 
 ## Features
 
 - [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md): Automated issue-to-merge-request workflow
 - [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md): AI-powered pull request reviews and fixes
+- [Chat](https://srtab.github.io/daiv/dev/features/chat/index.md): Interactive dashboard chat workspace with the agent
 - [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md): REST API for programmatic agent triggering
 - [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md): Recurring agent runs on a cron schedule
 - [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md): MCP server endpoint for AI coding assistants
 - [Activity Tracking](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md): Unified log of all agent executions
+- [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md): Job, batch, and schedule completion notifications
 - [Merge Metrics](https://srtab.github.io/daiv/dev/features/merge-metrics/index.md): Code merge analytics and DAIV contribution tracking
 - [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md): Slash commands and custom skills
 - [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md): Specialized subagents for exploration and execution
 - [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md): Secure sandboxed code execution
+- [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md): Named, scoped sandbox environment configurations
 
 ## Integrations
 
@@ -37,6 +41,11 @@ DAIV is an open-source async software engineering agent that integrates natively
 ## Reference
 
 - [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md): Environment variables reference
+- [Site Configuration](https://srtab.github.io/daiv/dev/reference/site-configuration/index.md): Admin web UI for runtime configuration
 - [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md): Agent architecture overview
 - [Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/index.md): Monitoring and observability
+
+## Community
+
+- [Community](https://srtab.github.io/daiv/dev/community/index.md): Contributing, support, and project links
 

@@ -28,23 +28,24 @@ sequenceDiagram
 1. **Default branch filter** — Only merges targeting the repository's default branch are recorded. Merges to feature or release branches are ignored.
 1. **Background task** — A task fetches MR-level diff statistics and the pre-squash commit list from the platform API.
 1. **Commit-based attribution** — Each commit's author email is compared against DAIV's known commit email. Lines added/removed are split into DAIV and human contributions. This works correctly even with squash merges because the platform API retains the original commit list.
-1. **Dashboard** — The metrics are displayed in the "Code Velocity" section of the dashboard at `/dashboard/`, using the same period filter (7d / 30d / 90d / All time) as the agent activity counters.
+1. **Dashboard** — The metrics are displayed in the "Code Velocity" section of the dashboard at `/dashboard/` (visible to admin users only), using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to Today) as the agent activity counters.
 
 ______________________________________________________________________
 
 ## Dashboard
 
-The Code Velocity section shows five counters:
+The Code Velocity section is visible to admin users only. It shows a merges-and-lines block plus a separate **DAIV attribution** sub-section:
 
-| Counter               | Description                                                  |
-| --------------------- | ------------------------------------------------------------ |
-| **Total merges**      | Total MRs/PRs merged to default branches                     |
-| **Lines added**       | Total lines added across all merges                          |
-| **Lines removed**     | Total lines removed across all merges                        |
-| **DAIV contribution** | Percentage of total lines (added + removed) authored by DAIV |
-| **DAIV commit share** | Percentage of total commits authored by DAIV                 |
+| Metric                       | Description                                                                                                |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Total merges**             | MRs/PRs merged into default branches                                                                       |
+| **Lines added**              | Total lines added across all merges                                                                        |
+| **Lines removed**            | Total lines removed across all merges                                                                      |
+| **Net change**               | Lines added minus lines removed                                                                            |
+| **MRs involving DAIV**       | Percentage of merges containing at least one DAIV-authored commit, shown alongside DAIV vs human MR counts |
+| **Commits authored by DAIV** | Percentage of commits authored by DAIV, shown alongside DAIV vs human commit counts                        |
 
-All counters respect the period filter at the top of the dashboard.
+All metrics respect the period filter at the top of the dashboard.
 
 ______________________________________________________________________
 
@@ -101,7 +102,7 @@ The way diff statistics are collected differs between platforms:
 | **GitLab** | Parses unified diff text from `mr.changes()` API                  | Fetches `project.commits.get(sha).stats` per commit (N+1 calls, capped at 100 commits) |
 | **GitHub** | Reads `pr.additions`, `pr.deletions`, `pr.changed_files` directly | Fetches `commit.stats` per commit via lazy loading (N+1 calls, handled by PyGithub)    |
 
-If fetching diff stats or commits fails (e.g., due to API rate limits or network errors), the merge is still recorded with zero counts rather than being lost.
+The merge is always recorded even on partial failure (e.g., due to API rate limits or network errors). Each data source — MR-level diff stats, the bot commit email, and the commit list — is fetched independently. If MR-level diff stats fail while the commit list succeeds, the totals are derived from the per-commit sums, so only the field whose own fetch actually failed is left at zero.
 
 ______________________________________________________________________
 

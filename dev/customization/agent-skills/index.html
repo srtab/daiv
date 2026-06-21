@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -544,6 +572,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/jobs-api/" class="md-nav__link">
         
   
@@ -656,6 +712,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/merge-metrics/" class="md-nav__link">
         
   
@@ -748,6 +832,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1039,6 +1151,34 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#manage-skills-from-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manage skills from the dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage skills from the dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#zip-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZIP requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#override-priority" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1324,6 +1464,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
@@ -1475,6 +1643,34 @@
       
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manage-skills-from-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manage skills from the dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage skills from the dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#zip-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZIP requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -1730,27 +1926,24 @@
 <li><code>.claude/skills/</code></li>
 </ul>
 <p>DAIV scans all three and loads skills from each. If multiple directories contain a skill with the same name, the last one loaded wins.</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-0-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-0-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-0-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-0-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-0-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-0-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>your-repository/
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
+<span class="normal"><a href="#__codelineno-0-2">2</a></span>
+<span class="normal"><a href="#__codelineno-0-3">3</a></span>
+<span class="normal"><a href="#__codelineno-0-4">4</a></span>
+<span class="normal"><a href="#__codelineno-0-5">5</a></span>
+<span class="normal"><a href="#__codelineno-0-6">6</a></span>
+<span class="normal"><a href="#__codelineno-0-7">7</a></span>
+<span class="normal"><a href="#__codelineno-0-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>your-repository/
 <a id="__codelineno-0-2" name="__codelineno-0-2"></a>├── .agents/
 <a id="__codelineno-0-3" name="__codelineno-0-3"></a>│   └── skills/
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a>│       ├── my-custom-skill/
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a>│       │   ├── SKILL.md           # Required
-<a id="__codelineno-0-6" name="__codelineno-0-6"></a>│       │   └── scripts/
-<a id="__codelineno-0-7" name="__codelineno-0-7"></a>│       │       └── helper.py      # Optional supporting files
-<a id="__codelineno-0-8" name="__codelineno-0-8"></a>│       └── plan/                   # Built-in (auto-copied, gitignored)
-<a id="__codelineno-0-9" name="__codelineno-0-9"></a>│           └── SKILL.md
-<a id="__codelineno-0-10" name="__codelineno-0-10"></a>└── src/
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a>│       └── my-custom-skill/
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a>│           ├── SKILL.md           # Required
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a>│           └── scripts/
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a>│               └── helper.py      # Optional supporting files
+<a id="__codelineno-0-8" name="__codelineno-0-8"></a>└── src/
 </code></pre></div></td></tr></table></div>
-<p>Built-in skills are automatically copied to <code>.agents/skills/</code> at agent startup with a <code>.gitignore</code> to prevent them from being committed. You can override any built-in skill by creating one with the same name and committing it to the repository.</p>
+<p>Built-in skills are <strong>not</strong> copied into your repository. They are loaded from DAIV's own global skills location (<code>/workspace/skills</code> inside the agent), registered as a separate "Global" source alongside the per-repository directories above. Nothing is written to <code>.agents/skills/</code> and no <code>.gitignore</code> is generated.</p>
+<p>You can still override any built-in skill by creating one with the same name in one of the per-repository directories and committing it: per-repository sources take precedence over the global source (see <a href="#override-priority">Override priority</a>).</p>
 <h2 id="custom-global-skills">Custom global skills</h2>
 <p>Custom global skills are user-defined skills that are available across <strong>all repositories</strong>, unlike per-repository skills. They follow the same directory format as built-in skills (a directory containing a <code>SKILL.md</code> file) and are loaded from a configurable path on the host filesystem.</p>
 <h3 id="setup">Setup</h3>
@@ -1785,18 +1978,78 @@
 <p>The path inside the container is configurable via the <code>DAIV_AGENT_CUSTOM_SKILLS_PATH</code> environment variable (see <a href="../../reference/env-variables/#daiv-agent">Environment Variables</a>).</p>
 </li>
 </ol>
+<h3 id="manage-skills-from-the-dashboard">Manage skills from the dashboard</h3>
+<div class="admonition info">
+<p class="admonition-title">Admin only</p>
+<p>The Skills dashboard requires an admin account.</p>
+</div>
+<p>Admins can manage custom global skills from the web dashboard at <strong>Skills</strong> (<code>/dashboard/skills/</code>) instead of editing the mounted directory by hand. Both approaches write to the same <code>DAIV_AGENT_CUSTOM_SKILLS_PATH</code> location, so they coexist — the dashboard is an alternative to, not a replacement for, the Docker-volume approach.</p>
+<p>From the Skills page you can:</p>
+<ul>
+<li><strong>List skills</strong> — built-in and custom global skills are shown together, each with its invocation count. A custom skill whose name matches a built-in shadows it and is flagged <strong>Overrides built-in</strong>.</li>
+<li><strong>Upload a skill</strong> as a ZIP archive (see constraints below). Uploading a skill whose name already exists asks you to confirm before it replaces the existing one.</li>
+<li><strong>View a skill</strong> — its <code>SKILL.md</code>, file tree, and usage over the last 30 days.</li>
+<li><strong>Download</strong> a custom skill's original ZIP.</li>
+<li><strong>Delete</strong> a custom skill (built-in skills cannot be deleted; deleting a custom skill that shadowed a built-in restores the built-in).</li>
+</ul>
+<p>A successful upload writes the skill into <code>DAIV_AGENT_CUSTOM_SKILLS_PATH</code> and records an audit row attributing it to the uploading admin.</p>
+<h4 id="zip-requirements">ZIP requirements</h4>
+<p>The uploaded archive is validated before it is stored:</p>
+<table>
+<thead>
+<tr>
+<th>Constraint</th>
+<th>Limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Top-level directory</td>
+<td>Exactly one, named after the skill (a valid slug: lowercase alphanumeric and hyphens, max 63 chars)</td>
+</tr>
+<tr>
+<td><code>SKILL.md</code></td>
+<td>Required at <code>&lt;skill-name&gt;/SKILL.md</code>, with <code>name</code> (matching the directory) and <code>description</code> in its frontmatter</td>
+</tr>
+<tr>
+<td>Compressed size</td>
+<td>5 MiB max</td>
+</tr>
+<tr>
+<td>Unpacked size</td>
+<td>25 MiB max</td>
+</tr>
+<tr>
+<td>File count</td>
+<td>200 max</td>
+</tr>
+<tr>
+<td>Path depth</td>
+<td>8 levels max</td>
+</tr>
+<tr>
+<td>Per-file size</td>
+<td>1 MiB max</td>
+</tr>
+<tr>
+<td>Allowed file types</td>
+<td><code>.md</code>, <code>.py</code>, <code>.json</code>, <code>.yaml</code>, <code>.yml</code>, <code>.txt</code>, <code>.sh</code>, <code>.toml</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code>, <code>.svg</code>, <code>.gif</code></td>
+</tr>
+</tbody>
+</table>
+<p>Symlinks, absolute paths, <code>..</code> path traversal, and hidden path segments are rejected; <code>__pycache__</code> and <code>.pyc</code> entries are dropped silently.</p>
 <h3 id="override-priority">Override priority</h3>
 <p>Skills are resolved in this order (highest priority wins):</p>
 <ol>
 <li><strong>Per-repository skills</strong> — committed in the repository's <code>.agents/skills/</code>, <code>.cursor/skills/</code>, or <code>.claude/skills/</code></li>
-<li><strong>Custom global skills</strong> — mounted via Docker volume</li>
+<li><strong>Custom global skills</strong> — mounted via Docker volume or uploaded from the dashboard</li>
 <li><strong>Built-in skills</strong> — shipped with DAIV</li>
 </ol>
 <p>This means custom global skills override built-in skills with the same name, and per-repository skills override both.</p>
 <h3 id="notes">Notes</h3>
 <ul>
-<li>Skills are copied at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.</li>
-<li>Custom global skills are marked with a <code>&lt;global&gt;</code> tag in the agent's system prompt so the LLM can distinguish them from built-in and per-repository skills.</li>
+<li>Skills are materialized at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.</li>
+<li>Custom global skills load from the agent's global skills source, which appears as <strong>Global Skills</strong> in the system prompt's skills-locations block. Per-repository sources are listed after it and marked <code>(higher priority)</code>, so the agent knows a per-repository skill of the same name wins.</li>
 </ul>
 <h2 id="creating-a-skill">Creating a skill</h2>
 <h3 id="skillmd-format">SKILL.md format</h3>
@@ -2021,7 +2274,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -2031,7 +2284,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

@@ -8,25 +8,37 @@
 
 The [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) gives DAIV access to your error tracking data.
 
-**Available tools:**
+**Available tools** (read-only allow-list):
 
-| Tool                 | Description                                     |
-| -------------------- | ----------------------------------------------- |
-| `find_organizations` | Discover Sentry organizations                   |
-| `find_projects`      | List projects in an organization                |
-| `search_issues`      | Search for issues by query                      |
-| `search_events`      | Search for events                               |
-| `get_issue_details`  | Get detailed information about a specific issue |
+| Tool                   | Description                            |
+| ---------------------- | -------------------------------------- |
+| `whoami`               | Identify the authenticated Sentry user |
+| `find_organizations`   | Discover Sentry organizations          |
+| `find_projects`        | List projects in an organization       |
+| `find_teams`           | List teams in an organization          |
+| `find_releases`        | List releases in a project             |
+| `search_issue`         | Look up a specific issue               |
+| `search_issue_events`  | Search events within an issue          |
+| `search_events`        | Search for events                      |
+| `get_issue_tag_values` | List tag values seen on an issue       |
+| `get_event_attachment` | Fetch an attachment from an event      |
+| `get_replay_details`   | Get details of a session replay        |
+| `get_profile_details`  | Get details of a profiling sample      |
+| `get_sentry_resource`  | Fetch a Sentry resource by reference   |
 
 **Use cases:** Analyzing error patterns when fixing bugs, correlating code changes with production errors, gathering debugging context.
 
 **Configuration:**
 
 ```
-MCP_SENTRY_URL=http://mcp-sentry:8000/mcp   # Default; set to None to disable
+MCP_SENTRY_URL=http://mcp_sentry:8000/mcp   # Default; set to None to disable
 ```
 
-`SENTRY_ACCESS_TOKEN` is consumed by the `mcp-sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
+`SENTRY_ACCESS_TOKEN` is consumed by the `mcp_sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
+
+Note
+
+The default hostname uses an underscore (`mcp_sentry`). Docker Swarm does **not** normalize service names with dashes to underscores on internal DNS, so a service declared as `mcp-sentry` (hyphen) is only reachable at the hyphenated hostname. If your deployment uses the hyphenated service name — as the [deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) stack examples do — set `MCP_SENTRY_URL=http://mcp-sentry:8000/mcp` explicitly so the service resolves.
 
 ### Context7
 
@@ -44,10 +56,10 @@ The [Context7 MCP Server](https://www.npmjs.com/package/@upstash/context7-mcp) p
 **Configuration:**
 
 ```
-MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp  # Default; set to None to disable
+MCP_CONTEXT7_URL=http://mcp_context7:8000/mcp  # Default; set to None to disable
 ```
 
-Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp-context7` container. Add them to your secrets env file.
+Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp_context7` container. Add them to your secrets env file. As with Sentry, the default hostname uses an underscore, and Swarm does **not** normalize dashes to underscores on internal DNS. If your deployment declares the service as `mcp-context7` (hyphen) — as the [deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) stack examples do — set `MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp` explicitly so the service resolves.
 
 ## User-defined MCP servers
 

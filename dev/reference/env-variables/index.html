@@ -18,7 +18,7 @@
         <link rel="prev" href="../../customization/mcp-tools/">
       
       
-        <link rel="next" href="../agent-architecture/">
+        <link rel="next" href="../site-configuration/">
       
       
         
@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -544,6 +572,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/jobs-api/" class="md-nav__link">
         
   
@@ -656,6 +712,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/merge-metrics/" class="md-nav__link">
         
   
@@ -748,6 +832,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1215,6 +1327,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#rocket-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rocket Chat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#other" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1397,6 +1520,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#deferred-tools-tool-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deferred Tools (Tool Search)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1467,6 +1601,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1700,6 +1862,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#rocket-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rocket Chat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#other" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1882,6 +2055,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#deferred-tools-tool-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deferred Tools (Tool Search)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2030,7 +2214,8 @@
 </ul>
 <div class="admonition info">
 <p class="admonition-title">Configuration UI</p>
-<p>Many settings listed under <a href="#automation-llm-providers">Automation: LLM Providers</a>, <a href="#automation-tools">Automation: Tools</a>, and <a href="#automation-agents">Automation: Agents</a> can also be managed through the <strong>Configuration UI</strong> at <code>/dashboard/configuration/</code>. These settings use a three-tier priority chain: <strong>environment variable</strong> (highest) &gt; <strong>database value</strong> (set via UI) &gt; <strong>hardcoded default</strong> (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked <em>env-only</em> are not available in the UI.</p>
+<p>Many settings listed under <a href="#automation-tools">Automation: Tools</a> and <a href="#automation-agents">Automation: Agents</a> can also be managed through the <strong>Configuration UI</strong> at <code>/dashboard/configuration/</code>. These settings use a three-tier priority chain: <strong>environment variable</strong> (highest) &gt; <strong>database value</strong> (set via UI) &gt; <strong>hardcoded default</strong> (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked <em>env-only</em> are not available in the UI.</p>
+<p><a href="#automation-llm-providers">Automation: LLM Providers</a> behaves differently: the provider API key variables are read <strong>only once</strong> to seed the provider records on first run — they do not participate in the runtime override chain (see the note in that section).</p>
 </div>
 <hr />
 <h2 id="core">Core</h2>
@@ -2368,7 +2553,7 @@
 </div>
 <h3 id="authentication">Authentication</h3>
 <p>DAIV uses <a href="https://docs.allauth.org/">django-allauth</a> for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at <code>/accounts/users/</code>. On a fresh install, the first social login bootstraps the initial admin account, or you can use <code>python manage.py bootstrap_admin &lt;email&gt;</code> to create one via login-by-code (see <a href="../../getting-started/deployment/">Deployment</a>).</p>
-<p>OAuth credentials can be configured via environment variables (shown below) or through the <strong>Configuration</strong> page at <code>/configuration/</code> under the <strong>Authentication</strong> section. The UI also provides an <strong>enable OAuth login</strong> toggle to turn social login on or off without removing credentials.</p>
+<p>OAuth credentials can be configured via environment variables (shown below) or through the <strong>Configuration</strong> page at <code>/dashboard/configuration/</code> under the <strong>Authentication</strong> section. The UI also provides an <strong>enable OAuth login</strong> toggle to turn social login on or off without removing credentials.</p>
 <table>
 <thead>
 <tr>
@@ -2382,6 +2567,12 @@
 <tr>
 <td><code>DAIV_AUTH_LOGIN_ENABLED</code></td>
 <td>Enable OAuth login (social provider buttons on login page)</td>
+<td style="text-align: center;"><code>false</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AUTH_SIGNUP_OPEN</code></td>
+<td>Allow anyone authenticating via the configured Git platform to self-create an account. When off, only admin-pre-created users can sign in</td>
 <td style="text-align: center;"><code>false</code></td>
 <td><code>true</code></td>
 </tr>
@@ -2462,6 +2653,44 @@
 <p class="admonition-title">Note</p>
 <p>OAuth login requires <strong>all three</strong> of: the <strong>enable OAuth login</strong> toggle turned on, a <strong>client ID</strong>, and a <strong>client secret</strong>. If only one credential is set, a warning is logged and the provider button is not shown on the login page. The active provider is determined by the <code>CODEBASE_CLIENT</code> setting (GitHub or GitLab).</p>
 </div>
+<h3 id="rocket-chat">Rocket Chat</h3>
+<p>When enabled, Rocket Chat becomes available as a notification channel that users can opt into for their in-app and run notifications.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_ROCKETCHAT_ENABLED</code></td>
+<td>Offer Rocket Chat as a notification channel for users</td>
+<td style="text-align: center;"><code>false</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ROCKETCHAT_URL</code></td>
+<td>Base URL of your Rocket Chat instance</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>https://rc.example.com</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ROCKETCHAT_USER_ID</code></td>
+<td>The bot user's <code>_id</code>, sent as the <code>X-User-Id</code> header</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>abc123userid</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ROCKETCHAT_AUTH_TOKEN</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>The bot user's auth token, sent as the <code>X-Auth-Token</code> header</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
 <h3 id="other">Other</h3>
 <table>
 <thead>
@@ -2637,6 +2866,10 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <p class="admonition-title">Note</p>
 <p>At least one of the <a href="../../getting-started/llm-providers/">supported providers</a> should be configured to use the automation features.</p>
 </div>
+<div class="admonition warning">
+<p class="admonition-title">Provider keys are seed-only</p>
+<p>Unlike the rest of the configurable settings on this page, these provider API key variables are <strong>not</strong> part of the env &gt; database &gt; default override chain. They are read <strong>only once</strong> — on first run / upgrade — to seed the provider records, after which the authoritative, runtime-editable key and base URL live on the <strong>Providers</strong> section of the Configuration UI at <code>/dashboard/configuration/</code>. Changing a <code>*_API_KEY</code> environment variable after the provider record exists has no effect; edit the provider in the UI instead. The OpenRouter base URL is likewise a per-provider <strong>Base URL</strong> field in that section (it defaults to <code>https://openrouter.ai/api/v1</code>).</p>
+</div>
 <h3 id="openrouter-default">OpenRouter (<em>default</em>)</h3>
 <table>
 <thead>
@@ -2650,14 +2883,8 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <tbody>
 <tr>
 <td><code>OPENROUTER_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
-<td>OpenRouter API key</td>
+<td>OpenRouter API key (seeds the OpenRouter provider record on first run)</td>
 <td style="text-align: center;"><em>(none)</em></td>
-<td></td>
-</tr>
-<tr>
-<td><code>DAIV_OPENROUTER_API_BASE</code></td>
-<td>OpenRouter API base URL</td>
-<td style="text-align: center;"><code>https://openrouter.ai/api/v1</code></td>
 <td></td>
 </tr>
 </tbody>
@@ -2675,7 +2902,7 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <tbody>
 <tr>
 <td><code>ANTHROPIC_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
-<td>Anthropic API key</td>
+<td>Anthropic API key (seeds the Anthropic provider record on first run)</td>
 <td style="text-align: center;"><em>(none)</em></td>
 <td></td>
 </tr>
@@ -2694,7 +2921,7 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <tbody>
 <tr>
 <td><code>OPENAI_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
-<td>OpenAI API key</td>
+<td>OpenAI API key (seeds the OpenAI provider record on first run)</td>
 <td style="text-align: center;"><em>(none)</em></td>
 <td></td>
 </tr>
@@ -2713,7 +2940,7 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <tbody>
 <tr>
 <td><code>GOOGLE_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
-<td>Google API key</td>
+<td>Google API key (seeds the Google provider record on first run)</td>
 <td style="text-align: center;"><em>(none)</em></td>
 <td></td>
 </tr>
@@ -2826,7 +3053,7 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <td><code>80000</code></td>
 </tr>
 <tr>
-<td><code>AUTOMATION_WEB_FETCH_AUTH_HEADERS</code></td>
+<td><code>DAIV_WEB_FETCH_AUTH_HEADERS</code></td>
 <td>Domain-to-headers mapping for authenticated fetches (JSON, env-only)</td>
 <td style="text-align: center;"><code>{}</code></td>
 <td><code>{"example.com": {"X-API-Key": "sk-abc"}}</code></td>
@@ -2854,13 +3081,13 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <tr>
 <td><code>MCP_SENTRY_URL</code></td>
 <td>Streamable HTTP URL for the Sentry supergateway container (set to <code>None</code> to disable)</td>
-<td style="text-align: center;"><code>http://mcp-sentry:8000/mcp</code></td>
+<td style="text-align: center;"><code>http://mcp_sentry:8000/mcp</code></td>
 <td><code>http://localhost:8001/mcp</code></td>
 </tr>
 <tr>
 <td><code>MCP_CONTEXT7_URL</code></td>
 <td>Streamable HTTP URL for the Context7 supergateway container (set to <code>None</code> to disable)</td>
-<td style="text-align: center;"><code>http://mcp-context7:8000/mcp</code></td>
+<td style="text-align: center;"><code>http://mcp_context7:8000/mcp</code></td>
 <td><code>http://localhost:8002/mcp</code></td>
 </tr>
 <tr>
@@ -2875,6 +3102,38 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <p class="admonition-title">Info</p>
 <p>For detailed MCP server configuration including user-defined servers, see <a href="../../customization/mcp-tools/">MCP Tools</a>.</p>
 </div>
+<h3 id="deferred-tools-tool-search">Deferred Tools (Tool Search)</h3>
+<p>When enabled, tools outside the always-loaded set are deferred behind a <code>tool_search</code> tool instead of being bound to the model eagerly, keeping the active tool surface small. Most operators do not need to tune these.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DEFERRED_TOOLS_ENABLED</code></td>
+<td>Defer non-essential tools behind <code>tool_search</code> instead of binding them eagerly</td>
+<td style="text-align: center;"><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>DEFERRED_TOOLS_TOP_K_DEFAULT</code></td>
+<td>Default number of results returned by a <code>tool_search</code> call</td>
+<td style="text-align: center;"><code>3</code></td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>DEFERRED_TOOLS_TOP_K_MAX</code></td>
+<td>Maximum number of results <code>tool_search</code> will return per call</td>
+<td style="text-align: center;"><code>10</code></td>
+<td><code>20</code></td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2 id="automation-agents">Automation: Agents</h2>
 <p>These variables control the models and behavior of DAIV's agents. You can also override models per repository via <code>.daiv.yml</code> — see <a href="../../customization/repository-config/#model-overrides">Repository Config</a>.</p>
@@ -2906,7 +3165,12 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 </tr>
 <tr>
 <td><code>DAIV_AGENT_THINKING_LEVEL</code></td>
-<td>Extended thinking level (<code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, or <code>None</code> to disable)</td>
+<td>Extended thinking level (<code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, or empty to disable)</td>
+<td><code>medium</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_FALLBACK_THINKING_LEVEL</code></td>
+<td>Thinking level applied when the primary model fails over to the fallback model (independent of <code>DAIV_AGENT_THINKING_LEVEL</code>)</td>
 <td><code>medium</code></td>
 </tr>
 <tr>
@@ -2949,7 +3213,7 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
 <tbody>
 <tr>
 <td><code>DAIV_JOBS_THROTTLE_RATE</code></td>
-<td>Rate limit for job submissions per authenticated user. Format: <code>N/second</code>, <code>N/minute</code>, <code>N/hour</code>, or <code>N/day</code></td>
+<td>Rate limit for job submissions per authenticated user. Format: <code>N/sec</code>, <code>N/min</code>, <code>N/hour</code>, or <code>N/day</code></td>
 <td><code>20/hour</code></td>
 </tr>
 </tbody>
@@ -3022,7 +3286,7 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -3032,7 +3296,7 @@ entry (<code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>) expires or i
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/jobs-api/">
       
       
-        <link rel="prev" href="../pull-request-assistant/">
+        <link rel="prev" href="../chat/">
       
       
         <link rel="next" href="../scheduled-jobs/">
@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -543,6 +571,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -622,6 +678,17 @@
     <span class="md-ellipsis">
       
         Creating an API key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#managing-api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing API keys
       
     </span>
   </a>
@@ -855,6 +922,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../merge-metrics/" class="md-nav__link">
         
   
@@ -947,6 +1042,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1269,6 +1392,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
@@ -1395,6 +1546,17 @@
     <span class="md-ellipsis">
       
         Creating an API key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#managing-api-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing API keys
       
     </span>
   </a>
@@ -1616,6 +1778,14 @@
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>create_api_key<span class="w"> </span>&lt;username&gt;<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;my-key&quot;</span>
 </code></pre></div></td></tr></table></div>
 <p>This outputs a key in the format <code>prefix.secret</code>. Store it securely — it cannot be retrieved later.</p>
+<h3 id="managing-api-keys">Managing API keys</h3>
+<p>You can also self-service your API keys from the dashboard at <code>/accounts/api-keys/</code>. There you can:</p>
+<ul>
+<li><strong>Create</strong> a key by giving it a name — the full secret is shown <strong>only once</strong>, right after creation, so copy it immediately.</li>
+<li><strong>List</strong> your keys (admins see every user's keys).</li>
+<li><strong>Revoke</strong> a key you no longer need; revoked keys stop authenticating immediately.</li>
+</ul>
+<p>The <code>create_api_key</code> management command remains available for headless/automated provisioning.</p>
 <h3 id="using-the-key">Using the key</h3>
 <p>Pass the key in the <code>Authorization</code> header:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
@@ -1628,10 +1798,14 @@
 </code></pre></div></td></tr></table></div>
 <h2 id="rate-limiting">Rate limiting</h2>
 <p>Job submissions are rate-limited per authenticated user. The default limit is <strong>20 requests per hour</strong>. When exceeded, the API returns <code>429 Too Many Requests</code>.</p>
-<p>The rate can be configured via the <code>DAIV_JOBS_THROTTLE_RATE</code> environment variable:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>DAIV_JOBS_THROTTLE_RATE=50/hour
+<p>The rate is configured via the <code>jobs_throttle_rate</code> field in Site Configuration (default <code>20/hour</code>). Set it to a value like:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>50/hour
 </code></pre></div></td></tr></table></div>
-<p>Valid formats: <code>N/second</code>, <code>N/minute</code>, <code>N/hour</code>, <code>N/day</code> (or short forms: <code>N/s</code>, <code>N/m</code>, <code>N/h</code>, <code>N/d</code>).</p>
+<p>Valid formats: <code>N/sec</code>, <code>N/min</code>, <code>N/hour</code>, <code>N/day</code> (or single-letter short forms: <code>N/s</code>, <code>N/m</code>, <code>N/h</code>, <code>N/d</code>).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The same rate can also be set with the <code>DAIV_JOBS_THROTTLE_RATE</code> environment variable (or Docker secret). When set, it is a hard override that wins over the database value and <strong>locks</strong> the field in the Site Configuration UI.</p>
+</div>
 <h2 id="endpoints">Endpoints</h2>
 <h3 id="submit-a-job">Submit a job</h3>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>POST /api/jobs
@@ -1660,10 +1834,16 @@
 <td>The prompt to send to the agent. The same prompt runs as an independent job against each repository in <code>repos</code>.</td>
 </tr>
 <tr>
-<td><code>use_max</code></td>
-<td>boolean</td>
+<td><code>agent_model</code></td>
+<td>string</td>
 <td>no</td>
-<td>Use the more capable model with thinking set to high. Defaults to <code>false</code>.</td>
+<td>Override the model used for this batch. Invalid model / thinking-level combinations are rejected with <code>400</code>.</td>
+</tr>
+<tr>
+<td><code>agent_thinking_level</code></td>
+<td>string</td>
+<td>no</td>
+<td>Override the agent's reasoning effort. One of <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>. Invalid combinations are rejected with <code>400</code>.</td>
 </tr>
 <tr>
 <td><code>notify_on</code></td>
@@ -1671,8 +1851,24 @@
 <td>no</td>
 <td>Override the user's notification preference for this batch. One of <code>never</code>, <code>always</code>, <code>on_success</code>, <code>on_failure</code>.</td>
 </tr>
+<tr>
+<td><code>environment</code></td>
+<td>string</td>
+<td>no</td>
+<td>Select a sandbox environment (by name or id) applied to every job in the batch. An unresolvable environment is rejected with <code>400</code>.</td>
+</tr>
+<tr>
+<td><code>thread_id</code></td>
+<td>string (UUID)</td>
+<td>no</td>
+<td>Continue an existing thread. Requires exactly one repo in <code>repos</code>, and the most recent run on that thread must belong to you (otherwise <code>400</code>). If a prior run on the thread is still in flight, the new job is created in <code>QUEUED</code> state and released FIFO when that run finishes.</td>
+</tr>
 </tbody>
 </table>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The request body is validated strictly: unknown fields (including the removed <code>use_max</code> toggle) are rejected with <code>422</code>. Use <code>agent_model</code> and <code>agent_thinking_level</code> to control the model instead.</p>
+</div>
 <p><strong>Example:</strong></p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
 <span class="normal"><a href="#__codelineno-4-2">2</a></span>
@@ -1699,19 +1895,23 @@
 <span class="normal"><a href="#__codelineno-5-8"> 8</a></span>
 <span class="normal"><a href="#__codelineno-5-9"> 9</a></span>
 <span class="normal"><a href="#__codelineno-5-10">10</a></span>
-<span class="normal"><a href="#__codelineno-5-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="p">{</span>
+<span class="normal"><a href="#__codelineno-5-11">11</a></span>
+<span class="normal"><a href="#__codelineno-5-12">12</a></span>
+<span class="normal"><a href="#__codelineno-5-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="p">{</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;batch_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;5b9e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90&quot;</span><span class="p">,</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">&quot;jobs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">    </span><span class="p">{</span>
 <a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">      </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1adfbf7a-917e-4f2e-8f54-17a27c006ec5&quot;</span><span class="p">,</span>
 <a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">      </span><span class="nt">&quot;repo_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;mygroup/myproject&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">      </span><span class="nt">&quot;ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">    </span><span class="p">}</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">  </span><span class="p">],</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">  </span><span class="nt">&quot;failed&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="p">}</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">      </span><span class="nt">&quot;ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">      </span><span class="nt">&quot;thread_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">      </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;READY&quot;</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="w">  </span><span class="p">],</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12"></a><span class="w">  </span><span class="nt">&quot;failed&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
-<p>Each entry in <code>jobs</code> is an independent run — poll each <code>job_id</code> separately. Pre-enqueue rejections (e.g. unknown <code>repo_id</code>) are reported in <code>failed</code> as <code>{repo_id, ref, error}</code>; the rest of the batch still runs.</p>
+<p>Each entry in <code>jobs</code> is an independent run — poll each <code>job_id</code> separately. The <code>status</code> is <code>READY</code> for an immediately-runnable job, or <code>QUEUED</code> if another run is already in flight on the same <code>thread_id</code> (see <a href="#job-lifecycle">Job lifecycle</a>). Pre-enqueue rejections (e.g. unknown <code>repo_id</code>) are reported in <code>failed</code> as <code>{repo_id, ref, error}</code>; the rest of the batch still runs.</p>
 <h3 id="poll-job-status">Poll job status</h3>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>GET /api/jobs/{job_id}
 </code></pre></div></td></tr></table></div>
@@ -1725,18 +1925,20 @@
 <span class="normal"><a href="#__codelineno-7-7"> 7</a></span>
 <span class="normal"><a href="#__codelineno-7-8"> 8</a></span>
 <span class="normal"><a href="#__codelineno-7-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-7-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="p">{</span>
+<span class="normal"><a href="#__codelineno-7-10">10</a></span>
+<span class="normal"><a href="#__codelineno-7-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="p">{</span>
 <a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1adfbf7a-917e-4f2e-8f54-17a27c006ec5&quot;</span><span class="p">,</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SUCCESSFUL&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;result&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Here are the Python files...&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;merge_request_url&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:39.012Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8"></a><span class="w">  </span><span class="nt">&quot;started_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:39.401Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9"></a><span class="w">  </span><span class="nt">&quot;finished_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:52.402Z&quot;</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10"></a><span class="p">}</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;thread_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;result&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Here are the Python files...&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;merge_request_url&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8"></a><span class="w">  </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:39.012Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9"></a><span class="w">  </span><span class="nt">&quot;started_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:39.401Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10"></a><span class="w">  </span><span class="nt">&quot;finished_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-03-27T18:22:52.402Z&quot;</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
-<p><code>merge_request_url</code> is populated when the agent produced code changes that were committed and pushed; <code>null</code> otherwise (e.g. read-only triage runs).</p>
+<p><code>merge_request_url</code> is populated when the agent produced code changes that were committed and pushed; <code>null</code> otherwise (e.g. read-only triage runs). <code>thread_id</code> identifies the thread this job ran on — pass it back as the <code>thread_id</code> field on a new submission to continue the conversation.</p>
 <p><strong>Status values:</strong></p>
 <table>
 <thead>
@@ -1747,6 +1949,10 @@
 </thead>
 <tbody>
 <tr>
+<td><code>QUEUED</code></td>
+<td>Job is waiting for an earlier run on the same thread to finish; released FIFO. Only occurs for thread continuations (<code>thread_id</code> supplied).</td>
+</tr>
+<tr>
 <td><code>READY</code></td>
 <td>Job is queued, waiting for a worker</td>
 </tr>
@@ -1756,7 +1962,7 @@
 </tr>
 <tr>
 <td><code>SUCCESSFUL</code></td>
-<td>Completed — <code>result</code> contains the agent's output</td>
+<td>Completed — <code>result</code> contains the agent's response summary</td>
 </tr>
 <tr>
 <td><code>FAILED</code></td>
@@ -1765,6 +1971,7 @@
 </tbody>
 </table>
 <p><strong>Error responses:</strong></p>
+<p>For <code>GET /api/jobs/{job_id}</code>:</p>
 <table>
 <thead>
 <tr>
@@ -1783,13 +1990,43 @@
 </tr>
 </tbody>
 </table>
+<p>For <code>POST /api/jobs</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>400</code></td>
+<td>Invalid request — bad <code>agent_model</code> / <code>agent_thinking_level</code> override, unresolvable <code>environment</code>, or invalid <code>thread_id</code> continuation (unknown/unowned thread, or more than one repo).</td>
+</tr>
+<tr>
+<td><code>422</code></td>
+<td>Malformed body or unknown fields (e.g. the removed <code>use_max</code>).</td>
+</tr>
+<tr>
+<td><code>429</code></td>
+<td>Rate limit exceeded (see <a href="#rate-limiting">Rate limiting</a>).</td>
+</tr>
+<tr>
+<td><code>401</code></td>
+<td>Missing or invalid API key</td>
+</tr>
+</tbody>
+</table>
 <h2 id="job-lifecycle">Job lifecycle</h2>
 <pre class="mermaid"><code>stateDiagram-v2
     [*] --&gt; READY: POST /api/jobs
+    [*] --&gt; QUEUED: POST /api/jobs (thread continuation, prior run in flight)
+    QUEUED --&gt; READY: Prior run on the thread finishes (FIFO)
     READY --&gt; RUNNING: Worker picks up job
     RUNNING --&gt; SUCCESSFUL: Agent completes
     RUNNING --&gt; FAILED: Agent errors</code></pre>
-<p>Once a job reaches <code>SUCCESSFUL</code> or <code>FAILED</code>, the status is final. The <code>result</code> field contains the agent's full text output.</p>
+<p>A job only starts in <code>QUEUED</code> when you supply a <code>thread_id</code> and an earlier run on that thread is still in flight; it is released to <code>READY</code> (FIFO) when that run terminates. Every other submission starts at <code>READY</code>.</p>
+<p>Once a job reaches <code>SUCCESSFUL</code> or <code>FAILED</code>, the status is final. The <code>result</code> field contains the agent's text response summary (its last response, truncated to 2000 characters) — not necessarily the complete output.</p>
 <h2 id="examples">Examples</h2>
 <h3 id="simple-script">Simple script</h3>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1"> 1</a></span>
@@ -1942,7 +2179,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -1952,7 +2189,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

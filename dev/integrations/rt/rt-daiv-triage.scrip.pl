@@ -91,9 +91,13 @@ End with a one-line **Recommendation** (e.g. "assign to backend",
 PROMPT
 
         my $payload = JSON::encode_json({
-            repos   => [ { repo_id => $repo } ],
-            prompt  => $prompt,
-            use_max => JSON::true,
+            repos                => [ { repo_id => $repo } ],
+            prompt               => $prompt,
+            # Request high reasoning effort for triage. This applies high
+            # effort to the system default model. To force the most capable
+            # model, also pass an explicit agent_model, e.g.:
+            #   agent_model => 'openrouter:anthropic/claude-opus-4.6',
+            agent_thinking_level => 'high',
         });
 
         my $ua  = LWP::UserAgent->new(timeout => 5);

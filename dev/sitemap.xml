@@ -25,6 +25,10 @@
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
+         <loc>https://srtab.github.io/daiv/dev/features/chat/</loc>
+         <lastmod>2026-06-21</lastmod>
+    </url>
+    <url>
          <loc>https://srtab.github.io/daiv/dev/features/issue-addressing/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
@@ -41,7 +45,15 @@
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
+         <loc>https://srtab.github.io/daiv/dev/features/notifications/</loc>
+         <lastmod>2026-06-21</lastmod>
+    </url>
+    <url>
          <loc>https://srtab.github.io/daiv/dev/features/pull-request-assistant/</loc>
+         <lastmod>2026-06-21</lastmod>
+    </url>
+    <url>
+         <loc>https://srtab.github.io/daiv/dev/features/sandbox-environments/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
@@ -58,6 +70,10 @@
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/features/subagents/</loc>
+         <lastmod>2026-06-21</lastmod>
+    </url>
+    <url>
+         <loc>https://srtab.github.io/daiv/dev/getting-started/accounts/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
     <url>
@@ -86,6 +102,10 @@
     </url>
     <url>
          <loc>https://srtab.github.io/daiv/dev/reference/monitoring/</loc>
+         <lastmod>2026-06-21</lastmod>
+    </url>
+    <url>
+         <loc>https://srtab.github.io/daiv/dev/reference/site-configuration/</loc>
          <lastmod>2026-06-21</lastmod>
     </url>
 </urlset>

@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://srtab.github.io/daiv/dev/getting-started/llm-providers/">
       
       
-        <link rel="prev" href="../platform-setup/">
+        <link rel="prev" href="../accounts/">
       
       
         <link rel="next" href="../../features/issue-addressing/">
@@ -405,6 +405,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -539,6 +567,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#custom-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom providers
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -645,6 +684,34 @@
     
   
     Pull Request Assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
   
 
     
@@ -777,6 +844,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/merge-metrics/" class="md-nav__link">
         
   
@@ -869,6 +964,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1191,6 +1314,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
@@ -1372,6 +1523,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#custom-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom providers
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1476,7 +1638,7 @@
 <td><code>claude-sonnet-4.6</code></td>
 </tr>
 <tr>
-<td><code>gpt-</code>, <code>o4</code></td>
+<td><code>gpt-4</code>, <code>gpt-5</code>, <code>o4</code></td>
 <td>OpenAI (direct)</td>
 <td><code>gpt-5.3-codex</code></td>
 </tr>
@@ -1488,6 +1650,10 @@
 </tbody>
 </table>
 <p>DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>In the dashboard, the agent picker offers a live model dropdown built from each enabled provider's API (cached for 15 minutes), so you can choose a model without memorizing its full spec. Free-text entry remains available as a fallback.</p>
+</div>
 <h3 id="default-models">Default models</h3>
 <table>
 <thead>
@@ -1615,6 +1781,60 @@ Also, the rate limits could be exceeded very quickly.</p>
 <a id="__codelineno-11-2" name="__codelineno-11-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
 <a id="__codelineno-11-3" name="__codelineno-11-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gemini-2.5-pro-preview-05-06&quot;</span>
 </code></pre></div></td></tr></table></div>
+<hr />
+<h2 id="custom-providers">Custom providers</h2>
+<p>Beyond the four providers above, admins can register additional providers from the <strong>Configuration UI</strong> at <code>/dashboard/configuration/</code> (under the providers section). This is mainly for self-hosted, OpenAI-compatible endpoints — vLLM, llama.cpp, LiteLLM, or an internal gateway — but applies to any of the supported wire protocols.</p>
+<p>When you add a provider, you choose:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Slug</strong></td>
+<td>A short identifier that becomes the model prefix (<code>your-slug:model_name</code>). Must start with a lowercase letter; lowercase letters, digits, <code>-</code>, <code>_</code>; max 32 chars. Immutable after creation.</td>
+</tr>
+<tr>
+<td><strong>Provider type</strong></td>
+<td>The wire protocol used to talk to the server — one of OpenAI, Anthropic, Google Gemini, or OpenRouter.</td>
+</tr>
+<tr>
+<td><strong>Base URL</strong></td>
+<td>The endpoint to call instead of the provider's default (for example, your vLLM server). For OpenAI-typed servers, include the version segment (e.g. <code>/v1</code>).</td>
+</tr>
+<tr>
+<td><strong>API key</strong></td>
+<td>The credential for the endpoint (encrypted at rest).</td>
+</tr>
+<tr>
+<td><strong>Extra headers</strong></td>
+<td>A JSON object of additional request headers (e.g. <code>{"X-Foo": "bar"}</code>). Agent-managed headers take precedence.</td>
+</tr>
+<tr>
+<td><strong>Use Responses API</strong></td>
+<td>Only honored for OpenAI-typed providers. Enable for servers that expose <code>/v1/responses</code>; leave off for <code>/v1/chat/completions</code>-only servers (vLLM, llama.cpp, most LiteLLM setups).</td>
+</tr>
+<tr>
+<td><strong>Verify TLS certificates</strong></td>
+<td>Disable only for self-hosted endpoints behind an internal or self-signed CA. Skipping verification exposes the connection to MITM attacks — prefer mounting the CA into the DAIV containers when possible. Honored only for OpenAI- and OpenRouter-typed providers.</td>
+</tr>
+</tbody>
+</table>
+<p>Once the row exists, reference its models using the slug as a prefix:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-12-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1"></a>your-slug:model_name
+</code></pre></div></td></tr></table></div>
+<p>You can use this prefix anywhere a model is specified, including the <code>.daiv.yml</code> <a href="../../customization/repository-config/#model-overrides">model overrides</a>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The four built-in providers (OpenRouter, OpenAI, Anthropic, Google Gemini) are locked: their slug and provider type cannot be changed and the rows cannot be deleted. Custom providers you add are fully editable and removable.</p>
+</div>
+<div class="admonition info">
+<p class="admonition-title">Admin only</p>
+<p>Managing providers requires an admin account. See <a href="../../reference/env-variables/#automation-llm-providers">Automation: LLM Providers</a> for how the built-in providers map to environment variables.</p>
+</div>
 
 
 
@@ -1637,7 +1857,7 @@ Also, the rate limits could be exceeded very quickly.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -1647,7 +1867,7 @@ Also, the rate limits could be exceeded very quickly.</p>
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

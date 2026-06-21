@@ -18,7 +18,7 @@
         <link rel="prev" href="../mcp-endpoint/">
       
       
-        <link rel="next" href="../merge-metrics/">
+        <link rel="next" href="../notifications/">
       
       
         
@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -526,6 +554,34 @@
     
   
     Pull Request Assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
   
 
     
@@ -768,6 +824,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#starting-a-run-from-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting a run from the dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Starting a run from the dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#retrying-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retrying a run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -782,6 +866,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -886,6 +998,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1208,6 +1348,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
@@ -1396,6 +1564,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#starting-a-run-from-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting a run from the dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Starting a run from the dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#retrying-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retrying a run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1480,8 +1676,12 @@
 
 
 <h1 id="activity-tracking">Activity Tracking</h1>
-<p>DAIV records every agent execution — whether triggered by a webhook, the Jobs API, an MCP tool call, or a scheduled job — in a single Activity log. This gives you a unified view of what DAIV has been doing across all your repositories.</p>
-<p>Navigate to <strong>Dashboard &gt; Activity</strong> to see the full list, or click the run count on any <a href="../scheduled-jobs/">Scheduled Job</a> to jump straight to that schedule's history.</p>
+<p>DAIV records every agent execution — whether triggered by a webhook, the Jobs API, an MCP tool call, a scheduled job, or a run you start from the dashboard — in a single Activity log. This gives you a unified view of what DAIV has been doing across your repositories.</p>
+<p>Navigate to <strong>Dashboard &gt; Activity</strong> to see the list, or click the run count on any <a href="../scheduled-jobs/">Scheduled Job</a> to jump straight to that schedule's history. You can also start a new run directly from this page (see <a href="#starting-a-run-from-the-dashboard">Starting a run from the dashboard</a>).</p>
+<div class="admonition info">
+<p class="admonition-title">What you can see</p>
+<p>Admins see all activity across every repository. Regular users see their own runs, runs matched to their git platform username (from webhook payloads), and runs on <a href="../scheduled-jobs/">Scheduled Jobs</a> they subscribe to. The same scoping applies to the detail page, the live stream, and retries.</p>
+</div>
 <hr />
 <h2 id="trigger-types">Trigger types</h2>
 <p>Each activity is tagged with the source that initiated it:</p>
@@ -1495,19 +1695,24 @@
 </thead>
 <tbody>
 <tr>
-<td><strong>API Job</strong></td>
+<td><strong>API Run</strong></td>
 <td><a href="../jobs-api/">Jobs API</a> <code>POST /api/jobs</code></td>
 <td>A CI pipeline or script submits a prompt</td>
 </tr>
 <tr>
-<td><strong>MCP Job</strong></td>
+<td><strong>MCP Run</strong></td>
 <td><a href="../mcp-endpoint/">MCP Endpoint</a> <code>submit_job</code> tool</td>
 <td>Claude Code or Cursor delegates a task</td>
 </tr>
 <tr>
-<td><strong>Scheduled Job</strong></td>
+<td><strong>Scheduled Run</strong></td>
 <td><a href="../scheduled-jobs/">Scheduled Jobs</a> cron dispatch</td>
 <td>A weekly dependency audit fires on Monday</td>
+</tr>
+<tr>
+<td><strong>UI Run</strong></td>
+<td>Dashboard run composer (see below)</td>
+<td>You start a run from <strong>Dashboard &gt; Activity</strong></td>
 </tr>
 <tr>
 <td><strong>Issue Webhook</strong></td>
@@ -1525,12 +1730,16 @@
 <h2 id="activity-list">Activity list</h2>
 <p>The activity list shows all executions in reverse chronological order. Each entry displays:</p>
 <ul>
-<li><strong>Status indicator</strong> — colour-coded dot (pending, running, successful, failed)</li>
-<li><strong>Summary</strong> — the issue/MR number for webhook triggers, or the prompt text for jobs</li>
+<li><strong>Status indicator</strong> — colour-coded dot (queued, pending, running, successful, failed)</li>
+<li><strong>Summary</strong> — the issue/MR number for webhook triggers, or the prompt text for runs</li>
 <li><strong>Repository</strong> — which repository the agent operated on</li>
 <li><strong>Trigger badge</strong> — the trigger type (see above)</li>
-<li><strong>Timing</strong> — when the activity was created and how long it ran</li>
+<li><strong>Timing and usage</strong> — when the activity was created, how long it ran, and the total tokens consumed</li>
 </ul>
+<div class="admonition note">
+<p class="admonition-title">Queued runs</p>
+<p>API and MCP runs that continue a thread already in flight don't start immediately. The new run is created in the <strong>Queued</strong> state and released in FIFO order once the prior run on that thread finishes.</p>
+</div>
 <h3 id="filtering">Filtering</h3>
 <p>You can narrow the list using the filter controls at the top of the page:</p>
 <table>
@@ -1543,11 +1752,11 @@
 <tbody>
 <tr>
 <td><strong>Status</strong></td>
-<td>Pending, Running, Successful, or Failed</td>
+<td>Queued, Pending, Running, Successful, or Failed</td>
 </tr>
 <tr>
 <td><strong>Trigger type</strong></td>
-<td>API Job, MCP Job, Scheduled Job, Issue Webhook, or MR/PR Webhook</td>
+<td>API Run, MCP Run, Scheduled Run, UI Run, Issue Webhook, or MR/PR Webhook</td>
 </tr>
 <tr>
 <td><strong>Repository</strong></td>
@@ -1561,23 +1770,45 @@
 <td><strong>Schedule</strong></td>
 <td>Pre-applied when navigating from a scheduled job's run count</td>
 </tr>
+<tr>
+<td><strong>Batch</strong></td>
+<td>Pre-applied when viewing a multi-repo submission group (one prompt submitted across several repositories shares a batch ID)</td>
+</tr>
 </tbody>
 </table>
 <p>Filters are combined with AND logic and are reflected in the URL query string, so filtered views can be bookmarked or shared.</p>
 <h3 id="live-updates">Live updates</h3>
-<p>Activities that are still running (Pending or Running) update automatically via server-sent events. The status dot and timing update in real time without needing to refresh the page.</p>
+<p>Activities that are still in flight (Queued, Pending, or Running) update automatically via server-sent events. The status dot and timing update in real time without needing to refresh the page.</p>
 <hr />
 <h2 id="activity-detail">Activity detail</h2>
 <p>Click any activity to see its full detail page, which includes:</p>
 <ul>
 <li><strong>Trigger and status badges</strong></li>
-<li><strong>Metadata</strong> — repository, branch/ref, timestamps (created, started, finished), duration, and linked schedule or issue/MR number</li>
+<li><strong>Context</strong> — repository, branch/ref, linked schedule or issue/MR (the MR/PR is a clickable link), the agent model and thinking level used for the run, and the sandbox environment. Admins viewing another user's run also see the owning user.</li>
+<li><strong>Timing</strong> — timestamps (created, started, finished) and duration</li>
+<li><strong>Usage</strong> — total tokens, estimated cost, the input/output token split, and an optional per-model breakdown when more than one model was used</li>
 <li><strong>Prompt</strong> — the full prompt sent to the agent (rendered as markdown)</li>
 <li><strong>Result</strong> — the agent's output for successful runs (rendered as markdown), or the error traceback for failed runs</li>
 </ul>
+<p>For successful runs you can copy the result or download it as a Markdown file. The download includes YAML front-matter with the repository, trigger, ref, timestamps, any issue/MR, and the token/cost totals.</p>
 <p>For in-flight activities, the detail page also updates in real time until the run completes.</p>
 <h3 id="result-retention">Result retention</h3>
-<p>Activity records are permanent, but the underlying task result (which holds the full output and traceback) is subject to the task backend's retention policy. When the task result is pruned, the activity still shows a denormalized summary and error message captured at completion time.</p>
+<p>Activity records are permanent, but the underlying task result (which holds the full output and traceback) is subject to the task backend's retention policy. When the task result is pruned, the activity still shows a denormalized summary and error message captured at completion time, along with the token usage and cost figures — these are denormalized onto the activity and survive pruning.</p>
+<hr />
+<h2 id="starting-a-run-from-the-dashboard">Starting a run from the dashboard</h2>
+<p>You don't have to wait for a webhook, schedule, or external client — you can launch an agent run by hand from the dashboard. Click <strong>Start a run</strong> on the Activity page (or open <strong>Dashboard &gt; Runs &gt; New</strong>) to reach the run composer.</p>
+<p>The composer accepts:</p>
+<ul>
+<li><strong>Prompt</strong> — what you want the agent to do</li>
+<li><strong>Repositories</strong> — one or more repositories to run against. Submitting one prompt across multiple repositories creates a <a href="#filtering">batch</a>: each repository runs as an independent activity, and after submission you land on the batch-filtered Activity list.</li>
+<li><strong>Ref</strong> — the starting branch or commit each run reads from (defaults to the repository's default branch)</li>
+<li><strong>Sandbox environment</strong> — the <a href="../sandbox/">sandbox</a> environment to run in</li>
+<li><strong>Agent model and thinking level</strong> — per-run overrides for the model and reasoning effort (leave empty to inherit the repo defaults)</li>
+<li><strong>Notify me</strong> — when to send a notification for this run</li>
+</ul>
+<p>Runs started this way are tagged with the <strong>UI Run</strong> trigger. A single-repository submission takes you straight to its detail page; a multi-repository submission takes you to the batch-filtered list.</p>
+<h3 id="retrying-a-run">Retrying a run</h3>
+<p>Any finished, non-webhook run is <strong>retryable</strong>. Open its detail page and click <strong>Retry</strong> to open the run composer pre-filled with the original run's prompt, repository, ref, and agent model/thinking level (<code>?from=&lt;activity-id&gt;</code>). Adjust anything you like before submitting — the retry is a fresh run, not an edit of the original. Issue and MR/PR webhook runs are not retryable from the dashboard.</p>
 <hr />
 <h2 id="how-it-works">How it works</h2>
 <p>Activity records are created at the point of dispatch — when a webhook callback, API view, MCP tool, or schedule dispatcher enqueues a job. The record stores the trigger type, repository, prompt, and a link to the background task result.</p>
@@ -1617,7 +1848,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -1627,7 +1858,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

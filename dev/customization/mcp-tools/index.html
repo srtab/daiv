@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -544,6 +572,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/jobs-api/" class="md-nav__link">
         
   
@@ -656,6 +712,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/merge-metrics/" class="md-nav__link">
         
   
@@ -748,6 +832,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1230,6 +1342,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/agent-architecture/" class="md-nav__link">
         
   
@@ -1528,7 +1668,7 @@
 <h2 id="built-in-mcp-servers">Built-in MCP servers</h2>
 <h3 id="sentry">Sentry</h3>
 <p>The <a href="https://www.npmjs.com/package/@sentry/mcp-server">Sentry MCP Server</a> gives DAIV access to your error tracking data.</p>
-<p><strong>Available tools:</strong></p>
+<p><strong>Available tools</strong> (read-only allow-list):</p>
 <table>
 <thead>
 <tr>
@@ -1538,6 +1678,10 @@
 </thead>
 <tbody>
 <tr>
+<td><code>whoami</code></td>
+<td>Identify the authenticated Sentry user</td>
+</tr>
+<tr>
 <td><code>find_organizations</code></td>
 <td>Discover Sentry organizations</td>
 </tr>
@@ -1546,24 +1690,56 @@
 <td>List projects in an organization</td>
 </tr>
 <tr>
-<td><code>search_issues</code></td>
-<td>Search for issues by query</td>
+<td><code>find_teams</code></td>
+<td>List teams in an organization</td>
+</tr>
+<tr>
+<td><code>find_releases</code></td>
+<td>List releases in a project</td>
+</tr>
+<tr>
+<td><code>search_issue</code></td>
+<td>Look up a specific issue</td>
+</tr>
+<tr>
+<td><code>search_issue_events</code></td>
+<td>Search events within an issue</td>
 </tr>
 <tr>
 <td><code>search_events</code></td>
 <td>Search for events</td>
 </tr>
 <tr>
-<td><code>get_issue_details</code></td>
-<td>Get detailed information about a specific issue</td>
+<td><code>get_issue_tag_values</code></td>
+<td>List tag values seen on an issue</td>
+</tr>
+<tr>
+<td><code>get_event_attachment</code></td>
+<td>Fetch an attachment from an event</td>
+</tr>
+<tr>
+<td><code>get_replay_details</code></td>
+<td>Get details of a session replay</td>
+</tr>
+<tr>
+<td><code>get_profile_details</code></td>
+<td>Get details of a profiling sample</td>
+</tr>
+<tr>
+<td><code>get_sentry_resource</code></td>
+<td>Fetch a Sentry resource by reference</td>
 </tr>
 </tbody>
 </table>
 <p><strong>Use cases:</strong> Analyzing error patterns when fixing bugs, correlating code changes with production errors, gathering debugging context.</p>
 <p><strong>Configuration:</strong></p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nv">MCP_SENTRY_URL</span><span class="o">=</span>http://mcp-sentry:8000/mcp<span class="w">   </span><span class="c1"># Default; set to None to disable</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nv">MCP_SENTRY_URL</span><span class="o">=</span>http://mcp_sentry:8000/mcp<span class="w">   </span><span class="c1"># Default; set to None to disable</span>
 </code></pre></div></td></tr></table></div>
-<p><code>SENTRY_ACCESS_TOKEN</code> is consumed by the <code>mcp-sentry</code> container — add it to your secrets env file. <code>SENTRY_HOST</code> is set as a regular environment variable on the container.</p>
+<p><code>SENTRY_ACCESS_TOKEN</code> is consumed by the <code>mcp_sentry</code> container — add it to your secrets env file. <code>SENTRY_HOST</code> is set as a regular environment variable on the container.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The default hostname uses an underscore (<code>mcp_sentry</code>). Docker Swarm does <strong>not</strong> normalize service names with dashes to underscores on internal DNS, so a service declared as <code>mcp-sentry</code> (hyphen) is only reachable at the hyphenated hostname. If your deployment uses the hyphenated service name — as the <a href="../../getting-started/deployment/">deployment</a> stack examples do — set <code>MCP_SENTRY_URL=http://mcp-sentry:8000/mcp</code> explicitly so the service resolves.</p>
+</div>
 <h3 id="context7">Context7</h3>
 <p>The <a href="https://www.npmjs.com/package/@upstash/context7-mcp">Context7 MCP Server</a> provides up-to-date library documentation lookup.</p>
 <p><strong>Available tools:</strong></p>
@@ -1587,9 +1763,9 @@
 </table>
 <p><strong>Use cases:</strong> Looking up current API documentation, finding code examples for libraries used in the project.</p>
 <p><strong>Configuration:</strong></p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nv">MCP_CONTEXT7_URL</span><span class="o">=</span>http://mcp-context7:8000/mcp<span class="w">  </span><span class="c1"># Default; set to None to disable</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nv">MCP_CONTEXT7_URL</span><span class="o">=</span>http://mcp_context7:8000/mcp<span class="w">  </span><span class="c1"># Default; set to None to disable</span>
 </code></pre></div></td></tr></table></div>
-<p>Context7 credentials (<code>CONTEXT7_API_KEY</code>) are consumed by the <code>mcp-context7</code> container. Add them to your secrets env file.</p>
+<p>Context7 credentials (<code>CONTEXT7_API_KEY</code>) are consumed by the <code>mcp_context7</code> container. Add them to your secrets env file. As with Sentry, the default hostname uses an underscore, and Swarm does <strong>not</strong> normalize dashes to underscores on internal DNS. If your deployment declares the service as <code>mcp-context7</code> (hyphen) — as the <a href="../../getting-started/deployment/">deployment</a> stack examples do — set <code>MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp</code> explicitly so the service resolves.</p>
 <h2 id="user-defined-mcp-servers">User-defined MCP servers</h2>
 <p>DAIV can connect to any MCP server that implements the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. If you need to build a custom server, see the <a href="https://modelcontextprotocol.io/docs/concepts/servers">MCP server documentation</a>. This section covers how to connect an existing server to DAIV.</p>
 <p>Provide a JSON config file following the <a href="https://docs.anthropic.com/en/docs/claude-code/mcp">Claude Code <code>.mcp.json</code> standard</a>. Set the file path via the <code>MCP_SERVERS_CONFIG_FILE</code> environment variable.</p>
@@ -1812,7 +1988,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -1822,7 +1998,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

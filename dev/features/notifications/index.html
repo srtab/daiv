@@ -12,13 +12,13 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/scheduled-jobs/">
+        <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/notifications/">
       
       
-        <link rel="prev" href="../jobs-api/">
+        <link rel="prev" href="../activity-tracking/">
       
       
-        <link rel="next" href="../mcp-endpoint/">
+        <link rel="next" href="../merge-metrics/">
       
       
         
@@ -29,7 +29,7 @@
     
     
       
-        <title>Scheduled Jobs - DAIV</title>
+        <title>Notifications - DAIV</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#scheduled-jobs" class="md-skip">
+        <a href="#notifications" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Scheduled Jobs
+              Notifications
             
           </span>
         </div>
@@ -627,37 +627,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Scheduled Jobs
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../scheduled-jobs/" class="md-nav__link">
         
   
   
@@ -673,142 +646,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#creating-a-schedule" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Creating a schedule
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#frequency-options" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Frequency options
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#timezone-handling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Timezone handling
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-schedules" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Managing schedules
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#subscribers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subscribers
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Subscribers">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#adding-subscribers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Adding subscribers
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#self-unsubscribe" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Self-unsubscribe
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#relationship-with-the-jobs-api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Relationship with the Jobs API
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#schedule-templates" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Schedule templates
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -874,10 +711,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../notifications/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -893,6 +757,159 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-produces-a-notification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What produces a notification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channels
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Channels">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-in-app-bell-and-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The in-app bell and list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#email" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Email
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rocket-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rocket Chat
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-when-to-be-notified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing when to be notified
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Choosing when to be notified">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-the-effective-value-comes-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the effective value comes from
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setting-notify-on-per-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setting "Notify on" per run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connecting-rocket-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connecting Rocket Chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-delivery-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How delivery works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1485,10 +1502,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#creating-a-schedule" class="md-nav__link">
+  <a href="#what-produces-a-notification" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Creating a schedule
+        What produces a notification
       
     </span>
   </a>
@@ -1496,66 +1513,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#frequency-options" class="md-nav__link">
+  <a href="#channels" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Frequency options
+        Channels
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#timezone-handling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Timezone handling
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#managing-schedules" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Managing schedules
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#subscribers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subscribers
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Subscribers">
+    <nav class="md-nav" aria-label="Channels">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#adding-subscribers" class="md-nav__link">
+  <a href="#the-in-app-bell-and-list" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Adding subscribers
+        The in-app bell and list
       
     </span>
   </a>
@@ -1563,10 +1536,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#self-unsubscribe" class="md-nav__link">
+  <a href="#email" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Self-unsubscribe
+        Email
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rocket-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rocket Chat
       
     </span>
   </a>
@@ -1579,10 +1563,49 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#relationship-with-the-jobs-api" class="md-nav__link">
+  <a href="#choosing-when-to-be-notified" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Relationship with the Jobs API
+        Choosing when to be notified
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Choosing when to be notified">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-the-effective-value-comes-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the effective value comes from
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setting-notify-on-per-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setting "Notify on" per run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connecting-rocket-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connecting Rocket Chat
       
     </span>
   </a>
@@ -1590,10 +1613,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#schedule-templates" class="md-nav__link">
+  <a href="#how-delivery-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Schedule templates
+        How delivery works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
       
     </span>
   </a>
@@ -1665,7 +1699,7 @@
 
 
   
-    <a href="https://github.com/srtab/daiv/edit/main/docs/features/scheduled-jobs.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/notifications.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1673,222 +1707,162 @@
   
 
 
-<h1 id="scheduled-jobs">Scheduled Jobs</h1>
-<p>Scheduled Jobs let you run DAIV agents on a recurring basis — no CI pipeline or cron script required. Define a prompt, pick one or more repositories and a frequency, and DAIV handles the rest.</p>
-<p>This is useful when you want to:</p>
-<ul>
-<li><strong>Automate recurring tasks</strong> — e.g., weekly dependency audits, nightly code quality scans</li>
-<li><strong>Keep repositories tidy</strong> — e.g., close stale branches every Monday</li>
-<li><strong>Generate periodic reports</strong> — e.g., summarise recent changes for a changelog draft</li>
-<li><strong>Run maintenance prompts</strong> — e.g., check for TODO comments or outdated documentation</li>
-</ul>
-<h2 id="creating-a-schedule">Creating a schedule</h2>
-<p>Navigate to <strong>Dashboard &gt; Schedules &gt; Create schedule</strong> and fill in the form:</p>
+<h1 id="notifications">Notifications</h1>
+<p>DAIV tells you when your work finishes. When an agent run, a multi-repository batch, or a scheduled job reaches a terminal state, DAIV writes an in-app notification and — depending on your preference — also delivers it to external channels like email and Rocket Chat. You decide <em>when</em> to be told (never, always, only on success, only on failure) and <em>where</em> the message lands.</p>
+<p>Notifications are per-user: each recipient gets their own copy, with delivery resolved against that user's own channel bindings.</p>
+<h2 id="what-produces-a-notification">What produces a notification</h2>
+<p>DAIV emits a notification when an activity finishes. There are three event types:</p>
 <table>
 <thead>
 <tr>
-<th>Field</th>
-<th>Description</th>
+<th>Event</th>
+<th>When it fires</th>
+<th>Recipients</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Name</strong></td>
-<td>A short label for the schedule (e.g., "Weekly dep audit")</td>
+<td><strong>Job finished</strong> (<code>job.finished</code>)</td>
+<td>A single agent run reaches a terminal state (successful or failed)</td>
+<td>The user who started the run</td>
 </tr>
 <tr>
-<td><strong>Prompt</strong></td>
-<td>What the agent should do — same format as a Jobs API prompt</td>
+<td><strong>Job batch finished</strong> (<code>job_batch.finished</code>)</td>
+<td>Every run in a multi-run batch is terminal — a single rollup, not one message per run</td>
+<td>The batch owner (and, for <a href="../scheduled-jobs/">scheduled</a> batches, any subscribers)</td>
 </tr>
 <tr>
-<td><strong>Repositories</strong></td>
-<td>One to 20 repositories, added through the repo picker. Each entry has its own branch or ref — leave a repository's ref blank to start from its default branch. Each run <a href="#how-it-works">fans out</a> into one agent run per repository</td>
-</tr>
-<tr>
-<td><strong>Agent model</strong></td>
-<td>The model and thinking level the runs use, chosen with the agent picker. Leave it on the default to use the instance's configured model</td>
-</tr>
-<tr>
-<td><strong>Frequency</strong></td>
-<td>How often the job runs (see <a href="#frequency-options">Frequency options</a>)</td>
-</tr>
-<tr>
-<td><strong>Time</strong></td>
-<td>Time of day for Daily, Weekdays, and Weekly schedules</td>
-</tr>
-<tr>
-<td><strong>Date &amp; time</strong></td>
-<td>The specific date and time a one-off (<strong>Once</strong>) schedule fires</td>
-</tr>
-<tr>
-<td><strong>Notify on</strong></td>
-<td>When the owner (and any <a href="#subscribers">subscribers</a>) get a finish notification — defaults to <em>Never</em></td>
-</tr>
-<tr>
-<td><strong>Subscribers</strong></td>
-<td>Other DAIV users to CC on finish notifications (see <a href="#subscribers">Subscribers</a>)</td>
-</tr>
-<tr>
-<td><strong>Sandbox environment</strong></td>
-<td>The named <a href="../sandbox/">sandbox</a> environment the runs use. Leave it unset to fall back to the per-repository environment resolution</td>
+<td><strong>Schedule finished</strong> (<code>schedule.finished</code>)</td>
+<td>A run tied to a <a href="../scheduled-jobs/">scheduled job</a> finishes</td>
+<td>The schedule owner and its subscribers</td>
 </tr>
 </tbody>
 </table>
-<p>Schedule times use the DAIV instance's configured timezone (set by the deployment); there is no per-schedule timezone choice. See <a href="#timezone-handling">Timezone handling</a>.</p>
-<p>Once created, the schedule is <strong>active</strong> immediately. You can pause and resume it at any time — directly from the list (see <a href="#managing-schedules">Managing schedules</a>) or via the <strong>Enabled</strong> checkbox on the edit page.</p>
-<h2 id="frequency-options">Frequency options</h2>
-<table>
-<thead>
-<tr>
-<th>Frequency</th>
-<th>Cron equivalent</th>
-<th>Notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Hourly</strong></td>
-<td><code>0 * * * *</code></td>
-<td>Runs at the top of every hour</td>
-</tr>
-<tr>
-<td><strong>Daily</strong></td>
-<td><code>{mm} {HH} * * *</code></td>
-<td>Runs once a day at the specified time</td>
-</tr>
-<tr>
-<td><strong>Weekdays</strong></td>
-<td><code>{mm} {HH} * * 1-5</code></td>
-<td>Monday through Friday at the specified time</td>
-</tr>
-<tr>
-<td><strong>Weekly</strong></td>
-<td><code>{mm} {HH} * * 1</code></td>
-<td>Every Monday at the specified time</td>
-</tr>
-<tr>
-<td><strong>Custom</strong></td>
-<td><em>(user-provided)</em></td>
-<td>Any valid five-field cron expression</td>
-</tr>
-<tr>
-<td><strong>Once</strong></td>
-<td><em>(none — date/time)</em></td>
-<td>A one-off run at a specific <strong>Date &amp; time</strong> instead of a cron expression</td>
-</tr>
-</tbody>
-</table>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>The <strong>Custom</strong> frequency accepts standard five-field cron expressions (minute, hour, day-of-month, month, day-of-week). Use it for non-standard intervals like "every 6 hours" (<code>0 */6 * * *</code>) or "first Monday of the month" (<code>0 9 1-7 * 1</code>).</p>
-</div>
 <div class="admonition note">
-<p class="admonition-title">One-off schedules</p>
-<p>A <strong>Once</strong> schedule runs a single time at the chosen date and time, then retires automatically — it is disabled, has no next run, and shows as a read-only <strong>Fired</strong> card. A fired one-off cannot be re-enabled; use <strong>Duplicate</strong> (see <a href="#managing-schedules">Managing schedules</a>) to run it again.</p>
+<p class="admonition-title">Batches collapse into one message</p>
+<p>A batch is a group of runs sharing a batch ID — for example a <a href="../scheduled-jobs/">scheduled job</a> that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single <strong>Job batch finished</strong> rollup once the last sibling is terminal, summarising how many runs succeeded and failed.</p>
 </div>
-<h2 id="how-it-works">How it works</h2>
-<p>A background task runs every minute and checks for schedules whose next run time has passed. For each due schedule it:</p>
-<ol>
-<li>Fans the schedule out into one agent run per target repository — enqueuing each via the same task backend used by the <a href="../jobs-api/">Jobs API</a> — and records the resulting batch ID</li>
-<li>Records the run timestamp and increments the run counter</li>
-<li>Computes the next run time based on the cron expression and the configured timezone (a <strong>Once</strong> schedule retires instead)</li>
-</ol>
-<pre class="mermaid"><code>sequenceDiagram
-    participant Dispatcher as Cron dispatcher (every minute)
-    participant DB as Database
-    participant Worker as Job worker
-
-    Dispatcher-&gt;&gt;DB: Query enabled schedules where next_run_at &lt;= now
-    loop For each due schedule
-        loop For each target repository
-            Dispatcher-&gt;&gt;Worker: Enqueue agent run (repo_id, prompt, ref)
-        end
-        Dispatcher-&gt;&gt;DB: Update last_run_at, last_run_batch_id, run_count, next_run_at
-    end</code></pre>
-<p>Schedules use <code>SELECT ... FOR UPDATE (SKIP LOCKED)</code> to prevent double-dispatch if the dispatcher overlaps, and each schedule is processed in its own database savepoint so that one failure does not affect others.</p>
-<p>If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop.</p>
-<h2 id="timezone-handling">Timezone handling</h2>
-<p>Schedule times are interpreted in the configured timezone. DAIV converts the local fire time to UTC for storage, which means DST transitions are handled automatically — a daily job set to 09:00 <code>Europe/Lisbon</code> will always fire at 09:00 local time, even across clock changes.</p>
-<h2 id="managing-schedules">Managing schedules</h2>
-<p>From the <strong>Scheduled Jobs</strong> list, each schedule's actions menu lets you:</p>
-<ul>
-<li><strong>Pause / Resume</strong> a schedule directly from the list — no need to open the edit page (it is also available via the <strong>Enabled</strong> checkbox there)</li>
-<li><strong>Run now</strong> to dispatch an immediate batch run without waiting for the next scheduled time. You land on the resulting activity (or the <a href="../activity-tracking/">Activity</a> list filtered to the batch when it spans multiple repositories)</li>
-<li><strong>Duplicate</strong> a schedule to create a new one pre-filled from this one — the only way to re-run a fired one-off schedule</li>
-<li><strong>Edit</strong> a schedule to change any field, including the <strong>Enabled</strong> checkbox</li>
-<li><strong>Delete</strong> a schedule permanently — any currently running job will complete, but no new runs will be dispatched</li>
-</ul>
-<p>Fired one-off (<strong>Once</strong>) schedules only offer <strong>Duplicate</strong> and <strong>Delete</strong>.</p>
-<p>Each schedule card shows its name, status (<strong>Active</strong>, <strong>Paused</strong>, or <strong>Fired</strong>), frequency, the target repository (or "<em>N</em> repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the <a href="../activity-tracking/">Activity</a> page filtered to that schedule's runs.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Non-admin users only see their own schedules; admins see everyone's. The owner avatar on each card makes it clear whose schedule it is.</p>
-</div>
-<h2 id="subscribers">Subscribers</h2>
-<p>Schedule owners can CC other DAIV users on the finish notifications for their schedules. Subscribers:</p>
-<ul>
-<li>Receive the same notification as the owner whenever the schedule's <code>Notify on</code> condition matches (e.g., "On success only" or "Always").</li>
-<li>Gain <strong>read-only</strong> access to the activities produced by the schedule — they can click through from the notification and view the activity detail, output, and code changes.</li>
-<li>Do <strong>not</strong> see the schedule itself in their own Scheduled Jobs list, and cannot edit, pause, run, or delete it.</li>
-</ul>
-<h3 id="adding-subscribers">Adding subscribers</h3>
-<p>On the schedule form, use the <strong>Subscribers</strong> search to find a user by username, email, or name. Click a result to add them as a chip. Remove a chip with the × button. Save the schedule to persist the subscriber list.</p>
-<p>Only the owner (or an admin) can change a schedule's subscribers.</p>
-<h3 id="self-unsubscribe">Self-unsubscribe</h3>
-<p>When a subscriber opens an activity produced by a schedule they are CC'd on, the activity detail page shows an <strong>Unsubscribe</strong> button next to the schedule name. Clicking it removes the subscriber from that schedule — no owner action needed.</p>
-<div class="admonition note">
-<p class="admonition-title">Notification preferences</p>
-<p>All subscribers inherit the schedule's <code>Notify on</code> setting. There is no per-subscriber override today. If the owner changes the setting, every subscriber's notification behavior changes with it.</p>
-</div>
-<h2 id="relationship-with-the-jobs-api">Relationship with the Jobs API</h2>
-<p>Scheduled Jobs and the <a href="../jobs-api/">Jobs API</a> use the same underlying task to execute agent work. The difference is how the job is triggered:</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>Jobs API</th>
-<th>Scheduled Jobs</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Trigger</strong></td>
-<td>HTTP request</td>
-<td>Automatic (cron-based)</td>
-</tr>
-<tr>
-<td><strong>Auth</strong></td>
-<td>API key</td>
-<td>Dashboard login</td>
-</tr>
-<tr>
-<td><strong>Management</strong></td>
-<td>Programmatic</td>
-<td>Web UI</td>
-</tr>
-<tr>
-<td><strong>Use case</strong></td>
-<td>One-off or script-driven</td>
-<td>Recurring, set-and-forget</td>
-</tr>
-</tbody>
-</table>
 <div class="admonition info">
-<p class="admonition-title">Info</p>
-<p>If you need programmatic control over scheduling (e.g., creating schedules from a script), use the <a href="../jobs-api/">Jobs API</a> with an external scheduler like GitLab CI scheduled pipelines or system cron.</p>
+<p class="admonition-title">Webhook-triggered runs are silent</p>
+<p>Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example <a href="../issue-addressing/">issue addressing</a> or the <a href="../pull-request-assistant/">pull request assistant</a>) do <strong>not</strong> generate notifications — those flows already report back inside the issue or MR/PR thread.</p>
 </div>
-<h2 id="schedule-templates">Schedule templates</h2>
-<p>Admins can curate reusable <strong>schedule templates</strong> so teammates start from a known-good configuration rather than assembling a schedule from scratch.</p>
-<p>Templates are managed at <strong>Dashboard → Schedule templates</strong> (admin nav). A template carries the same fields as a schedule (prompt, default repositories, frequency, time or cron, agent model and thinking level, notification preference) plus an optional description that helps users pick the right one. The repo picker is optional on templates — leave it empty to let users choose at schedule-create time.</p>
-<p>When at least one template exists, templates are discoverable in three places:</p>
+<h2 id="channels">Channels</h2>
+<p>DAIV reaches you through channels. The in-app bell is always available; email and Rocket Chat are external delivery channels.</p>
+<div class="grid cards">
 <ul>
-<li>The <strong>Scheduled Jobs</strong> list page gains a <strong>From template</strong> button next to <em>Create schedule</em>.</li>
-<li>The schedule <strong>empty state</strong> gains a <strong>Start from template</strong> call-to-action alongside <em>Create blank schedule</em>.</li>
-<li>The schedule <strong>create form</strong> opens with a <strong>Browse templates</strong> row at the top.</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1c3.681 0 7 2.565 7 6v4.539c0 .642.189 1.269.545 1.803l2.2 3.298A1.517 1.517 0 0 1 20.482 19H15.5a3.5 3.5 0 1 1-7 0H3.519a1.518 1.518 0 0 1-1.265-2.359l2.2-3.299A3.25 3.25 0 0 0 5 11.539V7c0-3.435 3.318-6 7-6M6.5 7v4.539a4.75 4.75 0 0 1-.797 2.635l-2.2 3.298-.003.01.001.007.004.006.006.004.007.001h16.964l.007-.001.006-.004.004-.006.001-.006-.003-.01-2.199-3.299a4.75 4.75 0 0 1-.798-2.635V7c0-2.364-2.383-4.5-5.5-4.5S6.5 4.636 6.5 7M14 19h-4a2 2 0 1 0 4 0"/></svg></span> <strong>In-app bell</strong></p>
+<p>The notification bell in the dashboard header shows your unread count and a dropdown of recent items. The full history lives at <code>/dashboard/notifications/</code>.</p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M1.75 3h20.5c.966 0 1.75.784 1.75 1.75v14a1.75 1.75 0 0 1-1.75 1.75H1.75A1.75 1.75 0 0 1 0 18.75v-14C0 3.784.784 3 1.75 3M1.5 7.412V18.75c0 .138.112.25.25.25h20.5a.25.25 0 0 0 .25-.25V7.412l-9.52 6.433c-.592.4-1.368.4-1.96 0Zm0-2.662v.852l10.36 7a.25.25 0 0 0 .28 0l10.36-7V4.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25"/></svg></span> <strong>Email</strong></p>
+<p>Delivered to your account email. DAIV keeps an email channel binding in sync with your account address automatically — there is nothing to connect.</p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M22.909 8.381c-.651-1.01-1.564-1.905-2.71-2.66-2.215-1.457-5.127-2.259-8.197-2.259-1.027 0-2.038.09-3.018.266a10 10 0 0 0-2.075-1.53C4.11.803 1.646 1.323.4 1.77a.598.598 0 0 0-.233.977c.879.907 2.332 2.698 1.974 4.327C.753 8.493 0 10.203 0 11.982c0 1.815.752 3.524 2.142 4.942.357 1.63-1.096 3.421-1.975 4.328a.597.597 0 0 0 .233.977c1.245.448 3.71.968 6.508-.427a10 10 0 0 0 2.075-1.53 17 17 0 0 0 3.018.265c3.071 0 5.983-.801 8.197-2.257 1.147-.755 2.06-1.65 2.71-2.661C23.633 14.493 24 13.28 24 12.017c.001-1.297-.366-2.508-1.091-3.636M11.875 18.437c-1.328 0-2.594-.171-3.748-.48l-.844.81a7.7 7.7 0 0 1-1.556 1.154 6.1 6.1 0 0 1-2.2.621q.061-.111.119-.224 1.267-2.33.683-4.186c-1.382-1.086-2.212-2.476-2.212-3.99 0-3.476 4.369-6.294 9.757-6.294s9.757 2.818 9.757 6.294c.001 3.477-4.367 6.295-9.756 6.295m-3.229-6.315c0 .788-.644 1.427-1.438 1.427a1.433 1.433 0 0 1-1.438-1.427c0-.788.644-1.426 1.438-1.426s1.438.638 1.438 1.426m4.627 0c0 .788-.644 1.427-1.438 1.427a1.433 1.433 0 0 1-1.438-1.427c0-.788.644-1.426 1.438-1.426s1.438.638 1.438 1.426m4.63 0c0 .788-.645 1.427-1.439 1.427a1.433 1.433 0 0 1-1.438-1.427c0-.788.644-1.426 1.438-1.426s1.438.638 1.438 1.426z"/></svg></span> <strong>Rocket Chat</strong></p>
+<p>A direct message from the DAIV bot, when your administrator has enabled Rocket Chat and you have bound your <code>@username</code>.</p>
+</li>
 </ul>
-<p>All three open the same right-side gallery drawer. Each card shows the template name, frequency, default-repos summary, and description; expanding a card reveals the full description, the list of pre-filled repos (with their branches), frequency detail, and notification preference. Clicking <strong>Use this template</strong> loads the schedule create form with every field pre-filled — you can still edit any of them before saving.</p>
-<p>If you have unsaved changes in the create form, applying a template from the gallery prompts for confirmation first so you do not lose work.</p>
-<p>Deleting a template never affects existing schedules: template values are copied into the schedule at creation time, and there is no link back.</p>
+</div>
+<h3 id="the-in-app-bell-and-list">The in-app bell and list</h3>
+<p>The bell entry is written for <strong>every</strong> terminal run that has a recipient, regardless of your notification preference — so the dashboard always reflects what happened. Your "Notify on" preference only controls whether DAIV <em>also</em> delivers to external channels (email, Rocket Chat).</p>
+<ul>
+<li>The bell dropdown shows your ten most recent notifications and marks them read when you open it.</li>
+<li><code>/dashboard/notifications/</code> lists your full history with <code>All</code> / <code>Unread</code> / <code>Read</code> filters and a <strong>Mark all as read</strong> action.</li>
+</ul>
+<h3 id="email">Email</h3>
+<p>Email needs no setup. When your account is created (or your email changes), DAIV maintains a verified email channel binding pointing at your account address. Email delivery is gated by your "Notify on" preference like any other external channel.</p>
+<h3 id="rocket-chat">Rocket Chat</h3>
+<p>Rocket Chat is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you bind your own Rocket Chat handle so DAIV can DM you.</p>
+<h2 id="choosing-when-to-be-notified">Choosing when to be notified</h2>
+<p>Every run carries a <strong>Notify on</strong> setting with four values:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Never</strong> (<code>never</code>)</td>
+<td>No external delivery</td>
+</tr>
+<tr>
+<td><strong>Always</strong> (<code>always</code>)</td>
+<td>Deliver on any terminal outcome (success or failure)</td>
+</tr>
+<tr>
+<td><strong>On success only</strong> (<code>on_success</code>)</td>
+<td>Deliver only when the run succeeds</td>
+</tr>
+<tr>
+<td><strong>On failure only</strong> (<code>on_failure</code>)</td>
+<td>Deliver only when the run fails</td>
+</tr>
+</tbody>
+</table>
+<p>This setting gates external channels only — the in-app bell entry is always recorded.</p>
+<h3 id="where-the-effective-value-comes-from">Where the effective value comes from</h3>
+<p>DAIV resolves the preference that applies to a finished run by precedence, taking the first that is set:</p>
+<ol>
+<li><strong>The run's own "Notify on" override</strong> — chosen when you start the run.</li>
+<li><strong>The schedule's "Notify on"</strong> — for <a href="../scheduled-jobs/">scheduled-job</a> runs that did not set a per-run override. Schedules default to <strong>Never</strong>.</li>
+<li><strong>Your default preference</strong> — your account's <code>notify_on_jobs</code>, which applies to runs you start from the UI, <a href="../jobs-api/">Jobs API</a>, or <a href="../mcp-endpoint/">MCP endpoint</a>. It defaults to <strong>On failure only</strong>.</li>
+<li>Otherwise, <strong>Never</strong>.</li>
+</ol>
+<h3 id="setting-notify-on-per-run">Setting "Notify on" per run</h3>
+<ul>
+<li><strong>Run composer</strong> — the <strong>Dashboard &gt; Runs</strong> composer (<code>/dashboard/runs/</code>) has a <strong>Notify me</strong> field, pre-filled from your default preference.</li>
+<li><strong><a href="../jobs-api/">Jobs API</a></strong> — pass <code>notify_on</code> in the submit payload.</li>
+<li><strong><a href="../mcp-endpoint/">MCP endpoint</a></strong> — pass the <code>notify_on</code> argument to <code>submit_job</code>.</li>
+<li><strong><a href="../scheduled-jobs/">Scheduled jobs</a></strong> — the schedule's <strong>Notify on</strong> field, applied to every run it fans out (defaults to <strong>Never</strong>).</li>
+</ul>
+<p>Omit <code>notify_on</code> on a run and it falls through to the next level in the precedence chain above.</p>
+<h2 id="connecting-rocket-chat">Connecting Rocket Chat</h2>
+<p>If your administrator has enabled Rocket Chat for the instance, bind your handle so DAIV can message you:</p>
+<ol>
+<li>Open <strong><code>/accounts/channels/</code></strong>.</li>
+<li>In the <strong>Rocket Chat</strong> row, enter your <code>@username</code> and select <strong>Connect</strong>. (DAIV strips a leading <code>@</code> for you.)</li>
+<li>DAIV verifies the username against the Rocket Chat instance. On success the row shows a <strong>Verified</strong> badge and your handle; an unknown user or an unreachable instance surfaces an error and nothing is saved.</li>
+</ol>
+<p>Select <strong>Disconnect</strong> in the same row to remove the binding and stop Rocket Chat delivery.</p>
+<div class="admonition warning">
+<p class="admonition-title">Verification can fail</p>
+<p>Connecting only succeeds when the configured Rocket Chat bot can look your username up. If the instance is temporarily unavailable or the user is not found, DAIV shows a message and leaves your channel unbound — no unverified binding is stored.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Enabling Rocket Chat is an administrator task</p>
+<p>The Rocket Chat instance URL, bot user ID, and auth token are configured under <strong>Dashboard &gt; Configuration &gt; Rocket Chat</strong> (<code>/dashboard/configuration/rocketchat/</code>), which requires the <strong>admin</strong> role. Until an admin enables it there, the channel does not appear on your channels page.</p>
+</div>
+<h2 id="how-delivery-works">How delivery works</h2>
+<p>When a run finishes, DAIV records the notification and one delivery row per external channel, then dispatches each delivery on a background worker:</p>
+<ul>
+<li>A channel with no usable binding (for example Rocket Chat before you connect, or an unknown channel) is recorded as <strong>skipped</strong> rather than attempted.</li>
+<li>Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked <strong>failed</strong> and not retried.</li>
+<li>The in-app bell entry is independent of external delivery — it is written even when every external channel is skipped or fails.</li>
+</ul>
+<h2 id="related">Related</h2>
+<div class="grid cards">
+<ul>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12.5 7.25a.75.75 0 0 0-1.5 0v5.5c0 .27.144.518.378.651l3.5 2a.75.75 0 0 0 .744-1.302L12.5 12.315z"/><path d="M12 1c6.075 0 11 4.925 11 11s-4.925 11-11 11S1 18.075 1 12 5.925 1 12 1M2.5 12a9.5 9.5 0 0 0 9.5 9.5 9.5 9.5 0 0 0 9.5-9.5A9.5 9.5 0 0 0 12 2.5 9.5 9.5 0 0 0 2.5 12"/></svg></span> <strong><a href="../scheduled-jobs/">Scheduled Jobs</a></strong></p>
+<p>Recurring runs with their own <strong>Notify on</strong> setting and subscriber list.</p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.25 12a.75.75 0 0 1-.22.53l-2.75 2.75a.75.75 0 0 1-1.06-1.06L7.44 12 5.22 9.78a.75.75 0 1 1 1.06-1.06l2.75 2.75c.141.14.22.331.22.53m2 2a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5z"/><path d="M0 4.75C0 3.784.784 3 1.75 3h20.5c.966 0 1.75.784 1.75 1.75v14.5A1.75 1.75 0 0 1 22.25 21H1.75A1.75 1.75 0 0 1 0 19.25Zm1.75-.25a.25.25 0 0 0-.25.25v14.5c0 .138.112.25.25.25h20.5a.25.25 0 0 0 .25-.25V4.75a.25.25 0 0 0-.25-.25Z"/></svg></span> <strong><a href="../jobs-api/">Jobs API</a></strong></p>
+<p>Submit runs programmatically with a per-run <code>notify_on</code>.</p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.002 2.5a.75.75 0 0 1 .691.464l6.302 15.305 2.56-6.301a.75.75 0 0 1 .695-.468h4a.75.75 0 0 1 0 1.5h-3.495l-3.06 7.532a.75.75 0 0 1-1.389.004L8.997 5.21l-3.054 7.329A.75.75 0 0 1 5.25 13H.75a.75.75 0 0 1 0-1.5h4l3.558-8.538a.75.75 0 0 1 .694-.462"/></svg></span> <strong><a href="../activity-tracking/">Activity Tracking</a></strong></p>
+<p>Every notification links to the run or batch in the activity log.</p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 11.5H2.938c-.794 0-1.438.644-1.438 1.437v8.313a.75.75 0 0 1-1.5 0v-8.312A2.94 2.94 0 0 1 2.937 10H7V6.151c0-.897.678-1.648 1.57-1.74l6.055-.626 1.006-1.174A1.75 1.75 0 0 1 16.96 2h1.29c.966 0 1.75.784 1.75 1.75V6h3.25a.75.75 0 0 1 0 1.5H20V14h3.25a.75.75 0 0 1 0 1.5H20v2.25a1.75 1.75 0 0 1-1.75 1.75h-1.29a1.75 1.75 0 0 1-1.329-.611l-1.006-1.174-6.055-.627A1.75 1.75 0 0 1 7 15.348Zm9.77-7.913zl-1.201 1.4a.75.75 0 0 1-.492.258l-6.353.657a.25.25 0 0 0-.224.249v9.196a.25.25 0 0 0 .224.249l6.353.657c.191.02.368.112.493.258l1.2 1.401a.25.25 0 0 0 .19.087h1.29a.25.25 0 0 0 .25-.25v-14a.25.25 0 0 0-.25-.25h-1.29a.25.25 0 0 0-.19.087"/></svg></span> <strong><a href="../mcp-endpoint/">MCP Endpoint</a></strong></p>
+<p>Submit jobs from MCP clients, with <code>notify_on</code> support.</p>
+</li>
+</ul>
+</div>
 
 
 

@@ -28,16 +28,16 @@ DAIV scans all three and loads skills from each. If multiple directories contain
 your-repository/
 ├── .agents/
 │   └── skills/
-│       ├── my-custom-skill/
-│       │   ├── SKILL.md           # Required
-│       │   └── scripts/
-│       │       └── helper.py      # Optional supporting files
-│       └── plan/                   # Built-in (auto-copied, gitignored)
-│           └── SKILL.md
+│       └── my-custom-skill/
+│           ├── SKILL.md           # Required
+│           └── scripts/
+│               └── helper.py      # Optional supporting files
 └── src/
 ```
 
-Built-in skills are automatically copied to `.agents/skills/` at agent startup with a `.gitignore` to prevent them from being committed. You can override any built-in skill by creating one with the same name and committing it to the repository.
+Built-in skills are **not** copied into your repository. They are loaded from DAIV's own global skills location (`/workspace/skills` inside the agent), registered as a separate "Global" source alongside the per-repository directories above. Nothing is written to `.agents/skills/` and no `.gitignore` is generated.
+
+You can still override any built-in skill by creating one with the same name in one of the per-repository directories and committing it: per-repository sources take precedence over the global source (see [Override priority](#override-priority)).
 
 ## Custom global skills
 
@@ -68,20 +68,55 @@ Custom global skills are user-defined skills that are available across **all rep
 
    The path inside the container is configurable via the `DAIV_AGENT_CUSTOM_SKILLS_PATH` environment variable (see [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/#daiv-agent)).
 
+### Manage skills from the dashboard
+
+Admin only
+
+The Skills dashboard requires an admin account.
+
+Admins can manage custom global skills from the web dashboard at **Skills** (`/dashboard/skills/`) instead of editing the mounted directory by hand. Both approaches write to the same `DAIV_AGENT_CUSTOM_SKILLS_PATH` location, so they coexist — the dashboard is an alternative to, not a replacement for, the Docker-volume approach.
+
+From the Skills page you can:
+
+- **List skills** — built-in and custom global skills are shown together, each with its invocation count. A custom skill whose name matches a built-in shadows it and is flagged **Overrides built-in**.
+- **Upload a skill** as a ZIP archive (see constraints below). Uploading a skill whose name already exists asks you to confirm before it replaces the existing one.
+- **View a skill** — its `SKILL.md`, file tree, and usage over the last 30 days.
+- **Download** a custom skill's original ZIP.
+- **Delete** a custom skill (built-in skills cannot be deleted; deleting a custom skill that shadowed a built-in restores the built-in).
+
+A successful upload writes the skill into `DAIV_AGENT_CUSTOM_SKILLS_PATH` and records an audit row attributing it to the uploading admin.
+
+#### ZIP requirements
+
+The uploaded archive is validated before it is stored:
+
+| Constraint          | Limit                                                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Top-level directory | Exactly one, named after the skill (a valid slug: lowercase alphanumeric and hyphens, max 63 chars)            |
+| `SKILL.md`          | Required at `<skill-name>/SKILL.md`, with `name` (matching the directory) and `description` in its frontmatter |
+| Compressed size     | 5 MiB max                                                                                                      |
+| Unpacked size       | 25 MiB max                                                                                                     |
+| File count          | 200 max                                                                                                        |
+| Path depth          | 8 levels max                                                                                                   |
+| Per-file size       | 1 MiB max                                                                                                      |
+| Allowed file types  | `.md`, `.py`, `.json`, `.yaml`, `.yml`, `.txt`, `.sh`, `.toml`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.gif`        |
+
+Symlinks, absolute paths, `..` path traversal, and hidden path segments are rejected; `__pycache__` and `.pyc` entries are dropped silently.
+
 ### Override priority
 
 Skills are resolved in this order (highest priority wins):
 
 1. **Per-repository skills** — committed in the repository's `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/`
-1. **Custom global skills** — mounted via Docker volume
+1. **Custom global skills** — mounted via Docker volume or uploaded from the dashboard
 1. **Built-in skills** — shipped with DAIV
 
 This means custom global skills override built-in skills with the same name, and per-repository skills override both.
 
 ### Notes
 
-- Skills are copied at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.
-- Custom global skills are marked with a `<global>` tag in the agent's system prompt so the LLM can distinguish them from built-in and per-repository skills.
+- Skills are materialized at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.
+- Custom global skills load from the agent's global skills source, which appears as **Global Skills** in the system prompt's skills-locations block. Per-repository sources are listed after it and marked `(higher priority)`, so the agent knows a per-repository skill of the same name wins.
 
 ## Creating a skill
 

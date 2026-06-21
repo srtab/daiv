@@ -51,7 +51,11 @@ Clears the conversation history for the current issue or merge/pull request. Use
 @daiv /clone-to-topics backend, api
 ```
 
-Clones the current issue (title, description, and labels) to all repositories matching **all** the specified topics. The current repository is excluded. Only available on issues.
+Clones the current issue (title, description, and labels) to all repositories matching the specified topics. The current repository is excluded. Only available on issues.
+
+Topic matching is platform-dependent
+
+On GitLab, a repository must carry **all** the listed topics to be included. On GitHub, a repository is included if it matches **any** of the listed topics.
 
 ## Built-in skills
 
@@ -95,7 +99,7 @@ Performs a dedicated security scan of the code changes, looking for injection fl
 @daiv /init
 ```
 
-Analyzes the repository structure and generates an `AGENTS.md` file with guidance for AI coding agents, following the recommendations from [the AGENTS.md research paper](https://arxiv.org/abs/2602.11988). If one already exists, it updates it.
+Analyzes the repository structure and generates an `AGENTS.md` file with short, repo-specific, high-leverage guidance for AI coding agents (verified commands, repo map, invariants and footguns, and where changes usually go). If one already exists, it updates it to reduce duplication and remove low-signal text.
 
 ### /skill-creator
 

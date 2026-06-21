@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://srtab.github.io/daiv/dev/features/merge-metrics/">
       
       
-        <link rel="prev" href="../activity-tracking/">
+        <link rel="prev" href="../notifications/">
       
       
         <link rel="next" href="../slash-commands/">
@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -546,6 +574,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../jobs-api/" class="md-nav__link">
         
   
@@ -638,6 +694,34 @@
     
   
     Activity Tracking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
   
 
     
@@ -919,6 +1003,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1221,6 +1333,34 @@
     
   
     Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
   
 
     
@@ -1569,22 +1709,22 @@
 <li><strong>Default branch filter</strong> — Only merges targeting the repository's default branch are recorded. Merges to feature or release branches are ignored.</li>
 <li><strong>Background task</strong> — A task fetches MR-level diff statistics and the pre-squash commit list from the platform API.</li>
 <li><strong>Commit-based attribution</strong> — Each commit's author email is compared against DAIV's known commit email. Lines added/removed are split into DAIV and human contributions. This works correctly even with squash merges because the platform API retains the original commit list.</li>
-<li><strong>Dashboard</strong> — The metrics are displayed in the "Code Velocity" section of the dashboard at <code>/dashboard/</code>, using the same period filter (7d / 30d / 90d / All time) as the agent activity counters.</li>
+<li><strong>Dashboard</strong> — The metrics are displayed in the "Code Velocity" section of the dashboard at <code>/dashboard/</code> (visible to admin users only), using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to Today) as the agent activity counters.</li>
 </ol>
 <hr />
 <h2 id="dashboard">Dashboard</h2>
-<p>The Code Velocity section shows five counters:</p>
+<p>The Code Velocity section is visible to admin users only. It shows a merges-and-lines block plus a separate <strong>DAIV attribution</strong> sub-section:</p>
 <table>
 <thead>
 <tr>
-<th>Counter</th>
+<th>Metric</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>Total merges</strong></td>
-<td>Total MRs/PRs merged to default branches</td>
+<td>MRs/PRs merged into default branches</td>
 </tr>
 <tr>
 <td><strong>Lines added</strong></td>
@@ -1595,16 +1735,20 @@
 <td>Total lines removed across all merges</td>
 </tr>
 <tr>
-<td><strong>DAIV contribution</strong></td>
-<td>Percentage of total lines (added + removed) authored by DAIV</td>
+<td><strong>Net change</strong></td>
+<td>Lines added minus lines removed</td>
 </tr>
 <tr>
-<td><strong>DAIV commit share</strong></td>
-<td>Percentage of total commits authored by DAIV</td>
+<td><strong>MRs involving DAIV</strong></td>
+<td>Percentage of merges containing at least one DAIV-authored commit, shown alongside DAIV vs human MR counts</td>
+</tr>
+<tr>
+<td><strong>Commits authored by DAIV</strong></td>
+<td>Percentage of commits authored by DAIV, shown alongside DAIV vs human commit counts</td>
 </tr>
 </tbody>
 </table>
-<p>All counters respect the period filter at the top of the dashboard.</p>
+<p>All metrics respect the period filter at the top of the dashboard.</p>
 <hr />
 <h2 id="attribution">Attribution</h2>
 <p>DAIV identifies its own commits by matching the commit author email against its configured bot email:</p>
@@ -1656,7 +1800,7 @@
 </tr>
 </tbody>
 </table>
-<p>If fetching diff stats or commits fails (e.g., due to API rate limits or network errors), the merge is still recorded with zero counts rather than being lost.</p>
+<p>The merge is always recorded even on partial failure (e.g., due to API rate limits or network errors). Each data source — MR-level diff stats, the bot commit email, and the commit list — is fetched independently. If MR-level diff stats fail while the commit list succeeds, the totals are derived from the per-commit sums, so only the field whose own fetch actually failed is left at zero.</p>
 <hr />
 <h2 id="data-model">Data model</h2>
 <p>Each merge event is stored as a <code>MergeMetric</code> record:</p>
@@ -1774,7 +1918,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -1784,7 +1928,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

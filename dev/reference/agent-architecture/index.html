@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://srtab.github.io/daiv/dev/reference/agent-architecture/">
       
       
-        <link rel="prev" href="../env-variables/">
+        <link rel="prev" href="../site-configuration/">
       
       
         <link rel="next" href="../monitoring/">
@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -544,6 +572,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/jobs-api/" class="md-nav__link">
         
   
@@ -656,6 +712,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/merge-metrics/" class="md-nav__link">
         
   
@@ -748,6 +832,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1052,6 +1164,34 @@
     
   
     Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
   
 
     
@@ -1695,7 +1835,7 @@
 <p>DAIV's architecture consists of:</p>
 <ul>
 <li><strong>One main agent</strong> — handles all tasks (issue addressing, code review, slash commands)</li>
-<li><strong>Two subagents</strong> — general-purpose (full tools) and explore (read-only, fast)</li>
+<li><strong>Built-in subagents</strong> — general-purpose (full tools), explore (read-only, fast), and a fan-out of read-only <code>cr-*</code> code-review detector subagents</li>
 <li><strong>Middleware stack</strong> — modular capabilities injected based on configuration</li>
 <li><strong>MCP servers</strong> — external tool integrations (Sentry, Context7)</li>
 </ul>
@@ -1718,6 +1858,7 @@
 
     SA --&gt; GPAgent[General-Purpose]
     SA --&gt; EXAgent[Explore]
+    SA --&gt; CRAgent[Code-Review Detectors cr-*]
 
     AGENT --&gt; PUB[Git Change Publisher]
     PUB --&gt; COMMIT[Commit &amp; Push]
@@ -1753,9 +1894,13 @@
 </tr>
 </tbody>
 </table>
-<p>Both create a persistent conversation thread (stored in Redis with 90-day TTL) so the agent retains context across multiple interactions on the same issue or MR.</p>
+<p>Both create a persistent conversation thread (stored in Redis with a 7-day TTL by default, configurable via <code>DJANGO_REDIS_CHECKPOINT_TTL_MINUTES</code>) so the agent retains context across multiple interactions on the same issue or MR.</p>
 <h2 id="tools">Tools</h2>
 <p>The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.</p>
+<div class="admonition note">
+<p class="admonition-title">Tools are deferred by default</p>
+<p>Only a small core (<code>ls</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>glob</code>, <code>grep</code>, <code>bash</code>, <code>write_todos</code>, <code>skill</code>, and the <code>task</code> delegation tool) is bound to the model up front. Everything else — web search/fetch, the git platform tool, and all MCP tools — is hidden behind a <code>tool_search</code> capability provided by <code>DeferredToolsMiddleware</code> and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.</p>
+</div>
 <h3 id="filesystem">Filesystem</h3>
 <table>
 <thead>
@@ -1801,8 +1946,8 @@
 </thead>
 <tbody>
 <tr>
-<td><code>gitlab</code> / <code>github</code></td>
-<td>Inspect issues, merge requests, pipeline status, and job logs</td>
+<td><code>gitlab</code> / <code>gh</code></td>
+<td>Inspect issues, merge requests, pipeline status, and job logs (the GitHub tool exposes the <code>gh</code> CLI)</td>
 </tr>
 </tbody>
 </table>
@@ -1913,6 +2058,22 @@
 <td><code>PatchToolCallsMiddleware</code></td>
 <td>Fixes malformed tool calls from the LLM</td>
 </tr>
+<tr>
+<td><code>DeferredToolsMiddleware</code></td>
+<td>Defers non-core tools behind a <code>tool_search</code> capability, loaded on demand</td>
+</tr>
+<tr>
+<td><code>LoopBreakerMiddleware</code></td>
+<td>Detects verbatim tool-call repetition and finalizes the run (instead of raising) so end-of-run hooks still execute</td>
+</tr>
+<tr>
+<td><code>StepBudgetMiddleware</code></td>
+<td>Warns the model as the run approaches its per-run step budget</td>
+</tr>
+<tr>
+<td><code>EnsureResponseMiddleware</code></td>
+<td>Guarantees a non-empty final response by retrying empty LLM responses</td>
+</tr>
 </tbody>
 </table>
 <h3 id="conditionally-enabled">Conditionally enabled</h3>
@@ -1941,13 +2102,13 @@
 <td>A fallback model is configured</td>
 </tr>
 <tr>
-<td><code>HumanInTheLoopMiddleware</code></td>
-<td>Plan approval is required (non-auto mode)</td>
+<td><code>SlashCommandMiddleware</code></td>
+<td>Slash commands enabled in <code>.daiv.yml</code> (default on) — parses and dispatches <code>/commands</code> like <code>/agents</code> and <code>/help</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="subagents">Subagents</h2>
-<p>The main agent can delegate work to two subagents. See <a href="../../features/subagents/">Subagents</a> for the user-facing explanation.</p>
+<p>The main agent can delegate work to two general-use subagents. See <a href="../../features/subagents/">Subagents</a> for the user-facing explanation.</p>
 <table>
 <thead>
 <tr>
@@ -1975,7 +2136,8 @@
 </tr>
 </tbody>
 </table>
-<p>All subagents (including <a href="../../features/subagents/#custom-subagents">custom subagents</a>) support automatic model fallback via <code>ModelFallbackMiddleware</code>. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (<code>DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME</code>).</p>
+<p>In addition, a set of read-only <strong>code-review detector subagents</strong> (<code>cr-correctness</code>, <code>cr-security</code>, <code>cr-performance</code>, <code>cr-structure</code>, <code>cr-custom-rules</code>) is built and registered on every run. The <a href="../../features/pull-request-assistant/">code review</a> skill fans out across these detectors, each running with a read-only tool stack and producing structured findings. <a href="../../features/subagents/#custom-subagents">Custom subagents</a> defined per repository are also added to the available-agents list.</p>
+<p>All subagents (including custom subagents) support automatic model fallback via <code>ModelFallbackMiddleware</code>. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (<code>DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME</code>).</p>
 <h2 id="dynamic-system-prompt">Dynamic system prompt</h2>
 <p>The agent's system prompt is assembled at runtime and includes:</p>
 <ul>
@@ -2018,7 +2180,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -2028,7 +2190,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     

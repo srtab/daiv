@@ -406,6 +406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts & Roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/llm-providers/" class="md-nav__link">
         
   
@@ -544,6 +572,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/chat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/jobs-api/" class="md-nav__link">
         
   
@@ -656,6 +712,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/merge-metrics/" class="md-nav__link">
         
   
@@ -748,6 +832,34 @@
     
   
     Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Environments
   
 
     
@@ -1052,6 +1164,34 @@
     
   
     Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site Configuration
   
 
     
@@ -2031,7 +2171,7 @@
 <h2 id="trace-tags-and-metadata">Trace tags and metadata</h2>
 <p>Every agent run includes tags and metadata that make it easy to filter and build dashboards in LangSmith.</p>
 <h3 id="tags">Tags</h3>
-<p>All runs include two tags:</p>
+<p>Every root run carries the following tags:</p>
 <table>
 <thead>
 <tr>
@@ -2042,17 +2182,28 @@
 </thead>
 <tbody>
 <tr>
-<td>Agent name</td>
-<td>Always <code>DAIV Agent</code></td>
-<td><code>DAIV Agent</code></td>
-</tr>
-<tr>
 <td>Git platform</td>
 <td>The platform handling the request</td>
 <td><code>gitlab</code>, <code>github</code></td>
 </tr>
+<tr>
+<td>Repository slug</td>
+<td>The repository the run targets</td>
+<td><code>group/project</code></td>
+</tr>
+<tr>
+<td>Scope</td>
+<td>Conversation scope, present when one is set</td>
+<td><code>Issue</code>, <code>Merge Request</code>, <code>Global</code></td>
+</tr>
+<tr>
+<td>Agent name</td>
+<td>The agent name</td>
+<td><code>DAIV Agent</code></td>
+</tr>
 </tbody>
 </table>
+<p>A typical labelled-issue run therefore carries the tags <code>gitlab</code>, <code>group/project</code>, <code>Issue</code>, <code>DAIV Agent</code>. Individual callsites may append additional tags.</p>
 <h3 id="metadata-by-trigger">Metadata by trigger</h3>
 <p><strong>Issue addressing</strong> (triggered by labelled issues):</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1"> 1</a></span>
@@ -2075,7 +2226,7 @@
 <a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="w">  </span><span class="nt">&quot;issue_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
 <a id="__codelineno-4-8" name="__codelineno-4-8"></a><span class="w">  </span><span class="nt">&quot;labels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;daiv&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bug&quot;</span><span class="p">],</span>
 <a id="__codelineno-4-9" name="__codelineno-4-9"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Issue&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;openrouter:anthropic/claude-sonnet-4.6&quot;</span><span class="p">,</span>
 <a id="__codelineno-4-11" name="__codelineno-4-11"></a><span class="w">  </span><span class="nt">&quot;thinking_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span>
 <a id="__codelineno-4-12" name="__codelineno-4-12"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
@@ -2098,25 +2249,32 @@
 <a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">  </span><span class="nt">&quot;git_platform&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gitlab&quot;</span><span class="p">,</span>
 <a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">  </span><span class="nt">&quot;merge_request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">123</span><span class="p">,</span>
 <a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Merge Request&quot;</span><span class="p">,</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;openrouter:anthropic/claude-sonnet-4.6&quot;</span><span class="p">,</span>
 <a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">  </span><span class="nt">&quot;thinking_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span>
 <a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
 <p><strong>Job execution</strong> (triggered via the Jobs API):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
-<span class="normal"><a href="#__codelineno-6-2">2</a></span>
-<span class="normal"><a href="#__codelineno-6-3">3</a></span>
-<span class="normal"><a href="#__codelineno-6-4">4</a></span>
-<span class="normal"><a href="#__codelineno-6-5">5</a></span>
-<span class="normal"><a href="#__codelineno-6-6">6</a></span>
-<span class="normal"><a href="#__codelineno-6-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="p">{</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;repo_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;group/project&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;main&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;trigger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;job&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">  </span><span class="nt">&quot;thinking_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="p">}</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-6-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-6-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-6-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-6-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-6-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-6-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-6-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-6-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-6-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;repository&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;group/project&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;git_platform&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gitlab&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Global&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;trigger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;job&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">  </span><span class="nt">&quot;model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;openrouter:anthropic/claude-sonnet-4.6&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">  </span><span class="nt">&quot;thinking_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8"></a><span class="w">  </span><span class="nt">&quot;ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;main&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9"></a><span class="w">  </span><span class="nt">&quot;override_source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;explicit&quot;</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
+<p>The <code>override_source</code> field is <code>explicit</code> when the job supplied an explicit model override, otherwise <code>null</code>.</p>
 <p>The <code>scope</code> field distinguishes how the agent was triggered: <code>Issue</code>, <code>Merge Request</code>, or <code>Global</code>.</p>
 <h3 id="metadata-fields-reference">Metadata fields reference</h3>
 <table>
@@ -2270,7 +2428,7 @@
 <ul>
 <li><strong>By trigger type</strong> — filter by <code>scope</code> or by metadata key <code>issue_id</code> vs <code>merge_request_id</code></li>
 <li><strong>By user</strong> — filter or group by <code>author</code></li>
-<li><strong>By model</strong> — group by <code>model</code> to compare performance across models (e.g. <code>claude-sonnet-4-6</code> vs <code>claude-opus-4-6</code>)</li>
+<li><strong>By model</strong> — group by <code>model</code> to compare performance across models (the value is the full configured model identifier, e.g. <code>openrouter:anthropic/claude-sonnet-4.6</code> vs <code>openrouter:anthropic/claude-opus-4.6</code>)</li>
 <li><strong>Performance</strong> — monitor execution time and token usage per run</li>
 </ul>
 <hr />
@@ -2278,7 +2436,7 @@
 <p>DAIV tracks token usage and estimated cost for every agent execution internally — independent of LangSmith.</p>
 <h3 id="how-it-works">How it works</h3>
 <ol>
-<li>Each agent invocation runs inside the <code>track_usage_metadata()</code> context manager (in <code>daiv/automation/agent/usage_tracking.py</code>), which binds a <code>UsageMetadataCallbackHandler</code> to a module-level <code>ContextVar</code> registered with LangChain's <code>register_configure_hook</code>. The handler is automatically inherited by every nested <code>Runnable</code> — including subagent invocations — without needing to thread callbacks through <code>RunnableConfig</code>.</li>
+<li>Each agent invocation runs inside the <code>track_usage_metadata()</code> context manager (in <code>daiv/automation/agent/usage_tracking.py</code>), which binds a <code>CostAwareUsageMetadataCallbackHandler</code> (a subclass of LangChain's <code>UsageMetadataCallbackHandler</code> that prices each LLM call individually) to a module-level <code>ContextVar</code> registered with LangChain's <code>register_configure_hook</code>. The handler is automatically inherited by every nested <code>Runnable</code> — including subagent invocations — without needing to thread callbacks through <code>RunnableConfig</code>.</li>
 <li>The handler captures <code>usage_metadata</code> from every LLM call during graph execution — including fallback model invocations, tool-internal model calls, and subagents spawned via the <code>task</code> tool.</li>
 <li>After the run, token counts are aggregated per model and cost is calculated using <a href="https://github.com/pydantic/genai-prices">genai-prices</a> (maintained by Pydantic).</li>
 <li>The usage summary is stored in the <code>AgentResult</code> and denormalized onto the <code>Activity</code> record for long-term retention.</li>
@@ -2330,7 +2488,7 @@
 <li><strong>Summarization middleware calls</strong> may not be tracked if the middleware overrides the config.</li>
 <li>If a model is <strong>not in the genai-prices database</strong>, token usage is still recorded but cost is stored as <code>null</code>. A warning is logged.</li>
 <li>Cost estimates are <strong>approximations</strong> based on published list prices. Actual billing may differ based on your provider agreement.</li>
-<li><strong>Chat API flows</strong> attach the tracker for callback propagation but do not persist usage to Activity records (chat does not create Activity records).</li>
+<li><strong>Chat API flows</strong> do not attach the usage tracker and do not persist usage. Chat uses <code>ChatThread</code> records, not <code>Activity</code> records.</li>
 </ul>
 <h3 id="relationship-to-langsmith">Relationship to LangSmith</h3>
 <p>LangSmith remains the recommended tool for detailed <strong>trace-level</strong> observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides <strong>run-level</strong> usage summaries that persist on Activity records and do not require a LangSmith account.</p>
@@ -2417,7 +2575,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
@@ -2427,7 +2585,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 13:51:16 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
   </span>
 
     
