@@ -6,6 +6,9 @@ The DAIV agent can read and modify code, run commands in a sandbox, create commi
 
 Authentication is handled via OAuth 2.0 — on first use a browser window opens for you to log in with your existing DAIV account. Your client manages tokens and refreshes them automatically.
 
+!!! tip
+    Prefer the HTTP [Jobs API](jobs-api.md) instead? It uses API key authentication, and you can create a key self-service in the dashboard at `/accounts/api-keys/` (see [Creating an API key](jobs-api.md#creating-an-api-key)).
+
 ## Getting started
 
 ### Claude Code
@@ -45,12 +48,23 @@ url = "https://daiv.example.com/mcp/"
 
 | Tool | Description |
 |------|-------------|
-| `submit_job` | Submit a prompt to the DAIV agent for a repository. Returns a `job_id` for polling, or set `wait=True` to block until the result is ready (up to 10 minutes). |
+| `submit_job` | Submit a prompt to the DAIV agent as a batch of jobs — one independent job per repository. Returns a `batch_id` and a `jobs` list, or set `wait=True` to block until every job in the batch completes (up to 10 minutes total). |
 | `get_job_status` | Get the status and result of a previously submitted job. Also supports `wait=True` to block until completion. |
+| `list_repositories` | Discover repositories accessible to DAIV, optionally filtered by `search` (partial name match) or `topics`. Results are truncated at 40 — narrow with `search` or `topics` if you hit the limit. |
+| `list_environments` | List the sandbox environments visible to you (your own `USER` environments plus all `GLOBAL` ones). Use a returned `name` or `id` as `submit_job`'s `environment` argument. |
+| `get_environment` | Look up a single sandbox environment by name or UUID. Returns full details with secret env-var values masked, or nothing if it is not in your visible scopes. |
 
-`submit_job` accepts an optional `ref` parameter to target a specific branch or commit. If omitted, the repository's default branch is used. Set `use_max=True` to use the more capable model with thinking set to high.
+`submit_job` takes a `repos` list (1–20 entries) and a single `prompt` that runs as an independent job against each repository. Each entry is `{repo_id, ref}`, where `ref` is the starting branch or commit the agent reads from — it is optional and defaults to the repository's default branch. The response includes a `batch_id`, a `jobs` list (one entry per submitted job, each with its `job_id`, `repo_id`, `ref`, `thread_id`, and `status`), and a `failed` list for repositories that could not be enqueued.
 
-For the full request/response schema and job lifecycle, see the [Jobs API](jobs-api.md).
+`submit_job` also accepts these optional parameters:
+
+- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the system default.
+- `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the system default.
+- `notify_on` — when to be notified for each job: one of `never`, `always`, `on_success`, or `on_failure`. Omit to fall back to your default preference.
+- `environment` — the [sandbox environment](sandbox.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
+- `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository, whose latest activity must belong to you.
+
+For the full request/response schema, the batch `repos` contract, and the job lifecycle, see the [Jobs API](jobs-api.md).
 
 ## Usage examples
 

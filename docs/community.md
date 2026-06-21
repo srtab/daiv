@@ -12,7 +12,7 @@ Use [GitHub Issues](https://github.com/srtab/daiv/issues) for bug reports, featu
 
 - Search existing issues first
 - Include environment details, steps to reproduce, and any relevant logs or screenshots
-- For security issues, follow responsible disclosure as outlined in CONTRIBUTING.md
+- For security issues, please report privately rather than opening a public GitHub Issue
 
 ## Resources
 

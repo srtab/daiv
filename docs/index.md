@@ -14,7 +14,7 @@
 
 ---
 
-DAIV integrates directly with **GitLab** and **GitHub** repositories through webhooks. No separate interface needed — you keep using your existing workflow while DAIV handles automation in the background.
+DAIV integrates directly with **GitLab** and **GitHub** repositories through webhooks — you keep using your existing workflow while DAIV handles automation in the background, no separate interface required. An optional web dashboard is also available if you want to chat with the agent, compose runs, manage schedules, and review activity in one place.
 
 ## What DAIV does
 
@@ -42,6 +42,9 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 - **Subagents** — Specialized agents for fast codebase exploration and complex multi-step tasks.
 - **Sandbox** — Secure command execution for running tests, builds, linters, and package management inside an isolated Docker container.
 - **MCP Tools** — External tool integrations via the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
+- **Monitoring** — Trace agent executions with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and identify issues. See [Monitoring](reference/monitoring.md).
+- **Scalable Workers** — Background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs — no architecture changes needed.
+- **LLM Providers** — Run on OpenRouter, Anthropic, OpenAI, or Google. See [LLM Providers](getting-started/llm-providers.md).
 
 ## Supported platforms
 
