@@ -10,6 +10,8 @@ serializable``, failing ``address_mr_comments_task`` mid-run.
 
 from __future__ import annotations
 
+import dataclasses
+
 import orjson
 import pytest
 from langchain_core.messages import HumanMessage
@@ -17,6 +19,16 @@ from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 
 from codebase.base import MergeRequest, User
 from core.checkpointer import DAIVRedisSerializer
+
+
+@dataclasses.dataclass(frozen=True)
+class _RunningSummary:
+    """A module-level dataclass standing in for the kind written to checkpoint state by
+    middleware (e.g. a summarization running-summary). Must be importable so the adapter's
+    read path (``_reconstruct_from_constructor``) can revive it by module + name."""
+
+    summary: str
+    summarized_message_ids: list[str]
 
 
 @pytest.fixture
@@ -163,3 +175,54 @@ def test_set_round_trips_through_redis_read_path(merge_request):
     assert isinstance(revived["loaded_tool_names"], set)
     assert isinstance(revived["merge_request"], MergeRequest)
     assert revived["merge_request"] == merge_request
+
+
+def test_stock_redis_serializer_crashes_encoding_dataclass():
+    """Regression guard: reproduce the exact production crash with the stock serializer.
+
+    ``_preprocess_interrupts``'s dataclass branch calls ``_encode_constructor_args`` (removed
+    from ``langgraph-checkpoint==4.1.1``) *outside* the ``dumps_typed`` try/except, so a
+    dataclass in checkpoint writes raises ``AttributeError`` straight out of ``aput_writes``
+    rather than degrading to the msgpack fallback."""
+    stock = JsonPlusRedisSerializer()
+    with pytest.raises(AttributeError, match="_encode_constructor_args"):
+        stock.dumps_typed({"running_summary": _RunningSummary("done", ["m1", "m2"])})
+
+
+def test_dataclass_in_writes_does_not_crash_encoding():
+    """The crash path itself: ``dumps_typed`` over a dataclass must not raise."""
+    serde = DAIVRedisSerializer()
+
+    type_, _ = serde.dumps_typed({"running_summary": _RunningSummary("done", ["m1"])})
+
+    assert type_ == "json"
+
+
+def test_dataclass_round_trips_through_serde_contract():
+    """Through the public serde API the saver calls; the restored ``_encode_constructor_args``
+    envelope is read back via the adapter's ``_reconstruct_from_constructor`` path."""
+    serde = DAIVRedisSerializer()
+    original = {"running_summary": _RunningSummary("compacted 5 msgs", ["m1", "m2", "m3"])}
+
+    restored = serde.loads_typed(serde.dumps_typed(original))
+
+    assert isinstance(restored["running_summary"], _RunningSummary)
+    assert restored == original
+
+
+def test_dataclass_nested_alongside_set_and_model_round_trips(merge_request):
+    """A dataclass, a set, and a domain model in the same write must all survive together --
+    the realistic shape of a checkpoint write that mixes channel updates."""
+    serde = DAIVRedisSerializer()
+    payload = {
+        "running_summary": _RunningSummary("s", ["m1"]),
+        "loaded_tool_names": {"Read", "Edit"},
+        "merge_request": merge_request,
+    }
+
+    restored = serde.loads_typed(serde.dumps_typed(payload))
+
+    assert restored["running_summary"] == payload["running_summary"]
+    assert restored["loaded_tool_names"] == {"Read", "Edit"}
+    assert isinstance(restored["loaded_tool_names"], set)
+    assert restored["merge_request"] == merge_request

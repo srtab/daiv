@@ -60,6 +60,36 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
         kwargs.setdefault("allowed_json_modules", CHECKPOINT_JSON_TYPES)
         super().__init__(**kwargs)
 
+    def _encode_constructor_args(
+        self, constructor: type[Any], *, kwargs: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Restore the constructor-envelope encoder that ``langgraph-checkpoint==4.1.1`` removed.
+
+        ``langgraph-checkpoint-redis==0.4.1`` calls ``self._encode_constructor_args`` in two
+        spots: ``_default_handler`` (objects with ``__dict__``) and -- the one that actually
+        crashes -- ``_preprocess_interrupts`` for **dataclass** instances. The latter is *not*
+        wrapped in the ``try/except`` that ``dumps_typed`` relies on to fall back to msgpack, so
+        a dataclass anywhere in checkpoint writes (e.g. a middleware's running summary) raises
+        ``AttributeError: ... has no attribute '_encode_constructor_args'`` straight out of
+        ``aput_writes`` and fails the run. ``_default_handler``'s pydantic gap is already filled
+        below, but it routes plain pydantic models *before* the parent reaches this method;
+        dataclasses have no such interception, so the method itself must exist again.
+
+        Reproduces the pre-4.1.1 base output for the only shape both call sites use -- a class
+        plus ``kwargs`` (never the original ``method``/``args``; verified against both call
+        sites). The ``id`` keeps the module split into parts (``(*module.split("."), name)``) so
+        the adapter's read path (``_reconstruct_from_constructor`` → ``".".join(id_parts[:-1])``)
+        imports the class back.
+        """
+        out: dict[str, Any] = {
+            "lc": 2,
+            "type": "constructor",
+            "id": (*constructor.__module__.split("."), constructor.__name__),
+        }
+        if kwargs is not None:
+            out["kwargs"] = kwargs
+        return out
+
     def _reviver(self, value: Any) -> Any:
         """Reconstruct adapter-encoded sets before the base reviver corrupts them to ``None``.
 
