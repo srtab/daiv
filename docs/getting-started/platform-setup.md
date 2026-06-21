@@ -89,6 +89,7 @@ DAIV automatically creates webhooks on all accessible repositories via a backgro
     - ✅ Push events
     - ✅ Issues events
     - ✅ Comments (Note events)
+    - ✅ Merge request events
 
     Click **Test** → **Push events** to verify connectivity.
 
@@ -177,6 +178,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
         - ✅ Issues
         - ✅ Issue comment
         - ✅ Pull request review
+        - ✅ Pull request
 
     !!! info "Centralized Webhook Configuration"
         Unlike GitLab where webhooks are configured per repository, GitHub Apps use centralized webhook configuration. The webhook you configure here will automatically apply to all repositories where you install the app.
@@ -289,6 +291,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
         - ✅ Issues
         - ✅ Issue comment
         - ✅ Pull request review
+        - ✅ Pull request
 
 3. **Test Webhook Delivery**:
     - Create a test issue in one of your repositories where the app is installed

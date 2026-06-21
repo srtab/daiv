@@ -67,18 +67,22 @@ plugins:
         Getting Started:
         - getting-started/deployment.md: How to deploy DAIV with Docker
         - getting-started/platform-setup.md: Setting up GitLab or GitHub integration
+        - getting-started/accounts.md: Dashboard sign-in, admin/member roles, and user management
         - getting-started/llm-providers.md: Configuring LLM providers
         Features:
         - features/issue-addressing.md: Automated issue-to-merge-request workflow
         - features/pull-request-assistant.md: AI-powered pull request reviews and fixes
+        - features/chat.md: Interactive dashboard chat workspace with the agent
         - features/jobs-api.md: REST API for programmatic agent triggering
         - features/scheduled-jobs.md: Recurring agent runs on a cron schedule
         - features/mcp-endpoint.md: MCP server endpoint for AI coding assistants
         - features/activity-tracking.md: Unified log of all agent executions
+        - features/notifications.md: Job, batch, and schedule completion notifications
         - features/merge-metrics.md: Code merge analytics and DAIV contribution tracking
         - features/slash-commands.md: Slash commands and custom skills
         - features/subagents.md: Specialized subagents for exploration and execution
         - features/sandbox.md: Secure sandboxed code execution
+        - features/sandbox-environments.md: Named, scoped sandbox environment configurations
         Integrations:
         - integrations/rt/index.md: Request Tracker triage on ticket create via RT Scrip
         Customization:
@@ -87,8 +91,11 @@ plugins:
         - customization/mcp-tools.md: MCP tool integrations
         Reference:
         - reference/env-variables.md: Environment variables reference
+        - reference/site-configuration.md: Admin web UI for runtime configuration
         - reference/agent-architecture.md: Agent architecture overview
         - reference/monitoring.md: Monitoring and observability
+        Community:
+        - community.md: Contributing, support, and project links
 
 markdown_extensions:
   - attr_list
@@ -123,18 +130,22 @@ nav:
   - Getting Started:
     - Deployment: getting-started/deployment.md
     - Platform Setup: getting-started/platform-setup.md
+    - Accounts & Roles: getting-started/accounts.md
     - LLM Providers: getting-started/llm-providers.md
   - Features:
     - Issue Addressing: features/issue-addressing.md
     - Pull Request Assistant: features/pull-request-assistant.md
+    - Chat: features/chat.md
     - Jobs API: features/jobs-api.md
     - Scheduled Jobs: features/scheduled-jobs.md
     - MCP Endpoint: features/mcp-endpoint.md
     - Activity Tracking: features/activity-tracking.md
+    - Notifications: features/notifications.md
     - Merge Metrics: features/merge-metrics.md
     - Slash Commands & Skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md
+    - Sandbox Environments: features/sandbox-environments.md
   - Integrations:
     - Request Tracker Triage: integrations/rt/index.md
   - Customization:
@@ -143,6 +154,7 @@ nav:
     - MCP Tools: customization/mcp-tools.md
   - Reference:
     - Environment Variables: reference/env-variables.md
+    - Site Configuration: reference/site-configuration.md
     - Agent Architecture: reference/agent-architecture.md
     - Monitoring: reference/monitoring.md
   - Community: community.md

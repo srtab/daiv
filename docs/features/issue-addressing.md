@@ -36,13 +36,15 @@ Labels are case-insensitive (`DAIV`, `Daiv`, and `daiv` all work). You can combi
 
 By default, DAIV uses a **human-in-the-loop** approach. After generating a plan, it waits for explicit approval before making code changes.
 
-To approve a plan, comment on the issue:
+To approve a plan, comment on the issue and mention DAIV — for example:
 
 ```
 @daiv proceed
 ```
 
-You can also provide feedback or additional instructions in your approval comment, and DAIV will take them into account during implementation.
+The exact wording is not a keyword. DAIV reacts to any comment that mentions it (`@daiv`); it reads your comment together with the plan it posted and acts on your intent. A comment like `@daiv looks good, go ahead` works just as well as `@daiv proceed`.
+
+You can also provide feedback or additional instructions in your comment, and DAIV will take them into account — either applying them during implementation or revising the plan from your feedback.
 
 !!! tip
     If you don't agree with the plan, comment with the changes you'd like and DAIV will update the plan accordingly.
@@ -68,7 +70,7 @@ If an unexpected error occurs during execution, DAIV creates a **draft** merge/p
 
 When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), it automatically adds a comment suggesting you create one. The comment includes a one-click link that opens a pre-filled issue — just click and submit.
 
-If the created issue has the `daiv` label, DAIV will pick it up and use the `/init` skill to analyze your repository and generate the `AGENTS.md` file automatically.
+The one-click link pre-fills the issue with the `daiv-auto` label, so once you submit it DAIV picks it up and immediately runs the `/init` skill to analyze your repository and open a merge/pull request with the generated `AGENTS.md` — no approval step required.
 
 To disable this suggestion for a specific repository, add the following to `.daiv.yml`:
 

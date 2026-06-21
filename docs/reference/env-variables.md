@@ -8,7 +8,9 @@ Variables marked with:
  * :material-asterisk: are required and should be declared.
 
 !!! info "Configuration UI"
-    Many settings listed under [Automation: LLM Providers](#automation-llm-providers), [Automation: Tools](#automation-tools), and [Automation: Agents](#automation-agents) can also be managed through the **Configuration UI** at `/dashboard/configuration/`. These settings use a three-tier priority chain: **environment variable** (highest) > **database value** (set via UI) > **hardcoded default** (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked *env-only* are not available in the UI.
+    Many settings listed under [Automation: Tools](#automation-tools) and [Automation: Agents](#automation-agents) can also be managed through the **Configuration UI** at `/dashboard/configuration/`. These settings use a three-tier priority chain: **environment variable** (highest) > **database value** (set via UI) > **hardcoded default** (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked *env-only* are not available in the UI.
+
+    [Automation: LLM Providers](#automation-llm-providers) behaves differently: the provider API key variables are read **only once** to seed the provider records on first run — they do not participate in the runtime override chain (see the note in that section).
 
 ---
 
@@ -112,11 +114,12 @@ Variables marked with:
 
 DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `python manage.py bootstrap_admin <email>` to create one via login-by-code (see [Deployment](../getting-started/deployment.md)).
 
-OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
+OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `DAIV_AUTH_LOGIN_ENABLED` | Enable OAuth login (social provider buttons on login page) | `false` | `true` |
+| `DAIV_AUTH_SIGNUP_OPEN` | Allow anyone authenticating via the configured Git platform to self-create an account. When off, only admin-pre-created users can sign in | `false` | `true` |
 | `ALLAUTH_CLIENT_ID` :material-lock: | OAuth client ID for the configured Git platform | *(none)* | `Iv1.abc123` |
 | `ALLAUTH_CLIENT_SECRET` :material-lock: | OAuth client secret for the configured Git platform | *(none)* | |
 | `ALLAUTH_GITLAB_URL` | GitLab instance URL (for OAuth redirects to the user's browser) | `https://gitlab.com` | `https://gitlab.example.com` |
@@ -136,6 +139,17 @@ OAuth credentials can be configured via environment variables (shown below) or t
 
 !!! note
     OAuth login requires **all three** of: the **enable OAuth login** toggle turned on, a **client ID**, and a **client secret**. If only one credential is set, a warning is logged and the provider button is not shown on the login page. The active provider is determined by the `CODEBASE_CLIENT` setting (GitHub or GitLab).
+
+### Rocket Chat
+
+When enabled, Rocket Chat becomes available as a notification channel that users can opt into for their in-app and run notifications.
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_ROCKETCHAT_ENABLED` | Offer Rocket Chat as a notification channel for users | `false` | `true` |
+| `DAIV_ROCKETCHAT_URL`   | Base URL of your Rocket Chat instance | *(none)* | `https://rc.example.com` |
+| `DAIV_ROCKETCHAT_USER_ID` | The bot user's `_id`, sent as the `X-User-Id` header | *(none)* | `abc123userid` |
+| `DAIV_ROCKETCHAT_AUTH_TOKEN` :material-lock: | The bot user's auth token, sent as the `X-Auth-Token` header | *(none)* | |
 
 ### Other
 
@@ -220,30 +234,32 @@ This section documents the environment variables for each LLM provider.
 !!! note
     At least one of the [supported providers](../getting-started/llm-providers.md) should be configured to use the automation features.
 
+!!! warning "Provider keys are seed-only"
+    Unlike the rest of the configurable settings on this page, these provider API key variables are **not** part of the env > database > default override chain. They are read **only once** — on first run / upgrade — to seed the provider records, after which the authoritative, runtime-editable key and base URL live on the **Providers** section of the Configuration UI at `/dashboard/configuration/`. Changing a `*_API_KEY` environment variable after the provider record exists has no effect; edit the provider in the UI instead. The OpenRouter base URL is likewise a per-provider **Base URL** field in that section (it defaults to `https://openrouter.ai/api/v1`).
+
 ### OpenRouter (*default*)
 
 | Variable                        | Description                | Default                        | Example |
 |---------------------------------|----------------------------|:------------------------------:|---------|
-| `OPENROUTER_API_KEY` :material-lock: | OpenRouter API key         | *(none)*                       |         |
-| `DAIV_OPENROUTER_API_BASE`| OpenRouter API base URL    | `https://openrouter.ai/api/v1` |         |
+| `OPENROUTER_API_KEY` :material-lock: | OpenRouter API key (seeds the OpenRouter provider record on first run) | *(none)*                       |         |
 
 ### Anthropic
 
 | Variable                        | Description                | Default    | Example |
 |---------------------------------|----------------------------|:----------:|---------|
-| `ANTHROPIC_API_KEY` :material-lock:  | Anthropic API key          | *(none)*   |         |
+| `ANTHROPIC_API_KEY` :material-lock:  | Anthropic API key (seeds the Anthropic provider record on first run) | *(none)*   |         |
 
 ### OpenAI
 
 | Variable                        | Description                | Default    | Example |
 |---------------------------------|----------------------------|:----------:|---------|
-| `OPENAI_API_KEY` :material-lock:     | OpenAI API key             | *(none)*   |         |
+| `OPENAI_API_KEY` :material-lock:     | OpenAI API key (seeds the OpenAI provider record on first run) | *(none)*   |         |
 
 ### Google
 
 | Variable                        | Description                | Default    | Example |
 |---------------------------------|----------------------------|:----------:|---------|
-| `GOOGLE_API_KEY` :material-lock:     | Google API key             | *(none)*   |         |
+| `GOOGLE_API_KEY` :material-lock:     | Google API key (seeds the Google provider record on first run) | *(none)*   |         |
 
 ## Automation: Tools
 
@@ -276,7 +292,7 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 | `DAIV_WEB_FETCH_TIMEOUT_SECONDS` | HTTP timeout for fetching (seconds)                      | `15`           | `30` |
 | `AUTOMATION_WEB_FETCH_PROXY_URL` | Optional proxy URL for web fetch HTTP requests (env-only)      | *(none)*       | `http://proxy:8080` |
 | `DAIV_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass | `50000` | `80000` |
-| `AUTOMATION_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON, env-only) | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
+| `DAIV_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON, env-only) | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
 
 ### MCP Tools
 
@@ -285,12 +301,22 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 | Variable                        | Description                                                    | Default                        | Example |
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
 | `MCP_SERVERS_CONFIG_FILE`       | Path to user-defined MCP servers JSON config file              | *(none)*                       | `/path/to/mcp.json` |
-| `MCP_SENTRY_URL`                | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable) | `http://mcp-sentry:8000/mcp`   | `http://localhost:8001/mcp` |
-| `MCP_CONTEXT7_URL`              | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp-context7:8000/mcp` | `http://localhost:8002/mcp` |
+| `MCP_SENTRY_URL`                | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable) | `http://mcp_sentry:8000/mcp`   | `http://localhost:8001/mcp` |
+| `MCP_CONTEXT7_URL`              | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable) | `http://mcp_context7:8000/mcp` | `http://localhost:8002/mcp` |
 | `MCP_TOOL_LOAD_TIMEOUT`         | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30` | `10` |
 
 !!! info
     For detailed MCP server configuration including user-defined servers, see [MCP Tools](../customization/mcp-tools.md).
+
+### Deferred Tools (Tool Search)
+
+When enabled, tools outside the always-loaded set are deferred behind a `tool_search` tool instead of being bound to the model eagerly, keeping the active tool surface small. Most operators do not need to tune these.
+
+| Variable                        | Description                                                    | Default        | Example |
+|---------------------------------|----------------------------------------------------------------|:--------------:|---------|
+| `DEFERRED_TOOLS_ENABLED`        | Defer non-essential tools behind `tool_search` instead of binding them eagerly | `true` | `false` |
+| `DEFERRED_TOOLS_TOP_K_DEFAULT`  | Default number of results returned by a `tool_search` call     | `3`            | `5` |
+| `DEFERRED_TOOLS_TOP_K_MAX`      | Maximum number of results `tool_search` will return per call   | `10`           | `20` |
 
 ---
 
@@ -307,7 +333,8 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | `DAIV_AGENT_RECURSION_LIMIT` | Maximum recursion depth for agent execution | `500` |
 | `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `claude-sonnet-4-6` |
 | `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `gpt-5-3-codex` |
-| `DAIV_AGENT_THINKING_LEVEL` | Extended thinking level (`minimal`, `low`, `medium`, `high`, or `None` to disable) | `medium` |
+| `DAIV_AGENT_THINKING_LEVEL` | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, or empty to disable) | `medium` |
+| `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (independent of `DAIV_AGENT_THINKING_LEVEL`) | `medium` |
 | `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `claude-opus-4-6` |
 | `DAIV_AGENT_MAX_THINKING_LEVEL` | Thinking level for `daiv-max` tasks | `high` |
 | `DAIV_AGENT_EXPLORE_MODEL_NAME` | Model for the explore subagent (fast, read-only) | `claude-haiku-4-5` |
@@ -320,7 +347,7 @@ The [Jobs API](../features/jobs-api.md) allows programmatic agent execution.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/second`, `N/minute`, `N/hour`, or `N/day` | `20/hour` |
+| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/sec`, `N/min`, `N/hour`, or `N/day` | `20/hour` |
 
 ### Diff to Metadata
 

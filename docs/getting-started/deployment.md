@@ -88,6 +88,9 @@ x-app-environment-defaults: &app_environment_defaults
   EMAIL_USE_TLS: true
   # SANDBOX
   DAIV_SANDBOX_URL: http://sandbox:8000 (4)
+  # MCP (built-in supergateway containers)
+  MCP_SENTRY_URL: http://mcp-sentry:8000/mcp (17)
+  MCP_CONTEXT7_URL: http://mcp-context7:8000/mcp (17)
 
 x-deploy-defaults: &deploy_defaults
   replicas: 1
@@ -233,9 +236,14 @@ services:
     image: supercorp/supergateway:latest
     command:
       - --stdio
-      - "npx @sentry/mcp-server@latest --access-token=$$(cat /run/secrets/sentry_access_token)" (9)
+      - "SENTRY_ACCESS_TOKEN=$$(cat /run/secrets/sentry_access_token) npx @sentry/mcp-server@latest" (9)
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
+      - --stateful
+      - --sessionTimeout
+      - "300000"
     environment:
       SENTRY_HOST: your-sentry-host
     secrets:
@@ -254,8 +262,13 @@ services:
     command:
       - --stdio
       - "npx @upstash/context7-mcp@latest"
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
+      - --stateful
+      - --sessionTimeout
+      - "300000"
     networks:
       - internal
     healthcheck:
@@ -311,9 +324,10 @@ secrets:
 6.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 7.   **Required**: Sandbox needs Docker socket access to create isolated containers
 8.   **Optional**: Remove this volume if you don't need private registry access
-9.   The Sentry access token is read from the Docker secret at runtime via `--access-token`. Set `SENTRY_HOST` for self-hosted Sentry instances. These MCP services are optional — remove them if not needed
+9.   The Sentry access token is read from the Docker secret and exported as the `SENTRY_ACCESS_TOKEN` environment variable that `@sentry/mcp-server` expects. Set `SENTRY_HOST` for self-hosted Sentry instances. These MCP services are optional — remove them if not needed
 10.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 16.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
+17.  Built-in MCP tools connect over streamable HTTP at the `/mcp` path. Set these explicitly so the hyphenated service names resolve — the built-in defaults assume `mcp_sentry` / `mcp_context7` (underscores). See [MCP Tools](../customization/mcp-tools.md)
 
 ### Step 3: Deploy the stack
 
@@ -391,7 +405,10 @@ x-app-defaults: &x_app_default
     EMAIL_USE_TLS: true
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
-    # Authentication (configure via UI at /configuration/ or via env vars)
+    # MCP settings (built-in supergateway containers)
+    MCP_SENTRY_URL: http://mcp-sentry:8000/mcp (16)
+    MCP_CONTEXT7_URL: http://mcp-context7:8000/mcp (16)
+    # Authentication (configure via UI at /dashboard/configuration/ or via env vars)
     ALLAUTH_CLIENT_ID: oauth-client-id
     ALLAUTH_CLIENT_SECRET: oauth-client-secret
 
@@ -493,8 +510,13 @@ services:
     command:
       - --stdio
       - "npx @sentry/mcp-server@latest"
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
+      - --stateful
+      - --sessionTimeout
+      - "300000"
     env_file:
       - config.secrets.env (14)
     healthcheck:
@@ -511,8 +533,13 @@ services:
     command:
       - --stdio
       - "npx @upstash/context7-mcp@latest"
+      - --outputTransport
+      - streamableHttp
       - --healthEndpoint
       - "/healthz"
+      - --stateful
+      - --sessionTimeout
+      - "300000"
     env_file:
       - config.secrets.env
     healthcheck:
@@ -545,6 +572,7 @@ volumes:
 13.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
 14.  **Add MCP credentials** (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) to your env file. These MCP services are optional — remove them if not needed
 15.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+16.  Built-in MCP tools connect over streamable HTTP at the `/mcp` path. Set these explicitly so the hyphenated service names resolve — the built-in defaults assume `mcp_sentry` / `mcp_context7` (underscores). See [MCP Tools](../customization/mcp-tools.md)
 17.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
 
 ### Step 2: Run the compose file
@@ -675,4 +703,4 @@ Your DAIV instance is now running and accessible. Continue with:
 
     After the initial admin is created, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
 
-    OAuth login can be configured and toggled on/off at any time via the **Configuration** page at `/configuration/` under the **Authentication** section.
+    OAuth login can be configured and toggled on/off at any time via the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section.

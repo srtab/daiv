@@ -2,7 +2,7 @@
 
 DAIV's main agent can delegate work to specialized subagents. Each subagent is optimized for a specific type of task — one for fast codebase exploration, another for complex multi-step work. The main agent decides when to delegate based on the nature of the task.
 
-You can see the available subagents by running `/agents` on any issue or merge/pull request.
+You can see the available subagents by running `/agents` — it works in the global/chat scope as well as on any issue or merge/pull request. The output lists every available subagent, so alongside the two built-ins described below you may also see the code-review detectors and any custom subagents defined for the repository.
 
 ## Available subagents
 
@@ -38,7 +38,7 @@ The main agent chooses which subagent to use based on the task:
 - **Need to research, run commands, or do multi-step work?** → General-purpose subagent
 - **Need to make code changes directly?** → Main agent handles it itself
 
-Subagents run within the same conversation context. Their findings are returned to the main agent, which uses them to continue the task.
+Each subagent runs in its own isolated context — it does not see the main conversation and cannot exchange messages with the main agent. It works autonomously and returns a single final report, which the main agent uses to continue the task.
 
 ## Custom subagents
 

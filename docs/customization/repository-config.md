@@ -47,7 +47,7 @@ models:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `default_branch` | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests. |
-| `context_file_name` | `str \| null` | `"AGENTS.md"` | Name of the [AGENTS.md](https://arxiv.org/abs/2602.11988) guidance file. Set to `null` to disable. |
+| `context_file_name` | `str \| null` | `"AGENTS.md"` | Name of the [AGENTS.md](https://agents.md/) guidance file. Set to `null` to disable. |
 | `suggest_context_file` | `bool` | `true` | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](../features/issue-addressing.md#agentsmd-suggestion). |
 
 !!! tip
@@ -104,7 +104,6 @@ slash_commands:
 | `pull_request_assistant` | `enabled` | `true` | [Pull Request Assistant](../features/pull-request-assistant.md) |
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
 
-#
 ## Branch naming and commit conventions
 
 DAIV generates branch names and commit messages automatically. You can define your conventions in `AGENTS.md`:
@@ -141,7 +140,7 @@ The main DAIV agent used for issue addressing, pull request assistance, and all 
 |--------|------|---------|-------------|
 | `models.agent.model` | `str` | `claude-sonnet-4.6` | Primary model. |
 | `models.agent.fallback_model` | `str` | `gpt-5.3-codex` | Fallback if the primary model fails. |
-| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| null` | `medium` | Thinking depth. Set to `null` to disable. |
+| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null` | `medium` | Thinking depth. Set to `null` to disable. |
 
 ### Diff to metadata
 
@@ -149,8 +148,8 @@ Generates pull request titles, descriptions, and commit messages from diffs.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `models.diff_to_metadata.model` | `str` | `claude-sonnet-4.6` | Primary model. |
-| `models.diff_to_metadata.fallback_model` | `str` | `gpt-5.3-codex` | Fallback if the primary model fails. |
+| `models.diff_to_metadata.model` | `str` | `gpt-5.4-mini` | Primary model. |
+| `models.diff_to_metadata.fallback_model` | `str` | `claude-haiku-4.5` | Fallback if the primary model fails. |
 
 !!! note
     The diff to metadata agent reads your `AGENTS.md` file to follow your branch naming and commit message conventions.

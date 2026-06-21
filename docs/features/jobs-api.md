@@ -21,6 +21,16 @@ python manage.py create_api_key <username> --name "my-key"
 
 This outputs a key in the format `prefix.secret`. Store it securely — it cannot be retrieved later.
 
+### Managing API keys
+
+You can also self-service your API keys from the dashboard at `/accounts/api-keys/`. There you can:
+
+- **Create** a key by giving it a name — the full secret is shown **only once**, right after creation, so copy it immediately.
+- **List** your keys (admins see every user's keys).
+- **Revoke** a key you no longer need; revoked keys stop authenticating immediately.
+
+The `create_api_key` management command remains available for headless/automated provisioning.
+
 ### Using the key
 
 Pass the key in the `Authorization` header:
@@ -36,13 +46,16 @@ curl -X POST https://daiv.example.com/api/jobs \
 
 Job submissions are rate-limited per authenticated user. The default limit is **20 requests per hour**. When exceeded, the API returns `429 Too Many Requests`.
 
-The rate can be configured via the `DAIV_JOBS_THROTTLE_RATE` environment variable:
+The rate is configured via the `jobs_throttle_rate` field in Site Configuration (default `20/hour`). Set it to a value like:
 
 ```
-DAIV_JOBS_THROTTLE_RATE=50/hour
+50/hour
 ```
 
-Valid formats: `N/second`, `N/minute`, `N/hour`, `N/day` (or short forms: `N/s`, `N/m`, `N/h`, `N/d`).
+Valid formats: `N/sec`, `N/min`, `N/hour`, `N/day` (or single-letter short forms: `N/s`, `N/m`, `N/h`, `N/d`).
+
+!!! note
+    The same rate can also be set with the `DAIV_JOBS_THROTTLE_RATE` environment variable (or Docker secret). When set, it is a hard override that wins over the database value and **locks** the field in the Site Configuration UI.
 
 ## Endpoints
 
@@ -54,12 +67,18 @@ POST /api/jobs
 
 **Request body:**
 
-| Field       | Type             | Required | Description |
-|-------------|------------------|----------|-------------|
-| `repos`     | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch-or-sha" }` — `ref` is optional and defaults to the repository's default branch. |
-| `prompt`    | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`. |
-| `use_max`   | boolean          | no       | Use the more capable model with thinking set to high. Defaults to `false`. |
-| `notify_on` | string           | no       | Override the user's notification preference for this batch. One of `never`, `always`, `on_success`, `on_failure`. |
+| Field                  | Type             | Required | Description |
+|------------------------|------------------|----------|-------------|
+| `repos`                | array of objects | yes      | 1–20 repositories to run against. Each item: `{ "repo_id": "group/project", "ref": "branch-or-sha" }` — `ref` is optional and defaults to the repository's default branch. |
+| `prompt`               | string           | yes      | The prompt to send to the agent. The same prompt runs as an independent job against each repository in `repos`. |
+| `agent_model`          | string           | no       | Override the model used for this batch. Invalid model / thinking-level combinations are rejected with `400`. |
+| `agent_thinking_level` | string           | no       | Override the agent's reasoning effort. One of `minimal`, `low`, `medium`, `high`, `xhigh`. Invalid combinations are rejected with `400`. |
+| `notify_on`            | string           | no       | Override the user's notification preference for this batch. One of `never`, `always`, `on_success`, `on_failure`. |
+| `environment`          | string           | no       | Select a sandbox environment (by name or id) applied to every job in the batch. An unresolvable environment is rejected with `400`. |
+| `thread_id`            | string (UUID)    | no       | Continue an existing thread. Requires exactly one repo in `repos`, and the most recent run on that thread must belong to you (otherwise `400`). If a prior run on the thread is still in flight, the new job is created in `QUEUED` state and released FIFO when that run finishes. |
+
+!!! note
+    The request body is validated strictly: unknown fields (including the removed `use_max` toggle) are rejected with `422`. Use `agent_model` and `agent_thinking_level` to control the model instead.
 
 **Example:**
 
@@ -82,14 +101,16 @@ curl -s -X POST https://daiv.example.com/api/jobs \
     {
       "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5",
       "repo_id": "mygroup/myproject",
-      "ref": null
+      "ref": null,
+      "thread_id": "9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90",
+      "status": "READY"
     }
   ],
   "failed": []
 }
 ```
 
-Each entry in `jobs` is an independent run — poll each `job_id` separately. Pre-enqueue rejections (e.g. unknown `repo_id`) are reported in `failed` as `{repo_id, ref, error}`; the rest of the batch still runs.
+Each entry in `jobs` is an independent run — poll each `job_id` separately. The `status` is `READY` for an immediately-runnable job, or `QUEUED` if another run is already in flight on the same `thread_id` (see [Job lifecycle](#job-lifecycle)). Pre-enqueue rejections (e.g. unknown `repo_id`) are reported in `failed` as `{repo_id, ref, error}`; the rest of the batch still runs.
 
 ### Poll job status
 
@@ -103,6 +124,7 @@ GET /api/jobs/{job_id}
 {
   "job_id": "1adfbf7a-917e-4f2e-8f54-17a27c006ec5",
   "status": "SUCCESSFUL",
+  "thread_id": "9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90",
   "result": "Here are the Python files...",
   "merge_request_url": null,
   "error": null,
@@ -112,22 +134,34 @@ GET /api/jobs/{job_id}
 }
 ```
 
-`merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs).
+`merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs). `thread_id` identifies the thread this job ran on — pass it back as the `thread_id` field on a new submission to continue the conversation.
 
 **Status values:**
 
 | Status | Meaning |
 |--------|---------|
+| `QUEUED` | Job is waiting for an earlier run on the same thread to finish; released FIFO. Only occurs for thread continuations (`thread_id` supplied). |
 | `READY` | Job is queued, waiting for a worker |
 | `RUNNING` | Agent is executing |
-| `SUCCESSFUL` | Completed — `result` contains the agent's output |
+| `SUCCESSFUL` | Completed — `result` contains the agent's response summary |
 | `FAILED` | Agent encountered an error — `error` contains a message |
 
 **Error responses:**
 
+For `GET /api/jobs/{job_id}`:
+
 | Code | When |
 |------|------|
 | `404` | Job ID not found or invalid |
+| `401` | Missing or invalid API key |
+
+For `POST /api/jobs`:
+
+| Code | When |
+|------|------|
+| `400` | Invalid request — bad `agent_model` / `agent_thinking_level` override, unresolvable `environment`, or invalid `thread_id` continuation (unknown/unowned thread, or more than one repo). |
+| `422` | Malformed body or unknown fields (e.g. the removed `use_max`). |
+| `429` | Rate limit exceeded (see [Rate limiting](#rate-limiting)). |
 | `401` | Missing or invalid API key |
 
 ## Job lifecycle
@@ -135,12 +169,16 @@ GET /api/jobs/{job_id}
 ```mermaid
 stateDiagram-v2
     [*] --> READY: POST /api/jobs
+    [*] --> QUEUED: POST /api/jobs (thread continuation, prior run in flight)
+    QUEUED --> READY: Prior run on the thread finishes (FIFO)
     READY --> RUNNING: Worker picks up job
     RUNNING --> SUCCESSFUL: Agent completes
     RUNNING --> FAILED: Agent errors
 ```
 
-Once a job reaches `SUCCESSFUL` or `FAILED`, the status is final. The `result` field contains the agent's full text output.
+A job only starts in `QUEUED` when you supply a `thread_id` and an earlier run on that thread is still in flight; it is released to `READY` (FIFO) when that run terminates. Every other submission starts at `READY`.
+
+Once a job reaches `SUCCESSFUL` or `FAILED`, the status is final. The `result` field contains the agent's text response summary (its last response, truncated to 2000 characters) — not necessarily the complete output.
 
 ## Examples
 
