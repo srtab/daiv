@@ -8,14 +8,13 @@ how short an inline review comment can be, what a suggestion block typically
 replaces, what a yes/no question looks like, and how the same defect manifests
 across stacks. These are not templates to copy verbatim.
 
-Inline-eligible archetypes come in two shapes. **Fix archetypes** ship a
-`suggestion` block: `remove_dead_lines`, `use_framework_idiom`,
-`replace_with_constant`, `swap_library_call`. The **question archetype**
-(`question`) is also inline-eligible: it anchors on a specific new-side line
-but carries no `suggestion` block — just the question. Everything else —
-including `rename`, which propagates to call sites that a single-line
-suggestion can't patch, and cross-file or un-anchored questions — goes in
-the summary discussion.
+Part 1 collects the **inline-eligible** archetypes — the four fix archetypes
+(`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`,
+`swap_library_call`), which ship a `suggestion` block, plus `question`, which
+anchors a question on a new-side line with no `suggestion`. Part 2 collects the
+**discussion-only** archetypes, which deliver as a summary `discussion`.
+`gitlab-delivery.md` Step 3 is authoritative on the inline-vs-summary split
+(including why a `rename` can't be inline); these are just the shape examples.
 
 ---
 
@@ -236,13 +235,22 @@ try {
 
 # Part 2 — Discussion-only archetypes
 
-These deliver as the `discussion` archetype in the summary — prose findings, no inline `suggestion` block.
+These all serialize as the `discussion` archetype — prose findings in the summary, no inline `suggestion` block. The names below are recognition aids, **not** schema values (`review-workflow.md`: only the six schema strings are valid). Carrying no `suggestion` block, they need no per-language syntax calibration — the table is the reference; two worked examples follow to show the before/after prose shape.
 
-## `rename` (discussion-only)
+| Archetype | The tell | Why it's discussion-only |
+|---|---|---|
+| `rename` | A name implies a type/scope/concept that doesn't match what it holds | The rename propagates to call sites a single-line suggestion can't patch |
+| `move_to_other_module` | Logic in the wrong layer (a view doing data work, a handler encoding business rules) | The fix creates/extends a second file and updates the call site |
+| `extract_to_helper` | The same multi-step sequence is copy-pasted 2+ times | Extracting it and rewiring each call site spans non-adjacent hunks |
+| `extract_to_base_or_shared_type` | Two+ types carry identical fields/methods (lifecycle fields, a common wire shape) | Lifting the shared shape touches every type that adopts it |
+| `split_responsibility` | One unit does two orthogonal jobs (name often has "and"; method groups share no state) | Separating the concerns restructures the unit and its callers |
+| `add_guard` | An operation runs on external input without checking a precondition (unwrap, deref, parse) | The guard is justified in prose at a trust boundary, not a mechanical line swap |
+| `add_invariant_raise` | Code silently no-ops a state the surrounding logic says cannot occur | Replacing the silent fallback with a raise needs the invariant explained |
+| `fix_logic_bug` | Code computes the wrong result on ordinary inputs (off-by-one, inverted condition, `=` vs `+=`) | No inline fix archetype matches a general logic correction |
 
-A name in the diff actively misleads the reader: it implies a type, scope, or concept that does not match what the identifier actually holds. The fix is a targeted rename — no logic changes. The bar for this archetype is a name that would send a future reader in the wrong direction, not just one that could be marginally clearer.
+## Example — `rename` (Python)
 
-### Example — Python
+A name in the diff actively misleads the reader: it implies a type, scope, or concept that does not match what the identifier holds. The fix is a targeted rename — no logic changes — but it propagates to every call site, so it goes in the summary, not an inline suggestion.
 
 **Reviewer comment:** `is_admin is a User object, not a bool; name it user or admin_user.`
 
@@ -270,13 +278,9 @@ def revoke_access(session_id: str) -> None:
     admin_user.revoke_all_tokens()
 ```
 
----
+## Example — `move_to_other_module` (Go)
 
-## `move_to_other_module` (discussion-only)
-
-Code placed in the wrong architectural layer: a template or view doing data transformation that belongs in the model/service layer, a route handler encoding business rules that belong in a domain object, or an entry-point module accumulating logic that belongs in a dedicated module. Because the fix requires creating or extending a second file and updating the call site, this finding cannot be expressed as a single inline suggestion — it belongs in the review summary.
-
-### Example — Go
+Code placed in the wrong architectural layer — here, password hashing inside an HTTP handler. The fix creates a function in the layer that owns the concern and updates the call site, so it spans two files and can't be one inline suggestion.
 
 **Reviewer comment:** `Password hashing belongs in the \`user\` package, not the HTTP handler.`
 
@@ -300,7 +304,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-**After** (`user/user.go` — new function):
+**After** (`user/user.go` — new function, and `handler/auth.go` calls `user.HashPassword(password)`):
 
 ```go
 const bcryptCost = 12
@@ -311,336 +315,5 @@ func HashPassword(plain string) (string, error) {
         return "", err
     }
     return string(b), nil
-}
-```
-
-**After** (`handler/auth.go` — simplified call site):
-
-```go
-func RegisterHandler(w http.ResponseWriter, r *http.Request) {
-    email := r.FormValue("email")
-    password := r.FormValue("password")
-
-    hash, err := user.HashPassword(password)
-    if err != nil {
-        http.Error(w, "internal error", http.StatusInternalServerError)
-        return
-    }
-    if err := store.CreateUser(email, hash); err != nil {
-        http.Error(w, "could not create user", http.StatusBadRequest)
-        return
-    }
-    w.WriteHeader(http.StatusCreated)
-}
-```
-
----
-
-## `extract_to_helper` (discussion-only)
-
-This archetype appears when the same multi-step operation is copy-pasted two or more times across a file or module. The duplication is structural: the same sequence of steps, usually parameterised only by a small set of values, repeats verbatim. The fix is to give that sequence a name and collapse each call site to one line. Future call sites then get the named helper for free, and any change to the logic happens in one place.
-
-### Example — TypeScript
-
-**Reviewer comment:** The retry-with-delay loop appears in two places already. Extract it to `withRetry` before a third copy lands.
-
-**Before:**
-
-```typescript
-async function fetchWithRetry(url: string): Promise<Response> {
-    let attempt = 0;
-    while (attempt < 3) {
-        try {
-            return await fetch(url);
-        } catch {
-            attempt++;
-            await new Promise(r => setTimeout(r, attempt * 200));
-        }
-    }
-    throw new Error(`Failed after 3 attempts: ${url}`);
-}
-
-async function postWithRetry(url: string, body: unknown): Promise<Response> {
-    let attempt = 0;
-    while (attempt < 3) {
-        try {
-            return await fetch(url, { method: "POST", body: JSON.stringify(body) });
-        } catch {
-            attempt++;
-            await new Promise(r => setTimeout(r, attempt * 200));
-        }
-    }
-    throw new Error(`Failed after 3 attempts: ${url}`);
-}
-```
-
-**After:**
-
-```typescript
-async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
-    let attempt = 0;
-    while (attempt < maxAttempts) {
-        try {
-            return await fn();
-        } catch {
-            attempt++;
-            await new Promise(r => setTimeout(r, attempt * 200));
-        }
-    }
-    throw new Error(`Failed after ${maxAttempts} attempts`);
-}
-
-async function fetchWithRetry(url: string): Promise<Response> {
-    return withRetry(() => fetch(url));
-}
-
-async function postWithRetry(url: string, body: unknown): Promise<Response> {
-    return withRetry(() => fetch(url, { method: "POST", body: JSON.stringify(body) }));
-}
-```
-
----
-
-## `extract_to_base_or_shared_type` (discussion-only)
-
-This archetype appears when two or more distinct types carry identical fields or methods — usually lifecycle fields (`created_at`, `updated_at`, `id`), capability groups (`Validate() error`, `Name() string`), or a common wire shape. Each language has its own mechanism — Python uses a base class, Go uses struct embedding, TypeScript uses an interface implemented by multiple classes — but the smell is the same: the shape is copied rather than named. The fix is to lift the shared shape into one definition that all types reference, so any future change or addition to it propagates automatically.
-
-> Note: This archetype is the language-agnostic generalisation of language-specific patterns like mixin, embedded struct, trait with default impl, and interface + abstract class.
-
-### Example — Python
-
-**Reviewer comment:** `id`, `created_at`, and `updated_at` appear on every model. Lift them into a `TimestampedModel` base so new models get them for free and the migration surface stays small.
-
-**Before:**
-
-```python
-class Article(Base):
-    __tablename__ = "articles"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(onupdate=func.now())
-    title: Mapped[str]
-    body: Mapped[str]
-
-
-class Comment(Base):
-    __tablename__ = "comments"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(onupdate=func.now())
-    content: Mapped[str]
-    author_id: Mapped[int]
-```
-
-**After:**
-
-```python
-class TimestampedModel(Base):
-    __abstract__ = True
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(onupdate=func.now())
-
-
-class Article(TimestampedModel):
-    __tablename__ = "articles"
-    title: Mapped[str]
-    body: Mapped[str]
-
-
-class Comment(TimestampedModel):
-    __tablename__ = "comments"
-    content: Mapped[str]
-    author_id: Mapped[int]
-```
-
----
-
-## `split_responsibility` (discussion-only)
-
-This archetype appears when a single function, class, or module is doing two clearly orthogonal jobs — for example, fetching data and transforming it, or validating input and writing audit logs. The tell is that the unit has two reasons to change: once for each responsibility. Reviewers often spot it when the function name uses "and", when a class has method groups with no shared state, or when a unit is hard to test because mocking one concern forces you to stub the other. The fix is to separate the two responsibilities into distinct units and compose them at the call site.
-
-### Example — Go
-
-**Reviewer comment:** `ProcessOrder` is doing validation and persistence in one pass. These change for different reasons — split so each can be tested and evolved independently.
-
-**Before:**
-
-```go
-func ProcessOrder(db *sql.DB, o Order) error {
-    if o.Quantity <= 0 {
-        return errors.New("quantity must be positive")
-    }
-    if o.Price < 0 {
-        return errors.New("price must be non-negative")
-    }
-    if o.CustomerID == "" {
-        return errors.New("customer id is required")
-    }
-
-    _, err := db.Exec(
-        `INSERT INTO orders (customer_id, quantity, price) VALUES ($1, $2, $3)`,
-        o.CustomerID, o.Quantity, o.Price,
-    )
-    return err
-}
-```
-
-**After:**
-
-```go
-func ValidateOrder(o Order) error {
-    if o.Quantity <= 0 {
-        return errors.New("quantity must be positive")
-    }
-    if o.Price < 0 {
-        return errors.New("price must be non-negative")
-    }
-    if o.CustomerID == "" {
-        return errors.New("customer id is required")
-    }
-    return nil
-}
-
-func SaveOrder(db *sql.DB, o Order) error {
-    _, err := db.Exec(
-        `INSERT INTO orders (customer_id, quantity, price) VALUES ($1, $2, $3)`,
-        o.CustomerID, o.Quantity, o.Price,
-    )
-    return err
-}
-
-// caller
-func ProcessOrder(db *sql.DB, o Order) error {
-    if err := ValidateOrder(o); err != nil {
-        return err
-    }
-    return SaveOrder(db, o)
-}
-```
-
----
-
-## `add_guard` (discussion-only)
-
-This archetype appears whenever code reaches an operation that requires a precondition — unwrapping an optional, using a value from external input, dereferencing a pointer — without first verifying that precondition holds. The trust boundary is the key: data arriving from outside the current module (HTTP request, database row, user argument, network response) can be absent, malformed, or out of range. The fix is a small early-return or error-return that rejects the bad input before it propagates deeper.
-
-### Example — TypeScript
-
-**Reviewer comment:** `payload.expiresAt` is parsed from JSON — it could be `undefined` or an invalid date string. Guard before using it.
-
-**Before:**
-
-```typescript
-async function scheduleTask(payload: Record<string, unknown>): Promise<void> {
-    const expiresAt = new Date(payload.expiresAt as string);
-    await db.tasks.create({
-        data: {
-            name: payload.name as string,
-            expiresAt,
-        },
-    });
-}
-```
-
-**After:**
-
-```typescript
-async function scheduleTask(payload: Record<string, unknown>): Promise<void> {
-    if (!payload.expiresAt || typeof payload.expiresAt !== "string") {
-        throw new Error("expiresAt is required and must be a string");
-    }
-    const expiresAt = new Date(payload.expiresAt);
-    if (isNaN(expiresAt.getTime())) {
-        throw new Error(`expiresAt is not a valid date: ${payload.expiresAt}`);
-    }
-    if (!payload.name || typeof payload.name !== "string") {
-        throw new Error("name is required and must be a string");
-    }
-    await db.tasks.create({
-        data: {
-            name: payload.name,
-            expiresAt,
-        },
-    });
-}
-```
-
----
-
-## `add_invariant_raise` (discussion-only)
-
-This archetype appears when the code defensively handles a state that the surrounding logic guarantees cannot occur — for example, returning silently when a value is `None` on a code path that only runs after the value has been confirmed non-`None`, or `default`-ing a switch branch that covers every valid enum variant. Silent no-ops in impossible branches hide bugs: when the invariant is actually violated (due to a future refactor or a caller mistake), the program continues in a corrupt state instead of failing loudly. The fix is to replace the silent fallback with an explicit raise/panic/error, turning a masked bug into a visible one.
-
-### Example — Python
-
-**Reviewer comment:** If `current_user` is `None` here the middleware already failed. Silent `return` hides the bug — raise instead.
-
-**Before:**
-
-```python
-def transfer_funds(amount: Decimal, to_account_id: int) -> None:
-    # Middleware guarantees current_user is set before this handler runs
-    current_user = get_current_user()
-    if current_user is None:
-        return  # should never happen
-    if amount <= 0:
-        raise ValueError("amount must be positive")
-    ledger.debit(current_user.account_id, amount)
-    ledger.credit(to_account_id, amount)
-```
-
-**After:**
-
-```python
-def transfer_funds(amount: Decimal, to_account_id: int) -> None:
-    # Middleware guarantees current_user is set before this handler runs
-    current_user = get_current_user()
-    if current_user is None:
-        raise RuntimeError("Invariant violated: current_user is None inside an authenticated handler")
-    if amount <= 0:
-        raise ValueError("amount must be positive")
-    ledger.debit(current_user.account_id, amount)
-    ledger.credit(to_account_id, amount)
-```
-
----
-
-## `fix_logic_bug` (discussion-only)
-
-This archetype covers code that computes the wrong result on ordinary inputs: an off-by-one that skips the last element, an inverted condition that rejects valid input instead of invalid, a `=` that resets an accumulator instead of `+=` that builds it, or an index that reads from the wrong position in a loop. These bugs are usually subtle — the code looks plausible at a glance — but they produce consistently wrong outputs that tests or careful review expose. The after must show the correct logic, not a comment or a TODO.
-
-### Example — Go
-
-**Reviewer comment:** `total = price * qty` resets `total` on every iteration — the earlier lines are thrown away. This must be `total +=`.
-
-**Before:**
-
-```go
-func calculateInvoiceTotal(lines []LineItem) float64 {
-    var total float64
-    for _, line := range lines {
-        price := line.UnitPrice * (1 - line.DiscountRate)
-        qty := float64(line.Quantity)
-        total = price * qty
-    }
-    return total
-}
-```
-
-**After:**
-
-```go
-func calculateInvoiceTotal(lines []LineItem) float64 {
-    var total float64
-    for _, line := range lines {
-        price := line.UnitPrice * (1 - line.DiscountRate)
-        qty := float64(line.Quantity)
-        total += price * qty
-    }
-    return total
 }
 ```

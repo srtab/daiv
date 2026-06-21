@@ -191,10 +191,8 @@ class TestGeneralPurposeMiddleware:
         assert len(breakers) == 1
         assert breakers[0].terminal == "error"
 
-    def test_detector_stack_includes_loop_breaker_with_error_terminal(self, mock_model, mock_backend, mock_runtime_ctx):
-        middleware = _build_detector_middleware(
-            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
-        )
+    def test_detector_stack_includes_loop_breaker_with_error_terminal(self, mock_model, mock_backend):
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
         breakers = [m for m in middleware if isinstance(m, LoopBreakerMiddleware)]
         assert len(breakers) == 1
         assert breakers[0].terminal == "error"
@@ -836,26 +834,16 @@ class TestDetectorMiddleware:
     def mock_model(self):
         return Mock()
 
-    @pytest.fixture
-    def mock_runtime_ctx(self, tmp_path):
-        repo_dir = tmp_path / "repo"
-        repo_dir.mkdir()
-        ctx = Mock()
-        ctx.gitrepo.working_dir = str(repo_dir)
-        return ctx
-
-    def test_filesystem_is_read_only(self, mock_model, mock_backend, mock_runtime_ctx):
+    def test_filesystem_is_read_only(self, mock_model, mock_backend):
         from deepagents.middleware.filesystem import FilesystemMiddleware
 
         from automation.agent.subagents import READ_ONLY_PERMISSIONS, _build_detector_middleware
 
-        middleware = _build_detector_middleware(
-            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
-        )
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
         fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
         assert fs._permissions == READ_ONLY_PERMISSIONS
 
-    def test_includes_sandbox_but_not_git_platform_or_web(self, mock_model, mock_backend, mock_runtime_ctx):
+    def test_includes_sandbox_but_not_git_platform_or_web(self, mock_model, mock_backend):
         from langchain.agents.middleware import TodoListMiddleware
 
         from automation.agent.middlewares.git_platform import GitPlatformMiddleware
@@ -864,27 +852,21 @@ class TestDetectorMiddleware:
         from automation.agent.middlewares.web_search import WebSearchMiddleware
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(
-            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
-        )
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
         assert any(isinstance(m, SandboxMiddleware) for m in middleware)
         assert not any(isinstance(m, GitPlatformMiddleware) for m in middleware)
         assert not any(isinstance(m, WebSearchMiddleware) for m in middleware)
         assert not any(isinstance(m, WebFetchMiddleware) for m in middleware)
         assert not any(isinstance(m, TodoListMiddleware) for m in middleware)
 
-    def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend, mock_runtime_ctx):
+    def test_excludes_sandbox_when_disabled(self, mock_model, mock_backend):
         from automation.agent.middlewares.sandbox import SandboxMiddleware
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(
-            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=False, name="cr-correctness"
-        )
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=False, name="cr-correctness")
         assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
 
-    def test_threads_client_and_sandbox_backend_into_sandbox_middleware(
-        self, mock_model, mock_backend, mock_runtime_ctx
-    ):
+    def test_threads_client_and_sandbox_backend_into_sandbox_middleware(self, mock_model, mock_backend):
         # Detectors reuse the run's bound client/sandbox_backend so their bash runs in the parent's
         # session (close_session=False). A dropped/flipped kwarg would make every detector's bash
         # raise "SandboxFileBackend is not bound to a sandbox session" at runtime — guard the
@@ -896,7 +878,6 @@ class TestDetectorMiddleware:
         middleware = _build_detector_middleware(
             mock_model,
             mock_backend,
-            mock_runtime_ctx,
             sandbox_enabled=True,
             client=sentinel_client,
             sandbox_backend=sentinel_backend,
@@ -907,18 +888,32 @@ class TestDetectorMiddleware:
         assert sandbox_mw._sandbox_backend is sentinel_backend
         assert sandbox_mw.close_session is False
 
-    def test_includes_deferred_output_middleware(self, mock_model, mock_backend, mock_runtime_ctx):
+    def test_includes_deferred_output_middleware(self, mock_model, mock_backend):
         from automation.agent.constants import SUBAGENT_OUTPUT_PATH
         from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(
-            mock_model, mock_backend, mock_runtime_ctx, sandbox_enabled=True, name="cr-correctness"
-        )
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
         deferred = [m for m in middleware if isinstance(m, DeferredOutputMiddleware)]
         assert len(deferred) == 1
         assert deferred[0]._name == "cr-correctness"
         assert deferred[0]._output_dir == SUBAGENT_OUTPUT_PATH
+
+    def test_deferred_output_runs_before_sandbox_teardown(self, mock_model, mock_backend):
+        # The detector defers its findings file in DeferredOutputMiddleware.aafter_agent, which must
+        # complete while the shared sandbox session is still alive. after_agent hooks fire in reverse
+        # append order, so DeferredOutputMiddleware must be appended AFTER SandboxMiddleware to run
+        # first on the way out. Lock both halves of that guard: the relative order, and that the
+        # detector's SandboxMiddleware never closes the (parent-owned) session itself.
+        from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
+        from automation.agent.middlewares.sandbox import SandboxMiddleware
+        from automation.agent.subagents import _build_detector_middleware
+
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
+        sandbox_idx = next(i for i, m in enumerate(middleware) if isinstance(m, SandboxMiddleware))
+        deferred_idx = next(i for i, m in enumerate(middleware) if isinstance(m, DeferredOutputMiddleware))
+        assert deferred_idx > sandbox_idx, "DeferredOutputMiddleware must be appended after SandboxMiddleware"
+        assert middleware[sandbox_idx].close_session is False
 
 
 class TestShippedDetectorCharters:
@@ -944,18 +939,18 @@ class TestShippedDetectorCharters:
             names.add(frontmatter["name"])
         assert names == set(CODE_REVIEW_DETECTOR_NAMES)
 
-    def test_charters_carry_read_only_bash_directive(self):
+    def test_shared_preamble_carries_read_only_bash_directive(self):
         # The detector sandbox is a full bash shell — no read-only mount and no per-subagent
         # command policy (SandboxMiddleware.__init__ takes no policy arg; _check_command_policy
-        # reads only global settings + repo config). So read-only is enforced at the prompt
-        # layer: every shipped charter must carry the read-only bash directive. Locked so a
-        # charter edit can't silently drop it and let a detector mutate the workspace via bash.
-        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+        # reads only global settings + repo config). So read-only is enforced at the prompt layer:
+        # the SHARED_DETECTOR_PREAMBLE prepended to every charter (load_builtin_code_review_detectors)
+        # must carry the read-only bash directive. Locked so an edit can't silently drop it and let a
+        # detector mutate the shared workspace via bash.
+        from automation.agent.subagents import SHARED_DETECTOR_PREAMBLE
 
-        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
-            body = md.read_text(encoding="utf-8").lower()
-            assert "read-only" in body, f"{md.name} is missing the read-only directive"
-            assert "sed -i" in body, f"{md.name} is missing the no-mutation command guidance"
+        body = SHARED_DETECTOR_PREAMBLE.lower()
+        assert "read-only" in body, "shared preamble is missing the read-only directive"
+        assert "sed -i" in body, "shared preamble is missing the no-mutation command guidance"
 
     def test_agents_dir_holds_exactly_the_five_cr_charters(self):
         # review-workflow.md's inline-detection fallback tells the parent to read

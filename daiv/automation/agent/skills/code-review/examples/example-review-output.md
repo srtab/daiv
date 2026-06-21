@@ -176,9 +176,4 @@ _5/5 detectors · 9 candidates · 2 merged → 3 inline, 4 in summary (rest refu
 
 ## What goes inline vs in the summary
 
-Two inline shapes:
-
-- **Fix archetypes** — one- or two-line fixes that map cleanly to a `suggestion` block: `remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`. The body is the suggestion; the prose is one or two sentences of justification, no more.
-- **Question archetype** — targeted questions anchored on a single new-side line or a contiguous new-side range within one hunk. No `suggestion` block — just marker + one or two sentences ending in `?`. The reader sees the question on the exact line(s) in the diff view. When the question is about a multi-line block, scope the position to the full range and compute the anchor on the first new-side line of that range.
-
-Everything else goes in the summary: findings spanning multiple lines or files, architectural / placement concerns, **renames** (a `suggestion` block can only patch the declaration, not the call sites), questions without a single-line anchor (cross-cutting concerns), anything that needs prose to land. If a finding's diff position can't be reliably constructed (renamed file, line moved, hunk anchor unclear), demote it to the summary — never post a misaligned inline suggestion or misanchored question.
+The bucketing rule — which findings ship as a `suggestion` block, which go inline as a `question`, which demote to the summary, and the demote-on-unreliable-position guard — is authoritative in `references/gitlab-delivery.md` Step 3. The bodies above show each resulting shape; consult Step 3 for the rule itself.

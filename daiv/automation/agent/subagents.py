@@ -53,6 +53,21 @@ _CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / "code-review"
 CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"
 CODE_REVIEW_FINDING_SCHEMA_PATH = _CODE_REVIEW_SKILL_PATH / "scripts" / "finding.schema.json"
 
+# Prepended to every cr-* detector's charter at compile time (load_builtin_code_review_detectors).
+# Holds the parts that are identical across all detectors — how the change is delivered and read,
+# the read-only contract, and the archetype enum — so each charter file carries only its own
+# dimension (the "You are the X detector" line, its principles slice, its Signal-filter nuance, and
+# its `detector` value). One source instead of five copies. The read-only contract is prompt-layer
+# enforcement: the detector sandbox is a full bash shell with no per-subagent command policy, so this
+# is the only thing stopping a detector from mutating the shared workspace via bash — keep it here.
+SHARED_DETECTOR_PREAMBLE = """You are one of DAIV's code-review fan-out detectors. The procedure below is shared by every detector; the dimension you own — and the findings you may report — are defined after it.
+
+You will be given the change's scope: source/target refs, the SHA triplet, the new-side path scope, and the path to a pre-computed unified diff file. **Read that diff file** to see the change. If no diff path was provided or the file is unreadable, fall back to reconstructing the change yourself — run `git diff <target>...<source>`, or, when `bash` is unavailable (a disk-backed run with no sandbox), read the changed files directly with `read_file`/`grep` over the new-side path scope. Either way, read surrounding code for context before deciding; context is what keeps false positives down.
+
+**You are read-only.** Use `bash` only for read-only inspection: `git diff`/`show`/`log`/`status`, `grep`, `find`, `cat`, and read-mode `sed`/`awk` (never `sed -i`). Never mutate the workspace — no output redirects (`>`, `>>`, `tee`), no `sed -i` / `python -c` writes, no formatters, tests, builds, or package managers, and no `git add`/`commit`/`checkout`/`reset`/`restore`/`clean`. If confirming a finding would need code execution, raise it as a `question` finding instead of running it.
+
+Set `archetype` to one of the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else."""  # noqa: E501
+
 logger = logging.getLogger("daiv.agent")
 
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
@@ -179,14 +194,12 @@ def _build_general_purpose_middleware(
 def _build_detector_middleware(
     model: BaseChatModel,
     backend: BackendProtocol,
-    runtime: RuntimeCtx,
     sandbox_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
     client: DAIVSandboxClient | None = None,
     sandbox_backend: SandboxFileBackend | None = None,
     *,
     name: str,
-    output_dir: str = SUBAGENT_OUTPUT_PATH,
 ) -> list:
     """Build the middleware stack for a code-review detector subagent.
 
@@ -197,9 +210,7 @@ def _build_detector_middleware(
 
     Like the general-purpose subagent, the sandbox is rooted at the unified ``/workspace/repo``
     and reuses the run's bound ``client``/``sandbox_backend`` so the detector's bash runs in the
-    parent's session (``close_session=False``). ``runtime`` is accepted for call-signature parity
-    with ``_build_general_purpose_middleware``; detectors have no git-platform middleware, so it is
-    otherwise unused here.
+    parent's session (``close_session=False``).
     """
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         FilesystemMiddleware(
@@ -217,9 +228,11 @@ def _build_detector_middleware(
         middleware.append(ModelFallbackMiddleware(*fallback_models))
 
     # Keep this last: after_agent hooks fire in reverse append order, so appending last makes this
-    # run first in the exit chain — it reads structured_response and writes the file via the backend
-    # before SandboxMiddleware's after_agent could tear the (shared) session down.
-    middleware.append(DeferredOutputMiddleware(backend=backend, name=name, output_dir=output_dir))
+    # run first in the exit chain. The detector's SandboxMiddleware is built with close_session=False,
+    # so it never closes the (parent-owned) shared session itself — the point of running first is to
+    # complete the backend write within the subagent's own after_agent pass, while the session is still
+    # alive, before control returns to the parent (which alone tears the session down, at parent END).
+    middleware.append(DeferredOutputMiddleware(backend=backend, name=name, output_dir=SUBAGENT_OUTPUT_PATH))
 
     return middleware
 
@@ -316,21 +329,17 @@ def load_builtin_code_review_detectors(
                 continue
 
         middleware = _build_detector_middleware(
-            detector_model,
-            backend,
-            runtime,
-            sandbox_enabled,
-            fallback_models,
-            client,
-            sandbox_backend,
-            name=frontmatter["name"],
+            detector_model, backend, sandbox_enabled, fallback_models, client, sandbox_backend, name=frontmatter["name"]
         )
         detectors.append(
             _compile_subagent(
                 name=frontmatter["name"],
                 description=frontmatter["description"],
                 model=detector_model,
-                body=body,
+                # Every charter shares the same scope/read-only/archetype preamble; it lives in one
+                # constant and is prepended here so the charter files carry only their per-dimension
+                # slice (see SHARED_DETECTOR_PREAMBLE).
+                body=f"{SHARED_DETECTOR_PREAMBLE}\n\n{body}",
                 middleware=middleware,
                 working_directory=working_directory,
                 response_format=response_format,

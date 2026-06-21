@@ -49,20 +49,20 @@ Each detector returns a structured object `{"findings": [ ... ]}` — delivered 
 
 - **`bar`** — the Signal-filter class (`defect` / `structural` / `question`).
 - **`archetype`** — one of the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else (renames, cross-file or structural findings, anything that needs prose).
-  - **Only those six strings are valid.** The named discussion patterns in `references/few-shot-examples.md` Part 2 (e.g. `rename`, `move_to_other_module`) are documentation labels, **not** schema values — they all serialize as `archetype: "discussion"`. Emitting a label like `archetype: "rename"` makes `findings.py` drop the finding as malformed, so it silently vanishes. The parent finalizes inline-eligibility during delivery bucketing (`gitlab-delivery.md` Step 3).
+  - **Only those six strings are valid.** The named discussion patterns in `references/few-shot-examples.md` Part 2 (e.g. `rename`, `move_to_other_module`) are documentation labels, **not** schema values — they all serialize as `archetype: "discussion"`. Emitting a label like `archetype: "rename"` makes `findings.py` drop the finding as malformed and count it under `dropped`, which the Step 7 status line surfaces (`gitlab-delivery.md`) — schema-invalid findings are reported, not hidden. The parent finalizes inline-eligibility during delivery bucketing (`gitlab-delivery.md` Step 3).
 - **`source`** — required on `custom-rules` findings (enforced by `findings.py`) so the posted comment can cite the rule.
 
 `scripts/findings.py merge` validates the required fields, the enums, and the `custom-rules` `source` rule — not the `suggestion`/archetype coupling, which delivery bucketing handles.
 
 ## Stage 2 — Verify (adjudicate)
 
-Each detector deferred its findings to a file: its `task` result is a one-line pointer naming an absolute `.json` path (e.g. `/workspace/tmp/subagent-output/cr-correctness-<hash>.json`), not the findings themselves. Collect those paths — one per detector that ran — and pass them all to the merge script:
+Each detector deferred its findings to a file: its `task` result is a one-line pointer naming an absolute path — normally `.json` (e.g. `/workspace/tmp/subagent-output/cr-correctness-<hash>.json`), but a loop-stopped detector defers a `.txt` error file instead, which the `skipped` accounting below handles — not the findings themselves. Collect those paths — one per detector that ran — and pass them all to the merge script:
 
 ```
 python3 scripts/findings.py merge <path1.json> <path2.json> ...
 ```
 
-`merge` reads each file, concatenates the `findings`, validates, and dedupes. **You do not check for emptiness yourself**: if every detector's file is empty (or a detector produced no file but the path was readable), `merge` returns `{"findings": [], "candidates": 0, "dropped": 0, "merged": 0, "skipped": 0}` with exit 0. In **interactive mode** an all-zero result means "No findings." In **delivery mode** an empty result does *not* mean skip delivery: the reconciliation steps still run (`gitlab-delivery.md` covers exactly which).
+`merge` reads each file, concatenates the `findings`, validates, and dedupes. **You do not check for emptiness yourself**: if every detector's file exists and holds an empty `findings` array, `merge` returns `{"findings": [], "candidates": 0, "dropped": 0, "merged": 0, "skipped": 0}` with exit 0. (A detector that produced *no* file is a different case — `merge` counts it under `skipped`, never as a legitimately empty review; see below.) In **interactive mode** an all-zero result means "No findings." In **delivery mode** an empty result does *not* mean skip delivery: the reconciliation steps still run (`gitlab-delivery.md` covers exactly which).
 
 **Non-zero exit from `merge` is a distinct signal**: if `merge` exits non-zero it means every detector output file was unreadable or missing — the findings were **lost**, not legitimately absent. This is a failed review step, not "no findings": surface the error (it will have printed a diagnostic to stderr), retry the affected detectors if possible, and do **not** deliver an empty review as though detection succeeded.
 
