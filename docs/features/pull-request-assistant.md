@@ -81,3 +81,17 @@ The pull request assistant is enabled by default. To disable it, add the followi
 pull_request_assistant:
   enabled: false
 ```
+
+## Custom review rules
+
+Define team-specific review rules in `.agents/review-rules.md` at the repository root. Write them in plain language, one rule per bullet, with any path scope expressed in prose:
+
+- *Every external API call in `src/payments/**` must set an explicit timeout.*
+- *Never log request or response bodies.*
+- *New Celery tasks must be idempotent.*
+
+The code review agent checks for rule sources at the start of every review and, when any exist, runs a dedicated `custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
+
+You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped only when none of these files exist.
+
+Every custom-rule finding passes the same false-positive checks as built-in findings, so a noisy `AGENTS.md` will not flood the review.

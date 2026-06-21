@@ -126,23 +126,41 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         seed (SandboxMiddleware), so no upload happens here; discovery reads the bound,
         seeded sandbox via ``super().abefore_agent``.
 
-        ``skills_load_errors`` are captured once per session and persist through subsequent
-        turns; a misconfig fixed mid-session will keep surfacing until restart.
+        ``skills_load_errors`` accumulate across turns — the materialize step (``_copy_global_skills``)
+        re-runs every turn and reports any newly-seen errors, which are unioned with prior ones here —
+        and are never cleared mid-session, so a misconfig fixed mid-session keeps surfacing in
+        ``<skill_load_warnings>`` until restart.
         """
         clear_skill_mode = state.get("active_skill_mode") is not None and self._has_user_followup(state["messages"])
         if clear_skill_mode:
             logger.info("[%s] Clearing active skill mode '%s' on user follow-up", self.name, state["active_skill_mode"])
 
-        # Skip the filesystem walk once skills_metadata is in state — upstream also
-        # short-circuits on the same condition, so re-walking is pure waste on turns 2+.
+        # In disk (non-sandbox) mode, materialize global skills on every turn rather than only when
+        # ``skills_metadata`` is unset: the ``SKILLS_PATH`` cache is per-container while
+        # ``skills_metadata`` is persisted in the Redis checkpoint, so a turn that resumes on a fresh
+        # worker (rolling deploy, scale-up, pod restart) would otherwise hit ``file_not_found`` when
+        # the ``skill`` tool downloads ``SKILL.md`` from disk. ``_collect_skill_files`` is idempotent
+        # via a per-file existence check, so warm containers only pay an ``iterdir`` + per-file
+        # ``stat``. In sandbox mode the sandbox seed (SandboxMiddleware) provisions global skills, so
+        # nothing is copied here.
         local_load_errors: list[str] = []
-        if "skills_metadata" not in state and not self._sandbox_enabled:
+        if not self._sandbox_enabled:
             local_load_errors = await self._copy_global_skills()
 
         skills_update = await super().abefore_agent(state, runtime, config)
 
-        if local_load_errors and skills_update is not None:
-            skills_update.setdefault("skills_load_errors", []).extend(local_load_errors)
+        # ``_copy_global_skills`` runs every turn now, so a SKILL.md load error can first arise on
+        # a fresh-worker resume — a turn where ``super().abefore_agent`` returns ``None`` because
+        # ``skills_metadata`` is already in state. The old ``skills_update is not None`` guard
+        # dropped those. ``skills_load_errors`` has no reducer, so writes replace (not append) — we
+        # emit the full union of already-known and freshly-collected errors ourselves, and only when
+        # it actually changes — keeping ``<skill_load_warnings>`` stable across turns instead of churning.
+        if local_load_errors:
+            from_super = skills_update.get("skills_load_errors", []) if skills_update else []
+            baseline = list(dict.fromkeys([*state.get("skills_load_errors", []), *from_super]))
+            merged = list(dict.fromkeys([*baseline, *local_load_errors]))
+            if merged != baseline:
+                skills_update = {**(skills_update or {}), "skills_load_errors": merged}
 
         if clear_skill_mode:
             return {**(skills_update or {}), "active_skill_mode": None}
@@ -197,8 +215,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     ) -> None:
         """
         Walk skill directories under ``source_root``, appending uploadable files to
-        ``files_to_upload`` and ``SKILL.md`` read failures to ``errors`` so a broken
-        manifest is not silently dropped from the agent's view.
+        ``files_to_upload`` and read failures to ``errors`` so nothing is silently dropped
+        from the agent's view: a broken ``SKILL.md`` as a ``Cannot load skill`` error (the
+        skill won't load at all), a broken asset (``scripts/``, ``references/``) as a
+        ``may be incomplete`` warning (the skill loads but is missing a runtime dependency).
         """
         for skill_dir in source_root.iterdir():
             if not skill_dir.is_dir() or skill_dir.name == "__pycache__" or skill_dir.name.startswith("."):
@@ -224,12 +244,21 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                         logger.warning(
                             "Failed to read skill file '%s' (skill='%s'), skipping", source_path, skill_dir.name
                         )
-                        # Surface broken SKILL.md by skill name so the agent can warn a user
-                        # who invokes the skill. Host paths stay in the log only — ``exc.strerror``
-                        # is the OS message without the path (which lives in ``exc.filename``).
+                        # Surface read failures by skill name so the agent can warn a user who invokes
+                        # the skill. A broken SKILL.md means the skill won't load at all; a broken
+                        # asset (scripts/, references/) means the skill loads but is incomplete — the
+                        # code-review skill, e.g., depends on scripts/findings.py and scripts/marker.py
+                        # at runtime, so a missing one would otherwise only surface mid-review. Host
+                        # paths stay in the log only — ``exc.strerror`` is the OS message without the
+                        # path (which lives in ``exc.filename``).
+                        reason = exc.strerror or type(exc).__name__
                         if source_path.name == "SKILL.md":
-                            reason = exc.strerror or type(exc).__name__
                             errors.append(f"Cannot load skill '{skill_dir.name}': {reason}")
+                        else:
+                            errors.append(
+                                f"Skill '{skill_dir.name}' may be incomplete: failed to load "
+                                f"'{source_path.name}' ({reason})"
+                            )
 
     @override
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
@@ -343,6 +372,14 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                     if SKILL_ARGUMENTS_PLACEHOLDER in body
                     else f"{body}\n\n{SKILL_ARGUMENTS_PLACEHOLDER}: {arg_str}"
                 )
+
+            # Skill names can collide between the global tree and per-repo .agents/skills/,
+            # so inject the resolved root for relative references inside SKILL.md.
+            skill_root = str(Path(loaded_skill["path"]).parent)
+            body = (
+                f"<skill_root>{skill_root}</skill_root>\n"
+                f"Relative paths in this skill resolve under the skill root above.\n\n{body}"
+            )
 
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
             update: dict = {

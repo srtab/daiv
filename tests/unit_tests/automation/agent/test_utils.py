@@ -5,6 +5,7 @@ import pytest
 
 from automation.agent.schemas import Image
 from automation.agent.utils import (
+    build_langsmith_config,
     extract_images_from_text,
     extract_text_content,
     get_daiv_agent_kwargs,
@@ -530,3 +531,24 @@ def test_extract_text_content_from_none():
     result = extract_text_content(content)
     assert result == "None"
     assert isinstance(result, str)
+
+
+def _langsmith_ctx():
+    return Mock(repository=Mock(slug="owner/repo"), git_platform=Mock(value="gitlab"), scope=None)
+
+
+def test_build_langsmith_config_puts_agent_name_in_metadata():
+    """agent_name must land in metadata as lc_agent_name, otherwise the passed metadata dict
+    replaces the agent's bound lc_agent_name and the tool-call logger reads <unknown-agent>."""
+    config = build_langsmith_config(_langsmith_ctx(), trigger="mention", model="m", agent_name="DAIV Agent")
+
+    assert config["metadata"]["lc_agent_name"] == "DAIV Agent"
+    # Still mirrored in tags for LangSmith filtering.
+    assert "DAIV Agent" in config["tags"]
+
+
+def test_build_langsmith_config_omits_agent_name_when_not_provided():
+    """Without agent_name there is nothing to propagate; the key must stay absent."""
+    config = build_langsmith_config(_langsmith_ctx(), trigger="mention", model="m")
+
+    assert "lc_agent_name" not in config["metadata"]

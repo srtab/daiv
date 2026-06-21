@@ -133,6 +133,7 @@ class ChatRunStreamer:
                     trigger="chat",
                     model=agent_kwargs["model_names"][0],
                     thinking_level=agent_kwargs["thinking_level"],
+                    agent_name=agent.get_name(),
                     extra_metadata={"override_source": "explicit" if self.agent_model else None},
                 )
                 langgraph_agent = RuntimeContextLangGraphAGUIAgent(

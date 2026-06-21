@@ -45,21 +45,29 @@ def backend(client):
     [
         ("/workspace/repo/x.py", "/workspace/repo/x.py"),  # already sandbox-absolute → unchanged
         ("/workspace", "/workspace"),  # workspace root itself → unchanged
+        ("/workspace/", "/workspace/"),  # trailing slash preserved (no longer collapsed to /workspace)
         ("/workspace/skills/s.md", "/workspace/skills/s.md"),  # other workspace root → unchanged
         ("/", "/workspace"),  # deepagents virtual root (path-less glob/grep/ls default) → workspace root
         ("", "/workspace"),  # empty → workspace root
-        ("/daiv/slash_commands", "/workspace/repo/daiv/slash_commands"),  # workspace prefix dropped → repo-relative
-        ("/src/app.py", "/workspace/repo/src/app.py"),
-        # A dropped /workspace/skills (or /tmp) prefix also resolves under the repo root, NOT back
-        # under /workspace/skills — the resolver can't disambiguate, and repo paths are the common case.
-        ("/skills/foo.md", "/workspace/repo/skills/foo.md"),
-        ("/daiv/", "/workspace/repo/daiv/"),  # trailing slash survives, no double slash
+        # Out-of-workspace paths pass straight through UNCHANGED — never re-homed under the repo root
+        # (a dropped-prefix repo slip and a literal out-of-workspace path are indistinguishable here,
+        # so the sandbox is left to reject them; see ``SandboxFileBackend._abs``).
+        ("/daiv/slash_commands", "/daiv/slash_commands"),  # dropped-prefix repo slip
+        (
+            "/home/daiv-sandbox/.local/lib/python3.14/site-packages/dbt/impl.py",
+            "/home/daiv-sandbox/.local/lib/python3.14/site-packages/dbt/impl.py",
+        ),
+        # The removed ``startswith("/workspace/")`` branch used to gate these; both must pass through
+        # now and be rejected by the sandbox (a prefix collision is NOT in-workspace; a ``..`` segment
+        # is normalised+rejected sandbox-side, never lexically collapsed here).
+        ("/workspacefoo/x", "/workspacefoo/x"),  # prefix collision — not under /workspace
+        ("/workspace/repo/../../etc", "/workspace/repo/../../etc"),  # '..' passed through, not collapsed
     ],
 )
 def test_abs_path_resolution(given, expected):
-    """Paths under /workspace pass straight through; the virtual root "/" maps to the workspace root,
-    and a path the model rooted at "/" (workspace prefix dropped) resolves under the repo root rather
-    than being rejected on the sandbox."""
+    """The only normalisation is the path-less default ("" / "/") → the workspace root. Every other
+    path — including an out-of-workspace path or a dropped-prefix repo slip — passes through unchanged
+    so the sandbox can accept it (when under /workspace) or reject it with ``invalid_path``."""
     be = SandboxFileBackend()
     assert be._abs(given) == expected
     assert be._rel("/workspace/repo/x.py") == "/workspace/repo/x.py"
@@ -243,14 +251,15 @@ async def test_aglob_returns_paths_and_propagates_error(backend, client):
 
 
 async def test_invalid_path_is_a_recoverable_tool_error_not_a_crash(backend, client):
-    """Malformed paths now come back as HTTP 200 with ``invalid_path`` (they used to be HTTP 400 for
-    ls/grep/glob). DAIV must surface them as a recoverable tool-result error, never raise."""
+    """Malformed / out-of-workspace paths now come back as HTTP 200 with ``invalid_path`` (they used to
+    be HTTP 400 for ls/grep/glob). DAIV must surface them as a recoverable tool-result error (never
+    raise) and route the agent to /workspace or the bash tool rather than echo the raw server text."""
     client.fs_ls.return_value = FsLsResponse(
         entries=[], error=_err(FsErrorCode.INVALID_PATH, "path must be under /workspace")
     )
     result = await backend.als("/etc/passwd")
     assert result.entries is None
-    assert result.error is not None and "path must be under /workspace" in result.error
+    assert result.error is not None and "/workspace" in result.error and "bash" in result.error
 
 
 async def test_awrite_already_exists_routes_to_edit(backend, client):
@@ -306,6 +315,7 @@ async def test_adownload_files_branches(backend, client):
         (FsErrorCode.NOT_A_DIRECTORY, "read_file"),
         (FsErrorCode.ALREADY_EXISTS, "edit_file"),
         (FsErrorCode.NOT_A_TEXT_FILE, "text file"),
+        (FsErrorCode.INVALID_PATH, "bash"),  # out-of-workspace path → route to the bash tool
     ],
 )
 async def test_error_codes_get_distinct_actionable_hints(backend, client, code, needle):
@@ -344,6 +354,26 @@ async def test_busy_409_degrades_to_a_soft_retryable_error_not_a_crash(backend, 
     assert result.matches is None
     assert result.error is not None
     assert result.error.startswith("Grep 'slash_command':") and "retry" in result.error
+
+
+async def test_grep_outside_workspace_passes_path_through_and_is_rejected(backend, client):
+    """Regression: grepping an installed package under the sandbox home
+    (``/home/daiv-sandbox/.local/...``) returned the misleading "does not exist" because the path was
+    silently re-homed under the repo root ("/workspace/repo/home/...", which does not exist). The path
+    must now reach the sandbox UNCHANGED so it is rejected as ``invalid_path``, and the agent is pointed
+    at the bash tool for files outside /workspace — not told the file is absent."""
+    client.fs_grep.return_value = FsGrepResponse(
+        error=_err(FsErrorCode.INVALID_PATH, "path must be under one of ('/workspace',), got: ...")
+    )
+    out_of_workspace = "/home/daiv-sandbox/.local/lib/python3.14/site-packages/dbt/adapters/base/impl.py"
+    result = await backend.agrep("catalog|filter", path=out_of_workspace, glob=None)
+    # Sent unchanged — not rewritten to /workspace/repo/home/...
+    assert client.fs_grep.call_args.args[1].path == out_of_workspace
+    # Honest, actionable error — not the misleading "does not exist": it names /workspace and routes
+    # the agent to the bash tool for files outside it.
+    assert result.error is not None
+    assert "does not exist" not in result.error
+    assert "/workspace" in result.error and "bash" in result.error
 
 
 @pytest.mark.parametrize("status", [408, 409, 429, 500, 503])

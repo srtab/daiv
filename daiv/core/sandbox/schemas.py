@@ -5,8 +5,6 @@ from typing import Literal
 
 from pydantic import Base64Bytes, BaseModel, Field, computed_field, field_validator, model_validator
 
-MAX_OUTPUT_LENGTH = 2000
-
 
 class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
@@ -37,13 +35,15 @@ class RunCommandResult(BaseModel):
     """
 
     command: str
-    output: str = Field(description=f"The output of the command. Truncated to {MAX_OUTPUT_LENGTH} lines.")
+    output: str = Field(
+        description=(
+            "The full stdout+stderr of the command, never truncated. Internal callers (e.g. the "
+            "GitManager's `git diff`) parse this in-process and require it complete; only "
+            "agent-facing tool results (the `bash` tool) are subject to the filesystem "
+            "middleware's token-threshold eviction, which offloads oversized results to a file."
+        )
+    )
     exit_code: int
-
-    @field_validator("output")
-    @classmethod
-    def validate_output(cls, v):
-        return "\n".join(v.split("\n")[:MAX_OUTPUT_LENGTH]) if v else ""
 
 
 class RunCommandsResponse(BaseModel):
@@ -106,6 +106,7 @@ class FsErrorCode(StrEnum):
     INVALID_OFFSET = "invalid_offset"
     PERMISSION_DENIED = "permission_denied"
     EXEC_FAILED = "exec_failed"
+    INVALID_PATTERN = "invalid_pattern"
 
 
 class FsError(BaseModel):
@@ -148,7 +149,7 @@ class FsReadResponse(BaseModel):
 
 
 class FsGrepRequest(BaseModel):
-    pattern: str = Field(description="Literal substring to search for (not a regex).")
+    pattern: str = Field(description="Regular expression to search for (POSIX extended / ERE syntax).")
     path: str = Field(description="Absolute directory/file path under /workspace.")
     glob: str | None = Field(default=None, description="Optional filename glob to restrict the search.")
 
@@ -161,6 +162,9 @@ class FsGrepMatch(BaseModel):
 
 class FsGrepResponse(BaseModel):
     matches: list[FsGrepMatch] = Field(default_factory=list, description="Matches found (empty on error).")
+    truncated: bool = Field(
+        default=False, description="True when matches were capped server-side; narrow the search to see the rest."
+    )
     error: FsError | None = Field(default=None, description="Structured error; null on success.")
 
 

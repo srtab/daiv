@@ -26,10 +26,28 @@ class BaseManager:
     _comment_id: str | None = None
     """ The comment ID where DAIV comments are stored. """
 
+    _unable_note_posted: bool = False
+    """ Backing flag for :meth:`_claim_unable_note`; see that method for the rationale. """
+
     def __init__(self, *, runtime_ctx: RuntimeCtx):
         self.ctx = runtime_ctx
         self.client = RepoClient.create_instance()
         self.store = InMemoryStore()
+
+    def _claim_unable_note(self) -> bool:
+        """Idempotency guard for the "unable to address" note.
+
+        The note is posted from two stacked handlers: an inner one (wrapping the agent
+        invocation, with draft-aware context) that re-raises, and a catch-all in the
+        ``address_*`` entry point that also fires for failures *before* the agent ran.
+        When the agent invocation itself fails, both would post — so the note method calls
+        this first. Returns ``True`` the first time (caller posts the note, the inner
+        draft-aware one winning) and ``False`` on every later call (caller skips).
+        """
+        if self._unable_note_posted:
+            return False
+        self._unable_note_posted = True
+        return True
 
     async def _recover_draft(
         self, agent: CompiledAgent, config: RunnableConfig, *, entity_label: str, entity_id: int | str

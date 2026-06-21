@@ -169,6 +169,8 @@ class IssueAddressorManager(BaseManager):
         """
         Add a note to the issue to inform the user that the response could not be generated.
         """
+        if not self._claim_unable_note():
+            return
         self._leave_comment(
             render_to_string(
                 "codebase/unable_address_issue.txt",

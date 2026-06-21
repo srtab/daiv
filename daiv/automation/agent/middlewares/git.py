@@ -196,7 +196,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if self.capture_patch:
             pre_run_dirty_files = await self._acheck_pre_run_dirty(runtime)
 
-        merge_request = state.get("merge_request")
+        merge_request = self._state_merge_request(state)
 
         if runtime.context.scope == Scope.MERGE_REQUEST:
             # In this case, ignore the branch name and merge request ID from the state,
@@ -293,6 +293,29 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return state_mr.merge_request_id
         return None
 
+    @staticmethod
+    def _state_merge_request(state: GitState) -> MergeRequest | None:
+        """Read the checkpointed MR from state, failing loud if it didn't revive to a MergeRequest.
+
+        ``DAIVRedisSerializer`` round-trips ``MergeRequest`` through an ``lc:2`` envelope. If
+        reconstruction fails on read (e.g. the model's schema drifted across a deploy),
+        langgraph-checkpoint-redis silently returns the raw envelope ``dict`` instead of the model
+        (see ``DAIVRedisSerializer``'s class docstring). Downstream code does ``mr.source_branch`` /
+        ``mr.merge_request_id`` and would raise a confusing ``AttributeError`` far from the cause —
+        so surface a clear error at the read site instead of trusting a possibly-degraded value.
+        """
+        merge_request = state.get("merge_request")
+        if merge_request is not None and not isinstance(merge_request, MergeRequest):
+            logger.error(
+                "Checkpointed merge_request did not revive to a MergeRequest (got %s) — likely a "
+                "stale/incompatible checkpoint after a MergeRequest schema change.",
+                type(merge_request).__name__,
+            )
+            raise TypeError(
+                f"Checkpointed merge_request revived as {type(merge_request).__name__}, expected MergeRequest"
+            )
+        return merge_request
+
     async def awrap_model_call(
         self, request: ModelRequest[RuntimeCtx], handler: Callable[[ModelRequest[RuntimeCtx]], Awaitable[ModelResponse]]
     ) -> ModelResponse:
@@ -306,7 +329,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         # pick a different MR than the publisher will write to.
         current_ref = get_repo_ref(request.runtime.context.gitrepo)
         context_mr = request.runtime.context.merge_request
-        state_mr = request.state.get("merge_request")
+        state_mr = self._state_merge_request(cast("GitState", request.state))
         mr_iid = self._effective_mr_iid(context_mr=context_mr, state_mr=state_mr, current_ref=current_ref)
         if mr_iid is None and context_mr is None and state_mr is not None:
             logger.warning(
@@ -352,7 +375,21 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         :class:`PublishOutcome`: a no-op turn (clean tree already on its MR, or no changes at
         all) publishes nothing. We map the outcome onto the streamed ``merge_request`` field
         and the private ``code_changes`` / ``protected_branch_fallback_source`` flags.
+
+        Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
+        straight to the after_agent chain) skip ``SandboxMiddleware.abefore_agent``, so the run's
+        sandbox backend is never bound and the agent loop never ran — nothing was captured or changed.
+        Probing git through the unbound backend would raise (``SandboxFileBackend is not bound to a
+        sandbox session``), so detect it and no-op. Disk-backed runs pass ``sandbox_backend=None`` and
+        keep a usable local clone, so they fall through and correctly report a clean tree.
         """
+        if self._sandbox_backend is not None and not self._sandbox_backend.is_bound():
+            logger.debug(
+                "Sandbox backend not bound at turn end (run short-circuited before the agent loop); "
+                "skipping patch capture and publish"
+            )
+            return None
+
         update: dict[str, Any] = {}
         if self.capture_patch:
             try:
@@ -375,7 +412,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return update or None
 
         publisher = GitChangePublisher(runtime.context, sandbox_backend=self._sandbox_backend)
-        outcome = await publisher.publish(merge_request=state.get("merge_request"), skip_ci=self.skip_ci)
+        outcome = await publisher.publish(merge_request=self._state_merge_request(state), skip_ci=self.skip_ci)
 
         if outcome.merge_request is None:
             return update or None

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 
+from automation.agent.deferred.conf import settings as deferred_settings
 from automation.agent.deferred.index import DeferredToolsIndex
 from automation.agent.deferred.prompt import build_deferred_tools_block
 from automation.agent.deferred.search_tool import TOOL_SEARCH_NAME, make_tool_search
@@ -116,7 +117,9 @@ class DeferredToolsMiddleware(AgentMiddleware):
 
     def _inject_corrective_messages(self, response: ModelResponse, loaded_names: set[str]) -> None:
         # Without this, the tool node emits a generic "unknown tool" error and the model often retries blindly.
-        messages = getattr(response, "messages", None)
+        # ModelResponse carries its messages on ``result`` (getattr-with-default so a non-ModelResponse
+        # handler return — e.g. a bare object — degrades to "no nudge" rather than raising).
+        messages = getattr(response, "result", None)
         if not messages or self._index is None:
             return
         last = messages[-1]
@@ -142,4 +145,39 @@ class DeferredToolsMiddleware(AgentMiddleware):
             )
 
         if corrective:
-            response.messages = [*messages, *corrective]
+            response.result = [*messages, *corrective]
+
+
+def direct_mcp_tools(mcp_tools: list[BaseTool] | None) -> list[BaseTool]:
+    """MCP tools to bind directly on an agent's model.
+
+    The non-deferred half of the defer-or-bind decision, shared by the main agent and the
+    general-purpose/custom subagents: when deferral is OFF the MCP tools are bound eagerly
+    (returned here); when ON they ride on ``DeferredToolsMiddleware`` instead, so none are bound
+    directly here (the middleware already registers them as executable tools; binding them directly
+    too would be redundant — the ToolNode dedupes by name).
+    """
+    if not mcp_tools or deferred_settings.ENABLED:
+        return []
+    return list(mcp_tools)
+
+
+def deferred_tools_middleware(always_loaded: Iterable[str], mcp_tools: list[BaseTool] | None) -> list[AgentMiddleware]:
+    """The deferred half: a ``DeferredToolsMiddleware`` hiding ``mcp_tools`` (and any other tool not
+    in ``always_loaded``) behind ``tool_search``.
+
+    Installed whenever deferral is enabled — both the main agent and the general-purpose/custom
+    subagents keep only the file/bash/todo core eagerly bound, so they always have non-always-loaded
+    tools (web search/fetch, git-platform, and any MCP tools) to defer. A loaded deferred tool stays
+    loaded for the rest of the session, so the cost is at most one ``tool_search`` per session.
+    """
+    if not deferred_settings.ENABLED:
+        return []
+    return [
+        DeferredToolsMiddleware(
+            always_loaded=always_loaded,
+            extra_tools=mcp_tools or [],
+            top_k_default=deferred_settings.TOP_K_DEFAULT,
+            top_k_max=deferred_settings.TOP_K_MAX,
+        )
+    ]

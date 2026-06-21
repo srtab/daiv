@@ -1,25 +1,23 @@
 import fnmatch
 import logging
 import re
-import subprocess  # noqa: S404
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
 from unidiff import PatchSet
 from unidiff.constants import LINE_TYPE_CONTEXT
+from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line
 
 from core.constants import BOT_NAME
 from core.utils import generate_uuid
 
-logger = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from git import Repo
 
     from codebase.base import Discussion, Note, Scope, User
+
+logger = logging.getLogger("daiv.codebase")
 
 
 def compute_thread_id(*, repo_slug: str, scope: Scope, entity_iid: int | str) -> str:
@@ -110,21 +108,34 @@ def notes_to_messages(notes: list[Note], bot_user_id) -> list[AnyMessage]:
     return messages
 
 
-def redact_diff_content(
-    diff: str, omit_content_patterns: tuple[str, ...], as_patch_set: bool = False
-) -> str | PatchSet:
+def redact_diff_content(diff: str, omit_content_patterns: tuple[str, ...]) -> str:
     """
     Redact the diff content of the file that are marked as omit_content_patterns.
 
     Args:
         diff: The diff to redact.
         omit_content_patterns: The patterns to omit from the diff.
-        as_patch_set: Whether to return the diff as a PatchSet.
 
     Returns:
-        The redacted diff as a string or a PatchSet.
+        The redacted diff as a string.
+
+    A diff that ``unidiff`` cannot parse (e.g. truncated upstream — a section cut mid-hunk,
+    then folded together with later file sections by ``GitManager``) degrades to best-effort:
+    the original diff text is returned unredacted. This helper feeds the non-critical
+    diff-to-metadata step, so a parse error must never abort the publish and discard the
+    agent's committed work.
     """
-    patch_set = PatchSet.from_string(diff)
+    try:
+        patch_set = PatchSet.from_string(diff)
+    except UnidiffParseError:
+        # Name the skipped patterns so an operator triaging this can see what was left unredacted.
+        logger.warning(
+            "Could not parse diff for content redaction (%d chars); using it unredacted (omit patterns skipped: %r).",
+            len(diff),
+            omit_content_patterns,
+            exc_info=True,
+        )
+        return diff
 
     for patch_file in patch_set:
         for hunk in patch_file:
@@ -133,37 +144,4 @@ def redact_diff_content(
                 hunk.append(
                     Line("[Diff content was intentionally excluded by the repository configuration]", LINE_TYPE_CONTEXT)
                 )
-    return str(patch_set) if not as_patch_set else patch_set
-
-
-def apply_patch_to_dir(patch: str, working_dir: Path) -> None:
-    """Apply a unified diff to ``working_dir`` using ``git apply``.
-
-    ``git apply`` does not require a ``.git`` directory and is transactional within a
-    single invocation, so one subprocess call covers both repo-bound and repoless
-    callers. The ``"No valid patches in input"`` stderr line is git's signal for an
-    empty or no-op patch and is treated as success.
-    """
-    if not patch or not patch.strip():
-        return
-
-    if not patch.endswith("\n"):
-        patch += "\n"
-
-    result = subprocess.run(  # noqa: S603
-        ["git", "apply", "--whitespace=nowarn", "-"],  # noqa: S607
-        cwd=working_dir,
-        input=patch.encode("utf-8", "surrogateescape"),
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode == 0:
-        return
-
-    stderr = result.stderr.decode("utf-8", "replace").strip()
-    stdout = result.stdout.decode("utf-8", "replace").strip()
-    if "No valid patches in input" in stderr:
-        logger.debug("apply_patch_to_dir: empty/no-op patch, skipping (cwd=%s, stderr=%r)", working_dir, stderr)
-        return
-    detail = stderr or stdout or "<no diagnostic output>"
-    raise RuntimeError(f"git apply failed (rc={result.returncode}, cwd={working_dir}): {detail}")
+    return str(patch_set)

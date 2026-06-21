@@ -4,8 +4,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import HumanMessage
 from langgraph.config import get_config
+
+from automation.agent.middlewares.reminders import append_system_reminder
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -53,6 +54,18 @@ class StepBudgetMiddleware(AgentMiddleware):
     per-turn superstep cost it is trying to guard). The reminder is appended only to the
     in-flight request and never persisted to the conversation state, so it repeats on
     every call while the budget stays low.
+
+    Budget is measured *per run*, not against the absolute ``langgraph_step``. LangGraph
+    applies ``recursion_limit`` relative to the resume point (it sets
+    ``stop = resume_step + recursion_limit + 1`` on every entry), so each invocation gets a
+    fresh budget. The raw ``langgraph_step`` instead accumulates across every turn on a
+    thread (and survives ``/clear``, which cannot reset LangGraph's internal step counter
+    under the same ``thread_id``), so comparing it directly to ``recursion_limit`` would trip
+    the reminder on the first model call of any long-lived thread. We therefore capture the
+    step this run started at (lazily, on the first model call) and count consumption from
+    there. ``create_daiv_agent`` binds per-run state (sandbox, checkpointer, context) into the
+    middleware stack, so the agent — and this instance — is necessarily rebuilt per invocation;
+    the baseline thus resets each run without needing a graph node.
     """
 
     def __init__(
@@ -61,6 +74,9 @@ class StepBudgetMiddleware(AgentMiddleware):
         super().__init__()
         self.warn_remaining_steps = warn_remaining_steps
         self.finalize_remaining_steps = finalize_remaining_steps
+        # Absolute ``langgraph_step`` this run started at, captured lazily on the first model
+        # call; consumption is then measured relative to it (see class docstring).
+        self._baseline_step: int | None = None
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -68,7 +84,7 @@ class StepBudgetMiddleware(AgentMiddleware):
         reminder = self._budget_reminder()
         if reminder is None:
             return await handler(request)
-        return await handler(request.override(messages=[*request.messages, HumanMessage(content=reminder)]))
+        return await handler(append_system_reminder(request, reminder))
 
     def _budget_reminder(self) -> str | None:
         """Build the budget reminder for the current superstep, or ``None`` when far from the limit."""
@@ -78,7 +94,23 @@ class StepBudgetMiddleware(AgentMiddleware):
         if not limit or step is None:
             return None
 
-        remaining = limit - step
+        # Anchor the budget to where THIS run started (see class docstring): the first model
+        # call records the baseline, and remaining is measured from supersteps consumed since.
+        if self._baseline_step is None:
+            self._baseline_step = step
+        consumed = step - self._baseline_step
+        if consumed < 0:
+            # langgraph_step below the captured baseline means the per-run-rebuild invariant this
+            # relies on has broken (see class docstring). Clamp so the budget reads as full rather
+            # than reporting nonsense, and surface the anomaly instead of failing silently.
+            logger.warning(
+                "langgraph_step=%d is below the captured baseline=%d; treating run budget as full.",
+                step,
+                self._baseline_step,
+            )
+            consumed = 0
+
+        remaining = limit - consumed
         if remaining <= self.finalize_remaining_steps:
             template = BUDGET_FINALIZE
         elif remaining <= self.warn_remaining_steps:
@@ -87,5 +119,10 @@ class StepBudgetMiddleware(AgentMiddleware):
             return None
 
         turns = max(remaining // STEPS_PER_TURN, 1)
-        logger.info("Run is %d supersteps away from recursion_limit=%d; injecting budget reminder.", remaining, limit)
+        logger.info(
+            "Run has consumed %d of %d supersteps (%d remaining); injecting budget reminder.",
+            consumed,
+            limit,
+            remaining,
+        )
         return template.format(turns=turns)

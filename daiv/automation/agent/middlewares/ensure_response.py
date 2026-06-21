@@ -24,7 +24,7 @@ EMPTY_RESPONSE_NUDGE = (
 
 def _is_empty(response: ModelResponse) -> bool:
     last_msg = response.result[-1]
-    return not last_msg.text() and not getattr(last_msg, "tool_calls", None)
+    return not last_msg.text and not getattr(last_msg, "tool_calls", None)
 
 
 @wrap_model_call(name="EnsureNonEmptyResponseMiddleware")  # ty: ignore[invalid-argument-type]  # async is supported at runtime; the protocol only types the sync form

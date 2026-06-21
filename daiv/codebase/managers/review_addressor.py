@@ -368,12 +368,16 @@ class CommentsAddressorManager(BaseManager):
 
         source_branch = snapshot.values.get("protected_branch_fallback_source")
         new_mr = snapshot.values.get("merge_request")
-        if not source_branch and new_mr is None:
+        if not source_branch:
+            # No protected-branch fallback happened this run (the common case), so there is
+            # no footer to render. ``merge_request`` being set here is normal MR-scope state,
+            # not a partial checkpoint, so stay silent.
             return None
-        if not source_branch or new_mr is None:
-            # The publisher writes the two fields together; seeing only one set means
-            # the checkpoint was raced/partial. The user gets the reply with no
-            # breadcrumb to the new MR in that case — surface it to the operator.
+        if new_mr is None:
+            # The publisher writes ``protected_branch_fallback_source`` and ``merge_request``
+            # together when it swaps to a fresh MR; a fallback source with no MR means the
+            # checkpoint was raced/partial. The user gets the reply with no breadcrumb to the
+            # new MR in that case — surface it to the operator.
             logger.warning(
                 "Partial protected-branch fallback state on MR %d "
                 "(source_branch=%r, merge_request=%r); dropping footer.",
@@ -408,6 +412,8 @@ class CommentsAddressorManager(BaseManager):
             fallback_footer: Pre-rendered protected-branch fallback footer to bundle into
                 the note when the publisher swapped to a fresh MR.
         """
+        if not self._claim_unable_note():
+            return
         body = render_to_string(
             "codebase/unable_address_review.txt",
             {
