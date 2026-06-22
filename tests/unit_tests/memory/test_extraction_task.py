@@ -31,9 +31,14 @@ def _checkpointer_with(messages):
     return _open
 
 
-def _structured_llm_returning(observations):
+def _structured_llm_returning(observations=None, *, error=None):
     llm = MagicMock()
-    llm.with_config.return_value.ainvoke = AsyncMock(return_value=ExtractedObservations(observations=observations))
+    if error is not None:
+        llm.with_config.return_value.ainvoke = AsyncMock(side_effect=error)
+    else:
+        llm.with_config.return_value.ainvoke = AsyncMock(
+            return_value=ExtractedObservations(observations=observations or [])
+        )
     return llm
 
 
@@ -275,8 +280,7 @@ async def test_extraction_propagates_llm_failure_without_partial_writes():
     # (task FAILED, no retry — that run's signal is lost), write nothing partial, and not trigger
     # consolidation. Distinct from the model-misconfig precondition, which IS skipped silently.
     activity = await _create_activity()
-    failing_llm = MagicMock()
-    failing_llm.with_config.return_value.ainvoke = AsyncMock(side_effect=RuntimeError("upstream 500"))
+    failing_llm = _structured_llm_returning(error=RuntimeError("upstream 500"))
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,

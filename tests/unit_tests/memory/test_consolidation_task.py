@@ -123,43 +123,24 @@ async def test_consolidation_feeds_existing_memory_to_llm():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_consolidation_noop_when_model_unconfigured():
-    await _create_pending("group/unconfigured-model", 1)
+@pytest.mark.parametrize(
+    "exc",
+    [RuntimeError("no api key"), ValueError("Unknown/Unsupported provider")],
+    ids=["provider-unconfigured", "model-spec-invalid"],
+)
+async def test_consolidation_noop_when_model_unavailable(exc):
+    # _build_structured_llm raising must skip, not crash: no memory row, observations stay pending.
+    # RuntimeError = provider disabled / no API key; ValueError = bad/unparseable spec from
+    # parse_model_spec (regression guard for C1, whose original guard caught only RuntimeError).
+    await _create_pending("group/project", 1)
 
-    with (
-        patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks._build_structured_llm", side_effect=RuntimeError("no api key")),
-    ):
+    with patch("memory.tasks.RepositoryConfig") as cfg, patch("memory.tasks._build_structured_llm", side_effect=exc):
         cfg.get_config.return_value = _enabled_config()
-        await consolidate_memory_task.func("group/unconfigured-model")  # must not raise
+        await consolidate_memory_task.func("group/project")  # must not raise
 
-    # No memory row created and observations remain pending when the model can't be built.
-    assert not await RepositoryMemory.objects.filter(repo_id="group/unconfigured-model").aexists()
+    assert not await RepositoryMemory.objects.filter(repo_id="group/project").aexists()
     assert (
-        await MemoryObservation.objects.filter(
-            repo_id="group/unconfigured-model", status=ObservationStatus.PENDING
-        ).acount()
-        == 1
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_consolidation_noop_when_model_spec_invalid():
-    # A bad/unparseable model spec raises ValueError (not RuntimeError) from parse_model_spec; it must
-    # be swallowed like the unconfigured case, not surface as a task crash (regression guard for C1).
-    await _create_pending("group/invalid-spec", 1)
-
-    with (
-        patch("memory.tasks.RepositoryConfig") as cfg,
-        patch("memory.tasks._build_structured_llm", side_effect=ValueError("Unknown/Unsupported provider")),
-    ):
-        cfg.get_config.return_value = _enabled_config()
-        await consolidate_memory_task.func("group/invalid-spec")  # must not raise
-
-    assert not await RepositoryMemory.objects.filter(repo_id="group/invalid-spec").aexists()
-    assert (
-        await MemoryObservation.objects.filter(repo_id="group/invalid-spec", status=ObservationStatus.PENDING).acount()
-        == 1
+        await MemoryObservation.objects.filter(repo_id="group/project", status=ObservationStatus.PENDING).acount() == 1
     )
 
 
