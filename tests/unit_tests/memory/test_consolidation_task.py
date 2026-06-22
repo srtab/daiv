@@ -3,7 +3,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
 from memory.schemas import ConsolidatedMemory
-from memory.tasks import MEMORY_MAX_BYTES, MEMORY_MAX_LINES, consolidate_memory_task, enforce_memory_budget
+from memory.tasks import (
+    CONSOLIDATION_MIN_PENDING,
+    MEMORY_MAX_BYTES,
+    MEMORY_MAX_LINES,
+    consolidate_memory_task,
+    enforce_memory_budget,
+)
 
 
 def _enabled_config(enabled=True):
@@ -12,6 +18,18 @@ def _enabled_config(enabled=True):
     config.models.agent.model = "openrouter:anthropic/claude-sonnet-4.6"
     config.models.agent.fallback_model = "openrouter:openai/gpt-5.3-codex"
     return config
+
+
+def _site_settings(**overrides):
+    """Mock of the site-settings singleton with the memory defaults the task reads."""
+    ss = MagicMock()
+    ss.memory_enabled = True
+    ss.memory_consolidation_model_name = None  # empty → reuse repo agent model
+    ss.memory_max_lines = MEMORY_MAX_LINES
+    ss.memory_max_bytes = MEMORY_MAX_BYTES
+    for key, value in overrides.items():
+        setattr(ss, key, value)
+    return ss
 
 
 def _structured_llm_returning(content: str):
@@ -142,6 +160,86 @@ async def test_consolidation_noop_when_model_unavailable(exc):
     assert (
         await MemoryObservation.objects.filter(repo_id="group/project", status=ObservationStatus.PENDING).acount() == 1
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("override_model", "expected_model"),
+    [
+        # Site override set → used as the primary model.
+        ("openrouter:anthropic/claude-opus-4.6", "openrouter:anthropic/claude-opus-4.6"),
+        # Empty override → reuse the repo agent model (config.models.agent.model).
+        (None, "openrouter:anthropic/claude-sonnet-4.6"),
+    ],
+    ids=["site_override", "empty_reuses_repo_agent"],
+)
+async def test_consolidation_model_selection(override_model, expected_model):
+    await _create_pending("group/project", 1)
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning("## X\n- y")) as build,
+        patch("memory.tasks.site_settings", _site_settings(memory_consolidation_model_name=override_model)),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await consolidate_memory_task.func("group/project")
+
+    _schema, models = build.call_args.args
+    assert models[0] == expected_model
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_prompt_states_configured_budget():
+    await _create_pending("group/project", 1)
+    llm = _structured_llm_returning("## X\n- y")
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks._build_structured_llm", return_value=llm),
+        patch("memory.tasks.site_settings", _site_settings(memory_max_lines=123, memory_max_bytes=4567)),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await consolidate_memory_task.func("group/project")
+
+    (messages,), _ = llm.with_config.return_value.ainvoke.call_args
+    system_content = messages[0].content
+    assert "123" in system_content
+    assert "4567" in system_content
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_noop_when_site_disabled():
+    # Repo flag is on, but the instance-wide master switch is off → must not run.
+    await _create_pending("group/project", 1)
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks._build_structured_llm") as build,
+        patch("memory.tasks.site_settings", _site_settings(memory_enabled=False)),
+    ):
+        cfg.get_config.return_value = _enabled_config(enabled=True)
+        await consolidate_memory_task.func("group/project")
+
+    build.assert_not_called()
+    assert (
+        await MemoryObservation.objects.filter(repo_id="group/project", status=ObservationStatus.PENDING).acount() == 1
+    )
+
+
+def test_task_default_constants_mirror_site_settings_defaults(monkeypatch):
+    # The module constants are the documented defaults; they must equal the values the
+    # site-settings layer serves so behavior is identical whether or not an admin overrode them.
+    # Clear the env overrides too: site_settings checks them before the DB/default, so a stray
+    # DAIV_MEMORY_* in the runner's environment would otherwise short-circuit this assertion.
+    from core.site_settings import site_settings
+
+    for env_var in ("DAIV_MEMORY_MAX_LINES", "DAIV_MEMORY_MAX_BYTES", "DAIV_MEMORY_CONSOLIDATION_MIN_PENDING"):
+        monkeypatch.delenv(env_var, raising=False)
+
+    with patch("core.models.SiteConfiguration.get_cached", return_value=None):
+        assert site_settings.memory_max_lines == MEMORY_MAX_LINES
+        assert site_settings.memory_max_bytes == MEMORY_MAX_BYTES
+        assert site_settings.memory_consolidation_min_pending == CONSOLIDATION_MIN_PENDING
 
 
 def test_enforce_memory_budget_truncates_lines_and_bytes():

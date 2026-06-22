@@ -56,6 +56,23 @@ async def test_noop_when_disabled_in_repo_config():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_noop_when_disabled_site_wide():
+    # Repo flag is on and a memory document exists, but the instance-wide master switch
+    # is off → the document must not be injected.
+    await RepositoryMemory.objects.acreate(repo_id="group/project", content="## Pitfalls\n- something")
+    request, _ = _request(enabled=True)
+    handler = AsyncMock(return_value="response")
+
+    with patch("automation.agent.middlewares.memory.site_settings") as ss:
+        ss.memory_enabled = False
+        result = await RepositoryMemoryMiddleware().awrap_model_call(request, handler)
+
+    assert result == "response"
+    request.override.assert_not_called()
+    handler.assert_awaited_once_with(request)
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_loads_memory_once_per_instance():
     await RepositoryMemory.objects.acreate(repo_id="group/project", content="## Workflow\n- use kebab-case branches")
     middleware = RepositoryMemoryMiddleware()

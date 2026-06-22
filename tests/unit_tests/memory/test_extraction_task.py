@@ -15,6 +15,19 @@ def _enabled_config(enabled=True):
     return config
 
 
+def _site_settings(**overrides):
+    """Mock of the site-settings singleton with the memory defaults the task reads."""
+    ss = MagicMock()
+    ss.memory_enabled = True
+    ss.memory_extraction_model_name = "openrouter:openai/gpt-5.4-mini"
+    ss.memory_extraction_fallback_model_name = "openrouter:anthropic/claude-haiku-4.5"
+    ss.memory_consolidation_min_pending = CONSOLIDATION_MIN_PENDING
+    ss.memory_consolidation_min_interval_hours = 24
+    for key, value in overrides.items():
+        setattr(ss, key, value)
+    return ss
+
+
 def _checkpointer_with(messages):
     tup = None
     if messages is not None:
@@ -135,6 +148,81 @@ async def test_extraction_respects_daiv_yml_flag():
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("fallback_model", "expected_models"),
+    [
+        # Both configured → both passed through.
+        ("provider:m2", ("provider:m1", "provider:m2")),
+        # Empty fallback is filtered out so _build_structured_llm gets a 1-tuple, not (model, None).
+        (None, ("provider:m1",)),
+    ],
+    ids=["with_fallback", "drops_empty_fallback"],
+)
+async def test_extraction_uses_configured_models(fallback_model, expected_models):
+    activity = await _create_activity()
+    extracted = [ExtractedObservation(category="build_test", content="`make test` needs the DB up first")]
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning(extracted)) as build,
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        patch(
+            "memory.tasks.site_settings",
+            _site_settings(
+                memory_extraction_model_name="provider:m1", memory_extraction_fallback_model_name=fallback_model
+            ),
+        ),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        consolidate.aenqueue = AsyncMock()
+        await extract_observations_task.func(str(activity.pk))
+
+    _schema, models = build.call_args.args
+    assert tuple(models) == expected_models
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extraction_noop_when_no_model_configured():
+    # Both model and fallback empty (only reachable via an empty-string env override) → clean skip,
+    # not an IndexError crash in _build_structured_llm.
+    activity = await _create_activity()
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm") as build,
+        patch(
+            "memory.tasks.site_settings",
+            _site_settings(memory_extraction_model_name="", memory_extraction_fallback_model_name=""),
+        ),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(activity.pk))  # must not raise
+
+    build.assert_not_called()
+    assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extraction_noop_when_site_disabled():
+    # Repo flag is on, but the instance-wide master switch is off → must not run.
+    activity = await _create_activity()
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm") as build,
+        patch("memory.tasks.site_settings", _site_settings(memory_enabled=False)),
+    ):
+        cfg.get_config.return_value = _enabled_config(enabled=True)
+        await extract_observations_task.func(str(activity.pk))
+
+    build.assert_not_called()
+    assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_extraction_handles_missing_activity():
     with patch("memory.tasks.RepositoryConfig") as cfg:
         await extract_observations_task.func("00000000-0000-0000-0000-000000000000")  # must not raise
@@ -248,6 +336,62 @@ async def test_consolidation_triggered_after_min_interval_elapsed():
         patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
         patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning([])),
         patch("memory.tasks.consolidate_memory_task") as consolidate,
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        consolidate.aenqueue = AsyncMock()
+        await extract_observations_task.func(str(activity.pk))
+
+    consolidate.aenqueue.assert_awaited_once_with("group/project")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_threshold_is_configurable():
+    # Threshold lowered to 3: three pending observations must enqueue, where the default of 10 would
+    # not. Proves _maybe_trigger_consolidation reads memory_consolidation_min_pending, not a constant.
+    activity = await _create_activity()
+    for i in range(2):  # 2 existing + 1 extracted = 3 pending
+        await MemoryObservation.objects.acreate(
+            repo_id="group/project", category="codebase_fact", content=f"existing observation {i} with detail"
+        )
+    extracted = [ExtractedObservation(category="workflow", content="branch names must be kebab-case with prefix")]
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning(extracted)),
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        patch("memory.tasks.site_settings", _site_settings(memory_consolidation_min_pending=3)),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        consolidate.aenqueue = AsyncMock()
+        await extract_observations_task.func(str(activity.pk))
+
+    consolidate.aenqueue.assert_awaited_once_with("group/project")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_interval_is_configurable():
+    # Last consolidation was 2h ago: the default 24h interval would suppress, but with the interval
+    # lowered to 1h it must enqueue. Proves the interval is read from memory_consolidation_min_interval_hours.
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    activity = await _create_activity()
+    await RepositoryMemory.objects.acreate(
+        repo_id="group/project", last_consolidated_at=timezone.now() - timedelta(hours=2)
+    )
+    for i in range(CONSOLIDATION_MIN_PENDING):
+        await MemoryObservation.objects.acreate(
+            repo_id="group/project", category="codebase_fact", content=f"existing observation {i} with detail"
+        )
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning([])),
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        patch("memory.tasks.site_settings", _site_settings(memory_consolidation_min_interval_hours=1)),
     ):
         cfg.get_config.return_value = _enabled_config()
         consolidate.aenqueue = AsyncMock()

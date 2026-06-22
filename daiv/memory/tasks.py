@@ -13,9 +13,9 @@ from django_tasks import task
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from automation.agent.base import BaseAgent
-from automation.agent.constants import ModelName
 from codebase.repo_config import RepositoryConfig
 from core.checkpointer import open_checkpointer
+from core.site_settings import site_settings
 from memory.models import MemoryObservation, ObservationStatus, RepositoryMemory
 from memory.prompts import consolidation_human, consolidation_system, extraction_human, extraction_system
 from memory.schemas import ConsolidatedMemory, ExtractedObservations
@@ -26,13 +26,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.memory")
 
-# Cheap/fast models for the per-run extraction pass; consolidation uses the
-# repo-configured agent model (it rewrites the whole document, quality matters).
-EXTRACTION_MODEL_NAMES: tuple[ModelName, ...] = (ModelName.GPT_5_4_MINI, ModelName.CLAUDE_HAIKU_4_5)
-
+# Documented defaults for the memory knobs. The live values are served by ``site_settings``
+# (env var > site-configuration UI > default); these constants mirror the defaults declared
+# in ``core.site_settings._build_field_defaults`` (parity-tested in test_consolidation_task).
+# ``MEMORY_MAX_LINES``/``MEMORY_MAX_BYTES`` also double as the safety-net defaults for
+# ``enforce_memory_budget``; ``CONSOLIDATION_MIN_PENDING`` is also the threshold the
+# ``consolidate_memory`` management command enforces.
 CONSOLIDATION_MIN_PENDING = 10
-CONSOLIDATION_MIN_INTERVAL = timedelta(hours=24)
-
 MEMORY_MAX_LINES = 200
 MEMORY_MAX_BYTES = 10_240
 
@@ -75,6 +75,10 @@ async def consolidate_memory_task(repo_id: str) -> None:
     Throttling is the caller's job (see ``_maybe_trigger_consolidation``); this is not
     deduplicated, so a redundant trigger simply finds 0 pending observations and no-ops.
     """
+    if not site_settings.memory_enabled:
+        logger.info("consolidate_memory_task: memory disabled site-wide, skipping repo %s", repo_id)
+        return
+
     config = await asyncio.to_thread(RepositoryConfig.get_config, repo_id)
     if not config.memory.enabled:
         logger.info("consolidate_memory_task: memory disabled for repo %s, skipping", repo_id)
@@ -90,9 +94,11 @@ async def consolidate_memory_task(repo_id: str) -> None:
         logger.info("consolidate_memory_task: no pending observations for repo %s, skipping", repo_id)
         return
 
+    # Empty override → reuse the repo's agent model (it rewrites the whole document, quality matters).
+    consolidation_model = site_settings.memory_consolidation_model_name or config.models.agent.model
     try:
         structured_llm = _build_structured_llm(
-            ConsolidatedMemory, (config.models.agent.model, config.models.agent.fallback_model)
+            ConsolidatedMemory, (consolidation_model, config.models.agent.fallback_model)
         )
     except RuntimeError, ValueError:
         # RuntimeError: provider disabled / no API key / unknown provider_type.
@@ -103,15 +109,19 @@ async def consolidate_memory_task(repo_id: str) -> None:
 
     memory, _created = await RepositoryMemory.objects.aget_or_create(repo_id=repo_id)
 
+    max_lines = site_settings.memory_max_lines
+    max_bytes = site_settings.memory_max_bytes
+
     observations_text = "\n".join(
         f"- [{obs.category}] ({obs.created_at:%Y-%m-%d}) {obs.content}" for obs in observations
     )
+    system_content = cast("str", consolidation_system.format(max_lines=max_lines, max_bytes=max_bytes).content)
     result = cast(
         "ConsolidatedMemory",
         await structured_llm.with_config(
             run_name="MemoryConsolidation", tags=["MemoryConsolidation"], metadata={"repo_id": repo_id}
         ).ainvoke([
-            SystemMessage(content=cast("str", consolidation_system.format().content)),
+            SystemMessage(content=system_content),
             HumanMessage(
                 content=cast(
                     "str",
@@ -123,7 +133,7 @@ async def consolidate_memory_task(repo_id: str) -> None:
         ]),
     )
 
-    consolidated = enforce_memory_budget(result.content.strip())
+    consolidated = enforce_memory_budget(result.content.strip(), max_lines=max_lines, max_bytes=max_bytes)
     if not consolidated:
         # Never let a degenerate (empty/whitespace) LLM response wipe the accumulated
         # document. Keep the existing memory and leave observations pending to retry.
@@ -175,6 +185,10 @@ async def extract_observations_task(activity_id: str) -> None:
     """
     from activity.models import Activity
 
+    if not site_settings.memory_enabled:
+        logger.info("extract_observations_task: memory disabled site-wide, skipping activity %s", activity_id)
+        return
+
     activity = await Activity.objects.filter(pk=activity_id).afirst()
     if activity is None:
         logger.warning("extract_observations_task: activity %s not found, skipping", activity_id)
@@ -217,8 +231,24 @@ async def extract_observations_task(activity_id: str) -> None:
 
     transcript = serialize_transcript(messages)
 
+    extraction_models = tuple(
+        model
+        for model in (site_settings.memory_extraction_model_name, site_settings.memory_extraction_fallback_model_name)
+        if model
+    )
+    if not extraction_models:
+        # Both the model and its fallback resolved to empty (only reachable via an explicit
+        # empty-string env override, e.g. DAIV_MEMORY_EXTRACTION_MODEL_NAME=""). Treat it as
+        # the documented precondition-failure skip rather than letting _build_structured_llm
+        # raise IndexError on model_names[0], which would crash the task with no breadcrumb.
+        logger.error(
+            "extract_observations_task: no extraction model configured "
+            "(check DAIV_MEMORY_EXTRACTION_MODEL_NAME / _FALLBACK_MODEL_NAME), skipping activity %s",
+            activity_id,
+        )
+        return
     try:
-        structured_llm = _build_structured_llm(ExtractedObservations, EXTRACTION_MODEL_NAMES)
+        structured_llm = _build_structured_llm(ExtractedObservations, extraction_models)
     except RuntimeError, ValueError:
         # Same precondition-failure handling as consolidation: a misconfigured/unparseable
         # extraction model spec is a clean skip, not a task crash.
@@ -262,18 +292,17 @@ async def extract_observations_task(activity_id: str) -> None:
 async def _maybe_trigger_consolidation(repo_id: str) -> None:
     """Piggyback consolidation scheduling on extraction (no cron exists).
 
-    Enqueue when the repo accumulated >= CONSOLIDATION_MIN_PENDING observations and
-    the last consolidation is older than CONSOLIDATION_MIN_INTERVAL (or never ran).
+    Enqueue when the repo accumulated at least ``memory_consolidation_min_pending``
+    observations and the last consolidation is older than
+    ``memory_consolidation_min_interval_hours`` (or never ran). Both thresholds come
+    from ``site_settings``.
     """
     pending = await MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).acount()
-    if pending < CONSOLIDATION_MIN_PENDING:
+    if pending < site_settings.memory_consolidation_min_pending:
         return
     memory = await RepositoryMemory.objects.filter(repo_id=repo_id).afirst()
-    if (
-        memory
-        and memory.last_consolidated_at
-        and timezone.now() - memory.last_consolidated_at < CONSOLIDATION_MIN_INTERVAL
-    ):
+    min_interval = timedelta(hours=site_settings.memory_consolidation_min_interval_hours)
+    if memory and memory.last_consolidated_at and timezone.now() - memory.last_consolidated_at < min_interval:
         return
     await consolidate_memory_task.aenqueue(repo_id)
     logger.info("_maybe_trigger_consolidation: enqueued consolidation for repo %s (%d pending)", repo_id, pending)

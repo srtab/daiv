@@ -253,6 +253,7 @@ class TestFieldGroupsCategories:
         assert by_key["jobs"] == "Runtime"
         assert by_key["rocketchat"] == "Integrations"
         assert by_key["authentication"] == "Integrations"
+        assert by_key["memory"] == "AI tasks"
 
     def test_groups_are_ordered_by_category_then_existing_order(self):
         # Category headers in the rail are emitted by walking FIELD_GROUPS in

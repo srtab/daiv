@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, cast
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 
+from core.site_settings import site_settings
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -26,8 +28,8 @@ class RepositoryMemoryMiddleware(AgentMiddleware):
     auto-commits filesystem changes and a materialized memory file would pollute
     commits. The ``RepositoryMemory`` row is loaded once per middleware instance
     (one instance per agent run) and the middleware silently no-ops when the
-    feature is disabled, no memory exists, or the lookup fails: memory must never
-    block or fail a run.
+    feature is disabled (per-repo or site-wide), no memory exists, or the lookup
+    fails: memory must never block or fail a run.
 
     Registered after ``dynamic_daiv_system_prompt`` in ``create_daiv_agent`` so it
     sees (and appends to) the fully composed system prompt.
@@ -53,7 +55,9 @@ class RepositoryMemoryMiddleware(AgentMiddleware):
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
         context = request.runtime.context
-        if not context.config.memory.enabled:
+        # Cheapest-first: the in-memory per-repo flag short-circuits before the site-wide
+        # setting read. Either being off is a silent no-op (memory must never block a run).
+        if not context.config.memory.enabled or not site_settings.memory_enabled:
             return await handler(request)
 
         content = await self._load_content(context.repository.slug)

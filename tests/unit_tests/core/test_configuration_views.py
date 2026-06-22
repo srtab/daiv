@@ -113,6 +113,16 @@ class TestGetContent:
         content = response.content.decode()
         assert 'placeholder="20/hour"' in content
 
+    def test_renders_memory_group(self, client, admin_user, group_url):
+        # The memory group mixes an agent picker, a toggle, and number fields; smoke-test that
+        # it renders so a mis-wired widget/icon surfaces as a failure instead of a 500.
+        client.force_login(admin_user)
+        response = client.get(group_url("memory"))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Memory" in content
+        assert 'placeholder="10240"' in content  # memory_max_bytes default
+
 
 class TestBooleanCheckboxField:
     def test_checked_returns_true(self):

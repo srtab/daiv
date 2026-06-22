@@ -60,8 +60,8 @@ and omitting any section that would be empty:
 ## Reviewer preferences
 ## Workflow
 
-Hard budget: at most 200 lines and 10KB total. Stay under it yourself by dropping the least valuable
-entries first; anything over the limit is truncated from the end and lost.""",
+Hard budget: at most {{max_lines}} lines and {{max_bytes}} bytes total. Stay under it yourself by dropping the least
+valuable entries first; anything over the limit is truncated from the end and lost.""",
     "mustache",
 )
 

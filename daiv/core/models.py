@@ -278,6 +278,64 @@ class SiteConfiguration(models.Model):
         help_text=_("Fallback model used when the primary fails."),
     )
 
+    # -- Memory --
+    memory_enabled = models.BooleanField(
+        _("memory enabled"),
+        null=True,
+        help_text=_(
+            "Capture learnings from finished runs, consolidate them, and inject them into future runs."
+            " A per-repository .daiv.yml flag can still opt an individual repository out."
+        ),
+    )
+    memory_extraction_model_name = models.CharField(
+        _("extraction model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Cheap model that extracts candidate observations from each finished run's transcript."),
+    )
+    memory_extraction_fallback_model_name = models.CharField(
+        _("extraction fallback model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Fallback model when the extraction model fails."),
+    )
+    memory_consolidation_model_name = models.CharField(
+        _("consolidation model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Model that rewrites the memory document. Leave empty to reuse the repository's agent model."),
+    )
+    memory_consolidation_min_pending = models.PositiveIntegerField(
+        _("consolidation threshold"),
+        blank=True,
+        null=True,
+        help_text=_(
+            "Consolidate once at least this many pending observations have accumulated "
+            "(subject to the consolidation interval below)."
+        ),
+    )
+    memory_consolidation_min_interval_hours = models.PositiveIntegerField(
+        _("consolidation interval (hours)"),
+        blank=True,
+        null=True,
+        help_text=_("Minimum hours between consolidations for the same repository."),
+    )
+    memory_max_lines = models.PositiveIntegerField(
+        _("memory max lines"),
+        blank=True,
+        null=True,
+        help_text=_("Hard cap on the consolidated memory document length, in lines."),
+    )
+    memory_max_bytes = models.PositiveIntegerField(
+        _("memory max bytes"),
+        blank=True,
+        null=True,
+        help_text=_("Hard cap on the consolidated memory document size, in bytes."),
+    )
+
     # -- Web Search --
     web_search_enabled = models.BooleanField(
         _("web search enabled"), null=True, help_text=_("Enable or disable the web search tool.")
@@ -425,6 +483,9 @@ class SiteConfiguration(models.Model):
         "diff_to_metadata_fallback_model_name",
         "titling_model_name",
         "titling_fallback_model_name",
+        "memory_extraction_model_name",
+        "memory_extraction_fallback_model_name",
+        "memory_consolidation_model_name",
         "web_fetch_model_name",
     )
 
@@ -451,6 +512,14 @@ class SiteConfiguration(models.Model):
             category="AI tasks",
         ),
         FieldGroup(key="titling", title=_("Titling"), match=("titling_*",), icon="chat-bubble", category="AI tasks"),
+        FieldGroup(
+            key="memory",
+            title=_("Memory"),
+            match=("memory_*",),
+            icon="cpu-chip",
+            toggle_field="memory_enabled",
+            category="AI tasks",
+        ),
         FieldGroup(key="providers", title=_("Providers"), match=(), icon="providers", category="Models"),
         FieldGroup(
             key="web_search",
