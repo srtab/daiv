@@ -94,8 +94,11 @@ async def consolidate_memory_task(repo_id: str) -> None:
         structured_llm = _build_structured_llm(
             ConsolidatedMemory, (config.models.agent.model, config.models.agent.fallback_model)
         )
-    except RuntimeError:
-        logger.exception("consolidate_memory_task: model not configured for repo %s, skipping", repo_id)
+    except RuntimeError, ValueError:
+        # RuntimeError: provider disabled / no API key / unknown provider_type.
+        # ValueError: empty or unparseable model spec / no matching provider row.
+        # Both are precondition failures, not crashes — skip silently like every other.
+        logger.exception("consolidate_memory_task: model unavailable/misconfigured for repo %s, skipping", repo_id)
         return
 
     memory, _created = await RepositoryMemory.objects.aget_or_create(repo_id=repo_id)
@@ -125,9 +128,11 @@ async def consolidate_memory_task(repo_id: str) -> None:
         # Never let a degenerate (empty/whitespace) LLM response wipe the accumulated
         # document. Keep the existing memory and leave observations pending to retry.
         logger.error(
-            "consolidate_memory_task: LLM returned empty content for repo %s; keeping existing memory "
-            "and leaving %d observations pending",
+            "consolidate_memory_task: LLM returned empty/whitespace content for repo %s (raw len=%d, starts=%r); "
+            "keeping existing memory and leaving %d observations pending",
             repo_id,
+            len(result.content),
+            result.content[:80],
             len(observations),
         )
         return
@@ -148,20 +153,37 @@ async def consolidate_memory_task(repo_id: str) -> None:
     logger.info("consolidate_memory_task: consolidated %d observations for repo %s", len(observations), repo_id)
 
 
-@task()
+@task(dedup=True)
 async def extract_observations_task(activity_id: str) -> None:
     """Extract candidate memory observations from a finished run's transcript.
 
     Transcripts live in the Redis checkpointer behind a TTL, so this must run
     promptly after the run finishes; an expired checkpoint is a silent skip.
-    Every precondition failure is log + return — never an error that could be
-    confused with a run failure.
+
+    ``dedup=True`` is keyed on the unique ``activity_id``: a duplicate
+    ``activity_finished`` delivery for the same run is suppressed (no double
+    observations), while a different run always re-runs. (Consolidation, keyed on
+    the reusable ``repo_id``, must NOT dedup — see ``consolidate_memory_task``.)
+
+    Precondition failures (missing activity, disabled flag, expired checkpoint,
+    unconfigured model) are log + return — never an error confused with a run
+    failure. The LLM ``ainvoke`` itself is deliberately NOT guarded: a schema
+    mismatch must surface loudly, and a transient failure marks this task FAILED
+    (no retry; the checkpoint TTLs out) — i.e. that one run's observations are
+    lost. Losing a single run's learnings is an accepted trade-off; agent runs
+    are unaffected because this runs out-of-band.
     """
     from activity.models import Activity
 
     activity = await Activity.objects.filter(pk=activity_id).afirst()
-    if activity is None or not activity.thread_id:
-        logger.warning("extract_observations_task: activity %s missing or has no thread_id, skipping", activity_id)
+    if activity is None:
+        logger.warning("extract_observations_task: activity %s not found, skipping", activity_id)
+        return
+    if not activity.thread_id:
+        logger.warning(
+            "extract_observations_task: activity %s has no thread_id (violates thread_id contract), skipping",
+            activity_id,
+        )
         return
 
     config = await asyncio.to_thread(RepositoryConfig.get_config, activity.repo_id)
@@ -185,10 +207,11 @@ async def extract_observations_task(activity_id: str) -> None:
             # A present checkpoint with no messages signals a real defect (serialization
             # or channel-name drift), not normal TTL expiry — surface it louder.
             logger.warning(
-                "extract_observations_task: checkpoint present but has no messages for thread %s (activity=%s), "
-                "skipping",
+                "extract_observations_task: checkpoint present but has no messages for thread %s (activity=%s); "
+                "available channels: %s — skipping (serialization or channel-name drift?)",
                 activity.thread_id,
                 activity_id,
+                sorted(channel_values),
             )
         return
 
@@ -196,8 +219,10 @@ async def extract_observations_task(activity_id: str) -> None:
 
     try:
         structured_llm = _build_structured_llm(ExtractedObservations, EXTRACTION_MODEL_NAMES)
-    except RuntimeError:
-        logger.exception("extract_observations_task: extraction model not configured, skipping")
+    except RuntimeError, ValueError:
+        # Same precondition-failure handling as consolidation: a misconfigured/unparseable
+        # extraction model spec is a clean skip, not a task crash.
+        logger.exception("extract_observations_task: extraction model unavailable/misconfigured, skipping")
         return
 
     result = cast(

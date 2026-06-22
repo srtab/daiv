@@ -192,3 +192,102 @@ async def test_extraction_skips_activity_without_thread_id():
     cfg.get_config.assert_not_called()  # bails before loading config
     build.assert_not_called()
     assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_not_triggered_below_threshold():
+    # One short of CONSOLIDATION_MIN_PENDING must NOT enqueue — guards the `<` vs `<=` boundary
+    # (the existing test covers exactly-at-threshold; this covers exactly-below).
+    activity = await _create_activity()
+    for i in range(CONSOLIDATION_MIN_PENDING - 2):  # 8 existing + 1 extracted = 9 pending
+        await MemoryObservation.objects.acreate(
+            repo_id="group/project", category="codebase_fact", content=f"existing observation {i} with detail"
+        )
+    extracted = [ExtractedObservation(category="workflow", content="branch names must be kebab-case with prefix")]
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning(extracted)),
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        consolidate.aenqueue = AsyncMock()
+        await extract_observations_task.func(str(activity.pk))
+
+    assert (
+        await MemoryObservation.objects.filter(repo_id="group/project", status=ObservationStatus.PENDING).acount() == 9
+    )
+    consolidate.aenqueue.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_triggered_after_min_interval_elapsed():
+    # >= threshold pending AND last consolidation older than the interval → must enqueue. Guards the
+    # time-boundary in its firing direction (the existing test only covers within-interval suppression).
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    activity = await _create_activity()
+    await RepositoryMemory.objects.acreate(
+        repo_id="group/project", last_consolidated_at=timezone.now() - timedelta(hours=25)
+    )
+    for i in range(CONSOLIDATION_MIN_PENDING):
+        await MemoryObservation.objects.acreate(
+            repo_id="group/project", category="codebase_fact", content=f"existing observation {i} with detail"
+        )
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning([])),
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        consolidate.aenqueue = AsyncMock()
+        await extract_observations_task.func(str(activity.pk))
+
+    consolidate.aenqueue.assert_awaited_once_with("group/project")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extraction_noop_when_model_spec_invalid():
+    # A bad/unparseable extraction model spec raises ValueError; it must be swallowed (clean skip),
+    # not crash the task. The hardcoded extraction models raise this in a deployment without the
+    # OpenAI/Anthropic provider rows configured (regression guard for C1).
+    activity = await _create_activity()
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm", side_effect=ValueError("Unknown/Unsupported provider for model")),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(activity.pk))  # must not raise
+
+    assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extraction_propagates_llm_failure_without_partial_writes():
+    # The extraction ainvoke is deliberately unguarded: a transient/validation failure must propagate
+    # (task FAILED, no retry — that run's signal is lost), write nothing partial, and not trigger
+    # consolidation. Distinct from the model-misconfig precondition, which IS skipped silently.
+    activity = await _create_activity()
+    failing_llm = MagicMock()
+    failing_llm.with_config.return_value.ainvoke = AsyncMock(side_effect=RuntimeError("upstream 500"))
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.tasks._build_structured_llm", return_value=failing_llm),
+        patch("memory.tasks.consolidate_memory_task") as consolidate,
+        pytest.raises(RuntimeError),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        consolidate.aenqueue = AsyncMock()
+        await extract_observations_task.func(str(activity.pk))
+
+    assert await MemoryObservation.objects.acount() == 0
+    consolidate.aenqueue.assert_not_called()

@@ -162,3 +162,13 @@ def test_loop_breaker_registered_before_prompt_caching():
     breaker = src.index("LoopBreakerMiddleware(")
     caching = src.index("AnthropicPromptCachingMiddleware(")
     assert breaker < caching, "LoopBreakerMiddleware must be registered before AnthropicPromptCachingMiddleware"
+
+
+def test_repository_memory_middleware_registered_after_dynamic_prompt():
+    # RepositoryMemoryMiddleware appends to the system prompt, so it must be registered AFTER
+    # dynamic_daiv_system_prompt — otherwise it would append to a half-built prompt. rindex targets
+    # the registration entry (last occurrence), not the function definition/import.
+    src = inspect.getsource(graph_module)
+    prompt = src.rindex("dynamic_daiv_system_prompt")
+    memory_mw = src.index("RepositoryMemoryMiddleware(")
+    assert prompt < memory_mw, "RepositoryMemoryMiddleware must be registered after dynamic_daiv_system_prompt"

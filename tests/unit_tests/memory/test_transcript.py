@@ -31,3 +31,12 @@ def test_caps_total_size_keeping_head_and_tail():
     assert "message number 0" in transcript, "head (task definition) must survive"
     assert "message number 499" in transcript, "tail (outcome) must survive"
     assert "elided" in transcript
+
+
+def test_empty_message_list_serializes_to_empty_string():
+    assert serialize_transcript([]) == ""
+
+
+def test_message_without_text_or_tool_calls_contributes_nothing():
+    # An AI message with empty content and no tool calls yields no transcript lines.
+    assert serialize_transcript([AIMessage(content="")]) == ""

@@ -4,6 +4,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Static mirror of ``memory.models.ObservationCategory.values`` — declared explicitly (not derived) so
+# pydantic and ty see the allowed values directly. Kept in sync with the model by
+# ``tests.unit_tests.memory.test_models.test_observation_category_literal_matches_model_choices``.
 ObservationCategoryLiteral = Literal["build_test", "codebase_fact", "pitfall", "reviewer_preference", "workflow"]
 
 

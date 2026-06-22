@@ -26,3 +26,13 @@ def test_repository_memory_is_unique_per_repo():
     RepositoryMemory.objects.create(repo_id="group/project", content="## Build & test\n- foo")
     with pytest.raises(Exception, match="(?i)unique|duplicate"):
         RepositoryMemory.objects.create(repo_id="group/project")
+
+
+def test_observation_category_literal_matches_model_choices():
+    # The LLM-output Literal (schemas) and the DB TextChoices (models) are declared independently;
+    # this guards against silent drift (e.g. adding a category to one but not the other).
+    from typing import get_args
+
+    from memory.schemas import ObservationCategoryLiteral
+
+    assert set(get_args(ObservationCategoryLiteral)) == set(ObservationCategory.values)

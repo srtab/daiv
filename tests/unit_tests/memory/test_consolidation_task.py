@@ -143,6 +143,26 @@ async def test_consolidation_noop_when_model_unconfigured():
     )
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_noop_when_model_spec_invalid():
+    # A bad/unparseable model spec raises ValueError (not RuntimeError) from parse_model_spec; it must
+    # be swallowed like the unconfigured case, not surface as a task crash (regression guard for C1).
+    await _create_pending("group/invalid-spec", 1)
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks._build_structured_llm", side_effect=ValueError("Unknown/Unsupported provider")),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await consolidate_memory_task.func("group/invalid-spec")  # must not raise
+
+    assert not await RepositoryMemory.objects.filter(repo_id="group/invalid-spec").aexists()
+    assert (
+        await MemoryObservation.objects.filter(repo_id="group/invalid-spec", status=ObservationStatus.PENDING).acount()
+        == 1
+    )
+
+
 def test_enforce_memory_budget_truncates_lines_and_bytes():
     too_many_lines = "\n".join(str(i) for i in range(500))
     assert len(enforce_memory_budget(too_many_lines).splitlines()) == MEMORY_MAX_LINES
@@ -171,3 +191,34 @@ def test_enforce_memory_budget_byte_boundary_keeps_valid_utf8():
     assert result == "éé"  # partial trailing char dropped
     assert len(result.encode("utf-8")) <= 5
     result.encode("utf-8").decode("utf-8")  # round-trips, i.e. valid UTF-8
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_consolidation_rolls_back_document_when_status_flip_fails():
+    # Atomicity guard: the content write and the observation status flip must commit together.
+    # If the status flip raises, the document write must roll back too — otherwise observations
+    # would be orphaned as CONSOLIDATED against a stale document. Regression guard for the
+    # "harden consolidation against data loss" fix (the only public .update() call is the flip).
+    from django.db import DatabaseError
+
+    await _create_pending("group/project", 2)
+    await RepositoryMemory.objects.acreate(repo_id="group/project", content="## Old\n- prior fact")
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning("## New\n- fresh fact")),
+        patch("django.db.models.query.QuerySet.update", side_effect=DatabaseError("status flip failed")),
+        pytest.raises(DatabaseError),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await consolidate_memory_task.func("group/project")
+
+    memory = await RepositoryMemory.objects.aget(repo_id="group/project")
+    assert memory.content == "## Old\n- prior fact", "document write must roll back with the failed status flip"
+    assert memory.last_consolidated_at is None
+    assert (
+        await MemoryObservation.objects.filter(repo_id="group/project", status=ObservationStatus.PENDING).acount() == 2
+    )
+    assert not await MemoryObservation.objects.filter(
+        repo_id="group/project", status=ObservationStatus.CONSOLIDATED
+    ).aexists()
