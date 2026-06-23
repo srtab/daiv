@@ -12,6 +12,8 @@ from core.site_settings import site_settings
 from .schemas import (
     ApplyMutationsRequest,
     ApplyMutationsResponse,
+    EgressConfigRequest,
+    EgressConfigResponse,
     FsDeleteRequest,
     FsDeleteResponse,
     FsEditRequest,
@@ -225,6 +227,25 @@ class DAIVSandboxClient:
         response = await self._client.post(f"session/{session_id}/", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return RunCommandsResponse.model_validate(response.json())
+
+    async def configure_egress(self, session_id: str, request: EgressConfigRequest) -> EgressConfigResponse:
+        """Provision (replace) the egress policy + secrets on the session's sidecar proxy.
+
+        Idempotent on the sandbox side. Secret values are sent in plaintext (the sidecar needs them);
+        ``SecretStr`` keeps them redacted in logs/repr, so the payload is built explicitly here rather
+        than via ``request.model_dump(mode="json")``, which would mask the values. Raises
+        ``httpx.HTTPStatusError`` on a non-2xx (404 = egress not enabled on the sandbox, 409 = the
+        session has no proxy); the caller decides how to react.
+        """
+        payload = {
+            "policy": request.policy.model_dump(mode="json"),
+            "secrets": {
+                name: {"header": s.header, "value": s.value.get_secret_value()} for name, s in request.secrets.items()
+            },
+        }
+        response = await self._client.post(f"session/{session_id}/egress/", json=payload)
+        response.raise_for_status()
+        return EgressConfigResponse.model_validate(response.json())
 
     async def session_exists(self, session_id: str) -> bool:
         """Return True if the session container exists on the sandbox.

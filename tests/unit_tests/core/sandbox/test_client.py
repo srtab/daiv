@@ -358,3 +358,28 @@ def test_is_transient_sandbox_error_true_for_request_error_with_no_response():
     from core.sandbox.client import is_transient_sandbox_error
 
     assert is_transient_sandbox_error(httpx.ConnectError("refused")) is True
+
+
+async def test_configure_egress_posts_plaintext_secret_and_uppercased_methods(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    mock_post["json_body"] = {"ok": True}
+    req = EgressConfigRequest(
+        policy=EgressPolicy(
+            default="deny",
+            intercept="credentialed",
+            rules=[EgressRule(host="*.github.com", methods=["get"], inject="gh")],
+        ),
+        secrets={"gh": EgressSecret(header="Authorization", value=SecretStr("Bearer t"))},
+    )
+
+    async with DAIVSandboxClient() as client:
+        resp = await client.configure_egress("sid", req)
+
+    assert mock_post["url"] == "session/sid/egress/"
+    body = mock_post["kwargs"]["json"]
+    assert body["policy"]["default"] == "deny"
+    assert body["policy"]["rules"][0]["methods"] == ["GET"]  # validator uppercased
+    assert body["secrets"]["gh"] == {"header": "Authorization", "value": "Bearer t"}  # plaintext on wire
+    assert resp.ok is True
