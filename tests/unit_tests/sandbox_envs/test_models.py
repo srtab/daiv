@@ -402,3 +402,51 @@ def test_can_delete_allows_user_env(user):
 def test_can_delete_allows_non_default_global(_clear_global_envs):
     env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="g", is_default=False)
     assert env.can_delete() == (True, None)
+
+
+def _egress_env(**over):
+    """Unsaved GLOBAL env carrying an egress config, for clean()/validator unit tests."""
+    base = {
+        "scope": Scope.GLOBAL,
+        "name": "egress",
+        "base_image": "python:3.12",
+        "egress_policy": {
+            "default": "deny",
+            "intercept": "credentialed",
+            "rules": [{"host": "*.github.com", "methods": ["GET"], "inject": "gh"}],
+        },
+        "egress_secrets": {"gh": {"header": "Authorization", "value": "Bearer t"}},
+    }
+    base.update(over)
+    return SandboxEnvironment(**base)
+
+
+def test_has_egress_predicate():
+    assert _egress_env().has_egress is True
+    assert _egress_env(egress_policy=None).has_egress is False
+
+
+def test_validate_egress_accepts_valid_config():
+    _egress_env()._validate_egress()  # must not raise
+
+
+def test_validate_egress_rejects_dangling_inject():
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(egress_secrets={})  # rule injects "gh" but no such secret
+    with pytest.raises(ValidationError):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_bad_default():
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(egress_policy={"default": "sometimes", "intercept": "all", "rules": []})
+    with pytest.raises(ValidationError):
+        env._validate_egress()
+
+
+def test_egress_secrets_encrypted_at_rest():
+    env = _egress_env()
+    assert env._egress_secrets_encrypted  # ciphertext populated by the descriptor
+    assert "Bearer t" not in env._egress_secrets_encrypted

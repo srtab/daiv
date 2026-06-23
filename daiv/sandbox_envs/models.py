@@ -20,6 +20,9 @@ _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REPO_ID_RE = re.compile(r"^[^\s/]+(/[^\s/]+)+$")
 ENV_VARS_MAX_ENTRIES = 100
 ENV_VARS_MAX_ENCRYPTED_SIZE = 32 * 1024  # 32 KiB
+EGRESS_MAX_RULES = 100
+EGRESS_MAX_SECRETS = 100
+EGRESS_SECRETS_MAX_ENCRYPTED_SIZE = 32 * 1024  # 32 KiB
 
 _UNSET = object()
 
@@ -101,6 +104,10 @@ class SandboxEnvironment(TimeStampedModel):
 
     is_default = models.BooleanField(_("is default"), default=False)
 
+    egress_policy = models.JSONField(_("egress policy"), null=True, blank=True, default=None)
+    _egress_secrets_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL = no secrets
+    egress_secrets = EncryptedJSONFieldDescriptor("egress_secrets")
+
     objects = SandboxEnvironmentQuerySet.as_manager()
 
     class Meta:
@@ -128,11 +135,14 @@ class SandboxEnvironment(TimeStampedModel):
         ]
 
     def __init__(self, *args, **kwargs) -> None:
-        # Route ``env_vars`` through the descriptor so ``Manager.create(env_vars=...)`` works.
+        # Route ``env_vars``/``egress_secrets`` through their descriptors so ``Manager.create(...)`` works.
         env_vars_value = kwargs.pop("env_vars", _UNSET)
+        egress_secrets_value = kwargs.pop("egress_secrets", _UNSET)
         super().__init__(*args, **kwargs)
         if env_vars_value is not _UNSET:
             self.env_vars = env_vars_value
+        if egress_secrets_value is not _UNSET:
+            self.egress_secrets = egress_secrets_value
 
     def __str__(self) -> str:
         return f"{self.get_scope_display()}: {self.name}"
@@ -178,6 +188,11 @@ class SandboxEnvironment(TimeStampedModel):
         """
         return self.scope == Scope.GLOBAL and bool(self.is_default)
 
+    @property
+    def has_egress(self) -> bool:
+        """True iff this env carries an egress policy (``egress_policy is not None``)."""
+        return self.egress_policy is not None
+
     def can_delete(self) -> tuple[bool, str | None]:
         """Row-level invariant gate for delete. ``promote_as_default`` must run
         first if this is the global default."""
@@ -196,6 +211,7 @@ class SandboxEnvironment(TimeStampedModel):
         self.base_image = self.base_image.strip()
         self._validate_env_vars()
         self._validate_repo_ids()
+        self._validate_egress()
 
     def _validate_env_vars(self) -> None:
         from core.encryption import DecryptionError
@@ -270,6 +286,45 @@ class SandboxEnvironment(TimeStampedModel):
                     "repo_ids": _("Repo id(s) %(repos)s already claimed by environment '%(name)s'.")
                     % {"repos": ", ".join(overlap), "name": other.name}
                 })
+
+    def _validate_egress(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+
+        from core.encryption import DecryptionError
+        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressSecret
+
+        if self.egress_policy is None:
+            return  # no egress configured
+        if not isinstance(self.egress_policy, dict):
+            raise ValidationError({"egress_policy": _("Egress policy must be an object.")})
+
+        raw = self._egress_secrets_encrypted or ""
+        if len(raw) > EGRESS_SECRETS_MAX_ENCRYPTED_SIZE:
+            raise ValidationError({"egress_secrets": _("Egress secrets exceed 32 KiB encrypted.")})
+        try:
+            secrets_raw = self.egress_secrets or {}
+        except DecryptionError as err:
+            raise ValidationError({
+                NON_FIELD_ERRORS: _(
+                    "Existing egress secrets could not be decrypted. Re-enter all secret values, "
+                    "or restore DAIV_ENCRYPTION_KEY."
+                )
+            }) from err
+        if not isinstance(secrets_raw, dict):
+            raise ValidationError({"egress_secrets": _("Egress secrets must be an object.")})
+        if len(self.egress_policy.get("rules") or []) > EGRESS_MAX_RULES:
+            raise ValidationError({"egress_policy": _("Too many egress rules (max %d).") % EGRESS_MAX_RULES})
+        if len(secrets_raw) > EGRESS_MAX_SECRETS:
+            raise ValidationError({"egress_secrets": _("Too many egress secrets (max %d).") % EGRESS_MAX_SECRETS})
+
+        # Single source of truth for shape + the inject-resolves invariant: build the wire request.
+        try:
+            EgressConfigRequest(
+                policy=EgressPolicy.model_validate(self.egress_policy),
+                secrets={name: EgressSecret(**s) for name, s in secrets_raw.items()},
+            )
+        except (PydanticValidationError, TypeError, ValueError) as err:
+            raise ValidationError({"egress_policy": _("Invalid egress configuration: %s") % err}) from err
 
     def promote_as_default(self) -> None:
         """Atomically demote any other GLOBAL default and mark this env as default.
