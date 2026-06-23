@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from activity.services import RepoTarget
 
     from codebase.context import SandboxRuntime
+    from core.sandbox.schemas import EgressConfigRequest
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
@@ -29,10 +30,14 @@ class SandboxEnvOverride:
     memory_bytes: int | None
     cpus: float | None
     env_vars: dict[str, str]
+    egress: EgressConfigRequest | None = None
 
 
 def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
+    from pydantic import ValidationError as PydanticValidationError
+
     from core.encryption import DecryptionError
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressSecret
 
     try:
         env_vars_rows = env.env_vars or []
@@ -41,6 +46,20 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
         # keep going. The descriptor already logs at exception level.
         logger.error("env_vars decryption failed for SandboxEnvironment id=%s; dropping env_vars", env.id)
         env_vars_rows = []
+
+    egress = None
+    if env.egress_policy is not None:
+        try:
+            secrets_raw = env.egress_secrets or {}
+            egress = EgressConfigRequest(
+                policy=EgressPolicy.model_validate(env.egress_policy),
+                secrets={name: EgressSecret(**s) for name, s in secrets_raw.items()},
+            )
+        except DecryptionError, PydanticValidationError, TypeError, ValueError:
+            # A half/invalid egress config must never reach the sidecar; drop it and log loudly.
+            logger.error("egress config unusable for SandboxEnvironment id=%s; dropping egress", env.id)
+            egress = None
+
     return SandboxEnvOverride(
         base_image=env.base_image or None,
         network_enabled=env.network_enabled,
@@ -51,6 +70,7 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
             for entry in env_vars_rows
             if entry.get("name") and entry.get("value") is not None
         },
+        egress=egress,
     )
 
 
@@ -228,6 +248,12 @@ def merge_sandbox_runtime(
                 return v
         return runtime_default
 
+    egress = None
+    if per_run is not None and per_run.egress is not None:
+        egress = per_run.egress
+    elif global_default is not None and global_default.egress is not None:
+        egress = global_default.egress
+
     return SandboxRuntime(
         base_image=pick("base_image", None),
         network_enabled=pick("network_enabled", False),
@@ -235,6 +261,7 @@ def merge_sandbox_runtime(
         cpus=pick("cpus", None),
         env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
         command_policy=SandboxCommandPolicy(),
+        egress=egress,
     )
 
 

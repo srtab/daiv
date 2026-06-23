@@ -12,6 +12,7 @@ from codebase.exceptions import SingleRepoRequiredError
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
+from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -38,6 +39,7 @@ class SandboxRuntime:
     cpus: float | None
     env_vars: dict[str, str]
     command_policy: SandboxCommandPolicy
+    egress: EgressConfigRequest | None = None
 
     @property
     def enabled(self) -> bool:

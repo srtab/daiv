@@ -489,3 +489,94 @@ def test_build_env_trigger_updated_uses_action_key(global_env):
 
 def test_build_env_trigger_deleted_uses_action_key(global_env):
     assert "env-deleted" in build_env_trigger(global_env, "deleted")
+
+
+def _egress_request(host: str):
+    from pydantic import SecretStr
+
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    return EgressConfigRequest(
+        policy=EgressPolicy(rules=[EgressRule(host=host, inject="t")]),
+        secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_row_to_override_builds_egress():
+    from sandbox_envs.services import row_to_override
+
+    env = await SandboxEnvironment.objects.acreate(
+        scope=Scope.GLOBAL,
+        name="eg",
+        base_image="python:3.12",
+        egress_policy={
+            "default": "deny",
+            "intercept": "credentialed",
+            "rules": [{"host": "*.github.com", "methods": ["GET"], "inject": "gh"}],
+        },
+        egress_secrets={"gh": {"header": "Authorization", "value": "Bearer t"}},
+    )
+    override = row_to_override(env)
+    assert override.egress is not None
+    assert override.egress.policy.rules[0].host == "*.github.com"
+    assert override.egress.secrets["gh"].value.get_secret_value() == "Bearer t"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_row_to_override_drops_egress_when_malformed():
+    from sandbox_envs.services import row_to_override
+
+    # Dangling inject (no matching secret) — stored directly, bypassing clean().
+    env = await SandboxEnvironment.objects.acreate(
+        scope=Scope.GLOBAL,
+        name="bad",
+        base_image="python:3.12",
+        egress_policy={"default": "deny", "rules": [{"host": "x", "inject": "missing"}]},
+        egress_secrets={},
+    )
+    override = row_to_override(env)
+    assert override.egress is None
+
+
+def test_merge_prefers_per_run_egress():
+    from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
+
+    per_run = SandboxEnvOverride(
+        base_image=None,
+        network_enabled=None,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        egress=_egress_request("per-run.example"),
+    )
+    global_default = SandboxEnvOverride(
+        base_image=None,
+        network_enabled=None,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        egress=_egress_request("global.example"),
+    )
+    rt = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
+    assert rt.egress.policy.rules[0].host == "per-run.example"
+
+
+def test_merge_falls_back_to_global_egress():
+    from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
+
+    per_run = SandboxEnvOverride(
+        base_image=None, network_enabled=None, memory_bytes=None, cpus=None, env_vars={}, egress=None
+    )
+    global_default = SandboxEnvOverride(
+        base_image=None,
+        network_enabled=None,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        egress=_egress_request("global.example"),
+    )
+    rt = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
+    assert rt.egress.policy.rules[0].host == "global.example"
