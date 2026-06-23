@@ -502,6 +502,12 @@ def _egress_request(host: str):
     )
 
 
+def _override(**over):
+    """A ``SandboxEnvOverride`` with all-None scaffolding; pass only the field(s) under test."""
+    base = {"base_image": None, "network_enabled": None, "memory_bytes": None, "cpus": None, "env_vars": {}}
+    return SandboxEnvOverride(**(base | over))
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_row_to_override_builds_egress():
@@ -526,10 +532,11 @@ async def test_row_to_override_builds_egress():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_row_to_override_drops_egress_when_malformed():
+async def test_row_to_override_fails_closed_to_deny_all_when_malformed():
     from sandbox_envs.services import row_to_override
 
-    # Dangling inject (no matching secret) — stored directly, bypassing clean().
+    # Dangling inject (no matching secret) — stored directly, bypassing clean(). The env *intended*
+    # restricted egress, so dropping to None (raw network) would be fail-open; we substitute deny-all.
     env = await SandboxEnvironment.objects.acreate(
         scope=Scope.GLOBAL,
         name="bad",
@@ -538,45 +545,64 @@ async def test_row_to_override_drops_egress_when_malformed():
         egress_secrets={},
     )
     override = row_to_override(env)
-    assert override.egress is None
+    assert override.egress is not None
+    assert override.egress.policy.default == "deny"
+    assert override.egress.policy.rules == []
+    assert override.egress.secrets == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_row_to_override_fails_closed_to_deny_all_on_decryption_error(mocker):
+    from sandbox_envs.services import row_to_override
+
+    from core.encryption import DecryptionError
+
+    env = await SandboxEnvironment.objects.acreate(
+        scope=Scope.GLOBAL,
+        name="rotated",
+        base_image="python:3.12",
+        egress_policy={"default": "deny", "rules": [{"host": "*.github.com", "inject": "gh"}]},
+        egress_secrets={"gh": {"header": "Authorization", "value": "Bearer t"}},
+    )
+
+    # Simulate a rotated/lost DAIV_ENCRYPTION_KEY: the still-present egress_policy can no longer be
+    # paired with its decryptable secrets. Must fail closed (deny-all), never drop to raw network.
+    def _raise(instance):
+        raise DecryptionError("bad key")
+
+    mocker.patch.object(type(env), "egress_secrets", new_callable=lambda: property(fget=_raise))
+    override = row_to_override(env)
+    assert override.egress is not None
+    assert override.egress.policy.default == "deny"
+    assert override.egress.policy.rules == []
 
 
 def test_merge_prefers_per_run_egress():
-    from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
+    from sandbox_envs.services import merge_sandbox_runtime
 
-    per_run = SandboxEnvOverride(
-        base_image=None,
-        network_enabled=None,
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        egress=_egress_request("per-run.example"),
+    rt = merge_sandbox_runtime(
+        per_run=_override(egress=_egress_request("per-run.example")),
+        global_default=_override(egress=_egress_request("global.example")),
     )
-    global_default = SandboxEnvOverride(
-        base_image=None,
-        network_enabled=None,
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        egress=_egress_request("global.example"),
-    )
-    rt = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
     assert rt.egress.policy.rules[0].host == "per-run.example"
 
 
 def test_merge_falls_back_to_global_egress():
-    from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
+    from sandbox_envs.services import merge_sandbox_runtime
 
-    per_run = SandboxEnvOverride(
-        base_image=None, network_enabled=None, memory_bytes=None, cpus=None, env_vars={}, egress=None
+    rt = merge_sandbox_runtime(
+        per_run=_override(egress=None), global_default=_override(egress=_egress_request("global.example"))
     )
-    global_default = SandboxEnvOverride(
-        base_image=None,
-        network_enabled=None,
-        memory_bytes=None,
-        cpus=None,
-        env_vars={},
-        egress=_egress_request("global.example"),
-    )
-    rt = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
     assert rt.egress.policy.rules[0].host == "global.example"
+
+
+def test_merge_egress_is_none_when_neither_side_has_it():
+    from sandbox_envs.services import merge_sandbox_runtime
+
+    # Egress is opt-in: no policy on either side must never materialize one (it would otherwise
+    # silently apply an unintended network posture).
+    rt = merge_sandbox_runtime(
+        per_run=_override(network_enabled=True, egress=None), global_default=_override(egress=None)
+    )
+    assert rt.egress is None

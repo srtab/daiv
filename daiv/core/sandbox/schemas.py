@@ -272,6 +272,18 @@ class EgressConfigRequest(BaseModel):
                 raise ValueError(f"rule for host {rule.host!r} references unknown secret {rule.inject!r}")
         return self
 
+    @classmethod
+    def from_stored(cls, policy: dict, secrets: dict) -> EgressConfigRequest:
+        """Build a wire request from a stored ``egress_policy`` dict + decrypted ``egress_secrets`` dict.
+
+        Single source of truth for how persisted egress config maps onto the wire schemas (including
+        the inject-resolves invariant). Raises ``pydantic.ValidationError`` / ``TypeError`` / ``ValueError``
+        on a malformed stored shape; callers decide how to react (reject on save vs. fail-closed at runtime).
+        """
+        return cls(
+            policy=EgressPolicy.model_validate(policy), secrets={name: EgressSecret(**s) for name, s in secrets.items()}
+        )
+
 
 class EgressConfigResponse(BaseModel):
     ok: bool = Field(default=True, description="True when the policy was provisioned to the sidecar.")

@@ -20,7 +20,7 @@ from langgraph.typing import StateT  # noqa: TC002
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend  # noqa: TC001
-from codebase.context import RuntimeCtx  # noqa: TC001
+from codebase.context import RuntimeCtx, SandboxRuntime  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -292,31 +292,9 @@ def _make_global_skills_archive() -> bytes | None:
 
 
 class SandboxEgressUnavailableError(RuntimeError):
-    """Raised when a session's resolved egress policy cannot be provisioned to the sandbox sidecar
-    (the sandbox returned 404 'egress not enabled' or 409 'session has no proxy'). Fail-closed: the
-    run must not proceed with whatever raw network the sandbox would otherwise grant."""
-
-
-async def _provision_egress(client, session_id: str, sb) -> None:
-    """Provision the sidecar egress policy for a network-enabled session that requires it.
-
-    No-op when the resolved env defines no egress policy or network is off. A 404/409 is converted to
-    ``SandboxEgressUnavailableError`` (fail-closed); other HTTP errors propagate unchanged for the
-    existing transient-retry handling.
-    """
-    if sb.egress is None or not sb.network_enabled:
-        return
-    try:
-        await client.configure_egress(session_id, sb.egress)
-    except httpx.HTTPStatusError as exc:
-        status = exc.response.status_code
-        if status in (404, 409):
-            raise SandboxEgressUnavailableError(
-                f"The resolved sandbox environment requires the egress proxy, but the sandbox returned "
-                f"{status} for egress provisioning. Enable DAIV_SANDBOX_EGRESS_PROXY_ENABLED on the "
-                f"sandbox (and ensure the session is network-enabled)."
-            ) from exc
-        raise
+    """Raised when a session's resolved egress policy cannot be provisioned because the sandbox has
+    the egress proxy disabled (HTTP 404 'egress proxy not enabled'). Fail-closed: the run must not
+    proceed with whatever raw network the sandbox would otherwise grant."""
 
 
 class BashFailure(Enum):
@@ -523,6 +501,31 @@ class SandboxMiddleware(AgentMiddleware):
             )
             return False
 
+    @staticmethod
+    async def _provision_egress(client: DAIVSandboxClient, session_id: str, sb: SandboxRuntime | None) -> None:
+        """Provision the sidecar egress policy for a network-enabled session that requires it.
+
+        No-op when there is no resolved sandbox runtime, the env defines no egress policy, or network
+        is off. Only a **404** (egress
+        proxy disabled on the sandbox — unambiguous and permanent) is converted to the actionable
+        ``SandboxEgressUnavailableError``. Every other status propagates unchanged, including a 409 — on
+        the egress endpoint 409 is ambiguous ("Session is busy" transient lock contention, or "Session
+        has no egress proxy") and the project already classifies 409 as transient
+        (``TRANSIENT_SANDBOX_STATUS``), so it must not be mislabeled as a permanent "enable the proxy"
+        diagnosis. A propagated error still fails closed: the caller's setup path aborts the run.
+        """
+        if sb is None or sb.egress is None or not sb.network_enabled:
+            return
+        try:
+            await client.configure_egress(session_id, sb.egress)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise SandboxEgressUnavailableError(
+                    "The resolved sandbox environment requires the egress proxy, but the sandbox returned "
+                    "404 for egress provisioning. Enable DAIV_SANDBOX_EGRESS_PROXY_ENABLED on the sandbox."
+                ) from exc
+            raise
+
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
         Bind a sandbox session — reusing the prior turn's warm session when possible.
@@ -546,7 +549,13 @@ class SandboxMiddleware(AgentMiddleware):
         prior_session_id = state.get("session_id")
         if prior_session_id and await self._session_exists(client, prior_session_id):
             self._bind_session(prior_session_id)
-            await _provision_egress(client, prior_session_id, runtime.context.sandbox)
+            # Re-provision egress on every warm reuse so the fail-closed guarantee holds on resumed
+            # turns too. A failure here propagates and aborts the run (fail-closed). Unlike the
+            # fresh-create path below we deliberately do NOT force-close the container: it's a healthy
+            # resumable session, the failure may be transient (e.g. a 409 "Session is busy"), and the
+            # next turn re-runs this check (or the reaper reclaims it). Force-closing here would throw
+            # away a good warm container on a transient blip.
+            await self._provision_egress(client, prior_session_id, runtime.context.sandbox)
             logger.info("Reusing warm sandbox session %s", prior_session_id)
             return {"session_id": prior_session_id}
 
@@ -566,7 +575,7 @@ class SandboxMiddleware(AgentMiddleware):
                 asyncio.to_thread(_make_repo_archive, str(working_dir)), asyncio.to_thread(_make_global_skills_archive)
             )
             await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
-            await _provision_egress(client, session_id, sb)
+            await self._provision_egress(client, session_id, sb)
         except Exception:
             logger.exception("Failed to build or seed sandbox session %s", session_id)
             try:

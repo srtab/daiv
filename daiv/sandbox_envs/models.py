@@ -295,7 +295,7 @@ class SandboxEnvironment(TimeStampedModel):
         from pydantic import ValidationError as PydanticValidationError
 
         from core.encryption import DecryptionError
-        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressSecret
+        from core.sandbox.schemas import EgressConfigRequest
 
         if self.egress_policy is None:
             return  # no egress configured
@@ -321,12 +321,9 @@ class SandboxEnvironment(TimeStampedModel):
         if len(secrets_raw) > EGRESS_MAX_SECRETS:
             raise ValidationError({"egress_secrets": _("Too many egress secrets (max %d).") % EGRESS_MAX_SECRETS})
 
-        # Single source of truth for shape + the inject-resolves invariant: build the wire request.
+        # Authoritative shape + inject-resolves check (count/size caps handled above): build the wire request.
         try:
-            EgressConfigRequest(
-                policy=EgressPolicy.model_validate(self.egress_policy),
-                secrets={name: EgressSecret(**s) for name, s in secrets_raw.items()},
-            )
+            EgressConfigRequest.from_stored(self.egress_policy, secrets_raw)
         except (PydanticValidationError, TypeError, ValueError) as err:
             raise ValidationError({"egress_policy": _("Invalid egress configuration: %s") % err}) from err
 

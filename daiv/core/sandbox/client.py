@@ -234,8 +234,10 @@ class DAIVSandboxClient:
         Idempotent on the sandbox side. Secret values are sent in plaintext (the sidecar needs them);
         ``SecretStr`` keeps them redacted in logs/repr, so the payload is built explicitly here rather
         than via ``request.model_dump(mode="json")``, which would mask the values. Raises
-        ``httpx.HTTPStatusError`` on a non-2xx (404 = egress not enabled on the sandbox, 409 = the
-        session has no proxy); the caller decides how to react.
+        ``httpx.HTTPStatusError`` on a non-2xx; the caller decides how to react. Status meanings:
+        404 = egress proxy disabled on the sandbox (permanent); 409 = either "Session is busy"
+        (transient lock contention — see ``TRANSIENT_SANDBOX_STATUS``) or "Session has no egress
+        proxy"; other 5xx are transient.
         """
         payload = {
             "policy": request.policy.model_dump(mode="json"),

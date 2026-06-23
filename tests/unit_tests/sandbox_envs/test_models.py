@@ -450,3 +450,25 @@ def test_egress_secrets_encrypted_at_rest():
     env = _egress_env()
     assert env._egress_secrets_encrypted  # ciphertext populated by the descriptor
     assert "Bearer t" not in env._egress_secrets_encrypted
+
+
+def test_validate_egress_rejects_too_many_rules():
+    from django.core.exceptions import ValidationError
+
+    from sandbox_envs.models import EGRESS_MAX_RULES
+
+    rules = [{"host": f"h{i}.example"} for i in range(EGRESS_MAX_RULES + 1)]
+    env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": rules}, egress_secrets={})
+    with pytest.raises(ValidationError, match="Too many egress rules"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_too_many_secrets():
+    from django.core.exceptions import ValidationError
+
+    from sandbox_envs.models import EGRESS_MAX_SECRETS
+
+    secrets = {f"s{i}": {"header": "Authorization", "value": "v"} for i in range(EGRESS_MAX_SECRETS + 1)}
+    env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": []}, egress_secrets=secrets)
+    with pytest.raises(ValidationError, match="Too many egress secrets"):
+        env._validate_egress()

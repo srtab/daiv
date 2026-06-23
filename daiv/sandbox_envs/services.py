@@ -37,7 +37,7 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
     from pydantic import ValidationError as PydanticValidationError
 
     from core.encryption import DecryptionError
-    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressSecret
+    from core.sandbox.schemas import EgressConfigRequest
 
     try:
         env_vars_rows = env.env_vars or []
@@ -50,15 +50,17 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
     egress = None
     if env.egress_policy is not None:
         try:
-            secrets_raw = env.egress_secrets or {}
-            egress = EgressConfigRequest(
-                policy=EgressPolicy.model_validate(env.egress_policy),
-                secrets={name: EgressSecret(**s) for name, s in secrets_raw.items()},
-            )
+            egress = EgressConfigRequest.from_stored(env.egress_policy, env.egress_secrets or {})
         except DecryptionError, PydanticValidationError, TypeError, ValueError:
-            # A half/invalid egress config must never reach the sidecar; drop it and log loudly.
-            logger.error("egress config unusable for SandboxEnvironment id=%s; dropping egress", env.id)
-            egress = None
+            # The env *intended* restricted egress but its config is unusable (e.g. a rotated
+            # DAIV_ENCRYPTION_KEY left the secrets undecryptable, or the row was hand-edited).
+            # Fail closed: substitute an empty deny-all policy rather than dropping to None — None
+            # would let a network-enabled session fall back to raw network (proxy off) or rely on
+            # the sidecar's default (proxy on). Deny-all denies connectivity (proxy on) or trips the
+            # fail-closed abort in _provision_egress (proxy off). Never reach the sidecar with a
+            # half/invalid config. The descriptor already logs the decryption failure at exception level.
+            logger.error("egress config unusable for SandboxEnvironment id=%s; failing closed to deny-all", env.id)
+            egress = EgressConfigRequest()
 
     return SandboxEnvOverride(
         base_image=env.base_image or None,
@@ -248,20 +250,16 @@ def merge_sandbox_runtime(
                 return v
         return runtime_default
 
-    egress = None
-    if per_run is not None and per_run.egress is not None:
-        egress = per_run.egress
-    elif global_default is not None and global_default.egress is not None:
-        egress = global_default.egress
-
     return SandboxRuntime(
         base_image=pick("base_image", None),
         network_enabled=pick("network_enabled", False),
         memory_bytes=pick("memory_bytes", None),
         cpus=pick("cpus", None),
+        # Egress is opt-in; its "absent" value is None, so the generic precedence in pick() fits exactly
+        # (per-run wins, else global, else None). env_vars below is a union, which is why it can't.
+        egress=pick("egress", None),
         env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
         command_policy=SandboxCommandPolicy(),
-        egress=egress,
     )
 
 
