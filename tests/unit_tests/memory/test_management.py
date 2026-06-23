@@ -34,9 +34,11 @@ class TestConsolidateMemoryCommand:
             call_command("consolidate_memory", "--repo-id", "group/project", "--force", stdout=StringIO())
         task_mock.call.assert_called_once_with("group/project")
 
-    def test_noop_when_nothing_pending(self):
-        out = StringIO()
-        with patch("memory.management.commands.consolidate_memory.consolidate_memory_task") as task_mock:
-            call_command("consolidate_memory", "--repo-id", "group/empty", stdout=out)
+    def test_noop_when_nothing_pending(self, caplog):
+        with (
+            patch("memory.management.commands.consolidate_memory.consolidate_memory_task") as task_mock,
+            caplog.at_level("WARNING", logger="daiv.memory"),
+        ):
+            call_command("consolidate_memory", "--repo-id", "group/empty")
         task_mock.call.assert_not_called()
-        assert "No pending observations" in out.getvalue()
+        assert "No pending observations" in caplog.text

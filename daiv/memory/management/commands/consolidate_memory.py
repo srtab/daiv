@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 from django.core.management.base import BaseCommand, CommandError
 
 from memory.models import MemoryObservation, ObservationStatus
 from memory.tasks import CONSOLIDATION_MIN_PENDING, consolidate_memory_task
+
+logger = logging.getLogger("daiv.memory")
 
 
 class Command(BaseCommand):
@@ -19,7 +23,7 @@ class Command(BaseCommand):
         repo_id = options["repo_id"]
         pending = MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).count()
         if pending == 0:
-            self.stdout.write(self.style.WARNING(f"No pending observations for {repo_id}; nothing to do."))
+            logger.warning("No pending observations for %s; nothing to do.", repo_id)
             return
         if pending < CONSOLIDATION_MIN_PENDING and not options["force"]:
             raise CommandError(
@@ -28,6 +32,4 @@ class Command(BaseCommand):
             )
         # Run the task in-process for immediate operator feedback instead of enqueueing to the worker.
         consolidate_memory_task.call(repo_id)
-        self.stdout.write(
-            self.style.SUCCESS(f"Consolidation completed for {repo_id} ({pending} pending observations).")
-        )
+        logger.info("Consolidation completed for %s (%d pending observations).", repo_id, pending)
