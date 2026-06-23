@@ -6,9 +6,11 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
+from django.db.models import Count
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
+from crontask import cron
 from django_tasks import task
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -72,7 +74,7 @@ async def consolidate_memory_task(repo_id: str) -> None:
     generalizes recurring observations. Failures propagate to django-tasks (logged +
     marked failed); agent runs are never affected — this runs out-of-band.
 
-    Throttling is the caller's job (see ``_maybe_trigger_consolidation``); this is not
+    Throttling is the caller's job (see ``consolidate_memory_cron_task``); this is not
     deduplicated, so a redundant trigger simply finds 0 pending observations and no-ops.
     """
     if not site_settings.memory_enabled:
@@ -286,23 +288,73 @@ async def extract_observations_task(activity_id: str) -> None:
             activity_id,
         )
 
-    await _maybe_trigger_consolidation(activity.repo_id)
 
+# Hourly is fine-grained relative to the per-repo interval cooldown (default 24h, the real
+# throttle): the sweep only controls how soon after a repo crosses the threshold it is picked
+# up. Hardcoded like the other housekeeping crons (see core.tasks.prune_db_task_results_cron_task)
+# rather than added to the DAIV_MEMORY_* site settings, which resolve at runtime and so can't feed
+# the import-time @cron schedule.
+@cron("0 * * * *")
+@task
+async def consolidate_memory_cron_task() -> None:
+    """Sweep every repository and enqueue consolidation for those that are due.
 
-async def _maybe_trigger_consolidation(repo_id: str) -> None:
-    """Piggyback consolidation scheduling on extraction (no cron exists).
+    This is the sole automatic scheduler for consolidation ("dreaming"); the
+    ``consolidate_memory`` management command is the only other entry point and runs
+    in-process for an operator, not on a schedule. Unlike the former extraction-time
+    trigger, this also sweeps repos that have gone quiet (no recent runs), so accumulated
+    observations never sit unconsolidated indefinitely.
 
-    Enqueue when the repo accumulated at least ``memory_consolidation_min_pending``
-    observations and the last consolidation is older than
-    ``memory_consolidation_min_interval_hours`` (or never ran). Both thresholds come
-    from ``site_settings``.
+    A repo is due when it has at least ``memory_consolidation_min_pending`` pending
+    observations and its last consolidation is older than
+    ``memory_consolidation_min_interval_hours`` (or it never ran). Both thresholds come
+    from ``site_settings``. The actual work — and the per-repo ``.daiv.yml`` flag check —
+    stays in ``consolidate_memory_task``, which re-reads pending and no-ops if empty, so a
+    repo disabled or drained between sweep and run is handled there.
     """
-    pending = await MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).acount()
-    if pending < site_settings.memory_consolidation_min_pending:
+    if not site_settings.memory_enabled:
+        logger.info("consolidate_memory_cron_task: memory disabled site-wide, skipping sweep")
         return
-    memory = await RepositoryMemory.objects.filter(repo_id=repo_id).afirst()
-    min_interval = timedelta(hours=site_settings.memory_consolidation_min_interval_hours)
-    if memory and memory.last_consolidated_at and timezone.now() - memory.last_consolidated_at < min_interval:
-        return
-    await consolidate_memory_task.aenqueue(repo_id)
-    logger.info("_maybe_trigger_consolidation: enqueued consolidation for repo %s (%d pending)", repo_id, pending)
+
+    cutoff = timezone.now() - timedelta(hours=site_settings.memory_consolidation_min_interval_hours)
+    due_repo_ids = [
+        repo_id
+        async for repo_id in (
+            MemoryObservation.objects
+            .filter(status=ObservationStatus.PENDING)
+            .values("repo_id")
+            .annotate(pending=Count("pk"))
+            .filter(pending__gte=site_settings.memory_consolidation_min_pending)
+            .values_list("repo_id", flat=True)
+        )
+    ]
+    # One batched lookup for the cooldown gate instead of a per-repo query: repos consolidated
+    # within the interval are skipped. Repos with no memory row (or a null last_consolidated_at)
+    # are absent here, so they correctly stay due.
+    recently_consolidated = {
+        repo_id
+        async for repo_id in RepositoryMemory.objects.filter(
+            repo_id__in=due_repo_ids, last_consolidated_at__gt=cutoff
+        ).values_list("repo_id", flat=True)
+    }
+
+    enqueued = failed = 0
+    for repo_id in due_repo_ids:
+        if repo_id in recently_consolidated:
+            continue
+        # Isolate each repo: a per-repo enqueue error (``aenqueue`` is a real INSERT under the
+        # deduplicating backend) must not abort the sweep and starve the remaining repos —
+        # same catch-log-continue contract as ``dispatch_scheduled_jobs_cron_task``.
+        try:
+            await consolidate_memory_task.aenqueue(repo_id)
+            enqueued += 1
+        except Exception:
+            logger.exception(
+                "consolidate_memory_cron_task: failed to enqueue consolidation for repo %s, skipping", repo_id
+            )
+            failed += 1
+
+    if enqueued:
+        logger.info("consolidate_memory_cron_task: enqueued consolidation for %d repo(s)", enqueued)
+    if failed:
+        logger.warning("consolidate_memory_cron_task: %d repo(s) failed to enqueue", failed)
