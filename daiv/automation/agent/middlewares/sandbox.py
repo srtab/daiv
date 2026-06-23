@@ -291,6 +291,34 @@ def _make_global_skills_archive() -> bytes | None:
     return buf.getvalue()
 
 
+class SandboxEgressUnavailableError(RuntimeError):
+    """Raised when a session's resolved egress policy cannot be provisioned to the sandbox sidecar
+    (the sandbox returned 404 'egress not enabled' or 409 'session has no proxy'). Fail-closed: the
+    run must not proceed with whatever raw network the sandbox would otherwise grant."""
+
+
+async def _provision_egress(client, session_id: str, sb) -> None:
+    """Provision the sidecar egress policy for a network-enabled session that requires it.
+
+    No-op when the resolved env defines no egress policy or network is off. A 404/409 is converted to
+    ``SandboxEgressUnavailableError`` (fail-closed); other HTTP errors propagate unchanged for the
+    existing transient-retry handling.
+    """
+    if sb.egress is None or not sb.network_enabled:
+        return
+    try:
+        await client.configure_egress(session_id, sb.egress)
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status in (404, 409):
+            raise SandboxEgressUnavailableError(
+                f"The resolved sandbox environment requires the egress proxy, but the sandbox returned "
+                f"{status} for egress provisioning. Enable DAIV_SANDBOX_EGRESS_PROXY_ENABLED on the "
+                f"sandbox (and ensure the session is network-enabled)."
+            ) from exc
+        raise
+
+
 class BashFailure(Enum):
     """Why a bash invocation produced no result, mapped to the guidance the agent gets.
 
@@ -518,6 +546,7 @@ class SandboxMiddleware(AgentMiddleware):
         prior_session_id = state.get("session_id")
         if prior_session_id and await self._session_exists(client, prior_session_id):
             self._bind_session(prior_session_id)
+            await _provision_egress(client, prior_session_id, runtime.context.sandbox)
             logger.info("Reusing warm sandbox session %s", prior_session_id)
             return {"session_id": prior_session_id}
 
@@ -537,6 +566,7 @@ class SandboxMiddleware(AgentMiddleware):
                 asyncio.to_thread(_make_repo_archive, str(working_dir)), asyncio.to_thread(_make_global_skills_archive)
             )
             await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
+            await _provision_egress(client, session_id, sb)
         except Exception:
             logger.exception("Failed to build or seed sandbox session %s", session_id)
             try:

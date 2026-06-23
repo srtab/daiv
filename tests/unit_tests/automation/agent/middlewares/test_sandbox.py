@@ -93,6 +93,7 @@ def _make_runtime() -> MagicMock:
     sb.memory_bytes = 1
     sb.cpus = 1
     sb.env_vars = None
+    sb.egress = None
     runtime.context.gitrepo.working_dir = "/tmp/repo"  # noqa: S108
     return runtime
 
@@ -761,3 +762,85 @@ class TestSessionExists:
 
         client = Mock(session_exists=AsyncMock(side_effect=httpx.HTTPError("boom")))
         assert await SandboxMiddleware._session_exists(client, "warm-1") is False
+
+
+class TestSandboxEgress:
+    def _runtime_with_egress(self):
+        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy
+
+        runtime = _make_runtime()
+        runtime.context.sandbox.network_enabled = True
+        runtime.context.sandbox.egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
+        return runtime, runtime.context.sandbox.egress
+
+    async def test_provisions_egress_on_fresh_create(self):
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess-e")
+        client.seed_session = AsyncMock()
+        client.configure_egress = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+        runtime, egress = self._runtime_with_egress()
+        with (
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
+        ):
+            await mw.abefore_agent({}, runtime)
+        client.configure_egress.assert_awaited_once_with("sess-e", egress)
+
+    async def test_provisions_egress_on_warm_reuse(self):
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=True)
+        client.start_session = AsyncMock()
+        client.configure_egress = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+        runtime, egress = self._runtime_with_egress()
+        result = await mw.abefore_agent({"session_id": "sess-warm"}, runtime)
+        assert result == {"session_id": "sess-warm"}
+        client.start_session.assert_not_awaited()
+        client.configure_egress.assert_awaited_once_with("sess-warm", egress)
+
+    async def test_skips_egress_when_none(self):
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess-x")
+        client.seed_session = AsyncMock()
+        client.configure_egress = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+        runtime = _make_runtime()  # network_enabled False, egress None
+        with (
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
+        ):
+            await mw.abefore_agent({}, runtime)
+        client.configure_egress.assert_not_awaited()
+
+    @pytest.mark.parametrize("status", [404, 409])
+    async def test_egress_failure_is_fail_closed_and_closes_session(self, status: int):
+        import httpx
+
+        from automation.agent.middlewares.sandbox import SandboxEgressUnavailableError
+
+        err = httpx.HTTPStatusError("nope", request=httpx.Request("POST", "x"), response=httpx.Response(status))
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess-fc")
+        client.seed_session = AsyncMock()
+        client.configure_egress = AsyncMock(side_effect=err)
+        client.close_session = AsyncMock()
+        client.close = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+        runtime, _ = self._runtime_with_egress()
+        with (
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
+            pytest.raises(SandboxEgressUnavailableError),
+        ):
+            await mw.abefore_agent({}, runtime)
+        client.close_session.assert_awaited_once_with("sess-fc", force=True)
+        client.close.assert_not_awaited()  # the run owns the transport
