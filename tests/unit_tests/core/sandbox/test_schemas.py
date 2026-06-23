@@ -82,3 +82,28 @@ def test_fs_delete_response_removed_and_ok():
 
     failed = FsDeleteResponse(error=FsError(code=FsErrorCode.IS_A_DIRECTORY, message="is a directory"))
     assert failed.ok is False and failed.error.code is FsErrorCode.IS_A_DIRECTORY
+
+
+def test_egress_rule_uppercases_methods_and_rejects_empty():
+    from core.sandbox.schemas import EgressRule
+
+    assert EgressRule(host="x", methods=["get", "post"]).methods == ["GET", "POST"]
+    with pytest.raises(ValueError):
+        EgressRule(host="x", methods=[])
+
+
+def test_egress_config_request_rejects_dangling_inject():
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule
+
+    with pytest.raises(ValueError, match="unknown secret"):
+        EgressConfigRequest(policy=EgressPolicy(rules=[EgressRule(host="x", inject="missing")]), secrets={})
+
+
+def test_egress_secret_value_is_redacted_in_repr():
+    from pydantic import SecretStr
+
+    from core.sandbox.schemas import EgressSecret
+
+    s = EgressSecret(header="Authorization", value=SecretStr("Bearer t"))
+    assert "Bearer t" not in repr(s)
+    assert s.value.get_secret_value() == "Bearer t"
