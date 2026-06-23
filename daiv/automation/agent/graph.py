@@ -37,6 +37,7 @@ from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.middlewares.git_platform import GitPlatformMiddleware
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
+from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
@@ -336,6 +337,7 @@ async def create_daiv_agent(
         ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
         dynamic_daiv_system_prompt,
+        RepositoryMemoryMiddleware(),
         *(middleware or []),
     ]
 

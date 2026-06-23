@@ -164,3 +164,48 @@ class TestUnknownField:
     def test_raises_attribute_error(self, ss):
         with pytest.raises(AttributeError, match="no field"):
             ss.nonexistent_field  # noqa: B018
+
+
+class TestMemoryDefaults:
+    def test_memory_enabled_defaults_true(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(memory_enabled=None)):
+            assert ss.memory_enabled is True
+
+    def test_extraction_model_default(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(memory_extraction_model_name=None)):
+            assert ss.memory_extraction_model_name == "openrouter:openai/gpt-5.4-mini"
+
+    def test_extraction_fallback_model_default(self, ss):
+        with patch.object(
+            SiteConfiguration, "get_cached", return_value=MagicMock(memory_extraction_fallback_model_name=None)
+        ):
+            assert ss.memory_extraction_fallback_model_name == "openrouter:anthropic/claude-haiku-4.5"
+
+    def test_consolidation_model_default_is_empty(self, ss):
+        # Optional override: empty means "reuse the repository's agent model".
+        with patch.object(
+            SiteConfiguration, "get_cached", return_value=MagicMock(memory_consolidation_model_name=None)
+        ):
+            assert ss.memory_consolidation_model_name is None
+
+    def test_threshold_and_budget_defaults(self, ss):
+        cfg = MagicMock(
+            memory_consolidation_min_pending=None,
+            memory_consolidation_min_interval_hours=None,
+            memory_max_lines=None,
+            memory_max_bytes=None,
+        )
+        with patch.object(SiteConfiguration, "get_cached", return_value=cfg):
+            assert ss.memory_consolidation_min_pending == 10
+            assert ss.memory_consolidation_min_interval_hours == 24
+            assert ss.memory_max_lines == 200
+            assert ss.memory_max_bytes == 10_240
+
+    def test_memory_enabled_env_override(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_MEMORY_ENABLED", "false")
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(memory_enabled=True)):
+            assert ss.memory_enabled is False
+
+    def test_max_lines_db_override(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(memory_max_lines=50)):
+            assert ss.memory_max_lines == 50

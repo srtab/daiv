@@ -69,6 +69,20 @@ def _default_thinking_level() -> ThinkingLevel | None:
         return None
 
 
+class Memory(BaseModel):
+    """
+    Learned repository memory configuration.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Enable learned repository memory: observation capture from finished runs, "
+            "periodic consolidation, and system prompt injection."
+        ),
+    )
+
+
 class AgentModelConfig(BaseModel):
     """
     Model configuration for the DAIV agent.
@@ -176,6 +190,7 @@ class RepositoryConfig(BaseModel):
     issue_addressing: IssueAddressing = Field(
         default_factory=IssueAddressing, description="Configure issue addressing features."
     )
+    memory: Memory = Field(default_factory=Memory, description="Configure learned repository memory features.")
     models: Models = Field(default_factory=Models, description="Configure model settings for agents.")
 
     def is_user_allowed(self, username: str) -> bool:
