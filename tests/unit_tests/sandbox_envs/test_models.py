@@ -467,3 +467,14 @@ def test_validate_egress_rejects_too_many_secrets():
     env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": []}, egress_secrets=secrets)
     with pytest.raises(ValidationError, match="Too many egress secrets"):
         env._validate_egress()
+
+
+@pytest.mark.django_db
+def test_summary_marks_net_when_egress_policy_present():
+    on = SandboxEnvironment(
+        scope=Scope.GLOBAL, name="on", base_image="python:3.14", egress_policy={"default": "allow", "rules": []}
+    )
+    off = SandboxEnvironment(scope=Scope.GLOBAL, name="off", base_image="python:3.14", egress_policy=None)
+    assert "net" in on.summary and "net" in on.short_summary
+    assert "net" not in off.summary and "net" not in off.short_summary
+    assert not hasattr(off, "network_enabled")
