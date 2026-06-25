@@ -74,6 +74,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.initial.setdefault("cpu_mode", "custom" if instance.cpus else "default")
         self.fields["env_vars_json"].initial = self._initial_env_vars_json()
         self.fields["repo_ids_json"].initial = self._initial_repo_ids_json()
+        self.fields["egress_json"].initial = self._initial_egress_json()
 
     def _initial_env_vars_json(self) -> str:
         """JSON string for the env-vars editor's initial state. Secret values
@@ -108,6 +109,45 @@ class SandboxEnvironmentForm(forms.ModelForm):
         if self.instance.pk is None:
             return "[]"
         return json.dumps(list(self.instance.repo_ids or []))
+
+    def _initial_egress_json(self) -> str:
+        """JSON string for the egress editor's initial state. Credential values
+        are masked (rendered as ``""`` with ``has_existing_value``) so decrypted
+        secrets never leak into page HTML. Returns the empty-policy default for
+        unsaved instances, envs with no policy, or when ciphertext can't be
+        decrypted (the POST path still blocks via
+        :meth:`_preserve_unchanged_egress_secrets`)."""
+        from core.encryption import DecryptionError
+
+        empty = json.dumps({"default": "deny", "intercept": "all", "hosts": []})
+        if self.instance.pk is None or self.instance.egress_policy is None:
+            return empty
+        policy = self.instance.egress_policy
+        try:
+            secrets = self.instance.egress_secrets or {}
+        except DecryptionError:
+            logger.error(
+                "egress_secrets decryption failed for SandboxEnvironment id=%s; rendering empty credentials",
+                self.instance.id,
+            )
+            secrets = {}
+        hosts = []
+        for rule in policy.get("rules", []):
+            inject = rule.get("inject")
+            has_cred = bool(inject) and inject in secrets
+            hosts.append({
+                "host": rule.get("host", ""),
+                "methods": rule.get("methods") or ["*"],
+                "secret_name": inject or "",
+                "header": secrets.get(inject, {}).get("header", "") if has_cred else "",
+                "value": "",
+                "has_existing_value": has_cred,
+            })
+        return json.dumps({
+            "default": policy.get("default", "deny"),
+            "intercept": policy.get("intercept", "all"),
+            "hosts": hosts,
+        })
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]
@@ -244,8 +284,11 @@ class SandboxEnvironmentForm(forms.ModelForm):
         if instance.pk is not None:
             env_vars = self._preserve_unchanged_secrets(instance, env_vars)
         instance.env_vars = env_vars
+        egress_secrets = self.cleaned_data.get("egress_secrets") or {}
+        if instance.pk is not None:
+            egress_secrets = self._preserve_unchanged_egress_secrets(instance, egress_secrets)
         instance.egress_policy = self.cleaned_data.get("egress_policy")
-        instance.egress_secrets = self.cleaned_data.get("egress_secrets") or {}
+        instance.egress_secrets = egress_secrets
         if commit:
             instance.full_clean()
             instance.save()
@@ -268,6 +311,33 @@ class SandboxEnvironmentForm(forms.ModelForm):
             rules.append({"host": host["host"], "methods": host["methods"], "inject": inject})
         policy = {"default": parsed["default"], "intercept": parsed["intercept"], "rules": rules}
         return policy, secrets
+
+    @staticmethod
+    def _preserve_unchanged_egress_secrets(instance: SandboxEnvironment, submitted: dict) -> dict:
+        """Restore the stored value for any submitted egress secret whose value is
+        the masked sentinel (``""`` or ``"******"``), matched by synthesised
+        ``secret_name`` against the instance's persisted ``egress_secrets``.
+
+        Raises a form-level :class:`ValidationError` if existing ciphertext cannot
+        be decrypted — proceeding would persist the mask and destroy the secret."""
+        from core.encryption import DecryptionError
+
+        try:
+            existing = instance.egress_secrets or {}
+        except DecryptionError as err:
+            raise forms.ValidationError(
+                _(
+                    "Existing egress secrets could not be decrypted. Re-enter all credential values "
+                    "before saving, or restore DAIV_ENCRYPTION_KEY."
+                )
+            ) from err
+        out: dict[str, dict] = {}
+        for name, sec in submitted.items():
+            if sec.get("value", "") in ("", "******") and name in existing:
+                out[name] = {**sec, "value": existing[name].get("value", "")}
+            else:
+                out[name] = sec
+        return out
 
     @staticmethod
     def _preserve_unchanged_secrets(instance: SandboxEnvironment, submitted_rows: list[dict]) -> list[dict]:

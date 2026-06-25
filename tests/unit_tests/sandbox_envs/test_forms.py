@@ -464,6 +464,212 @@ def test_form_rejects_bad_egress_enums_and_blank_host():
 
 
 @pytest.mark.django_db
+def test_egress_initial_masks_secret_values():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue4", email="ue4@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-secret"}},
+    )
+    form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
+    state = json.loads(form.fields["egress_json"].initial)
+    host = state["hosts"][0]
+    assert host["host"] == "api.openai.com"
+    assert host["secret_name"] == "s1"  # noqa: S105
+    assert host["header"] == "Authorization"
+    assert host["value"] == ""  # masked — never leaks plaintext
+    assert host["has_existing_value"] is True
+    assert "sk-secret" not in form.fields["egress_json"].initial
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("masked_value", ["", "******"])
+def test_egress_preserves_unchanged_secret_on_edit(masked_value):
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue5", email="ue5@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-secret"}},
+    )
+    submitted = json.dumps({
+        "default": "deny",
+        "intercept": "all",
+        "hosts": [
+            {
+                "host": "api.openai.com",
+                "methods": ["*"],
+                "header": "Authorization",
+                "value": masked_value,
+                "secret_name": "s1",
+                "has_existing_value": True,
+            }
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        instance=env,
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": submitted},
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.egress_secrets == {"s1": {"header": "Authorization", "value": "sk-secret"}}
+
+
+@pytest.mark.django_db
+def test_egress_changed_secret_overwrites_on_edit():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue6", email="ue6@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "old"}},
+    )
+    submitted = json.dumps({
+        "default": "deny",
+        "intercept": "all",
+        "hosts": [
+            {
+                "host": "api.openai.com",
+                "methods": ["*"],
+                "header": "Authorization",
+                "value": "new",
+                "secret_name": "s1",
+                "has_existing_value": True,
+            }
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        instance=env,
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": submitted},
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.egress_secrets["s1"]["value"] == "new"
+
+
+@pytest.mark.django_db
+def test_egress_initial_returns_empty_credentials_on_decryption_error(user, mocker, caplog):
+    """Exercises the swallow branch of ``_initial_egress_json``: when the
+    ``egress_secrets`` getter raises ``DecryptionError``, the editor must still
+    render the policy (host/methods) but with empty credentials, never raising."""
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-secret"}},
+    )
+    from core.encryption import DecryptionError
+
+    # Patch the descriptor: when accessed on the instance, raise DecryptionError.
+    def _raise(instance):
+        raise DecryptionError("bad key")
+
+    mocker.patch.object(type(env), "egress_secrets", new_callable=lambda: property(fget=_raise))
+    caplog.set_level(logging.ERROR, logger="daiv.sandbox_envs")
+    form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
+    state = json.loads(form.fields["egress_json"].initial)
+    host = state["hosts"][0]
+    assert host["host"] == "api.openai.com"
+    assert host["methods"] == ["*"]
+    assert host["header"] == ""
+    assert host["value"] == ""
+    assert host["has_existing_value"] is False
+    assert "decryption failed" in caplog.text
+
+
+@pytest.mark.django_db
+def test_egress_refuses_when_existing_secrets_cannot_be_decrypted(user, mocker):
+    """Exercises the RAISE branch of ``_preserve_unchanged_egress_secrets``: a
+    masked edit over unreadable ciphertext must refuse to persist rather than
+    silently overwrite the still-valid secret with the mask."""
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-secret"}},
+    )
+    original_ciphertext = SandboxEnvironment.objects.get(pk=env.pk)._egress_secrets_encrypted
+    from core.encryption import DecryptionError
+
+    # Patch the descriptor: when accessed on the instance, raise DecryptionError.
+    def _raise(instance):
+        raise DecryptionError("bad key")
+
+    mocker.patch.object(type(env), "egress_secrets", new_callable=lambda: property(fget=_raise))
+    submitted = json.dumps({
+        "default": "deny",
+        "intercept": "all",
+        "hosts": [
+            {
+                "host": "api.openai.com",
+                "methods": ["*"],
+                "header": "Authorization",
+                "value": "",
+                "secret_name": "s1",
+                "has_existing_value": True,
+            }
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        instance=env,
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": submitted},
+        user=user,
+        is_admin=False,
+    )
+    # Validation guard: model-level _validate_egress also catches the unreadable
+    # ciphertext during _post_clean, so the form never reports as valid and the
+    # original ciphertext is left untouched.
+    assert form.is_valid() is False
+    env.refresh_from_db()
+    assert env._egress_secrets_encrypted == original_ciphertext
+    # Form-helper guard (defense in depth): _preserve_unchanged_egress_secrets raises
+    # rather than letting a masked value overwrite the undecryptable stored secret.
+    with pytest.raises(ValidationError):
+        SandboxEnvironmentForm._preserve_unchanged_egress_secrets(env, {"s1": {"header": "Authorization", "value": ""}})
+
+
+@pytest.mark.django_db
 def test_form_env_vars_json_initial_returns_empty_on_decryption_error(user, mocker, caplog):
     env = SandboxEnvironment.objects.create(
         scope=Scope.USER,
