@@ -212,15 +212,15 @@
                     <span class="block text-sm font-medium text-gray-400">{% translate "Unlisted hosts" %}</span>
                     <div class="mt-1.5 flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                         <label class="cursor-pointer rounded-lg px-3 py-1 text-sm font-medium"
-                               :class="default === 'deny' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                            <input type="radio" value="deny" x-model="default" class="sr-only">{% translate "Deny" %}
+                               :class="defaultPolicy === 'deny' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                            <input type="radio" value="deny" x-model="defaultPolicy" class="sr-only">{% translate "Deny" %}
                         </label>
                         <label class="cursor-pointer rounded-lg px-3 py-1 text-sm font-medium"
-                               :class="default === 'allow' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                            <input type="radio" value="allow" x-model="default" class="sr-only">{% translate "Allow" %}
+                               :class="defaultPolicy === 'allow' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                            <input type="radio" value="allow" x-model="defaultPolicy" class="sr-only">{% translate "Allow" %}
                         </label>
                     </div>
-                    <p x-show="default === 'allow'" x-cloak class="mt-1 text-xs text-amber-400/80">
+                    <p x-show="defaultPolicy === 'allow'" x-cloak class="mt-1 text-xs text-amber-400/80">
                         {% translate "All hosts reachable unless a rule restricts them." %}
                     </p>
                 </div>

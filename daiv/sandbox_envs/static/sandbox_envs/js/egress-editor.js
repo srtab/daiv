@@ -19,7 +19,7 @@ function mintSecretName() {
 function egressEditorState(initial = {}, labels = {}) {
     const hosts = Array.isArray(initial.hosts) ? initial.hosts : [];
     return {
-        default: initial.default === "allow" ? "allow" : "deny",
+        defaultPolicy: initial.default === "allow" ? "allow" : "deny",
         intercept: initial.intercept === "credentialed" ? "credentialed" : "all",
         labels: {
             duplicateHost: labels.duplicateHost || "Duplicate host",
@@ -81,7 +81,7 @@ function egressEditorState(initial = {}, labels = {}) {
 
         get serialised() {
             return {
-                default: this.default,
+                default: this.defaultPolicy,
                 intercept: this.intercept,
                 hosts: this.hosts
                     .filter((h) => (h.host || "").trim())
