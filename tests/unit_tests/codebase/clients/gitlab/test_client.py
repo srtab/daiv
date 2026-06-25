@@ -14,6 +14,26 @@ from codebase.clients.gitlab.client import (
     _is_source_branch_missing_error,
 )
 
+
+def test_git_egress_credential_for_token_builds_basic_oauth2_header():
+    import base64
+
+    from codebase.clients.base import GitEgressCredential
+
+    cred = GitEgressCredential.for_token(host="gitlab.example.com", token="tok-123")  # noqa: S106
+    assert cred.host == "gitlab.example.com"
+    assert cred.header == "Authorization"
+    assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:tok-123").decode()
+
+
+def test_git_egress_credential_for_token_none_when_no_token():
+    from codebase.clients.base import GitEgressCredential
+
+    cred = GitEgressCredential.for_token(host="gitlab.example.com", token=None)
+    assert cred.host == "gitlab.example.com"
+    assert cred.value is None
+
+
 _POSITION = {
     "position_type": "text",
     "base_sha": "aaa",
