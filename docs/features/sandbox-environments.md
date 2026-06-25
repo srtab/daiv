@@ -39,6 +39,7 @@ Click **Create** on the list page to open the drawer (`/dashboard/sandbox-envs/c
 | **Memory** | Memory limit, entered as a value plus a **MiB** or **GiB** unit. Switch from *default* to *custom* to set it |
 | **Network** | **Use default**, **On**, or **Off**. Controls outbound network access (needed to reach package registries) |
 | **Environment variables** | Name/value pairs injected into the sandbox; mark any as secret (see below). Up to 100 entries |
+| **Egress policy** | Per-host outbound rules, injected credentials, and traffic mode. Shown only when **Network** is **On** or **Use default** with a default that enables networking (see [Network access and egress policy](#network-access-and-egress-policy)) |
 | **Repositories** | The repository IDs this environment is bound to, as slash-separated paths like `owner/repo` or `group/subgroup/repo` (see [Repository bindings](#repository-bindings)) |
 
 Leaving **CPUs**, **Memory**, or **Network** on *default* means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time.
@@ -53,6 +54,40 @@ Environment-variable values are **Fernet-encrypted before they are stored** and 
 
 !!! warning "Rotating the encryption key"
     If `DAIV_ENCRYPTION_KEY` changes and stored values can no longer be decrypted, the form blocks saving until you re-enter every secret value. Agent runs don't crash on this — they drop the unreadable variables and continue.
+
+### Network access and egress policy
+
+When **Network** is enabled, the **Egress** section appears at the bottom of the form. It lets you define exactly which outbound connections the sandbox container may make, with optional per-host credentials injected by the MITM proxy — credentials never enter the container.
+
+!!! info "Requires the egress proxy"
+    Egress policy is provisioned by the daiv-sandbox MITM egress proxy (`DAIV_SANDBOX_EGRESS_PROXY_ENABLED`). If the sandbox does not have the proxy enabled, starting a run that uses an egress-configured environment will **abort** (fail-closed) rather than fall back to unrestricted network.
+
+#### Allowed hosts
+
+Each row in the **Allowed hosts** table defines one outbound rule:
+
+| Column | Description |
+|--------|-------------|
+| **Host** | A hostname or glob pattern (e.g. `pypi.org`, `*.github.com`). Requests to hosts not on this list are blocked |
+| **Methods** | HTTP methods this rule applies to (leave empty to match all methods) |
+| **Credential** | Optional: an HTTP header name and value injected by the proxy for every request to this host (see below) |
+
+**Fail-closed:** if the allowed hosts list is empty, no outbound requests are permitted at all (equivalent to network off, even though networking is technically enabled).
+
+#### Per-host credentials (encrypted at rest)
+
+Each allowed host may carry an optional credential — an HTTP header name and value (for example, `Authorization` / `Bearer <token>`) that the proxy injects into matching requests. Credential values are **Fernet-encrypted before they are stored**, shown as `••••••` once saved, and never rendered back to the browser or returned by the API/MCP. Re-saving the form preserves a masked credential unchanged unless you explicitly type a new value.
+
+Limits: at most **100** allowed-host rules and **100** credentials, and the encrypted secrets blob may not exceed **32 KiB**.
+
+#### Traffic mode
+
+Two toggles control how the MITM proxy handles traffic:
+
+| Toggle | Options | Description |
+|--------|---------|-------------|
+| **Default** | `deny` / `allow` | What happens to requests that do not match any allowed-host rule. `deny` (the recommended default) blocks them; `allow` passes them through unrestricted |
+| **Intercept** | `all` / `credentialed` | Which connections the proxy performs TLS interception on. `all` intercepts every HTTPS request (needed to inject credentials into TLS traffic); `credentialed` intercepts only hosts that have a credential configured |
 
 ### Repository bindings
 
