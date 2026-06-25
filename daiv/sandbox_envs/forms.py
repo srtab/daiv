@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 
 from django import forms
 from django.utils.translation import gettext_lazy as _
@@ -27,6 +28,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
 
     env_vars_json = forms.CharField(required=False, widget=forms.HiddenInput())
     repo_ids_json = forms.CharField(required=False, widget=forms.HiddenInput())
+    egress_json = forms.CharField(required=False, widget=forms.HiddenInput())
     memory_value = forms.IntegerField(required=False, min_value=1)
     memory_unit = forms.ChoiceField(required=False, choices=[("MiB", "MiB"), ("GiB", "GiB")], initial="MiB")
     network_choice = forms.ChoiceField(
@@ -174,6 +176,49 @@ class SandboxEnvironmentForm(forms.ModelForm):
             cleaned.append(value)
         return cleaned
 
+    def clean_egress_json(self):
+        raw = (self.cleaned_data.get("egress_json") or "").strip()
+        if not raw:
+            return {"default": "deny", "intercept": "all", "hosts": []}
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as err:
+            raise forms.ValidationError(_("Egress policy must be valid JSON.")) from err
+        if not isinstance(parsed, dict):
+            raise forms.ValidationError(_("Egress policy must be an object."))
+        default = parsed.get("default", "deny")
+        intercept = parsed.get("intercept", "all")
+        if default not in ("deny", "allow"):
+            raise forms.ValidationError(_("Egress default must be 'deny' or 'allow'."))
+        if intercept not in ("all", "credentialed"):
+            raise forms.ValidationError(_("Egress intercept must be 'all' or 'credentialed'."))
+        hosts_raw = parsed.get("hosts")
+        if not isinstance(hosts_raw, list):
+            raise forms.ValidationError(_("Egress hosts must be a list."))
+        hosts: list[dict] = []
+        for idx, entry in enumerate(hosts_raw):
+            if not isinstance(entry, dict):
+                raise forms.ValidationError(_("Egress host at index %d must be an object.") % idx)
+            host = (entry.get("host") or "").strip()
+            if not host:
+                raise forms.ValidationError(_("Egress host at index %d cannot be blank.") % idx)
+            methods = entry.get("methods")
+            if isinstance(methods, list):
+                methods = [str(m).strip().upper() for m in methods if str(m).strip()]
+            if not methods:
+                methods = ["*"]
+            header = (entry.get("header") or "").strip()
+            hosts.append({
+                "host": host,
+                "methods": methods,
+                "header": header,
+                "value": entry.get("value", ""),
+                "secret_name": (entry.get("secret_name") or "").strip(),
+                "has_existing_value": bool(entry.get("has_existing_value")),
+                "has_credential": bool(header),
+            })
+        return {"default": default, "intercept": intercept, "hosts": hosts}
+
     def clean(self):
         cleaned = super().clean()
         cleaned["network_enabled"] = _CHOICE_TO_NETWORK[cleaned.get("network_choice") or "default"]
@@ -184,6 +229,8 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.add_error("memory_value", _("Enter a memory value or switch back to default."))
         if cleaned.get("cpu_mode") == "custom" and cleaned.get("cpus") is None:
             self.add_error("cpus", _("Enter a CPU value or switch back to default."))
+        egress_parsed = cleaned.get("egress_json") or {"default": "deny", "intercept": "all", "hosts": []}
+        cleaned["egress_policy"], cleaned["egress_secrets"] = self._build_egress(egress_parsed)
         return cleaned
 
     def save(self, commit: bool = True) -> SandboxEnvironment:
@@ -197,10 +244,30 @@ class SandboxEnvironmentForm(forms.ModelForm):
         if instance.pk is not None:
             env_vars = self._preserve_unchanged_secrets(instance, env_vars)
         instance.env_vars = env_vars
+        instance.egress_policy = self.cleaned_data.get("egress_policy")
+        instance.egress_secrets = self.cleaned_data.get("egress_secrets") or {}
         if commit:
             instance.full_clean()
             instance.save()
         return instance
+
+    @staticmethod
+    def _build_egress(parsed: dict) -> tuple[dict, dict]:
+        """Translate the normalised egress editor state into the stored
+        ``(egress_policy, egress_secrets)`` shapes. A host with a credential
+        synthesises a named secret (``inject``); hosts without one get
+        ``inject=None``. Always returns an explicit policy (never None)."""
+        rules: list[dict] = []
+        secrets: dict[str, dict] = {}
+        for host in parsed["hosts"]:
+            inject = None
+            if host["has_credential"]:
+                name = host["secret_name"] or f"s_{uuid.uuid4().hex}"
+                secrets[name] = {"header": host["header"], "value": host["value"]}
+                inject = name
+            rules.append({"host": host["host"], "methods": host["methods"], "inject": inject})
+        policy = {"default": parsed["default"], "intercept": parsed["intercept"], "rules": rules}
+        return policy, secrets
 
     @staticmethod
     def _preserve_unchanged_secrets(instance: SandboxEnvironment, submitted_rows: list[dict]) -> list[dict]:

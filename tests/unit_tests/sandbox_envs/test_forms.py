@@ -364,6 +364,106 @@ def test_form_repo_ids_json_initial_reflects_instance(user):
 
 
 @pytest.mark.django_db
+def test_form_builds_egress_policy_and_secrets_from_hosts():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue1", email="ue1@e.com", password="x")  # noqa: S106
+    egress = json.dumps({
+        "default": "deny",
+        "intercept": "credentialed",
+        "hosts": [
+            {
+                "host": "github.com",
+                "methods": ["*"],
+                "header": "",
+                "value": "",
+                "secret_name": "",
+                "has_existing_value": False,
+            },
+            {
+                "host": "api.openai.com",
+                "methods": ["GET", "post"],
+                "header": "Authorization",
+                "value": "sk-live",
+                "secret_name": "s_abc",
+                "has_existing_value": False,
+            },
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": egress},
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    env = form.save()
+    assert env.egress_policy["default"] == "deny"
+    assert env.egress_policy["intercept"] == "credentialed"
+    rules = env.egress_policy["rules"]
+    assert rules[0] == {"host": "github.com", "methods": ["*"], "inject": None}
+    assert rules[1]["host"] == "api.openai.com"
+    assert rules[1]["inject"] == "s_abc"
+    # methods are uppercased by the form normalisation layer (clean_egress_json)
+    assert rules[1]["methods"] == ["GET", "POST"]
+    assert env.egress_secrets == {"s_abc": {"header": "Authorization", "value": "sk-live"}}
+
+
+@pytest.mark.django_db
+def test_form_always_writes_explicit_empty_policy():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue2", email="ue2@e.com", password="x")  # noqa: S106
+    form = SandboxEnvironmentForm(
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": ""},
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    env = form.save()
+    assert env.egress_policy == {"default": "deny", "intercept": "all", "rules": []}
+    # The form always writes an explicit {} (never None); the encrypted-JSON descriptor
+    # round-trips {} back to {} (only a None value is stored/read as None), so this asserts
+    # the field was written — a None here would signal a "form wrote None / skipped" regression.
+    assert env.egress_secrets == {}
+
+
+@pytest.mark.django_db
+def test_form_rejects_bad_egress_enums_and_blank_host():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue3", email="ue3@e.com", password="x")  # noqa: S106
+    bad_default = SandboxEnvironmentForm(
+        data={
+            "name": "d",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "egress_json": json.dumps({"default": "nope", "intercept": "all", "hosts": []}),
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert not bad_default.is_valid()
+    assert "egress_json" in bad_default.errors
+
+    blank_host = SandboxEnvironmentForm(
+        data={
+            "name": "d",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "egress_json": json.dumps({
+                "default": "deny",
+                "intercept": "all",
+                "hosts": [{"host": "  ", "methods": ["*"]}],
+            }),
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert not blank_host.is_valid()
+    assert "egress_json" in blank_host.errors
+
+
+@pytest.mark.django_db
 def test_form_env_vars_json_initial_returns_empty_on_decryption_error(user, mocker, caplog):
     env = SandboxEnvironment.objects.create(
         scope=Scope.USER,
