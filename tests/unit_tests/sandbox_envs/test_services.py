@@ -7,6 +7,67 @@ from sandbox_envs.services import SandboxEnvOverride, build_env_trigger, get_glo
 from accounts.models import User
 
 
+def _sandbox_runtime(*, base_image="python:3.12", network_enabled=True, egress=None):
+    from codebase.context import SandboxRuntime
+    from core.sandbox.command_policy import SandboxCommandPolicy
+
+    return SandboxRuntime(
+        base_image=base_image,
+        network_enabled=network_enabled,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        command_policy=SandboxCommandPolicy(),
+        egress=egress,
+    )
+
+
+def test_augment_skips_when_network_off():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import augment_sandbox_with_platform_egress
+
+    sb = _sandbox_runtime(network_enabled=False)
+    client = Mock()
+    out = augment_sandbox_with_platform_egress(sb, client, Mock())
+    assert out is sb
+    client.get_git_egress_credential.assert_not_called()
+
+
+def test_augment_skips_when_sandbox_disabled():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import augment_sandbox_with_platform_egress
+
+    sb = _sandbox_runtime(base_image=None, network_enabled=True)  # enabled == False
+    client = Mock()
+    out = augment_sandbox_with_platform_egress(sb, client, Mock())
+    assert out is sb
+    client.get_git_egress_credential.assert_not_called()
+
+
+def test_augment_adds_platform_egress_when_network_on():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, augment_sandbox_with_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    sb = _sandbox_runtime(network_enabled=True, egress=None)
+    client = Mock()
+    client.get_git_egress_credential.return_value = GitEgressCredential(
+        host="gitlab.example.com", value=SecretStr("Basic abc")
+    )
+    repo = Mock()
+
+    out = augment_sandbox_with_platform_egress(sb, client, repo)
+
+    client.get_git_egress_credential.assert_called_once_with(repo)
+    assert out.egress.policy.rules[0].host == "gitlab.example.com"
+    assert PLATFORM_EGRESS_SECRET_NAME in out.egress.secrets
+
+
 def test_apply_platform_egress_returns_unchanged_when_no_credential():
     from sandbox_envs.services import apply_platform_egress
 

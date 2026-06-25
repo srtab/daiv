@@ -105,6 +105,16 @@ def apply_platform_egress(egress, credential):
     return EgressConfigRequest(policy=policy, secrets=secrets)
 
 
+def augment_sandbox_with_platform_egress(sandbox, repo_client, repository):
+    """Layer the git-platform allow-rule + credential onto ``sandbox.egress`` for network-enabled
+    runs. No-op when the sandbox is disabled or network is off. Returns a new ``SandboxRuntime``
+    (frozen); the platform contribution is resolved per run via ``repo_client`` and never stored."""
+    if not (sandbox.enabled and sandbox.network_enabled):
+        return sandbox
+    credential = repo_client.get_git_egress_credential(repository)
+    return replace(sandbox, egress=apply_platform_egress(sandbox.egress, credential))
+
+
 async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
     """Load the explicit per-run env.
 
