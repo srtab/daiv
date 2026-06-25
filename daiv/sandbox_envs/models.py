@@ -111,6 +111,10 @@ class SandboxEnvironment(TimeStampedModel):
     # is rejected at session start — there is no raw-network fallback.
     # NOTE: when the proxy IS configured, a network-enabled env with egress_policy=None gets the
     # sidecar's default deny-all (no connectivity) — configure a policy to grant connectivity.
+    # DAIV additionally injects a runtime-only, never-stored allow-rule for the run's git platform
+    # (reserved secret name ``__daiv_git_platform__``) on network-enabled sessions, so the repo's
+    # platform is always reachable + credentialed for git-over-HTTPS; it overrides a same-named host
+    # rule/secret and is not shown in the UI.
     egress_policy = models.JSONField(_("egress policy"), null=True, blank=True, default=None)
     _egress_secrets_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL = no secrets
     egress_secrets = EncryptedJSONFieldDescriptor("egress_secrets")
