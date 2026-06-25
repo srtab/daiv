@@ -842,7 +842,7 @@ class TestSandboxEgress:
     async def test_egress_404_is_fail_closed_and_closes_session(self):
         import httpx
 
-        # 404 = the egress proxy is disabled on the sandbox (DAIV_SANDBOX_EGRESS_PROXY_ENABLED off):
+        # 404 = the egress proxy is not configured on the sandbox (no shared egress CA):
         # unambiguous and permanent, so it converts to the actionable fail-closed error.
         err = httpx.HTTPStatusError("nope", request=httpx.Request("POST", "x"), response=httpx.Response(404))
         client = MagicMock()
@@ -863,7 +863,7 @@ class TestSandboxEgress:
 
         # 409 is ambiguous on the egress endpoint ("Session is busy" = transient lock contention, or
         # "Session has no egress proxy") and 5xx is transient; neither maps to the permanent
-        # "proxy disabled" diagnosis, so they must propagate unchanged (still fail-closed via the
+        # "proxy not configured" diagnosis, so they must propagate unchanged (still fail-closed via the
         # fresh-create cleanup) rather than be mislabeled as SandboxEgressUnavailableError.
         err = httpx.HTTPStatusError("nope", request=httpx.Request("POST", "x"), response=httpx.Response(status))
         client = MagicMock()

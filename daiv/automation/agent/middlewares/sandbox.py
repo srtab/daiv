@@ -293,8 +293,9 @@ def _make_global_skills_archive() -> bytes | None:
 
 class SandboxEgressUnavailableError(RuntimeError):
     """Raised when a session's resolved egress policy cannot be provisioned because the sandbox has
-    the egress proxy disabled (HTTP 404 'egress proxy not enabled'). Fail-closed: the run must not
-    proceed with whatever raw network the sandbox would otherwise grant."""
+    no egress proxy configured (HTTP 404 'Egress proxy not configured' — no shared egress CA).
+    Fail-closed: an environment that requires a restricted egress policy must not run without that
+    policy in force."""
 
 
 class BashFailure(Enum):
@@ -506,13 +507,17 @@ class SandboxMiddleware(AgentMiddleware):
         """Provision the sidecar egress policy for a network-enabled session that requires it.
 
         No-op when there is no resolved sandbox runtime, the env defines no egress policy, or network
-        is off. Only a **404** (egress
-        proxy disabled on the sandbox — unambiguous and permanent) is converted to the actionable
-        ``SandboxEgressUnavailableError``. Every other status propagates unchanged, including a 409 — on
-        the egress endpoint 409 is ambiguous ("Session is busy" transient lock contention, or "Session
-        has no egress proxy") and the project already classifies 409 as transient
-        (``TRANSIENT_SANDBOX_STATUS``), so it must not be mislabeled as a permanent "enable the proxy"
-        diagnosis. A propagated error still fails closed: the caller's setup path aborts the run.
+        is off. Only a **404** (egress proxy not configured on the sandbox — no shared egress CA,
+        unambiguous and permanent) is converted to the actionable ``SandboxEgressUnavailableError``.
+        On a fresh create this 404 is effectively unreachable: a network-enabled ``start_session`` is
+        rejected up front (400) when the sandbox has no egress proxy, so the run aborts before reaching
+        here. It survives for warm reuse — if the shared CA is rotated out between the session's start
+        and a later turn's re-provision, ``configure_egress`` 404s and we still want the actionable
+        diagnosis. Every other status propagates unchanged, including a 409 — on the egress endpoint 409
+        is ambiguous ("Session is busy" transient lock contention, or "Session has no egress proxy") and
+        the project already classifies 409 as transient (``TRANSIENT_SANDBOX_STATUS``), so it must not be
+        mislabeled as a permanent "configure the proxy" diagnosis. A propagated error still fails closed:
+        the caller's setup path aborts the run.
         """
         if sb is None or sb.egress is None or not sb.network_enabled:
             return
@@ -522,7 +527,8 @@ class SandboxMiddleware(AgentMiddleware):
             if exc.response.status_code == 404:
                 raise SandboxEgressUnavailableError(
                     "The resolved sandbox environment requires the egress proxy, but the sandbox returned "
-                    "404 for egress provisioning. Enable DAIV_SANDBOX_EGRESS_PROXY_ENABLED on the sandbox."
+                    "404 for egress provisioning. Configure the shared egress CA (EGRESS_CA_CERT_FILE + "
+                    "EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
                 ) from exc
             raise
 

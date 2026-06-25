@@ -536,7 +536,7 @@ async def test_row_to_override_fails_closed_to_deny_all_when_malformed():
     from sandbox_envs.services import row_to_override
 
     # Dangling inject (no matching secret) — stored directly, bypassing clean(). The env *intended*
-    # restricted egress, so dropping to None (raw network) would be fail-open; we substitute deny-all.
+    # restricted egress, so dropping to None (discarding that intent) is unsafe; we substitute deny-all.
     env = await SandboxEnvironment.objects.acreate(
         scope=Scope.GLOBAL,
         name="bad",
@@ -567,7 +567,7 @@ async def test_row_to_override_fails_closed_to_deny_all_on_decryption_error(mock
     )
 
     # Simulate a rotated/lost DAIV_ENCRYPTION_KEY: the still-present egress_policy can no longer be
-    # paired with its decryptable secrets. Must fail closed (deny-all), never drop to raw network.
+    # paired with its decryptable secrets. Must fail closed (deny-all), never drop to None.
     def _raise(instance):
         raise DecryptionError("bad key")
 

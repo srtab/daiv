@@ -54,11 +54,11 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
         except DecryptionError, PydanticValidationError, TypeError, ValueError:
             # The env *intended* restricted egress but its config is unusable (e.g. a rotated
             # DAIV_ENCRYPTION_KEY left the secrets undecryptable, or the row was hand-edited).
-            # Fail closed: substitute an empty deny-all policy rather than dropping to None — None
-            # would let a network-enabled session fall back to raw network (proxy off) or rely on
-            # the sidecar's default (proxy on). Deny-all denies connectivity (proxy on) or trips the
-            # fail-closed abort in _provision_egress (proxy off). Never reach the sidecar with a
-            # half/invalid config. The descriptor already logs the decryption failure at exception level.
+            # Fail closed: substitute an empty deny-all policy rather than dropping to None. None
+            # would leave a network-enabled session to rely on the sidecar's implicit default; an
+            # explicit deny-all honors the env's restricted-egress intent without depending on that
+            # default. Never reach the sidecar with a half/invalid config. The descriptor already
+            # logs the decryption failure at exception level.
             logger.error("egress config unusable for SandboxEnvironment id=%s; failing closed to deny-all", env.id)
             egress = EgressConfigRequest()
 

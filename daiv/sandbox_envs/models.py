@@ -105,9 +105,11 @@ class SandboxEnvironment(TimeStampedModel):
     is_default = models.BooleanField(_("is default"), default=False)
 
     # Per-env egress policy provisioned to the daiv-sandbox sidecar proxy when network is enabled.
-    # ``None`` = no egress configured (legacy behavior: raw network when the sandbox proxy is off).
-    # NOTE: when the sandbox has EGRESS_PROXY_ENABLED, a network-enabled env with egress_policy=None
-    # gets the sidecar's deny-all default — configure a policy to grant connectivity.
+    # ``None`` = no egress policy configured for this env. The daiv-sandbox egress proxy is mandatory
+    # for network-enabled sessions: a network-enabled env on a sandbox with no egress proxy configured
+    # (no shared egress CA) is rejected at session start — there is no raw-network fallback.
+    # NOTE: when the proxy IS configured, a network-enabled env with egress_policy=None gets the
+    # sidecar's default deny-all (no connectivity) — configure a policy to grant connectivity.
     egress_policy = models.JSONField(_("egress policy"), null=True, blank=True, default=None)
     _egress_secrets_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL = no secrets
     egress_secrets = EncryptedJSONFieldDescriptor("egress_secrets")

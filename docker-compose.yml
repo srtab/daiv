@@ -173,6 +173,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./../daiv-sandbox/daiv_sandbox:/home/app/daiv_sandbox
+      # Shared egress CA (cert + key) read by the service to provision per-session MITM sidecars.
+      # See DAIV_SANDBOX_EGRESS_CA_*_FILE in docker/local/sandbox/config.env.
+      - ./data/certs:/home/app/certs:ro
     depends_on:
       redis:
         condition: service_healthy
