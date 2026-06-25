@@ -510,3 +510,29 @@ def test_invalid_edit_post_preserves_submitted_env_vars(client, user):
     )
     assert resp.status_code == 200
     assert resp.context["form"]["env_vars_json"].value() == submitted_json
+
+
+@pytest.mark.django_db
+def test_edit_form_get_does_not_leak_egress_secret(client):
+    from accounts.models import User
+
+    user = User.objects.create_user(username="leak", email="leak@e.com", password="x")  # noqa: S106
+    client.force_login(user)
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-TOPSECRET"}},
+    )
+    url = reverse("sandbox_envs:edit", args=[env.id])
+    resp = client.get(url, HTTP_HX_REQUEST="true")
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "sk-TOPSECRET" not in body  # plaintext value never rendered
+    assert "api.openai.com" in body  # the host itself is fine to show
