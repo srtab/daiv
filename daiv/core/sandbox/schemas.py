@@ -9,7 +9,9 @@ from pydantic import Base64Bytes, BaseModel, Field, SecretStr, computed_field, f
 class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
-    network_enabled: bool = Field(default=False, description="Whether to enable the network for the session.")
+    egress: EgressConfigRequest | None = Field(
+        default=None, description="Egress policy + secrets; omit to run the session network-isolated."
+    )
     memory_bytes: int | None = Field(default=None, description="Memory in bytes to be used for the session.")
     cpus: float | None = Field(default=None, description="CPUs to be used for the session.")
     environment: dict[str, str] | None = Field(
@@ -287,3 +289,6 @@ class EgressConfigRequest(BaseModel):
 
 class EgressConfigResponse(BaseModel):
     ok: bool = Field(default=True, description="True when the policy was provisioned to the sidecar.")
+
+
+StartSessionRequest.model_rebuild()

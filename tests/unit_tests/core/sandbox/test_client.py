@@ -360,26 +360,20 @@ def test_is_transient_sandbox_error_true_for_request_error_with_no_response():
     assert is_transient_sandbox_error(httpx.ConnectError("refused")) is True
 
 
-async def test_configure_egress_posts_plaintext_secret_and_uppercased_methods(fake_settings, mock_post):
+async def test_start_session_sends_egress_with_plaintext_secret(fake_settings, httpx_mock):
     from core.sandbox.client import DAIVSandboxClient
-    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+    from core.sandbox.schemas import EgressConfigRequest, StartSessionRequest
 
-    mock_post["json_body"] = {"ok": True}
-    req = EgressConfigRequest(
-        policy=EgressPolicy(
-            default="deny",
-            intercept="credentialed",
-            rules=[EgressRule(host="*.github.com", methods=["get"], inject="gh")],
+    httpx_mock.add_response(json={"session_id": "s1"})
+    req = StartSessionRequest(
+        base_image="python:3.14",
+        egress=EgressConfigRequest.from_stored(
+            {"default": "deny", "rules": [{"host": "gitlab.com", "inject": "tok"}]},
+            {"tok": {"header": "PRIVATE-TOKEN", "value": "supersecret"}},
         ),
-        secrets={"gh": EgressSecret(header="Authorization", value=SecretStr("Bearer t"))},
     )
-
     async with DAIVSandboxClient() as client:
-        resp = await client.configure_egress("sid", req)
-
-    assert mock_post["url"] == "session/sid/egress/"
-    body = mock_post["kwargs"]["json"]
-    assert body["policy"]["default"] == "deny"
-    assert body["policy"]["rules"][0]["methods"] == ["GET"]  # validator uppercased
-    assert body["secrets"]["gh"] == {"header": "Authorization", "value": "Bearer t"}  # plaintext on wire
-    assert resp.ok is True
+        assert await client.start_session(req) == "s1"
+    body = httpx_mock.get_requests()[0].read().decode()
+    assert "supersecret" in body  # plaintext reached the wire
+    assert "**********" not in body  # not the SecretStr mask
