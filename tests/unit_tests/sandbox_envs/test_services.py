@@ -7,6 +7,71 @@ from sandbox_envs.services import SandboxEnvOverride, build_env_trigger, get_glo
 from accounts.models import User
 
 
+def test_apply_platform_egress_returns_unchanged_when_no_credential():
+    from sandbox_envs.services import apply_platform_egress
+
+    from core.sandbox.schemas import EgressConfigRequest
+
+    egress = EgressConfigRequest()
+    assert apply_platform_egress(egress, None) is egress
+
+
+def test_apply_platform_egress_builds_deny_all_base_and_injects():
+    from pydantic import SecretStr
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, apply_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    cred = GitEgressCredential(host="gitlab.example.com", value=SecretStr("Basic abc"))
+    result = apply_platform_egress(None, cred)
+
+    assert result.policy.default == "deny"
+    assert result.policy.intercept == "all"
+    rule = result.policy.rules[0]
+    assert rule.host == "gitlab.example.com"
+    assert rule.methods == ["*"]
+    assert rule.inject == PLATFORM_EGRESS_SECRET_NAME
+    secret = result.secrets[PLATFORM_EGRESS_SECRET_NAME]
+    assert secret.header == "Authorization"
+    assert secret.value.get_secret_value() == "Basic abc"
+
+
+def test_apply_platform_egress_preserves_env_policy_and_prepends():
+    from pydantic import SecretStr
+    from sandbox_envs.services import apply_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    env = EgressConfigRequest(
+        policy=EgressPolicy(
+            default="deny",
+            intercept="credentialed",
+            rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")],
+        ),
+        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
+    )
+    cred = GitEgressCredential(host="github.com", value=SecretStr("Basic xyz"))
+    result = apply_platform_egress(env, cred)
+
+    assert result.policy.intercept == "credentialed"  # env knob preserved
+    assert [r.host for r in result.policy.rules] == ["github.com", "api.openai.com"]  # prepended
+    assert set(result.secrets) == {"s1", "__daiv_git_platform__"}
+
+
+def test_apply_platform_egress_reachability_only_when_no_token():
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, apply_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    cred = GitEgressCredential(host="gitlab.example.com", value=None)
+    result = apply_platform_egress(None, cred)
+
+    assert result.policy.rules[0].host == "gitlab.example.com"
+    assert result.policy.rules[0].inject is None
+    assert PLATFORM_EGRESS_SECRET_NAME not in result.secrets
+
+
 @pytest.mark.asyncio
 async def test_resolve_returns_none_for_none_id():
     assert await resolve_sandbox_env(None) is None

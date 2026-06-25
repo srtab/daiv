@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
+PLATFORM_EGRESS_SECRET_NAME = "__daiv_git_platform__"  # noqa: S105
+
 
 @dataclass(frozen=True)
 class SandboxEnvOverride:
@@ -74,6 +76,33 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
         },
         egress=egress,
     )
+
+
+def apply_platform_egress(egress, credential):
+    """Prepend the DAIV-managed git-platform allow-rule (and add its credential) to ``egress``.
+
+    Runtime-only — the result is provisioned to the sidecar but never stored on the environment.
+    The rule is **prepended** so it wins under the sidecar's first-match (always reachable, always
+    credentialed). ``credential is None`` → ``egress`` unchanged. With no base policy, the base is a
+    deny-all (``default="deny"``, ``intercept="all"``); an existing policy's ``default``/``intercept``
+    and rules are preserved. The secret is added (overwriting any same-named user key) only when the
+    credential carries a token; otherwise the rule is reachability-only (``inject=None``)."""
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    if credential is None:
+        return egress
+
+    base_policy = egress.policy if egress is not None else EgressPolicy()
+    secrets = dict(egress.secrets) if egress is not None else {}
+
+    inject = None
+    if credential.value is not None:
+        inject = PLATFORM_EGRESS_SECRET_NAME
+        secrets[PLATFORM_EGRESS_SECRET_NAME] = EgressSecret(header=credential.header, value=credential.value)
+
+    platform_rule = EgressRule(host=credential.host, methods=["*"], inject=inject)
+    policy = base_policy.model_copy(update={"rules": [platform_rule, *base_policy.rules]})
+    return EgressConfigRequest(policy=policy, secrets=secrets)
 
 
 async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
