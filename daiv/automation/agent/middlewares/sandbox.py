@@ -506,18 +506,21 @@ class SandboxMiddleware(AgentMiddleware):
     async def _provision_egress(client: DAIVSandboxClient, session_id: str, sb: SandboxRuntime | None) -> None:
         """Provision the sidecar egress policy for a network-enabled session that requires it.
 
-        No-op when there is no resolved sandbox runtime, the env defines no egress policy, or network
-        is off. Only a **404** (egress proxy not configured on the sandbox — no shared egress CA,
-        unambiguous and permanent) is converted to the actionable ``SandboxEgressUnavailableError``.
-        On a fresh create this 404 is effectively unreachable: a network-enabled ``start_session`` is
-        rejected up front (400) when the sandbox has no egress proxy, so the run aborts before reaching
-        here. It survives for warm reuse — if the shared CA is rotated out between the session's start
-        and a later turn's re-provision, ``configure_egress`` 404s and we still want the actionable
-        diagnosis. Every other status propagates unchanged, including a 409 — on the egress endpoint 409
-        is ambiguous ("Session is busy" transient lock contention, or "Session has no egress proxy") and
-        the project already classifies 409 as transient (``TRANSIENT_SANDBOX_STATUS``), so it must not be
-        mislabeled as a permanent "configure the proxy" diagnosis. A propagated error still fails closed:
-        the caller's setup path aborts the run.
+        No-op when there is no resolved sandbox runtime, the env defines no egress policy
+        (``sb.egress is None``), or network is off. Note the fail-closed deny-all that
+        ``row_to_override`` substitutes for an unusable stored config is a *non-None*
+        ``EgressConfigRequest`` and is deliberately provisioned here. Only a **404** (egress proxy not
+        configured on the sandbox — no shared egress CA, unambiguous and permanent) is converted to the
+        actionable ``SandboxEgressUnavailableError``. On a fresh create this 404 is effectively
+        unreachable: a network-enabled ``start_session`` is rejected up front (400) when the sandbox has
+        no egress proxy, so the run aborts before reaching here. It survives for warm reuse — if the
+        shared CA is rotated out between the session's start and a later turn's re-provision,
+        ``configure_egress`` 404s and we still want the actionable diagnosis. Every other status
+        propagates unchanged, including a 409 — on the egress endpoint 409 is ambiguous ("Session is
+        busy" transient lock contention, or "Session has no egress proxy") and the project already
+        classifies 409 as transient (``TRANSIENT_SANDBOX_STATUS``), so it must not be mislabeled as a
+        permanent "configure the proxy" diagnosis. A propagated error still fails closed: the caller's
+        setup path aborts the run.
         """
         if sb is None or sb.egress is None or not sb.network_enabled:
             return
@@ -582,8 +585,13 @@ class SandboxMiddleware(AgentMiddleware):
             )
             await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
             await self._provision_egress(client, session_id, sb)
-        except Exception:
-            logger.exception("Failed to build or seed sandbox session %s", session_id)
+        except Exception as exc:
+            # Distinguish the actionable egress-misconfiguration from a generic seed failure so the
+            # operator-facing diagnosis survives in the logs (both still force-close + fail-closed).
+            if isinstance(exc, SandboxEgressUnavailableError):
+                logger.error("Egress proxy unavailable for sandbox session %s; aborting run (fail-closed)", session_id)
+            else:
+                logger.exception("Failed to build or seed sandbox session %s", session_id)
             try:
                 await client.close_session(session_id, force=True)
             except Exception:

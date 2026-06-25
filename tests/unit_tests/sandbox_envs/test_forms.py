@@ -409,7 +409,7 @@ def test_form_builds_egress_policy_and_secrets_from_hosts():
 
 
 @pytest.mark.django_db
-def test_form_always_writes_explicit_empty_policy():
+def test_form_writes_no_policy_when_no_hosts():
     from accounts.models import User
 
     user = User.objects.create_user(username="ue2", email="ue2@e.com", password="x")  # noqa: S106
@@ -420,11 +420,82 @@ def test_form_always_writes_explicit_empty_policy():
     )
     assert form.is_valid(), form.errors
     env = form.save()
-    assert env.egress_policy == {"default": "deny", "intercept": "all", "rules": []}
-    # The form always writes an explicit {} (never None); the encrypted-JSON descriptor
-    # round-trips {} back to {} (only a None value is stored/read as None), so this asserts
-    # the field was written — a None here would signal a "form wrote None / skipped" regression.
+    # An egress policy is an allow-list; with no allowed-host rules the form stores no policy
+    # (None) rather than a deny-all, so re-saving an env that never configured egress does not
+    # change its runtime network behavior.
+    assert env.egress_policy is None
     assert env.egress_secrets == {}
+
+
+@pytest.mark.django_db
+def test_form_synthesises_secret_name_for_new_credentialed_host():
+    """A brand-new credentialed host with a blank ``secret_name`` (the common case:
+    add a host, type a header+value, never minting a name) must get a unique synthesised
+    ``inject`` wired to exactly one stored secret."""
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue4", email="ue4@e.com", password="x")  # noqa: S106
+    egress = json.dumps({
+        "default": "deny",
+        "intercept": "all",
+        "hosts": [
+            {
+                "host": "api.openai.com",
+                "methods": ["*"],
+                "header": "Authorization",
+                "value": "sk-live",
+                "secret_name": "",
+                "has_existing_value": False,
+            }
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": egress},
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    env = form.save()
+    rules = env.egress_policy["rules"]
+    assert len(rules) == 1
+    inject = rules[0]["inject"]
+    assert inject and inject.startswith("s_")
+    assert set(env.egress_secrets) == {inject}
+    assert env.egress_secrets[inject] == {"header": "Authorization", "value": "sk-live"}
+
+
+@pytest.mark.django_db
+def test_form_rejects_invalid_credential_header():
+    """A credential header name carrying CR/LF (header-injection attempt) is rejected before it
+    can reach the sidecar."""
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue5", email="ue5@e.com", password="x")  # noqa: S106
+    form = SandboxEnvironmentForm(
+        data={
+            "name": "d",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "egress_json": json.dumps({
+                "default": "deny",
+                "intercept": "all",
+                "hosts": [
+                    {
+                        "host": "api.openai.com",
+                        "methods": ["*"],
+                        "header": "Authorization\r\nX-Evil",
+                        "value": "sk-live",
+                        "secret_name": "",
+                        "has_existing_value": False,
+                    }
+                ],
+            }),
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert not form.is_valid()
+    assert "egress_json" in form.errors
 
 
 @pytest.mark.django_db

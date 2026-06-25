@@ -105,9 +105,10 @@ class SandboxEnvironment(TimeStampedModel):
     is_default = models.BooleanField(_("is default"), default=False)
 
     # Per-env egress policy provisioned to the daiv-sandbox sidecar proxy when network is enabled.
-    # ``None`` = no egress policy configured for this env. The daiv-sandbox egress proxy is mandatory
-    # for network-enabled sessions: a network-enabled env on a sandbox with no egress proxy configured
-    # (no shared egress CA) is rejected at session start — there is no raw-network fallback.
+    # ``None`` = no egress policy configured for this env; a policy is stored only when the env defines
+    # at least one allowed-host rule. The daiv-sandbox egress proxy is mandatory for network-enabled
+    # sessions: a network-enabled env on a sandbox with no egress proxy configured (no shared egress CA)
+    # is rejected at session start — there is no raw-network fallback.
     # NOTE: when the proxy IS configured, a network-enabled env with egress_policy=None gets the
     # sidecar's default deny-all (no connectivity) — configure a policy to grant connectivity.
     egress_policy = models.JSONField(_("egress policy"), null=True, blank=True, default=None)
@@ -193,11 +194,6 @@ class SandboxEnvironment(TimeStampedModel):
         defends unsaved/in-memory instances against the disallowed combo.
         """
         return self.scope == Scope.GLOBAL and bool(self.is_default)
-
-    @property
-    def has_egress(self) -> bool:
-        """True iff this env carries an egress policy (``egress_policy is not None``)."""
-        return self.egress_policy is not None
 
     def can_delete(self) -> tuple[bool, str | None]:
         """Row-level invariant gate for delete. ``promote_as_default`` must run

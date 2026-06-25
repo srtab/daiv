@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 
 from django import forms
@@ -16,6 +17,17 @@ GIB = 2**30
 _MEMORY_UNITS = {"MiB": MIB, "GiB": GIB}
 _NETWORK_TO_CHOICE = {None: "default", True: "on", False: "off"}
 _CHOICE_TO_NETWORK = {"default": None, "on": True, "off": False}
+# Valid HTTP field-name token (RFC 7230 §3.2.6). Rejects whitespace, ':' and control
+# chars so a crafted header name can't smuggle a CR/LF header-injection into the sidecar.
+_HEADER_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+# Placeholder shown for an unchanged secret; a submitted value equal to this (or "") means
+# "keep the stored value" on edit. The JS editor and MCP read path emit the same string.
+_MASK_SENTINEL = "******"
+
+
+def _empty_egress_state() -> dict:
+    """The egress editor's no-policy initial state (deny-all, no hosts). A fresh dict per call."""
+    return {"default": "deny", "intercept": "all", "hosts": []}
 
 
 class SandboxEnvironmentForm(forms.ModelForm):
@@ -119,7 +131,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
         :meth:`_preserve_unchanged_egress_secrets`)."""
         from core.encryption import DecryptionError
 
-        empty = json.dumps({"default": "deny", "intercept": "all", "hosts": []})
+        empty = json.dumps(_empty_egress_state())
         if self.instance.pk is None or self.instance.egress_policy is None:
             return empty
         policy = self.instance.egress_policy
@@ -219,7 +231,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
     def clean_egress_json(self):
         raw = (self.cleaned_data.get("egress_json") or "").strip()
         if not raw:
-            return {"default": "deny", "intercept": "all", "hosts": []}
+            return _empty_egress_state()
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as err:
@@ -248,6 +260,12 @@ class SandboxEnvironmentForm(forms.ModelForm):
             if not methods:
                 methods = ["*"]
             header = (entry.get("header") or "").strip()
+            if header:
+                if not _HEADER_NAME_RE.match(header):
+                    raise forms.ValidationError(_("Invalid credential header name at index %d.") % idx)
+                value = entry.get("value", "")
+                if isinstance(value, str) and ("\r" in value or "\n" in value):
+                    raise forms.ValidationError(_("Credential value at index %d must not contain newlines.") % idx)
             hosts.append({
                 "host": host,
                 "methods": methods,
@@ -255,7 +273,6 @@ class SandboxEnvironmentForm(forms.ModelForm):
                 "value": entry.get("value", ""),
                 "secret_name": (entry.get("secret_name") or "").strip(),
                 "has_existing_value": bool(entry.get("has_existing_value")),
-                "has_credential": bool(header),
             })
         return {"default": default, "intercept": intercept, "hosts": hosts}
 
@@ -269,7 +286,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.add_error("memory_value", _("Enter a memory value or switch back to default."))
         if cleaned.get("cpu_mode") == "custom" and cleaned.get("cpus") is None:
             self.add_error("cpus", _("Enter a CPU value or switch back to default."))
-        egress_parsed = cleaned.get("egress_json") or {"default": "deny", "intercept": "all", "hosts": []}
+        egress_parsed = cleaned.get("egress_json") or _empty_egress_state()
         cleaned["egress_policy"], cleaned["egress_secrets"] = self._build_egress(egress_parsed)
         return cleaned
 
@@ -295,20 +312,28 @@ class SandboxEnvironmentForm(forms.ModelForm):
         return instance
 
     @staticmethod
-    def _build_egress(parsed: dict) -> tuple[dict, dict]:
+    def _build_egress(parsed: dict) -> tuple[dict | None, dict]:
         """Translate the normalised egress editor state into the stored
         ``(egress_policy, egress_secrets)`` shapes. A host with a credential
         synthesises a named secret (``inject``); hosts without one get
-        ``inject=None``. Always returns an explicit policy (never None)."""
+        ``inject=None``.
+
+        Returns ``(None, {})`` when no allowed-host rules are defined. An egress
+        policy is meaningful only as an allow-list, so an untouched editor stores
+        no policy rather than a deny-all — which would otherwise change a
+        network-enabled env's behavior on every save. To block all outbound
+        traffic, set **Network** to off instead."""
         rules: list[dict] = []
         secrets: dict[str, dict] = {}
         for host in parsed["hosts"]:
             inject = None
-            if host["has_credential"]:
+            if host["header"]:
                 name = host["secret_name"] or f"s_{uuid.uuid4().hex}"
                 secrets[name] = {"header": host["header"], "value": host["value"]}
                 inject = name
             rules.append({"host": host["host"], "methods": host["methods"], "inject": inject})
+        if not rules:
+            return None, {}
         policy = {"default": parsed["default"], "intercept": parsed["intercept"], "rules": rules}
         return policy, secrets
 
@@ -333,7 +358,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             ) from err
         out: dict[str, dict] = {}
         for name, sec in submitted.items():
-            if sec.get("value", "") in ("", "******") and name in existing:
+            if sec.get("value", "") in ("", _MASK_SENTINEL) and name in existing:
                 out[name] = {**sec, "value": existing[name].get("value", "")}
             else:
                 out[name] = sec
@@ -364,7 +389,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
         out: list[dict] = []
         for row in submitted_rows:
             name = row.get("name")
-            if row.get("is_secret") and row.get("value") in ("", "******") and name in existing:
+            if row.get("is_secret") and row.get("value") in ("", _MASK_SENTINEL) and name in existing:
                 row = {**row, "value": existing[name]}
             out.append(row)
         return out

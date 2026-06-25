@@ -60,7 +60,7 @@ Environment-variable values are **Fernet-encrypted before they are stored** and 
 When **Network** is enabled, the **Egress** section appears at the bottom of the form. It lets you define exactly which outbound connections the sandbox container may make, with optional per-host credentials injected by the MITM proxy — credentials never enter the container.
 
 !!! info "Requires the egress proxy"
-    Egress policy is provisioned by the daiv-sandbox MITM egress proxy (`DAIV_SANDBOX_EGRESS_PROXY_ENABLED`). If the sandbox does not have the proxy enabled, starting a run that uses an egress-configured environment will **abort** (fail-closed) rather than fall back to unrestricted network.
+    Egress policy is provisioned by the daiv-sandbox MITM egress proxy. If the sandbox does not have the egress proxy enabled, starting a run that uses an egress-configured environment will **abort** (fail-closed) rather than fall back to unrestricted network.
 
 #### Allowed hosts
 
@@ -72,7 +72,7 @@ Each row in the **Allowed hosts** table defines one outbound rule:
 | **Methods** | HTTP methods this rule applies to (leave empty to match all methods) |
 | **Credential** | Optional: an HTTP header name and value injected by the proxy for every request to this host (see below) |
 
-**Fail-closed:** if the allowed hosts list is empty, no outbound requests are permitted at all (equivalent to network off, even though networking is technically enabled).
+An egress policy takes effect only when you add at least one allowed-host rule. With **Default** set to `deny`, only the listed hosts are reachable and every other outbound request is blocked. Leaving the allowed-hosts list empty stores **no** egress policy on the environment (the section is treated as untouched) — it does not block traffic. To disable networking entirely, set **Network** to **Off**.
 
 #### Per-host credentials (encrypted at rest)
 

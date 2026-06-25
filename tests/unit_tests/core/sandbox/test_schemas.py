@@ -99,6 +99,18 @@ def test_egress_config_request_rejects_dangling_inject():
         EgressConfigRequest(policy=EgressPolicy(rules=[EgressRule(host="x", inject="missing")]), secrets={})
 
 
+def test_empty_egress_config_request_is_deny_all():
+    """The fail-closed fallback in ``row_to_override`` substitutes a bare ``EgressConfigRequest()``
+    for an unusable stored config. That is only safe while the empty request denies everything — a
+    future flip of ``EgressPolicy.default`` to ``allow`` would silently turn the fallback fail-open."""
+    from core.sandbox.schemas import EgressConfigRequest
+
+    req = EgressConfigRequest()
+    assert req.policy.default == "deny"
+    assert req.policy.rules == []
+    assert req.secrets == {}
+
+
 def test_egress_secret_value_is_redacted_in_repr():
     from pydantic import SecretStr
 

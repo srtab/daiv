@@ -22,7 +22,6 @@ function egressEditorState(initial = {}, labels = {}) {
         default: initial.default === "allow" ? "allow" : "deny",
         intercept: initial.intercept === "credentialed" ? "credentialed" : "all",
         labels: {
-            blankHost: labels.blankHost || "Host is required",
             duplicateHost: labels.duplicateHost || "Duplicate host",
         },
         hosts: hosts.map((h) => {

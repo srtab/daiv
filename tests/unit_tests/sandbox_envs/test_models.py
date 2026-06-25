@@ -421,11 +421,6 @@ def _egress_env(**over):
     return SandboxEnvironment(**base)
 
 
-def test_has_egress_predicate():
-    assert _egress_env().has_egress is True
-    assert _egress_env(egress_policy=None).has_egress is False
-
-
 def test_validate_egress_accepts_valid_config():
     _egress_env()._validate_egress()  # must not raise
 

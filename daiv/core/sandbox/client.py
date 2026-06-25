@@ -237,7 +237,8 @@ class DAIVSandboxClient:
         ``httpx.HTTPStatusError`` on a non-2xx; the caller decides how to react. Status meanings:
         404 = egress proxy disabled on the sandbox (permanent); 409 = either "Session is busy"
         (transient lock contention — see ``TRANSIENT_SANDBOX_STATUS``) or "Session has no egress
-        proxy"; other 5xx are transient.
+        proxy"; other 5xx are transient. The returned ``ok`` flag is informational only: the sandbox
+        signals provisioning failures via these status codes, not via ``ok=False`` on a 2xx.
         """
         payload = {
             "policy": request.policy.model_dump(mode="json"),
