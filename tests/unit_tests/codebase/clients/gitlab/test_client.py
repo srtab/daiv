@@ -631,3 +631,38 @@ class TestGitLabClient:
         result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
 
         assert result is None
+
+    def _egress_repo(self):
+        return Repository(
+            pk=42,
+            slug="group/repo",
+            name="repo",
+            clone_url="https://gitlab.example.com/group/repo.git",
+            html_url="https://gitlab.example.com/group/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITLAB,
+        )
+
+    def test_get_git_egress_credential_uses_ephemeral_clone_token(self, gitlab_client):
+        import base64
+
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"):
+            cred = gitlab_client.get_git_egress_credential(self._egress_repo())
+        assert cred.host == "gitlab.example.com"
+        assert cred.header == "Authorization"
+        assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:glpat-eph").decode()
+
+    def test_get_git_egress_credential_falls_back_to_pat(self, gitlab_client):
+        import base64
+
+        gitlab_client.client.private_token = "pat-token"  # noqa: S105
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            cred = gitlab_client.get_git_egress_credential(self._egress_repo())
+        assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:pat-token").decode()
+
+    def test_get_git_egress_credential_no_token_returns_host_only(self, gitlab_client):
+        gitlab_client.client.private_token = None
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            cred = gitlab_client.get_git_egress_credential(self._egress_repo())
+        assert cred.host == "gitlab.example.com"
+        assert cred.value is None
