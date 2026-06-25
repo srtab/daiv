@@ -138,6 +138,7 @@ def _patch_context_deps(*, sandbox_enabled: bool):
     repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
     sandbox = MagicMock()
     sandbox.enabled = sandbox_enabled
+    sandbox.network_enabled = False
     return (
         patch.multiple(
             "codebase.context",
