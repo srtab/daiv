@@ -8,6 +8,43 @@ import pytest
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
 
+
+@pytest.fixture
+def make_form_data():
+    """Return a factory that builds minimal valid POST data for SandboxEnvironmentForm,
+    with any keyword argument overriding the default. Callers supply ``network_choice``
+    and ``egress_json`` to exercise the network toggle logic."""
+
+    def _factory(**overrides):
+        base = {
+            "name": "dev",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "network_choice": "off",
+            "memory_mode": "default",
+            "cpu_mode": "default",
+            "memory_unit": "MiB",
+            "env_vars_json": "[]",
+            "repo_ids_json": "[]",
+            "egress_json": "",
+        }
+        base.update(overrides)
+        return base
+
+    return _factory
+
+
+def build_env_form(data):
+    """Construct a SandboxEnvironmentForm for the given POST data dict.
+    Creates a transient (unsaved) user so no DB state leaks between tests."""
+    from accounts.models import User as AccountsUser
+
+    username = f"_b5_{abs(hash(str(sorted(data.items()))))}"
+    email = f"{username}@test.invalid"
+    user, _ = AccountsUser.objects.get_or_create(username=username, defaults={"email": email})
+    return SandboxEnvironmentForm(data=data, user=user, is_admin=False)
+
+
 User = get_user_model()
 
 
@@ -760,3 +797,52 @@ def test_form_env_vars_json_initial_returns_empty_on_decryption_error(user, mock
     form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
     assert form.fields["env_vars_json"].initial == "[]"
     assert "decryption failed" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# B5 tests: On/Off network toggle, "On must permit something", allow-all storage
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_on_with_no_rules_and_deny_default_is_rejected(make_form_data):
+    data = make_form_data(
+        network_choice="on", egress_json=json.dumps({"default": "deny", "intercept": "all", "hosts": []})
+    )
+    form = build_env_form(data)
+    assert not form.is_valid()
+    assert "network_choice" in form.errors or "__all__" in form.errors
+
+
+@pytest.mark.django_db
+def test_on_allow_all_stores_policy(make_form_data):
+    data = make_form_data(
+        network_choice="on", egress_json=json.dumps({"default": "allow", "intercept": "all", "hosts": []})
+    )
+    form = build_env_form(data)
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["egress_policy"] == {"default": "allow", "intercept": "all", "rules": []}
+
+
+@pytest.mark.django_db
+def test_off_forces_null_policy_even_with_hosts(make_form_data):
+    data = make_form_data(
+        network_choice="off",
+        egress_json=json.dumps({
+            "default": "deny",
+            "intercept": "all",
+            "hosts": [
+                {
+                    "host": "github.com",
+                    "methods": ["*"],
+                    "header": "",
+                    "value": "",
+                    "secret_name": "",
+                    "has_existing_value": False,
+                }
+            ],
+        }),
+    )
+    form = build_env_form(data)
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["egress_policy"] is None
