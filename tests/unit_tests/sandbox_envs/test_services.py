@@ -532,11 +532,13 @@ async def test_row_to_override_builds_egress():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_row_to_override_fails_closed_to_deny_all_when_malformed():
+async def test_row_to_override_fails_closed_to_none_when_malformed():
     from sandbox_envs.services import row_to_override
 
-    # Dangling inject (no matching secret) — stored directly, bypassing clean(). The env *intended*
-    # restricted egress, so dropping to None (discarding that intent) is unsafe; we substitute deny-all.
+    # Dangling inject (no matching secret) — stored directly, bypassing clean(). The env intended
+    # restricted egress but its config is unusable; fail closed to NO network (egress=None →
+    # network_mode=none). The old deny-all-with-plumbing state no longer exists and would be rejected
+    # by the sandbox (422 "permits nothing").
     env = await SandboxEnvironment.objects.acreate(
         scope=Scope.GLOBAL,
         name="bad",
@@ -545,15 +547,12 @@ async def test_row_to_override_fails_closed_to_deny_all_when_malformed():
         egress_secrets={},
     )
     override = row_to_override(env)
-    assert override.egress is not None
-    assert override.egress.policy.default == "deny"
-    assert override.egress.policy.rules == []
-    assert override.egress.secrets == {}
+    assert override.egress is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_row_to_override_fails_closed_to_deny_all_on_decryption_error(mocker):
+async def test_row_to_override_fails_closed_to_none_on_decryption_error(mocker):
     from sandbox_envs.services import row_to_override
 
     from core.encryption import DecryptionError
@@ -567,15 +566,38 @@ async def test_row_to_override_fails_closed_to_deny_all_on_decryption_error(mock
     )
 
     # Simulate a rotated/lost DAIV_ENCRYPTION_KEY: the still-present egress_policy can no longer be
-    # paired with its decryptable secrets. Must fail closed (deny-all), never drop to None.
+    # paired with its decryptable secrets. The env intended restricted egress but its config is unusable;
+    # fail closed to NO network (egress=None → network_mode=none). The old deny-all-with-plumbing state
+    # no longer exists and would be rejected by the sandbox.
     def _raise(instance):
         raise DecryptionError("bad key")
 
     mocker.patch.object(type(env), "egress_secrets", new_callable=lambda: property(fget=_raise))
     override = row_to_override(env)
-    assert override.egress is not None
-    assert override.egress.policy.default == "deny"
-    assert override.egress.policy.rules == []
+    assert override.egress is None
+
+
+def test_row_to_override_fails_closed_to_none_no_db():
+    """Non-DB guard: dangling inject triggers the except branch → egress=None, no network."""
+    from types import SimpleNamespace
+
+    from sandbox_envs.services import row_to_override
+
+    # Build an unsaved mock that provides exactly the attributes row_to_override reads.
+    # egress_policy has a dangling inject ("missing" is not in egress_secrets={}) so
+    # EgressConfigRequest.from_stored raises, hitting the fail-closed except branch.
+    env = SimpleNamespace(
+        id="test-no-db",
+        env_vars=[],
+        egress_policy={"default": "deny", "rules": [{"host": "example.com", "inject": "missing"}]},
+        egress_secrets={},
+        base_image="python:3.12",
+        memory_bytes=None,
+        cpus=None,
+    )
+    override = row_to_override(env)
+    # The except branch (dangling inject → from_stored raises) must have been taken.
+    assert override.egress is None
 
 
 def test_merge_prefers_per_run_egress():
