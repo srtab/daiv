@@ -79,11 +79,12 @@ async def test_get_global_default_returns_row_values():
 @pytest.mark.django_db(transaction=True)
 def test_humanise_global_default_with_full_row():
     SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
+    # egress_policy is set ⇒ network is "enabled"; has_network=True
     SandboxEnvironment.objects.create(
         scope=Scope.GLOBAL,
         name="Default",
         base_image="python:3.14",
-        network_enabled=True,
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
         memory_bytes=2 * 2**30,
         cpus=Decimal("1.5"),
         is_default=True,
@@ -239,7 +240,8 @@ class TestResolveEnvForRun:
 
 @pytest.mark.django_db
 def test_get_global_default_returns_row_values_without_overlay():
-    """After the env-lock removal, get_global_default just reads the row."""
+    """After the env-lock removal, get_global_default just reads the row.
+    Network state is now derived from egress_policy presence, not a separate column."""
     from asgiref.sync import async_to_sync
     from sandbox_envs.services import get_global_default
 
@@ -250,7 +252,7 @@ def test_get_global_default_returns_row_values_without_overlay():
         base_image="python:3.14",
         cpus=2.0,
         memory_bytes=2 * 2**30,
-        network_enabled=True,
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
         is_default=True,
     )
 
@@ -259,7 +261,8 @@ def test_get_global_default_returns_row_values_without_overlay():
     assert override.base_image == "python:3.14"
     assert override.cpus == 2.0
     assert override.memory_bytes == 2 * 2**30
-    assert override.network_enabled is True
+    # egress_policy is set ⇒ egress is populated (network is on)
+    assert override.egress is not None
 
 
 def test_get_locked_runtime_fields_is_gone():
@@ -288,33 +291,49 @@ def test_site_settings_has_no_sandbox_resource_fields():
 @pytest.mark.django_db
 class TestMergeSandboxRuntime:
     def test_per_run_env_supplies_fields_when_set(self):
+        from pydantic import SecretStr
         from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
 
+        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+        egress_on = EgressConfigRequest(
+            policy=EgressPolicy(rules=[EgressRule(host="per-run.example", inject="t")]),
+            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
+        )
         per_run = SandboxEnvOverride(
-            base_image="python:3.14", network_enabled=True, memory_bytes=2 * 2**30, cpus=2.0, env_vars={"K": "v"}
+            base_image="python:3.14", memory_bytes=2 * 2**30, cpus=2.0, env_vars={"K": "v"}, egress=egress_on
         )
         global_default = SandboxEnvOverride(
-            base_image="python:3.12", network_enabled=False, memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}
+            base_image="python:3.12", memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}, egress=None
         )
         runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
         assert runtime.base_image == "python:3.14"
-        assert runtime.network_enabled is True
+        # per-run egress takes precedence; network is on (egress is not None)
+        assert runtime.egress is not None
+        assert runtime.egress.policy.rules[0].host == "per-run.example"
         assert runtime.memory_bytes == 2 * 2**30
         assert runtime.cpus == 2.0
         assert runtime.env_vars == {"G": "g", "K": "v"}
 
     def test_falls_through_to_global_default(self):
+        from pydantic import SecretStr
         from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
 
-        per_run = SandboxEnvOverride(
-            base_image=None, network_enabled=None, memory_bytes=None, cpus=None, env_vars={"K": "v"}
+        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+        egress_global = EgressConfigRequest(
+            policy=EgressPolicy(rules=[EgressRule(host="global.example", inject="t")]),
+            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
         )
+        per_run = SandboxEnvOverride(base_image=None, memory_bytes=None, cpus=None, env_vars={"K": "v"}, egress=None)
         global_default = SandboxEnvOverride(
-            base_image="python:3.12", network_enabled=False, memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}
+            base_image="python:3.12", memory_bytes=1 * 2**30, cpus=1.0, env_vars={"G": "g"}, egress=egress_global
         )
         runtime = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
         assert runtime.base_image == "python:3.12"
-        assert runtime.network_enabled is False
+        # per-run has no egress (off); global_default's egress is NOT inherited
+        # (network is per-env, not fallthrough — per-run off beats global on)
+        assert runtime.egress is None
         assert runtime.memory_bytes == 1 * 2**30
         assert runtime.cpus == 1.0
         assert runtime.env_vars == {"G": "g", "K": "v"}
@@ -323,15 +342,10 @@ class TestMergeSandboxRuntime:
         from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
 
         per_run = SandboxEnvOverride(
-            base_image=None,
-            network_enabled=None,
-            memory_bytes=None,
-            cpus=None,
-            env_vars={"SHARED": "from-per-run", "PER_RUN_ONLY": "x"},
+            base_image=None, memory_bytes=None, cpus=None, env_vars={"SHARED": "from-per-run", "PER_RUN_ONLY": "x"}
         )
         global_default = SandboxEnvOverride(
             base_image="python:3.12",
-            network_enabled=False,
             memory_bytes=None,
             cpus=None,
             env_vars={"SHARED": "from-global", "GLOBAL_ONLY": "g"},
@@ -344,9 +358,7 @@ class TestMergeSandboxRuntime:
 
         from core.sandbox.command_policy import SandboxCommandPolicy
 
-        per_run = SandboxEnvOverride(
-            base_image="python:3.14", network_enabled=False, memory_bytes=None, cpus=None, env_vars={}
-        )
+        per_run = SandboxEnvOverride(base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={})
         runtime = merge_sandbox_runtime(per_run=per_run, global_default=None)
         assert runtime.command_policy == SandboxCommandPolicy()
 
@@ -502,10 +514,7 @@ def _egress_request(host: str):
     )
 
 
-def _override(**over):
-    """A ``SandboxEnvOverride`` with all-None scaffolding; pass only the field(s) under test."""
-    base = {"base_image": None, "network_enabled": None, "memory_bytes": None, "cpus": None, "env_vars": {}}
-    return SandboxEnvOverride(**(base | over))
+# _override was the old scaffolding helper (used network_enabled); replaced by _ov defined below.
 
 
 @pytest.mark.asyncio
@@ -604,18 +613,18 @@ def test_merge_prefers_per_run_egress():
     from sandbox_envs.services import merge_sandbox_runtime
 
     rt = merge_sandbox_runtime(
-        per_run=_override(egress=_egress_request("per-run.example")),
-        global_default=_override(egress=_egress_request("global.example")),
+        per_run=_ov(egress=_egress_request("per-run.example")),
+        global_default=_ov(egress=_egress_request("global.example")),
     )
     assert rt.egress.policy.rules[0].host == "per-run.example"
 
 
 def test_merge_falls_back_to_global_egress():
+    """When there is no per-run env (per_run=None), the global default's egress is used.
+    (A per-run env with egress=None means 'Off' — it does NOT inherit global's policy.)"""
     from sandbox_envs.services import merge_sandbox_runtime
 
-    rt = merge_sandbox_runtime(
-        per_run=_override(egress=None), global_default=_override(egress=_egress_request("global.example"))
-    )
+    rt = merge_sandbox_runtime(per_run=None, global_default=_ov(egress=_egress_request("global.example")))
     assert rt.egress.policy.rules[0].host == "global.example"
 
 
@@ -624,9 +633,7 @@ def test_merge_egress_is_none_when_neither_side_has_it():
 
     # Egress is opt-in: no policy on either side must never materialize one (it would otherwise
     # silently apply an unintended network posture).
-    rt = merge_sandbox_runtime(
-        per_run=_override(network_enabled=True, egress=None), global_default=_override(egress=None)
-    )
+    rt = merge_sandbox_runtime(per_run=_ov(egress=None), global_default=_ov(egress=None))
     assert rt.egress is None
 
 

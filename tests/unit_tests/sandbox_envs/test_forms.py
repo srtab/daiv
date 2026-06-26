@@ -162,7 +162,7 @@ def test_form_memory_value_and_unit_set_memory_bytes():
             "scope": Scope.USER,
             "memory_value": "1",
             "memory_unit": "GiB",
-            "network_choice": "default",
+            "network_choice": "off",
             "env_vars_json": "[]",
         },
         user=user,
@@ -185,7 +185,7 @@ def test_form_empty_memory_value_maps_to_none():
             "scope": Scope.USER,
             "memory_value": "",
             "memory_unit": "MiB",
-            "network_choice": "default",
+            "network_choice": "off",
             "env_vars_json": "[]",
         },
         user=user,
@@ -197,9 +197,23 @@ def test_form_empty_memory_value_maps_to_none():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(("choice", "expected"), [("default", None), ("on", True), ("off", False)])
-def test_form_network_choice_maps_to_network_enabled(choice, expected):
+@pytest.mark.parametrize(
+    ("choice", "has_policy"),
+    [
+        ("off", False),
+        # "on" with allow-default stores a policy (network is on ⇒ egress_policy not None)
+        ("on", True),
+    ],
+)
+def test_form_network_choice_maps_to_egress_policy(choice, has_policy):
+    """network_choice="on" with allow-default ⇒ egress_policy stored; "off" ⇒ egress_policy=None."""
     from accounts.models import User
+
+    egress_json = ""
+    if choice == "on":
+        import json
+
+        egress_json = json.dumps({"default": "allow", "intercept": "all", "hosts": []})
 
     user = User.objects.create_user(username=f"n-{choice}", email=f"n-{choice}@e.com", password="x")  # noqa: S106
     form = SandboxEnvironmentForm(
@@ -210,6 +224,7 @@ def test_form_network_choice_maps_to_network_enabled(choice, expected):
             "memory_value": "",
             "memory_unit": "MiB",
             "network_choice": choice,
+            "egress_json": egress_json,
             "env_vars_json": "[]",
         },
         user=user,
@@ -217,7 +232,10 @@ def test_form_network_choice_maps_to_network_enabled(choice, expected):
     )
     assert form.is_valid(), form.errors
     env = form.save()
-    assert env.network_enabled is expected
+    if has_policy:
+        assert env.egress_policy is not None
+    else:
+        assert env.egress_policy is None
 
 
 @pytest.mark.django_db
@@ -225,8 +243,14 @@ def test_form_prefills_memory_and_network_from_instance():
     from accounts.models import User
 
     user = User.objects.create_user(username="p1", email="p1@e.com", password="x")  # noqa: S106
+    # An env with an egress_policy set ⇒ network is "on"
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="dev", base_image="alpine", memory_bytes=2 * 2**30, network_enabled=True
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine",
+        memory_bytes=2 * 2**30,
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
     )
     form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
     assert form.initial["memory_value"] == 2
@@ -239,13 +263,14 @@ def test_form_prefill_memory_in_mib_when_not_whole_gib():
     from accounts.models import User
 
     user = User.objects.create_user(username="p2", email="p2@e.com", password="x")  # noqa: S106
+    # No egress_policy ⇒ network is "off"
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="dev", base_image="alpine", memory_bytes=512 * 2**20, network_enabled=None
+        scope=Scope.USER, user=user, name="dev", base_image="alpine", memory_bytes=512 * 2**20
     )
     form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
     assert form.initial["memory_value"] == 512
     assert form.initial["memory_unit"] == "MiB"
-    assert form.initial["network_choice"] == "default"
+    assert form.initial["network_choice"] == "off"
 
 
 @pytest.mark.django_db
@@ -261,7 +286,7 @@ def test_form_rejects_custom_memory_mode_without_value():
             "memory_mode": "custom",
             "memory_value": "",
             "memory_unit": "MiB",
-            "network_choice": "default",
+            "network_choice": "off",
             "cpu_mode": "default",
             "env_vars_json": "[]",
         },
@@ -285,7 +310,7 @@ def test_form_rejects_custom_cpu_mode_without_value():
             "memory_mode": "default",
             "memory_value": "",
             "memory_unit": "MiB",
-            "network_choice": "default",
+            "network_choice": "off",
             "cpu_mode": "custom",
             "cpus": "",
             "env_vars_json": "[]",
@@ -305,7 +330,7 @@ class TestRepoIdsField:
             "description": "",
             "scope": "user",
             "base_image": "python:3.14",
-            "network_choice": "default",
+            "network_choice": "off",
             "memory_mode": "default",
             "cpu_mode": "default",
             "memory_unit": "MiB",
@@ -428,7 +453,13 @@ def test_form_builds_egress_policy_and_secrets_from_hosts():
         ],
     })
     form = SandboxEnvironmentForm(
-        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": egress},
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "network_choice": "on",
+            "egress_json": egress,
+        },
         user=user,
         is_admin=False,
     )
@@ -487,7 +518,13 @@ def test_form_synthesises_secret_name_for_new_credentialed_host():
         ],
     })
     form = SandboxEnvironmentForm(
-        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": egress},
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "network_choice": "on",
+            "egress_json": egress,
+        },
         user=user,
         is_admin=False,
     )
@@ -633,7 +670,13 @@ def test_egress_preserves_unchanged_secret_on_edit(masked_value):
     })
     form = SandboxEnvironmentForm(
         instance=env,
-        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": submitted},
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "network_choice": "on",
+            "egress_json": submitted,
+        },
         user=user,
         is_admin=False,
     )
@@ -675,7 +718,13 @@ def test_egress_changed_secret_overwrites_on_edit():
     })
     form = SandboxEnvironmentForm(
         instance=env,
-        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": submitted},
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "network_choice": "on",
+            "egress_json": submitted,
+        },
         user=user,
         is_admin=False,
     )
@@ -811,7 +860,7 @@ def test_on_with_no_rules_and_deny_default_is_rejected(make_form_data):
     )
     form = build_env_form(data)
     assert not form.is_valid()
-    assert "network_choice" in form.errors or "__all__" in form.errors
+    assert "network_choice" in form.errors
 
 
 @pytest.mark.django_db
