@@ -138,7 +138,9 @@ def _patch_context_deps(*, sandbox_enabled: bool):
     repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
     sandbox = MagicMock()
     sandbox.enabled = sandbox_enabled
-    sandbox.network_enabled = False
+    # No egress policy => augment_sandbox_with_platform_egress is a no-op (it would otherwise call
+    # dataclasses.replace() on this MagicMock). These tests only exercise transport open/close.
+    sandbox.egress = None
     return (
         patch.multiple(
             "codebase.context",
@@ -183,6 +185,7 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
     from codebase.clients.base import GitEgressCredential
     from codebase.context import SandboxRuntime
     from core.sandbox.command_policy import SandboxCommandPolicy
+    from core.sandbox.schemas import EgressConfigRequest
 
     repo_client = MagicMock()
     repository = MagicMock()
@@ -194,15 +197,15 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
         token="tok",  # noqa: S106
     )
 
-    # A real (frozen) SandboxRuntime — augment_sandbox_with_platform_egress uses dataclasses.replace().
+    # A real (frozen) SandboxRuntime with a networked egress policy (egress is not None == network on);
+    # augment_sandbox_with_platform_egress prepends the git-platform rule via dataclasses.replace().
     sandbox = SandboxRuntime(
         base_image="python:3.12",
-        network_enabled=True,
         memory_bytes=None,
         cpus=None,
         env_vars={},
         command_policy=SandboxCommandPolicy(),
-        egress=None,
+        egress=EgressConfigRequest(),
     )
     fake_client = MagicMock()
     fake_client.open = AsyncMock(return_value=fake_client)

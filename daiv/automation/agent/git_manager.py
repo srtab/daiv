@@ -366,9 +366,9 @@ class GitPushPermissionError(RuntimeError):
 class GitPushNetworkError(RuntimeError):
     """Raised when pushing fails because the remote host is unreachable.
 
-    Typically a sandbox-authoritative run whose sandbox environment is configured with
-    ``network_enabled=False``: git runs (and therefore pushes) from inside the sandbox, so the
-    sandbox must have network access for the push to reach ``origin``.
+    Typically a sandbox-authoritative run whose sandbox environment is configured as a
+    network-isolated sandbox (no egress): git runs (and therefore pushes) from inside the sandbox,
+    so the sandbox must have network access for the push to reach ``origin``.
     """
 
 
@@ -432,7 +432,7 @@ def _raise_for_push_failure(push_args: list[str], result: _GitResult) -> None:
         logger.warning("git push network failure: %s", result.output)
         raise GitPushNetworkError(
             "Failed to push changes: the remote host is unreachable. Sandbox-authoritative auto-commit "
-            "pushes from inside the sandbox, so the sandbox environment must run with network access "
-            "(network_enabled=True)."
+            "pushes from inside the sandbox, so the sandbox environment must run as an egress-enabled "
+            "sandbox."
         )
     raise GitCommandError(["git", *push_args], result.exit_code, result.output)

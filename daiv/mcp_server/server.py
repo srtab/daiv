@@ -494,7 +494,7 @@ async def get_environment(
         "scope": env.scope,
         "description": env.description,
         "base_image": env.base_image,
-        "network_enabled": env.network_enabled,
+        "network_enabled": env.is_networked,
         "memory_bytes": env.memory_bytes,
         "cpus": float(env.cpus) if env.cpus is not None else None,
         "is_default": env.is_default,

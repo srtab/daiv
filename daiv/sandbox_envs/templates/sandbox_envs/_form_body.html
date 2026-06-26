@@ -157,13 +157,8 @@
     <div class="border-t border-white/[0.06]"></div>
 
     <div x-data="{
-             network: '{{ form.network_choice.value|default:'default'|escapejs }}',
-             globalDefaultNetworkOn: {% if global_default_summary.network == 'enabled' %}true{% else %}false{% endif %},
-             get effectiveNetworkOn() {
-                 if (this.network === 'on') return true;
-                 if (this.network === 'off') return false;
-                 return this.globalDefaultNetworkOn;
-             },
+             network: '{{ form.network_choice.value|default:'off'|escapejs }}',
+             get effectiveNetworkOn() { return this.network === 'on'; },
          }">
         {# Network (promoted to top-level) #}
         <div>
@@ -172,13 +167,6 @@
                 {% if form.network_choice.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
             </label>
             <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
-                <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                       :class="network === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
-                       {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
-                    <input type="radio" name="network_choice" value="default" x-model="network" class="sr-only"
-                           {% if form.network_choice.field.disabled %}disabled{% endif %}>
-                    {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_network %} — {{ global_default_summary.network }}{% endif %}{% endif %}
-                </label>
                 <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                        :class="network === 'on' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
                        {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
