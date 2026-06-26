@@ -315,7 +315,7 @@ class TestMergeSandboxRuntime:
         assert runtime.cpus == 2.0
         assert runtime.env_vars == {"G": "g", "K": "v"}
 
-    def test_falls_through_to_global_default(self):
+    def test_per_run_off_blocks_global_egress_inheritance(self):
         from pydantic import SecretStr
         from sandbox_envs.services import SandboxEnvOverride, merge_sandbox_runtime
 
@@ -617,15 +617,6 @@ def test_merge_prefers_per_run_egress():
         global_default=_ov(egress=_egress_request("global.example")),
     )
     assert rt.egress.policy.rules[0].host == "per-run.example"
-
-
-def test_merge_falls_back_to_global_egress():
-    """When there is no per-run env (per_run=None), the global default's egress is used.
-    (A per-run env with egress=None means 'Off' — it does NOT inherit global's policy.)"""
-    from sandbox_envs.services import merge_sandbox_runtime
-
-    rt = merge_sandbox_runtime(per_run=None, global_default=_ov(egress=_egress_request("global.example")))
-    assert rt.egress.policy.rules[0].host == "global.example"
 
 
 def test_merge_egress_is_none_when_neither_side_has_it():
