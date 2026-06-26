@@ -126,18 +126,12 @@ class DAIVSandboxClient:
         """Start a session with the sandbox; returns the session ID.
 
         ``model_dump(mode="json")`` masks ``SecretStr`` egress secrets, but the sidecar needs the
-        plaintext — so the egress block is rebuilt explicitly here (mirrors the old configure_egress
-        payload construction).
+        plaintext — so the egress block is re-serialised via ``EgressConfigRequest.to_wire()`` (the
+        single source of truth for the wire shape) instead of the masked ``model_dump`` value.
         """
         payload = request.model_dump(mode="json")
         if request.egress is not None:
-            payload["egress"] = {
-                "policy": request.egress.policy.model_dump(mode="json"),
-                "secrets": {
-                    name: {"header": s.header, "value": s.value.get_secret_value()}
-                    for name, s in request.egress.secrets.items()
-                },
-            }
+            payload["egress"] = request.egress.to_wire()
         response = await self._client.post("session/", json=payload)
         response.raise_for_status()
         return response.json()["session_id"]

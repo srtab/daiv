@@ -47,7 +47,7 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
         env_vars_rows = []
 
     egress = None
-    if env.egress_policy is not None:
+    if env.is_networked:
         try:
             egress = EgressConfigRequest.from_stored(env.egress_policy, env.egress_secrets or {})
         except DecryptionError, PydanticValidationError, TypeError, ValueError:
@@ -101,15 +101,16 @@ async def get_global_default() -> SandboxEnvOverride | None:
 
 
 def humanise_global_default() -> dict[str, str | bool]:
-    """Synchronous, template-friendly view of the GLOBAL default's row values."""
+    """Synchronous, template-friendly view of the GLOBAL default's row values.
+
+    Network is intentionally omitted: the form's Network control is a self-contained On/Off that
+    neither displays nor inherits the global default, so only memory/cpus are surfaced here."""
     row = SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).first()
     if row is None:
-        return {"network": "", "memory": "", "cpus": "", "has_network": False, "has_memory": False, "has_cpus": False}
+        return {"memory": "", "cpus": "", "has_memory": False, "has_cpus": False}
     return {
-        "network": "enabled" if row.egress_policy is not None else "disabled",
         "memory": _fmt_memory(row.memory_bytes) if row.memory_bytes is not None else "",
         "cpus": _fmt_cpus(row.cpus) if row.cpus is not None else "",
-        "has_network": True,
         "has_memory": row.memory_bytes is not None,
         "has_cpus": row.cpus is not None,
     }

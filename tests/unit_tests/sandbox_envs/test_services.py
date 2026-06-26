@@ -79,12 +79,10 @@ async def test_get_global_default_returns_row_values():
 @pytest.mark.django_db(transaction=True)
 def test_humanise_global_default_with_full_row():
     SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).delete()
-    # egress_policy is set ⇒ network is "enabled"; has_network=True
     SandboxEnvironment.objects.create(
         scope=Scope.GLOBAL,
         name="Default",
         base_image="python:3.14",
-        egress_policy={"default": "allow", "intercept": "all", "rules": []},
         memory_bytes=2 * 2**30,
         cpus=Decimal("1.5"),
         is_default=True,
@@ -92,14 +90,7 @@ def test_humanise_global_default_with_full_row():
     from sandbox_envs.services import humanise_global_default
 
     summary = humanise_global_default()
-    assert summary == {
-        "network": "enabled",
-        "memory": "2 GiB",
-        "cpus": "1.5",
-        "has_network": True,
-        "has_memory": True,
-        "has_cpus": True,
-    }
+    assert summary == {"memory": "2 GiB", "cpus": "1.5", "has_memory": True, "has_cpus": True}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -108,14 +99,7 @@ def test_humanise_global_default_empty_returns_none_marks():
     from sandbox_envs.services import humanise_global_default
 
     summary = humanise_global_default()
-    assert summary == {
-        "network": "",
-        "memory": "",
-        "cpus": "",
-        "has_network": False,
-        "has_memory": False,
-        "has_cpus": False,
-    }
+    assert summary == {"memory": "", "cpus": "", "has_memory": False, "has_cpus": False}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -592,12 +576,14 @@ def test_row_to_override_fails_closed_to_none_no_db():
 
     from sandbox_envs.services import row_to_override
 
-    # Build an unsaved mock that provides exactly the attributes row_to_override reads.
-    # egress_policy has a dangling inject ("missing" is not in egress_secrets={}) so
-    # EgressConfigRequest.from_stored raises, hitting the fail-closed except branch.
+    # Build an unsaved mock that provides exactly the attributes row_to_override reads (including the
+    # derived `is_networked`, which a real model computes from egress_policy). egress_policy has a
+    # dangling inject ("missing" is not in egress_secrets={}) so EgressConfigRequest.from_stored
+    # raises, hitting the fail-closed except branch.
     env = SimpleNamespace(
         id="test-no-db",
         env_vars=[],
+        is_networked=True,
         egress_policy={"default": "deny", "rules": [{"host": "example.com", "inject": "missing"}]},
         egress_secrets={},
         base_image="python:3.12",

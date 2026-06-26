@@ -37,12 +37,12 @@ Click **Create** on the list page to open the drawer (`/dashboard/sandbox-envs/c
 | **Base image** | The container image the sandbox runs, e.g. `python:3.14-slim`. Required |
 | **CPUs** | CPU limit (a number, up to two decimals). Switch from *default* to *custom* to set it; leave on *default* to inherit |
 | **Memory** | Memory limit, entered as a value plus a **MiB** or **GiB** unit. Switch from *default* to *custom* to set it |
-| **Network** | **Use default**, **On**, or **Off**. Controls outbound network access (needed to reach package registries) |
+| **Network** | **On** or **Off**. Controls outbound network access (needed to reach package registries) |
 | **Environment variables** | Name/value pairs injected into the sandbox; mark any as secret (see below). Up to 100 entries |
-| **Egress policy** | Per-host outbound rules, injected credentials, and traffic mode. Shown only when **Network** is **On** or **Use default** with a default that enables networking (see [Network access and egress policy](#network-access-and-egress-policy)) |
+| **Egress policy** | Per-host outbound rules, injected credentials, and traffic mode. Shown only when **Network** is **On** (see [Network access and egress policy](#network-access-and-egress-policy)) |
 | **Repositories** | The repository IDs this environment is bound to, as slash-separated paths like `owner/repo` or `group/subgroup/repo` (see [Repository bindings](#repository-bindings)) |
 
-Leaving **CPUs**, **Memory**, or **Network** on *default* means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time.
+Leaving **CPUs** or **Memory** on *default* means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time. **Network** is explicit per environment (**On**/**Off**) and is *not* inherited from the global default — see [How an environment is resolved](#how-an-environment-is-resolved).
 
 ### Environment variables (encrypted at rest)
 
@@ -105,7 +105,7 @@ When a run starts in a repository, DAIV picks the per-run environment using this
 4. **Global default** — the single **Global** environment marked as default.
 5. **None** — if nothing matches, the sandbox uses its built-in runtime defaults (no base image, networking off).
 
-The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, network, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
+The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. **Network (egress) is the exception — it is explicit per environment and is never inherited**: a per-run environment with **Network** off runs with no network even when the global default has an egress policy. Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
 
 !!! note "Webhook-triggered runs"
     Runs triggered by a webhook (for example, [issue addressing](issue-addressing.md)) have no signed-in DAIV user, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.

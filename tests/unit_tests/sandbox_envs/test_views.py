@@ -240,7 +240,7 @@ def test_create_context_includes_global_default_summary(client, user):
     resp = client.get(reverse("sandbox_envs:create"), HTTP_HX_REQUEST="true")
     assert resp.status_code == 200
     summary = resp.context["global_default_summary"]
-    assert set(summary.keys()) == {"network", "memory", "cpus", "has_network", "has_memory", "has_cpus"}
+    assert set(summary.keys()) == {"memory", "cpus", "has_memory", "has_cpus"}
 
 
 @pytest.mark.django_db

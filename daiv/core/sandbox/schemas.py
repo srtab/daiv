@@ -286,6 +286,22 @@ class EgressConfigRequest(BaseModel):
             policy=EgressPolicy.model_validate(policy), secrets={name: EgressSecret(**s) for name, s in secrets.items()}
         )
 
+    def to_wire(self) -> dict:
+        """Serialise this request for the ``POST /session/`` ``egress`` block with **plaintext** secrets.
+
+        ``model_dump`` masks ``SecretStr`` (sending the mask would break credential injection at the
+        sidecar), so each secret value is unwrapped here via ``get_secret_value()``. This is the single
+        place that maps the typed request onto the wire shape — the client calls it instead of
+        hand-building the dict, so any new field added to ``EgressPolicy``/``EgressRule`` flows through
+        ``policy`` automatically rather than being silently dropped.
+        """
+        return {
+            "policy": self.policy.model_dump(mode="json"),
+            "secrets": {
+                name: {"header": s.header, "value": s.value.get_secret_value()} for name, s in self.secrets.items()
+            },
+        }
+
 
 class EgressConfigResponse(BaseModel):
     ok: bool = Field(default=True, description="True when the policy was provisioned to the sidecar.")

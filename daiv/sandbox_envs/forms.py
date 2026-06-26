@@ -70,7 +70,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.fields["scope"].initial = Scope.USER
         instance = self.instance
         if instance.pk is not None:
-            self.initial.setdefault("network_choice", "on" if instance.egress_policy is not None else "off")
+            self.initial.setdefault("network_choice", "on" if instance.is_networked else "off")
             if instance.memory_bytes:
                 if instance.memory_bytes % GIB == 0:
                     self.initial.setdefault("memory_value", instance.memory_bytes // GIB)
@@ -128,7 +128,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
         from core.encryption import DecryptionError
 
         empty = json.dumps(_empty_egress_state())
-        if self.instance.pk is None or self.instance.egress_policy is None:
+        if self.instance.pk is None or not self.instance.is_networked:
             return empty
         policy = self.instance.egress_policy
         try:
@@ -281,21 +281,22 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.add_error("memory_value", _("Enter a memory value or switch back to default."))
         if cleaned.get("cpu_mode") == "custom" and cleaned.get("cpus") is None:
             self.add_error("cpus", _("Enter a CPU value or switch back to default."))
-        egress_parsed = cleaned.get("egress_json") or _empty_egress_state()
-        policy, secrets = self._build_egress(egress_parsed)
         choice = cleaned.get("network_choice") or "off"
         if choice == "off":
             # Off forces no network regardless of any editor state.
             policy, secrets = None, {}
-        elif policy is None:
-            # On must permit something: at least one allowed host, or default=allow.
-            self.add_error(
-                "network_choice",
-                _(
-                    "Network is On but the egress policy permits nothing. Add at least one allowed host, "
-                    "set the default to allow, or switch Network to Off."
-                ),
-            )
+        else:
+            egress_parsed = cleaned.get("egress_json") or _empty_egress_state()
+            policy, secrets = self._build_egress(egress_parsed)
+            if policy is None:
+                # On must permit something: at least one allowed host, or default=allow.
+                self.add_error(
+                    "network_choice",
+                    _(
+                        "Network is On but the egress policy permits nothing. Add at least one allowed host, "
+                        "set the default to allow, or switch Network to Off."
+                    ),
+                )
         cleaned["egress_policy"], cleaned["egress_secrets"] = policy, secrets
         return cleaned
 

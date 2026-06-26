@@ -151,6 +151,14 @@ class SandboxEnvironment(TimeStampedModel):
         return f"{self.get_scope_display()}: {self.name}"
 
     @property
+    def is_networked(self) -> bool:
+        """True iff this env grants network access. Network is derived solely from the presence of an
+        egress policy (there is no separate flag): a non-null ``egress_policy`` routes the session
+        through the egress proxy, ``None`` runs it network-isolated. Single source of truth for the
+        derivation used by ``summary``, the form, the services layer, and the MCP server."""
+        return self.egress_policy is not None
+
+    @property
     def summary(self) -> str:
         """Compact one-line description of this env's runtime shape.
 
@@ -165,7 +173,7 @@ class SandboxEnvironment(TimeStampedModel):
             parts.append(f"{_fmt_cpus(self.cpus)} CPU")
         if self.memory_bytes is not None:
             parts.append(_fmt_memory(self.memory_bytes))
-        if self.egress_policy is not None:
+        if self.is_networked:
             parts.append("net")
         return " · ".join(parts)
 
@@ -177,7 +185,7 @@ class SandboxEnvironment(TimeStampedModel):
         parts: list[str] = []
         if self.base_image:
             parts.append(self.base_image)
-        if self.egress_policy is not None:
+        if self.is_networked:
             parts.append("net")
         return " · ".join(parts)
 
