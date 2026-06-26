@@ -530,8 +530,8 @@ class SandboxMiddleware(AgentMiddleware):
             if exc.response.status_code == 404:
                 raise SandboxEgressUnavailableError(
                     "The resolved sandbox environment requires the egress proxy, but the sandbox returned "
-                    "404 for egress provisioning. Configure the shared egress CA (EGRESS_CA_CERT_FILE + "
-                    "EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
+                    "404 for egress provisioning. Configure the shared egress CA (DAIV_SANDBOX_EGRESS_CA_CERT_FILE "
+                    "+ DAIV_SANDBOX_EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
                 ) from exc
             raise
 

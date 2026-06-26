@@ -13,6 +13,9 @@ from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memor
 if TYPE_CHECKING:
     from activity.services import RepoTarget
 
+    from codebase.base import Repository
+    from codebase.clients import RepoClient
+    from codebase.clients.base import GitEgressCredential
     from codebase.context import SandboxRuntime
     from core.sandbox.schemas import EgressConfigRequest
 
@@ -78,12 +81,15 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
     )
 
 
-def apply_platform_egress(egress, credential):
+def apply_platform_egress(
+    egress: EgressConfigRequest | None, credential: GitEgressCredential | None
+) -> EgressConfigRequest | None:
     """Prepend the DAIV-managed git-platform allow-rule (and add its credential) to ``egress``.
 
     Runtime-only — the result is provisioned to the sidecar but never stored on the environment.
-    The rule is **prepended** so it wins under the sidecar's first-match (always reachable, always
-    credentialed). ``credential is None`` → ``egress`` unchanged. With no base policy, the base is a
+    The rule is **prepended** so it wins under the sidecar's first-match (always reachable;
+    credentialed when the credential carries a token). ``credential is None`` → ``egress`` unchanged.
+    With no base policy, the base is a
     deny-all (``default="deny"``, ``intercept="all"``); an existing policy's ``default``/``intercept``
     and rules are preserved. The secret is added (overwriting any same-named user key) only when the
     credential carries a token; otherwise the rule is reachability-only (``inject=None``)."""
@@ -105,7 +111,9 @@ def apply_platform_egress(egress, credential):
     return EgressConfigRequest(policy=policy, secrets=secrets)
 
 
-def augment_sandbox_with_platform_egress(sandbox, repo_client, repository):
+def augment_sandbox_with_platform_egress(
+    sandbox: SandboxRuntime, repo_client: RepoClient, repository: Repository
+) -> SandboxRuntime:
     """Layer the git-platform allow-rule + credential onto ``sandbox.egress`` for network-enabled
     runs. No-op when the sandbox is disabled or network is off. Returns a new ``SandboxRuntime``
     (frozen); the platform contribution is resolved per run via ``repo_client`` and never stored."""

@@ -171,3 +171,59 @@ async def test_set_runtime_ctx_skips_transport_when_sandbox_disabled():
         async with set_runtime_ctx("repo-1", scope=RepoScope.GLOBAL):
             assert _run_sandbox_client.get() is None
         ctor.assert_not_called()
+
+
+async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
+    """Network-on integration seam: set_runtime_ctx must resolve the repo's git-platform credential
+    via the client and land its allow-rule first on ``ctx.sandbox.egress`` (the only place all the
+    unit-tested egress pieces are wired together). Guards against the augmentation line being dropped
+    or reordered before merge_sandbox_runtime — a regression every isolated unit test would miss."""
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
+
+    from codebase.clients.base import GitEgressCredential
+    from codebase.context import SandboxRuntime
+    from core.sandbox.command_policy import SandboxCommandPolicy
+
+    repo_client = MagicMock()
+    repository = MagicMock()
+    repo_client.get_repository.return_value = repository
+    repo_client.current_user.username = "daiv"
+    repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
+    repo_client.get_git_egress_credential.return_value = GitEgressCredential.for_token(
+        host="github.com",
+        token="tok",  # noqa: S106
+    )
+
+    # A real (frozen) SandboxRuntime — augment_sandbox_with_platform_egress uses dataclasses.replace().
+    sandbox = SandboxRuntime(
+        base_image="python:3.12",
+        network_enabled=True,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        command_policy=SandboxCommandPolicy(),
+        egress=None,
+    )
+    fake_client = MagicMock()
+    fake_client.open = AsyncMock(return_value=fake_client)
+    fake_client.close = AsyncMock()
+
+    with (
+        patch.multiple(
+            "codebase.context",
+            RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
+            RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
+            DAIVSandboxClient=MagicMock(return_value=fake_client),
+        ),
+        patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
+        patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
+        patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=sandbox)),
+        patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
+    ):
+        async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
+            repo_client.get_git_egress_credential.assert_called_once_with(repository)
+            assert ctx.sandbox.egress is not None
+            platform_rule = ctx.sandbox.egress.policy.rules[0]
+            assert platform_rule.host == "github.com"
+            assert platform_rule.inject == PLATFORM_EGRESS_SECRET_NAME
+            assert PLATFORM_EGRESS_SECRET_NAME in ctx.sandbox.egress.secrets

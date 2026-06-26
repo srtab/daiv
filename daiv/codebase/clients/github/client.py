@@ -33,7 +33,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.base import Emoji, GitEgressCredential, WebhookSetupResult
+from codebase.clients.base import Emoji, WebhookSetupResult
 from core.utils import async_download_url
 
 if TYPE_CHECKING:
@@ -265,16 +265,11 @@ class GitHubClient(RepoClient):
             self._configure_commit_identity(repo)
             yield repo
 
-    def get_git_egress_credential(self, repository: Repository) -> GitEgressCredential | None:
-        """Allow + credential the repo's GitHub host for git-over-HTTPS in the sandbox.
-
-        Mints a short-lived installation token scoped to ``contents: read`` (read-only git ops;
+    def _git_egress_token(self, repository: Repository) -> str | None:
+        """Mint a short-lived installation token scoped to ``contents: read`` (read-only git ops;
         push is policy-blocked in the sandbox)."""
-        host = urlparse(repository.clone_url).hostname
-        if not host:
-            return None
         access_token = self._integration.get_access_token(self.client_installation.id, permissions={"contents": "read"})
-        return GitEgressCredential.for_token(host=host, token=access_token.token)
+        return access_token.token
 
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:

@@ -139,8 +139,22 @@ class RepoClient(abc.ABC):
 
     def get_git_egress_credential(self, repository: Repository) -> GitEgressCredential | None:
         """Egress allow-rule + credential for this repo's git platform, or ``None`` for platforms
-        that need none (default; overridden by GitLab/GitHub). Resolved per run because the host is
-        repo-derived and the token is short-lived — never stored on the environment."""
+        that need none. Resolved per run because the host is repo-derived and the token is
+        short-lived — never stored on the environment.
+
+        The shared shape lives here — derive the host from the clone URL, then build a
+        ``Basic oauth2:<token>`` credential. Platforms supply only the token via
+        :meth:`_git_egress_token` (overriding this method is unnecessary)."""
+        from urllib.parse import urlparse
+
+        host = urlparse(repository.clone_url).hostname
+        if not host:
+            return None
+        return GitEgressCredential.for_token(host=host, token=self._git_egress_token(repository))
+
+    def _git_egress_token(self, repository: Repository) -> str | None:
+        """Short-lived token authenticating git-over-HTTPS for this repo's platform, or ``None`` for
+        platforms that need no credential (host-only reachability). Overridden by GitLab/GitHub."""
         return None
 
     # Issue

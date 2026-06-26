@@ -31,7 +31,6 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.base import GitEgressCredential
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri
@@ -368,16 +367,10 @@ class GitLabClient(RepoClient):
         logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
         return self.client.private_token
 
-    def get_git_egress_credential(self, repository: Repository) -> GitEgressCredential | None:
-        """Allow + credential the project's GitLab host for git-over-HTTPS in the sandbox.
-
-        Uses the same short-lived, project-scoped clone token as the clone (falling back to the
-        configured PAT); degrades to host-only reachability (no inject) when neither is available."""
-        host = urlparse(repository.clone_url).hostname
-        if not host:
-            return None
-        token = get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
-        return GitEgressCredential.for_token(host=host, token=token)
+    def _git_egress_token(self, repository: Repository) -> str | None:
+        """Reuse the same short-lived, project-scoped clone token as the clone (PAT fallback; see
+        :meth:`_get_clone_token`); ``None`` (host-only reachability) when neither is available."""
+        return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
 
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:

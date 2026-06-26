@@ -467,3 +467,23 @@ def test_validate_egress_rejects_too_many_secrets():
     env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": []}, egress_secrets=secrets)
     with pytest.raises(ValidationError, match="Too many egress secrets"):
         env._validate_egress()
+
+
+def test_validate_egress_rejects_reserved_platform_secret_name():
+    """A user-defined egress secret named ``__daiv_git_platform__`` (or a rule injecting it) must be
+    rejected at save time: ``apply_platform_egress`` overwrites that key at runtime, so allowing it in
+    stored config would let a user silently shadow DAIV's authenticated git-platform credential."""
+    from django.core.exceptions import ValidationError
+
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
+
+    env = _egress_env(
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "example.com", "methods": ["GET"], "inject": PLATFORM_EGRESS_SECRET_NAME}],
+        },
+        egress_secrets={PLATFORM_EGRESS_SECRET_NAME: {"header": "Authorization", "value": "Bearer t"}},
+    )
+    with pytest.raises(ValidationError, match="reserved"):
+        env._validate_egress()

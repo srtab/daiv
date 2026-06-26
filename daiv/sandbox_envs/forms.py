@@ -151,7 +151,8 @@ class SandboxEnvironmentForm(forms.ModelForm):
                 "host": rule.get("host", ""),
                 "methods": rule.get("methods") or ["*"],
                 "secret_name": inject or "",
-                "header": secrets.get(inject, {}).get("header", "") if has_cred else "",
+                # An absent/unknown inject makes the nested .get fall through to "" on its own.
+                "header": secrets.get(inject, {}).get("header", ""),
                 "value": "",
                 "has_existing_value": has_cred,
             })
