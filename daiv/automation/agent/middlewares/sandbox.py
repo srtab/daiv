@@ -20,7 +20,7 @@ from langgraph.typing import StateT  # noqa: TC002
 from automation.agent.conf import settings as agent_settings
 from automation.agent.constants import BUILTIN_SKILLS_PATH
 from automation.agent.middlewares.file_system import SandboxFileBackend  # noqa: TC001
-from codebase.context import RuntimeCtx, SandboxRuntime  # noqa: TC001
+from codebase.context import RuntimeCtx  # noqa: TC001
 from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.command_parser import CommandParseError, parse_command
@@ -293,9 +293,17 @@ def _make_global_skills_archive() -> bytes | None:
 
 class SandboxEgressUnavailableError(RuntimeError):
     """Raised when a session's resolved egress policy cannot be provisioned because the sandbox has
-    no egress proxy configured (HTTP 404 'Egress proxy not configured' — no shared egress CA).
+    no egress proxy configured (no shared egress CA). daiv-sandbox rejects such a session up front
+    with HTTP 400 and a detail naming the egress proxy (see its ``POST /session/`` handler).
     Fail-closed: an environment that requires a restricted egress policy must not run without that
     policy in force."""
+
+
+# Substring that distinguishes the "egress proxy not configured" 400 from any other create-time 400.
+# Couples to daiv-sandbox's FastAPI ``detail`` ("egress requires the egress proxy, which is not
+# configured on this deployment" — its ``POST /session/`` handler). The sandbox exposes no
+# machine-readable error code, so this is the single greppable point of that prose coupling.
+_EGRESS_PROXY_UNAVAILABLE_MARKER = "egress proxy"
 
 
 class BashFailure(Enum):
@@ -502,39 +510,6 @@ class SandboxMiddleware(AgentMiddleware):
             )
             return False
 
-    @staticmethod
-    async def _provision_egress(client: DAIVSandboxClient, session_id: str, sb: SandboxRuntime | None) -> None:
-        """Provision the sidecar egress policy for a network-enabled session that requires it.
-
-        No-op when there is no resolved sandbox runtime, the env defines no egress policy
-        (``sb.egress is None``), or network is off. Note the fail-closed deny-all that
-        ``row_to_override`` substitutes for an unusable stored config is a *non-None*
-        ``EgressConfigRequest`` and is deliberately provisioned here. Only a **404** (egress proxy not
-        configured on the sandbox — no shared egress CA, unambiguous and permanent) is converted to the
-        actionable ``SandboxEgressUnavailableError``. On a fresh create this 404 is effectively
-        unreachable: a network-enabled ``start_session`` is rejected up front (400) when the sandbox has
-        no egress proxy, so the run aborts before reaching here. It survives for warm reuse — if the
-        shared CA is rotated out between the session's start and a later turn's re-provision,
-        ``configure_egress`` 404s and we still want the actionable diagnosis. Every other status
-        propagates unchanged, including a 409 — on the egress endpoint 409 is ambiguous ("Session is
-        busy" transient lock contention, or "Session has no egress proxy") and the project already
-        classifies 409 as transient (``TRANSIENT_SANDBOX_STATUS``), so it must not be mislabeled as a
-        permanent "configure the proxy" diagnosis. A propagated error still fails closed: the caller's
-        setup path aborts the run.
-        """
-        if sb is None or sb.egress is None or not sb.network_enabled:
-            return
-        try:
-            await client.configure_egress(session_id, sb.egress)
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                raise SandboxEgressUnavailableError(
-                    "The resolved sandbox environment requires the egress proxy, but the sandbox returned "
-                    "404 for egress provisioning. Configure the shared egress CA (EGRESS_CA_CERT_FILE + "
-                    "EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
-                ) from exc
-            raise
-
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
         Bind a sandbox session — reusing the prior turn's warm session when possible.
@@ -558,40 +533,45 @@ class SandboxMiddleware(AgentMiddleware):
         prior_session_id = state.get("session_id")
         if prior_session_id and await self._session_exists(client, prior_session_id):
             self._bind_session(prior_session_id)
-            # Re-provision egress on every warm reuse so the fail-closed guarantee holds on resumed
-            # turns too. A failure here propagates and aborts the run (fail-closed). Unlike the
-            # fresh-create path below we deliberately do NOT force-close the container: it's a healthy
-            # resumable session, the failure may be transient (e.g. a 409 "Session is busy"), and the
-            # next turn re-runs this check (or the reaper reclaims it). Force-closing here would throw
-            # away a good warm container on a transient blip.
-            await self._provision_egress(client, prior_session_id, runtime.context.sandbox)
             logger.info("Reusing warm sandbox session %s", prior_session_id)
             return {"session_id": prior_session_id}
 
         sb = runtime.context.sandbox
-        session_id = await client.start_session(
-            StartSessionRequest(
-                base_image=sb.base_image,
-                network_enabled=sb.network_enabled,
-                memory_bytes=sb.memory_bytes,
-                cpus=sb.cpus,
-                environment=sb.env_vars or None,
+        try:
+            session_id = await client.start_session(
+                StartSessionRequest(
+                    base_image=sb.base_image,
+                    egress=sb.egress,
+                    memory_bytes=sb.memory_bytes,
+                    cpus=sb.cpus,
+                    environment=sb.env_vars or None,
+                )
             )
-        )
+        except httpx.HTTPStatusError as exc:
+            # A network-enabled env on a sandbox with no egress proxy (no shared CA) is rejected up
+            # front with HTTP 400 (see _EGRESS_PROXY_UNAVAILABLE_MARKER). Match that specific signal so
+            # an unrelated 400 (e.g. an invalid base image) re-raises as-is instead of being mislabelled.
+            detail = (exc.response.text or "").lower()
+            if exc.response.status_code == 400 and _EGRESS_PROXY_UNAVAILABLE_MARKER in detail:
+                logger.error(
+                    "Sandbox rejected egress-required session (400): the egress proxy/CA is not configured "
+                    "on the sandbox deployment. Aborting run (fail-closed)."
+                )
+                raise SandboxEgressUnavailableError(
+                    "The resolved sandbox environment requires the egress proxy, but the sandbox rejected "
+                    "the session (400). Configure the shared egress CA (EGRESS_CA_CERT_FILE + "
+                    "EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
+                ) from exc
+            raise
         try:
             working_dir = Path(runtime.context.gitrepo.working_dir)
             repo_archive, skills_archive = await asyncio.gather(
                 asyncio.to_thread(_make_repo_archive, str(working_dir)), asyncio.to_thread(_make_global_skills_archive)
             )
             await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
-            await self._provision_egress(client, session_id, sb)
-        except Exception as exc:
-            # Distinguish the actionable egress-misconfiguration from a generic seed failure so the
-            # operator-facing diagnosis survives in the logs (both still force-close + fail-closed).
-            if isinstance(exc, SandboxEgressUnavailableError):
-                logger.error("Egress proxy unavailable for sandbox session %s; aborting run (fail-closed)", session_id)
-            else:
-                logger.exception("Failed to build or seed sandbox session %s", session_id)
+        except Exception:
+            # Build/seed failure on an already-created session (the egress-unavailable case fails earlier).
+            logger.exception("Failed to build or seed sandbox session %s", session_id)
             try:
                 await client.close_session(session_id, force=True)
             except Exception:

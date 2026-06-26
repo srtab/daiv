@@ -93,7 +93,6 @@ class SandboxEnvironment(TimeStampedModel):
     description = models.TextField(_("description"), blank=True, default="")
 
     base_image = models.CharField(_("base image"), max_length=255, blank=True, default="")
-    network_enabled = models.BooleanField(_("network enabled"), null=True, blank=True, default=None)
     memory_bytes = models.PositiveBigIntegerField(_("memory (bytes)"), null=True, blank=True)
     cpus = models.DecimalField(_("CPUs"), max_digits=5, decimal_places=2, null=True, blank=True)
 
@@ -104,13 +103,10 @@ class SandboxEnvironment(TimeStampedModel):
 
     is_default = models.BooleanField(_("is default"), default=False)
 
-    # Per-env egress policy provisioned to the daiv-sandbox sidecar proxy when network is enabled.
-    # ``None`` = no egress policy configured for this env; a policy is stored only when the env defines
-    # at least one allowed-host rule. The daiv-sandbox egress proxy is mandatory for network-enabled
-    # sessions: a network-enabled env on a sandbox with no egress proxy configured (no shared egress CA)
-    # is rejected at session start — there is no raw-network fallback.
-    # NOTE: when the proxy IS configured, a network-enabled env with egress_policy=None gets the
-    # sidecar's default deny-all (no connectivity) — configure a policy to grant connectivity.
+    # Per-env egress policy provisioned to the daiv-sandbox sidecar proxy.
+    # A non-null value means this env is networked: the session is routed through the egress proxy
+    # and the policy controls which outbound hosts are permitted.
+    # ``None`` means no network access — the sandbox container runs with network disabled.
     egress_policy = models.JSONField(_("egress policy"), null=True, blank=True, default=None)
     _egress_secrets_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL = no secrets
     egress_secrets = EncryptedJSONFieldDescriptor("egress_secrets")
@@ -155,13 +151,21 @@ class SandboxEnvironment(TimeStampedModel):
         return f"{self.get_scope_display()}: {self.name}"
 
     @property
+    def is_networked(self) -> bool:
+        """True iff this env grants network access. Network is derived solely from the presence of an
+        egress policy (there is no separate flag): a non-null ``egress_policy`` routes the session
+        through the egress proxy, ``None`` runs it network-isolated. Single source of truth for the
+        derivation used by ``summary``, the form, the services layer, and the MCP server."""
+        return self.egress_policy is not None
+
+    @property
     def summary(self) -> str:
         """Compact one-line description of this env's runtime shape.
 
         Format: ``"<base_image> · <N> CPU · <memory> · net"`` with each
         segment omitted when its source value is missing. Memory renders
         as ``GiB`` for whole-GiB values, ``MiB`` otherwise. Network is
-        included only when explicitly enabled (True)."""
+        included only when an egress policy is configured."""
         parts: list[str] = []
         if self.base_image:
             parts.append(self.base_image)
@@ -169,19 +173,19 @@ class SandboxEnvironment(TimeStampedModel):
             parts.append(f"{_fmt_cpus(self.cpus)} CPU")
         if self.memory_bytes is not None:
             parts.append(_fmt_memory(self.memory_bytes))
-        if self.network_enabled is True:
+        if self.is_networked:
             parts.append("net")
         return " · ".join(parts)
 
     @property
     def short_summary(self) -> str:
         """Compact ``"<base_image>"`` description, with ``" · net"`` appended
-        when network access is explicitly enabled. Segments are omitted when
-        their source value is missing."""
+        when an egress policy is configured. Segments are omitted when their
+        source value is missing."""
         parts: list[str] = []
         if self.base_image:
             parts.append(self.base_image)
-        if self.network_enabled is True:
+        if self.is_networked:
             parts.append("net")
         return " · ".join(parts)
 

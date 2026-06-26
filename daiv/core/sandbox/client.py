@@ -12,8 +12,6 @@ from core.site_settings import site_settings
 from .schemas import (
     ApplyMutationsRequest,
     ApplyMutationsResponse,
-    EgressConfigRequest,
-    EgressConfigResponse,
     FsDeleteRequest,
     FsDeleteResponse,
     FsEditRequest,
@@ -125,16 +123,16 @@ class DAIVSandboxClient:
         await self.close()
 
     async def start_session(self, request: StartSessionRequest) -> str:
-        """
-        Start a session with the sandbox.
+        """Start a session with the sandbox; returns the session ID.
 
-        Args:
-            request (StartSessionRequest): The request to start the session.
-
-        Returns:
-            The session ID.
+        ``model_dump(mode="json")`` masks ``SecretStr`` egress secrets, but the sidecar needs the
+        plaintext — so the egress block is re-serialised via ``EgressConfigRequest.to_wire()`` (the
+        single source of truth for the wire shape) instead of the masked ``model_dump`` value.
         """
-        response = await self._client.post("session/", json=request.model_dump(mode="json"))
+        payload = request.model_dump(mode="json")
+        if request.egress is not None:
+            payload["egress"] = request.egress.to_wire()
+        response = await self._client.post("session/", json=payload)
         response.raise_for_status()
         return response.json()["session_id"]
 
@@ -227,28 +225,6 @@ class DAIVSandboxClient:
         response = await self._client.post(f"session/{session_id}/", json=request.model_dump(mode="json"))
         response.raise_for_status()
         return RunCommandsResponse.model_validate(response.json())
-
-    async def configure_egress(self, session_id: str, request: EgressConfigRequest) -> EgressConfigResponse:
-        """Provision (replace) the egress policy + secrets on the session's sidecar proxy.
-
-        Idempotent on the sandbox side. Secret values are sent in plaintext (the sidecar needs them);
-        ``SecretStr`` keeps them redacted in logs/repr, so the payload is built explicitly here rather
-        than via ``request.model_dump(mode="json")``, which would mask the values. Raises
-        ``httpx.HTTPStatusError`` on a non-2xx; the caller decides how to react. Status meanings:
-        404 = egress proxy disabled on the sandbox (permanent); 409 = either "Session is busy"
-        (transient lock contention — see ``TRANSIENT_SANDBOX_STATUS``) or "Session has no egress
-        proxy"; other 5xx are transient. The returned ``ok`` flag is informational only: the sandbox
-        signals provisioning failures via these status codes, not via ``ok=False`` on a 2xx.
-        """
-        payload = {
-            "policy": request.policy.model_dump(mode="json"),
-            "secrets": {
-                name: {"header": s.header, "value": s.value.get_secret_value()} for name, s in request.secrets.items()
-            },
-        }
-        response = await self._client.post(f"session/{session_id}/egress/", json=payload)
-        response.raise_for_status()
-        return EgressConfigResponse.model_validate(response.json())
 
     async def session_exists(self, session_id: str) -> bool:
         """Return True if the session container exists on the sandbox.

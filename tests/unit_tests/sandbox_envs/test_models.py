@@ -315,7 +315,7 @@ def test_summary_returns_all_segments_joined(user):
         base_image="rust:1.83",
         cpus=Decimal("2"),
         memory_bytes=4 * 2**30,
-        network_enabled=True,
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
     )
     assert env.summary == "rust:1.83 · 2 CPU · 4 GiB · net"
 
@@ -328,11 +328,17 @@ def test_summary_omits_missing_segments(user):
 
 @pytest.mark.django_db
 def test_summary_includes_network_only_when_explicitly_enabled(user):
+    # No egress_policy ⇒ network off ⇒ no "net" segment
     env_off = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="off", base_image="alpine", network_enabled=False
+        scope=Scope.USER, user=user, name="off", base_image="alpine", egress_policy=None
     )
+    # egress_policy set ⇒ network on ⇒ "net" segment present
     env_on = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="on", base_image="alpine", network_enabled=True
+        scope=Scope.USER,
+        user=user,
+        name="on",
+        base_image="alpine",
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
     )
     assert "net" not in env_off.summary
     assert "net" in env_on.summary
@@ -347,15 +353,16 @@ def test_short_summary_joins_base_image_and_net(user):
         base_image="rust:1.83",
         cpus=Decimal("2"),
         memory_bytes=4 * 2**30,
-        network_enabled=True,
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
     )
     assert env.short_summary == "rust:1.83 · net"
 
 
 @pytest.mark.django_db
 def test_short_summary_omits_net_when_disabled(user):
+    # No egress_policy ⇒ network off ⇒ short_summary has no "net" segment
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="dev", base_image="alpine:3.20", network_enabled=False
+        scope=Scope.USER, user=user, name="dev", base_image="alpine:3.20", egress_policy=None
     )
     assert env.short_summary == "alpine:3.20"
 
@@ -467,3 +474,14 @@ def test_validate_egress_rejects_too_many_secrets():
     env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": []}, egress_secrets=secrets)
     with pytest.raises(ValidationError, match="Too many egress secrets"):
         env._validate_egress()
+
+
+@pytest.mark.django_db
+def test_summary_marks_net_when_egress_policy_present():
+    on = SandboxEnvironment(
+        scope=Scope.GLOBAL, name="on", base_image="python:3.14", egress_policy={"default": "allow", "rules": []}
+    )
+    off = SandboxEnvironment(scope=Scope.GLOBAL, name="off", base_image="python:3.14", egress_policy=None)
+    assert "net" in on.summary and "net" in on.short_summary
+    assert "net" not in off.summary and "net" not in off.short_summary
+    assert not hasattr(off, "network_enabled")
