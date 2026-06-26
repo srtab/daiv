@@ -606,3 +606,53 @@ def test_merge_egress_is_none_when_neither_side_has_it():
         per_run=_override(network_enabled=True, egress=None), global_default=_override(egress=None)
     )
     assert rt.egress is None
+
+
+# ---------------------------------------------------------------------------
+# B3 tests — network_enabled removed from SandboxEnvOverride / SandboxRuntime
+# ---------------------------------------------------------------------------
+
+from sandbox_envs.services import merge_sandbox_runtime  # noqa: E402
+
+
+@pytest.fixture
+def make_egress():
+    """Return a factory that builds an EgressConfigRequest for a single host."""
+
+    def _factory(hosts: list[str]):
+        from pydantic import SecretStr
+
+        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+        rules = [EgressRule(host=h, inject="t") for h in hosts]
+        return EgressConfigRequest(
+            policy=EgressPolicy(rules=rules),
+            secrets={"t": EgressSecret(header="Authorization", value=SecretStr("Bearer x"))},
+        )
+
+    return _factory
+
+
+def _ov(**kw):
+    base = {"base_image": None, "memory_bytes": None, "cpus": None, "env_vars": {}, "egress": None}
+    base.update(kw)
+    return SandboxEnvOverride(**base)
+
+
+def test_sandbox_env_override_has_no_network_enabled():
+    assert not hasattr(_ov(), "network_enabled")
+
+
+def test_merge_takes_per_run_egress_off_even_when_global_has_policy(make_egress):
+    # per-run env explicitly Off (egress=None) must NOT inherit the global default's policy.
+    per_run = _ov(egress=None)
+    global_default = _ov(egress=make_egress(["github.com"]))
+    rt = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
+    assert rt.egress is None
+    assert not hasattr(rt, "network_enabled")
+
+
+def test_merge_falls_back_to_global_egress_when_no_per_run():
+    eg = object()
+    rt = merge_sandbox_runtime(per_run=None, global_default=_ov(egress=eg))
+    assert rt.egress is eg

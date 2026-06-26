@@ -34,7 +34,6 @@ class SandboxRuntime:
     """
 
     base_image: str | None
-    network_enabled: bool
     memory_bytes: int | None
     cpus: float | None
     env_vars: dict[str, str]
