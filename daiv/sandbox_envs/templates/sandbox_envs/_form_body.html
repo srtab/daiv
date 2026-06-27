@@ -192,7 +192,7 @@
                   })">
             <legend class="text-[15px] font-medium text-gray-300">{% translate "Network access" %}</legend>
             <p class="mt-1 text-sm text-gray-400">
-                {% translate "Restricts which hosts the sandbox can reach. With Default set to deny, only the listed hosts are reachable. Leave the list empty to apply no egress policy; to block all outbound access, set Network to off." %}
+                {% translate "Restricts which hosts the sandbox can reach. With Default set to deny, only the listed hosts are reachable — plus this environment's own git platform, which DAIV always allows for git operations. Leave the list empty to apply no egress policy; to block all outbound access, set Network to off." %}
             </p>
 
             <div class="mt-3 flex flex-wrap gap-6">

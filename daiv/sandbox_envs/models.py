@@ -107,6 +107,13 @@ class SandboxEnvironment(TimeStampedModel):
     # A non-null value means this env is networked: the session is routed through the egress proxy
     # and the policy controls which outbound hosts are permitted.
     # ``None`` means no network access — the sandbox container runs with network disabled.
+    # The egress proxy is mandatory for networked sessions: a networked env on a sandbox with no egress
+    # proxy configured (no shared egress CA) is rejected at session start — there is no raw-network fallback.
+    # DAIV additionally injects a runtime-only, never-stored allow-rule for the run's git platform on
+    # networked sessions, so the repo's platform is reachable for git-over-HTTPS — credentialed whenever a
+    # token can be minted, reachability-only otherwise. Its secret name ``__daiv_git_platform__`` is reserved
+    # (``_validate_egress`` rejects an env that uses it); the rule is prepended so it wins by first-match over
+    # a same-host user rule, and is not shown in the UI.
     egress_policy = models.JSONField(_("egress policy"), null=True, blank=True, default=None)
     _egress_secrets_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL = no secrets
     egress_secrets = EncryptedJSONFieldDescriptor("egress_secrets")
@@ -325,9 +332,23 @@ class SandboxEnvironment(TimeStampedModel):
 
         # Authoritative shape + inject-resolves check (count/size caps handled above): build the wire request.
         try:
-            EgressConfigRequest.from_stored(self.egress_policy, secrets_raw)
+            request = EgressConfigRequest.from_stored(self.egress_policy, secrets_raw)
         except (PydanticValidationError, TypeError, ValueError) as err:
             raise ValidationError({"egress_policy": _("Invalid egress configuration: %s") % err}) from err
+
+        # The git-platform secret name is reserved: apply_platform_egress overwrites that key (and
+        # prepends a rule injecting it) at runtime, so a stored secret/inject of the same name would be
+        # silently displaced. Reject it at save time. Checked on the validated request so the rule/secret
+        # shape stays owned by from_stored rather than re-walked here.
+        from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
+
+        if PLATFORM_EGRESS_SECRET_NAME in request.secrets or any(
+            rule.inject == PLATFORM_EGRESS_SECRET_NAME for rule in request.policy.rules
+        ):
+            raise ValidationError({
+                "egress_secrets": _("The egress secret name '%s' is reserved for DAIV's git-platform credential.")
+                % PLATFORM_EGRESS_SECRET_NAME
+            })
 
     def promote_as_default(self) -> None:
         """Atomically demote any other GLOBAL default and mark this env as default.

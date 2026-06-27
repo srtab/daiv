@@ -265,6 +265,12 @@ class GitHubClient(RepoClient):
             self._configure_commit_identity(repo)
             yield repo
 
+    def _git_egress_token(self, repository: Repository) -> str | None:
+        """Mint a short-lived installation token scoped to ``contents: read`` (read-only git ops;
+        push is policy-blocked in the sandbox)."""
+        access_token = self._integration.get_access_token(self.client_installation.id, permissions={"contents": "read"})
+        return access_token.token
+
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """

@@ -7,6 +7,136 @@ from sandbox_envs.services import SandboxEnvOverride, build_env_trigger, get_glo
 from accounts.models import User
 
 
+def _sandbox_runtime(*, base_image="python:3.12", egress=None):
+    from codebase.context import SandboxRuntime
+    from core.sandbox.command_policy import SandboxCommandPolicy
+
+    return SandboxRuntime(
+        base_image=base_image,
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        command_policy=SandboxCommandPolicy(),
+        egress=egress,
+    )
+
+
+def test_augment_skips_when_network_off():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import augment_sandbox_with_platform_egress
+
+    # Network off == no egress policy: augment must not resolve a credential or build a policy.
+    sb = _sandbox_runtime(egress=None)
+    client = Mock()
+    out = augment_sandbox_with_platform_egress(sb, client, Mock())
+    assert out is sb
+    client.get_git_egress_credential.assert_not_called()
+
+
+def test_augment_skips_when_sandbox_disabled():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import augment_sandbox_with_platform_egress
+
+    from core.sandbox.schemas import EgressConfigRequest
+
+    # Networked (egress set) but sandbox disabled (base_image=None → enabled == False): still a skip.
+    sb = _sandbox_runtime(base_image=None, egress=EgressConfigRequest())
+    client = Mock()
+    out = augment_sandbox_with_platform_egress(sb, client, Mock())
+    assert out is sb
+    client.get_git_egress_credential.assert_not_called()
+
+
+def test_augment_adds_platform_egress_when_network_on():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, augment_sandbox_with_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.schemas import EgressConfigRequest
+
+    sb = _sandbox_runtime(egress=EgressConfigRequest())
+    client = Mock()
+    client.get_git_egress_credential.return_value = GitEgressCredential(
+        host="gitlab.example.com", value=SecretStr("Basic abc")
+    )
+    repo = Mock()
+
+    out = augment_sandbox_with_platform_egress(sb, client, repo)
+
+    client.get_git_egress_credential.assert_called_once_with(repo)
+    assert out.egress.policy.rules[0].host == "gitlab.example.com"
+    assert PLATFORM_EGRESS_SECRET_NAME in out.egress.secrets
+
+
+def test_apply_platform_egress_returns_unchanged_when_no_credential():
+    from sandbox_envs.services import apply_platform_egress
+
+    from core.sandbox.schemas import EgressConfigRequest
+
+    egress = EgressConfigRequest()
+    assert apply_platform_egress(egress, None) is egress
+
+
+def test_apply_platform_egress_builds_deny_all_base_and_injects():
+    from pydantic import SecretStr
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, apply_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    cred = GitEgressCredential(host="gitlab.example.com", value=SecretStr("Basic abc"))
+    result = apply_platform_egress(None, cred)
+
+    assert result.policy.default == "deny"
+    assert result.policy.intercept == "all"
+    rule = result.policy.rules[0]
+    assert rule.host == "gitlab.example.com"
+    assert rule.methods == ["*"]
+    assert rule.inject == PLATFORM_EGRESS_SECRET_NAME
+    secret = result.secrets[PLATFORM_EGRESS_SECRET_NAME]
+    assert secret.header == "Authorization"
+    assert secret.value.get_secret_value() == "Basic abc"
+
+
+def test_apply_platform_egress_preserves_env_policy_and_prepends():
+    from pydantic import SecretStr
+    from sandbox_envs.services import apply_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    env = EgressConfigRequest(
+        policy=EgressPolicy(
+            default="deny",
+            intercept="credentialed",
+            rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")],
+        ),
+        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
+    )
+    cred = GitEgressCredential(host="github.com", value=SecretStr("Basic xyz"))
+    result = apply_platform_egress(env, cred)
+
+    assert result.policy.intercept == "credentialed"  # env knob preserved
+    assert [r.host for r in result.policy.rules] == ["github.com", "api.openai.com"]  # prepended
+    assert set(result.secrets) == {"s1", "__daiv_git_platform__"}
+
+
+def test_apply_platform_egress_reachability_only_when_no_token():
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, apply_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    cred = GitEgressCredential(host="gitlab.example.com", value=None)
+    result = apply_platform_egress(None, cred)
+
+    assert result.policy.rules[0].host == "gitlab.example.com"
+    assert result.policy.rules[0].inject is None
+    assert PLATFORM_EGRESS_SECRET_NAME not in result.secrets
+
+
 @pytest.mark.asyncio
 async def test_resolve_returns_none_for_none_id():
     assert await resolve_sandbox_env(None) is None

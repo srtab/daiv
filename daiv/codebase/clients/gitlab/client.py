@@ -367,6 +367,11 @@ class GitLabClient(RepoClient):
         logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
         return self.client.private_token
 
+    def _git_egress_token(self, repository: Repository) -> str | None:
+        """Reuse the same short-lived, project-scoped clone token as the clone (PAT fallback; see
+        :meth:`_get_clone_token`); ``None`` (host-only reachability) when neither is available."""
+        return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
+
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """
