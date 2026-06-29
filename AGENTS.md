@@ -33,6 +33,7 @@ make makemessages && make compilemessages
 - `daiv/accounts/` — users, roles (`admin`/`member`), API keys, OAuth2/allauth adapters
 - `daiv/mcp_server/` — FastMCP ASGI sub-app; OAuth2 Bearer auth; `submit_job` / `get_job_status` tools
 - `daiv/jobs/` — thin `run_job_task` consumed by MCP and webhook handlers
+- `daiv/memory/` — learned repository memory: observation extraction from finished runs, periodic consolidation ("dreaming"), system-prompt injection
 - `daiv/core/` — sandbox client, caching helpers, shared constants (`BOT_NAME`, `BOT_LABEL`, etc.)
 - `daiv/chat/` — OpenAI-compatible chat API; `daiv/slash_commands/` — slash-command parsing
 - `daiv/daiv/settings/components/` — split-settings; `common.py` has `INSTALLED_APPS`
@@ -78,6 +79,14 @@ uv run --all-extras python scripts/dump_schemas.py \
 
 **`thread_id` contract** — callers of `run_job_task` must supply a non-empty UUID `thread_id`. The `Activity` row and LangGraph checkpointer share this key; a missing ID breaks chat resume.
 
+**Learned repository memory (`daiv/memory/`)** — a three-stage pipeline gated by two independent flags: site-wide `site_settings.memory_enabled` and per-repo `config.memory.enabled` (`.daiv.yml`). Either off → silent no-op; memory must never block or fail a run.
+- **Capture**: `activity_finished` signal → `extract_observations_task` (dedup keyed on `activity_id`; FAILED runs are mined too). Transcripts live in the Redis checkpointer behind a TTL, so extraction must run promptly — an expired checkpoint is a silent skip.
+- **Consolidation**: `consolidate_memory_cron_task` (`@cron("0 * * * *")`) sweeps due repos and enqueues `consolidate_memory_task` per repo. The cron schedule is hardcoded at import time (runtime `site_settings` can't feed `@cron`); the per-repo cooldown (`memory_consolidation_min_interval_hours`, default 24h) and pending threshold (`memory_consolidation_min_pending`, default 10) are the real throttle. `consolidate_memory_task` is keyed on the reusable `repo_id` and must **NOT** dedup (unlike extraction). The `consolidate_memory` management command (`--repo-id`, `--force`) is the only other entry point and runs in-process.
+- **Injection**: `RepositoryMemoryMiddleware` appends the memory doc to the system prompt (not a workdir file — `GitMiddleware` auto-commits filesystem changes). Registered after `dynamic_daiv_system_prompt` so it sees the fully composed prompt.
+- Knob defaults are mirrored as constants in `memory/tasks.py` and parity-tested against `core.site_settings._build_field_defaults`.
+
+**Step budget is per-run, not absolute** — `StepBudgetMiddleware` measures consumption from a baseline captured lazily on the first model call of a run, not against the cumulative `langgraph_step`. LangGraph applies `recursion_limit` relative to the resume point, and `langgraph_step` accumulates across turns (and survives `/clear`), so comparing it directly would trip the reminder on the first call of any long-lived thread. The middleware is rebuilt per invocation (bound by `create_daiv_agent`), so the baseline resets each run. If you add per-run state to a middleware, follow this pattern rather than reading `langgraph_step` directly.
+
 **Skill asset paths** — inside a skill, paths like `scripts/foo.py` resolve to `<location>/<skill-name>/scripts/foo.py`, **not** the bash CWD (repo root). Always invoke skill scripts by absolute path. See `daiv/automation/agent/skills/code-review/scripts/marker.py` as the reference.
 
 **Code-review detector output** — the `cr-*` detectors defer their `{"findings":[...]}` to `/workspace/tmp/subagent-output/<name>-<hash>.json` (via `DeferredOutputMiddleware`, added in `_build_detector_middleware`); the review orchestrator passes those paths to `scripts/findings.py merge` instead of re-typing the JSON. The detector charters are unaware of this — they still just return the structured object. (A detector with no structured response — e.g. one the `LoopBreakerMiddleware` stopped — defers a `.txt` error file instead, which `findings.py merge` counts as a `skipped`/failed detector, never as empty findings.)
@@ -96,6 +105,7 @@ uv run --all-extras python scripts/dump_schemas.py \
 | Auth / user model | `daiv/accounts/models.py`, `daiv/accounts/views.py` |
 | Git platform client | `daiv/codebase/clients/` |
 | MCP tool | `daiv/mcp_server/server.py` |
+| Memory capture/consolidation | `daiv/memory/tasks.py`; models in `daiv/memory/models.py` |
 | Shared settings / new app | `daiv/daiv/settings/components/common.py` (`LOCAL_APPS`) |
 | New management command | `daiv/<app>/management/commands/` |
 | LLM model list / provider | `daiv/automation/agent/base.py`, `daiv/automation/agent/constants.py` |
