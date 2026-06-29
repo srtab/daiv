@@ -25,7 +25,7 @@ _MASK_SENTINEL = "******"
 
 def _empty_egress_state() -> dict:
     """The egress editor's no-policy initial state (deny-all, no hosts). A fresh dict per call."""
-    return {"default": "deny", "intercept": "all", "hosts": []}
+    return {"default": "deny", "hosts": []}
 
 
 class SandboxEnvironmentForm(forms.ModelForm):
@@ -152,11 +152,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
                 "value": "",
                 "has_existing_value": has_cred,
             })
-        return json.dumps({
-            "default": policy.get("default", "deny"),
-            "intercept": policy.get("intercept", "all"),
-            "hosts": hosts,
-        })
+        return json.dumps({"default": policy.get("default", "deny"), "hosts": hosts})
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]
@@ -236,11 +232,8 @@ class SandboxEnvironmentForm(forms.ModelForm):
         if not isinstance(parsed, dict):
             raise forms.ValidationError(_("Egress policy must be an object."))
         default = parsed.get("default", "deny")
-        intercept = parsed.get("intercept", "all")
         if default not in ("deny", "allow"):
             raise forms.ValidationError(_("Egress default must be 'deny' or 'allow'."))
-        if intercept not in ("all", "credentialed"):
-            raise forms.ValidationError(_("Egress intercept must be 'all' or 'credentialed'."))
         hosts_raw = parsed.get("hosts")
         if not isinstance(hosts_raw, list):
             raise forms.ValidationError(_("Egress hosts must be a list."))
@@ -271,7 +264,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
                 "secret_name": (entry.get("secret_name") or "").strip(),
                 "has_existing_value": bool(entry.get("has_existing_value")),
             })
-        return {"default": default, "intercept": intercept, "hosts": hosts}
+        return {"default": default, "hosts": hosts}
 
     def clean(self):
         cleaned = super().clean()
@@ -345,7 +338,9 @@ class SandboxEnvironmentForm(forms.ModelForm):
             rules.append({"host": host["host"], "methods": host["methods"], "inject": inject})
         if not rules and parsed["default"] != "allow":
             return None, {}
-        policy = {"default": parsed["default"], "intercept": parsed["intercept"], "rules": rules}
+        # TLS inspection is not user-configurable: the proxy always intercepts every reachable
+        # host so per-host credentials and method rules are enforceable. Always store "all".
+        policy = {"default": parsed["default"], "intercept": "all", "rules": rules}
         return policy, secrets
 
     @staticmethod

@@ -212,22 +212,6 @@
                         {% translate "All hosts reachable unless a rule restricts them." %}
                     </p>
                 </div>
-                <div>
-                    <span class="block text-sm font-medium text-gray-400">{% translate "TLS inspection" %}</span>
-                    <div class="mt-1.5 flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
-                        <label class="cursor-pointer rounded-lg px-3 py-1 text-sm font-medium"
-                               :class="intercept === 'all' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                            <input type="radio" value="all" x-model="intercept" class="sr-only">{% translate "All" %}
-                        </label>
-                        <label class="cursor-pointer rounded-lg px-3 py-1 text-sm font-medium"
-                               :class="intercept === 'credentialed' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
-                            <input type="radio" value="credentialed" x-model="intercept" class="sr-only">{% translate "Credentialed" %}
-                        </label>
-                    </div>
-                    <p class="mt-1 text-xs text-gray-500">
-                        {% translate "Credentialed only inspects hosts where a credential is injected." %}
-                    </p>
-                </div>
             </div>
 
             <div class="mt-4">

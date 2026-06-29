@@ -85,12 +85,13 @@ Limits: at most **100** allowed-host rules and **100** credentials, and the encr
 
 #### Traffic mode
 
-Two toggles control how the MITM proxy handles traffic:
+The **Default** toggle controls how the MITM proxy handles unmatched traffic:
 
 | Toggle | Options | Description |
 |--------|---------|-------------|
 | **Default** | `deny` / `allow` | What happens to requests that do not match any allowed-host rule. `deny` (the recommended default) blocks them; `allow` passes them through unrestricted |
-| **Intercept** | `all` / `credentialed` | Which connections the proxy performs TLS interception on. `all` intercepts every HTTPS request (needed to inject credentials into TLS traffic); `credentialed` intercepts only hosts that have a credential configured |
+
+The proxy always performs TLS interception on every reachable host — this is what lets it inject per-host credentials and enforce per-host HTTP-method restrictions. (TLS inspection is not configurable.)
 
 ### Repository bindings
 

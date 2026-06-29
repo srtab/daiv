@@ -6,7 +6,7 @@
  * here as a stable `secret_name` (minted once when the credential is enabled)
  * and round-tripped so unchanged secrets are preserved on save.
  *
- * Constructor arg: {default, intercept, hosts: [...]} — the masked initial
+ * Constructor arg: {default, hosts: [...]} — the masked initial
  * state produced by SandboxEnvironmentForm._initial_egress_json().
  */
 function mintSecretName() {
@@ -29,7 +29,6 @@ function egressEditorState(initial = {}, labels = {}) {
     const hosts = Array.isArray(initial.hosts) ? initial.hosts : [];
     return {
         defaultPolicy: initial.default === "allow" ? "allow" : "deny",
-        intercept: initial.intercept === "credentialed" ? "credentialed" : "all",
         labels: {
             duplicateHost: labels.duplicateHost || "Duplicate host",
         },
@@ -87,7 +86,6 @@ function egressEditorState(initial = {}, labels = {}) {
         get serialised() {
             return {
                 default: this.defaultPolicy,
-                intercept: this.intercept,
                 hosts: this.hosts
                     .filter((h) => (h.host || "").trim())
                     .map((h) => {

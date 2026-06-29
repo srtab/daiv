@@ -432,6 +432,7 @@ def test_form_builds_egress_policy_and_secrets_from_hosts():
     user = User.objects.create_user(username="ue1", email="ue1@e.com", password="x")  # noqa: S106
     egress = json.dumps({
         "default": "deny",
+        # intercept is no longer user-configurable; even if submitted it is forced to "all".
         "intercept": "credentialed",
         "hosts": [
             {
@@ -466,7 +467,7 @@ def test_form_builds_egress_policy_and_secrets_from_hosts():
     assert form.is_valid(), form.errors
     env = form.save()
     assert env.egress_policy["default"] == "deny"
-    assert env.egress_policy["intercept"] == "credentialed"
+    assert env.egress_policy["intercept"] == "all"  # always forced, regardless of submitted value
     rules = env.egress_policy["rules"]
     assert rules[0] == {"host": "github.com", "methods": ["*"], "inject": None}
     assert rules[1]["host"] == "api.openai.com"
