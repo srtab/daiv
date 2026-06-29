@@ -110,13 +110,23 @@ def apply_platform_egress(
 def augment_sandbox_with_platform_egress(
     sandbox: SandboxRuntime, repo_client: RepoClient, repository: Repository
 ) -> SandboxRuntime:
-    """Layer the git-platform allow-rule + credential onto ``sandbox.egress`` for networked runs.
-    No-op when the sandbox is disabled or network is off (``sandbox.egress is None``). Returns a new
+    """Layer the git-platform allow-rule + credential onto ``sandbox.egress``. Returns a new
     ``SandboxRuntime`` (frozen); the platform contribution is resolved per run via ``repo_client`` and
-    never stored."""
-    if not sandbox.enabled or sandbox.egress is None:
+    never stored.
+
+    A network-on env (``egress`` already set) always has the rule layered on top of its policy. A
+    network-off env (``egress is None``) is normally fully isolated — but DAIV runs git, *including the
+    publish push/ls-remote against ``origin``*, from inside the sandbox. So when the run holds a real
+    push credential (a token), a network-off env is still opened into a minimal deny-all base carrying
+    only the git-platform rule, so DAIV can always reach the repo to publish. A host-only credential
+    (no token, e.g. the SWE eval platform) leaves a network-off env isolated: there is nothing to push,
+    and opening a triad would needlessly force the egress proxy onto token-less / eval runs and break
+    their hermeticity. No-op when the sandbox is disabled."""
+    if not sandbox.enabled:
         return sandbox
     credential = repo_client.get_git_egress_credential(repository)
+    if sandbox.egress is None and (credential is None or credential.value is None):
+        return sandbox
     return replace(sandbox, egress=apply_platform_egress(sandbox.egress, credential))
 
 

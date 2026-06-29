@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 import time
 from contextlib import contextmanager
@@ -11,7 +12,7 @@ from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
-from git import Repo
+from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.exceptions import GitlabError
 
@@ -31,9 +32,9 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token
+from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
 from core.constants import BOT_NAME
-from core.utils import async_download_url, build_uri
+from core.utils import async_download_url, build_uri, is_git_auth_error_text
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
@@ -55,6 +56,19 @@ logger = logging.getLogger("daiv.clients")
 # seconds between attempts (~15s of backoff over four retries) before one final attempt whose error
 # surfaces to the caller.
 MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+
+
+def _is_clone_auth_error(error: GitCommandError) -> bool:
+    """True when a clone failed because the remote rejected the credential (HTTP auth), as opposed
+    to a missing branch, a bad URL, or a network error.
+
+    Only auth rejections are worth retrying with a freshly minted token; everything else would fail
+    identically the second time. A clone that under-matches would silently keep serving the dead
+    cached token — the exact wedge this self-heal exists to break — so it reuses the shared marker set
+    (:func:`core.utils.is_git_auth_error_text`) the push side uses; over-matching costs at most one
+    extra (still-failing) clone attempt.
+    """
+    return is_git_auth_error_text(f"{error.stderr or ''} {error}")
 
 
 def _is_source_branch_missing_error(error: GitlabCreateError) -> bool:
@@ -332,14 +346,43 @@ class GitLabClient(RepoClient):
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
-            parsed = urlparse(repository.clone_url)
-            clone_url = f"{parsed.scheme}://oauth2:{self._get_clone_token(repository)}@{parsed.netloc}{parsed.path}"
-
             clone_dir = Path(tmpdir) / "repo"
-            clone_dir.mkdir(exist_ok=True)
-            repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
+            repo = self._clone(repository, sha, clone_dir)
             self._configure_commit_identity(repo)
             yield repo
+
+    def _clone(self, repository: Repository, sha: str, clone_dir: Path) -> Repo:
+        """
+        Clone ``repository`` at ``sha`` into ``clone_dir``, healing a stale cached clone token.
+
+        A clone token is cached for a day but the project access token behind it can die sooner
+        (revoked, project/instance reset). Because the cache is consulted before any API call, a
+        dead token would otherwise be served to — and fail — every clone of the project until the
+        cache window closes. So when a clone is rejected for auth *and* it used the ephemeral token,
+        drop that token and retry once with a freshly minted one. The PAT fallback is not retried:
+        re-minting can't produce a different credential when the ephemeral token was unavailable.
+        """
+        parsed = urlparse(repository.clone_url)
+
+        def clone_with(token: str) -> Repo:
+            clone_dir.mkdir(exist_ok=True)
+            url = f"{parsed.scheme}://oauth2:{token}@{parsed.netloc}{parsed.path}"
+            return Repo.clone_from(url, clone_dir, branch=sha)
+
+        token = self._get_clone_token(repository)
+        try:
+            return clone_with(token)
+        except GitCommandError as e:
+            if token == self.client.private_token or not _is_clone_auth_error(e):
+                raise
+            logger.warning(
+                "Clone of %s was rejected for authentication; dropping the cached ephemeral token "
+                "and retrying once with a freshly minted one.",
+                repository.slug,
+            )
+            invalidate_clone_token(repository.pk)
+            shutil.rmtree(clone_dir, ignore_errors=True)
+            return clone_with(self._get_clone_token(repository))
 
     def _get_clone_token(self, repository: Repository) -> str:
         """

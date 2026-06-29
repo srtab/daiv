@@ -266,9 +266,17 @@ class GitHubClient(RepoClient):
             yield repo
 
     def _git_egress_token(self, repository: Repository) -> str | None:
-        """Mint a short-lived installation token scoped to ``contents: read`` (read-only git ops;
-        push is policy-blocked in the sandbox)."""
-        access_token = self._integration.get_access_token(self.client_installation.id, permissions={"contents": "read"})
+        """Mint a short-lived installation token scoped to ``contents: write``.
+
+        The egress proxy injects this token over the ``Authorization`` header for *every* request to the
+        platform host (the platform rule matches all methods and forces interception), superseding the
+        token git embeds from ``.git/config``. DAIV's publish push runs from inside the sandbox and goes
+        through the same path, so the injected token must be **write**-capable or the push is rejected.
+        It matches the ``contents: write`` token used to clone. The agent is still prevented from pushing
+        ad-hoc from ``bash`` by the command policy, not by withholding write scope here."""
+        access_token = self._integration.get_access_token(
+            self.client_installation.id, permissions={"contents": "write"}
+        )
         return access_token.token
 
     # Issue

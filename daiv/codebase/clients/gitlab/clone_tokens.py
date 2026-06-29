@@ -58,6 +58,18 @@ def get_ephemeral_clone_token(client: Gitlab, project_pk: int) -> str | None:
     return token
 
 
+def invalidate_clone_token(project_pk: int) -> None:
+    """
+    Evict the cached clone-token outcome for a project so the next call re-mints.
+
+    Used when a clone authenticates with the cached token yet GitLab rejects it (revoked,
+    expired, or the project/instance was reset): without eviction the dead token would be
+    served for the remainder of the cache window, failing every clone of the project. A
+    no-op when nothing is cached.
+    """
+    cache.delete(_CACHE_KEY.format(project_pk=project_pk))
+
+
 def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
     """
     Mint the project access token.

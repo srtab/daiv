@@ -39,6 +39,7 @@ async def test_set_runtime_ctx_builds_sandbox_field():
         client.get_repository.return_value = type("R", (), {"name": "x"})()
         client.git_platform = "gitlab"
         client.current_user.username = "bot"
+        client.get_git_egress_credential.return_value = None  # these tests assert env resolution, not egress
         ctx_mgr = client.load_repo.return_value
         ctx_mgr.__enter__.return_value = type("Repo", (), {})()
         ctx_mgr.__exit__ = lambda *a: None
@@ -64,6 +65,7 @@ async def test_set_runtime_ctx_honors_per_run_env(user_factory):
         client.get_repository.return_value = type("R", (), {"name": "x"})()
         client.git_platform = "gitlab"
         client.current_user.username = "bot"
+        client.get_git_egress_credential.return_value = None  # these tests assert env resolution, not egress
         ctx_mgr = client.load_repo.return_value
         ctx_mgr.__enter__.return_value = type("Repo", (), {})()
         ctx_mgr.__exit__ = lambda *a: None
@@ -94,6 +96,7 @@ async def test_set_runtime_ctx_auto_resolves_repo_env():
         client.get_repository.return_value = type("R", (), {"name": "x"})()
         client.git_platform = "gitlab"
         client.current_user.username = "bot"
+        client.get_git_egress_credential.return_value = None  # these tests assert env resolution, not egress
         ctx_mgr = client.load_repo.return_value
         ctx_mgr.__enter__.return_value = type("Repo", (), {})()
         ctx_mgr.__exit__ = lambda *a: None
@@ -119,6 +122,7 @@ async def test_set_runtime_ctx_auto_falls_back_to_global_default():
         client.get_repository.return_value = type("R", (), {"name": "x"})()
         client.git_platform = "gitlab"
         client.current_user.username = "bot"
+        client.get_git_egress_credential.return_value = None  # these tests assert env resolution, not egress
         ctx_mgr = client.load_repo.return_value
         ctx_mgr.__enter__.return_value = type("Repo", (), {})()
         ctx_mgr.__exit__ = lambda *a: None
@@ -138,9 +142,11 @@ def _patch_context_deps(*, sandbox_enabled: bool):
     repo_client.load_repo.return_value = nullcontext(MagicMock(working_dir="/tmp/repo"))  # noqa: S108
     sandbox = MagicMock()
     sandbox.enabled = sandbox_enabled
-    # No egress policy => augment_sandbox_with_platform_egress is a no-op (it would otherwise call
-    # dataclasses.replace() on this MagicMock). These tests only exercise transport open/close.
+    # No egress policy + no derivable credential => augment_sandbox_with_platform_egress is a no-op
+    # (it would otherwise call dataclasses.replace() on this MagicMock). These tests only exercise
+    # transport open/close.
     sandbox.egress = None
+    repo_client.get_git_egress_credential.return_value = None
     return (
         patch.multiple(
             "codebase.context",

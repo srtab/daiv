@@ -16,6 +16,15 @@ function mintSecretName() {
     return "s_" + rand.replace(/-/g, "");
 }
 
+const READ_ONLY_METHODS = ["GET", "HEAD", "OPTIONS"];
+
+/** True iff `methods` is exactly the read-only set (case/order-insensitive). */
+function isReadOnlyMethods(methods) {
+    if (!Array.isArray(methods)) return false;
+    const set = new Set(methods.map((m) => String(m).trim().toUpperCase()).filter(Boolean));
+    return set.size === READ_ONLY_METHODS.length && READ_ONLY_METHODS.every((m) => set.has(m));
+}
+
 function egressEditorState(initial = {}, labels = {}) {
     const hosts = Array.isArray(initial.hosts) ? initial.hosts : [];
     return {
@@ -26,11 +35,9 @@ function egressEditorState(initial = {}, labels = {}) {
         },
         hosts: hosts.map((h) => {
             const methods = Array.isArray(h.methods) && h.methods.length ? h.methods : ["*"];
-            const isAny = methods.length === 1 && methods[0] === "*";
             return {
                 host: h.host || "",
-                methodsMode: isAny ? "any" : "custom",
-                methodsText: isAny ? "" : methods.join(", "),
+                methodsMode: isReadOnlyMethods(methods) ? "readonly" : "all",
                 showCredential: !!(h.header || h.has_existing_value),
                 header: h.header || "",
                 value: h.value || "",
@@ -41,7 +48,7 @@ function egressEditorState(initial = {}, labels = {}) {
 
         addHost() {
             this.hosts.push({
-                host: "", methodsMode: "any", methodsText: "",
+                host: "", methodsMode: "all",
                 showCredential: false, header: "", value: "",
                 secret_name: "", has_existing_value: false,
             });
@@ -74,9 +81,7 @@ function egressEditorState(initial = {}, labels = {}) {
         },
 
         _methodsFor(h) {
-            if (h.methodsMode !== "custom") return ["*"];
-            const parts = (h.methodsText || "").split(",").map((s) => s.trim()).filter(Boolean);
-            return parts.length ? parts : ["*"];
+            return h.methodsMode === "readonly" ? [...READ_ONLY_METHODS] : ["*"];
         },
 
         get serialised() {

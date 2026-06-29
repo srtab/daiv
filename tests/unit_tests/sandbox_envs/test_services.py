@@ -21,17 +21,56 @@ def _sandbox_runtime(*, base_image="python:3.12", egress=None):
     )
 
 
-def test_augment_skips_when_network_off():
+def test_augment_opens_network_off_env_when_push_credentialed():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, augment_sandbox_with_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    # DAIV pushes from inside the sandbox, so a network-off env (egress=None) that holds a real push
+    # credential is opened into a minimal deny-all + git-platform triad rather than left isolated.
+    sb = _sandbox_runtime(egress=None)
+    client = Mock()
+    client.get_git_egress_credential.return_value = GitEgressCredential(
+        host="gitlab.example.com", value=SecretStr("Basic abc")
+    )
+    out = augment_sandbox_with_platform_egress(sb, client, Mock())
+
+    assert out.egress is not None
+    assert out.egress.policy.default == "deny"
+    assert out.egress.policy.rules[0].host == "gitlab.example.com"
+    assert PLATFORM_EGRESS_SECRET_NAME in out.egress.secrets
+
+
+def test_augment_keeps_network_off_isolated_without_push_token():
     from unittest.mock import Mock
 
     from sandbox_envs.services import augment_sandbox_with_platform_egress
 
-    # Network off == no egress policy: augment must not resolve a credential or build a policy.
+    from codebase.clients.base import GitEgressCredential
+
+    # A host-only credential (no token, e.g. the SWE eval platform) has nothing to push, so a
+    # network-off env stays fully isolated — never forcing the egress proxy onto token-less runs.
     sb = _sandbox_runtime(egress=None)
     client = Mock()
+    client.get_git_egress_credential.return_value = GitEgressCredential(host="github.com", value=None)
     out = augment_sandbox_with_platform_egress(sb, client, Mock())
     assert out is sb
-    client.get_git_egress_credential.assert_not_called()
+
+
+def test_augment_keeps_network_off_isolated_without_credential():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import augment_sandbox_with_platform_egress
+
+    # No derivable credential (degenerate clone URL) on a network-off env: stay isolated.
+    sb = _sandbox_runtime(egress=None)
+    client = Mock()
+    client.get_git_egress_credential.return_value = None
+    out = augment_sandbox_with_platform_egress(sb, client, Mock())
+    assert out is sb
 
 
 def test_augment_skips_when_sandbox_disabled():

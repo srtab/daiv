@@ -448,5 +448,5 @@ class TestGitHubClient:
         assert cred.header == "Authorization"
         assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:ghs-install").decode()
         github_client._integration.get_access_token.assert_called_once_with(
-            github_client.client_installation.id, permissions={"contents": "read"}
+            github_client.client_installation.id, permissions={"contents": "write"}
         )

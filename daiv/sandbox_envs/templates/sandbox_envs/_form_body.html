@@ -241,9 +241,9 @@
                         <div class="flex items-center gap-2">
                             <input type="text" x-model="h.host" placeholder="github.com" class="flex-1 font-mono"
                                    :class="hostError(i) ? '!border-red-500/60 focus:!ring-red-500/30' : ''">
-                            <select x-model="h.methodsMode" class="!w-28">
-                                <option value="any">{% translate "Any" %}</option>
-                                <option value="custom">{% translate "Custom" %}</option>
+                            <select x-model="h.methodsMode" class="!w-32">
+                                <option value="all">{% translate "All methods" %}</option>
+                                <option value="readonly">{% translate "Read-only" %}</option>
                             </select>
                             <button type="button" @click="toggleCredential(i)" class="btn-secondary text-sm whitespace-nowrap"
                                     x-text="h.showCredential ? '{% translate '– credential'|escapejs %}' : '{% translate '+ credential'|escapejs %}'"></button>
@@ -252,8 +252,8 @@
                                 {% icon "trash" "h-4 w-4" %}
                             </button>
                         </div>
-                        <input x-show="h.methodsMode === 'custom'" x-cloak type="text" x-model="h.methodsText"
-                               placeholder="GET, POST" class="mt-2 w-full font-mono">
+                        <p x-show="h.methodsMode === 'readonly'" x-cloak
+                           class="mt-2 font-mono text-xs text-gray-500">GET, HEAD, OPTIONS</p>
                         <div x-show="h.showCredential" x-cloak class="mt-2 flex items-center gap-2">
                             <input type="text" x-model="h.header" placeholder="Authorization" class="flex-1 font-mono">
                             <input type="password" x-model="h.value" class="flex-1"

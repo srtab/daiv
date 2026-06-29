@@ -62,6 +62,9 @@ When **Network** is enabled, the **Egress** section appears at the bottom of the
 !!! info "Requires the egress proxy"
     Egress policy is provisioned by the daiv-sandbox MITM egress proxy. If the sandbox does not have the egress proxy enabled, starting a run that uses an egress-configured environment will **abort** (fail-closed) rather than fall back to unrestricted network.
 
+!!! note "The repository's git platform is always reachable"
+    DAIV runs git — including the publish push — from *inside* the sandbox, so the run's own git platform (GitLab/GitHub) is **always allowed and authenticated**, even when **Network** is **Off**. DAIV injects a runtime-only rule for the platform host (credentialed with a short-lived, platform-minted token — project-scoped on GitLab, installation-scoped on GitHub) so `git fetch`/clone/push of the repository works without you listing it. You never configure this — and a **Network Off** environment is otherwise still fully isolated: it is opened *only* for the git platform, and only when a push token exists (eval/benchmark runs, which hold none, stay completely network-isolated).
+
 #### Allowed hosts
 
 Each row in the **Allowed hosts** table defines one outbound rule:
@@ -72,7 +75,7 @@ Each row in the **Allowed hosts** table defines one outbound rule:
 | **Methods** | HTTP methods this rule applies to (leave empty to match all methods) |
 | **Credential** | Optional: an HTTP header name and value injected by the proxy for every request to this host (see below) |
 
-An egress policy takes effect only when you add at least one allowed-host rule. With **Default** set to `deny`, only the listed hosts are reachable and every other outbound request is blocked. Leaving the allowed-hosts list empty stores **no** egress policy on the environment (the section is treated as untouched) — it does not block traffic. To disable networking entirely, set **Network** to **Off**.
+An egress policy takes effect only when you add at least one allowed-host rule. With **Default** set to `deny`, only the listed hosts are reachable and every other outbound request is blocked. Leaving the allowed-hosts list empty stores **no** egress policy on the environment (the section is treated as untouched) — it does not block traffic. To disable general networking, set **Network** to **Off** (the repository's own git platform stays reachable so DAIV can still publish — see the note above).
 
 #### Per-host credentials (encrypted at rest)
 
@@ -105,7 +108,7 @@ When a run starts in a repository, DAIV picks the per-run environment using this
 4. **Global default** — the single **Global** environment marked as default.
 5. **None** — if nothing matches, the sandbox uses its built-in runtime defaults (no base image, networking off).
 
-The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. **Network (egress) is the exception — it is explicit per environment and is never inherited**: a per-run environment with **Network** off runs with no network even when the global default has an egress policy. Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
+The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. **Network (egress) is the exception — it is explicit per environment and is never inherited**: a per-run environment with **Network** off does not inherit the global default's egress policy (only the repository's own git platform stays reachable, so DAIV can publish). Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
 
 !!! note "Webhook-triggered runs"
     Runs triggered by a webhook (for example, [issue addressing](issue-addressing.md)) have no signed-in DAIV user, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.

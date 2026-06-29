@@ -106,14 +106,17 @@ class SandboxEnvironment(TimeStampedModel):
     # Per-env egress policy provisioned to the daiv-sandbox sidecar proxy.
     # A non-null value means this env is networked: the session is routed through the egress proxy
     # and the policy controls which outbound hosts are permitted.
-    # ``None`` means no network access — the sandbox container runs with network disabled.
-    # The egress proxy is mandatory for networked sessions: a networked env on a sandbox with no egress
-    # proxy configured (no shared egress CA) is rejected at session start — there is no raw-network fallback.
-    # DAIV additionally injects a runtime-only, never-stored allow-rule for the run's git platform on
-    # networked sessions, so the repo's platform is reachable for git-over-HTTPS — credentialed whenever a
-    # token can be minted, reachability-only otherwise. Its secret name ``__daiv_git_platform__`` is reserved
-    # (``_validate_egress`` rejects an env that uses it); the rule is prepended so it wins by first-match over
-    # a same-host user rule, and is not shown in the UI.
+    # ``None`` means the env grants no general network access. The egress proxy is mandatory for any
+    # outbound traffic: a networked env on a sandbox with no egress proxy configured (no shared egress
+    # CA) is rejected at session start — there is no raw-network fallback.
+    # DAIV additionally injects a runtime-only, never-stored allow-rule for the run's git platform so the
+    # repo's platform is reachable for git-over-HTTPS — credentialed whenever a token can be minted. Because
+    # DAIV pushes from inside the sandbox, this rule is injected even when ``egress`` is ``None`` *if* the run
+    # holds a real push token: such a network-off env is opened into a minimal deny-all base carrying only
+    # the git-platform rule (everything else stays blocked), so DAIV can always publish. A token-less run
+    # (e.g. the SWE eval platform) leaves a ``None`` env fully network-isolated. The reserved secret name
+    # ``__daiv_git_platform__`` (``_validate_egress`` rejects an env that uses it) backs the rule; it is
+    # prepended so it wins by first-match over a same-host user rule, and is not shown in the UI.
     egress_policy = models.JSONField(_("egress policy"), null=True, blank=True, default=None)
     _egress_secrets_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL = no secrets
     egress_secrets = EncryptedJSONFieldDescriptor("egress_secrets")

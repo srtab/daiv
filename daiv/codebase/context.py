@@ -168,8 +168,10 @@ async def set_runtime_ctx(
         per_run = row_to_override(auto_env) if auto_env is not None else None
     global_default = await get_global_default()
     sandbox = merge_sandbox_runtime(per_run=per_run, global_default=global_default)
-    # Always reach + authenticate the repo's git platform for git-over-HTTPS in the sandbox.
-    # Runtime-only (never stored on the env); no-op when the sandbox is disabled or network is off.
+    # Always reach + authenticate the repo's git platform for git-over-HTTPS in the sandbox — DAIV
+    # pushes from inside the sandbox, so even a network-off env is opened for the platform host when a
+    # token can be minted. Runtime-only (never stored on the env); a no-op only when the sandbox is
+    # disabled, or when network is off and no platform token is available (e.g. eval runs).
     sandbox = augment_sandbox_with_platform_egress(sandbox, repo_client, repository)
 
     # Own the sandbox transport for the whole run: one httpx connection pool, injected into the
