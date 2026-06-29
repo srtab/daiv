@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from django.contrib.messages import get_messages
 from django.urls import reverse
 
 import pytest
@@ -141,3 +142,48 @@ def test_detail_resolves_repo_id_with_multiple_slashes(client, member_user):
     resp = client.get(reverse("memory:detail", args=["group/sub/proj"]))
     assert resp.status_code == 200
     assert resp.context["repo_id"] == "group/sub/proj"
+
+
+@pytest.mark.django_db
+def test_consolidate_admin_enqueues_and_redirects(client, admin_user):
+    client.force_login(admin_user)
+    with (
+        patch("memory.views.site_settings", _ss(memory_enabled=True)),
+        patch("memory.views.consolidate_memory_task") as task_mock,
+    ):
+        resp = client.post(reverse("memory:consolidate", args=["group/proj"]))
+    task_mock.enqueue.assert_called_once_with("group/proj")
+    assert resp.status_code == 302
+    assert resp.url == reverse("memory:detail", args=["group/proj"])
+    msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+    assert any("queued" in m.lower() for m in msgs)
+
+
+@pytest.mark.django_db
+def test_consolidate_denies_member(client, member_user):
+    client.force_login(member_user)
+    with patch("memory.views.consolidate_memory_task") as task_mock:
+        resp = client.post(reverse("memory:consolidate", args=["group/proj"]))
+    assert resp.status_code == 403
+    task_mock.enqueue.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_consolidate_rejects_get(client, admin_user):
+    client.force_login(admin_user)
+    resp = client.get(reverse("memory:consolidate", args=["group/proj"]))
+    assert resp.status_code == 405
+
+
+@pytest.mark.django_db
+def test_consolidate_no_op_when_memory_disabled(client, admin_user):
+    client.force_login(admin_user)
+    with (
+        patch("memory.views.site_settings", _ss(memory_enabled=False)),
+        patch("memory.views.consolidate_memory_task") as task_mock,
+    ):
+        resp = client.post(reverse("memory:consolidate", args=["group/proj"]))
+    task_mock.enqueue.assert_not_called()
+    assert resp.status_code == 302
+    msgs = [str(m) for m in get_messages(resp.wsgi_request)]
+    assert any("disabled" in m.lower() for m in msgs)

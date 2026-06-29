@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import Http404
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
+from django.views import View
 from django.views.generic import TemplateView
 
+from accounts.mixins import AdminRequiredMixin
 from core.site_settings import site_settings
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
+from memory.tasks import consolidate_memory_task
 
 
 class MemoryListView(LoginRequiredMixin, TemplateView):
@@ -95,3 +100,15 @@ class MemoryDetailView(LoginRequiredMixin, TemplateView):
             "breadcrumbs": [{"label": _("Memory"), "url": reverse("memory:list")}, {"label": repo_id, "url": None}],
         })
         return ctx
+
+
+class MemoryConsolidateView(AdminRequiredMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request, repo_id):
+        if not site_settings.memory_enabled:
+            messages.warning(request, _("Memory capture is disabled site-wide; consolidation was not queued."))
+        else:
+            consolidate_memory_task.enqueue(repo_id)
+            messages.success(request, _("Consolidation queued for %(repo)s.") % {"repo": repo_id})
+        return redirect("memory:detail", repo_id=repo_id)

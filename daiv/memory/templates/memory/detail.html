@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load dashboard_tags humanize i18n markdown_tags %}
+{% load dashboard_tags humanize i18n icon_tags markdown_tags %}
 
 {% block title %}{{ repo_id }} — {% translate "Memory" %} — DAIV{% endblock %}
 
@@ -23,7 +23,15 @@
       {% endif %}
     </div>
   </div>
-  {# Task 3 inserts the admin Consolidate-now form here. #}
+  {% if user.is_admin and memory_enabled %}
+  <form method="post" action="{% url 'memory:consolidate' repo_id %}" class="shrink-0">
+    {% csrf_token %}
+    <button type="submit" class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+      {% icon "arrow-path" "h-4 w-4 shrink-0" %}
+      {% translate "Consolidate now" %}
+    </button>
+  </form>
+  {% endif %}
 </div>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 100ms">
