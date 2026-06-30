@@ -25,6 +25,28 @@ SUPPORTED_MIMETYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 mimetypes.add_type("image/webp", ".webp")  # Add webp mimetype, not included by default
 
 
+def is_git_auth_error_text(text: str) -> bool:
+    """True when git command output indicates the remote rejected the credential (auth/permission).
+
+    Single source of truth shared by the clone-retry self-heal (``codebase.clients.gitlab``) and the
+    push-failure classifier (``automation.agent.git_manager``) so both agree on what a rejected
+    credential looks like — git's wording varies by version and by smart- vs dumb-HTTP. ``"access
+    denied"`` already subsumes GitLab's ``"HTTP Basic: Access denied"``.
+    """
+    lowered = text.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "authentication failed",
+            "access denied",
+            "returned error: 403",
+            "could not read username",
+            "permission denied",
+            "not authorized",
+        )
+    )
+
+
 def build_absolute_url(path: str) -> str:
     """Build an absolute https:// URL from a relative path using the current Site domain."""
     site = Site.objects.get_current()

@@ -92,6 +92,33 @@ async def test_get_environment_masks_secrets():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_get_environment_network_enabled_derived_from_egress_policy():
+    """The MCP ``network_enabled`` output key is derived from ``egress_policy`` presence (the
+    ``network_enabled`` column is gone). Assert both branches so an inverted condition is caught."""
+    from accounts.models import User
+
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    await SandboxEnvironment.objects.acreate(
+        scope=Scope.USER,
+        user=user,
+        name="net",
+        base_image="alpine:latest",
+        egress_policy={"default": "deny", "intercept": "all", "rules": []},
+    )
+    await SandboxEnvironment.objects.acreate(
+        scope=Scope.USER, user=user, name="nonet", base_image="alpine:latest", egress_policy=None
+    )
+    from mcp_server.server import get_environment
+
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        networked = await get_environment("net")
+        isolated = await get_environment("nonet")
+    assert networked is not None and networked["network_enabled"] is True
+    assert isolated is not None and isolated["network_enabled"] is False
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_get_environment_unknown_returns_none():
     from accounts.models import User
 

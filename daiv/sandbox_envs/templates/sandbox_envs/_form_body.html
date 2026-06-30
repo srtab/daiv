@@ -156,13 +156,117 @@
 
     <div class="border-t border-white/[0.06]"></div>
 
+    <div x-data="{
+             network: '{{ form.network_choice.value|default:'off'|escapejs }}',
+             get effectiveNetworkOn() { return this.network === 'on'; },
+         }">
+        {# Network (promoted to top-level) #}
+        <div>
+            <label class="block text-[15px] font-medium text-gray-400">
+                {% translate "Network" %}
+                {% if form.network_choice.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
+            </label>
+            <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                       :class="network === 'on' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                       {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                    <input type="radio" name="network_choice" value="on" x-model="network" class="sr-only"
+                           {% if form.network_choice.field.disabled %}disabled{% endif %}>
+                    {% translate "On" %}
+                </label>
+                <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                       :class="network === 'off' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
+                       {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
+                    <input type="radio" name="network_choice" value="off" x-model="network" class="sr-only"
+                           {% if form.network_choice.field.disabled %}disabled{% endif %}>
+                    {% translate "Off" %}
+                </label>
+            </div>
+            {% if form.network_choice.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.network_choice.errors.0 }}</p>{% endif %}
+        </div>
+
+        {# Network access (egress) — only meaningful when network is on #}
+        <fieldset x-show="effectiveNetworkOn" x-cloak class="mt-5"
+                  x-data="egressEditor({{ form.egress_json.value|default:form.egress_json.initial }}, {
+                      duplicateHost: '{% translate 'Duplicate host'|escapejs %}',
+                  })">
+            <legend class="text-[15px] font-medium text-gray-300">{% translate "Network access" %}</legend>
+            <p class="mt-1 text-sm text-gray-400">
+                {% translate "Restricts which hosts the sandbox can reach. With Default set to deny, only the listed hosts are reachable — plus this environment's own git platform, which DAIV always allows for git operations. Leave the list empty to apply no egress policy; to block all outbound access, set Network to off." %}
+            </p>
+
+            <div class="mt-3 flex flex-wrap gap-6">
+                <div>
+                    <span class="block text-sm font-medium text-gray-400">{% translate "Unlisted hosts" %}</span>
+                    <div class="mt-1.5 flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                        <label class="cursor-pointer rounded-lg px-3 py-1 text-sm font-medium"
+                               :class="defaultPolicy === 'deny' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                            <input type="radio" value="deny" x-model="defaultPolicy" class="sr-only">{% translate "Deny" %}
+                        </label>
+                        <label class="cursor-pointer rounded-lg px-3 py-1 text-sm font-medium"
+                               :class="defaultPolicy === 'allow' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                            <input type="radio" value="allow" x-model="defaultPolicy" class="sr-only">{% translate "Allow" %}
+                        </label>
+                    </div>
+                    <p x-show="defaultPolicy === 'allow'" x-cloak class="mt-1 text-xs text-amber-400/80">
+                        {% translate "All hosts reachable unless a rule restricts them." %}
+                    </p>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <span class="text-[15px] font-medium text-gray-300">
+                    {% translate "Allowed hosts" %}
+                    <span class="text-gray-500" x-text="hosts.length ? '(' + hosts.length + ')' : ''"></span>
+                </span>
+
+                <template x-for="(h, i) in hosts" :key="i">
+                    <div class="mt-2 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
+                        <div class="flex items-center gap-2">
+                            <input type="text" x-model="h.host" placeholder="github.com" class="flex-1 font-mono"
+                                   :class="hostError(i) ? '!border-red-500/60 focus:!ring-red-500/30' : ''">
+                            <select x-model="h.methodsMode" class="!w-32">
+                                <option value="all">{% translate "All methods" %}</option>
+                                <option value="readonly">{% translate "Read-only" %}</option>
+                            </select>
+                            <button type="button" @click="toggleCredential(i)" class="btn-secondary text-sm whitespace-nowrap"
+                                    x-text="h.showCredential ? '{% translate '– credential'|escapejs %}' : '{% translate '+ credential'|escapejs %}'"></button>
+                            <button type="button" @click="removeHost(i)" aria-label="{% translate 'Remove' %}"
+                                    class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-white/[0.06] hover:text-red-300">
+                                {% icon "trash" "h-4 w-4" %}
+                            </button>
+                        </div>
+                        <p x-show="h.methodsMode === 'readonly'" x-cloak
+                           class="mt-2 font-mono text-xs text-gray-500">GET, HEAD, OPTIONS</p>
+                        <div x-show="h.showCredential" x-cloak class="mt-2 flex items-center gap-2">
+                            <input type="text" x-model="h.header" placeholder="Authorization" class="flex-1 font-mono">
+                            <input type="password" x-model="h.value" class="flex-1"
+                                   :placeholder="h.has_existing_value ? '{% translate '🔒 keep existing'|escapejs %}' : '{% translate 'value'|escapejs %}'">
+                        </div>
+                        <p x-show="hostError(i)" x-cloak class="mt-1 text-xs text-red-400" x-text="hostError(i)"></p>
+                    </div>
+                </template>
+
+                <button type="button" @click="addHost()" class="btn-secondary mt-3 text-sm">
+                    + {% translate "Add host" %}
+                </button>
+            </div>
+
+            <input type="hidden" name="egress_json" :value="JSON.stringify(serialised)">
+            {% if form.egress_json.errors %}
+            <p class="mt-1.5 text-sm text-red-400">{{ form.egress_json.errors.0 }}</p>
+            {% endif %}
+        </fieldset>
+    </div>
+
+    <div class="border-t border-white/[0.06]"></div>
+
     <div x-data="resourceControl({
-              network: '{{ form.network_choice.value|default:'default'|escapejs }}',
               memValue: '{{ form.memory_value.value|default:''|escapejs }}',
               memUnit: '{{ form.memory_unit.value|default:'MiB'|escapejs }}',
               cpuValue: '{{ form.cpus.value|default:''|escapejs }}',
               forceOpen: {% if is_default_form %}true{% else %}false{% endif %},
-              hasErrors: {% if form.network_choice.errors or form.memory_value.errors or form.memory_unit.errors or form.cpus.errors %}true{% else %}false{% endif %},
+              hasErrors: {% if form.memory_value.errors or form.memory_unit.errors or form.cpus.errors %}true{% else %}false{% endif %},
           })">
         <button type="button" @click="resourcesOpen = !resourcesOpen"
                 class="inline-flex items-center gap-1 text-[13px] font-medium text-gray-300 hover:text-white">
@@ -170,42 +274,10 @@
             {% translate "Resources" %}
         </button>
         <p x-show="!resourcesOpen" x-cloak class="mt-1.5 text-sm text-gray-500">
-            {% translate "Inherits network, memory, and CPUs from the global default. Click to override." %}
+            {% translate "Inherits memory and CPUs from the global default. Click to override." %}
         </p>
 
         <div x-show="resourcesOpen" x-cloak class="mt-4 space-y-5 border-l-2 border-white/[0.06] pl-4">
-
-            {# Network #}
-            <div>
-                <label class="block text-[15px] font-medium text-gray-400">
-                    {% translate "Network" %}
-                    {% if form.network_choice.field.disabled %}{% include "core/_env_lock_badge.html" %}{% endif %}
-                </label>
-                <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
-                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="network === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
-                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
-                        <input type="radio" name="network_choice" value="default" x-model="network" class="sr-only"
-                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
-                        {% if is_default_form %}{% translate "Unconstrained" %}{% else %}{% translate "Use default" %}{% if global_default_summary.has_network %} — {{ global_default_summary.network }}{% endif %}{% endif %}
-                    </label>
-                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="network === 'on' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
-                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
-                        <input type="radio" name="network_choice" value="on" x-model="network" class="sr-only"
-                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
-                        {% translate "On" %}
-                    </label>
-                    <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
-                           :class="network === 'off' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'"
-                           {% if form.network_choice.field.disabled %}aria-disabled="true" style="pointer-events:none;opacity:0.6;"{% endif %}>
-                        <input type="radio" name="network_choice" value="off" x-model="network" class="sr-only"
-                               {% if form.network_choice.field.disabled %}disabled{% endif %}>
-                        {% translate "Off" %}
-                    </label>
-                </div>
-                {% if form.network_choice.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.network_choice.errors.0 }}</p>{% endif %}
-            </div>
 
             {# Memory #}
             <div>

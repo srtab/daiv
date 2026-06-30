@@ -123,16 +123,16 @@ class DAIVSandboxClient:
         await self.close()
 
     async def start_session(self, request: StartSessionRequest) -> str:
-        """
-        Start a session with the sandbox.
+        """Start a session with the sandbox; returns the session ID.
 
-        Args:
-            request (StartSessionRequest): The request to start the session.
-
-        Returns:
-            The session ID.
+        ``model_dump(mode="json")`` masks ``SecretStr`` egress secrets, but the sidecar needs the
+        plaintext — so the egress block is re-serialised via ``EgressConfigRequest.to_wire()`` (the
+        single source of truth for the wire shape) instead of the masked ``model_dump`` value.
         """
-        response = await self._client.post("session/", json=request.model_dump(mode="json"))
+        payload = request.model_dump(mode="json")
+        if request.egress is not None:
+            payload["egress"] = request.egress.to_wire()
+        response = await self._client.post("session/", json=payload)
         response.raise_for_status()
         return response.json()["session_id"]
 

@@ -1,6 +1,7 @@
 import io
 import json
 import tarfile
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -11,6 +12,7 @@ from automation.agent.middlewares.file_system import SandboxFileBackend
 from automation.agent.middlewares.sandbox import (
     SANDBOX_SYSTEM_PROMPT,
     BashFailure,
+    SandboxEgressUnavailableError,
     SandboxMiddleware,
     _run_bash_commands,
 )
@@ -42,7 +44,6 @@ def _make_sandbox_runtime(disallow=(), allow=()):
 
     return SandboxRuntime(
         base_image="python:3.12",
-        network_enabled=False,
         memory_bytes=None,
         cpus=None,
         env_vars={},
@@ -89,10 +90,10 @@ def _make_runtime() -> MagicMock:
     runtime = MagicMock()
     sb = runtime.context.sandbox
     sb.base_image = "img"
-    sb.network_enabled = False
     sb.memory_bytes = 1
     sb.cpus = 1
     sb.env_vars = None
+    sb.egress = None
     runtime.context.gitrepo.working_dir = "/tmp/repo"  # noqa: S108
     return runtime
 
@@ -642,12 +643,14 @@ class TestSandboxMiddleware:
         runtime.context.config = Mock()
         runtime.context.config.sandbox = Mock()
         runtime.context.config.sandbox.base_image = None  # Would fail if read.
-        runtime.context.config.sandbox.network_enabled = None
         runtime.context.config.sandbox.memory_bytes = None
         runtime.context.config.sandbox.cpus = None
+        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy
+
+        egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
         runtime.context.sandbox = SandboxRuntime(
             base_image="alpine:test",
-            network_enabled=True,
+            egress=egress,
             memory_bytes=1_234,
             cpus=2.5,
             env_vars={"X": "y"},
@@ -676,7 +679,7 @@ class TestSandboxMiddleware:
         req = captured["req"]
         assert isinstance(req, StartSessionRequest)
         assert req.base_image == "alpine:test"
-        assert req.network_enabled is True
+        assert req.egress == egress
         assert req.memory_bytes == 1_234
         assert req.cpus == 2.5
         assert req.environment == {"X": "y"}
@@ -705,7 +708,6 @@ class TestSandboxMiddleware:
         context.config.sandbox.command_policy.allow = ()
         context.sandbox = SandboxRuntime(
             base_image="alpine:test",
-            network_enabled=False,
             memory_bytes=None,
             cpus=None,
             env_vars={},
@@ -761,3 +763,103 @@ class TestSessionExists:
 
         client = Mock(session_exists=AsyncMock(side_effect=httpx.HTTPError("boom")))
         assert await SandboxMiddleware._session_exists(client, "warm-1") is False
+
+
+class TestSandboxEgress:
+    def _mw(self, client) -> SandboxMiddleware:
+        return SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+
+    @staticmethod
+    @contextmanager
+    def _patch_archives():
+        """Stub the archive builders so the fresh-create path doesn't touch the filesystem."""
+        with (
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
+        ):
+            yield
+
+    def _runtime_with_egress(self):
+        from core.sandbox.schemas import EgressConfigRequest, EgressPolicy
+
+        runtime = _make_runtime()
+        runtime.context.sandbox.egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
+        return runtime, runtime.context.sandbox.egress
+
+    async def test_no_configure_egress_on_fresh_create(self):
+        """Egress is attached at start_session time (via egress= field); configure_egress is never called."""
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess-e")
+        client.seed_session = AsyncMock()
+        client.configure_egress = AsyncMock()
+        runtime, _ = self._runtime_with_egress()
+        with self._patch_archives():
+            await self._mw(client).abefore_agent({}, runtime)
+        client.configure_egress.assert_not_awaited()
+
+    async def test_no_configure_egress_on_warm_reuse(self):
+        """Warm reuse no longer re-provisions egress; configure_egress is never called."""
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=True)
+        client.start_session = AsyncMock()
+        client.configure_egress = AsyncMock()
+        runtime, _ = self._runtime_with_egress()
+        result = await self._mw(client).abefore_agent({"session_id": "sess-warm"}, runtime)
+        assert result == {"session_id": "sess-warm"}
+        client.start_session.assert_not_awaited()
+        client.configure_egress.assert_not_awaited()
+
+    async def test_skips_egress_when_none(self):
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess-x")
+        client.seed_session = AsyncMock()
+        client.configure_egress = AsyncMock()
+        runtime = _make_runtime()  # egress None — no egress configured
+        with self._patch_archives():
+            await self._mw(client).abefore_agent({}, runtime)
+        client.configure_egress.assert_not_awaited()
+
+    async def test_create_time_400_without_egress_detail_propagates_raw(self):
+        """A create-time 400 that does NOT mention 'egress' is re-raised as-is (not mapped)."""
+        import httpx
+
+        resp = httpx.Response(400, json={"detail": "base_image is invalid"})
+        client = MagicMock()
+        client.start_session = AsyncMock(
+            side_effect=httpx.HTTPStatusError("400", request=httpx.Request("POST", "x"), response=resp)
+        )
+        runtime, _ = self._runtime_with_egress()
+        with pytest.raises(httpx.HTTPStatusError) as raised:
+            await self._mw(client).abefore_agent({}, runtime)
+        assert not isinstance(raised.value, SandboxEgressUnavailableError)
+
+    async def test_start_passes_egress_block_and_no_separate_provision(self):
+        """start_session is called with egress set; no separate configure_egress call is made."""
+        import httpx  # noqa: F401 — ensure httpx import is available if needed
+
+        client = MagicMock()
+        client.start_session = AsyncMock(return_value="sess-egress")
+        client.seed_session = AsyncMock()
+        client.configure_egress = AsyncMock()
+        runtime, egress = self._runtime_with_egress()
+        with self._patch_archives():
+            await self._mw(client).abefore_agent({}, runtime)
+        sent = client.start_session.call_args.args[0]
+        assert sent.egress is not None
+        assert sent.egress == egress
+        client.configure_egress.assert_not_awaited()
+
+    async def test_create_time_400_egress_maps_to_unavailable(self):
+        """A create-time 400 with an egress detail is mapped to SandboxEgressUnavailableError."""
+        import httpx
+
+        resp = httpx.Response(400, json={"detail": "egress requires the egress proxy, which is not configured"})
+        client = MagicMock()
+        client.start_session = AsyncMock(
+            side_effect=httpx.HTTPStatusError("400", request=httpx.Request("POST", "x"), response=resp)
+        )
+        runtime, _ = self._runtime_with_egress()
+        with pytest.raises(SandboxEgressUnavailableError):
+            await self._mw(client).abefore_agent({}, runtime)

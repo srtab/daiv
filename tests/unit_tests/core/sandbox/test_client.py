@@ -358,3 +358,49 @@ def test_is_transient_sandbox_error_true_for_request_error_with_no_response():
     from core.sandbox.client import is_transient_sandbox_error
 
     assert is_transient_sandbox_error(httpx.ConnectError("refused")) is True
+
+
+async def test_start_session_sends_egress_with_plaintext_secret(fake_settings, httpx_mock):
+    import json
+
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import EgressConfigRequest, StartSessionRequest
+
+    httpx_mock.add_response(json={"session_id": "s1"})
+    req = StartSessionRequest(
+        base_image="python:3.14",
+        egress=EgressConfigRequest.from_stored(
+            {"default": "deny", "rules": [{"host": "gitlab.com", "inject": "tok"}]},
+            {"tok": {"header": "PRIVATE-TOKEN", "value": "supersecret"}},
+        ),
+    )
+    async with DAIVSandboxClient() as client:
+        assert await client.start_session(req) == "s1"
+    body = httpx_mock.get_requests()[0].read().decode()
+    assert "supersecret" in body  # plaintext reached the wire
+    assert "**********" not in body  # not the SecretStr mask
+    # The egress block is rebuilt by hand (model_dump masks SecretStr); assert the wire SHAPE, not
+    # just substring presence, so a key typo (e.g. "head" for "header") is caught.
+    egress = json.loads(body)["egress"]
+    assert egress["secrets"]["tok"] == {"header": "PRIVATE-TOKEN", "value": "supersecret"}
+    assert egress["policy"]["default"] == "deny"
+    assert egress["policy"]["rules"][0] == {"host": "gitlab.com", "methods": ["*"], "inject": "tok"}
+
+
+async def test_start_session_sends_policy_only_egress_with_empty_secrets(fake_settings, httpx_mock):
+    """An allow-all / no-credential policy serialises with an empty ``secrets`` map (a common shape)."""
+    import json
+
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import EgressConfigRequest, StartSessionRequest
+
+    httpx_mock.add_response(json={"session_id": "s1"})
+    req = StartSessionRequest(
+        base_image="python:3.14", egress=EgressConfigRequest.from_stored({"default": "allow", "rules": []}, {})
+    )
+    async with DAIVSandboxClient() as client:
+        assert await client.start_session(req) == "s1"
+    egress = json.loads(httpx_mock.get_requests()[0].read().decode())["egress"]
+    assert egress["secrets"] == {}
+    assert egress["policy"]["default"] == "allow"
+    assert egress["policy"]["rules"] == []

@@ -20,6 +20,9 @@ _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REPO_ID_RE = re.compile(r"^[^\s/]+(/[^\s/]+)+$")
 ENV_VARS_MAX_ENTRIES = 100
 ENV_VARS_MAX_ENCRYPTED_SIZE = 32 * 1024  # 32 KiB
+EGRESS_MAX_RULES = 100
+EGRESS_MAX_SECRETS = 100
+EGRESS_SECRETS_MAX_ENCRYPTED_SIZE = 32 * 1024  # 32 KiB
 
 _UNSET = object()
 
@@ -90,7 +93,6 @@ class SandboxEnvironment(TimeStampedModel):
     description = models.TextField(_("description"), blank=True, default="")
 
     base_image = models.CharField(_("base image"), max_length=255, blank=True, default="")
-    network_enabled = models.BooleanField(_("network enabled"), null=True, blank=True, default=None)
     memory_bytes = models.PositiveBigIntegerField(_("memory (bytes)"), null=True, blank=True)
     cpus = models.DecimalField(_("CPUs"), max_digits=5, decimal_places=2, null=True, blank=True)
 
@@ -100,6 +102,24 @@ class SandboxEnvironment(TimeStampedModel):
     repo_ids = models.JSONField(_("repo ids"), default=list, blank=True)
 
     is_default = models.BooleanField(_("is default"), default=False)
+
+    # Per-env egress policy provisioned to the daiv-sandbox sidecar proxy.
+    # A non-null value means this env is networked: the session is routed through the egress proxy
+    # and the policy controls which outbound hosts are permitted.
+    # ``None`` means the env grants no general network access. The egress proxy is mandatory for any
+    # outbound traffic: a networked env on a sandbox with no egress proxy configured (no shared egress
+    # CA) is rejected at session start — there is no raw-network fallback.
+    # DAIV additionally injects a runtime-only, never-stored allow-rule for the run's git platform so the
+    # repo's platform is reachable for git-over-HTTPS — credentialed whenever a token can be minted. Because
+    # DAIV pushes from inside the sandbox, this rule is injected even when ``egress`` is ``None`` *if* the run
+    # holds a real push token: such a network-off env is opened into a minimal deny-all base carrying only
+    # the git-platform rule (everything else stays blocked), so DAIV can always publish. A token-less run
+    # (e.g. the SWE eval platform) leaves a ``None`` env fully network-isolated. The reserved secret name
+    # ``__daiv_git_platform__`` (``_validate_egress`` rejects an env that uses it) backs the rule; it is
+    # prepended so it wins by first-match over a same-host user rule, and is not shown in the UI.
+    egress_policy = models.JSONField(_("egress policy"), null=True, blank=True, default=None)
+    _egress_secrets_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL = no secrets
+    egress_secrets = EncryptedJSONFieldDescriptor("egress_secrets")
 
     objects = SandboxEnvironmentQuerySet.as_manager()
 
@@ -128,14 +148,25 @@ class SandboxEnvironment(TimeStampedModel):
         ]
 
     def __init__(self, *args, **kwargs) -> None:
-        # Route ``env_vars`` through the descriptor so ``Manager.create(env_vars=...)`` works.
+        # Route ``env_vars``/``egress_secrets`` through their descriptors so ``Manager.create(...)`` works.
         env_vars_value = kwargs.pop("env_vars", _UNSET)
+        egress_secrets_value = kwargs.pop("egress_secrets", _UNSET)
         super().__init__(*args, **kwargs)
         if env_vars_value is not _UNSET:
             self.env_vars = env_vars_value
+        if egress_secrets_value is not _UNSET:
+            self.egress_secrets = egress_secrets_value
 
     def __str__(self) -> str:
         return f"{self.get_scope_display()}: {self.name}"
+
+    @property
+    def is_networked(self) -> bool:
+        """True iff this env grants network access. Network is derived solely from the presence of an
+        egress policy (there is no separate flag): a non-null ``egress_policy`` routes the session
+        through the egress proxy, ``None`` runs it network-isolated. Single source of truth for the
+        derivation used by ``summary``, the form, the services layer, and the MCP server."""
+        return self.egress_policy is not None
 
     @property
     def summary(self) -> str:
@@ -144,7 +175,7 @@ class SandboxEnvironment(TimeStampedModel):
         Format: ``"<base_image> · <N> CPU · <memory> · net"`` with each
         segment omitted when its source value is missing. Memory renders
         as ``GiB`` for whole-GiB values, ``MiB`` otherwise. Network is
-        included only when explicitly enabled (True)."""
+        included only when an egress policy is configured."""
         parts: list[str] = []
         if self.base_image:
             parts.append(self.base_image)
@@ -152,19 +183,19 @@ class SandboxEnvironment(TimeStampedModel):
             parts.append(f"{_fmt_cpus(self.cpus)} CPU")
         if self.memory_bytes is not None:
             parts.append(_fmt_memory(self.memory_bytes))
-        if self.network_enabled is True:
+        if self.is_networked:
             parts.append("net")
         return " · ".join(parts)
 
     @property
     def short_summary(self) -> str:
         """Compact ``"<base_image>"`` description, with ``" · net"`` appended
-        when network access is explicitly enabled. Segments are omitted when
-        their source value is missing."""
+        when an egress policy is configured. Segments are omitted when their
+        source value is missing."""
         parts: list[str] = []
         if self.base_image:
             parts.append(self.base_image)
-        if self.network_enabled is True:
+        if self.is_networked:
             parts.append("net")
         return " · ".join(parts)
 
@@ -196,6 +227,7 @@ class SandboxEnvironment(TimeStampedModel):
         self.base_image = self.base_image.strip()
         self._validate_env_vars()
         self._validate_repo_ids()
+        self._validate_egress()
 
     def _validate_env_vars(self) -> None:
         from core.encryption import DecryptionError
@@ -270,6 +302,56 @@ class SandboxEnvironment(TimeStampedModel):
                     "repo_ids": _("Repo id(s) %(repos)s already claimed by environment '%(name)s'.")
                     % {"repos": ", ".join(overlap), "name": other.name}
                 })
+
+    def _validate_egress(self) -> None:
+        from pydantic import ValidationError as PydanticValidationError
+
+        from core.encryption import DecryptionError
+        from core.sandbox.schemas import EgressConfigRequest
+
+        if self.egress_policy is None:
+            return  # no egress configured
+        if not isinstance(self.egress_policy, dict):
+            raise ValidationError({"egress_policy": _("Egress policy must be an object.")})
+
+        raw = self._egress_secrets_encrypted or ""
+        if len(raw) > EGRESS_SECRETS_MAX_ENCRYPTED_SIZE:
+            raise ValidationError({"egress_secrets": _("Egress secrets exceed 32 KiB encrypted.")})
+        try:
+            secrets_raw = self.egress_secrets or {}
+        except DecryptionError as err:
+            raise ValidationError({
+                NON_FIELD_ERRORS: _(
+                    "Existing egress secrets could not be decrypted. Re-enter all secret values, "
+                    "or restore DAIV_ENCRYPTION_KEY."
+                )
+            }) from err
+        if not isinstance(secrets_raw, dict):
+            raise ValidationError({"egress_secrets": _("Egress secrets must be an object.")})
+        if len(self.egress_policy.get("rules") or []) > EGRESS_MAX_RULES:
+            raise ValidationError({"egress_policy": _("Too many egress rules (max %d).") % EGRESS_MAX_RULES})
+        if len(secrets_raw) > EGRESS_MAX_SECRETS:
+            raise ValidationError({"egress_secrets": _("Too many egress secrets (max %d).") % EGRESS_MAX_SECRETS})
+
+        # Authoritative shape + inject-resolves check (count/size caps handled above): build the wire request.
+        try:
+            request = EgressConfigRequest.from_stored(self.egress_policy, secrets_raw)
+        except (PydanticValidationError, TypeError, ValueError) as err:
+            raise ValidationError({"egress_policy": _("Invalid egress configuration: %s") % err}) from err
+
+        # The git-platform secret name is reserved: apply_platform_egress overwrites that key (and
+        # prepends a rule injecting it) at runtime, so a stored secret/inject of the same name would be
+        # silently displaced. Reject it at save time. Checked on the validated request so the rule/secret
+        # shape stays owned by from_stored rather than re-walked here.
+        from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
+
+        if PLATFORM_EGRESS_SECRET_NAME in request.secrets or any(
+            rule.inject == PLATFORM_EGRESS_SECRET_NAME for rule in request.policy.rules
+        ):
+            raise ValidationError({
+                "egress_secrets": _("The egress secret name '%s' is reserved for DAIV's git-platform credential.")
+                % PLATFORM_EGRESS_SECRET_NAME
+            })
 
     def promote_as_default(self) -> None:
         """Atomically demote any other GLOBAL default and mark this env as default.

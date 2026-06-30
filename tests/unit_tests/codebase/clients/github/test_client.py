@@ -426,3 +426,27 @@ class TestGitHubClient:
         result = github_client.get_merge_request_by_branches("owner/repo", "feat-x", "main")
 
         assert result is None
+
+    def test_get_git_egress_credential_uses_installation_token(self, github_client):
+        import base64
+        from unittest.mock import Mock
+
+        github_client._integration.get_access_token.return_value = Mock(token="ghs-install")  # noqa: S106
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+
+        cred = github_client.get_git_egress_credential(repository)
+
+        assert cred.host == "github.com"
+        assert cred.header == "Authorization"
+        assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:ghs-install").decode()
+        github_client._integration.get_access_token.assert_called_once_with(
+            github_client.client_installation.id, permissions={"contents": "write"}
+        )

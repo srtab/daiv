@@ -4,6 +4,7 @@ from unittest.mock import Mock, call, patch
 from django.core.exceptions import ImproperlyConfigured
 
 import pytest
+from git import GitCommandError
 from gitlab.exceptions import GitlabCreateError, GitlabGetError
 
 from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
@@ -13,6 +14,26 @@ from codebase.clients.gitlab.client import (
     GitLabClient,
     _is_source_branch_missing_error,
 )
+
+
+def test_git_egress_credential_for_token_builds_basic_oauth2_header():
+    import base64
+
+    from codebase.clients.base import GitEgressCredential
+
+    cred = GitEgressCredential.for_token(host="gitlab.example.com", token="tok-123")  # noqa: S106
+    assert cred.host == "gitlab.example.com"
+    assert cred.header == "Authorization"
+    assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:tok-123").decode()
+
+
+def test_git_egress_credential_for_token_none_when_no_token():
+    from codebase.clients.base import GitEgressCredential
+
+    cred = GitEgressCredential.for_token(host="gitlab.example.com", token=None)
+    assert cred.host == "gitlab.example.com"
+    assert cred.value is None
+
 
 _POSITION = {
     "position_type": "text",
@@ -154,6 +175,90 @@ class TestGitLabClient:
             pass
 
         clone_from.assert_not_called()
+
+    def test_load_repo_retries_with_fresh_token_when_cached_ephemeral_is_rejected(self, gitlab_client, clone_setup):
+        """A cached ephemeral token GitLab now rejects must be dropped and re-minted, not left to
+        wedge every clone of this project for the rest of the cache window."""
+        repository, clone_from, _ = clone_setup
+        mock_repo = clone_from.return_value
+        auth_error = GitCommandError(
+            "git clone", 128, "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://...'"
+        )
+        clone_from.side_effect = [auth_error, mock_repo]
+
+        with (
+            patch(
+                "codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", "glpat-fresh"]
+            ),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            gitlab_client.load_repo(repository, "main") as loaded_repo,
+        ):
+            assert loaded_repo == mock_repo
+
+        invalidate.assert_called_once_with(1)
+        assert clone_from.call_count == 2
+        assert clone_from.call_args_list[0].args[0] == "https://oauth2:glpat-stale@gitlab.com/group/repo.git"
+        assert clone_from.call_args_list[1].args[0] == "https://oauth2:glpat-fresh@gitlab.com/group/repo.git"
+
+    def test_load_repo_retries_exactly_once_then_propagates_when_fresh_token_also_rejected(
+        self, gitlab_client, clone_setup
+    ):
+        """The self-heal retries at most once: if the freshly minted token is also rejected, the
+        second failure propagates rather than looping. Pins 'retry once, then give up'."""
+        repository, clone_from, _ = clone_setup
+        auth_error = GitCommandError(
+            "git clone", 128, "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://...'"
+        )
+        clone_from.side_effect = [auth_error, auth_error]
+
+        with (
+            patch(
+                "codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", "glpat-fresh"]
+            ),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            pytest.raises(GitCommandError),
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        invalidate.assert_called_once_with(1)
+        assert clone_from.call_count == 2
+
+    def test_load_repo_does_not_retry_when_the_clone_used_the_pat(self, gitlab_client, clone_setup):
+        """Re-minting can't fix a clone that already used the PAT directly (no ephemeral token to
+        evict), so an auth-rejected PAT clone must surface immediately, not retry."""
+        repository, clone_from, _ = clone_setup
+        clone_from.side_effect = GitCommandError("git clone", 128, "fatal: Authentication failed for 'https://...'")
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            pytest.raises(GitCommandError),
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        invalidate.assert_not_called()
+        assert clone_from.call_count == 1
+
+    def test_load_repo_does_not_retry_non_auth_clone_failures(self, gitlab_client, clone_setup):
+        """A missing branch (or any non-auth 128) won't be fixed by a fresh credential, so it must
+        not trigger the token-rotation retry."""
+        repository, clone_from, _ = clone_setup
+        clone_from.side_effect = GitCommandError(
+            "git clone", 128, "fatal: Remote branch nope not found in upstream origin"
+        )
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            pytest.raises(GitCommandError),
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        invalidate.assert_not_called()
+        assert clone_from.call_count == 1
 
     def test_create_merge_request_inline_discussion_sends_position_payload(self, gitlab_client):
         """create_merge_request_inline_discussion must pass body + position dict to discussions.create."""
@@ -611,3 +716,38 @@ class TestGitLabClient:
         result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
 
         assert result is None
+
+    def _egress_repo(self):
+        return Repository(
+            pk=42,
+            slug="group/repo",
+            name="repo",
+            clone_url="https://gitlab.example.com/group/repo.git",
+            html_url="https://gitlab.example.com/group/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITLAB,
+        )
+
+    def test_get_git_egress_credential_uses_ephemeral_clone_token(self, gitlab_client):
+        import base64
+
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"):
+            cred = gitlab_client.get_git_egress_credential(self._egress_repo())
+        assert cred.host == "gitlab.example.com"
+        assert cred.header == "Authorization"
+        assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:glpat-eph").decode()
+
+    def test_get_git_egress_credential_falls_back_to_pat(self, gitlab_client):
+        import base64
+
+        gitlab_client.client.private_token = "pat-token"  # noqa: S105
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            cred = gitlab_client.get_git_egress_credential(self._egress_repo())
+        assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:pat-token").decode()
+
+    def test_get_git_egress_credential_no_token_returns_host_only(self, gitlab_client):
+        gitlab_client.client.private_token = None
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            cred = gitlab_client.get_git_egress_credential(self._egress_repo())
+        assert cred.host == "gitlab.example.com"
+        assert cred.value is None

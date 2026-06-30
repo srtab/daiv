@@ -12,6 +12,7 @@ from codebase.exceptions import SingleRepoRequiredError
 from codebase.repo_config import RepositoryConfig  # noqa: TC001
 from core.sandbox.client import DAIVSandboxClient, reset_run_sandbox_client, set_run_sandbox_client
 from core.sandbox.command_policy import SandboxCommandPolicy  # noqa: TC001
+from core.sandbox.schemas import EgressConfigRequest  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -33,11 +34,11 @@ class SandboxRuntime:
     """
 
     base_image: str | None
-    network_enabled: bool
     memory_bytes: int | None
     cpus: float | None
     env_vars: dict[str, str]
     command_policy: SandboxCommandPolicy
+    egress: EgressConfigRequest | None = None
 
     @property
     def enabled(self) -> bool:
@@ -145,6 +146,7 @@ async def set_runtime_ctx(
         RuntimeCtx: The runtime context
     """
     from sandbox_envs.services import (
+        augment_sandbox_with_platform_egress,
         get_global_default,
         merge_sandbox_runtime,
         resolve_env_for_run,
@@ -181,6 +183,13 @@ async def set_runtime_ctx(
 
     try:
         with repo_client.load_repo(repository, sha=ref) as repo:
+            # Always reach + authenticate the repo's git platform for git-over-HTTPS in the sandbox — DAIV
+            # pushes from inside the sandbox, so even a network-off env is opened for the platform host when
+            # a token can be minted. Runtime-only (never stored on the env); a no-op only when the sandbox is
+            # disabled, or when network is off and no platform token is available (e.g. eval runs).
+            # Resolved AFTER the clone so it sees any token the clone's self-heal re-minted (a pre-clone
+            # credential would pin the egress proxy to the stale token the clone just discarded).
+            sandbox = augment_sandbox_with_platform_egress(sandbox, repo_client, repository)
             handle = RepoHandle(
                 repo_id=repo_id,
                 git_platform=repo_client.git_platform,

@@ -3,13 +3,15 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import Base64Bytes, BaseModel, Field, computed_field, field_validator, model_validator
+from pydantic import Base64Bytes, BaseModel, Field, SecretStr, computed_field, field_validator, model_validator
 
 
 class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
-    network_enabled: bool = Field(default=False, description="Whether to enable the network for the session.")
+    egress: EgressConfigRequest | None = Field(
+        default=None, description="Egress policy + secrets; omit to run the session network-isolated."
+    )
     memory_bytes: int | None = Field(default=None, description="Memory in bytes to be used for the session.")
     cpus: float | None = Field(default=None, description="CPUs to be used for the session.")
     environment: dict[str, str] | None = Field(
@@ -226,3 +228,116 @@ class FsDeleteResponse(BaseModel):
     @property
     def ok(self) -> bool:
         return self.error is None
+
+
+# --- Egress proxy wire schemas -----------------------------------------------
+#
+# Mirror of the daiv-sandbox ``Egress*`` schemas; kept structurally identical so the
+# schema-drift test (test_schema_consistency.py) passes. ``value`` is ``SecretStr`` for
+# log redaction — the client sends the plaintext via ``get_secret_value()``.
+
+
+def _reject_crlf(value: str, label: str) -> None:
+    """Reject CR/LF in a value that becomes an HTTP host/header on the wire (header-injection guard)."""
+    if "\r" in value or "\n" in value:
+        raise ValueError(f"{label} must not contain CR or LF")
+
+
+class EgressRule(BaseModel):
+    host: str = Field(description="Destination host glob (e.g. 'github.com', '*.githubusercontent.com').")
+    methods: list[str] = Field(default_factory=lambda: ["*"], description="Allowed HTTP methods, or ['*'] for any.")
+    inject: str | None = Field(default=None, description="Name of the secret whose header is injected for this host.")
+
+    @field_validator("methods", mode="after")
+    @classmethod
+    def _upper(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("methods must not be empty; use ['*'] to allow all methods")
+        return [m.upper() for m in value]
+
+    @field_validator("host", mode="after")
+    @classmethod
+    def _host_safe(cls, value: str) -> str:
+        # Enforced on the type, not just the form: from_stored() and apply_platform_egress() build
+        # rules outside the form, so a blank host or a CR/LF-smuggled host must be rejected here too.
+        _reject_crlf(value, "host")
+        host = value.strip()
+        if not host:
+            raise ValueError("host must not be blank")
+        return host
+
+
+class EgressSecret(BaseModel):
+    header: str = Field(description="Header name to set (e.g. 'Authorization', 'PRIVATE-TOKEN').")
+    value: SecretStr = Field(description="Header value; redacted in logs/repr.")
+
+    @field_validator("header", mode="after")
+    @classmethod
+    def _header_safe(cls, value: str) -> str:
+        # Header-injection guard at the parse boundary, covering from_stored() (drifted row) and
+        # apply_platform_egress() too — not only the form's clean_egress_json.
+        _reject_crlf(value, "header name")
+        if not value.strip():
+            raise ValueError("header name must not be blank")
+        return value
+
+    @field_validator("value", mode="after")
+    @classmethod
+    def _value_safe(cls, value: SecretStr) -> SecretStr:
+        _reject_crlf(value.get_secret_value(), "header value")
+        return value
+
+
+class EgressPolicy(BaseModel):
+    default: Literal["deny", "allow"] = Field(default="deny", description="Reachability for unlisted hosts.")
+    intercept: Literal["all", "credentialed"] = Field(
+        default="all", description="'all' MITMs every reachable host; 'credentialed' MITMs only inject hosts."
+    )
+    rules: list[EgressRule] = Field(default_factory=list)
+
+
+class EgressConfigRequest(BaseModel):
+    policy: EgressPolicy = Field(default_factory=EgressPolicy)
+    secrets: dict[str, EgressSecret] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _injects_resolve(self) -> EgressConfigRequest:
+        for rule in self.policy.rules:
+            if rule.inject is not None and rule.inject not in self.secrets:
+                raise ValueError(f"rule for host {rule.host!r} references unknown secret {rule.inject!r}")
+        return self
+
+    @classmethod
+    def from_stored(cls, policy: dict, secrets: dict) -> EgressConfigRequest:
+        """Build a wire request from a stored ``egress_policy`` dict + decrypted ``egress_secrets`` dict.
+
+        Single source of truth for how persisted egress config maps onto the wire schemas (including
+        the inject-resolves invariant). Raises ``pydantic.ValidationError`` / ``TypeError`` / ``ValueError``
+        on a malformed stored shape; callers decide how to react (reject on save vs. fail-closed at runtime).
+        """
+        return cls(
+            policy=EgressPolicy.model_validate(policy), secrets={name: EgressSecret(**s) for name, s in secrets.items()}
+        )
+
+    def to_wire(self) -> dict:
+        """Serialise this request for the ``POST /session/`` ``egress`` block with **plaintext** secrets.
+
+        ``model_dump`` masks ``SecretStr`` (sending the mask would break credential injection at the
+        sidecar), so each secret value is unwrapped here via ``get_secret_value()``. This is the single
+        place that maps the typed request onto the wire shape — the client calls it instead of
+        hand-building the dict, so any new field added to ``EgressPolicy``/``EgressRule`` flows through
+        ``policy`` automatically rather than being silently dropped.
+        """
+        return {
+            "policy": self.policy.model_dump(mode="json"),
+            "secrets": {
+                name: {"header": s.header, "value": s.value.get_secret_value()} for name, s in self.secrets.items()
+            },
+        }
+
+
+class EgressConfigResponse(BaseModel):
+    ok: bool = Field(default=True, description="True when the policy was provisioned to the sidecar.")
+
+
+StartSessionRequest.model_rebuild()

@@ -291,6 +291,21 @@ def _make_global_skills_archive() -> bytes | None:
     return buf.getvalue()
 
 
+class SandboxEgressUnavailableError(RuntimeError):
+    """Raised when a session's resolved egress policy cannot be provisioned because the sandbox has
+    no egress proxy configured (no shared egress CA). daiv-sandbox rejects such a session up front
+    with HTTP 400 and a detail naming the egress proxy (see its ``POST /session/`` handler).
+    Fail-closed: an environment that requires a restricted egress policy must not run without that
+    policy in force."""
+
+
+# Substring that distinguishes the "egress proxy not configured" 400 from any other create-time 400.
+# Couples to daiv-sandbox's FastAPI ``detail`` ("egress requires the egress proxy, which is not
+# configured on this deployment" — its ``POST /session/`` handler). The sandbox exposes no
+# machine-readable error code, so this is the single greppable point of that prose coupling.
+_EGRESS_PROXY_UNAVAILABLE_MARKER = "egress proxy"
+
+
 class BashFailure(Enum):
     """Why a bash invocation produced no result, mapped to the guidance the agent gets.
 
@@ -522,15 +537,32 @@ class SandboxMiddleware(AgentMiddleware):
             return {"session_id": prior_session_id}
 
         sb = runtime.context.sandbox
-        session_id = await client.start_session(
-            StartSessionRequest(
-                base_image=sb.base_image,
-                network_enabled=sb.network_enabled,
-                memory_bytes=sb.memory_bytes,
-                cpus=sb.cpus,
-                environment=sb.env_vars or None,
+        try:
+            session_id = await client.start_session(
+                StartSessionRequest(
+                    base_image=sb.base_image,
+                    egress=sb.egress,
+                    memory_bytes=sb.memory_bytes,
+                    cpus=sb.cpus,
+                    environment=sb.env_vars or None,
+                )
             )
-        )
+        except httpx.HTTPStatusError as exc:
+            # A network-enabled env on a sandbox with no egress proxy (no shared CA) is rejected up
+            # front with HTTP 400 (see _EGRESS_PROXY_UNAVAILABLE_MARKER). Match that specific signal so
+            # an unrelated 400 (e.g. an invalid base image) re-raises as-is instead of being mislabelled.
+            detail = (exc.response.text or "").lower()
+            if exc.response.status_code == 400 and _EGRESS_PROXY_UNAVAILABLE_MARKER in detail:
+                logger.error(
+                    "Sandbox rejected egress-required session (400): the egress proxy/CA is not configured "
+                    "on the sandbox deployment. Aborting run (fail-closed)."
+                )
+                raise SandboxEgressUnavailableError(
+                    "The resolved sandbox environment requires the egress proxy, but the sandbox rejected "
+                    "the session (400). Configure the shared egress CA (DAIV_SANDBOX_EGRESS_CA_CERT_FILE + "
+                    "DAIV_SANDBOX_EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
+                ) from exc
+            raise
         try:
             working_dir = Path(runtime.context.gitrepo.working_dir)
             repo_archive, skills_archive = await asyncio.gather(
@@ -538,6 +570,7 @@ class SandboxMiddleware(AgentMiddleware):
             )
             await client.seed_session(session_id, repo_archive=repo_archive, skills_archive=skills_archive)
         except Exception:
+            # Build/seed failure on an already-created session (the egress-unavailable case fails earlier).
             logger.exception("Failed to build or seed sandbox session %s", session_id)
             try:
                 await client.close_session(session_id, force=True)

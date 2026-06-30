@@ -47,6 +47,11 @@ _SHARED_TYPES = [
     "FsEditResponse",
     "FsDeleteRequest",
     "FsDeleteResponse",
+    "EgressRule",
+    "EgressSecret",
+    "EgressPolicy",
+    "EgressConfigRequest",
+    "EgressConfigResponse",
 ]
 
 # Types that exist on both sides but are deliberately allowed to diverge.

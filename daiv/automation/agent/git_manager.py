@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from git import GitCommandError
 
 from automation.agent.constants import REPO_PATH
+from core.utils import is_git_auth_error_text
 
 if TYPE_CHECKING:
     from git import Repo
@@ -366,29 +367,12 @@ class GitPushPermissionError(RuntimeError):
 class GitPushNetworkError(RuntimeError):
     """Raised when pushing fails because the remote host is unreachable.
 
-    Typically a sandbox-authoritative run whose sandbox environment is configured with
-    ``network_enabled=False``: git runs (and therefore pushes) from inside the sandbox, so the
-    sandbox must have network access for the push to reach ``origin``.
+    git runs (and therefore pushes) from inside the sandbox, so the sandbox must be able to reach
+    ``origin``'s git platform. DAIV opens that host automatically whenever a platform token can be
+    minted — even on a network-off env — so this typically means the egress proxy is unavailable, or
+    the run is one that legitimately has no platform token (e.g. an eval/benchmark run) and so stays
+    fully network-isolated.
     """
-
-
-def _is_push_auth_error_text(output: str) -> bool:
-    """
-    Check if git push output indicates an authentication or permission failure.
-    """
-    text = output.lower()
-    return any(
-        marker in text
-        for marker in (
-            "returned error: 403",
-            "authentication failed",
-            "permission denied",
-            "access denied",
-            "http basic: access denied",
-            "could not read username",
-            "not authorized",
-        )
-    )
 
 
 def _is_push_network_error_text(output: str) -> bool:
@@ -420,7 +404,7 @@ def _raise_for_push_failure(push_args: list[str], result: _GitResult) -> None:
     Auth/permission → ``GitPushPermissionError``; an unreachable host → ``GitPushNetworkError``;
     anything else → the raw ``GitCommandError``. Auth is checked first so it always wins.
     """
-    if _is_push_auth_error_text(result.output):
+    if is_git_auth_error_text(result.output):
         logger.warning("git push auth failure: %s", result.output)
         raise GitPushPermissionError(
             "Failed to push changes to the remote repository due to authentication or permission issues. "
@@ -432,7 +416,7 @@ def _raise_for_push_failure(push_args: list[str], result: _GitResult) -> None:
         logger.warning("git push network failure: %s", result.output)
         raise GitPushNetworkError(
             "Failed to push changes: the remote host is unreachable. Sandbox-authoritative auto-commit "
-            "pushes from inside the sandbox, so the sandbox environment must run with network access "
-            "(network_enabled=True)."
+            "pushes from inside the sandbox, so the sandbox environment must run as an egress-enabled "
+            "sandbox."
         )
     raise GitCommandError(["git", *push_args], result.exit_code, result.output)

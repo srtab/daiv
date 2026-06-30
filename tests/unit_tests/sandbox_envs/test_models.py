@@ -315,7 +315,7 @@ def test_summary_returns_all_segments_joined(user):
         base_image="rust:1.83",
         cpus=Decimal("2"),
         memory_bytes=4 * 2**30,
-        network_enabled=True,
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
     )
     assert env.summary == "rust:1.83 · 2 CPU · 4 GiB · net"
 
@@ -328,11 +328,17 @@ def test_summary_omits_missing_segments(user):
 
 @pytest.mark.django_db
 def test_summary_includes_network_only_when_explicitly_enabled(user):
+    # No egress_policy ⇒ network off ⇒ no "net" segment
     env_off = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="off", base_image="alpine", network_enabled=False
+        scope=Scope.USER, user=user, name="off", base_image="alpine", egress_policy=None
     )
+    # egress_policy set ⇒ network on ⇒ "net" segment present
     env_on = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="on", base_image="alpine", network_enabled=True
+        scope=Scope.USER,
+        user=user,
+        name="on",
+        base_image="alpine",
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
     )
     assert "net" not in env_off.summary
     assert "net" in env_on.summary
@@ -347,15 +353,16 @@ def test_short_summary_joins_base_image_and_net(user):
         base_image="rust:1.83",
         cpus=Decimal("2"),
         memory_bytes=4 * 2**30,
-        network_enabled=True,
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
     )
     assert env.short_summary == "rust:1.83 · net"
 
 
 @pytest.mark.django_db
 def test_short_summary_omits_net_when_disabled(user):
+    # No egress_policy ⇒ network off ⇒ short_summary has no "net" segment
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="dev", base_image="alpine:3.20", network_enabled=False
+        scope=Scope.USER, user=user, name="dev", base_image="alpine:3.20", egress_policy=None
     )
     assert env.short_summary == "alpine:3.20"
 
@@ -402,3 +409,130 @@ def test_can_delete_allows_user_env(user):
 def test_can_delete_allows_non_default_global(_clear_global_envs):
     env = SandboxEnvironment.objects.create(scope=Scope.GLOBAL, name="g", base_image="g", is_default=False)
     assert env.can_delete() == (True, None)
+
+
+def _egress_env(**over):
+    """Unsaved GLOBAL env carrying an egress config, for clean()/validator unit tests."""
+    base = {
+        "scope": Scope.GLOBAL,
+        "name": "egress",
+        "base_image": "python:3.12",
+        "egress_policy": {
+            "default": "deny",
+            "intercept": "credentialed",
+            "rules": [{"host": "*.github.com", "methods": ["GET"], "inject": "gh"}],
+        },
+        "egress_secrets": {"gh": {"header": "Authorization", "value": "Bearer t"}},
+    }
+    base.update(over)
+    return SandboxEnvironment(**base)
+
+
+def test_validate_egress_accepts_valid_config():
+    _egress_env()._validate_egress()  # must not raise
+
+
+def test_validate_egress_rejects_dangling_inject():
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(egress_secrets={})  # rule injects "gh" but no such secret
+    with pytest.raises(ValidationError):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_bad_default():
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(egress_policy={"default": "sometimes", "intercept": "all", "rules": []})
+    with pytest.raises(ValidationError):
+        env._validate_egress()
+
+
+def test_egress_secrets_encrypted_at_rest():
+    env = _egress_env()
+    assert env._egress_secrets_encrypted  # ciphertext populated by the descriptor
+    assert "Bearer t" not in env._egress_secrets_encrypted
+
+
+def test_validate_egress_rejects_too_many_rules():
+    from django.core.exceptions import ValidationError
+
+    from sandbox_envs.models import EGRESS_MAX_RULES
+
+    rules = [{"host": f"h{i}.example"} for i in range(EGRESS_MAX_RULES + 1)]
+    env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": rules}, egress_secrets={})
+    with pytest.raises(ValidationError, match="Too many egress rules"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_too_many_secrets():
+    from django.core.exceptions import ValidationError
+
+    from sandbox_envs.models import EGRESS_MAX_SECRETS
+
+    secrets = {f"s{i}": {"header": "Authorization", "value": "v"} for i in range(EGRESS_MAX_SECRETS + 1)}
+    env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": []}, egress_secrets=secrets)
+    with pytest.raises(ValidationError, match="Too many egress secrets"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_non_dict_policy():
+    """A hand-edited/drifted row whose egress_policy is not an object is rejected (defence-in-depth:
+    the form always produces a dict, but a tampered row must not reach from_stored)."""
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(egress_policy=["not", "a", "dict"], egress_secrets={})
+    with pytest.raises(ValidationError, match="must be an object"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_non_dict_secrets():
+    """Decrypted egress_secrets that is not an object is rejected before from_stored iterates it."""
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": []}, egress_secrets=["nope"])
+    with pytest.raises(ValidationError, match="must be an object"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_oversized_secrets_blob():
+    """The encrypted secrets blob is capped at 32 KiB to bound payload size reaching the sidecar."""
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(
+        egress_policy={"default": "deny", "intercept": "all", "rules": []},
+        egress_secrets={"big": {"header": "Authorization", "value": "x" * 40000}},
+    )
+    with pytest.raises(ValidationError, match="32 KiB"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_reserved_platform_secret_name():
+    """A user-defined egress secret named ``__daiv_git_platform__`` (or a rule injecting it) must be
+    rejected at save time: ``apply_platform_egress`` overwrites that key at runtime, so allowing it in
+    stored config would let a user silently shadow DAIV's authenticated git-platform credential."""
+    from django.core.exceptions import ValidationError
+
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME
+
+    env = _egress_env(
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "example.com", "methods": ["GET"], "inject": PLATFORM_EGRESS_SECRET_NAME}],
+        },
+        egress_secrets={PLATFORM_EGRESS_SECRET_NAME: {"header": "Authorization", "value": "Bearer t"}},
+    )
+    with pytest.raises(ValidationError, match="reserved"):
+        env._validate_egress()
+
+
+@pytest.mark.django_db
+def test_summary_marks_net_when_egress_policy_present():
+    on = SandboxEnvironment(
+        scope=Scope.GLOBAL, name="on", base_image="python:3.14", egress_policy={"default": "allow", "rules": []}
+    )
+    off = SandboxEnvironment(scope=Scope.GLOBAL, name="off", base_image="python:3.14", egress_policy=None)
+    assert "net" in on.summary and "net" in on.short_summary
+    assert "net" not in off.summary and "net" not in off.short_summary
+    assert not hasattr(off, "network_enabled")

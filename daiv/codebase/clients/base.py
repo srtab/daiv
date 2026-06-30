@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import abc
+import base64
 import functools
 import logging
 from contextlib import contextmanager
+from dataclasses import dataclass
 from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
+
+from pydantic import SecretStr
 
 from codebase.base import (
     Discussion,
@@ -39,6 +43,29 @@ class WebhookSetupResult(StrEnum):
     CREATED = "created"
     UPDATED = "updated"
     SKIPPED = "skipped"
+
+
+@dataclass(frozen=True)
+class GitEgressCredential:
+    """Egress-proxy contribution for a repo's git platform: which host to allow and the
+    ``Authorization`` header to inject so git-over-HTTPS in the sandbox is authenticated.
+
+    ``value`` is ``None`` when no token could be provisioned — the host is still returned so
+    reachability works (the repo's origin remote authenticates via its ``.git/config`` token)."""
+
+    host: str
+    header: str = "Authorization"
+    value: SecretStr | None = None
+
+    @classmethod
+    def for_token(cls, *, host: str, token: str | None) -> GitEgressCredential:
+        """Build a credential injecting ``Authorization: Basic base64("oauth2:<token>")`` —
+        the same shape DAIV's clone URL uses. ``value`` is ``None`` when ``token`` is falsy."""
+        value = None
+        if token:
+            encoded = base64.b64encode(f"oauth2:{token}".encode()).decode()
+            value = SecretStr(f"Basic {encoded}")
+        return cls(host=host, value=value)
 
 
 class RepoClient(abc.ABC):
@@ -109,6 +136,26 @@ class RepoClient(abc.ABC):
     @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
         pass
+
+    def get_git_egress_credential(self, repository: Repository) -> GitEgressCredential | None:
+        """Egress allow-rule + credential for this repo's git platform, or ``None`` for platforms
+        that need none. Resolved per run because the host is repo-derived and the token is
+        short-lived — never stored on the environment.
+
+        The shared shape lives here — derive the host from the clone URL, then build a
+        ``Basic oauth2:<token>`` credential. Platforms supply only the token via
+        :meth:`_git_egress_token` (overriding this method is unnecessary)."""
+        from urllib.parse import urlparse
+
+        host = urlparse(repository.clone_url).hostname
+        if not host:
+            return None
+        return GitEgressCredential.for_token(host=host, token=self._git_egress_token(repository))
+
+    def _git_egress_token(self, repository: Repository) -> str | None:
+        """Short-lived token authenticating git-over-HTTPS for this repo's platform, or ``None`` for
+        platforms that need no credential (host-only reachability). Overridden by GitLab/GitHub."""
+        return None
 
     # Issue
     @abc.abstractmethod

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import uuid
 
 from django import forms
 from django.utils.translation import gettext_lazy as _
@@ -13,8 +15,17 @@ logger = logging.getLogger("daiv.sandbox_envs")
 MIB = 2**20
 GIB = 2**30
 _MEMORY_UNITS = {"MiB": MIB, "GiB": GIB}
-_NETWORK_TO_CHOICE = {None: "default", True: "on", False: "off"}
-_CHOICE_TO_NETWORK = {"default": None, "on": True, "off": False}
+# Valid HTTP field-name token (RFC 7230 §3.2.6). Rejects whitespace, ':' and control
+# chars so a crafted header name can't smuggle a CR/LF header-injection into the sidecar.
+_HEADER_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+# Placeholder shown for an unchanged secret; a submitted value equal to this (or "") means
+# "keep the stored value" on edit. The JS editor and MCP read path emit the same string.
+_MASK_SENTINEL = "******"
+
+
+def _empty_egress_state() -> dict:
+    """The egress editor's no-policy initial state (deny-all, no hosts). A fresh dict per call."""
+    return {"default": "deny", "hosts": []}
 
 
 class SandboxEnvironmentForm(forms.ModelForm):
@@ -27,11 +38,10 @@ class SandboxEnvironmentForm(forms.ModelForm):
 
     env_vars_json = forms.CharField(required=False, widget=forms.HiddenInput())
     repo_ids_json = forms.CharField(required=False, widget=forms.HiddenInput())
+    egress_json = forms.CharField(required=False, widget=forms.HiddenInput())
     memory_value = forms.IntegerField(required=False, min_value=1)
     memory_unit = forms.ChoiceField(required=False, choices=[("MiB", "MiB"), ("GiB", "GiB")], initial="MiB")
-    network_choice = forms.ChoiceField(
-        required=False, choices=[("default", _("Use default")), ("on", _("On")), ("off", _("Off"))], initial="default"
-    )
+    network_choice = forms.ChoiceField(required=False, choices=[("on", _("On")), ("off", _("Off"))], initial="off")
     memory_mode = forms.ChoiceField(
         required=False, choices=[("default", "default"), ("custom", "custom")], initial="default"
     )
@@ -60,7 +70,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.fields["scope"].initial = Scope.USER
         instance = self.instance
         if instance.pk is not None:
-            self.initial.setdefault("network_choice", _NETWORK_TO_CHOICE[instance.network_enabled])
+            self.initial.setdefault("network_choice", "on" if instance.is_networked else "off")
             if instance.memory_bytes:
                 if instance.memory_bytes % GIB == 0:
                     self.initial.setdefault("memory_value", instance.memory_bytes // GIB)
@@ -72,6 +82,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.initial.setdefault("cpu_mode", "custom" if instance.cpus else "default")
         self.fields["env_vars_json"].initial = self._initial_env_vars_json()
         self.fields["repo_ids_json"].initial = self._initial_repo_ids_json()
+        self.fields["egress_json"].initial = self._initial_egress_json()
 
     def _initial_env_vars_json(self) -> str:
         """JSON string for the env-vars editor's initial state. Secret values
@@ -106,6 +117,42 @@ class SandboxEnvironmentForm(forms.ModelForm):
         if self.instance.pk is None:
             return "[]"
         return json.dumps(list(self.instance.repo_ids or []))
+
+    def _initial_egress_json(self) -> str:
+        """JSON string for the egress editor's initial state. Credential values
+        are masked (rendered as ``""`` with ``has_existing_value``) so decrypted
+        secrets never leak into page HTML. Returns the empty-policy default for
+        unsaved instances, envs with no policy, or when ciphertext can't be
+        decrypted (the POST path still blocks via
+        :meth:`_preserve_unchanged_egress_secrets`)."""
+        from core.encryption import DecryptionError
+
+        empty = json.dumps(_empty_egress_state())
+        if self.instance.pk is None or not self.instance.is_networked:
+            return empty
+        policy = self.instance.egress_policy
+        try:
+            secrets = self.instance.egress_secrets or {}
+        except DecryptionError:
+            logger.error(
+                "egress_secrets decryption failed for SandboxEnvironment id=%s; rendering empty credentials",
+                self.instance.id,
+            )
+            secrets = {}
+        hosts = []
+        for rule in policy.get("rules", []):
+            inject = rule.get("inject")
+            has_cred = bool(inject) and inject in secrets
+            hosts.append({
+                "host": rule.get("host", ""),
+                "methods": rule.get("methods") or ["*"],
+                "secret_name": inject or "",
+                # An absent/unknown inject makes the nested .get fall through to "" on its own.
+                "header": secrets.get(inject, {}).get("header", ""),
+                "value": "",
+                "has_existing_value": has_cred,
+            })
+        return json.dumps({"default": policy.get("default", "deny"), "hosts": hosts})
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]
@@ -174,9 +221,53 @@ class SandboxEnvironmentForm(forms.ModelForm):
             cleaned.append(value)
         return cleaned
 
+    def clean_egress_json(self):
+        raw = (self.cleaned_data.get("egress_json") or "").strip()
+        if not raw:
+            return _empty_egress_state()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as err:
+            raise forms.ValidationError(_("Egress policy must be valid JSON.")) from err
+        if not isinstance(parsed, dict):
+            raise forms.ValidationError(_("Egress policy must be an object."))
+        default = parsed.get("default", "deny")
+        if default not in ("deny", "allow"):
+            raise forms.ValidationError(_("Egress default must be 'deny' or 'allow'."))
+        hosts_raw = parsed.get("hosts")
+        if not isinstance(hosts_raw, list):
+            raise forms.ValidationError(_("Egress hosts must be a list."))
+        hosts: list[dict] = []
+        for idx, entry in enumerate(hosts_raw):
+            if not isinstance(entry, dict):
+                raise forms.ValidationError(_("Egress host at index %d must be an object.") % idx)
+            host = (entry.get("host") or "").strip()
+            if not host:
+                raise forms.ValidationError(_("Egress host at index %d cannot be blank.") % idx)
+            methods = entry.get("methods")
+            if isinstance(methods, list):
+                methods = [str(m).strip().upper() for m in methods if str(m).strip()]
+            if not methods:
+                methods = ["*"]
+            header = (entry.get("header") or "").strip()
+            if header:
+                if not _HEADER_NAME_RE.match(header):
+                    raise forms.ValidationError(_("Invalid credential header name at index %d.") % idx)
+                value = entry.get("value", "")
+                if isinstance(value, str) and ("\r" in value or "\n" in value):
+                    raise forms.ValidationError(_("Credential value at index %d must not contain newlines.") % idx)
+            hosts.append({
+                "host": host,
+                "methods": methods,
+                "header": header,
+                "value": entry.get("value", ""),
+                "secret_name": (entry.get("secret_name") or "").strip(),
+                "has_existing_value": bool(entry.get("has_existing_value")),
+            })
+        return {"default": default, "hosts": hosts}
+
     def clean(self):
         cleaned = super().clean()
-        cleaned["network_enabled"] = _CHOICE_TO_NETWORK[cleaned.get("network_choice") or "default"]
         mv = cleaned.get("memory_value")
         mu = cleaned.get("memory_unit") or "MiB"
         cleaned["memory_bytes"] = mv * _MEMORY_UNITS[mu] if mv else None
@@ -184,12 +275,28 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.add_error("memory_value", _("Enter a memory value or switch back to default."))
         if cleaned.get("cpu_mode") == "custom" and cleaned.get("cpus") is None:
             self.add_error("cpus", _("Enter a CPU value or switch back to default."))
+        choice = cleaned.get("network_choice") or "off"
+        if choice == "off":
+            # Off forces no network regardless of any editor state.
+            policy, secrets = None, {}
+        else:
+            egress_parsed = cleaned.get("egress_json") or _empty_egress_state()
+            policy, secrets = self._build_egress(egress_parsed)
+            if policy is None:
+                # On must permit something: at least one allowed host, or default=allow.
+                self.add_error(
+                    "network_choice",
+                    _(
+                        "Network is On but the egress policy permits nothing. Add at least one allowed host, "
+                        "set the default to allow, or switch Network to Off."
+                    ),
+                )
+        cleaned["egress_policy"], cleaned["egress_secrets"] = policy, secrets
         return cleaned
 
     def save(self, commit: bool = True) -> SandboxEnvironment:
         env_vars = self.cleaned_data.get("env_vars_json") or []
         instance: SandboxEnvironment = super().save(commit=False)
-        instance.network_enabled = self.cleaned_data.get("network_enabled")
         instance.memory_bytes = self.cleaned_data.get("memory_bytes")
         instance.repo_ids = self.cleaned_data.get("repo_ids_json") or []
         if instance.scope == Scope.USER and self.user is not None:
@@ -197,10 +304,71 @@ class SandboxEnvironmentForm(forms.ModelForm):
         if instance.pk is not None:
             env_vars = self._preserve_unchanged_secrets(instance, env_vars)
         instance.env_vars = env_vars
+        egress_secrets = self.cleaned_data.get("egress_secrets") or {}
+        if instance.pk is not None:
+            egress_secrets = self._preserve_unchanged_egress_secrets(instance, egress_secrets)
+        instance.egress_policy = self.cleaned_data.get("egress_policy")
+        instance.egress_secrets = egress_secrets
         if commit:
             instance.full_clean()
             instance.save()
         return instance
+
+    @staticmethod
+    def _build_egress(parsed: dict) -> tuple[dict | None, dict]:
+        """Translate the normalised egress editor state into the stored
+        ``(egress_policy, egress_secrets)`` shapes. A host with a credential
+        synthesises a named secret (``inject``); hosts without one get
+        ``inject=None``.
+
+        Returns ``(None, {})`` only when there are no rules **and** the default
+        is ``deny`` (a deny-all with no allowed hosts stores no policy rather than
+        an explicit deny-all, so re-saving an env without touching egress does not
+        change its runtime behaviour). An allow-default with no rules *does* store
+        a policy (allow-all). To block all outbound traffic, set **Network** to
+        Off instead."""
+        rules: list[dict] = []
+        secrets: dict[str, dict] = {}
+        for host in parsed["hosts"]:
+            inject = None
+            if host["header"]:
+                name = host["secret_name"] or f"s_{uuid.uuid4().hex}"
+                secrets[name] = {"header": host["header"], "value": host["value"]}
+                inject = name
+            rules.append({"host": host["host"], "methods": host["methods"], "inject": inject})
+        if not rules and parsed["default"] != "allow":
+            return None, {}
+        # TLS inspection is not user-configurable: the proxy always intercepts every reachable
+        # host so per-host credentials and method rules are enforceable. Always store "all".
+        policy = {"default": parsed["default"], "intercept": "all", "rules": rules}
+        return policy, secrets
+
+    @staticmethod
+    def _preserve_unchanged_egress_secrets(instance: SandboxEnvironment, submitted: dict) -> dict:
+        """Restore the stored value for any submitted egress secret whose value is
+        the masked sentinel (``""`` or ``"******"``), matched by synthesised
+        ``secret_name`` against the instance's persisted ``egress_secrets``.
+
+        Raises a form-level :class:`ValidationError` if existing ciphertext cannot
+        be decrypted — proceeding would persist the mask and destroy the secret."""
+        from core.encryption import DecryptionError
+
+        try:
+            existing = instance.egress_secrets or {}
+        except DecryptionError as err:
+            raise forms.ValidationError(
+                _(
+                    "Existing egress secrets could not be decrypted. Re-enter all credential values "
+                    "before saving, or restore DAIV_ENCRYPTION_KEY."
+                )
+            ) from err
+        out: dict[str, dict] = {}
+        for name, sec in submitted.items():
+            if sec.get("value", "") in ("", _MASK_SENTINEL) and name in existing:
+                out[name] = {**sec, "value": existing[name].get("value", "")}
+            else:
+                out[name] = sec
+        return out
 
     @staticmethod
     def _preserve_unchanged_secrets(instance: SandboxEnvironment, submitted_rows: list[dict]) -> list[dict]:
@@ -227,7 +395,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
         out: list[dict] = []
         for row in submitted_rows:
             name = row.get("name")
-            if row.get("is_secret") and row.get("value") in ("", "******") and name in existing:
+            if row.get("is_secret") and row.get("value") in ("", _MASK_SENTINEL) and name in existing:
                 row = {**row, "value": existing[name]}
             out.append(row)
         return out

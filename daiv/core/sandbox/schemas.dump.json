@@ -99,6 +99,253 @@
     "title": "ApplyMutationsResponse",
     "type": "object"
   },
+  "EgressConfigRequest": {
+    "$defs": {
+      "EgressPolicy": {
+        "properties": {
+          "default": {
+            "default": "deny",
+            "description": "Reachability for unlisted hosts.",
+            "enum": [
+              "deny",
+              "allow"
+            ],
+            "title": "Default",
+            "type": "string"
+          },
+          "intercept": {
+            "default": "all",
+            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only inject hosts.",
+            "enum": [
+              "all",
+              "credentialed"
+            ],
+            "title": "Intercept",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/EgressRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "title": "EgressPolicy",
+        "type": "object"
+      },
+      "EgressRule": {
+        "properties": {
+          "host": {
+            "description": "Destination host glob (e.g. 'github.com', '*.githubusercontent.com').",
+            "title": "Host",
+            "type": "string"
+          },
+          "inject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Name of the secret whose header is injected for this host.",
+            "title": "Inject"
+          },
+          "methods": {
+            "description": "Allowed HTTP methods, or ['*'] for any.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "title": "EgressRule",
+        "type": "object"
+      },
+      "EgressSecret": {
+        "properties": {
+          "header": {
+            "description": "Header name to set (e.g. 'Authorization', 'PRIVATE-TOKEN').",
+            "title": "Header",
+            "type": "string"
+          },
+          "value": {
+            "description": "Header value; redacted in logs/repr.",
+            "format": "password",
+            "title": "Value",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "header",
+          "value"
+        ],
+        "title": "EgressSecret",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "policy": {
+        "$ref": "#/$defs/EgressPolicy"
+      },
+      "secrets": {
+        "additionalProperties": {
+          "$ref": "#/$defs/EgressSecret"
+        },
+        "title": "Secrets",
+        "type": "object"
+      }
+    },
+    "title": "EgressConfigRequest",
+    "type": "object"
+  },
+  "EgressConfigResponse": {
+    "properties": {
+      "ok": {
+        "default": true,
+        "description": "True when the policy was provisioned to the sidecar.",
+        "title": "Ok",
+        "type": "boolean"
+      }
+    },
+    "title": "EgressConfigResponse",
+    "type": "object"
+  },
+  "EgressPolicy": {
+    "$defs": {
+      "EgressRule": {
+        "properties": {
+          "host": {
+            "description": "Destination host glob (e.g. 'github.com', '*.githubusercontent.com').",
+            "title": "Host",
+            "type": "string"
+          },
+          "inject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Name of the secret whose header is injected for this host.",
+            "title": "Inject"
+          },
+          "methods": {
+            "description": "Allowed HTTP methods, or ['*'] for any.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "title": "EgressRule",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "default": {
+        "default": "deny",
+        "description": "Reachability for unlisted hosts.",
+        "enum": [
+          "deny",
+          "allow"
+        ],
+        "title": "Default",
+        "type": "string"
+      },
+      "intercept": {
+        "default": "all",
+        "description": "'all' MITMs every reachable host; 'credentialed' MITMs only inject hosts.",
+        "enum": [
+          "all",
+          "credentialed"
+        ],
+        "title": "Intercept",
+        "type": "string"
+      },
+      "rules": {
+        "items": {
+          "$ref": "#/$defs/EgressRule"
+        },
+        "title": "Rules",
+        "type": "array"
+      }
+    },
+    "title": "EgressPolicy",
+    "type": "object"
+  },
+  "EgressRule": {
+    "properties": {
+      "host": {
+        "description": "Destination host glob (e.g. 'github.com', '*.githubusercontent.com').",
+        "title": "Host",
+        "type": "string"
+      },
+      "inject": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Name of the secret whose header is injected for this host.",
+        "title": "Inject"
+      },
+      "methods": {
+        "description": "Allowed HTTP methods, or ['*'] for any.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Methods",
+        "type": "array"
+      }
+    },
+    "required": [
+      "host"
+    ],
+    "title": "EgressRule",
+    "type": "object"
+  },
+  "EgressSecret": {
+    "properties": {
+      "header": {
+        "description": "Header name to set (e.g. 'Authorization', 'PRIVATE-TOKEN').",
+        "title": "Header",
+        "type": "string"
+      },
+      "value": {
+        "description": "Header value; redacted in logs/repr.",
+        "format": "password",
+        "title": "Value",
+        "type": "string",
+        "writeOnly": true
+      }
+    },
+    "required": [
+      "header",
+      "value"
+    ],
+    "title": "EgressSecret",
+    "type": "object"
+  },
   "FsDeleteRequest": {
     "properties": {
       "path": {

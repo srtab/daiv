@@ -9,6 +9,7 @@ from core.utils import (
     build_absolute_url,
     build_uri,
     extract_valid_image_mimetype,
+    is_git_auth_error_text,
     is_valid_url,
     prefixed_email_subject,
 )
@@ -46,6 +47,39 @@ class PrefixedEmailSubjectTest:
     def test_returns_subject_unchanged_when_site_missing(self, mocker):
         mocker.patch("core.utils.Site.objects.get_current", side_effect=Site.DoesNotExist)
         assert prefixed_email_subject("Welcome") == "Welcome"
+
+
+class IsGitAuthErrorTextTest:
+    """Direct contract test for the shared marker set used by both the clone-retry self-heal
+    (codebase.clients.gitlab) and the push-failure classifier (automation.agent.git_manager).
+    A marker dropped here silently widens or narrows both behaviours, so pin them explicitly."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "fatal: Authentication failed for 'https://gitlab.example/acme/repo.git'",
+            "remote: HTTP Basic: Access denied",  # subsumed by "access denied"
+            "The requested URL returned error: 403",
+            "fatal: could not read Username for 'https://...': terminal prompts disabled",
+            "remote: Permission denied",
+            "remote: You are not authorized to push to this repository",
+            "AUTHENTICATION FAILED",  # case-insensitive
+        ],
+    )
+    def test_auth_markers_return_true(self, text):
+        assert is_git_auth_error_text(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "fatal: unable to access 'https://...': Could not resolve host",
+            "fatal: couldn't find remote ref refs/heads/missing",
+            "",
+            "Everything up-to-date",
+        ],
+    )
+    def test_non_auth_text_returns_false(self, text):
+        assert is_git_auth_error_text(text) is False
 
 
 class IsValidUrlTest:

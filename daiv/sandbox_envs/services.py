@@ -13,9 +13,15 @@ from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memor
 if TYPE_CHECKING:
     from activity.services import RepoTarget
 
+    from codebase.base import Repository
+    from codebase.clients import RepoClient
+    from codebase.clients.base import GitEgressCredential
     from codebase.context import SandboxRuntime
+    from core.sandbox.schemas import EgressConfigRequest
 
 logger = logging.getLogger("daiv.sandbox_envs")
+
+PLATFORM_EGRESS_SECRET_NAME = "__daiv_git_platform__"  # noqa: S105
 
 
 @dataclass(frozen=True)
@@ -25,14 +31,17 @@ class SandboxEnvOverride:
     and :func:`merge_sandbox_runtime` / :func:`set_runtime_ctx`."""
 
     base_image: str | None
-    network_enabled: bool | None
     memory_bytes: int | None
     cpus: float | None
     env_vars: dict[str, str]
+    egress: EgressConfigRequest | None = None
 
 
 def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
+    from pydantic import ValidationError as PydanticValidationError
+
     from core.encryption import DecryptionError
+    from core.sandbox.schemas import EgressConfigRequest
 
     try:
         env_vars_rows = env.env_vars or []
@@ -41,9 +50,27 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
         # keep going. The descriptor already logs at exception level.
         logger.error("env_vars decryption failed for SandboxEnvironment id=%s; dropping env_vars", env.id)
         env_vars_rows = []
+
+    egress = None
+    if env.is_networked:
+        try:
+            egress = EgressConfigRequest.from_stored(env.egress_policy, env.egress_secrets or {})
+        except DecryptionError, PydanticValidationError, TypeError, ValueError:
+            # The env intended restricted egress but its config is unusable (e.g. a rotated
+            # DAIV_ENCRYPTION_KEY left the secrets undecryptable, or the row was hand-edited).
+            # Fail closed to NO network (egress=None → network_mode=none) — the old deny-all-with-plumbing
+            # state no longer exists and would be rejected by the sandbox. Never reach the sidecar with a
+            # half/invalid config. logger.exception (not error) so the shape errors — which, unlike
+            # DecryptionError, nothing else logs — don't vanish into this branch untraced.
+            logger.exception(
+                "egress config unusable for SandboxEnvironment id=%s (%s); failing closed to no-network",
+                env.id,
+                env.name,
+            )
+            egress = None
+
     return SandboxEnvOverride(
         base_image=env.base_image or None,
-        network_enabled=env.network_enabled,
         memory_bytes=env.memory_bytes,
         cpus=float(env.cpus) if isinstance(env.cpus, Decimal) else env.cpus,
         env_vars={
@@ -51,7 +78,61 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
             for entry in env_vars_rows
             if entry.get("name") and entry.get("value") is not None
         },
+        egress=egress,
     )
+
+
+def apply_platform_egress(
+    egress: EgressConfigRequest | None, credential: GitEgressCredential | None
+) -> EgressConfigRequest | None:
+    """Prepend the DAIV-managed git-platform allow-rule (and add its credential) to ``egress``.
+
+    Runtime-only — the result is provisioned to the sidecar but never stored on the environment.
+    The rule is **prepended** so it wins under the sidecar's first-match (always reachable;
+    credentialed when the credential carries a token). ``credential is None`` → ``egress`` unchanged.
+    With no base policy, the base is a
+    deny-all (``default="deny"``, ``intercept="all"``); an existing policy's ``default``/``intercept``
+    and rules are preserved. The secret is added (overwriting any same-named user key) only when the
+    credential carries a token; otherwise the rule is reachability-only (``inject=None``)."""
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    if credential is None:
+        return egress
+
+    base_policy = egress.policy if egress is not None else EgressPolicy()
+    secrets = dict(egress.secrets) if egress is not None else {}
+
+    inject = None
+    if credential.value is not None:
+        inject = PLATFORM_EGRESS_SECRET_NAME
+        secrets[PLATFORM_EGRESS_SECRET_NAME] = EgressSecret(header=credential.header, value=credential.value)
+
+    platform_rule = EgressRule(host=credential.host, methods=["*"], inject=inject)
+    policy = base_policy.model_copy(update={"rules": [platform_rule, *base_policy.rules]})
+    return EgressConfigRequest(policy=policy, secrets=secrets)
+
+
+def augment_sandbox_with_platform_egress(
+    sandbox: SandboxRuntime, repo_client: RepoClient, repository: Repository
+) -> SandboxRuntime:
+    """Layer the git-platform allow-rule + credential onto ``sandbox.egress``. Returns a new
+    ``SandboxRuntime`` (frozen); the platform contribution is resolved per run via ``repo_client`` and
+    never stored.
+
+    A network-on env (``egress`` already set) always has the rule layered on top of its policy. A
+    network-off env (``egress is None``) is normally fully isolated — but DAIV runs git, *including the
+    publish push/ls-remote against ``origin``*, from inside the sandbox. So when the run holds a real
+    push credential (a token), a network-off env is still opened into a minimal deny-all base carrying
+    only the git-platform rule, so DAIV can always reach the repo to publish. A host-only credential
+    (no token, e.g. the SWE eval platform) leaves a network-off env isolated: there is nothing to push,
+    and opening a triad would needlessly force the egress proxy onto token-less / eval runs and break
+    their hermeticity. No-op when the sandbox is disabled."""
+    if not sandbox.enabled:
+        return sandbox
+    credential = repo_client.get_git_egress_credential(repository)
+    if sandbox.egress is None and (credential is None or credential.value is None):
+        return sandbox
+    return replace(sandbox, egress=apply_platform_egress(sandbox.egress, credential))
 
 
 async def resolve_sandbox_env(env_id: str | None) -> SandboxEnvOverride | None:
@@ -83,15 +164,16 @@ async def get_global_default() -> SandboxEnvOverride | None:
 
 
 def humanise_global_default() -> dict[str, str | bool]:
-    """Synchronous, template-friendly view of the GLOBAL default's row values."""
+    """Synchronous, template-friendly view of the GLOBAL default's row values.
+
+    Network is intentionally omitted: the form's Network control is a self-contained On/Off that
+    neither displays nor inherits the global default, so only memory/cpus are surfaced here."""
     row = SandboxEnvironment.objects.filter(scope=Scope.GLOBAL, is_default=True).first()
     if row is None:
-        return {"network": "", "memory": "", "cpus": "", "has_network": False, "has_memory": False, "has_cpus": False}
+        return {"memory": "", "cpus": "", "has_memory": False, "has_cpus": False}
     return {
-        "network": "enabled" if row.network_enabled is True else ("disabled" if row.network_enabled is False else ""),
         "memory": _fmt_memory(row.memory_bytes) if row.memory_bytes is not None else "",
         "cpus": _fmt_cpus(row.cpus) if row.cpus is not None else "",
-        "has_network": row.network_enabled is not None,
         "has_memory": row.memory_bytes is not None,
         "has_cpus": row.cpus is not None,
     }
@@ -206,11 +288,12 @@ def merge_sandbox_runtime(
 ) -> SandboxRuntime:
     """Resolve the effective sandbox runtime from a per-run env + GLOBAL default.
 
-    For each resource field (``base_image``, ``network_enabled``, ``memory_bytes``,
-    ``cpus``): the per-run env wins when its value is non-None; otherwise the
-    GLOBAL default wins; otherwise the field's runtime default applies.
+    For each resource field (``base_image``, ``memory_bytes``, ``cpus``): the
+    per-run env wins when its value is non-None; otherwise the GLOBAL default
+    wins; otherwise the field's runtime default applies.
 
     ``env_vars`` are unioned with per-run keys shadowing GLOBAL keys.
+    ``egress`` is taken from the effective env as-is (see inline comment).
     ``command_policy`` defaults to an empty policy; built-in safety rules in
     :mod:`core.sandbox.command_policy` still apply.
     """
@@ -230,9 +313,13 @@ def merge_sandbox_runtime(
 
     return SandboxRuntime(
         base_image=pick("base_image", None),
-        network_enabled=pick("network_enabled", False),
         memory_bytes=pick("memory_bytes", None),
         cpus=pick("cpus", None),
+        # Network is explicit per env (no inherit): take the effective env's egress as-is. A per-run env
+        # that is Off (egress=None) must NOT inherit the global default's policy, so this is not pick().
+        egress=(
+            per_run.egress if per_run is not None else (global_default.egress if global_default is not None else None)
+        ),
         env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
         command_policy=SandboxCommandPolicy(),
     )
