@@ -50,25 +50,11 @@
 <section class="animate-fade-up mt-8" style="animation-delay: 150ms">
   <h2 class="text-lg font-semibold">{% translate "Observations" %}</h2>
 
+  {% translate "Status" as status_label %}
+  {% translate "Category" as category_label %}
   <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-    <div class="flex flex-wrap items-center gap-1.5">
-      <span class="text-gray-500">{% translate "Status" %}:</span>
-      <a href="?{% querystring_without 'status' 'page' %}"
-         class="rounded-full px-2 py-0.5 {% if not current_status %}bg-white/[0.1] text-white{% else %}text-gray-400 hover:text-gray-200{% endif %}">{% translate "All" %}</a>
-      {% for value, label in statuses %}
-      <a href="?{% querystring_without 'status' 'page' %}status={{ value }}"
-         class="rounded-full px-2 py-0.5 {% if current_status == value %}bg-white/[0.1] text-white{% else %}text-gray-400 hover:text-gray-200{% endif %}">{{ label }}</a>
-      {% endfor %}
-    </div>
-    <div class="flex flex-wrap items-center gap-1.5">
-      <span class="text-gray-500">{% translate "Category" %}:</span>
-      <a href="?{% querystring_without 'category' 'page' %}"
-         class="rounded-full px-2 py-0.5 {% if not current_category %}bg-white/[0.1] text-white{% else %}text-gray-400 hover:text-gray-200{% endif %}">{% translate "All" %}</a>
-      {% for value, label in categories %}
-      <a href="?{% querystring_without 'category' 'page' %}category={{ value }}"
-         class="rounded-full px-2 py-0.5 {% if current_category == value %}bg-white/[0.1] text-white{% else %}text-gray-400 hover:text-gray-200{% endif %}">{{ label }}</a>
-      {% endfor %}
-    </div>
+    {% include "memory/_filter_pills.html" with label=status_label param="status" choices=statuses current=current_status %}
+    {% include "memory/_filter_pills.html" with label=category_label param="category" choices=categories current=current_category %}
   </div>
 
   {% if page_obj.object_list %}

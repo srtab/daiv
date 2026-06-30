@@ -11,7 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
-from accounts.mixins import AdminRequiredMixin
+from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from core.site_settings import site_settings
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
 from memory.tasks import consolidate_memory_task
@@ -26,10 +26,7 @@ class MemoryListView(LoginRequiredMixin, TemplateView):
         obs_rows = {
             row["repo_id"]: row
             for row in MemoryObservation.objects.values("repo_id").annotate(
-                total=Count("pk"),
-                pending=Count("pk", filter=Q(status=ObservationStatus.PENDING)),
-                consolidated=Count("pk", filter=Q(status=ObservationStatus.CONSOLIDATED)),
-                discarded=Count("pk", filter=Q(status=ObservationStatus.DISCARDED)),
+                total=Count("pk"), pending=Count("pk", filter=Q(status=ObservationStatus.PENDING))
             )
         }
         mem_rows = {mem.repo_id: mem for mem in RepositoryMemory.objects.all()}
@@ -42,8 +39,6 @@ class MemoryListView(LoginRequiredMixin, TemplateView):
                 "repo_id": repo_id,
                 "total": obs["total"] if obs else 0,
                 "pending": obs["pending"] if obs else 0,
-                "consolidated": obs["consolidated"] if obs else 0,
-                "discarded": obs["discarded"] if obs else 0,
                 "has_document": bool(mem and mem.content.strip()),
                 "last_consolidated_at": mem.last_consolidated_at if mem else None,
             })
@@ -53,9 +48,12 @@ class MemoryListView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class MemoryDetailView(LoginRequiredMixin, TemplateView):
+class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, TemplateView):
     template_name = "memory/detail.html"
     paginate_by = 50
+
+    def get_breadcrumbs(self):
+        return [{"label": _("Memory"), "url": reverse("memory:list")}, {"label": self.kwargs["repo_id"], "url": None}]
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -97,7 +95,6 @@ class MemoryDetailView(LoginRequiredMixin, TemplateView):
             "document_lines": len(memory.content.splitlines()) if memory else 0,
             "document_bytes": len(memory.content.encode("utf-8")) if memory else 0,
             "memory_enabled": site_settings.memory_enabled,
-            "breadcrumbs": [{"label": _("Memory"), "url": reverse("memory:list")}, {"label": repo_id, "url": None}],
         })
         return ctx
 
@@ -108,7 +105,20 @@ class MemoryConsolidateView(AdminRequiredMixin, View):
     def post(self, request, repo_id):
         if not site_settings.memory_enabled:
             messages.warning(request, _("Memory capture is disabled site-wide; consolidation was not queued."))
+            return redirect("memory:detail", repo_id=repo_id)
+
+        # Mirror the task's own guard so we don't report success for a run it will silently skip:
+        # ``consolidate_memory_task`` no-ops when the repo has no pending observations.
+        pending = MemoryObservation.objects.filter(repo_id=repo_id, status=ObservationStatus.PENDING).count()
+        if pending == 0:
+            messages.info(
+                request, _("Nothing to consolidate for %(repo)s — no pending observations.") % {"repo": repo_id}
+            )
         else:
             consolidate_memory_task.enqueue(repo_id)
-            messages.success(request, _("Consolidation queued for %(repo)s.") % {"repo": repo_id})
+            messages.success(
+                request,
+                _("Consolidation queued for %(repo)s (%(count)d pending observation(s)).")
+                % {"repo": repo_id, "count": pending},
+            )
         return redirect("memory:detail", repo_id=repo_id)
