@@ -965,6 +965,56 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#network-access-and-egress-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network access and egress policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Network access and egress policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#allowed-hosts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Allowed hosts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-host-credentials-encrypted-at-rest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-host credentials (encrypted at rest)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#traffic-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Traffic mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#repository-bindings" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1581,6 +1631,56 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#network-access-and-egress-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network access and egress policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Network access and egress policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#allowed-hosts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Allowed hosts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-host-credentials-encrypted-at-rest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-host credentials (encrypted at rest)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#traffic-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Traffic mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#repository-bindings" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1839,11 +1939,15 @@
 </tr>
 <tr>
 <td><strong>Network</strong></td>
-<td><strong>Use default</strong>, <strong>On</strong>, or <strong>Off</strong>. Controls outbound network access (needed to reach package registries)</td>
+<td><strong>On</strong> or <strong>Off</strong>. Controls outbound network access (needed to reach package registries)</td>
 </tr>
 <tr>
 <td><strong>Environment variables</strong></td>
 <td>Name/value pairs injected into the sandbox; mark any as secret (see below). Up to 100 entries</td>
+</tr>
+<tr>
+<td><strong>Egress policy</strong></td>
+<td>Per-host outbound rules, injected credentials, and traffic mode. Shown only when <strong>Network</strong> is <strong>On</strong> (see <a href="#network-access-and-egress-policy">Network access and egress policy</a>)</td>
 </tr>
 <tr>
 <td><strong>Repositories</strong></td>
@@ -1851,7 +1955,7 @@
 </tr>
 </tbody>
 </table>
-<p>Leaving <strong>CPUs</strong>, <strong>Memory</strong>, or <strong>Network</strong> on <em>default</em> means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time.</p>
+<p>Leaving <strong>CPUs</strong> or <strong>Memory</strong> on <em>default</em> means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time. <strong>Network</strong> is explicit per environment (<strong>On</strong>/<strong>Off</strong>) and is <em>not</em> inherited from the global default — see <a href="#how-an-environment-is-resolved">How an environment is resolved</a>.</p>
 <h3 id="environment-variables-encrypted-at-rest">Environment variables (encrypted at rest)</h3>
 <p>Environment-variable values are <strong>Fernet-encrypted before they are stored</strong> and decrypted only when a run needs them. Encryption uses <code>DAIV_ENCRYPTION_KEY</code> (see <a href="../../reference/env-variables/">Environment Variables</a>).</p>
 <ul>
@@ -1863,6 +1967,63 @@
 <p class="admonition-title">Rotating the encryption key</p>
 <p>If <code>DAIV_ENCRYPTION_KEY</code> changes and stored values can no longer be decrypted, the form blocks saving until you re-enter every secret value. Agent runs don't crash on this — they drop the unreadable variables and continue.</p>
 </div>
+<h3 id="network-access-and-egress-policy">Network access and egress policy</h3>
+<p>When <strong>Network</strong> is enabled, the <strong>Egress</strong> section appears at the bottom of the form. It lets you define exactly which outbound connections the sandbox container may make, with optional per-host credentials injected by the MITM proxy — credentials never enter the container.</p>
+<div class="admonition info">
+<p class="admonition-title">Requires the egress proxy</p>
+<p>Egress policy is provisioned by the daiv-sandbox MITM egress proxy. If the sandbox does not have the egress proxy enabled, starting a run that uses an egress-configured environment will <strong>abort</strong> (fail-closed) rather than fall back to unrestricted network.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">The repository's git platform is always reachable</p>
+<p>DAIV runs git — including the publish push — from <em>inside</em> the sandbox, so the run's own git platform (GitLab/GitHub) is <strong>always allowed and authenticated</strong>, even when <strong>Network</strong> is <strong>Off</strong>. DAIV injects a runtime-only rule for the platform host (credentialed with a short-lived, platform-minted token — project-scoped on GitLab, installation-scoped on GitHub) so <code>git fetch</code>/clone/push of the repository works without you listing it. You never configure this — and a <strong>Network Off</strong> environment is otherwise still fully isolated: it is opened <em>only</em> for the git platform, and only when a push token exists (eval/benchmark runs, which hold none, stay completely network-isolated).</p>
+</div>
+<h4 id="allowed-hosts">Allowed hosts</h4>
+<p>Each row in the <strong>Allowed hosts</strong> table defines one outbound rule:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Host</strong></td>
+<td>A hostname or glob pattern (e.g. <code>pypi.org</code>, <code>*.github.com</code>). Requests to hosts not on this list are blocked</td>
+</tr>
+<tr>
+<td><strong>Methods</strong></td>
+<td>HTTP methods this rule applies to (leave empty to match all methods)</td>
+</tr>
+<tr>
+<td><strong>Credential</strong></td>
+<td>Optional: an HTTP header name and value injected by the proxy for every request to this host (see below)</td>
+</tr>
+</tbody>
+</table>
+<p>With <strong>Default</strong> set to <code>deny</code>, only the listed hosts are reachable and every other outbound request is blocked. When <strong>Network</strong> is <strong>On</strong> the policy must permit <em>something</em>: add at least one allowed-host rule, or set <strong>Default</strong> to <code>allow</code> — saving <strong>On</strong> with an empty allow-list and a <code>deny</code> default is rejected with a validation error. To block all general outbound traffic, set <strong>Network</strong> to <strong>Off</strong> instead; that stores <strong>no</strong> egress policy on the environment, while the repository's own git platform stays reachable so DAIV can still publish (see the note above).</p>
+<h4 id="per-host-credentials-encrypted-at-rest">Per-host credentials (encrypted at rest)</h4>
+<p>Each allowed host may carry an optional credential — an HTTP header name and value (for example, <code>Authorization</code> / <code>Bearer &lt;token&gt;</code>) that the proxy injects into matching requests. Credential values are <strong>Fernet-encrypted before they are stored</strong> and never rendered back to the browser or returned by the API/MCP; once saved, the value field shows an empty input with a <em>🔒 keep existing</em> placeholder. Re-saving the form preserves a stored credential unchanged unless you explicitly type a new value.</p>
+<p>Limits: at most <strong>100</strong> allowed-host rules and <strong>100</strong> credentials, and the encrypted secrets blob may not exceed <strong>32 KiB</strong>.</p>
+<h4 id="traffic-mode">Traffic mode</h4>
+<p>The <strong>Default</strong> toggle controls how the MITM proxy handles unmatched traffic:</p>
+<table>
+<thead>
+<tr>
+<th>Toggle</th>
+<th>Options</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Default</strong></td>
+<td><code>deny</code> / <code>allow</code></td>
+<td>What happens to requests that do not match any allowed-host rule. <code>deny</code> (the recommended default) blocks them; <code>allow</code> passes them through unrestricted</td>
+</tr>
+</tbody>
+</table>
+<p>The proxy always performs TLS interception on every reachable host — this is what lets it inject per-host credentials and enforce per-host HTTP-method restrictions. (TLS inspection is not configurable.)</p>
 <h3 id="repository-bindings">Repository bindings</h3>
 <p>The <strong>Repositories</strong> field is a list of repository IDs (<code>owner/repo</code>, <code>group/subgroup/repo</code>, …) that this environment claims. Bindings drive <a href="#how-an-environment-is-resolved">auto-resolution</a>: when an agent runs in a bound repository and no environment is explicitly selected, this environment is chosen automatically.</p>
 <p>A repository ID may be claimed by at most one environment <strong>within the same scope</strong> for the same owner — saving a binding that overlaps another of your User environments (or another Global environment) is rejected with the name of the conflicting environment. The same repository can still appear in both a User environment and a Global one; the User binding takes precedence.</p>
@@ -1875,7 +2036,7 @@
 <li><strong>Global default</strong> — the single <strong>Global</strong> environment marked as default.</li>
 <li><strong>None</strong> — if nothing matches, the sandbox uses its built-in runtime defaults (no base image, networking off).</li>
 </ol>
-<p>The selected per-run environment is then <strong>merged with the global default</strong> to produce the effective runtime: for each resource field (base image, network, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.</p>
+<p>The selected per-run environment is then <strong>merged with the global default</strong> to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. <strong>Network (egress) is the exception — it is explicit per environment and is never inherited</strong>: a per-run environment with <strong>Network</strong> off does not inherit the global default's egress policy (only the repository's own git platform stays reachable, so DAIV can publish). Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.</p>
 <div class="admonition note">
 <p class="admonition-title">Webhook-triggered runs</p>
 <p>Runs triggered by a webhook (for example, <a href="../issue-addressing/">issue addressing</a>) have no signed-in DAIV user, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.</p>
@@ -1968,7 +2129,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 30, 2026 14:28:33 UTC">June 30, 2026</span>
   </span>
 
     
@@ -1978,7 +2139,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:37:37 UTC">June 21, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 30, 2026 14:28:33 UTC">June 30, 2026</span>
   </span>
 
     

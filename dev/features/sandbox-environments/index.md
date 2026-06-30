@@ -31,19 +31,20 @@ Exactly one **Global** environment may be marked as the default. It is the fallb
 
 Click **Create** on the list page to open the drawer (`/dashboard/sandbox-envs/create/`), or **Edit** an existing one (`/dashboard/sandbox-envs/<uuid>/edit/`). The form has these fields:
 
-| Field                     | Description                                                                                                                                                            |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Name**                  | A short label, unique within its scope. Required                                                                                                                       |
-| **Description**           | Optional free text                                                                                                                                                     |
-| **Scope**                 | **User** (private) or **Global** (admin-only, shared)                                                                                                                  |
-| **Base image**            | The container image the sandbox runs, e.g. `python:3.14-slim`. Required                                                                                                |
-| **CPUs**                  | CPU limit (a number, up to two decimals). Switch from *default* to *custom* to set it; leave on *default* to inherit                                                   |
-| **Memory**                | Memory limit, entered as a value plus a **MiB** or **GiB** unit. Switch from *default* to *custom* to set it                                                           |
-| **Network**               | **Use default**, **On**, or **Off**. Controls outbound network access (needed to reach package registries)                                                             |
-| **Environment variables** | Name/value pairs injected into the sandbox; mark any as secret (see below). Up to 100 entries                                                                          |
-| **Repositories**          | The repository IDs this environment is bound to, as slash-separated paths like `owner/repo` or `group/subgroup/repo` (see [Repository bindings](#repository-bindings)) |
+| Field                     | Description                                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Name**                  | A short label, unique within its scope. Required                                                                                                                                   |
+| **Description**           | Optional free text                                                                                                                                                                 |
+| **Scope**                 | **User** (private) or **Global** (admin-only, shared)                                                                                                                              |
+| **Base image**            | The container image the sandbox runs, e.g. `python:3.14-slim`. Required                                                                                                            |
+| **CPUs**                  | CPU limit (a number, up to two decimals). Switch from *default* to *custom* to set it; leave on *default* to inherit                                                               |
+| **Memory**                | Memory limit, entered as a value plus a **MiB** or **GiB** unit. Switch from *default* to *custom* to set it                                                                       |
+| **Network**               | **On** or **Off**. Controls outbound network access (needed to reach package registries)                                                                                           |
+| **Environment variables** | Name/value pairs injected into the sandbox; mark any as secret (see below). Up to 100 entries                                                                                      |
+| **Egress policy**         | Per-host outbound rules, injected credentials, and traffic mode. Shown only when **Network** is **On** (see [Network access and egress policy](#network-access-and-egress-policy)) |
+| **Repositories**          | The repository IDs this environment is bound to, as slash-separated paths like `owner/repo` or `group/subgroup/repo` (see [Repository bindings](#repository-bindings))             |
 
-Leaving **CPUs**, **Memory**, or **Network** on *default* means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time.
+Leaving **CPUs** or **Memory** on *default* means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time. **Network** is explicit per environment (**On**/**Off**) and is *not* inherited from the global default — see [How an environment is resolved](#how-an-environment-is-resolved).
 
 ### Environment variables (encrypted at rest)
 
@@ -56,6 +57,46 @@ Environment-variable values are **Fernet-encrypted before they are stored** and 
 Rotating the encryption key
 
 If `DAIV_ENCRYPTION_KEY` changes and stored values can no longer be decrypted, the form blocks saving until you re-enter every secret value. Agent runs don't crash on this — they drop the unreadable variables and continue.
+
+### Network access and egress policy
+
+When **Network** is enabled, the **Egress** section appears at the bottom of the form. It lets you define exactly which outbound connections the sandbox container may make, with optional per-host credentials injected by the MITM proxy — credentials never enter the container.
+
+Requires the egress proxy
+
+Egress policy is provisioned by the daiv-sandbox MITM egress proxy. If the sandbox does not have the egress proxy enabled, starting a run that uses an egress-configured environment will **abort** (fail-closed) rather than fall back to unrestricted network.
+
+The repository's git platform is always reachable
+
+DAIV runs git — including the publish push — from *inside* the sandbox, so the run's own git platform (GitLab/GitHub) is **always allowed and authenticated**, even when **Network** is **Off**. DAIV injects a runtime-only rule for the platform host (credentialed with a short-lived, platform-minted token — project-scoped on GitLab, installation-scoped on GitHub) so `git fetch`/clone/push of the repository works without you listing it. You never configure this — and a **Network Off** environment is otherwise still fully isolated: it is opened *only* for the git platform, and only when a push token exists (eval/benchmark runs, which hold none, stay completely network-isolated).
+
+#### Allowed hosts
+
+Each row in the **Allowed hosts** table defines one outbound rule:
+
+| Column         | Description                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Host**       | A hostname or glob pattern (e.g. `pypi.org`, `*.github.com`). Requests to hosts not on this list are blocked |
+| **Methods**    | HTTP methods this rule applies to (leave empty to match all methods)                                         |
+| **Credential** | Optional: an HTTP header name and value injected by the proxy for every request to this host (see below)     |
+
+With **Default** set to `deny`, only the listed hosts are reachable and every other outbound request is blocked. When **Network** is **On** the policy must permit *something*: add at least one allowed-host rule, or set **Default** to `allow` — saving **On** with an empty allow-list and a `deny` default is rejected with a validation error. To block all general outbound traffic, set **Network** to **Off** instead; that stores **no** egress policy on the environment, while the repository's own git platform stays reachable so DAIV can still publish (see the note above).
+
+#### Per-host credentials (encrypted at rest)
+
+Each allowed host may carry an optional credential — an HTTP header name and value (for example, `Authorization` / `Bearer <token>`) that the proxy injects into matching requests. Credential values are **Fernet-encrypted before they are stored** and never rendered back to the browser or returned by the API/MCP; once saved, the value field shows an empty input with a *🔒 keep existing* placeholder. Re-saving the form preserves a stored credential unchanged unless you explicitly type a new value.
+
+Limits: at most **100** allowed-host rules and **100** credentials, and the encrypted secrets blob may not exceed **32 KiB**.
+
+#### Traffic mode
+
+The **Default** toggle controls how the MITM proxy handles unmatched traffic:
+
+| Toggle      | Options          | Description                                                                                                                                              |
+| ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Default** | `deny` / `allow` | What happens to requests that do not match any allowed-host rule. `deny` (the recommended default) blocks them; `allow` passes them through unrestricted |
+
+The proxy always performs TLS interception on every reachable host — this is what lets it inject per-host credentials and enforce per-host HTTP-method restrictions. (TLS inspection is not configurable.)
 
 ### Repository bindings
 
@@ -73,7 +114,7 @@ When a run starts in a repository, DAIV picks the per-run environment using this
 1. **Global default** — the single **Global** environment marked as default.
 1. **None** — if nothing matches, the sandbox uses its built-in runtime defaults (no base image, networking off).
 
-The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, network, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
+The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. **Network (egress) is the exception — it is explicit per environment and is never inherited**: a per-run environment with **Network** off does not inherit the global default's egress policy (only the repository's own git platform stays reachable, so DAIV can publish). Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
 
 Webhook-triggered runs
 
