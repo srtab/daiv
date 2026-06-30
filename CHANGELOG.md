@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support for custom global skills available across all repositories. Mount skill directories to `/home/daiv/data/skills/` (configurable via `DAIV_AGENT_CUSTOM_SKILLS_PATH`). Custom global skills follow the same format as built-in skills and can override them.
 - Added deferred tool loading for the agent, reducing the number of tools visible to the model at startup and loading additional tools on demand based on the task context.
 
+### Changed
+
+- **Upgrade note — existing network-enabled sandbox environments become network-isolated.** The legacy `network_enabled` flag is replaced by the per-environment egress policy (network is now derived from the presence of a policy). There is no automatic conversion: the migration leaves every previously network-enabled environment without a policy, so after upgrade those environments run network-isolated. The repository's own git platform stays reachable (DAIV injects it at runtime, so runs still clone and publish), but any other outbound access — package registries, external APIs — is blocked until an operator re-enables it by setting **Network** to **On** and defining an egress allow-list. This is deliberate: the new model has no unrestricted-network mode, and auto-granting allow-all would fail closed on deployments without the egress proxy CA configured.
+
 ### Fixed
 
 - Hardened the agent's workspace file tools (`read_file`/`write_file`/`edit_file`/`ls`/`glob`/`grep`) against sandbox transport faults: a transient failure — most notably the `409 "Session is busy"` the sandbox returns when batched tool calls contend on the one-at-a-time session — now degrades to a retryable tool-result error instead of aborting the whole run, matching the `bash` tool. The `bash` tool's own classifier now also treats `409` as transient (retry once) rather than permanent.

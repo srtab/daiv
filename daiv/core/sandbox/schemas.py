@@ -237,6 +237,12 @@ class FsDeleteResponse(BaseModel):
 # log redaction — the client sends the plaintext via ``get_secret_value()``.
 
 
+def _reject_crlf(value: str, label: str) -> None:
+    """Reject CR/LF in a value that becomes an HTTP host/header on the wire (header-injection guard)."""
+    if "\r" in value or "\n" in value:
+        raise ValueError(f"{label} must not contain CR or LF")
+
+
 class EgressRule(BaseModel):
     host: str = Field(description="Destination host glob (e.g. 'github.com', '*.githubusercontent.com').")
     methods: list[str] = Field(default_factory=lambda: ["*"], description="Allowed HTTP methods, or ['*'] for any.")
@@ -249,10 +255,37 @@ class EgressRule(BaseModel):
             raise ValueError("methods must not be empty; use ['*'] to allow all methods")
         return [m.upper() for m in value]
 
+    @field_validator("host", mode="after")
+    @classmethod
+    def _host_safe(cls, value: str) -> str:
+        # Enforced on the type, not just the form: from_stored() and apply_platform_egress() build
+        # rules outside the form, so a blank host or a CR/LF-smuggled host must be rejected here too.
+        _reject_crlf(value, "host")
+        host = value.strip()
+        if not host:
+            raise ValueError("host must not be blank")
+        return host
+
 
 class EgressSecret(BaseModel):
     header: str = Field(description="Header name to set (e.g. 'Authorization', 'PRIVATE-TOKEN').")
     value: SecretStr = Field(description="Header value; redacted in logs/repr.")
+
+    @field_validator("header", mode="after")
+    @classmethod
+    def _header_safe(cls, value: str) -> str:
+        # Header-injection guard at the parse boundary, covering from_stored() (drifted row) and
+        # apply_platform_egress() too — not only the form's clean_egress_json.
+        _reject_crlf(value, "header name")
+        if not value.strip():
+            raise ValueError("header name must not be blank")
+        return value
+
+    @field_validator("value", mode="after")
+    @classmethod
+    def _value_safe(cls, value: SecretStr) -> SecretStr:
+        _reject_crlf(value.get_secret_value(), "header value")
+        return value
 
 
 class EgressPolicy(BaseModel):

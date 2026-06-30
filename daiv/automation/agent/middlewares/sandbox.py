@@ -559,8 +559,8 @@ class SandboxMiddleware(AgentMiddleware):
                 )
                 raise SandboxEgressUnavailableError(
                     "The resolved sandbox environment requires the egress proxy, but the sandbox rejected "
-                    "the session (400). Configure the shared egress CA (EGRESS_CA_CERT_FILE + "
-                    "EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
+                    "the session (400). Configure the shared egress CA (DAIV_SANDBOX_EGRESS_CA_CERT_FILE + "
+                    "DAIV_SANDBOX_EGRESS_CA_KEY_FILE) on the sandbox deployment to enable the egress proxy."
                 ) from exc
             raise
         try:

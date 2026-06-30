@@ -236,3 +236,62 @@ async def test_set_runtime_ctx_injects_platform_egress_when_network_on():
             assert platform_rule.host == "github.com"
             assert platform_rule.inject == PLATFORM_EGRESS_SECRET_NAME
             assert PLATFORM_EGRESS_SECRET_NAME in ctx.sandbox.egress.secrets
+
+
+async def test_set_runtime_ctx_resolves_platform_egress_after_clone():
+    """Regression guard for the egress/clone token-divergence bug: the git-platform credential must be
+    resolved AFTER load_repo() clones, so it observes any token the GitLab clone self-heal re-minted.
+    The egress proxy overrides Authorization on every platform request, so a credential captured before
+    a self-healing clone would pin the sidecar to the stale token the clone just discarded — breaking
+    the in-sandbox push. Asserts clone happens before credential resolution."""
+    from codebase.clients.base import GitEgressCredential
+    from codebase.context import SandboxRuntime
+    from core.sandbox.command_policy import SandboxCommandPolicy
+
+    calls: list[str] = []
+    repo_client = MagicMock()
+    repository = MagicMock()
+    repo_client.get_repository.return_value = repository
+    repo_client.current_user.username = "daiv"
+
+    clone_repo = MagicMock(working_dir="/tmp/repo")  # noqa: S108
+    cm = MagicMock()
+    cm.__enter__ = MagicMock(side_effect=lambda: calls.append("clone") or clone_repo)
+    cm.__exit__ = MagicMock(return_value=False)
+    repo_client.load_repo.return_value = cm
+
+    def _cred(repo):
+        calls.append("credential")
+        return GitEgressCredential.for_token(host="github.com", token="tok")  # noqa: S106
+
+    repo_client.get_git_egress_credential.side_effect = _cred
+
+    # Network-off env (egress=None): a push token still opens it for the git platform host.
+    sandbox = SandboxRuntime(
+        base_image="python:3.12",
+        memory_bytes=None,
+        cpus=None,
+        env_vars={},
+        command_policy=SandboxCommandPolicy(),
+        egress=None,
+    )
+    fake_client = MagicMock()
+    fake_client.open = AsyncMock(return_value=fake_client)
+    fake_client.close = AsyncMock()
+
+    with (
+        patch.multiple(
+            "codebase.context",
+            RepoClient=MagicMock(create_instance=MagicMock(return_value=repo_client)),
+            RepositoryConfig=MagicMock(get_config=MagicMock(return_value=MagicMock(default_branch="main"))),
+            DAIVSandboxClient=MagicMock(return_value=fake_client),
+        ),
+        patch("sandbox_envs.services.resolve_env_for_run", AsyncMock(return_value=None)),
+        patch("sandbox_envs.services.get_global_default", AsyncMock(return_value=None)),
+        patch("sandbox_envs.services.merge_sandbox_runtime", MagicMock(return_value=sandbox)),
+        patch("sandbox_envs.services.row_to_override", MagicMock(return_value=None)),
+    ):
+        async with set_runtime_ctx("acme/repo", scope=RepoScope.GLOBAL) as ctx:
+            assert calls == ["clone", "credential"], f"credential must resolve after clone, got {calls}"
+            assert ctx.sandbox.egress is not None
+            assert ctx.sandbox.egress.policy.rules[0].host == "github.com"

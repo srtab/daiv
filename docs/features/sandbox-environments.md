@@ -75,11 +75,11 @@ Each row in the **Allowed hosts** table defines one outbound rule:
 | **Methods** | HTTP methods this rule applies to (leave empty to match all methods) |
 | **Credential** | Optional: an HTTP header name and value injected by the proxy for every request to this host (see below) |
 
-An egress policy takes effect only when you add at least one allowed-host rule. With **Default** set to `deny`, only the listed hosts are reachable and every other outbound request is blocked. Leaving the allowed-hosts list empty stores **no** egress policy on the environment (the section is treated as untouched) — it does not block traffic. To disable general networking, set **Network** to **Off** (the repository's own git platform stays reachable so DAIV can still publish — see the note above).
+With **Default** set to `deny`, only the listed hosts are reachable and every other outbound request is blocked. When **Network** is **On** the policy must permit *something*: add at least one allowed-host rule, or set **Default** to `allow` — saving **On** with an empty allow-list and a `deny` default is rejected with a validation error. To block all general outbound traffic, set **Network** to **Off** instead; that stores **no** egress policy on the environment, while the repository's own git platform stays reachable so DAIV can still publish (see the note above).
 
 #### Per-host credentials (encrypted at rest)
 
-Each allowed host may carry an optional credential — an HTTP header name and value (for example, `Authorization` / `Bearer <token>`) that the proxy injects into matching requests. Credential values are **Fernet-encrypted before they are stored**, shown as `••••••` once saved, and never rendered back to the browser or returned by the API/MCP. Re-saving the form preserves a masked credential unchanged unless you explicitly type a new value.
+Each allowed host may carry an optional credential — an HTTP header name and value (for example, `Authorization` / `Bearer <token>`) that the proxy injects into matching requests. Credential values are **Fernet-encrypted before they are stored** and never rendered back to the browser or returned by the API/MCP; once saved, the value field shows an empty input with a *🔒 keep existing* placeholder. Re-saving the form preserves a stored credential unchanged unless you explicitly type a new value.
 
 Limits: at most **100** allowed-host rules and **100** credentials, and the encrypted secrets blob may not exceed **32 KiB**.
 

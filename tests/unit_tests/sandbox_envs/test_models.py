@@ -476,6 +476,37 @@ def test_validate_egress_rejects_too_many_secrets():
         env._validate_egress()
 
 
+def test_validate_egress_rejects_non_dict_policy():
+    """A hand-edited/drifted row whose egress_policy is not an object is rejected (defence-in-depth:
+    the form always produces a dict, but a tampered row must not reach from_stored)."""
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(egress_policy=["not", "a", "dict"], egress_secrets={})
+    with pytest.raises(ValidationError, match="must be an object"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_non_dict_secrets():
+    """Decrypted egress_secrets that is not an object is rejected before from_stored iterates it."""
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(egress_policy={"default": "deny", "intercept": "all", "rules": []}, egress_secrets=["nope"])
+    with pytest.raises(ValidationError, match="must be an object"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_oversized_secrets_blob():
+    """The encrypted secrets blob is capped at 32 KiB to bound payload size reaching the sidecar."""
+    from django.core.exceptions import ValidationError
+
+    env = _egress_env(
+        egress_policy={"default": "deny", "intercept": "all", "rules": []},
+        egress_secrets={"big": {"header": "Authorization", "value": "x" * 40000}},
+    )
+    with pytest.raises(ValidationError, match="32 KiB"):
+        env._validate_egress()
+
+
 def test_validate_egress_rejects_reserved_platform_secret_name():
     """A user-defined egress secret named ``__daiv_git_platform__`` (or a rule injecting it) must be
     rejected at save time: ``apply_platform_egress`` overwrites that key at runtime, so allowing it in

@@ -92,6 +92,33 @@ def test_egress_rule_uppercases_methods_and_rejects_empty():
         EgressRule(host="x", methods=[])
 
 
+def test_egress_rule_rejects_blank_and_crlf_host():
+    """Host validity is enforced on the type (not only the form) so from_stored/apply_platform_egress
+    can't carry a blank or CR/LF-smuggled host through to the sidecar. A surrounding-whitespace host
+    is normalised."""
+    from core.sandbox.schemas import EgressRule
+
+    assert EgressRule(host="  github.com  ").host == "github.com"
+    with pytest.raises(ValueError, match="blank"):
+        EgressRule(host="   ")
+    with pytest.raises(ValueError, match="CR or LF"):
+        EgressRule(host="github.com\r\nHost: evil.example")
+
+
+def test_egress_secret_rejects_crlf_and_blank_header_and_value():
+    """Header-injection vectors are rejected at the parse boundary for every construction path."""
+    from pydantic import SecretStr
+
+    from core.sandbox.schemas import EgressSecret
+
+    with pytest.raises(ValueError, match="CR or LF"):
+        EgressSecret(header="Authorization\r\nX-Evil: 1", value=SecretStr("Bearer t"))
+    with pytest.raises(ValueError, match="blank"):
+        EgressSecret(header="  ", value=SecretStr("Bearer t"))
+    with pytest.raises(ValueError, match="CR or LF"):
+        EgressSecret(header="Authorization", value=SecretStr("Bearer t\r\nX-Evil: 1"))
+
+
 def test_egress_config_request_rejects_dangling_inject():
     from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule
 

@@ -59,9 +59,14 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
             # The env intended restricted egress but its config is unusable (e.g. a rotated
             # DAIV_ENCRYPTION_KEY left the secrets undecryptable, or the row was hand-edited).
             # Fail closed to NO network (egress=None → network_mode=none) — the old deny-all-with-plumbing
-            # state no longer exists and would be rejected by the sandbox. Never reach the sidecar
-            # with a half/invalid config. The descriptor already logs the failure at exception level.
-            logger.error("egress config unusable for SandboxEnvironment id=%s; failing closed to no-network", env.id)
+            # state no longer exists and would be rejected by the sandbox. Never reach the sidecar with a
+            # half/invalid config. logger.exception (not error) so the shape errors — which, unlike
+            # DecryptionError, nothing else logs — don't vanish into this branch untraced.
+            logger.exception(
+                "egress config unusable for SandboxEnvironment id=%s (%s); failing closed to no-network",
+                env.id,
+                env.name,
+            )
             egress = None
 
     return SandboxEnvOverride(

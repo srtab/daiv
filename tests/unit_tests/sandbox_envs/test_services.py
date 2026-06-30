@@ -751,6 +751,7 @@ def test_row_to_override_fails_closed_to_none_no_db():
     # raises, hitting the fail-closed except branch.
     env = SimpleNamespace(
         id="test-no-db",
+        name="no-db",
         env_vars=[],
         is_networked=True,
         egress_policy={"default": "deny", "rules": [{"host": "example.com", "inject": "missing"}]},
@@ -762,6 +763,31 @@ def test_row_to_override_fails_closed_to_none_no_db():
     override = row_to_override(env)
     # The except branch (dangling inject → from_stored raises) must have been taken.
     assert override.egress is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_row_to_override_drops_env_vars_on_decryption_error(mocker):
+    """A rotated/lost DAIV_ENCRYPTION_KEY must not crash an agent run: env_vars that can no longer be
+    decrypted are dropped (override.env_vars == {}) and the run proceeds. This is the agent-run analogue
+    of the form-layer decryption guard, distinct from the egress fail-closed branch."""
+    from sandbox_envs.services import row_to_override
+
+    from core.encryption import DecryptionError
+
+    env = await SandboxEnvironment.objects.acreate(
+        scope=Scope.GLOBAL,
+        name="rotated-vars",
+        base_image="python:3.12",
+        env_vars=[{"name": "API_KEY", "value": "s3cr3t", "is_secret": True}],
+    )
+
+    def _raise(instance):
+        raise DecryptionError("bad key")
+
+    mocker.patch.object(type(env), "env_vars", new_callable=lambda: property(fget=_raise))
+    override = row_to_override(env)
+    assert override.env_vars == {}
 
 
 def test_merge_prefers_per_run_egress():
