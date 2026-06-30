@@ -28,7 +28,7 @@ make makemessages && make compilemessages
 
 ## Repo map
 
-- `daiv/automation/` — LangGraph/deepagents agent, skills (`agent/skills/`), deferred tools (`agent/deferred/`), middleware stack (`agent/middlewares/`)
+- `daiv/automation/` — LangGraph/deepagents agent; skills (`agent/skills/`), deferred tools (`agent/deferred/`), middleware stack (`agent/middlewares/`) where all agent tools are built
 - `daiv/codebase/` — GitLab/GitHub clients (`clients/`), webhook handling, `.daiv.yml` repo config
 - `daiv/accounts/` — users, roles (`admin`/`member`), API keys, OAuth2/allauth adapters
 - `daiv/mcp_server/` — FastMCP ASGI sub-app; OAuth2 Bearer auth; `submit_job` / `get_job_status` tools
@@ -92,7 +92,7 @@ uv run --all-extras python scripts/dump_schemas.py \
 
 | Change type | Start here |
 |---|---|
-| New agent tool | `daiv/automation/agent/tools/` |
+| New agent tool | `daiv/automation/agent/middlewares/` — tools are built as `_build_*_tool` methods / `*_tool` functions inside middleware modules (e.g. `git_platform.py`, `sandbox.py`, `web_fetch.py`, `web_search.py`) |
 | New built-in skill | `daiv/automation/agent/skills/<name>/` — add `SKILL.md` + optional `scripts/` and `examples/` |
 | New agent middleware | `daiv/automation/agent/middlewares/` |
 | Auth / user model | `daiv/accounts/models.py`, `daiv/accounts/views.py` |
