@@ -13,7 +13,7 @@ import pytest
 from ag_ui.core.events import EventType, StateSnapshotEvent
 from ag_ui.encoder import EventEncoder
 
-from chat.api.streaming import ChatRunStreamer
+from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 
 
 def _mock_ctx(*_args, **_kwargs):
@@ -228,6 +228,38 @@ async def test_events_releases_run_even_when_persist_ref_raises():
             pass
 
     assert release_calls == [("t-stream", "r-1")]
+
+
+class _FakeGraph:
+    """Minimal stand-in for a CompiledStateGraph. ``nodes`` feeds the subgraph
+    scan in ``LangGraphAGUIAgent.__init__``; ``astream_events`` exists only so
+    upstream's signature probe sees a ``context`` parameter (newer LangGraph),
+    which makes ``get_stream_kwargs`` populate ``context`` from configurable.
+    """
+
+    nodes: dict = {}
+
+    async def astream_events(self, _input=None, *, context=None, **kwargs):  # pragma: no cover - never invoked
+        yield None
+
+
+def test_get_stream_kwargs_overrides_configurable_context_with_runtime_ctx():
+    """Regression: newer LangGraph's ``astream_events`` accepts ``context``, so
+    upstream builds ``context={"thread_id": ...}`` from ``config['configurable']``.
+    Our override must replace that dict with the ``RuntimeCtx`` instance — passing
+    the dict through makes LangGraph's ``_coerce_context`` call ``RuntimeCtx(**ctx)``,
+    raising ``TypeError: RuntimeCtx.__init__() got an unexpected keyword argument 'thread_id'``.
+    """
+    runtime_ctx = object()  # sentinel; identity is all we assert on
+    agent = RuntimeContextLangGraphAGUIAgent(
+        name="DAIV", description="d", graph=_FakeGraph(), config={}, runtime_context=runtime_ctx
+    )
+
+    kwargs = agent.get_stream_kwargs(
+        input={}, config={"configurable": {"thread_id": "abc"}}, subgraphs=False, version="v2"
+    )
+
+    assert kwargs["context"] is runtime_ctx
 
 
 def test_streamer_post_init_rejects_thread_id_mismatch():
