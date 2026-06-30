@@ -633,7 +633,7 @@ requires-dist = [
     { name = "langchain", extras = ["anthropic", "community", "google-genai", "openai"], specifier = "==1.2.18" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.2" },
     { name = "langgraph", specifier = "==1.1.10" },
-    { name = "langgraph-checkpoint-redis", specifier = "==0.4.1" },
+    { name = "langgraph-checkpoint-redis", specifier = "==0.5.0" },
     { name = "langsmith", extras = ["pytest"], specifier = "==0.9.2" },
     { name = "langsmith-fetch", specifier = "==0.3.1" },
     { name = "markdown", specifier = "==3.10.2" },
@@ -1746,7 +1746,7 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint-redis"
-version = "0.4.1"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langgraph-checkpoint" },
@@ -1754,9 +1754,9 @@ dependencies = [
     { name = "redis" },
     { name = "redisvl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/00/1bb9b2911d8e80b504e9e42138c91f8cf6e01bac9412a9a718414da60a9c/langgraph_checkpoint_redis-0.4.1.tar.gz", hash = "sha256:499fecf341d0128f932ad784472de27bc56579d8fd16f7aec425842c17f40521", size = 118966, upload-time = "2026-04-15T18:48:23.914Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/11/93cfa9451ff79bdc5ec86b429ef14ff602c3461228c18419b69da96fbfa7/langgraph_checkpoint_redis-0.5.0.tar.gz", hash = "sha256:595ded300fc0a46e81c39cc8bd9ff762f713c1ce6f8126cb13f01d24625c0775", size = 119730, upload-time = "2026-06-25T09:30:02.953Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/fa/d1d4849201d17678b8210fce23d070fb1143ac7edcee3357917988ec6ded/langgraph_checkpoint_redis-0.4.1-py3-none-any.whl", hash = "sha256:c79da90c1e3421bbeac6d2d3b9e2f10892297b19ef830d37bf9125ba0880f9d9", size = 131032, upload-time = "2026-04-15T18:48:22.839Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/74/106d0b1570aed42a39a7aa537436896e0ad187ff23864203984d645f621f/langgraph_checkpoint_redis-0.5.0-py3-none-any.whl", hash = "sha256:3d39497bc58f8f4ae07081b4f197f136a41c73a7bf73fc96b0de97c862eda126", size = 131508, upload-time = "2026-06-25T09:30:01.724Z" },
 ]
 
 [[package]]
