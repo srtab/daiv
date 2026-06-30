@@ -2,8 +2,13 @@ import asyncio
 import json
 import logging
 import uuid as uuid_mod
+from datetime import time as dt_time
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
+
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_activities, asubmit_batch_runs
@@ -20,6 +25,8 @@ from codebase.clients import RepoClient
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
 from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
+from schedules.models import Frequency  # noqa: TC001 - runtime literal for FastMCP
+from schedules.services import acreate_scheduled_job
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -550,4 +557,115 @@ async def get_environment(
             }
             for r in env_vars_rows
         ],
+    }
+
+
+@mcp.tool()
+async def schedule_job(
+    name: Annotated[str, Field(description="Human-readable schedule name.")],
+    prompt: Annotated[
+        str,
+        Field(
+            description=(
+                "What the agent should do on each run. Same guidance as submit_job: describe the"
+                " change; do not ask it to commit, push, or open PRs — those run automatically."
+            )
+        ),
+    ],
+    repos: Annotated[
+        list[RepoSubmitSpec],
+        Field(min_length=1, max_length=20, description="1-20 repositories the schedule runs against."),
+    ],
+    frequency: Annotated[Frequency, Field(description="hourly | daily | weekdays | weekly (Mondays) | custom | once.")],
+    time: Annotated[
+        str | None, Field(description="Time of day 'HH:MM' (24-hour). Required for daily/weekdays/weekly.")
+    ] = None,
+    cron_expression: Annotated[
+        str | None, Field(description="Five-field cron expression. Required for the 'custom' frequency.")
+    ] = None,
+    run_at: Annotated[
+        str | None,
+        Field(
+            description=(
+                "ISO-8601 datetime for a one-off 'once' schedule. Naive values use the server"
+                " timezone; offsets are honored. Must be in the future."
+            )
+        ),
+    ] = None,
+    agent_model: Annotated[
+        str | None, Field(description="Model override 'provider_slug:model_name'. Omit for the system default.")
+    ] = None,
+    agent_thinking_level: Annotated[
+        ThinkingLevelChoices | None, Field(description="Thinking effort: minimal/low/medium/high.")
+    ] = None,
+    environment: Annotated[
+        str | None, Field(description="Sandbox environment name or UUID. Omit to auto-resolve per repo at run time.")
+    ] = None,
+    notify_on: Annotated[NotifyOn | None, Field(description="When to notify for this schedule's runs.")] = None,
+) -> dict:
+    """Create a recurring (or one-off) scheduled agent run owned by the caller.
+
+    Returns ``{id, name, frequency, next_run_at, is_enabled, repos}`` or ``{"error": ...}``.
+    """
+    mcp_user = await get_current_user()
+    if mcp_user is None:
+        return {"error": "Authentication failed: unable to resolve the current user."}
+
+    try:
+        agent_model, agent_thinking_level = validate_agent_override(agent_model, agent_thinking_level)
+        ensure_agent_model_available(agent_model)
+    except AgentOverrideError as err:
+        return {"error": str(err)}
+
+    specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
+    repo_dicts = [{"repo_id": s.repo_id, "ref": s.ref or ""} for s in specs]
+
+    parsed_time = None
+    if time:
+        try:
+            hours, minutes = time.split(":")
+            parsed_time = dt_time(int(hours), int(minutes))
+        except ValueError, TypeError:
+            return {"error": "Invalid time format; expected 'HH:MM' (24-hour)."}
+
+    parsed_run_at = None
+    if run_at:
+        parsed_run_at = parse_datetime(run_at)
+        if parsed_run_at is None:
+            return {"error": "Invalid run_at; expected an ISO-8601 datetime (e.g. '2026-07-01T09:00:00')."}
+        if timezone.is_naive(parsed_run_at):
+            parsed_run_at = timezone.make_aware(parsed_run_at)
+
+    env_row = None
+    if environment:
+        try:
+            env_row = await resolve_env_for_user(mcp_user, environment)
+        except LookupError as err:
+            return {"error": str(err)}
+
+    try:
+        schedule = await acreate_scheduled_job(
+            mcp_user,
+            name=name,
+            prompt=prompt,
+            repos=repo_dicts,
+            frequency=frequency,
+            time=parsed_time,
+            cron_expression=cron_expression or "",
+            run_at=parsed_run_at,
+            agent_model=agent_model or "",
+            agent_thinking_level=str(agent_thinking_level) if agent_thinking_level else "",
+            sandbox_environment=env_row,
+            notify_on=notify_on or NotifyOn.NEVER,
+        )
+    except ValidationError as err:
+        return {"error": "; ".join(err.messages)}
+
+    return {
+        "id": str(schedule.id),
+        "name": schedule.name,
+        "frequency": str(schedule.frequency),
+        "next_run_at": schedule.next_run_at.isoformat() if schedule.next_run_at else None,
+        "is_enabled": schedule.is_enabled,
+        "repos": schedule.repos,
     }
