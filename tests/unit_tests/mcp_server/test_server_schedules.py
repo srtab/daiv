@@ -89,3 +89,32 @@ async def test_schedule_job_invalid_agent_model_returns_error():
         )
     assert "error" in data
     assert not await ScheduledJob.objects.filter(user=user).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_scheduled_jobs_scopes_and_filters():
+    from mcp_server.server import list_scheduled_jobs, schedule_job
+
+    user = await _user("ls1")
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        await schedule_job(
+            name="A", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.DAILY, time="09:00"
+        )
+        listed = await list_scheduled_jobs()
+        filtered = await list_scheduled_jobs(repo_id="a/b")
+        empty = await list_scheduled_jobs(repo_id="z/z")
+
+    assert [s["name"] for s in listed["scheduled_jobs"]] == ["A"]
+    assert listed["scheduled_jobs"][0]["time"] == "09:00"
+    assert "result_summary" not in listed["scheduled_jobs"][0]
+    assert len(filtered["scheduled_jobs"]) == 1
+    assert empty["scheduled_jobs"] == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_scheduled_jobs_unauthenticated_returns_error():
+    from mcp_server.server import list_scheduled_jobs
+
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
+        data = await list_scheduled_jobs()
+    assert "error" in data

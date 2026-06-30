@@ -25,8 +25,8 @@ from codebase.clients import RepoClient
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
 from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
-from schedules.models import Frequency  # noqa: TC001 - runtime literal for FastMCP
-from schedules.services import acreate_scheduled_job
+from schedules.models import Frequency, ScheduledJob  # noqa: TC001 - runtime literal for FastMCP
+from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
 if TYPE_CHECKING:
     from codebase.base import Repository
@@ -669,3 +669,36 @@ async def schedule_job(
         "is_enabled": schedule.is_enabled,
         "repos": schedule.repos,
     }
+
+
+def _serialize_scheduled_job(schedule: ScheduledJob) -> dict:
+    return {
+        "id": str(schedule.id),
+        "name": schedule.name,
+        "prompt": schedule.prompt,
+        "repos": schedule.repos,
+        "frequency": str(schedule.frequency),
+        "cron_expression": schedule.cron_expression or None,
+        "time": schedule.time.strftime("%H:%M") if schedule.time else None,
+        "run_at": schedule.run_at.isoformat() if schedule.run_at else None,
+        "next_run_at": schedule.next_run_at.isoformat() if schedule.next_run_at else None,
+        "last_run_at": schedule.last_run_at.isoformat() if schedule.last_run_at else None,
+        "run_count": schedule.run_count,
+        "is_enabled": schedule.is_enabled,
+        "notify_on": str(schedule.notify_on),
+        "agent_model": schedule.agent_model or None,
+        "agent_thinking_level": schedule.agent_thinking_level or None,
+    }
+
+
+@mcp.tool()
+async def list_scheduled_jobs(
+    enabled_only: Annotated[bool, Field(description="Only return enabled schedules.")] = False,
+    repo_id: Annotated[str | None, Field(description="Only return schedules targeting this repo_id.")] = None,
+) -> dict:
+    """List the caller's scheduled jobs, newest first. Returns ``{"scheduled_jobs": [...]}``."""
+    mcp_user = await get_current_user()
+    if mcp_user is None:
+        return {"error": "Authentication failed: unable to resolve the current user."}
+    rows = await alist_scheduled_jobs(mcp_user, enabled_only=enabled_only, repo_id=repo_id)
+    return {"scheduled_jobs": [_serialize_scheduled_job(s) for s in rows]}
