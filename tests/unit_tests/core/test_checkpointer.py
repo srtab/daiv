@@ -1,11 +1,10 @@
 """Tests for the checkpoint serializer that lets DAIV domain models survive Redis.
 
 The agent stores a :class:`~codebase.base.MergeRequest` in checkpointed state
-(``GitState.merge_request``). ``langgraph-checkpoint-redis==0.4.1`` cannot JSON-encode
-it -- its ``_default_handler`` calls ``_encode_constructor_args``, a method that
-``langgraph-checkpoint==4.1.1`` removed in its GHSA-fjqc-hq36-qh5p hardening -- so
-without our custom serializer the checkpoint put raises ``TypeError: not JSON
-serializable``, failing ``address_mr_comments_task`` mid-run.
+(``GitState.merge_request``). ``DAIVRedisSerializer`` encodes plain pydantic models
+via ``model_dump(mode="json")`` (cleaner nested-model handling than the stock
+``__dict__`` path) and -- critically -- reconstructs ``set`` values that the stock
+serializer's reviver silently nulls (``loaded_tool_names``).
 """
 
 from __future__ import annotations
@@ -46,13 +45,6 @@ def merge_request() -> MergeRequest:
         author=User(id=2, name="DAIV", username="daiv"),
         draft=False,
     )
-
-
-def test_stock_redis_serializer_cannot_encode_merge_request(merge_request):
-    """Regression guard: reproduce the exact production crash with the stock serializer."""
-    stock = JsonPlusRedisSerializer()
-    with pytest.raises(TypeError, match="not JSON serializable"):
-        orjson.dumps({"merge_request": merge_request}, default=stock._default_handler)
 
 
 def test_encodes_pydantic_model_as_constructor_envelope(merge_request):
@@ -177,18 +169,6 @@ def test_set_round_trips_through_redis_read_path(merge_request):
     assert revived["merge_request"] == merge_request
 
 
-def test_stock_redis_serializer_crashes_encoding_dataclass():
-    """Regression guard: reproduce the exact production crash with the stock serializer.
-
-    ``_preprocess_interrupts``'s dataclass branch calls ``_encode_constructor_args`` (removed
-    from ``langgraph-checkpoint==4.1.1``) *outside* the ``dumps_typed`` try/except, so a
-    dataclass in checkpoint writes raises ``AttributeError`` straight out of ``aput_writes``
-    rather than degrading to the msgpack fallback."""
-    stock = JsonPlusRedisSerializer()
-    with pytest.raises(AttributeError, match="_encode_constructor_args"):
-        stock.dumps_typed({"running_summary": _RunningSummary("done", ["m1", "m2"])})
-
-
 def test_dataclass_in_writes_does_not_crash_encoding():
     """The crash path itself: ``dumps_typed`` over a dataclass must not raise."""
     serde = DAIVRedisSerializer()
@@ -199,8 +179,8 @@ def test_dataclass_in_writes_does_not_crash_encoding():
 
 
 def test_dataclass_round_trips_through_serde_contract():
-    """Through the public serde API the saver calls; the restored ``_encode_constructor_args``
-    envelope is read back via the adapter's ``_reconstruct_from_constructor`` path."""
+    """Through the public serde API the saver calls; the constructor envelope is read back
+    via the adapter's ``_reconstruct_from_constructor`` path."""
     serde = DAIVRedisSerializer()
     original = {"running_summary": _RunningSummary("compacted 5 msgs", ["m1", "m2", "m3"])}
 

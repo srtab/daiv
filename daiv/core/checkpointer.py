@@ -24,14 +24,23 @@ CHECKPOINT_JSON_TYPES: tuple[type, ...] = (MergeRequest,)
 
 
 class DAIVRedisSerializer(JsonPlusRedisSerializer):
-    """Redis checkpoint serializer that round-trips DAIV domain pydantic models.
+    """Redis checkpoint serializer that round-trips DAIV domain pydantic models and sets.
 
-    ``langgraph-checkpoint-redis==0.4.1`` encodes non-JSON-native objects through
-    ``self._encode_constructor_args`` -- a method ``langgraph-checkpoint==4.1.1``
-    removed in its GHSA-fjqc-hq36-qh5p hardening. So any plain pydantic model in
-    checkpointed state (e.g. ``GitState.merge_request``, a :class:`MergeRequest`)
-    blows up RedisJSON serialization with ``TypeError: not JSON serializable`` and
-    fails the run when the checkpointer tries to persist agent state.
+    Two gaps in the stock ``JsonPlusRedisSerializer`` make checkpointed agent state
+    unsafe without this override:
+
+    * **Sets** -- ``_preprocess_interrupts`` serializes a ``set`` as an ``lc:2``
+      envelope keyed by ``kwargs["__set_items__"]``, but the base reviver routes
+      ``("builtins", "set")`` (a SAFE_MSGPACK_TYPE) through ``_revive_lc2`` →
+      ``set(**kwargs)`` → ``TypeError``, which ``langgraph-checkpoint>=4.1.1`` turns
+      into ``None`` -- silently nulling every checkpointed set (e.g.
+      ``loaded_tool_names``). ``_reviver`` reconstructs the envelope before the base
+      reviver corrupts it.
+
+    * **Pydantic models** -- the stock ``_default_handler`` encodes plain pydantic
+      models from ``obj.__dict__``; we override it to emit ``model_dump(mode="json")``
+      so nested models and types serialise cleanly. LangChain objects (messages) carry
+      ``to_json`` and keep flowing through the parent's safe path untouched.
 
     On the happy path decode round-trips: the redis read path (``_revive_if_needed``)
     reconstructs the ``lc:2`` envelope for any importable class via
@@ -45,59 +54,19 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
     the read path taken here (``_reconstruct_from_constructor``) does **not** consult that
     allowlist; it is kept only so the *documented* decode gate (``_revive_lc2``) stays correct
     should a future upstream route the read path through it, not as a runtime guarantee today.
-    LangChain objects (messages) carry ``to_json`` and keep flowing through the parent's safe
-    path untouched.
-
-    Sets need a matching decode override (``_reviver``). The adapter encodes a Python ``set``
-    as an ``lc:2`` envelope keyed by ``kwargs["__set_items__"]``, but the base reviver routes
-    ``("builtins", "set")`` (a SAFE_MSGPACK_TYPE) through ``_revive_lc2`` → ``set(**kwargs)`` →
-    ``TypeError``, which ``langgraph-checkpoint>=4.1.1`` turns into ``None`` -- silently nulling
-    every checkpointed set (e.g. ``loaded_tool_names``). No published adapter/base pairing
-    avoids this, so ``_reviver`` reconstructs the envelope before delegating.
     """
 
     def __init__(self, **kwargs: Any) -> None:
         kwargs.setdefault("allowed_json_modules", CHECKPOINT_JSON_TYPES)
         super().__init__(**kwargs)
 
-    def _encode_constructor_args(
-        self, constructor: type[Any], *, kwargs: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        """Restore the constructor-envelope encoder that ``langgraph-checkpoint==4.1.1`` removed.
-
-        ``langgraph-checkpoint-redis==0.4.1`` calls ``self._encode_constructor_args`` in two
-        spots: ``_default_handler`` (objects with ``__dict__``) and -- the one that actually
-        crashes -- ``_preprocess_interrupts`` for **dataclass** instances. The latter is *not*
-        wrapped in the ``try/except`` that ``dumps_typed`` relies on to fall back to msgpack, so
-        a dataclass anywhere in checkpoint writes (e.g. a middleware's running summary) raises
-        ``AttributeError: ... has no attribute '_encode_constructor_args'`` straight out of
-        ``aput_writes`` and fails the run. ``_default_handler``'s pydantic gap is already filled
-        below, but it routes plain pydantic models *before* the parent reaches this method;
-        dataclasses have no such interception, so the method itself must exist again.
-
-        Reproduces the pre-4.1.1 base output for the only shape both call sites use -- a class
-        plus ``kwargs`` (never the original ``method``/``args``; verified against both call
-        sites). The ``id`` keeps the module split into parts (``(*module.split("."), name)``) so
-        the adapter's read path (``_reconstruct_from_constructor`` → ``".".join(id_parts[:-1])``)
-        imports the class back.
-        """
-        out: dict[str, Any] = {
-            "lc": 2,
-            "type": "constructor",
-            "id": (*constructor.__module__.split("."), constructor.__name__),
-        }
-        if kwargs is not None:
-            out["kwargs"] = kwargs
-        return out
-
     def _reviver(self, value: Any) -> Any:
         """Reconstruct adapter-encoded sets before the base reviver corrupts them to ``None``.
 
-        ``langgraph-checkpoint-redis==0.4.1`` serializes a ``set`` as
-        ``{"lc": 2, "type": "constructor", "id": ["builtins", "set"], "kwargs": {"__set_items__": [...]}}``
-        (``JsonPlusRedisSerializer._preprocess_interrupts``); only the adapter's own
-        ``_reconstruct_from_constructor`` understands ``__set_items__``. But the read path
-        (``_revive_if_needed``) runs *this* base reviver first, and ``set(**kwargs)`` raises,
+        ``JsonPlusRedisSerializer._preprocess_interrupts`` serializes a ``set`` as
+        ``{"lc": 2, "type": "constructor", "id": ["builtins", "set"], "kwargs": {"__set_items__": [...]}}``;
+        only the adapter's own ``_reconstruct_from_constructor`` understands ``__set_items__``. But the
+        read path (``_revive_if_needed``) runs *this* base reviver first, and ``set(**kwargs)`` raises,
         so the value comes back ``None`` -- the adapter fallback never fires because it only
         triggers when the base returns the *unchanged* dict. Intercept the envelope here.
         ``frozenset`` is handled for symmetry though DAIV stores only plain ``set``.
@@ -115,12 +84,10 @@ class DAIVRedisSerializer(JsonPlusRedisSerializer):
         return super()._reviver(value)
 
     def _default_handler(self, obj: Any) -> Any:
-        # Only intercept plain pydantic models (those without ``to_json``). The parent
-        # ``JsonPlusRedisSerializer._default_handler`` handles LangChain objects,
-        # Interrupt/Send and bytes itself; its fall-through branch for plain pydantic
-        # models is the one calling the removed ``_encode_constructor_args``, so this
-        # fills exactly that gap. LangChain messages are pydantic too but carry
-        # ``to_json``, so the guard yields them to the parent's safe path.
+        # Intercept plain pydantic models (those without ``to_json``) and encode them
+        # via ``model_dump(mode="json")`` rather than the stock ``__dict__`` path, so
+        # nested models and types serialise cleanly. LangChain messages are pydantic
+        # too but carry ``to_json``, so the guard yields them to the parent's safe path.
         if isinstance(obj, BaseModel) and not hasattr(obj, "to_json"):
             cls = type(obj)
             return {
