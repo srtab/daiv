@@ -1,7 +1,12 @@
 <p align="center">
   <img src="docs/assets/logo.svg" alt="DAIV" width="400">
 </p>
-<p align="center"><strong>Open-source async SWE agent for your Git platform</strong></p>
+<p align="center"><strong>Open-source, self-hosted SWE agents for GitLab &amp; GitHub</strong></p>
+<p align="center">
+  Turn issues into merge requests, answer review comments, and fix failing CI —
+  with every agent running in a sandbox you control, the network egress you define,
+  and the LLM provider you choose.
+</p>
 <p align="center">
   <img src="https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fsrtab%2Fdaiv%2Fmain%2Fpyproject.toml" alt="Python Version">
   <a href="https://github.com/srtab/daiv/blob/main/LICENSE"><img src="https://img.shields.io/github/license/srtab/daiv" alt="License"></a>
@@ -10,17 +15,30 @@
 
 ---
 
-DAIV integrates directly with **GitLab** and **GitHub** repositories through webhooks. No separate interface needed — you keep using your existing workflow while DAIV handles automation in the background.
+DAIV integrates directly with **GitLab** and **GitHub** through webhooks — no new tools to adopt, no context-switching. Beyond your Git workflow, DAIV plugs into your editor over **MCP** and ships with an optional **self-hosted dashboard** to chat with the agent, start and watch runs, schedule jobs, and review what changed. You host it, you pick the model, and every task executes in an isolated sandbox whose network access you define.
 
-## What DAIV does
+## Three ways to put DAIV to work
 
-DAIV automates routine software engineering work so you can focus on creative problem-solving:
+### In your Git platform — webhooks, zero setup
 
-- **Issue Addressing** — Converts issue descriptions into working code. DAIV reads the issue, generates a plan, waits for your approval, then opens a merge/pull request with the implementation.
-- **Pull Request Assistant** — Responds to reviewer comments, applies requested changes, and repairs failing CI/CD pipelines — all from within the merge/pull request conversation.
-- **Slash Commands & Skills** — Invoke commands and skills directly from issues and merge requests (`/help`, `/plan`, `/code-review`, `/clone-to-topics`). Built-in skills provide planning, code review, and security audits — and you can create your own.
-- **MCP Endpoint** — Connect your AI coding assistant (Claude Code, Cursor, Codex CLI) to DAIV via the [Model Context Protocol](https://modelcontextprotocol.io/).
-- **Scheduled Jobs** — Run agents on a recurring basis — hourly, daily, weekly, or any custom cron expression. Automate dependency audits, code quality scans, stale branch cleanup, and more without CI pipelines or external schedulers.
+- **Issue Addressing** — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.
+- **Pull Request Assistant** — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.
+- **Slash Commands & Skills** — invoke `/plan`, `/code-review`, `/help`, and your own custom skills straight from issues and merge requests.
+
+### From your editor and pipelines
+
+- **MCP Endpoint** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
+- **Jobs API** — trigger agents programmatically from CI, scripts, or other tools, then poll for the result.
+
+### From the dashboard
+
+- **Chat** — a live workspace: prompt the agent and watch it read, edit, and run commands in real time, on a thread you can leave and return to.
+- **Activity & run composer** — start runs from the UI and see every execution — webhook, API, MCP, scheduled, or manual — in one log, with retries.
+- **Scheduled Jobs** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
+- **Sandbox Environments** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
+- **Per-run model & effort** — pick the LLM and thinking effort for each run.
+- **Notifications** — know the moment work finishes, via the in-app bell, email, or Rocket Chat.
+- **Merge Metrics** — track code velocity with commit-level DAIV-vs-human attribution.
 
 ## Quick example
 
@@ -33,14 +51,14 @@ DAIV automates routine software engineering work so you can focus on creative pr
 
 ## Under the hood
 
-DAIV's agent has access to a set of capabilities that make this possible:
+DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep-agent framework built on [LangGraph](https://langchain-ai.github.io/langgraph/) with sub-agent spawning, a middleware stack, and a virtual filesystem. On top of it, DAIV adds:
 
-- **Scalable Workers** — Handle more concurrent tasks by increasing worker replicas — no architecture changes needed.
-- **Subagents** — Specialized agents for fast codebase exploration and complex multi-step tasks.
-- **Sandbox** — Secure command execution for running tests, builds, linters, and package management inside an isolated Docker container.
-- **MCP Tools** — External tool integrations via the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
-- **Monitoring** — Track agent behavior with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and identify issues.
-- **LLM Providers** — [OpenRouter](https://openrouter.ai/), [Anthropic](https://www.anthropic.com/api), [OpenAI](https://openai.com/api/), and [Google Gemini](https://ai.google.dev/gemini).
+- **Subagents** — specialized agents for fast codebase exploration and complex multi-step tasks.
+- **Sandbox** — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.
+- **MCP Tools** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
+- **Monitoring** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
+- **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
+- **LLM Providers** — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice.
 
 ## Technology Stack
 
@@ -167,7 +185,7 @@ To test DAIV with a local GitLab instance:
 - [ ] Chrome extension — interact with DAIV directly from the git platform without leaving the browser.
 - [x] Custom MCP servers — user-defined MCP servers via a JSON config file following the Claude Code `.mcp.json` standard.
 - [x] Scheduled maintenance tasks — run DAIV on a cron schedule for tasks like dependency updates, security scans, or documentation drift detection.
-- [ ] Team notifications — Slack, Discord, and Microsoft Teams integrations to notify teams about DAIV actions and request approvals.
+- [x] Notifications — in-app, email, and Rocket Chat delivery shipped; Slack, Discord, and Microsoft Teams planned.
 - [ ] Self-hosted LLM support — enable local model inference via Ollama or vLLM for air-gapped or cost-sensitive environments.
 
 
