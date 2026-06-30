@@ -9,7 +9,9 @@ from pydantic import Base64Bytes, BaseModel, Field, SecretStr, computed_field, f
 class StartSessionRequest(BaseModel):
     base_image: str | None = Field(default=None, description="The base image to start the session with.")
     dockerfile: str | None = Field(default=None, description="The Dockerfile to use to build the base image.")
-    network_enabled: bool = Field(default=False, description="Whether to enable the network for the session.")
+    egress: EgressConfigRequest | None = Field(
+        default=None, description="Egress policy + secrets; omit to run the session network-isolated."
+    )
     memory_bytes: int | None = Field(default=None, description="Memory in bytes to be used for the session.")
     cpus: float | None = Field(default=None, description="CPUs to be used for the session.")
     environment: dict[str, str] | None = Field(
@@ -284,6 +286,25 @@ class EgressConfigRequest(BaseModel):
             policy=EgressPolicy.model_validate(policy), secrets={name: EgressSecret(**s) for name, s in secrets.items()}
         )
 
+    def to_wire(self) -> dict:
+        """Serialise this request for the ``POST /session/`` ``egress`` block with **plaintext** secrets.
+
+        ``model_dump`` masks ``SecretStr`` (sending the mask would break credential injection at the
+        sidecar), so each secret value is unwrapped here via ``get_secret_value()``. This is the single
+        place that maps the typed request onto the wire shape — the client calls it instead of
+        hand-building the dict, so any new field added to ``EgressPolicy``/``EgressRule`` flows through
+        ``policy`` automatically rather than being silently dropped.
+        """
+        return {
+            "policy": self.policy.model_dump(mode="json"),
+            "secrets": {
+                name: {"header": s.header, "value": s.value.get_secret_value()} for name, s in self.secrets.items()
+            },
+        }
+
 
 class EgressConfigResponse(BaseModel):
     ok: bool = Field(default=True, description="True when the policy was provisioned to the sidecar.")
+
+
+StartSessionRequest.model_rebuild()

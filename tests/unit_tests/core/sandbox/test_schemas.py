@@ -99,6 +99,18 @@ def test_egress_config_request_rejects_dangling_inject():
         EgressConfigRequest(policy=EgressPolicy(rules=[EgressRule(host="x", inject="missing")]), secrets={})
 
 
+def test_empty_egress_config_request_is_deny_all():
+    """The fail-closed fallback in ``row_to_override`` substitutes a bare ``EgressConfigRequest()``
+    for an unusable stored config. That is only safe while the empty request denies everything — a
+    future flip of ``EgressPolicy.default`` to ``allow`` would silently turn the fallback fail-open."""
+    from core.sandbox.schemas import EgressConfigRequest
+
+    req = EgressConfigRequest()
+    assert req.policy.default == "deny"
+    assert req.policy.rules == []
+    assert req.secrets == {}
+
+
 def test_egress_secret_value_is_redacted_in_repr():
     from pydantic import SecretStr
 
@@ -107,3 +119,20 @@ def test_egress_secret_value_is_redacted_in_repr():
     s = EgressSecret(header="Authorization", value=SecretStr("Bearer t"))
     assert "Bearer t" not in repr(s)
     assert s.value.get_secret_value() == "Bearer t"
+
+
+def test_to_wire_unwraps_secret_and_carries_every_policy_field():
+    """``to_wire`` must send plaintext secrets AND every ``EgressPolicy`` field. Pinning the policy
+    block to ``model_dump`` guards against the hand-built wire dict silently dropping a field added
+    to ``EgressPolicy`` later (the reason ``to_wire`` exists instead of inlining in the client)."""
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy
+
+    req = EgressConfigRequest.from_stored(
+        {"default": "deny", "intercept": "credentialed", "rules": [{"host": "gitlab.com", "inject": "tok"}]},
+        {"tok": {"header": "PRIVATE-TOKEN", "value": "supersecret"}},
+    )
+    wire = req.to_wire()
+    assert wire["secrets"] == {"tok": {"header": "PRIVATE-TOKEN", "value": "supersecret"}}
+    # Every field of the policy schema is present (no silent drop) and the masked dump is not used.
+    assert set(wire["policy"]) == set(EgressPolicy.model_fields)
+    assert wire["policy"]["intercept"] == "credentialed"

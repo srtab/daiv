@@ -17,6 +17,7 @@ from codebase.clients.gitlab.clone_tokens import (
     CLONE_TOKEN_TRANSIENT_UNAVAILABLE_TIMEOUT,
     CLONE_TOKEN_UNAVAILABLE_TIMEOUT,
     get_ephemeral_clone_token,
+    invalidate_clone_token,
 )
 
 
@@ -140,6 +141,20 @@ class TestGetEphemeralCloneToken:
             assert get_ephemeral_clone_token(gl_client, 42) == "glpat-ephemeral"
 
         assert cache_mock.set.call_args.args[2] == CLONE_TOKEN_CACHE_TIMEOUT
+
+    def test_invalidate_drops_the_cache_so_the_next_call_remints(self, gl_client):
+        """A token GitLab now rejects must be evictable so the next clone mints a fresh one
+        instead of being served the dead token for the rest of the cache window."""
+        assert get_ephemeral_clone_token(gl_client, 42) == "glpat-ephemeral"
+
+        invalidate_clone_token(42)
+
+        assert get_ephemeral_clone_token(gl_client, 42) == "glpat-ephemeral"
+        assert gl_client.projects.get.return_value.access_tokens.create.call_count == 2
+
+    def test_invalidate_is_a_noop_when_nothing_is_cached(self):
+        """Invalidating an absent entry must not raise (a clone can fail before anything was cached)."""
+        invalidate_clone_token(999)
 
     def test_tokens_are_cached_per_project(self, gl_client):
         project_a, project_b = Mock(), Mock()

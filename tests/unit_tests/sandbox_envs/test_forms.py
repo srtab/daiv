@@ -8,6 +8,43 @@ import pytest
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment, Scope
 
+
+@pytest.fixture
+def make_form_data():
+    """Return a factory that builds minimal valid POST data for SandboxEnvironmentForm,
+    with any keyword argument overriding the default. Callers supply ``network_choice``
+    and ``egress_json`` to exercise the network toggle logic."""
+
+    def _factory(**overrides):
+        base = {
+            "name": "dev",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "network_choice": "off",
+            "memory_mode": "default",
+            "cpu_mode": "default",
+            "memory_unit": "MiB",
+            "env_vars_json": "[]",
+            "repo_ids_json": "[]",
+            "egress_json": "",
+        }
+        base.update(overrides)
+        return base
+
+    return _factory
+
+
+def build_env_form(data):
+    """Construct a SandboxEnvironmentForm for the given POST data dict.
+    Creates a transient (unsaved) user so no DB state leaks between tests."""
+    from accounts.models import User as AccountsUser
+
+    username = f"_b5_{abs(hash(str(sorted(data.items()))))}"
+    email = f"{username}@test.invalid"
+    user, _ = AccountsUser.objects.get_or_create(username=username, defaults={"email": email})
+    return SandboxEnvironmentForm(data=data, user=user, is_admin=False)
+
+
 User = get_user_model()
 
 
@@ -125,7 +162,7 @@ def test_form_memory_value_and_unit_set_memory_bytes():
             "scope": Scope.USER,
             "memory_value": "1",
             "memory_unit": "GiB",
-            "network_choice": "default",
+            "network_choice": "off",
             "env_vars_json": "[]",
         },
         user=user,
@@ -148,7 +185,7 @@ def test_form_empty_memory_value_maps_to_none():
             "scope": Scope.USER,
             "memory_value": "",
             "memory_unit": "MiB",
-            "network_choice": "default",
+            "network_choice": "off",
             "env_vars_json": "[]",
         },
         user=user,
@@ -160,9 +197,23 @@ def test_form_empty_memory_value_maps_to_none():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(("choice", "expected"), [("default", None), ("on", True), ("off", False)])
-def test_form_network_choice_maps_to_network_enabled(choice, expected):
+@pytest.mark.parametrize(
+    ("choice", "has_policy"),
+    [
+        ("off", False),
+        # "on" with allow-default stores a policy (network is on ⇒ egress_policy not None)
+        ("on", True),
+    ],
+)
+def test_form_network_choice_maps_to_egress_policy(choice, has_policy):
+    """network_choice="on" with allow-default ⇒ egress_policy stored; "off" ⇒ egress_policy=None."""
     from accounts.models import User
+
+    egress_json = ""
+    if choice == "on":
+        import json
+
+        egress_json = json.dumps({"default": "allow", "intercept": "all", "hosts": []})
 
     user = User.objects.create_user(username=f"n-{choice}", email=f"n-{choice}@e.com", password="x")  # noqa: S106
     form = SandboxEnvironmentForm(
@@ -173,6 +224,7 @@ def test_form_network_choice_maps_to_network_enabled(choice, expected):
             "memory_value": "",
             "memory_unit": "MiB",
             "network_choice": choice,
+            "egress_json": egress_json,
             "env_vars_json": "[]",
         },
         user=user,
@@ -180,7 +232,10 @@ def test_form_network_choice_maps_to_network_enabled(choice, expected):
     )
     assert form.is_valid(), form.errors
     env = form.save()
-    assert env.network_enabled is expected
+    if has_policy:
+        assert env.egress_policy is not None
+    else:
+        assert env.egress_policy is None
 
 
 @pytest.mark.django_db
@@ -188,8 +243,14 @@ def test_form_prefills_memory_and_network_from_instance():
     from accounts.models import User
 
     user = User.objects.create_user(username="p1", email="p1@e.com", password="x")  # noqa: S106
+    # An env with an egress_policy set ⇒ network is "on"
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="dev", base_image="alpine", memory_bytes=2 * 2**30, network_enabled=True
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine",
+        memory_bytes=2 * 2**30,
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
     )
     form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
     assert form.initial["memory_value"] == 2
@@ -202,13 +263,14 @@ def test_form_prefill_memory_in_mib_when_not_whole_gib():
     from accounts.models import User
 
     user = User.objects.create_user(username="p2", email="p2@e.com", password="x")  # noqa: S106
+    # No egress_policy ⇒ network is "off"
     env = SandboxEnvironment.objects.create(
-        scope=Scope.USER, user=user, name="dev", base_image="alpine", memory_bytes=512 * 2**20, network_enabled=None
+        scope=Scope.USER, user=user, name="dev", base_image="alpine", memory_bytes=512 * 2**20
     )
     form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
     assert form.initial["memory_value"] == 512
     assert form.initial["memory_unit"] == "MiB"
-    assert form.initial["network_choice"] == "default"
+    assert form.initial["network_choice"] == "off"
 
 
 @pytest.mark.django_db
@@ -224,7 +286,7 @@ def test_form_rejects_custom_memory_mode_without_value():
             "memory_mode": "custom",
             "memory_value": "",
             "memory_unit": "MiB",
-            "network_choice": "default",
+            "network_choice": "off",
             "cpu_mode": "default",
             "env_vars_json": "[]",
         },
@@ -248,7 +310,7 @@ def test_form_rejects_custom_cpu_mode_without_value():
             "memory_mode": "default",
             "memory_value": "",
             "memory_unit": "MiB",
-            "network_choice": "default",
+            "network_choice": "off",
             "cpu_mode": "custom",
             "cpus": "",
             "env_vars_json": "[]",
@@ -268,7 +330,7 @@ class TestRepoIdsField:
             "description": "",
             "scope": "user",
             "base_image": "python:3.14",
-            "network_choice": "default",
+            "network_choice": "off",
             "memory_mode": "default",
             "cpu_mode": "default",
             "memory_unit": "MiB",
@@ -364,6 +426,408 @@ def test_form_repo_ids_json_initial_reflects_instance(user):
 
 
 @pytest.mark.django_db
+def test_form_builds_egress_policy_and_secrets_from_hosts():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue1", email="ue1@e.com", password="x")  # noqa: S106
+    egress = json.dumps({
+        "default": "deny",
+        # intercept is no longer user-configurable; even if submitted it is forced to "all".
+        "intercept": "credentialed",
+        "hosts": [
+            {
+                "host": "github.com",
+                "methods": ["*"],
+                "header": "",
+                "value": "",
+                "secret_name": "",
+                "has_existing_value": False,
+            },
+            {
+                "host": "api.openai.com",
+                "methods": ["GET", "post"],
+                "header": "Authorization",
+                "value": "sk-live",
+                "secret_name": "s_abc",
+                "has_existing_value": False,
+            },
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "network_choice": "on",
+            "egress_json": egress,
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    env = form.save()
+    assert env.egress_policy["default"] == "deny"
+    assert env.egress_policy["intercept"] == "all"  # always forced, regardless of submitted value
+    rules = env.egress_policy["rules"]
+    assert rules[0] == {"host": "github.com", "methods": ["*"], "inject": None}
+    assert rules[1]["host"] == "api.openai.com"
+    assert rules[1]["inject"] == "s_abc"
+    # methods are uppercased by the form normalisation layer (clean_egress_json)
+    assert rules[1]["methods"] == ["GET", "POST"]
+    assert env.egress_secrets == {"s_abc": {"header": "Authorization", "value": "sk-live"}}
+
+
+@pytest.mark.django_db
+def test_form_writes_no_policy_when_no_hosts():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue2", email="ue2@e.com", password="x")  # noqa: S106
+    form = SandboxEnvironmentForm(
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": ""},
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    env = form.save()
+    # An egress policy is an allow-list; with no allowed-host rules the form stores no policy
+    # (None) rather than a deny-all, so re-saving an env that never configured egress does not
+    # change its runtime network behavior.
+    assert env.egress_policy is None
+    assert env.egress_secrets == {}
+
+
+@pytest.mark.django_db
+def test_form_synthesises_secret_name_for_new_credentialed_host():
+    """A brand-new credentialed host with a blank ``secret_name`` (the common case:
+    add a host, type a header+value, never minting a name) must get a unique synthesised
+    ``inject`` wired to exactly one stored secret."""
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue4", email="ue4@e.com", password="x")  # noqa: S106
+    egress = json.dumps({
+        "default": "deny",
+        "intercept": "all",
+        "hosts": [
+            {
+                "host": "api.openai.com",
+                "methods": ["*"],
+                "header": "Authorization",
+                "value": "sk-live",
+                "secret_name": "",
+                "has_existing_value": False,
+            }
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "network_choice": "on",
+            "egress_json": egress,
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    env = form.save()
+    rules = env.egress_policy["rules"]
+    assert len(rules) == 1
+    inject = rules[0]["inject"]
+    assert inject and inject.startswith("s_")
+    assert set(env.egress_secrets) == {inject}
+    assert env.egress_secrets[inject] == {"header": "Authorization", "value": "sk-live"}
+
+
+@pytest.mark.django_db
+def test_form_rejects_invalid_credential_header():
+    """A credential header name carrying CR/LF (header-injection attempt) is rejected before it
+    can reach the sidecar."""
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue5", email="ue5@e.com", password="x")  # noqa: S106
+    form = SandboxEnvironmentForm(
+        data={
+            "name": "d",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "egress_json": json.dumps({
+                "default": "deny",
+                "intercept": "all",
+                "hosts": [
+                    {
+                        "host": "api.openai.com",
+                        "methods": ["*"],
+                        "header": "Authorization\r\nX-Evil",
+                        "value": "sk-live",
+                        "secret_name": "",
+                        "has_existing_value": False,
+                    }
+                ],
+            }),
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert not form.is_valid()
+    assert "egress_json" in form.errors
+
+
+@pytest.mark.django_db
+def test_form_rejects_bad_egress_enums_and_blank_host():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue3", email="ue3@e.com", password="x")  # noqa: S106
+    bad_default = SandboxEnvironmentForm(
+        data={
+            "name": "d",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "egress_json": json.dumps({"default": "nope", "intercept": "all", "hosts": []}),
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert not bad_default.is_valid()
+    assert "egress_json" in bad_default.errors
+
+    blank_host = SandboxEnvironmentForm(
+        data={
+            "name": "d",
+            "base_image": "alpine",
+            "scope": Scope.USER,
+            "egress_json": json.dumps({
+                "default": "deny",
+                "intercept": "all",
+                "hosts": [{"host": "  ", "methods": ["*"]}],
+            }),
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert not blank_host.is_valid()
+    assert "egress_json" in blank_host.errors
+
+
+@pytest.mark.django_db
+def test_egress_initial_masks_secret_values():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue4", email="ue4@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-secret"}},
+    )
+    form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
+    state = json.loads(form.fields["egress_json"].initial)
+    host = state["hosts"][0]
+    assert host["host"] == "api.openai.com"
+    assert host["secret_name"] == "s1"  # noqa: S105
+    assert host["header"] == "Authorization"
+    assert host["value"] == ""  # masked — never leaks plaintext
+    assert host["has_existing_value"] is True
+    assert "sk-secret" not in form.fields["egress_json"].initial
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("masked_value", ["", "******"])
+def test_egress_preserves_unchanged_secret_on_edit(masked_value):
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue5", email="ue5@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-secret"}},
+    )
+    submitted = json.dumps({
+        "default": "deny",
+        "intercept": "all",
+        "hosts": [
+            {
+                "host": "api.openai.com",
+                "methods": ["*"],
+                "header": "Authorization",
+                "value": masked_value,
+                "secret_name": "s1",
+                "has_existing_value": True,
+            }
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        instance=env,
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "network_choice": "on",
+            "egress_json": submitted,
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.egress_secrets == {"s1": {"header": "Authorization", "value": "sk-secret"}}
+
+
+@pytest.mark.django_db
+def test_egress_changed_secret_overwrites_on_edit():
+    from accounts.models import User
+
+    user = User.objects.create_user(username="ue6", email="ue6@e.com", password="x")  # noqa: S106
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "old"}},
+    )
+    submitted = json.dumps({
+        "default": "deny",
+        "intercept": "all",
+        "hosts": [
+            {
+                "host": "api.openai.com",
+                "methods": ["*"],
+                "header": "Authorization",
+                "value": "new",
+                "secret_name": "s1",
+                "has_existing_value": True,
+            }
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        instance=env,
+        data={
+            "name": "dev",
+            "base_image": "alpine:latest",
+            "scope": Scope.USER,
+            "network_choice": "on",
+            "egress_json": submitted,
+        },
+        user=user,
+        is_admin=False,
+    )
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.egress_secrets["s1"]["value"] == "new"
+
+
+@pytest.mark.django_db
+def test_egress_initial_returns_empty_credentials_on_decryption_error(user, mocker, caplog):
+    """Exercises the swallow branch of ``_initial_egress_json``: when the
+    ``egress_secrets`` getter raises ``DecryptionError``, the editor must still
+    render the policy (host/methods) but with empty credentials, never raising."""
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-secret"}},
+    )
+    from core.encryption import DecryptionError
+
+    # Patch the descriptor: when accessed on the instance, raise DecryptionError.
+    def _raise(instance):
+        raise DecryptionError("bad key")
+
+    mocker.patch.object(type(env), "egress_secrets", new_callable=lambda: property(fget=_raise))
+    caplog.set_level(logging.ERROR, logger="daiv.sandbox_envs")
+    form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
+    state = json.loads(form.fields["egress_json"].initial)
+    host = state["hosts"][0]
+    assert host["host"] == "api.openai.com"
+    assert host["methods"] == ["*"]
+    assert host["header"] == ""
+    assert host["value"] == ""
+    assert host["has_existing_value"] is False
+    assert "decryption failed" in caplog.text
+
+
+@pytest.mark.django_db
+def test_egress_refuses_when_existing_secrets_cannot_be_decrypted(user, mocker):
+    """Exercises the RAISE branch of ``_preserve_unchanged_egress_secrets``: a
+    masked edit over unreadable ciphertext must refuse to persist rather than
+    silently overwrite the still-valid secret with the mask."""
+    env = SandboxEnvironment.objects.create(
+        scope=Scope.USER,
+        user=user,
+        name="dev",
+        base_image="alpine:latest",
+        egress_policy={
+            "default": "deny",
+            "intercept": "all",
+            "rules": [{"host": "api.openai.com", "methods": ["*"], "inject": "s1"}],
+        },
+        egress_secrets={"s1": {"header": "Authorization", "value": "sk-secret"}},
+    )
+    original_ciphertext = SandboxEnvironment.objects.get(pk=env.pk)._egress_secrets_encrypted
+    from core.encryption import DecryptionError
+
+    # Patch the descriptor: when accessed on the instance, raise DecryptionError.
+    def _raise(instance):
+        raise DecryptionError("bad key")
+
+    mocker.patch.object(type(env), "egress_secrets", new_callable=lambda: property(fget=_raise))
+    submitted = json.dumps({
+        "default": "deny",
+        "intercept": "all",
+        "hosts": [
+            {
+                "host": "api.openai.com",
+                "methods": ["*"],
+                "header": "Authorization",
+                "value": "",
+                "secret_name": "s1",
+                "has_existing_value": True,
+            }
+        ],
+    })
+    form = SandboxEnvironmentForm(
+        instance=env,
+        data={"name": "dev", "base_image": "alpine:latest", "scope": Scope.USER, "egress_json": submitted},
+        user=user,
+        is_admin=False,
+    )
+    # Validation guard: model-level _validate_egress also catches the unreadable
+    # ciphertext during _post_clean, so the form never reports as valid and the
+    # original ciphertext is left untouched.
+    assert form.is_valid() is False
+    env.refresh_from_db()
+    assert env._egress_secrets_encrypted == original_ciphertext
+    # Form-helper guard (defense in depth): _preserve_unchanged_egress_secrets raises
+    # rather than letting a masked value overwrite the undecryptable stored secret.
+    with pytest.raises(ValidationError):
+        SandboxEnvironmentForm._preserve_unchanged_egress_secrets(env, {"s1": {"header": "Authorization", "value": ""}})
+
+
+@pytest.mark.django_db
 def test_form_env_vars_json_initial_returns_empty_on_decryption_error(user, mocker, caplog):
     env = SandboxEnvironment.objects.create(
         scope=Scope.USER,
@@ -383,3 +847,52 @@ def test_form_env_vars_json_initial_returns_empty_on_decryption_error(user, mock
     form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
     assert form.fields["env_vars_json"].initial == "[]"
     assert "decryption failed" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# B5 tests: On/Off network toggle, "On must permit something", allow-all storage
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_on_with_no_rules_and_deny_default_is_rejected(make_form_data):
+    data = make_form_data(
+        network_choice="on", egress_json=json.dumps({"default": "deny", "intercept": "all", "hosts": []})
+    )
+    form = build_env_form(data)
+    assert not form.is_valid()
+    assert "network_choice" in form.errors
+
+
+@pytest.mark.django_db
+def test_on_allow_all_stores_policy(make_form_data):
+    data = make_form_data(
+        network_choice="on", egress_json=json.dumps({"default": "allow", "intercept": "all", "hosts": []})
+    )
+    form = build_env_form(data)
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["egress_policy"] == {"default": "allow", "intercept": "all", "rules": []}
+
+
+@pytest.mark.django_db
+def test_off_forces_null_policy_even_with_hosts(make_form_data):
+    data = make_form_data(
+        network_choice="off",
+        egress_json=json.dumps({
+            "default": "deny",
+            "intercept": "all",
+            "hosts": [
+                {
+                    "host": "github.com",
+                    "methods": ["*"],
+                    "header": "",
+                    "value": "",
+                    "secret_name": "",
+                    "has_existing_value": False,
+                }
+            ],
+        }),
+    )
+    form = build_env_form(data)
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["egress_policy"] is None
