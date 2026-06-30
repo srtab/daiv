@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-daiv-does" class="md-skip">
+        <a href="#three-ways-to-put-daiv-to-work" class="md-skip">
           Skip to content
         </a>
       
@@ -330,13 +330,52 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-daiv-does" class="md-nav__link">
+  <a href="#three-ways-to-put-daiv-to-work" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What DAIV does
+        Three ways to put DAIV to work
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Three ways to put DAIV to work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-your-git-platform-webhooks-zero-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In your Git platform — webhooks, zero setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#from-your-editor-and-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From your editor and pipelines
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#from-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From the dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1414,13 +1453,52 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-daiv-does" class="md-nav__link">
+  <a href="#three-ways-to-put-daiv-to-work" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What DAIV does
+        Three ways to put DAIV to work
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Three ways to put DAIV to work">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-your-git-platform-webhooks-zero-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In your Git platform — webhooks, zero setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#from-your-editor-and-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From your editor and pipelines
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#from-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From the dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1507,8 +1585,11 @@
   <img src="assets/logo.svg" alt="DAIV" width="400">
 </p>
 
+<p align="center"><strong>Open-source, self-hosted SWE agents for GitLab &amp; GitHub</strong></p>
 <p align="center">
-  <strong>Open-source async SWE agent for your Git platform</strong>
+  Turn issues into merge requests, answer review comments, and fix failing CI —
+  with every agent running in a sandbox you control, the network egress you define,
+  and the LLM provider you choose.
 </p>
 
 <p align="center">
@@ -1518,15 +1599,28 @@
 </p>
 
 <hr />
-<p>DAIV integrates directly with <strong>GitLab</strong> and <strong>GitHub</strong> repositories through webhooks — you keep using your existing workflow while DAIV handles automation in the background, no separate interface required. An optional web dashboard is also available if you want to chat with the agent, compose runs, manage schedules, and review activity in one place.</p>
-<h2 id="what-daiv-does">What DAIV does</h2>
-<p>DAIV automates routine software engineering work so you can focus on creative problem-solving:</p>
+<p>DAIV integrates directly with <strong>GitLab</strong> and <strong>GitHub</strong> through webhooks — no new tools to adopt, no context-switching. Beyond your Git workflow, DAIV plugs into your editor over <strong>MCP</strong> and ships with an optional <strong>self-hosted dashboard</strong> to chat with the agent, start and watch runs, schedule jobs, and review what changed. You host it, you pick the model, and every task executes in an isolated sandbox whose network access you define.</p>
+<h2 id="three-ways-to-put-daiv-to-work">Three ways to put DAIV to work</h2>
+<h3 id="in-your-git-platform-webhooks-zero-setup">In your Git platform — webhooks, zero setup</h3>
 <ul>
-<li><strong>Issue Addressing</strong> — Converts issue descriptions into working code. DAIV reads the issue, generates a plan, waits for your approval, then opens a merge/pull request with the implementation.</li>
-<li><strong>Pull Request Assistant</strong> — Responds to reviewer comments, applies requested changes, and repairs failing CI/CD pipelines — all from within the merge/pull request conversation.</li>
-<li><strong>Slash Commands &amp; Skills</strong> — Invoke commands and skills directly from issues and merge requests (<code>/help</code>, <code>/plan</code>, <code>/code-review</code>, <code>/clone-to-topics</code>). Built-in skills provide planning, code review, and security audits — and you can create your own.</li>
-<li><strong>MCP Endpoint</strong> — Connect your AI coding assistant (Claude Code, Cursor, Codex CLI) to DAIV via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>. Delegate tasks from your editor and get results back without leaving your workflow.</li>
-<li><strong>Scheduled Jobs</strong> — Run agents on a recurring basis — hourly, daily, weekly, or any custom cron expression. Automate dependency audits, code quality scans, stale branch cleanup, and more without CI pipelines or external schedulers.</li>
+<li><strong><a href="features/issue-addressing/">Issue Addressing</a></strong> — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.</li>
+<li><strong><a href="features/pull-request-assistant/">Pull Request Assistant</a></strong> — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.</li>
+<li><strong><a href="features/slash-commands/">Slash Commands &amp; Skills</a></strong> — invoke <code>/plan</code>, <code>/code-review</code>, <code>/help</code>, and your own custom skills straight from issues and merge requests.</li>
+</ul>
+<h3 id="from-your-editor-and-pipelines">From your editor and pipelines</h3>
+<ul>
+<li><strong><a href="features/mcp-endpoint/">MCP Endpoint</a></strong> — connect Claude Code, Cursor, or Codex CLI over the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a> and delegate tasks without leaving your editor.</li>
+<li><strong><a href="features/jobs-api/">Jobs API</a></strong> — trigger agents programmatically from CI, scripts, or other tools, then poll for the result.</li>
+</ul>
+<h3 id="from-the-dashboard">From the dashboard</h3>
+<ul>
+<li><strong><a href="features/chat/">Chat</a></strong> — a live workspace: prompt the agent and watch it read, edit, and run commands in real time, on a thread you can leave and return to.</li>
+<li><strong><a href="features/activity-tracking/">Activity &amp; run composer</a></strong> — start runs from the UI and see every execution — webhook, API, MCP, scheduled, or manual — in one log, with retries.</li>
+<li><strong><a href="features/scheduled-jobs/">Scheduled Jobs</a></strong> — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.</li>
+<li><strong><a href="features/sandbox-environments/">Sandbox Environments</a></strong> — define a reusable runtime once: base image, CPU/memory, <strong>network egress policy</strong>, and encrypted secrets, scoped to the repositories you choose.</li>
+<li><strong>Per-run model &amp; effort</strong> — pick the LLM and thinking effort for each run.</li>
+<li><strong><a href="features/notifications/">Notifications</a></strong> — know the moment work finishes, via the in-app bell, email, or Rocket Chat.</li>
+<li><strong><a href="features/merge-metrics/">Merge Metrics</a></strong> — track code velocity with commit-level DAIV-vs-human attribution.</li>
 </ul>
 <h2 id="quick-example">Quick example</h2>
 <ol>
@@ -1538,14 +1632,14 @@
 <li><strong>DAIV updates the code:</strong> Modifies the implementation and pushes</li>
 </ol>
 <h2 id="under-the-hood">Under the hood</h2>
-<p>DAIV is powered by <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a>, a general-purpose deep agent framework built on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> with sub-agent spawning, a middleware stack, and virtual filesystem. On top of this foundation, DAIV adds:</p>
+<p>DAIV is powered by <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a>, a general-purpose deep-agent framework built on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> with sub-agent spawning, a middleware stack, and a virtual filesystem. On top of it, DAIV adds:</p>
 <ul>
-<li><strong>Subagents</strong> — Specialized agents for fast codebase exploration and complex multi-step tasks.</li>
-<li><strong>Sandbox</strong> — Secure command execution for running tests, builds, linters, and package management inside an isolated Docker container.</li>
-<li><strong>MCP Tools</strong> — External tool integrations via the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>, such as Sentry for error tracking.</li>
-<li><strong>Monitoring</strong> — Trace agent executions with <a href="https://www.langchain.com/langsmith">LangSmith</a> to analyze performance and identify issues. See <a href="reference/monitoring/">Monitoring</a>.</li>
-<li><strong>Scalable Workers</strong> — Background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs — no architecture changes needed.</li>
-<li><strong>LLM Providers</strong> — Run on OpenRouter, Anthropic, OpenAI, or Google. See <a href="getting-started/llm-providers/">LLM Providers</a>.</li>
+<li><strong>Subagents</strong> — specialized agents for fast codebase exploration and complex multi-step tasks.</li>
+<li><strong>Sandbox</strong> — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.</li>
+<li><strong>MCP Tools</strong> — external integrations over the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>, such as Sentry for error tracking.</li>
+<li><strong>Monitoring</strong> — trace every agent execution with <a href="https://www.langchain.com/langsmith">LangSmith</a> to analyze performance and spot issues. See <a href="reference/monitoring/">Monitoring</a>.</li>
+<li><strong>Scalable Workers</strong> — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.</li>
+<li><strong>LLM Providers</strong> — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice. See <a href="getting-started/llm-providers/">LLM Providers</a>.</li>
 </ul>
 <h2 id="supported-platforms">Supported platforms</h2>
 <div class="grid cards">
@@ -1625,7 +1719,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 30, 2026 14:28:33 UTC">June 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 30, 2026 22:08:00 UTC">June 30, 2026</span>
   </span>
 
     
@@ -1635,7 +1729,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 30, 2026 14:28:33 UTC">June 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 30, 2026 22:08:00 UTC">June 30, 2026</span>
   </span>
 
     
