@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
 from activity.models import Activity, ActivityStatus, TriggerType
-from activity.services import MAX_REPOS_PER_BATCH, RepoTarget, asubmit_batch_runs
+from activity.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_activities, asubmit_batch_runs
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -402,6 +402,50 @@ async def get_job_status(
         return await _poll_job_until_complete(job_id, mcp_user)
 
     return _build_job_response(activity)
+
+
+def _serialize_job_summary(activity: Activity) -> dict:
+    """Lean per-row summary for list_jobs — excludes result_summary (use get_job_status for that)."""
+    return {
+        "job_id": str(activity.id),
+        "repo_id": activity.repo_id,
+        "ref": activity.ref or None,
+        "status": str(activity.status),
+        "title": activity.title or None,
+        "trigger_type": str(activity.trigger_type),
+        "thread_id": str(activity.thread_id) if activity.thread_id else None,
+        "batch_id": str(activity.batch_id) if activity.batch_id else None,
+        "merge_request_url": activity.merge_request_web_url or None,
+        "code_changes": activity.code_changes,
+        "created_at": activity.created_at.isoformat() if activity.created_at else None,
+        "finished_at": activity.finished_at.isoformat() if activity.finished_at else None,
+        "cost_usd": str(activity.cost_usd) if activity.cost_usd is not None else None,
+        "total_tokens": activity.total_tokens,
+    }
+
+
+@mcp.tool()
+async def list_jobs(
+    repo_id: Annotated[str | None, Field(description="Filter to one repository (repo_id).")] = None,
+    status: Annotated[
+        ActivityStatus | None, Field(description="Filter by status: QUEUED, READY, RUNNING, SUCCESSFUL, or FAILED.")
+    ] = None,
+    limit: Annotated[int, Field(ge=1, le=50, description="Max rows (default 20, capped at 50).")] = 20,
+) -> dict:
+    """List the caller's recent agent runs, newest first.
+
+    Returns ``{"jobs": [...], "truncated": bool}``. Each entry is a lean summary;
+    use ``get_job_status`` for a single job's full result text.
+    """
+    mcp_user = await get_current_user()
+    if mcp_user is None:
+        return {"error": "Authentication failed: unable to resolve the current user."}
+
+    capped = max(1, min(limit, 50))
+    rows = await alist_user_activities(
+        mcp_user, repo_id=repo_id, status=str(status) if status else None, limit=capped + 1
+    )
+    return {"jobs": [_serialize_job_summary(a) for a in rows[:capped]], "truncated": len(rows) > capped}
 
 
 MAX_REPOSITORIES = 40
