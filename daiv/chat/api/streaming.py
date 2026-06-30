@@ -50,7 +50,12 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
 
     def get_stream_kwargs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         stream_kwargs = super().get_stream_kwargs(*args, **kwargs)
-        stream_kwargs.setdefault("context", self._runtime_context)
+        # Hard-assign (not setdefault): newer LangGraph makes upstream synthesize
+        # ``context={"thread_id": ...}`` from ``config['configurable']``, and LangGraph coerces a
+        # dict context via ``context_schema(**context)`` -> ``RuntimeCtx(thread_id=...)`` -> TypeError.
+        # Passing the dataclass instance skips coercion; ``thread_id`` still reaches the checkpointer
+        # through ``config['configurable']``.
+        stream_kwargs["context"] = self._runtime_context
         return stream_kwargs
 
     def get_schema_keys(self, config: Any) -> dict[str, list[str]]:
