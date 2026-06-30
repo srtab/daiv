@@ -254,7 +254,8 @@ class TestPublishSuggestsContextFile:
             result = await publisher.publish(merge_request=None)
 
             gm.commit_all.assert_awaited_once()
-            gm.push_head_to.assert_awaited_once_with("feature")
+            # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
+            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False)
             mock_suggest.assert_called_once_with(mr)
             assert result == PublishOutcome(merge_request=mr, published=True)
 
@@ -283,9 +284,9 @@ class TestPublishSuggestsContextFile:
             # Pre-check must run before _diff_to_metadata so the fallback path receives a
             # populated pr_metadata_diff (the new MR needs title/branch/description).
             assert mock_diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is not None
-            # Fresh unique branch generated + pushed for the fallback MR.
+            # Fresh unique branch generated + pushed for the fallback MR (no remote work to integrate).
             gm.unique_branch_name.assert_called_once_with("feature-fix", [])
-            gm.push_head_to.assert_awaited_once_with("feature-fix")
+            gm.push_head_to.assert_awaited_once_with("feature-fix", integrate_on_reject=False)
             # The new MR is created with a back-link to the original protected MR.
             mock_create_mr.assert_called_once()
             assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
@@ -372,7 +373,9 @@ class TestPublishSuggestsContextFile:
         ):
             await publisher.publish(merge_request=mr)
 
-            gm.push_head_to.assert_awaited_once_with("feature")
+            # Existing MR: push to its source branch, integrating remote work on a non-ff rejection
+            # (the branch may have moved under the run, e.g. a concurrent push).
+            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True)
             mock_suggest.assert_not_called()
 
 

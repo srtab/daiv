@@ -13,6 +13,8 @@ from automation.agent.constants import REPO_PATH
 from core.utils import is_git_auth_error_text
 
 if TYPE_CHECKING:
+    from typing import NoReturn
+
     from git import Repo
 
     from automation.agent.middlewares.file_system import SandboxFileBackend
@@ -304,18 +306,82 @@ class GitManager:
         await self._git("add", "-A")
         await self._git("commit", "-m", message)
 
-    async def push_head_to(self, branch: str, *, force: bool = False) -> str:
+    async def push_head_to(self, branch: str, *, force: bool = False, integrate_on_reject: bool = False) -> str:
         """Push the current ``HEAD`` to ``origin/<branch>`` (creating it if needed).
 
-        Raises ``GitPushPermissionError`` on an auth/permission failure,
-        ``GitPushNetworkError`` when the remote host is unreachable (e.g. a network-disabled
-        sandbox), and ``GitCommandError`` on any other push failure. Returns ``branch``.
+        When ``integrate_on_reject`` is set and a *non-fast-forward* rejection comes back — the
+        remote branch advanced under the run, e.g. a dependabot force-push of its rebased PR
+        branch, or a concurrent human push to an MR's source branch — the manager fetches the
+        remote tip, rebases ``HEAD`` onto it, and retries the push once. This preserves the agent's
+        work instead of discarding it. Pass it only when adding onto a branch is the intent (an
+        existing MR's source branch); a fresh-branch push leaves it off so we never graft the run's
+        commits onto unrelated history that happens to occupy a colliding ref.
+
+        Raises ``GitPushStaleError`` on a non-fast-forward rejection that cannot be (or was asked not
+        to be) integrated — including a rebase conflict or a remote that advanced again before the
+        retry. Raises ``GitPushPermissionError`` on an auth/permission failure, ``GitPushNetworkError``
+        when the remote host is unreachable (e.g. a network-disabled sandbox), and ``GitCommandError``
+        on any other push failure. Returns ``branch``.
         """
         push_args = ["push", "origin", f"HEAD:{branch}", *(["--force"] if force else [])]
         push = await self._git(*push_args, check=False)
-        if push.exit_code != 0:
-            _raise_for_push_failure(push_args, push)
-        return branch
+        if push.exit_code == 0:
+            return branch
+
+        # A non-fast-forward rejection is the only failure that integrating remote work can fix; an
+        # auth/network/other failure won't change after a fetch+rebase, so it falls straight through
+        # to classification below. On a successful integrate, retry the push and return on success.
+        if integrate_on_reject and not force and _is_push_stale_error_text(push.output):
+            await self._rebase_onto_remote(branch)  # raises GitPushStaleError on a rebase conflict
+            push = await self._git(*push_args, check=False)
+            if push.exit_code == 0:
+                return branch
+
+        # Either the push failed and we couldn't/didn't integrate, or the retry was still rejected
+        # (remote advanced again) — classify whichever failed push result we are holding.
+        _raise_for_push_failure(push_args, push)
+
+    async def _rebase_onto_remote(self, branch: str) -> None:
+        """Fetch ``origin/<branch>`` and rebase ``HEAD`` onto it so a non-fast-forward push can retry.
+
+        On success ``HEAD`` is the run's commits replayed on top of the latest remote tip. A failed
+        fetch is classified by transport (auth → ``GitPushPermissionError``, unreachable host →
+        ``GitPushNetworkError``, else ``GitCommandError``) — via the operation-neutral
+        :func:`_raise_for_transport_failure` rather than the push classifier, so a fetch never raises
+        a nonsensical non-fast-forward error — keeping the actionable typed error the direct push
+        would have produced instead of degrading to a raw ``GitCommandError``. On a rebase conflict
+        the rebase is aborted (restoring the pre-rebase ``HEAD`` rather than stranding the workspace
+        mid-rebase) and a typed :class:`GitPushStaleError` is raised. A *failed* abort cannot restore
+        ``HEAD``: it is logged at error level (never silently swallowed) and flagged in the raised
+        message, since the workspace is then left mid-rebase and must not be re-published.
+        """
+        fetch_args = ["fetch", "origin", branch]
+        fetch = await self._git(*fetch_args, check=False)
+        if fetch.exit_code != 0:
+            _raise_for_transport_failure(fetch_args, fetch)
+            raise GitCommandError(["git", *fetch_args], fetch.exit_code, fetch.output)
+
+        rebase = await self._git("rebase", "FETCH_HEAD", check=False)
+        if rebase.exit_code != 0:
+            abort = await self._git("rebase", "--abort", check=False)
+            if abort.exit_code != 0:
+                logger.error(
+                    "git rebase --abort failed after a conflict on '%s' (exit %s); the workspace is left "
+                    "mid-rebase. Output: %s",
+                    branch,
+                    abort.exit_code,
+                    abort.output.strip(),
+                )
+                raise GitPushStaleError(
+                    f"The remote branch '{branch}' moved while DAIV was working and its changes conflict "
+                    "with DAIV's. The conflicted rebase could not be aborted, so the workspace is in an "
+                    "inconsistent state. Re-trigger DAIV to retry from a fresh clone."
+                )
+            raise GitPushStaleError(
+                f"The remote branch '{branch}' moved while DAIV was working and its changes conflict "
+                "with DAIV's, so they could not be rebased automatically. Re-trigger DAIV to retry "
+                "against the updated branch."
+            )
 
     # -- helpers -------------------------------------------------------------
     @staticmethod
@@ -364,6 +430,16 @@ class GitPushPermissionError(RuntimeError):
     """
 
 
+class GitPushStaleError(RuntimeError):
+    """Raised when a push is rejected as non-fast-forward and cannot be integrated.
+
+    The remote branch advanced under the run (a dependabot force-push of its rebased PR branch, or a
+    concurrent push to an MR's source branch) so ``HEAD`` is no longer a descendant of the remote tip.
+    Kept distinct from the raw ``GitCommandError`` so callers surface an actionable "the branch moved;
+    re-trigger" note instead of crashing the task on an inherently transient race.
+    """
+
+
 class GitPushNetworkError(RuntimeError):
     """Raised when pushing fails because the remote host is unreachable.
 
@@ -398,25 +474,65 @@ def _is_push_network_error_text(output: str) -> bool:
     )
 
 
-def _raise_for_push_failure(push_args: list[str], result: _GitResult) -> None:
-    """Translate a failed ``git push`` into a typed, actionable error.
+def _is_push_stale_error_text(output: str) -> bool:
+    """Check if git push output indicates a non-fast-forward rejection (the remote branch advanced).
 
-    Auth/permission → ``GitPushPermissionError``; an unreachable host → ``GitPushNetworkError``;
-    anything else → the raw ``GitCommandError``. Auth is checked first so it always wins.
+    Within :func:`_raise_for_push_failure` this is checked *after* the auth and network markers, so a
+    stale rejection that also mentions a URL or host is never misclassified there, and a genuine
+    auth/network failure never reads as stale. The early gate in :meth:`GitManager.push_head_to` also
+    calls this before any auth/network check, which is safe because it only gates a recoverable
+    fetch+rebase and real auth/network output does not contain these non-fast-forward markers.
+    """
+    text = output.lower()
+    return any(
+        marker in text
+        for marker in (
+            "fetch first",
+            "non-fast-forward",
+            "updates were rejected because the remote contains work",
+            "tip of your current branch is behind",
+        )
+    )
+
+
+def _raise_for_transport_failure(args: list[str], result: _GitResult) -> None:
+    """Raise a typed error for an auth/permission or unreachable-host git failure; return otherwise.
+
+    Operation-neutral on purpose: a credential or host-reachability problem (and its remedy) is the
+    same whether the failing command was a ``push`` or the ``fetch`` of a push-recovery rebase, so
+    both share this classification. Returns (does not raise) when the output matches neither marker,
+    leaving the caller to layer operation-specific classification (e.g. push's non-fast-forward
+    branch) on top. Auth is checked before network so an auth failure that also names a host wins.
     """
     if is_git_auth_error_text(result.output):
-        logger.warning("git push auth failure: %s", result.output)
+        logger.warning("git transport auth failure: %s", result.output)
         raise GitPushPermissionError(
-            "Failed to push changes to the remote repository due to authentication or permission issues. "
+            "Failed to authenticate to the remote repository (authentication or permission issue). "
             "The credential embedded in the workspace may be expired (a session resumed a day or more "
             "after it was created holds an expired clone token — a fresh session re-clones with a new "
-            "one), or branch protection rules may not allow this credential to push to this branch."
+            "one), or branch protection rules may not allow this credential to write to this branch."
         )
     if _is_push_network_error_text(result.output):
-        logger.warning("git push network failure: %s", result.output)
+        logger.warning("git transport network failure: %s", result.output)
         raise GitPushNetworkError(
-            "Failed to push changes: the remote host is unreachable. Sandbox-authoritative auto-commit "
-            "pushes from inside the sandbox, so the sandbox environment must run as an egress-enabled "
-            "sandbox."
+            "Failed to reach the remote host (it is unreachable). DAIV runs git from inside the sandbox, "
+            "so the sandbox environment must run as an egress-enabled sandbox."
+        )
+
+
+def _raise_for_push_failure(push_args: list[str], result: _GitResult) -> NoReturn:
+    """Translate a failed ``git push`` into a typed, actionable error (always raises).
+
+    Auth/permission → ``GitPushPermissionError``; an unreachable host → ``GitPushNetworkError`` (both
+    via :func:`_raise_for_transport_failure`, checked first so they win); a non-fast-forward rejection
+    → ``GitPushStaleError``; anything else → the raw ``GitCommandError``.
+    """
+    _raise_for_transport_failure(push_args, result)
+    if _is_push_stale_error_text(result.output):
+        logger.warning("git push non-fast-forward rejection: %s", result.output)
+        raise GitPushStaleError(
+            "Failed to push changes: the remote branch advanced while DAIV was working (a non-fast-forward "
+            "rejection). DAIV could not integrate the remote changes automatically. Re-trigger DAIV to "
+            "retry against the updated branch."
         )
     raise GitCommandError(["git", *push_args], result.exit_code, result.output)
