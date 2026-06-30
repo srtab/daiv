@@ -126,7 +126,10 @@ class GitChangePublisher(ChangePublisher):
             else:
                 branch_name = merge_request.source_branch
 
-            await git_manager.push_head_to(branch_name)
+            # Only an existing MR's source branch may have advanced under the run (a dependabot
+            # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
+            # A fresh, unique branch can't, so leave integration off for new MRs.
+            await git_manager.push_head_to(branch_name, integrate_on_reject=merge_request is not None)
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
