@@ -52,6 +52,7 @@ async def test_schedule_job_validation_error_is_mapped():
             name="x", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.CUSTOM, cron_expression=""
         )
     assert "error" in data
+    assert not await ScheduledJob.objects.filter(user=user).aexists()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -70,3 +71,21 @@ async def test_schedule_job_unknown_environment_returns_error():
         )
     assert "error" in data
     assert "nope" in data["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_invalid_agent_model_returns_error():
+    from mcp_server.server import schedule_job
+
+    user = await _user("sj5")
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await schedule_job(
+            name="x",
+            prompt="p",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+            agent_model="unknownprovider:some-model",
+        )
+    assert "error" in data
+    assert not await ScheduledJob.objects.filter(user=user).aexists()
