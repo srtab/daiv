@@ -411,6 +411,23 @@ async def get_job_status(
     return _build_job_response(activity)
 
 
+async def _resolve_mcp_user() -> tuple[object | None, dict | None]:
+    """Resolve the authenticated user for the dict-returning tools.
+
+    Returns ``(user, None)`` on success, or ``(None, error_dict)`` when the user can't be
+    resolved. Mirrors ``submit_job``'s auth handling (log + friendly message) but returns a
+    dict, since these tools return dicts rather than JSON strings.
+    """
+    try:
+        mcp_user = await get_current_user()
+    except Exception:
+        logger.exception("Failed to resolve current user for MCP tool")
+        mcp_user = None
+    if mcp_user is None:
+        return None, {"error": "Authentication failed: unable to resolve the current user."}
+    return mcp_user, None
+
+
 def _serialize_job_summary(activity: Activity) -> dict:
     """Lean per-row summary for list_jobs — excludes result_summary (use get_job_status for that)."""
     return {
@@ -444,14 +461,18 @@ async def list_jobs(
     Returns ``{"jobs": [...], "truncated": bool}``. Each entry is a lean summary;
     use ``get_job_status`` for a single job's full result text.
     """
-    mcp_user = await get_current_user()
-    if mcp_user is None:
-        return {"error": "Authentication failed: unable to resolve the current user."}
+    mcp_user, auth_error = await _resolve_mcp_user()
+    if auth_error is not None:
+        return auth_error
 
     capped = max(1, min(limit, 50))
-    rows = await alist_user_activities(
-        mcp_user, repo_id=repo_id, status=str(status) if status else None, limit=capped + 1
-    )
+    try:
+        rows = await alist_user_activities(
+            mcp_user, repo_id=repo_id, status=str(status) if status else None, limit=capped + 1
+        )
+    except Exception:
+        logger.exception("Failed to list jobs")
+        return {"error": "Failed to list jobs. Please try again later."}
     return {"jobs": [_serialize_job_summary(a) for a in rows[:capped]], "truncated": len(rows) > capped}
 
 
@@ -588,7 +609,7 @@ async def schedule_job(
         Field(
             description=(
                 "ISO-8601 datetime for a one-off 'once' schedule. Naive values use the server"
-                " timezone; offsets are honored. Must be in the future."
+                " timezone; offsets are honored. Must be a future time (up to ~60s in the past is tolerated)."
             )
         ),
     ] = None,
@@ -607,9 +628,9 @@ async def schedule_job(
 
     Returns ``{id, name, frequency, next_run_at, is_enabled, repos}`` or ``{"error": ...}``.
     """
-    mcp_user = await get_current_user()
-    if mcp_user is None:
-        return {"error": "Authentication failed: unable to resolve the current user."}
+    mcp_user, auth_error = await _resolve_mcp_user()
+    if auth_error is not None:
+        return auth_error
 
     try:
         agent_model, agent_thinking_level = validate_agent_override(agent_model, agent_thinking_level)
@@ -660,6 +681,9 @@ async def schedule_job(
         )
     except ValidationError as err:
         return {"error": "; ".join(err.messages)}
+    except Exception:
+        logger.exception("Failed to create scheduled job")
+        return {"error": "Failed to create the scheduled job. Please try again later."}
 
     return {
         "id": str(schedule.id),
@@ -697,8 +721,12 @@ async def list_scheduled_jobs(
     repo_id: Annotated[str | None, Field(description="Only return schedules targeting this repo_id.")] = None,
 ) -> dict:
     """List the caller's scheduled jobs, newest first. Returns ``{"scheduled_jobs": [...]}``."""
-    mcp_user = await get_current_user()
-    if mcp_user is None:
-        return {"error": "Authentication failed: unable to resolve the current user."}
-    rows = await alist_scheduled_jobs(mcp_user, enabled_only=enabled_only, repo_id=repo_id)
+    mcp_user, auth_error = await _resolve_mcp_user()
+    if auth_error is not None:
+        return auth_error
+    try:
+        rows = await alist_scheduled_jobs(mcp_user, enabled_only=enabled_only, repo_id=repo_id)
+    except Exception:
+        logger.exception("Failed to list scheduled jobs")
+        return {"error": "Failed to list scheduled jobs. Please try again later."}
     return {"scheduled_jobs": [_serialize_scheduled_job(s) for s in rows]}

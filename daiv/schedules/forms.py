@@ -5,6 +5,7 @@ from activity.forms import AgentRunFieldsMixin, RepoListField
 from accounts.models import User
 from schedules.models import ScheduledJob, ScheduleTemplate
 from schedules.services import clear_irrelevant_frequency_fields as _clear_irrelevant_frequency_fields
+from schedules.services import compute_next_run_or_raise
 
 
 class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
@@ -44,8 +45,7 @@ class ScheduledJobCreateForm(AgentRunFieldsMixin, forms.ModelForm):
 
     def save(self, commit: bool = True) -> ScheduledJob:
         instance = super().save(commit=False)
-        if instance.is_enabled:
-            instance.compute_next_run()
+        compute_next_run_or_raise(instance)
         if commit:
             instance.save()
             self.save_m2m()

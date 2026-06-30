@@ -1,6 +1,8 @@
 from datetime import time as dt_time
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 import pytest
 
@@ -28,6 +30,39 @@ async def test_acreate_scheduled_job_daily_computes_next_run():
     assert job.user_id == user.pk
     assert job.is_enabled is True
     assert job.next_run_at is not None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_acreate_scheduled_job_once_computes_next_run_from_run_at():
+    user = await _user("s1b")
+    run_at = (timezone.now() + timedelta(days=1)).replace(microsecond=0)
+    job = await acreate_scheduled_job(
+        user,
+        name="OneOff",
+        prompt="do it",
+        repos=[{"repo_id": "a/b", "ref": ""}],
+        frequency=Frequency.ONCE,
+        run_at=run_at,
+    )
+    assert job.frequency == Frequency.ONCE
+    assert job.next_run_at == run_at
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_acreate_scheduled_job_once_past_run_at_raises_validation_error():
+    user = await _user("s1c")
+    past = timezone.now() - timedelta(days=1)
+    # The model's _validate_frequency_fields rejects this in full_clean() before
+    # compute_next_run() runs, so it surfaces as ValidationError (never a bare ValueError).
+    with pytest.raises(ValidationError):
+        await acreate_scheduled_job(
+            user,
+            name="OneOff",
+            prompt="do it",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=past,
+        )
 
 
 @pytest.mark.django_db(transaction=True)

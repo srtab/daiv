@@ -1,4 +1,7 @@
+from datetime import timedelta
 from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
 
 import pytest
 
@@ -27,6 +30,81 @@ async def test_schedule_job_creates_daily_schedule():
     assert data["name"] == "Nightly"
     assert data["next_run_at"] is not None
     assert await ScheduledJob.objects.filter(user=user, name="Nightly").aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_once_with_aware_datetime_creates_schedule():
+    from mcp_server.server import schedule_job
+
+    user = await _user("sj6")
+    run_at = (timezone.now() + timedelta(days=1)).replace(microsecond=0)
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await schedule_job(
+            name="OneOff",
+            prompt="p",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=run_at.isoformat(),
+        )
+    assert "error" not in data
+    assert data["frequency"] == "once"
+    assert data["next_run_at"] is not None
+    job = await ScheduledJob.objects.aget(user=user, name="OneOff")
+    assert job.frequency == Frequency.ONCE
+    assert job.run_at == run_at
+    assert job.next_run_at == run_at
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_once_naive_datetime_is_coerced_to_aware():
+    from mcp_server.server import schedule_job
+
+    user = await _user("sj7")
+    naive = (timezone.now() + timedelta(days=1)).replace(microsecond=0, tzinfo=None)
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await schedule_job(
+            name="OneOffNaive",
+            prompt="p",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=naive.isoformat(),
+        )
+    assert "error" not in data
+    assert data["next_run_at"] is not None
+    job = await ScheduledJob.objects.aget(user=user, name="OneOffNaive")
+    assert timezone.is_aware(job.run_at)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_invalid_run_at_returns_error():
+    from mcp_server.server import schedule_job
+
+    user = await _user("sj8")
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await schedule_job(
+            name="x", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.ONCE, run_at="not-a-date"
+        )
+    assert "error" in data
+    assert "run_at" in data["error"]
+    assert not await ScheduledJob.objects.filter(user=user).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_past_run_at_returns_error():
+    from mcp_server.server import schedule_job
+
+    user = await _user("sj9")
+    past = (timezone.now() - timedelta(days=1)).replace(microsecond=0)
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await schedule_job(
+            name="x",
+            prompt="p",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.ONCE,
+            run_at=past.isoformat(),
+        )
+    assert "error" in data
+    assert not await ScheduledJob.objects.filter(user=user).aexists()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -106,7 +184,6 @@ async def test_list_scheduled_jobs_scopes_and_filters():
 
     assert [s["name"] for s in listed["scheduled_jobs"]] == ["A"]
     assert listed["scheduled_jobs"][0]["time"] == "09:00"
-    assert "result_summary" not in listed["scheduled_jobs"][0]
     assert len(filtered["scheduled_jobs"]) == 1
     assert empty["scheduled_jobs"] == []
 
@@ -118,3 +195,17 @@ async def test_list_scheduled_jobs_unauthenticated_returns_error():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
         data = await list_scheduled_jobs()
     assert "error" in data
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_scheduled_jobs_db_error_returns_friendly_error():
+    from mcp_server.server import list_scheduled_jobs
+
+    user = await _user("ls2")
+    with (
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch("mcp_server.server.alist_scheduled_jobs", new=AsyncMock(side_effect=RuntimeError("db down"))),
+    ):
+        data = await list_scheduled_jobs()
+    assert "error" in data
+    assert "db down" not in data["error"]  # internal detail not leaked

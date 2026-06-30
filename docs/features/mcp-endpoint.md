@@ -69,7 +69,7 @@ url = "https://daiv.example.com/mcp/"
 
 For the full request/response schema, the batch `repos` contract, and the job lifecycle, see the [Jobs API](jobs-api.md).
 
-`schedule_job` creates a [scheduled run](scheduled-jobs.md). Pick a `frequency` and supply its companion field: `time` (`"HH:MM"`, 24-hour) for `daily`, `weekdays`, and `weekly` (which fires on Mondays); a five-field `cron_expression` for `custom`; or an ISO-8601 `run_at` for a one-off `once` schedule. A `run_at` without a timezone offset is interpreted in the server timezone and must be in the future. New schedules are always enabled. The response includes the schedule `id` and the computed `next_run_at`. Manage existing schedules (edit, disable, delete) from the DAIV dashboard.
+`schedule_job` creates a [scheduled run](scheduled-jobs.md). Pick a `frequency` and supply its companion field: `time` (`"HH:MM"`, 24-hour) for `daily`, `weekdays`, and `weekly` (which fires on Mondays); a five-field `cron_expression` for `custom`; or an ISO-8601 `run_at` for a one-off `once` schedule. A `run_at` without a timezone offset is interpreted in the server timezone and must be in the future (a ~60-second grace into the past is tolerated). New schedules are always enabled. The response includes the schedule `id` and the computed `next_run_at`. Manage existing schedules (edit, disable, delete) from the DAIV dashboard.
 
 ## Usage examples
 
