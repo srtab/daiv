@@ -33,6 +33,7 @@ urlpatterns = [
     path("dashboard/notifications/", include("notifications.urls")),
     path("dashboard/sandbox-envs/", include("sandbox_envs.urls", namespace="sandbox_envs")),
     path("dashboard/schedules/", include("schedules.urls")),
+    path("dashboard/memory/", include("memory.urls", namespace="memory")),
     path("dashboard/skills/", include("skills.urls", namespace="skills")),
     path("codebase/", include("codebase.urls")),
     path("api/", api.urls),

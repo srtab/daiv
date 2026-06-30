@@ -1,0 +1,10 @@
+{% load dashboard_tags i18n %}
+<div class="flex flex-wrap items-center gap-1.5">
+  <span class="text-gray-500">{{ label }}:</span>
+  <a href="?{% querystring_without param 'page' %}"
+     class="rounded-full px-2 py-0.5 {% if not current %}bg-white/[0.1] text-white{% else %}text-gray-400 hover:text-gray-200{% endif %}">{% translate "All" %}</a>
+  {% for value, choice_label in choices %}
+  <a href="?{% querystring_without param 'page' %}{{ param }}={{ value }}"
+     class="rounded-full px-2 py-0.5 {% if current == value %}bg-white/[0.1] text-white{% else %}text-gray-400 hover:text-gray-200{% endif %}">{{ choice_label }}</a>
+  {% endfor %}
+</div>

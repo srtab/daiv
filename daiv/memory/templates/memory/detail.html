@@ -1,0 +1,90 @@
+{% extends "base_app.html" %}
+{% load dashboard_tags humanize i18n icon_tags markdown_tags %}
+
+{% block title %}{{ repo_id }} — {% translate "Memory" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-4xl{% endblock %}
+
+{% block breadcrumb %}
+{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% endblock breadcrumb %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-start justify-between gap-4">
+  <div class="min-w-0">
+    <h1 class="truncate font-mono text-2xl font-bold tracking-tight">{{ repo_id }}</h1>
+    <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
+      {% if memory and memory.last_consolidated_at %}
+      <span>{% translate "Last consolidated" %} {{ memory.last_consolidated_at|naturaltime }}</span>
+      <span>&middot; {{ document_lines }} {% translate "lines" %}</span>
+      <span>&middot; {{ document_bytes|filesizeformat }}</span>
+      {% else %}
+      <span>{% translate "Never consolidated" %}</span>
+      {% endif %}
+    </div>
+  </div>
+  {% if user.is_admin and memory_enabled %}
+  <form method="post" action="{% url 'memory:consolidate' repo_id %}" class="shrink-0">
+    {% csrf_token %}
+    <button type="submit" class="btn-secondary inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+      {% icon "arrow-path" "h-4 w-4 shrink-0" %}
+      {% translate "Consolidate now" %}
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+  <h2 class="text-lg font-semibold">{% translate "Consolidated document" %}</h2>
+  {% if memory and memory.content.strip %}
+  <div class="prose-dark mt-3 rounded-xl border border-white/[0.06] bg-black/30 p-4">
+    {{ memory.content|render_markdown }}
+  </div>
+  {% else %}
+  <div class="mt-3 rounded-2xl border border-white/[0.06] px-4 py-8 text-center text-sm text-gray-500">
+    {% blocktranslate count n=total_observations %}No consolidated document yet — {{ n }} observation so far.{% plural %}No consolidated document yet — {{ n }} observations so far.{% endblocktranslate %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+  <h2 class="text-lg font-semibold">{% translate "Observations" %}</h2>
+
+  {% translate "Status" as status_label %}
+  {% translate "Category" as category_label %}
+  <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+    {% include "memory/_filter_pills.html" with label=status_label param="status" choices=statuses current=current_status %}
+    {% include "memory/_filter_pills.html" with label=category_label param="category" choices=categories current=current_category %}
+  </div>
+
+  {% if page_obj.object_list %}
+  <ul class="mt-3 divide-y divide-white/[0.06] rounded-2xl border border-white/[0.06]">
+    {% for obs in page_obj %}
+    <li class="px-4 py-3">
+      <div class="flex items-center gap-2">
+        <span class="meta-pill">{{ obs.get_category_display }}</span>
+        {% if obs.status == "consolidated" %}
+        <span class="status-badge status-badge-success">{{ obs.get_status_display }}</span>
+        {% elif obs.status == "discarded" %}
+        <span class="status-badge status-badge-failed">{{ obs.get_status_display }}</span>
+        {% else %}
+        <span class="status-badge status-badge-pending">{{ obs.get_status_display }}</span>
+        {% endif %}
+        <span class="ml-auto text-xs text-gray-500">{{ obs.created_at|naturaltime }}</span>
+      </div>
+      <p class="mt-1.5 text-sm text-gray-300">{{ obs.content }}</p>
+      {% if obs.activity %}
+      <a href="{% url 'activity_detail' obs.activity.pk %}"
+         class="mt-1 inline-block text-xs text-violet-300 hover:text-violet-200">{% translate "View source run" %}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% include "accounts/_pagination.html" %}
+  {% else %}
+  <div class="mt-3 rounded-2xl border border-white/[0.06] px-4 py-8 text-center text-sm text-gray-500">
+    {% translate "No observations match the current filters." %}
+  </div>
+  {% endif %}
+</section>
+{% endblock app_content %}
