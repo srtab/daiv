@@ -160,6 +160,38 @@ def test_schema_validation_failure_logs_and_returns(tmp_path, monkeypatch, caplo
 
 
 @pytest.mark.django_db(transaction=True)
+def test_empty_filter_list_normalized_to_none_survives_constraint(tmp_path, monkeypatch, caplog):
+    """A legacy non-'none' filter mode with an empty list must be normalized to 'none' on
+    import, otherwise applying the 0003 check constraint would abort the migration."""
+    _populate_config_file(
+        tmp_path,
+        monkeypatch,
+        {
+            "mcpServers": {
+                "demo": {"type": "http", "url": "http://demo.test", "toolFilter": {"mode": "allow", "list": []}}
+            }
+        },
+    )
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0001_initial")])
+    executor.loader.build_graph()
+    executor = MigrationExecutor(connection)
+    with caplog.at_level("WARNING"):
+        executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+    # Applying the constraint migration must not raise (the row is now mode='none').
+    executor.loader.build_graph()
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")])
+
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.get(name="demo")
+    assert obj.tool_filter_mode == "none"
+    assert obj.tool_filter_items == []
+    assert "importing as 'none'" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
 def test_default_fallback_syntax_logs_warning(tmp_path, monkeypatch, caplog):
     _populate_config_file(
         tmp_path,

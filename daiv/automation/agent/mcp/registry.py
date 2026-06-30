@@ -66,6 +66,11 @@ class MCPRegistry:
                 connections[name] = SSEConnection(transport="sse", url=dto.url, headers=headers)
             elif dto.type == "http":
                 connections[name] = StreamableHttpConnection(transport="streamable_http", url=dto.url, headers=headers)
+            else:
+                # Unknown transport: skip rather than silently registering a filter for a
+                # server with no connection (which would otherwise vanish without a trace).
+                logger.warning("MCP server %r has unsupported transport %r; skipping it", name, dto.type)
+                continue
             if dto.tool_filter is not None:
                 filters[name] = dto.tool_filter
 

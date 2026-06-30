@@ -3,18 +3,34 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any
+from typing import Any, TypedDict
 
+from django.core.cache import cache
+
+from asgiref.sync import async_to_sync
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.sessions import SSEConnection, StreamableHttpConnection
 
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
+from mcp_servers.constants import TOOLS_CACHE_KEY, TOOLS_CACHE_TIMEOUT, TOOLS_NEGATIVE_CACHE_TIMEOUT
 from mcp_servers.models import MCPServer
 
 logger = logging.getLogger("daiv.mcp_servers")
 
 _TEST_CONNECTION_TIMEOUT = 5.0  # seconds
+
+
+class HeaderEntry(TypedDict, total=False):
+    """Stored shape of a single header in ``MCPServer.headers``.
+
+    ``mode`` is ``"literal"`` (``value`` used verbatim) or ``"env_ref"``
+    (``value`` is the name of an env var resolved at runtime).
+    """
+
+    name: str
+    mode: str
+    value: str
 
 
 def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
@@ -23,14 +39,15 @@ def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
     ``(name, dto)`` tuples preserving DB ordering.
 
     A row whose ``headers`` cannot be decrypted is skipped with an error log;
-    other rows still load. Errors in the DB layer itself propagate to the
-    caller (``MCPToolkit.get_tools`` already swallows them).
+    other rows still load. A failure of the DB query itself propagates to the
+    caller: ``MCPToolkit.get_tools`` does not guard it, so a DB outage surfaces
+    as a failed agent-graph build rather than as silently-empty tools.
     """
     rows = MCPServer.objects.filter(enabled=True, source=MCPServer.Source.CUSTOM).order_by("name")
     out: list[tuple[str, UserMcpServer]] = []
     for row in rows:
         try:
-            headers = _resolve_headers(row)
+            headers = _resolve_header_entries(row.headers or [], server_name=row.name)
         except DecryptionError:
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
@@ -45,14 +62,20 @@ def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
     return out
 
 
-def _resolve_headers(row: MCPServer) -> dict[str, str]:
-    """Flatten the structured ``[{name, mode, value}]`` shape into the DTO's
-    ``dict[str, str]``. Literal values come through directly; env_ref values
-    are resolved via ``os.environ``. A missing env var drops that one header
-    but does not affect others."""
-    headers = row.headers or []
+def _resolve_header_entries(entries: list[HeaderEntry] | None, *, server_name: str) -> dict[str, str]:
+    """Flatten the stored ``[{name, mode, value}]`` header shape into the
+    DTO's ``dict[str, str]``.
+
+    Literal values pass through directly; ``env_ref`` values are resolved via
+    ``os.environ``. A missing env var drops that one header (logged) without
+    affecting others. An unrecognized ``mode`` also drops the header with a
+    warning, so a typo can't silently vanish a header.
+
+    Shared by ``build_runtime_servers`` (runtime) and ``_build_client``
+    (test-connection) so resolution and logging cannot drift between them.
+    """
     resolved: dict[str, str] = {}
-    for entry in headers:
+    for entry in entries or []:
         name = entry.get("name")
         mode = entry.get("mode")
         value = entry.get("value", "")
@@ -65,12 +88,16 @@ def _resolve_headers(row: MCPServer) -> dict[str, str]:
             if env_value is None:
                 logger.warning(
                     "MCP server '%s' header '%s' references missing env var '%s'; dropping header",
-                    row.name,
+                    server_name,
                     name,
                     value,
                 )
                 continue
             resolved[name] = env_value
+        else:
+            logger.warning(
+                "MCP server '%s' header '%s' has unrecognized mode %r; dropping header", server_name, name, mode
+            )
     return resolved
 
 
@@ -78,26 +105,14 @@ def _build_client(payload: dict[str, Any]) -> MultiServerMCPClient:
     """Build a transient ``MultiServerMCPClient`` from a form-shaped payload.
 
     ``payload`` is ``{"transport": "http"|"sse", "url": str, "headers":
-    [{"name", "mode", "value"}, ...]}``. ``mode=env_ref`` values are
-    resolved against ``os.environ``; missing ones are dropped.
+    [{"name", "mode", "value"}, ...]}``. ``mode=env_ref`` values are resolved
+    against ``os.environ``; missing ones are dropped (see
+    ``_resolve_header_entries``).
     """
-    resolved: dict[str, str] = {}
-    for entry in payload.get("headers", []) or []:
-        name = entry.get("name")
-        mode = entry.get("mode")
-        value = entry.get("value", "")
-        if not name:
-            continue
-        if mode == "literal":
-            resolved[name] = value
-        elif mode == "env_ref":
-            env_value = os.environ.get(value)
-            if env_value is not None:
-                resolved[name] = env_value
-
+    url = payload.get("url")
+    resolved = _resolve_header_entries(payload.get("headers"), server_name=url or "test-connection")
     headers = resolved or None
     transport = payload.get("transport")
-    url = payload.get("url")
     if transport == "http":
         connection = StreamableHttpConnection(transport="streamable_http", url=url, headers=headers)
     elif transport == "sse":
@@ -127,7 +142,8 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
 
 def server_health(server: MCPServer) -> dict[str, Any]:
     """Synchronous decryption + env-ref check, no network. Flags rows that
-    look enabled but would be silently skipped by ``build_runtime_servers``."""
+    look enabled but whose headers ``build_runtime_servers`` would skip
+    (undecryptable) or partially drop (missing env-ref var)."""
     try:
         raw = server.headers or []
     except DecryptionError:
@@ -144,12 +160,43 @@ def server_health(server: MCPServer) -> dict[str, Any]:
 
 async def discover_tools(server: MCPServer) -> list[dict[str, str]]:
     """Discover tools exposed by a saved server. Returns ``[]`` on handshake
-    failure. Propagates :class:`core.encryption.DecryptionError` so views
-    can surface a key-rotation error instead of 500-ing.
+    failure. Propagates :class:`core.encryption.DecryptionError` so views can
+    surface a key-rotation error instead of 500-ing.
+
+    Built-in servers supply their own ``Connection`` from code at runtime; the
+    DB row only carries a ``builtin://`` placeholder URL, so a handshake would
+    always fail — discovery is skipped for them and returns ``[]``.
     """
+    if server.is_builtin():
+        return []
     payload = {"transport": server.transport, "url": server.url, "headers": server.headers or []}
     result = await test_connection(payload)
     if not result.get("ok"):
         logger.warning("Tool discovery failed for MCP server '%s': %s", server.name, result.get("error"))
         return []
     return result["tools"]
+
+
+def discover_tools_cached(server: MCPServer) -> list[dict[str, str]]:
+    """Cache-backed, exception-safe wrapper around :func:`discover_tools` for
+    the views.
+
+    Degrades to ``[]`` on :class:`DecryptionError` (key rotation) so no view
+    500s — every entry point (detail page, edit form, tools JSON endpoint)
+    shares this single guard. A successful discovery is cached for
+    ``TOOLS_CACHE_TIMEOUT``; an empty/unreachable result is cached only for the
+    shorter ``TOOLS_NEGATIVE_CACHE_TIMEOUT`` so a transient failure is neither
+    pinned for the full TTL nor re-probed (a 5s handshake) on every render.
+    """
+    stamp = int(server.modified.timestamp())
+    cache_key = TOOLS_CACHE_KEY.format(name=server.name, stamp=stamp)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        tools = async_to_sync(discover_tools)(server)
+    except DecryptionError:
+        logger.warning("Cannot discover tools for %r: header decryption failed.", server.name)
+        return []
+    cache.set(cache_key, tools, TOOLS_CACHE_TIMEOUT if tools else TOOLS_NEGATIVE_CACHE_TIMEOUT)
+    return tools

@@ -5,6 +5,7 @@ import re
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from mcp_servers.constants import RESERVED_MCP_NAMES
 from mcp_servers.models import MCPServer
 
 # RFC 7230 token grammar for header names.
@@ -64,6 +65,8 @@ class MCPServerForm(forms.ModelForm):
             raise forms.ValidationError(
                 _("Renaming an existing MCP server is not supported. Delete and re-create instead.")
             )
+        if name in RESERVED_MCP_NAMES:
+            raise forms.ValidationError(_("'%(name)s' is a reserved name and cannot be used.") % {"name": name})
         return name
 
     def clean_tool_filter_items(self):

@@ -221,6 +221,9 @@ async def test_discover_tools_propagates_decryption_error(monkeypatch):
         transport = "http"
         url = "http://broken.test"
 
+        def is_builtin(self) -> bool:
+            return False
+
         @property
         def headers(self):
             raise DecryptionError("key rotated")
@@ -277,3 +280,175 @@ def test_server_health_flags_undecryptable_headers():
     health = server_health(s)
     assert health["ok"] is False
     assert "decrypt" in health["reason"].lower()
+
+
+def test_build_client_maps_http_transport_and_resolves_env_ref(monkeypatch):
+    """``_build_client`` is the only place a form's transport string becomes a real
+    Connection — exercise it directly rather than through a mock."""
+    from mcp_servers.services import _build_client
+
+    monkeypatch.setenv("TOK", "from-env")
+    client = _build_client({
+        "transport": "http",
+        "url": "http://demo.test/mcp",
+        "headers": [
+            {"name": "X-Lit", "mode": "literal", "value": "lit"},
+            {"name": "X-Env", "mode": "env_ref", "value": "TOK"},
+        ],
+    })
+    conn = client.connections["__probe__"]
+    assert conn["transport"] == "streamable_http"
+    assert conn["url"] == "http://demo.test/mcp"
+    assert conn["headers"] == {"X-Lit": "lit", "X-Env": "from-env"}
+
+
+def test_build_client_maps_sse_transport():
+    from mcp_servers.services import _build_client
+
+    client = _build_client({"transport": "sse", "url": "http://demo.test/sse", "headers": []})
+    conn = client.connections["__probe__"]
+    assert conn["transport"] == "sse"
+    assert conn["url"] == "http://demo.test/sse"
+    # No headers → None, not an empty dict.
+    assert conn["headers"] is None
+
+
+def test_build_client_rejects_unknown_transport():
+    from mcp_servers.services import _build_client
+
+    with pytest.raises(ValueError, match="Unsupported transport"):
+        _build_client({"transport": "carrier-pigeon", "url": "http://x.test", "headers": []})
+
+
+def test_build_client_warns_on_missing_env_ref(caplog, monkeypatch):
+    """Test-connection resolution must warn on a missing env var, matching the
+    runtime adapter (the two paths share ``_resolve_header_entries``)."""
+    from mcp_servers.services import _build_client
+
+    monkeypatch.delenv("ABSENT", raising=False)
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        client = _build_client({
+            "transport": "http",
+            "url": "http://x.test",
+            "headers": [{"name": "X-Env", "mode": "env_ref", "value": "ABSENT"}],
+        })
+    assert client.connections["__probe__"]["headers"] is None
+    assert "ABSENT" in caplog.text
+
+
+@pytest.mark.django_db
+def test_build_runtime_servers_drops_header_with_unknown_mode(caplog):
+    """An unrecognized header mode is dropped with a warning, never silently kept."""
+    MCPServer.objects.create(
+        name="srv",
+        transport=MCPServer.Transport.HTTP,
+        url="http://srv",
+        headers=[
+            {"name": "X-Keep", "mode": "literal", "value": "kept"},
+            {"name": "X-Weird", "mode": "bogus", "value": "v"},
+        ],
+    )
+    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
+        [(_, dto)] = build_runtime_servers()
+    assert dto.headers == {"X-Keep": "kept"}
+    assert "unrecognized mode" in caplog.text
+
+
+async def test_discover_tools_skips_builtin_without_network(monkeypatch):
+    """Built-ins carry a placeholder ``builtin://`` URL; discovery must not attempt
+    a (doomed) handshake against it."""
+    from mcp_servers.models import MCPServer
+    from mcp_servers.services import discover_tools
+
+    called = {"n": 0}
+
+    async def _should_not_run(payload):
+        called["n"] += 1
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.services.test_connection", _should_not_run)
+    server = MCPServer(
+        name="bi", source=MCPServer.Source.BUILTIN, transport=MCPServer.Transport.HTTP, url="builtin://bi"
+    )
+    assert await discover_tools(server) == []
+    assert called["n"] == 0
+
+
+@pytest.mark.django_db
+def test_discover_tools_cached_degrades_on_decryption_error(monkeypatch):
+    """The cache wrapper must swallow a DecryptionError so views never 500."""
+    from django.core.cache import cache
+
+    from mcp_servers.models import MCPServer
+    from mcp_servers.services import discover_tools_cached
+
+    from core.encryption import DecryptionError
+
+    cache.clear()
+    server = MCPServer.objects.create(name="rot", transport=MCPServer.Transport.HTTP, url="http://rot.test")
+
+    async def _boom(srv):
+        raise DecryptionError("key rotated")
+
+    monkeypatch.setattr("mcp_servers.services.discover_tools", _boom)
+    assert discover_tools_cached(server) == []
+
+
+@pytest.mark.django_db
+def test_discover_tools_cached_negative_caches_empty_with_short_ttl(monkeypatch):
+    """An empty/unreachable result is cached with the short negative TTL (not the full
+    success TTL): a broken server isn't re-probed every render, nor pinned empty for 60s."""
+    from django.core.cache import cache
+
+    from mcp_servers import services
+    from mcp_servers.constants import TOOLS_CACHE_TIMEOUT, TOOLS_NEGATIVE_CACHE_TIMEOUT
+    from mcp_servers.models import MCPServer
+
+    cache.clear()
+    server = MCPServer.objects.create(name="flap", transport=MCPServer.Transport.HTTP, url="http://flap.test")
+
+    captured: dict = {}
+    real_set = services.cache.set
+
+    def spy_set(key, value, timeout=None, **kw):
+        captured["timeout"] = timeout
+        return real_set(key, value, timeout, **kw)
+
+    async def _empty(srv):
+        return []
+
+    monkeypatch.setattr("mcp_servers.services.discover_tools", _empty)
+    monkeypatch.setattr(services.cache, "set", spy_set)
+
+    assert services.discover_tools_cached(server) == []
+    assert captured["timeout"] == TOOLS_NEGATIVE_CACHE_TIMEOUT
+    assert TOOLS_NEGATIVE_CACHE_TIMEOUT < TOOLS_CACHE_TIMEOUT
+
+
+@pytest.mark.django_db
+def test_discover_tools_cached_caches_success_with_full_ttl(monkeypatch):
+    """A successful discovery is cached for the full TTL."""
+    from django.core.cache import cache
+
+    from mcp_servers import services
+    from mcp_servers.constants import TOOLS_CACHE_TIMEOUT
+    from mcp_servers.models import MCPServer
+
+    cache.clear()
+    server = MCPServer.objects.create(name="ok", transport=MCPServer.Transport.HTTP, url="http://ok.test")
+
+    captured: dict = {}
+    real_set = services.cache.set
+
+    def spy_set(key, value, timeout=None, **kw):
+        captured["timeout"] = timeout
+        return real_set(key, value, timeout, **kw)
+
+    async def _ok(srv):
+        return [{"name": "t", "description": ""}]
+
+    monkeypatch.setattr("mcp_servers.services.discover_tools", _ok)
+    monkeypatch.setattr(services.cache, "set", spy_set)
+
+    assert services.discover_tools_cached(server) == [{"name": "t", "description": ""}]
+    assert captured["timeout"] == TOOLS_CACHE_TIMEOUT

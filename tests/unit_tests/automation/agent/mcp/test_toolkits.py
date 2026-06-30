@@ -260,3 +260,46 @@ async def test_end_to_end_db_row_yields_tool():
         result = await MCPToolkit.get_tools()
 
     assert "acme_search" in [t.name for t in result]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_end_to_end_db_tool_filter_applied():
+    """A persisted block-mode filter must be honored through the real
+    build_runtime_servers → registry → get_tools → _apply_tool_filters chain
+    (every other get_tools test passes an empty filter dict)."""
+    from asgiref.sync import sync_to_async
+    from mcp_servers.models import MCPServer
+
+    @sync_to_async
+    def _create():
+        MCPServer.objects.create(
+            name="acme",
+            transport=MCPServer.Transport.HTTP,
+            url="http://acme.test/mcp",
+            enabled=True,
+            tool_filter_mode=MCPServer.FilterMode.BLOCK,
+            tool_filter_items=["secret"],
+        )
+
+    await _create()
+
+    def _client_factory(connections, **kwargs):
+        # Tool names are server-prefixed (tool_name_prefix=True); the filter strips "acme_".
+        names = ["acme_search", "acme_secret"]
+        tools = []
+        for n in names:
+            t = MagicMock()
+            t.name = n
+            t.tags = []
+            t.metadata = {}
+            tools.append(t)
+        client = MagicMock()
+        client.get_tools = AsyncMock(return_value=tools)
+        return client
+
+    with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory):
+        result = await MCPToolkit.get_tools()
+
+    names = [t.name for t in result]
+    assert "acme_search" in names
+    assert "acme_secret" not in names  # blocked by the persisted filter

@@ -1,18 +1,47 @@
 {% extends "base_app.html" %}
 {% load i18n %}
 
+{% block title %}{{ object.name }} — DAIV{% endblock %}
+
+{% block container_width %}max-w-4xl{% endblock %}
+
 {% block app_content %}
-<h1>{{ object.name }}</h1>
-<dl>
-  <dt>{% translate "Source" %}</dt><dd>{{ object.get_source_display }}</dd>
-  <dt>{% translate "Transport" %}</dt><dd>{{ object.get_transport_display }}</dd>
-  <dt>{% translate "URL" %}</dt><dd>{{ object.url }}</dd>
-  <dt>{% translate "Enabled" %}</dt><dd>{{ object.enabled|yesno }}</dd>
-</dl>
-{% if object.source == "custom" %}
-  <a href="{% url 'mcp_servers:edit' object.name %}">{% translate "Edit" %}</a>
-  <a href="{% url 'mcp_servers:delete' object.name %}">{% translate "Delete" %}</a>
-{% endif %}
-<h2>{% translate "Discovered tools" %}</h2>
-{% include "mcp_servers/_tools_table.html" %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">{{ object.name }}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">{{ object.get_source_display }}</p>
+    </div>
+    {% if not builtin %}
+    <div class="flex items-center gap-3">
+        <a href="{% url 'mcp_servers:edit' object.name %}" class="btn-secondary">{% translate "Edit" %}</a>
+        <a href="{% url 'mcp_servers:delete' object.name %}" class="btn-danger-outline">{% translate "Delete" %}</a>
+    </div>
+    {% endif %}
+</div>
+
+<div class="animate-fade-up mt-8 overflow-hidden rounded-2xl border border-white/[0.06]" style="animation-delay: 100ms">
+    <dl class="divide-y divide-white/[0.06]">
+        <div class="flex justify-between gap-4 px-6 py-3">
+            <dt class="text-sm text-gray-400">{% translate "Transport" %}</dt>
+            <dd class="text-sm text-white">{{ object.get_transport_display }}</dd>
+        </div>
+        <div class="flex justify-between gap-4 px-6 py-3">
+            <dt class="text-sm text-gray-400">{% translate "URL" %}</dt>
+            <dd class="truncate text-sm text-white">
+                {% if builtin %}<em class="text-gray-400">{% translate "managed by built-in code" %}</em>{% else %}{{ object.url }}{% endif %}
+            </dd>
+        </div>
+        <div class="flex justify-between gap-4 px-6 py-3">
+            <dt class="text-sm text-gray-400">{% translate "Enabled" %}</dt>
+            <dd class="text-sm text-white">
+                {% if object.enabled %}{% translate "Yes" %}{% else %}{% translate "No" %}{% endif %}
+            </dd>
+        </div>
+    </dl>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Discovered tools" %}</h2>
+    <div class="mt-3">{% include "mcp_servers/_tools_table.html" %}</div>
+</section>
 {% endblock app_content %}

@@ -129,6 +129,49 @@ def test_header_formset_invalid_header_name_rejected():
 
 
 @pytest.mark.django_db
+def test_header_formset_env_ref_requires_value():
+    """An env_ref with no variable name is useless and must be rejected."""
+    from mcp_servers.forms import MCPServerHeaderFormSet
+
+    formset_data = _formset_data([{"name": "X-Tok", "mode": "env_ref", "value": ""}])
+    formset = MCPServerHeaderFormSet(formset_data, prefix="headers")
+    assert not formset.is_valid()
+
+
+@pytest.mark.django_db
+def test_header_formset_deletion_drops_header():
+    """A row marked for deletion must not be persisted, even if it has a value."""
+    from mcp_servers.forms import MCPServerHeaderFormSet, build_headers_from_formset
+
+    existing = [{"name": "X-Old", "mode": "literal", "value": "secret"}]
+    formset_data = _formset_data([{"name": "X-Old", "mode": "literal", "value": "secret", "DELETE": "on"}])
+    formset = MCPServerHeaderFormSet(formset_data, prefix="headers")
+    assert formset.is_valid(), formset.errors
+    assert build_headers_from_formset(formset, existing=existing) == []
+
+
+@pytest.mark.django_db
+def test_header_formset_blank_literal_dropped_on_create():
+    """A blank literal with no existing value to preserve (create) is skipped, not persisted empty."""
+    from mcp_servers.forms import MCPServerHeaderFormSet, build_headers_from_formset
+
+    formset_data = _formset_data([{"name": "X-Empty", "mode": "literal", "value": ""}])
+    formset = MCPServerHeaderFormSet(formset_data, prefix="headers")
+    assert formset.is_valid(), formset.errors
+    assert build_headers_from_formset(formset, existing=None) == []
+
+
+@pytest.mark.django_db
+def test_reserved_name_rejected():
+    """Names that collide with non-slug URL segments are rejected at the form layer."""
+    form = MCPServerForm(
+        data={"name": "test", "transport": "http", "url": "http://x.test", "enabled": "on", "tool_filter_mode": "none"}
+    )
+    assert not form.is_valid()
+    assert "name" in form.errors
+
+
+@pytest.mark.django_db
 def test_name_cannot_change_on_edit():
     from mcp_servers.models import MCPServer
 

@@ -18,9 +18,9 @@ def upsert_builtin_rows(builtin_names: Iterable[str]) -> None:
     """Ensure each registered built-in MCP server has a DB row.
 
     Existing rows are not touched (preserves the admin's ``enabled`` choice).
-    Missing rows are created with ``enabled=True``. Wrapped in a broad
-    DB-exception catch so the app starts cleanly when migrations haven't
-    run yet.
+    Missing rows are created with ``enabled=True``. The initial lookup guards
+    against a missing/partially-migrated table (e.g. tests, a fresh DB) so the
+    upsert is a no-op rather than an error in that state.
     """
     from django.db import IntegrityError
 
@@ -71,8 +71,7 @@ def warn_legacy_env_if_present() -> None:
 
 
 def _on_post_migrate(sender, **kwargs):
-    if sender.name != "mcp_servers":
-        return
+    # Connected with ``sender=self`` below, so this only fires for this app's migrations.
     from automation.agent.mcp.registry import mcp_registry
 
     upsert_builtin_rows(mcp_registry.builtin_names())

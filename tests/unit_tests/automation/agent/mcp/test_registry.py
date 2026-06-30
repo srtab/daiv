@@ -67,6 +67,22 @@ def test_user_tool_filter_carried_through():
     assert filters["u"].items == ["x"]
 
 
+def test_user_unknown_transport_skipped(caplog):
+    """An unrecognized transport must be skipped with a warning — never register a
+    filter for a server that has no connection (which would otherwise vanish silently)."""
+    import types
+
+    reg = MCPRegistry()
+    dto = types.SimpleNamespace(
+        type="grpc", url="http://u", headers=None, tool_filter=ToolFilter(mode="block", items=["x"])
+    )
+    with caplog.at_level("WARNING", logger="daiv.mcp"):
+        connections, filters = reg.get_connections_and_filters([("u", dto)])
+    assert "u" not in connections
+    assert "u" not in filters
+    assert "unsupported transport" in caplog.text.lower()
+
+
 def test_builtin_names():
     reg = MCPRegistry()
     reg.register(_DummyBuiltin)

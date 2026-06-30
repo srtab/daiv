@@ -16,7 +16,8 @@ _UNSET = object()
 class MCPServer(TimeStampedModel):
     """An outbound MCP server connection. Source of truth for the registry
     at runtime; the file-based ``MCP_SERVERS_CONFIG_FILE`` is no longer read
-    after the 0002 import migration."""
+    into the runtime registry after the 0002 import migration (it is only
+    checked on startup to emit a deprecation warning)."""
 
     class Source(models.TextChoices):
         BUILTIN = "builtin", _("Built-in")
@@ -68,3 +69,10 @@ class MCPServer(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def is_builtin(self) -> bool:
+        """Whether this row is a code-defined built-in (vs. an admin-created
+        custom server). Built-ins expose only their ``enabled`` toggle; their
+        connection details live in the registered ``automation.agent.mcp``
+        class, not in this row."""
+        return self.source == self.Source.BUILTIN

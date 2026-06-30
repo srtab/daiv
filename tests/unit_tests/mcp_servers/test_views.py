@@ -135,6 +135,17 @@ def test_detail_renders(client, admin_user):
 
 
 @pytest.mark.django_db
+def test_delete_get_renders_confirm(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="delc", transport="http", url="http://x.test")
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:delete", args=["delc"]))
+    assert resp.status_code == 200
+    assert b"delc" in resp.content
+
+
+@pytest.mark.django_db
 def test_delete_custom_succeeds(client, admin_user):
     from mcp_servers.models import MCPServer
 
@@ -415,6 +426,78 @@ def test_tools_endpoint_cache_busted_on_modify(client, admin_user, monkeypatch):
     assert r2.status_code == 200
     assert calls["n"] == 2
     assert r2.json()["tools"][0]["name"] == "t2"
+
+
+@pytest.mark.django_db
+def test_tools_endpoint_degrades_on_undecryptable_headers(client, admin_user):
+    """A key-rotation (undecryptable ciphertext) must degrade to an empty list with 200,
+    not 500 — matching the detail page's behavior."""
+    from django.core.cache import cache
+
+    cache.clear()
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(
+        name="rot",
+        transport="http",
+        url="http://rot.test",
+        headers=[{"name": "X-T", "mode": "literal", "value": "secret"}],
+    )
+    MCPServer.objects.filter(pk=obj.pk).update(_headers_encrypted="not-a-fernet-token")
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:tools", args=["rot"]))
+    assert resp.status_code == 200
+    assert resp.json()["tools"] == []
+
+
+@pytest.mark.django_db
+def test_detail_builtin_shows_runtime_tools_message(client, admin_user, monkeypatch):
+    """A built-in detail page must not run discovery against its placeholder URL and
+    must explain that tools are provided at runtime (not 'unreachable')."""
+    from mcp_servers.models import MCPServer
+
+    called = {"n": 0}
+
+    async def _should_not_run(payload):
+        called["n"] += 1
+        return {"ok": True, "tools": []}
+
+    # Patch the network boundary (test_connection); the real discover_tools must short-circuit
+    # for built-ins before ever reaching it.
+    monkeypatch.setattr("mcp_servers.services.test_connection", _should_not_run)
+    MCPServer.objects.create(
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi", enabled=True
+    )
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:detail", args=["bi"]))
+    assert resp.status_code == 200
+    assert b"provided directly by their code at runtime" in resp.content
+    assert called["n"] == 0  # no doomed handshake against builtin://bi
+
+
+@pytest.mark.django_db
+def test_create_rejects_reserved_name(client, admin_user):
+    """Names that collide with non-slug URL segments (e.g. 'new', 'test') are rejected."""
+    from mcp_servers.models import MCPServer
+
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:create"),
+        data={
+            "name": "new",
+            "transport": "http",
+            "url": "http://x.test",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 400
+    assert not MCPServer.objects.filter(name="new").exists()
 
 
 @pytest.mark.django_db

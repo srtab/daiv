@@ -83,6 +83,15 @@ class MCPToolkit(BaseToolkit):
 
 
 def _apply_tool_filters(tools: list[BaseTool], filters: dict[str, ToolFilter]) -> list[BaseTool]:
+    """Apply per-server allow/block filters.
+
+    MCP tool names are server-prefixed (e.g. ``sentry_find_organizations``)
+    because ``_load_server_tools`` builds each client with
+    ``tool_name_prefix=True``. This strips the ``"{server_name}_"`` prefix to
+    match a tool against its server's ``tool_filter.items`` — so this filter
+    silently depends on that flag staying set. A tool whose name matches no
+    configured filter prefix is passed through unchanged.
+    """
     filtered = []
     for tool in tools:
         matched = False

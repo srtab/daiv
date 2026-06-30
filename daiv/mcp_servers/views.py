@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 
 from django.contrib import messages
-from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -16,7 +15,6 @@ from asgiref.sync import async_to_sync
 from accounts.mixins import AdminRequiredMixin
 from core.encryption import DecryptionError
 from mcp_servers import services
-from mcp_servers.constants import TOOLS_CACHE_KEY, TOOLS_CACHE_TIMEOUT
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset
 from mcp_servers.models import MCPServer
 
@@ -75,7 +73,7 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 )
                 % {"name": obj.name},
             )
-        discovered = MCPServerDetailView._tools_or_empty(obj)
+        discovered = services.discover_tools_cached(obj)
         form = MCPServerForm(instance=obj, discovered_tools=discovered or None)
         formset = MCPServerHeaderFormSet(initial=initial, prefix="headers")
         return render(
@@ -86,14 +84,14 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 "formset": formset,
                 "mode": "edit",
                 "object": obj,
-                "builtin": obj.source == MCPServer.Source.BUILTIN,
+                "builtin": obj.is_builtin(),
                 "headers_locked": headers_locked,
             },
         )
 
     def post(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
-        if obj.source == MCPServer.Source.BUILTIN:
+        if obj.is_builtin():
             # Only ``enabled`` may change. Apply it directly and ignore everything else.
             obj.enabled = request.POST.get("enabled") == "on"
             obj.save(update_fields=["enabled", "modified"])
@@ -114,7 +112,7 @@ class MCPServerEditView(AdminRequiredMixin, View):
             )
             return redirect(reverse("mcp_servers:edit", args=[obj.name]))
 
-        discovered = MCPServerDetailView._tools_or_empty(obj)
+        discovered = services.discover_tools_cached(obj)
         form = MCPServerForm(request.POST, instance=obj, discovered_tools=discovered or None)
         formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
         if not (form.is_valid() and formset.is_valid()):
@@ -136,23 +134,8 @@ class MCPServerDetailView(AdminRequiredMixin, View):
 
     def get(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
-        tools = self._tools_or_empty(obj)
-        return render(request, "mcp_servers/detail.html", {"object": obj, "tools": tools})
-
-    @staticmethod
-    def _tools_or_empty(obj):
-        stamp = int(obj.modified.timestamp())
-        cache_key = TOOLS_CACHE_KEY.format(name=obj.name, stamp=stamp)
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-        try:
-            tools = async_to_sync(services.discover_tools)(obj)
-        except DecryptionError:
-            logger.warning("Cannot discover tools for %r: header decryption failed.", obj.name)
-            tools = []
-        cache.set(cache_key, tools, TOOLS_CACHE_TIMEOUT)
-        return tools
+        tools = services.discover_tools_cached(obj)
+        return render(request, "mcp_servers/detail.html", {"object": obj, "tools": tools, "builtin": obj.is_builtin()})
 
 
 class MCPServerDeleteView(AdminRequiredMixin, View):
@@ -197,14 +180,7 @@ class MCPServerToolsView(AdminRequiredMixin, View):
 
     def get(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
-        stamp = int(obj.modified.timestamp())
-        cache_key = TOOLS_CACHE_KEY.format(name=obj.name, stamp=stamp)
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return JsonResponse({"tools": cached, "cached": True})
-        tools = async_to_sync(services.discover_tools)(obj)
-        cache.set(cache_key, tools, TOOLS_CACHE_TIMEOUT)
-        return JsonResponse({"tools": tools, "cached": False})
+        return JsonResponse({"tools": services.discover_tools_cached(obj)})
 
 
 def _existing_headers_for_formset(obj: MCPServer) -> tuple[list[dict], bool]:

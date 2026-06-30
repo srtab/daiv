@@ -82,14 +82,28 @@ def import_legacy_json(apps, schema_editor):
         # Migration uses historical model: descriptor not available — encrypt
         # the JSON blob manually using the same primitive.
         ciphertext = encrypt_value(json.dumps(headers, separators=(",", ":"))) if headers else None
+
+        filter_mode = server.tool_filter.mode if server.tool_filter else "none"
+        filter_items = server.tool_filter.items if server.tool_filter else []
+        if filter_mode != "none" and not filter_items:
+            # A non-"none" mode with no items would violate the 0003 check
+            # constraint and abort this migration. The legacy schema allows it
+            # (an empty allow/block list); normalize it to "none" instead.
+            logger.warning(
+                "MCP server %r had tool-filter mode %r with no items in legacy config; importing as 'none'.",
+                name,
+                filter_mode,
+            )
+            filter_mode = "none"
+
         MCPServer.objects.create(
             name=name,
             source="custom",
             transport=server.type,
             url=server.url,
             _headers_encrypted=ciphertext,
-            tool_filter_mode=server.tool_filter.mode if server.tool_filter else "none",
-            tool_filter_items=server.tool_filter.items if server.tool_filter else [],
+            tool_filter_mode=filter_mode,
+            tool_filter_items=filter_items,
             enabled=True,
         )
         logger.info("Imported MCP server %r from legacy config %s", name, path)

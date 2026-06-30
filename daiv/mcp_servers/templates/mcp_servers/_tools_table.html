@@ -1,11 +1,21 @@
 {% load i18n %}
 {% if tools %}
-<table>
-  <thead><tr><th>{% translate "Tool" %}</th><th>{% translate "Description" %}</th></tr></thead>
-  <tbody>
-  {% for t in tools %}
-    <tr><td>{{ t.name }}</td><td>{{ t.description }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% else %}<p>{% translate "No tools discovered (server unreachable or empty)." %}</p>{% endif %}
+<div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+    {% for t in tools %}
+    <div class="border-b border-white/[0.06] px-6 py-3 last:border-b-0">
+        <div class="font-mono text-sm text-white">{{ t.name }}</div>
+        {% if t.description %}<div class="mt-0.5 text-sm text-gray-400">{{ t.description }}</div>{% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
+    <p class="text-[15px] text-gray-400">
+        {% if builtin %}
+            {% translate "Tools for built-in servers are provided directly by their code at runtime." %}
+        {% else %}
+            {% translate "No tools discovered (server unreachable or empty)." %}
+        {% endif %}
+    </p>
+</div>
+{% endif %}
