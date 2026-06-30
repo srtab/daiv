@@ -79,3 +79,32 @@ async def test_alist_scheduled_jobs_scopes_and_filters():
     assert len(by_repo) == 1
     none = await alist_scheduled_jobs(user, repo_id="z/z")
     assert none == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_alist_scheduled_jobs_enabled_only_excludes_disabled():
+    user = await _user("s5")
+    await acreate_scheduled_job(
+        user,
+        name="on",
+        prompt="p",
+        repos=[{"repo_id": "a/b", "ref": ""}],
+        frequency=Frequency.DAILY,
+        time=dt_time(8, 0),
+    )
+    disabled = await acreate_scheduled_job(
+        user,
+        name="off",
+        prompt="p",
+        repos=[{"repo_id": "a/b", "ref": ""}],
+        frequency=Frequency.DAILY,
+        time=dt_time(8, 0),
+    )
+    disabled.is_enabled = False
+    await disabled.asave(update_fields=["is_enabled"])
+
+    all_jobs = await alist_scheduled_jobs(user)
+    only_enabled = await alist_scheduled_jobs(user, enabled_only=True)
+
+    assert {s.name for s in all_jobs} == {"on", "off"}
+    assert {s.name for s in only_enabled} == {"on"}
