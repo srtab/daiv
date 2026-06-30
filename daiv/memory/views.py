@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import redirect
@@ -11,8 +10,11 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
+from django_filters.views import FilterView
+
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from core.site_settings import site_settings
+from memory.filters import MemoryObservationFilter
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
 from memory.tasks import consolidate_memory_task
 
@@ -48,48 +50,45 @@ class MemoryListView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, TemplateView):
+class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, FilterView):
     template_name = "memory/detail.html"
+    filterset_class = MemoryObservationFilter
     paginate_by = 50
+    # Preserve pre-django-filter UX: an invalid URL param (e.g. ?status=bogus) should
+    # silently drop that filter, not blank the whole observation list.
+    strict = False
 
     def get_breadcrumbs(self):
         return [{"label": _("Memory"), "url": reverse("memory:list")}, {"label": self.kwargs["repo_id"], "url": None}]
 
+    def get_queryset(self):
+        return (
+            MemoryObservation.objects
+            .filter(repo_id=self.kwargs["repo_id"])
+            .select_related("activity")
+            .order_by("-created_at")
+        )
+
+    def get(self, request, *args, **kwargs):
+        repo_id = self.kwargs["repo_id"]
+        self.memory = RepositoryMemory.objects.filter(repo_id=repo_id).first()
+        # Unfiltered repo total: drives the 404 guard and the "N observations so far" copy,
+        # independent of any active status/category filter.
+        self.total_observations = self.get_queryset().count()
+        if self.memory is None and self.total_observations == 0:
+            raise Http404("no memory for repository")
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        repo_id = self.kwargs["repo_id"]
-
-        memory = RepositoryMemory.objects.filter(repo_id=repo_id).first()
-        base_qs = MemoryObservation.objects.filter(repo_id=repo_id).select_related("activity")
-        total_observations = base_qs.count()
-
-        if memory is None and total_observations == 0:
-            raise Http404("no memory for repository")
-
-        observations = base_qs.order_by("-created_at")
-
-        status = self.request.GET.get("status", "")
-        if status in ObservationStatus.values:
-            observations = observations.filter(status=status)
-        else:
-            status = ""
-
-        category = self.request.GET.get("category", "")
-        if category in ObservationCategory.values:
-            observations = observations.filter(category=category)
-        else:
-            category = ""
-
-        page_obj = Paginator(observations, self.paginate_by).get_page(self.request.GET.get("page"))
-
+        cleaned = ctx["filter"].form.cleaned_data if ctx["filter"].form.is_valid() else {}
+        memory = self.memory
         ctx.update({
-            "repo_id": repo_id,
+            "repo_id": self.kwargs["repo_id"],
             "memory": memory,
-            "total_observations": total_observations,
-            "page_obj": page_obj,
-            "is_paginated": page_obj.has_other_pages(),
-            "current_status": status,
-            "current_category": category,
+            "total_observations": self.total_observations,
+            "current_status": cleaned.get("status") or "",
+            "current_category": cleaned.get("category") or "",
             "statuses": ObservationStatus.choices,
             "categories": ObservationCategory.choices,
             "document_lines": len(memory.content.splitlines()) if memory else 0,
