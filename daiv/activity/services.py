@@ -382,3 +382,19 @@ async def asubmit_batch_runs(
 def submit_batch_runs(**kwargs) -> BatchSubmitResult:
     """Sync wrapper around :func:`asubmit_batch_runs` for cron and sync views."""
     return async_to_sync(asubmit_batch_runs)(**kwargs)
+
+
+async def alist_user_activities(
+    user, *, repo_id: str | None = None, status: str | None = None, limit: int = 20
+) -> list[Activity]:
+    """Return ``user``'s activities, newest first, optionally filtered by repo/status.
+
+    Capped at ``limit`` rows. Callers needing truncation detection should pass
+    ``limit + 1`` and trim. Backed by ``activity_user_created_idx`` (user, -created_at).
+    """
+    qs = Activity.objects.filter(user=user)
+    if repo_id:
+        qs = qs.filter(repo_id=repo_id)
+    if status:
+        qs = qs.filter(status=status)
+    return [activity async for activity in qs.order_by("-created_at")[:limit]]
