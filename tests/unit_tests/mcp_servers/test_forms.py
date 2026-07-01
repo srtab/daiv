@@ -75,11 +75,16 @@ def test_tool_filter_items_parsed_from_newline_separated_text():
     assert obj.tool_filter_items == ["search_events", "find_organizations"]
 
 
-def _formset_data(rows, prefix="headers"):
-    """Build POST data for a Django formset with N rows."""
+def _formset_data(rows, prefix="headers", initial_forms=0):
+    """Build POST data for a Django formset with N rows.
+
+    ``initial_forms`` sets INITIAL_FORMS: rows at an index below it are
+    server-rendered (not ``empty_permitted``) and so are always validated —
+    the edit path (``initial=…``) mirrored here.
+    """
     data = {
         f"{prefix}-TOTAL_FORMS": str(len(rows)),
-        f"{prefix}-INITIAL_FORMS": "0",
+        f"{prefix}-INITIAL_FORMS": str(initial_forms),
         f"{prefix}-MIN_NUM_FORMS": "0",
         f"{prefix}-MAX_NUM_FORMS": "50",
     }
@@ -159,6 +164,54 @@ def test_header_formset_blank_literal_dropped_on_create():
     formset = MCPServerHeaderFormSet(formset_data, prefix="headers")
     assert formset.is_valid(), formset.errors
     assert build_headers_from_formset(formset, existing=None) == []
+
+
+@pytest.mark.django_db
+def test_header_formset_blank_extra_row_is_ignored():
+    """A blank row (user clicked 'Add header' then left it empty) must be skipped,
+    not rejected. The mode ``<select>`` always submits 'literal', which otherwise
+    trips ``has_changed`` and fails ``clean_name`` on the empty header name.
+    """
+    from mcp_servers.forms import MCPServerHeaderFormSet, build_headers_from_formset
+
+    formset_data = _formset_data([
+        {"name": "Authorization", "mode": "literal", "value": "Bearer abc"},
+        {"name": "", "mode": "literal", "value": ""},  # blank trailing row
+    ])
+    formset = MCPServerHeaderFormSet(formset_data, prefix="headers")
+    assert formset.is_valid(), formset.errors
+    assert build_headers_from_formset(formset, existing=None) == [
+        {"name": "Authorization", "mode": "literal", "value": "Bearer abc"}
+    ]
+
+
+@pytest.mark.django_db
+def test_header_formset_blank_initial_row_is_rejected_not_ignored():
+    """The ``has_changed`` skip is gated on ``empty_permitted``: a blank row at an
+    initial index (a server-rendered row the user cleared) must still be rejected,
+    not silently dropped. Guards against simplifying the override to an
+    unconditional 'blank row is unchanged'.
+    """
+    from mcp_servers.forms import MCPServerHeaderFormSet
+
+    # INITIAL_FORMS=1 → index 0 is not empty_permitted, so the blank name surfaces.
+    formset_data = _formset_data([{"name": "", "mode": "literal", "value": ""}], initial_forms=1)
+    formset = MCPServerHeaderFormSet(formset_data, prefix="headers")
+    assert not formset.is_valid()
+    assert "name" in formset.errors[0]
+
+
+@pytest.mark.django_db
+def test_header_formset_value_without_name_is_rejected():
+    """A value with no header name is a mistake, not an empty row — it must error
+    (distinguishes the 'both blank → skip' override from 'value present, name blank').
+    """
+    from mcp_servers.forms import MCPServerHeaderFormSet
+
+    formset_data = _formset_data([{"name": "", "mode": "literal", "value": "orphan"}])
+    formset = MCPServerHeaderFormSet(formset_data, prefix="headers")
+    assert not formset.is_valid()
+    assert "name" in formset.errors[0]
 
 
 @pytest.mark.django_db

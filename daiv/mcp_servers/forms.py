@@ -97,6 +97,15 @@ class MCPServerHeaderForm(forms.Form):
     mode = forms.ChoiceField(choices=[("literal", "literal"), ("env_ref", "env_ref")])
     value = forms.CharField(required=False, max_length=4096)
 
+    def has_changed(self):
+        # A trailing blank row (user clicked "Add header" then left it empty) is
+        # treated as unchanged so the formset skips it instead of failing
+        # clean_name. ``mode`` is ignored here: its <select> always submits a
+        # value, which would otherwise make every empty row look "changed".
+        if self.empty_permitted and not any((self[field].value() or "").strip() for field in ("name", "value")):
+            return False
+        return super().has_changed()
+
     def clean_name(self):
         name = (self.cleaned_data.get("name") or "").strip()
         if not name:

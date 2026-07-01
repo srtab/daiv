@@ -1,9 +1,13 @@
 {% extends "base_app.html" %}
-{% load i18n %}
+{% load i18n static %}
 
 {% block title %}{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %} — DAIV{% endblock %}
 
 {% block container_width %}max-w-2xl{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="{% static 'core/js/django-formset.js' %}"></script>
+{% endblock alpine_plugins %}
 
 {% block app_content %}
 <div class="animate-fade-up">
@@ -94,22 +98,23 @@
 
     <fieldset {% if builtin or headers_locked %}disabled{% endif %} class="rounded-2xl border border-white/[0.06] p-5">
         <legend class="px-2 text-[15px] font-medium text-gray-300">{% translate "Headers" %}</legend>
-        {{ formset.management_form }}
-        {% if formset.non_form_errors %}
-        {% for e in formset.non_form_errors %}<p class="text-sm text-red-300">{{ e }}</p>{% endfor %}
-        {% endif %}
-        <div class="space-y-3">
-            {% for header_form in formset %}
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_8rem_1fr_auto] sm:items-center">
-                {{ header_form.id }}
-                <div>{{ header_form.name }}{% for e in header_form.name.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}</div>
-                <div>{{ header_form.mode }}</div>
-                <div>{{ header_form.value }}{% for e in header_form.value.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}</div>
-                {% if header_form.DELETE %}
-                <label class="flex items-center gap-1.5 text-sm text-gray-400">{{ header_form.DELETE }} {% translate "Remove" %}</label>
-                {% endif %}
+        <p class="mb-3 text-sm text-gray-400">
+            {% translate "HTTP headers sent to the MCP server. Choose “env_ref” to read the value from an environment variable at runtime instead of storing it." %}
+        </p>
+        <div x-data="djangoFormset({ totalFormsId: '{{ formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ formset.total_form_count }} })">
+            {{ formset.management_form }}
+            {% for e in formset.non_form_errors %}<p class="mb-3 text-sm text-red-300">{{ e }}</p>{% endfor %}
+            <div x-ref="rows" class="space-y-3">
+                {% for header_form in formset %}
+                {% include "mcp_servers/_header_row.html" with is_initial=True %}
+                {% endfor %}
             </div>
-            {% endfor %}
+            <template x-ref="rowTemplate">
+                {% include "mcp_servers/_header_row.html" with header_form=formset.empty_form %}
+            </template>
+            <button type="button" @click="addRow()" class="btn-secondary mt-4 text-sm">
+                + {% translate "Add header" %}
+            </button>
         </div>
     </fieldset>
 
