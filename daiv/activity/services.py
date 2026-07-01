@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError
+from django.db.models import Q
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -19,6 +20,8 @@ from automation.titling.tasks import generate_batch_title_task
 _PROMPT_DRIVEN = {TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.UI_JOB}
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from notifications.choices import NotifyOn
     from sandbox_envs.models import SandboxEnvironment
 
@@ -385,16 +388,28 @@ def submit_batch_runs(**kwargs) -> BatchSubmitResult:
 
 
 async def alist_user_activities(
-    user, *, repo_id: str | None = None, status: str | None = None, limit: int = 20
+    user,
+    *,
+    repo_id: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+    before: tuple[datetime, uuid.UUID] | None = None,
 ) -> list[Activity]:
     """Return ``user``'s activities, newest first, optionally filtered by repo/status.
 
-    Capped at ``limit`` rows. Callers needing truncation detection should pass
-    ``limit + 1`` and trim. Backed by ``activity_user_created_idx`` (user, -created_at).
+    Capped at ``limit`` rows. Callers needing truncation/pagination should pass
+    ``limit + 1`` and trim. ``before`` is a keyset cursor ``(created_at, id)`` of the
+    last row already seen; only rows strictly older (in ``-created_at, -id`` order) are
+    returned, so pagination is stable even as new rows arrive at the head. The ``id``
+    tie-break is required because a batch submit stamps several rows with the same
+    ``created_at``. Backed by ``activity_user_created_idx`` (user, -created_at).
     """
     qs = Activity.objects.filter(user=user)
     if repo_id:
         qs = qs.filter(repo_id=repo_id)
     if status:
         qs = qs.filter(status=status)
-    return [activity async for activity in qs.order_by("-created_at")[:limit]]
+    if before is not None:
+        created_at, last_id = before
+        qs = qs.filter(Q(created_at__lt=created_at) | Q(created_at=created_at, id__lt=last_id))
+    return [activity async for activity in qs.order_by("-created_at", "-id")[:limit]]

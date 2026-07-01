@@ -116,6 +116,55 @@ async def test_alist_scheduled_jobs_scopes_and_filters():
     assert none == []
 
 
+async def _daily(user, name, repo_id="a/b"):
+    return await acreate_scheduled_job(
+        user,
+        name=name,
+        prompt="p",
+        repos=[{"repo_id": repo_id, "ref": ""}],
+        frequency=Frequency.DAILY,
+        time=dt_time(8, 0),
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_alist_scheduled_jobs_limit_and_before_paginate():
+    """``limit`` bounds the page and ``before`` resumes after the cursor row (newest first)."""
+    from schedules.models import ScheduledJob
+
+    user = await _user("s6")
+    now = timezone.now()
+    jobs = [await _daily(user, name) for name in ("A", "B", "C", "D")]
+    for offset, job in enumerate(jobs):
+        await ScheduledJob.objects.filter(pk=job.pk).aupdate(created=now - timedelta(minutes=offset))
+    # jobs[0] ("A") is newest.
+    page1 = await alist_scheduled_jobs(user, limit=2)
+    assert [s.name for s in page1] == ["A", "B"]
+    page2 = await alist_scheduled_jobs(user, limit=2, before=(page1[-1].created, page1[-1].id))
+    assert [s.name for s in page2] == ["C", "D"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_alist_scheduled_jobs_repo_filter_with_limit_is_not_short_changed():
+    """A page must not be short-changed by non-matching rows that sort ahead of matches:
+    the Python-side repo_id filter scans past them until ``limit`` matches are collected."""
+    from schedules.models import ScheduledJob
+
+    user = await _user("s7")
+    now = timezone.now()
+    # Interleave matching (x/y) and non-matching (o/t) schedules; the two newest are non-matching.
+    layout = [("n0", "o/t"), ("n1", "o/t"), ("m0", "x/y"), ("m1", "x/y"), ("m2", "x/y")]
+    for offset, (name, repo) in enumerate(layout):
+        job = await _daily(user, name, repo_id=repo)
+        await ScheduledJob.objects.filter(pk=job.pk).aupdate(created=now - timedelta(minutes=offset))
+
+    page = await alist_scheduled_jobs(user, repo_id="x/y", limit=2)
+    # Must return 2 matching rows even though the 2 newest schedules don't match.
+    assert [s.name for s in page] == ["m0", "m1"]
+    page2 = await alist_scheduled_jobs(user, repo_id="x/y", limit=2, before=(page[-1].created, page[-1].id))
+    assert [s.name for s in page2] == ["m2"]
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_alist_scheduled_jobs_enabled_only_excludes_disabled():
     user = await _user("s5")

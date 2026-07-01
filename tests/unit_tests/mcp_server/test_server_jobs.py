@@ -28,7 +28,7 @@ async def test_list_jobs_returns_user_jobs_and_excludes_result_summary():
     )
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs()
-    assert data["truncated"] is False
+    assert data["next_cursor"] is None
     assert len(data["jobs"]) == 1
     job = data["jobs"][0]
     assert job["repo_id"] == "a/b"
@@ -48,7 +48,97 @@ async def test_list_jobs_truncates_and_caps():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(limit=2)
     assert len(data["jobs"]) == 2
-    assert data["truncated"] is True
+    assert data["next_cursor"] is not None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_cursor_paginates_without_overlap():
+    """Walking pages via next_cursor covers every row exactly once, newest first."""
+    from mcp_server.server import list_jobs
+
+    user = await _user("lj_pg")
+    now = timezone.now()
+    created = []
+    for _ in range(5):
+        created.append(
+            await Activity.objects.acreate(
+                user=user, repo_id="a/b", status=ActivityStatus.READY, trigger_type=TriggerType.MCP_JOB
+            )
+        )
+    # Give each a distinct created_at so ordering is deterministic. created[0] gets the
+    # latest timestamp (now - 0min), so created is already in newest-first order.
+    for offset, act in enumerate(created):
+        await Activity.objects.filter(pk=act.pk).aupdate(created_at=now - timedelta(minutes=offset))
+    expected = [str(a.id) for a in created]  # newest first
+
+    seen: list[str] = []
+    cursor = None
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        for _ in range(10):  # generous upper bound; loop should break well before
+            data = await list_jobs(limit=2, cursor=cursor)
+            seen.extend(j["job_id"] for j in data["jobs"])
+            cursor = data["next_cursor"]
+            if cursor is None:
+                break
+
+    assert cursor is None
+    assert seen == expected  # no gaps, no repeats, correct order
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_cursor_tie_break_on_same_created_at():
+    """Rows sharing an identical created_at (batch submit) must not be skipped or repeated."""
+    from mcp_server.server import list_jobs
+
+    user = await _user("lj_tie")
+    same = timezone.now()
+    created = []
+    for _ in range(4):
+        created.append(
+            await Activity.objects.acreate(
+                user=user, repo_id="a/b", status=ActivityStatus.READY, trigger_type=TriggerType.MCP_JOB
+            )
+        )
+    for act in created:
+        await Activity.objects.filter(pk=act.pk).aupdate(created_at=same)
+
+    seen: list[str] = []
+    cursor = None
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        for _ in range(10):
+            data = await list_jobs(limit=2, cursor=cursor)
+            seen.extend(j["job_id"] for j in data["jobs"])
+            cursor = data["next_cursor"]
+            if cursor is None:
+                break
+
+    assert sorted(seen) == sorted(str(a.id) for a in created)
+    assert len(seen) == len(set(seen))  # each row exactly once
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_invalid_cursor_returns_error():
+    from mcp_server.server import list_jobs
+
+    user = await _user("lj_badc")
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs(cursor="not-a-valid-cursor")
+    assert "error" in data
+    assert "cursor" in data["error"].lower()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_jobs_wrong_tool_or_bad_id_cursor_returns_invalid():
+    """A decodable cursor whose id can't coerce to Activity's UUID PK (e.g. a schedules
+    cursor with an integer id, or plain junk) must be reported as "Invalid cursor." at decode
+    time — not deferred to the ORM where the generic handler mislabels it as transient."""
+    from mcp_server.server import _encode_cursor, list_jobs
+
+    user = await _user("lj_xtool")
+    bad = _encode_cursor({"c": timezone.now().isoformat(), "id": "5"})  # int id, as schedules emits
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await list_jobs(cursor=bad)
+    assert data.get("error") == "Invalid cursor."
 
 
 @pytest.mark.django_db(transaction=True)
@@ -92,7 +182,7 @@ async def test_list_jobs_not_truncated_at_exact_limit():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(limit=2)
     assert len(data["jobs"]) == 2
-    assert data["truncated"] is False
+    assert data["next_cursor"] is None
 
 
 @pytest.mark.django_db(transaction=True)

@@ -1,9 +1,12 @@
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import uuid as uuid_mod
+from datetime import datetime
 from datetime import time as dt_time
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -17,8 +20,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import BaseModel, Field
-from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
+from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.clients import RepoClient
@@ -29,6 +31,8 @@ from schedules.models import Frequency, ScheduledJob  # noqa: TC001 - runtime li
 from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
 if TYPE_CHECKING:
+    from sandbox_envs.models import SandboxEnvironment
+
     from codebase.base import Repository
 
 logger = logging.getLogger("daiv.mcp_server")
@@ -428,6 +432,69 @@ async def _resolve_mcp_user() -> tuple[object | None, dict | None]:
     return mcp_user, None
 
 
+# ---------------------------------------------------------------------------
+# Pagination — shared limit bounds and opaque keyset cursors
+# ---------------------------------------------------------------------------
+# All DB-backed listing tools share one contract: a ``limit`` (clamped to
+# ``[1, MAX_LIST_LIMIT]``) plus an opaque ``cursor`` in, and
+# ``{"<items>": [...], "next_cursor": str | None}`` out. The cursor is base64(JSON) so
+# callers treat it as a token, not something to parse or fabricate; it encodes only sort
+# position, so it must be reused with the SAME filters.
+DEFAULT_LIST_LIMIT = 20
+MAX_LIST_LIMIT = 50
+
+# Shared ``limit`` parameter for the DB-backed listing tools — one Field spec, reused so the
+# bounds can't drift between tools (keep the description's numbers in step with the constants).
+LimitParam = Annotated[int, Field(ge=1, le=MAX_LIST_LIMIT, description="Max rows (default 20, capped at 50).")]
+
+
+def _cap_limit(limit: int) -> int:
+    """Clamp ``limit`` to ``[1, MAX_LIST_LIMIT]``. FastMCP validates ``ge``/``le`` at the
+    protocol layer, but direct (in-process/test) callers bypass it, so re-clamp here."""
+    return max(1, min(limit, MAX_LIST_LIMIT))
+
+
+def _encode_cursor(payload: dict) -> str:
+    return base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
+
+
+def _decode_cursor(raw: str) -> dict:
+    return json.loads(base64.urlsafe_b64decode(raw.encode()).decode())
+
+
+# Every exception a malformed cursor can raise MUST land in this tuple so the tools report
+# "Invalid cursor." rather than crashing or mislabeling a bad token as a transient failure.
+# ``UnicodeDecodeError``, ``json.JSONDecodeError`` and ``binascii.Error`` are all
+# ``ValueError`` subclasses (``binascii.Error`` is listed only for readability). ``TypeError``
+# / ``KeyError`` cover non-dict payloads and missing keys. Id coercion (``uuid.UUID(...)`` /
+# ``int(...)``) happens inside the guarded decode below and raises only these types.
+_CURSOR_ERRORS = (ValueError, TypeError, KeyError, binascii.Error)
+
+
+def _encode_created_id_cursor(created: datetime, obj_id: object) -> str:
+    """Cursor for ``(created, id)``-ordered listings (jobs, scheduled jobs)."""
+    return _encode_cursor({"c": created.isoformat(), "id": str(obj_id)})
+
+
+def _decode_created_id_cursor(raw: str, id_type: type) -> tuple[datetime, Any]:
+    """Decode a ``(created, id)`` cursor → ``(datetime, id)``; raises on malformed input.
+
+    ``id_type`` coerces the id string to the PK's Python type (``uuid.UUID`` for Activity,
+    ``int`` for ScheduledJob) *inside* this guarded decode. Coercing here — rather than
+    deferring to the ORM's ``id__lt`` lookup — means a wrong-type or wrong-tool cursor (the
+    two listings share this format) fails as a caught ``ValueError``/``TypeError`` reported
+    as "Invalid cursor.", instead of blowing up later in the query where the generic handler
+    would mislabel it as a transient "try again later" error.
+    """
+    payload = _decode_cursor(raw)
+    parsed = parse_datetime(payload["c"])
+    if parsed is None:
+        raise ValueError("invalid cursor timestamp")
+    if not isinstance(payload["id"], str):
+        raise TypeError("cursor id must be a string")
+    return parsed, id_type(payload["id"])
+
+
 def _serialize_job_summary(activity: Activity) -> dict:
     """Lean per-row summary for list_jobs — excludes result_summary (use get_job_status for that)."""
     return {
@@ -454,26 +521,45 @@ async def list_jobs(
     status: Annotated[
         ActivityStatus | None, Field(description="Filter by status: QUEUED, READY, RUNNING, SUCCESSFUL, or FAILED.")
     ] = None,
-    limit: Annotated[int, Field(ge=1, le=50, description="Max rows (default 20, capped at 50).")] = 20,
+    limit: LimitParam = DEFAULT_LIST_LIMIT,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Opaque pagination token from a prior call's ``next_cursor``. Omit for the first page;"
+                " reuse the SAME repo_id/status filters across pages."
+            )
+        ),
+    ] = None,
 ) -> dict:
     """List the caller's recent agent runs, newest first.
 
-    Returns ``{"jobs": [...], "truncated": bool}``. Each entry is a lean summary;
-    use ``get_job_status`` for a single job's full result text.
+    Returns ``{"jobs": [...], "next_cursor": str | None}``. Pass ``next_cursor`` back to
+    fetch the next page; ``None`` means no more rows. Each entry is a lean summary — use
+    ``get_job_status`` for a single job's full result text.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
         return auth_error
 
-    capped = max(1, min(limit, 50))
+    capped = _cap_limit(limit)
+    before = None
+    if cursor:
+        try:
+            before = _decode_created_id_cursor(cursor, UUID)
+        except _CURSOR_ERRORS:
+            return {"error": "Invalid cursor."}
     try:
         rows = await alist_user_activities(
-            mcp_user, repo_id=repo_id, status=str(status) if status else None, limit=capped + 1
+            mcp_user, repo_id=repo_id, status=str(status) if status else None, limit=capped + 1, before=before
         )
     except Exception:
         logger.exception("Failed to list jobs")
         return {"error": "Failed to list jobs. Please try again later."}
-    return {"jobs": [_serialize_job_summary(a) for a in rows[:capped]], "truncated": len(rows) > capped}
+
+    page = rows[:capped]
+    next_cursor = _encode_created_id_cursor(page[-1].created_at, page[-1].id) if len(rows) > capped else None
+    return {"jobs": [_serialize_job_summary(a) for a in page], "next_cursor": next_cursor}
 
 
 MAX_REPOSITORIES = 40
@@ -488,10 +574,13 @@ def _serialize_repositories(repos: list[Repository]) -> list[dict]:
 async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
     topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
-) -> str:
-    """
-    List repositories accessible to DAIV, optionally filtered by name or topic.
-    Results may be truncated; use search or topics to narrow down.
+) -> dict:
+    """List repositories accessible to DAIV, optionally filtered by name or topic.
+
+    Returns ``{"repositories": [...], "next_cursor": None}`` for a contract shared with the
+    other listing tools. This tool is backed by the remote Git platform and does NOT support
+    cursor pagination — ``next_cursor`` is always ``None``. When results are capped, a
+    ``warning`` is included; narrow with ``search`` or ``topics`` rather than paging.
     """
     # Fetch one extra to detect truncation without loading everything
     fetch_limit = MAX_REPOSITORIES + 1
@@ -500,38 +589,82 @@ async def list_repositories(
         repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics, limit=fetch_limit)
     except Exception:
         logger.exception("Failed to list repositories")
-        return json.dumps({"error": "Failed to list repositories. Please try again later."})
+        return {"error": "Failed to list repositories. Please try again later."}
 
     truncated = len(repos) > MAX_REPOSITORIES
-    result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES])}
+    result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES]), "next_cursor": None}
     if truncated:
         result["warning"] = (
             f"Only the first {MAX_REPOSITORIES} repositories are shown. "
             "There are more results available. Ask the user to provide a search term or topic to narrow down."
         )
-    return json.dumps(result)
+    return result
+
+
+def _serialize_environment_summary(env: SandboxEnvironment) -> dict:
+    return {
+        "id": str(env.id),
+        "name": env.name,
+        "scope": env.scope,
+        "description": env.description,
+        "base_image": env.base_image,
+        "is_default": env.is_default,
+    }
+
+
+def _encode_env_cursor(env: SandboxEnvironment) -> str:
+    """Cursor for the ``(scope, name, id)``-ordered environments listing."""
+    return _encode_cursor({"s": env.scope, "n": env.name, "id": str(env.id)})
+
+
+def _decode_env_cursor(raw: str) -> tuple[str, str, UUID]:
+    """Decode a ``(scope, name, id)`` cursor; raises on malformed input.
+
+    The ``isinstance`` guard mirrors ``_decode_created_id_cursor``: without it a non-string
+    ``id`` (e.g. a JSON number) would reach ``uuid.UUID(...)`` and raise ``AttributeError`` —
+    which is NOT in ``_CURSOR_ERRORS`` — surfacing as an unhandled tool crash instead of the
+    intended "Invalid cursor." A string that isn't a valid UUID raises a caught ``ValueError``.
+    """
+    payload = _decode_cursor(raw)
+    if not isinstance(payload["id"], str):
+        raise TypeError("cursor id must be a string")
+    return payload["s"], payload["n"], UUID(payload["id"])
 
 
 @mcp.tool()
-async def list_environments() -> list[dict]:
+async def list_environments(
+    limit: LimitParam = DEFAULT_LIST_LIMIT,
+    cursor: Annotated[
+        str | None,
+        Field(description="Opaque pagination token from a prior call's ``next_cursor``. Omit for the first page."),
+    ] = None,
+) -> dict:
     """List sandbox environments visible to the caller — their own USER envs plus all GLOBAL envs.
 
-    Use the returned ``name`` (or ``id``) as the ``environment`` argument to ``submit_job``.
-    Secret env-var values are not included; call ``get_environment`` for full details.
+    Returns ``{"environments": [...], "next_cursor": str | None}``; pass ``next_cursor`` back
+    for the next page. Use a returned ``name`` (or ``id``) as the ``environment`` argument to
+    ``submit_job``. Secret env-var values are not included; call ``get_environment`` for full details.
     """
-    user = await get_current_user()
-    qs = SandboxEnvironment.objects.visible_to(user)
-    return [
-        {
-            "id": str(env.id),
-            "name": env.name,
-            "scope": env.scope,
-            "description": env.description,
-            "base_image": env.base_image,
-            "is_default": env.is_default,
-        }
-        async for env in qs
-    ]
+    mcp_user, auth_error = await _resolve_mcp_user()
+    if auth_error is not None:
+        return auth_error
+
+    capped = _cap_limit(limit)
+    after = None
+    if cursor:
+        try:
+            after = _decode_env_cursor(cursor)
+        except _CURSOR_ERRORS:
+            return {"error": "Invalid cursor."}
+    try:
+        rows = await alist_visible_environments(mcp_user, limit=capped + 1, after=after)
+    except Exception:
+        logger.exception("Failed to list environments")
+        return {"error": "Failed to list environments. Please try again later."}
+
+    page = rows[:capped]
+    next_cursor = _encode_env_cursor(page[-1]) if len(rows) > capped else None
+    return {"environments": [_serialize_environment_summary(env) for env in page], "next_cursor": next_cursor}
 
 
 @mcp.tool()
@@ -561,15 +694,10 @@ async def get_environment(
         logger.error("env_vars decryption failed for SandboxEnvironment id=%s; returning empty list", env.id)
         env_vars_rows = []
     return {
-        "id": str(env.id),
-        "name": env.name,
-        "scope": env.scope,
-        "description": env.description,
-        "base_image": env.base_image,
+        **_serialize_environment_summary(env),
         "network_enabled": env.is_networked,
         "memory_bytes": env.memory_bytes,
         "cpus": float(env.cpus) if env.cpus is not None else None,
-        "is_default": env.is_default,
         "env_vars": [
             {
                 "name": r["name"],
@@ -719,14 +847,41 @@ def _serialize_scheduled_job(schedule: ScheduledJob) -> dict:
 async def list_scheduled_jobs(
     enabled_only: Annotated[bool, Field(description="Only return enabled schedules.")] = False,
     repo_id: Annotated[str | None, Field(description="Only return schedules targeting this repo_id.")] = None,
+    limit: LimitParam = DEFAULT_LIST_LIMIT,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Opaque pagination token from a prior call's ``next_cursor``. Omit for the first page;"
+                " reuse the SAME enabled_only/repo_id filters across pages."
+            )
+        ),
+    ] = None,
 ) -> dict:
-    """List the caller's scheduled jobs, newest first. Returns ``{"scheduled_jobs": [...]}``."""
+    """List the caller's scheduled jobs, newest first.
+
+    Returns ``{"scheduled_jobs": [...], "next_cursor": str | None}``; pass ``next_cursor``
+    back to fetch the next page (``None`` means no more rows).
+    """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
         return auth_error
+
+    capped = _cap_limit(limit)
+    before = None
+    if cursor:
+        try:
+            before = _decode_created_id_cursor(cursor, int)
+        except _CURSOR_ERRORS:
+            return {"error": "Invalid cursor."}
     try:
-        rows = await alist_scheduled_jobs(mcp_user, enabled_only=enabled_only, repo_id=repo_id)
+        rows = await alist_scheduled_jobs(
+            mcp_user, enabled_only=enabled_only, repo_id=repo_id, limit=capped + 1, before=before
+        )
     except Exception:
         logger.exception("Failed to list scheduled jobs")
         return {"error": "Failed to list scheduled jobs. Please try again later."}
-    return {"scheduled_jobs": [_serialize_scheduled_job(s) for s in rows]}
+
+    page = rows[:capped]
+    next_cursor = _encode_created_id_cursor(page[-1].created, page[-1].id) if len(rows) > capped else None
+    return {"scheduled_jobs": [_serialize_scheduled_job(s) for s in page], "next_cursor": next_cursor}
