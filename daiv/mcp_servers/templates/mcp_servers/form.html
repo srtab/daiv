@@ -1,0 +1,126 @@
+{% extends "base_app.html" %}
+{% load i18n static %}
+
+{% block title %}{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-2xl{% endblock %}
+
+{% block alpine_plugins %}
+<script defer src="{% static 'core/js/django-formset.js' %}"></script>
+{% endblock alpine_plugins %}
+
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">
+        {% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}
+    </h1>
+    {% if builtin %}
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        {% translate "This is a built-in server. Only its enabled state can be changed." %}
+    </p>
+    {% endif %}
+</div>
+
+{% if form.non_field_errors %}
+<div class="animate-fade-up mt-6 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3">
+    {% for e in form.non_field_errors %}<p class="text-sm text-red-200">{{ e }}</p>{% endfor %}
+</div>
+{% endif %}
+
+{% if headers_locked %}
+<div class="animate-fade-up mt-6 rounded-lg border border-amber-800/50 bg-amber-950/30 px-4 py-3">
+    <p class="text-sm text-amber-200">
+        {% translate "Stored headers could not be decrypted (encryption key changed?). Saving is disabled until they are reset." %}
+    </p>
+</div>
+{% endif %}
+
+<form method="post" class="animate-fade-up mt-8 space-y-6" style="animation-delay: 50ms">
+    {% csrf_token %}
+
+    <div>
+        <label for="{{ form.name.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.name.label }}</label>
+        <div class="mt-1.5">{{ form.name }}</div>
+        {% for e in form.name.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+    </div>
+
+    <div>
+        <label for="{{ form.description.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.description.label }}</label>
+        <div class="mt-1.5">{{ form.description }}</div>
+        {% for e in form.description.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+    </div>
+
+    <div>
+        <label for="{{ form.transport.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.transport.label }}</label>
+        <div class="mt-1.5">
+            {% if builtin %}
+            <p class="text-sm text-gray-300">{{ form.transport.value|default:"—" }} <span class="text-gray-500">({% translate "managed by built-in code" %})</span></p>
+            {% else %}
+            {{ form.transport }}
+            {% endif %}
+        </div>
+        {% for e in form.transport.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+    </div>
+
+    <div>
+        <label for="{{ form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.url.label }}</label>
+        <div class="mt-1.5">
+            {% if builtin %}
+            <p class="text-sm text-gray-300">{% translate "managed by built-in code" %}</p>
+            {% else %}
+            {{ form.url }}
+            {% endif %}
+        </div>
+        {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+    </div>
+
+    <label class="flex items-center gap-2.5">
+        {{ form.enabled }}
+        <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
+        {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
+    </label>
+
+    <fieldset {% if builtin %}disabled{% endif %} class="rounded-2xl border border-white/[0.06] p-5">
+        <legend class="px-2 text-[15px] font-medium text-gray-300">{% translate "Tool filter" %}</legend>
+        <div class="space-y-4">
+            <div>
+                <label for="{{ form.tool_filter_mode.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.tool_filter_mode.label }}</label>
+                <div class="mt-1.5">{{ form.tool_filter_mode }}</div>
+                {% for e in form.tool_filter_mode.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+            </div>
+            <div>
+                <label class="block text-[15px] font-medium text-gray-400">{{ form.tool_filter_items.label }}</label>
+                <div class="mt-1.5 space-y-1 text-sm text-gray-200">{{ form.tool_filter_items }}</div>
+                {% for e in form.tool_filter_items.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+            </div>
+        </div>
+    </fieldset>
+
+    <fieldset {% if builtin or headers_locked %}disabled{% endif %} class="rounded-2xl border border-white/[0.06] p-5">
+        <legend class="px-2 text-[15px] font-medium text-gray-300">{% translate "Headers" %}</legend>
+        <p class="mb-3 text-sm text-gray-400">
+            {% translate "HTTP headers sent to the MCP server. Choose “env_ref” to read the value from an environment variable at runtime instead of storing it." %}
+        </p>
+        <div x-data="djangoFormset({ totalFormsId: '{{ formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ formset.total_form_count }} })">
+            {{ formset.management_form }}
+            {% for e in formset.non_form_errors %}<p class="mb-3 text-sm text-red-300">{{ e }}</p>{% endfor %}
+            <div x-ref="rows" class="space-y-3">
+                {% for header_form in formset %}
+                {% include "mcp_servers/_header_row.html" with is_initial=True %}
+                {% endfor %}
+            </div>
+            <template x-ref="rowTemplate">
+                {% include "mcp_servers/_header_row.html" with header_form=formset.empty_form %}
+            </template>
+            <button type="button" @click="addRow()" class="btn-secondary mt-4 text-sm">
+                + {% translate "Add header" %}
+            </button>
+        </div>
+    </fieldset>
+
+    <div class="flex items-center gap-3">
+        <button type="submit" class="btn-primary" {% if headers_locked %}disabled{% endif %}>{% translate "Save" %}</button>
+        <a href="{% url 'mcp_servers:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
+    </div>
+</form>
+{% endblock app_content %}

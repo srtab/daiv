@@ -39,6 +39,16 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "sandbox_envs:set_default",
     },
     "memory": {"memory:list", "memory:detail", "memory:consolidate"},
+    "mcp_servers": {
+        "mcp_servers:list",
+        "mcp_servers:create",
+        "mcp_servers:detail",
+        "mcp_servers:edit",
+        "mcp_servers:delete",
+        "mcp_servers:toggle",
+        "mcp_servers:test",
+        "mcp_servers:tools",
+    },
 }
 
 
