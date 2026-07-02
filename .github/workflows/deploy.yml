@@ -1,0 +1,73 @@
+name: Deploy
+
+# Continuous deployment to the production server (daivagent).
+#
+# Runs after the "Docker" workflow finishes building & pushing
+# ghcr.io/srtab/daiv:main for a push to main, then SSHes into the server and
+# rolls the app/worker/scheduler containers onto the new image. Can also be run
+# manually from the Actions tab to re-deploy or roll back the current :main image.
+on:
+  workflow_run:
+    workflows: ["Docker"]
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never let two deploys touch the server at the same time.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Deploy only on a manual run, or when the Docker build succeeded for a
+    # push to main (skips PR builds and tag builds — the server tracks :main).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.conclusion == 'success')
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          fingerprint: ${{ secrets.DEPLOY_FINGERPRINT }}
+          command_timeout: 8m
+          script: |
+            set -e
+            cd /home/daiv
+
+            echo "Pulling latest images..."
+            docker compose pull app worker scheduler
+
+            echo "Recreating containers..."
+            docker compose up -d app worker scheduler
+
+            echo "Pruning dangling images..."
+            docker image prune -f
+
+            echo "Waiting for app to become healthy..."
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8000/-/alive/ >/dev/null 2>&1; then
+                echo "App is healthy."
+                docker compose ps app worker scheduler
+                exit 0
+              fi
+              echo "  not ready yet ($i/30); retrying in 5s..."
+              sleep 5
+            done
+
+            echo "ERROR: app did not become healthy within 150s" >&2
+            docker compose ps app worker scheduler
+            docker compose logs --tail=50 app >&2 || true
+            exit 1
