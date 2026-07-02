@@ -1644,18 +1644,31 @@
 </tr>
 <tr>
 <td><code>list_repositories</code></td>
-<td>Discover repositories accessible to DAIV, optionally filtered by <code>search</code> (partial name match) or <code>topics</code>. Results are truncated at 40 — narrow with <code>search</code> or <code>topics</code> if you hit the limit.</td>
+<td>Discover repositories accessible to DAIV, optionally filtered by <code>search</code> (partial name match) or <code>topics</code>. Returns <code>{repositories, next_cursor}</code>; because it is backed by the remote Git platform it does <strong>not</strong> cursor-paginate (<code>next_cursor</code> is always <code>null</code>). Results are capped at 40 — when a <code>warning</code> is present, narrow with <code>search</code> or <code>topics</code> rather than paging.</td>
 </tr>
 <tr>
 <td><code>list_environments</code></td>
-<td>List the sandbox environments visible to you (your own <code>USER</code> environments plus all <code>GLOBAL</code> ones). Use a returned <code>name</code> or <code>id</code> as <code>submit_job</code>'s <code>environment</code> argument.</td>
+<td>List the sandbox environments visible to you (your own <code>USER</code> environments plus all <code>GLOBAL</code> ones), ordered by scope then name. Supports <code>limit</code> (default 20, max 50) and <code>cursor</code>; use a returned <code>name</code> or <code>id</code> as <code>submit_job</code>'s <code>environment</code> argument.</td>
 </tr>
 <tr>
 <td><code>get_environment</code></td>
 <td>Look up a single sandbox environment by name or UUID. Returns full details with secret env-var values masked, or nothing if it is not in your visible scopes.</td>
 </tr>
+<tr>
+<td><code>list_jobs</code></td>
+<td>List your recent agent runs (newest first), optionally filtered by <code>repo_id</code> and <code>status</code>. Supports <code>limit</code> (default 20, max 50) and <code>cursor</code>. Returns a lean summary per run plus <code>next_cursor</code> — use <code>get_job_status</code> for a single run's full result text.</td>
+</tr>
+<tr>
+<td><code>schedule_job</code></td>
+<td>Create a recurring or one-off scheduled run owned by you. Takes <code>name</code>, <code>prompt</code>, a 1–20 entry <code>repos</code> list, and a <code>frequency</code> (<code>hourly</code>/<code>daily</code>/<code>weekdays</code>/<code>weekly</code>/<code>custom</code>/<code>once</code>) with its companion field (<code>time</code> for daily/weekdays/weekly, <code>cron_expression</code> for custom, <code>run_at</code> for once). Optional <code>agent_model</code>, <code>agent_thinking_level</code>, <code>environment</code>, and <code>notify_on</code> mirror <code>submit_job</code>.</td>
+</tr>
+<tr>
+<td><code>list_scheduled_jobs</code></td>
+<td>List your scheduled jobs (newest first), optionally filtered by <code>enabled_only</code> or <code>repo_id</code>. Supports <code>limit</code> (default 20, max 50) and <code>cursor</code>.</td>
+</tr>
 </tbody>
 </table>
+<p>The DB-backed listing tools (<code>list_jobs</code>, <code>list_scheduled_jobs</code>, <code>list_environments</code>) share one pagination contract: pass an optional <code>limit</code> and <code>cursor</code>, and read back <code>{ "&lt;items&gt;": [...], "next_cursor": &lt;token or null&gt; }</code>. To page, call again with <code>cursor</code> set to the previous response's <code>next_cursor</code> until it comes back <code>null</code>; a cursor encodes only sort position, so reuse it with the <strong>same</strong> filters. <code>list_repositories</code> returns the same shape for consistency but never paginates (narrow with <code>search</code>/<code>topics</code> instead).</p>
 <p><code>submit_job</code> takes a <code>repos</code> list (1–20 entries) and a single <code>prompt</code> that runs as an independent job against each repository. Each entry is <code>{repo_id, ref}</code>, where <code>ref</code> is the starting branch or commit the agent reads from — it is optional and defaults to the repository's default branch. The response includes a <code>batch_id</code>, a <code>jobs</code> list (one entry per submitted job, each with its <code>job_id</code>, <code>repo_id</code>, <code>ref</code>, <code>thread_id</code>, and <code>status</code>), and a <code>failed</code> list for repositories that could not be enqueued.</p>
 <p><code>submit_job</code> also accepts these optional parameters:</p>
 <ul>
@@ -1666,6 +1679,7 @@
 <li><code>thread_id</code> — continue an existing thread by passing the UUID from a prior <code>submit_job</code> or <code>get_job_status</code> response. Continuation requires exactly one repository, whose latest activity must belong to you.</li>
 </ul>
 <p>For the full request/response schema, the batch <code>repos</code> contract, and the job lifecycle, see the <a href="../jobs-api/">Jobs API</a>.</p>
+<p><code>schedule_job</code> creates a <a href="../scheduled-jobs/">scheduled run</a>. Pick a <code>frequency</code> and supply its companion field: <code>time</code> (<code>"HH:MM"</code>, 24-hour) for <code>daily</code>, <code>weekdays</code>, and <code>weekly</code> (which fires on Mondays); a five-field <code>cron_expression</code> for <code>custom</code>; or an ISO-8601 <code>run_at</code> for a one-off <code>once</code> schedule. A <code>run_at</code> without a timezone offset is interpreted in the server timezone and must be in the future (a ~60-second grace into the past is tolerated). New schedules are always enabled. The response includes the schedule <code>id</code> and the computed <code>next_run_at</code>. Manage existing schedules (edit, disable, delete) from the DAIV dashboard.</p>
 <h2 id="usage-examples">Usage examples</h2>
 <p>Once connected, you can interact with DAIV naturally from your AI coding assistant:</p>
 <ul>
@@ -1699,7 +1713,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 30, 2026 22:08:00 UTC">June 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 2, 2026 07:22:44 UTC">July 2, 2026</span>
   </span>
 
     
@@ -1709,7 +1723,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 30, 2026 22:08:00 UTC">June 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 2, 2026 07:22:44 UTC">July 2, 2026</span>
   </span>
 
     
