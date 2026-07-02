@@ -620,13 +620,13 @@ async def test_list_repositories_default():
 
     with patch("mcp_server.server.RepoClient") as mock_rc:
         mock_rc.create_instance.return_value = mock_client
-        result = await list_repositories()
+        data = await list_repositories()
 
-    data = json.loads(result)
     assert len(data["repositories"]) == 3
     assert data["repositories"][0]["slug"] == "group/alpha"
     assert data["repositories"][0]["topics"] == ["python", "backend"]
     assert "warning" not in data
+    assert data["next_cursor"] is None  # remote-backed: never cursor-paginates
     mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=41)
 
 
@@ -636,9 +636,8 @@ async def test_list_repositories_with_search():
 
     with patch("mcp_server.server.RepoClient") as mock_rc:
         mock_rc.create_instance.return_value = mock_client
-        result = await list_repositories(search="alpha")
+        data = await list_repositories(search="alpha")
 
-    data = json.loads(result)
     assert len(data["repositories"]) == 1
     assert data["repositories"][0]["slug"] == "group/alpha"
     mock_client.list_repositories.assert_called_once_with(search="alpha", topics=None, limit=41)
@@ -650,9 +649,8 @@ async def test_list_repositories_with_topics():
 
     with patch("mcp_server.server.RepoClient") as mock_rc:
         mock_rc.create_instance.return_value = mock_client
-        result = await list_repositories(topics=["python"])
+        data = await list_repositories(topics=["python"])
 
-    data = json.loads(result)
     assert len(data["repositories"]) == 2
     mock_client.list_repositories.assert_called_once_with(search=None, topics=["python"], limit=41)
 
@@ -666,12 +664,12 @@ async def test_list_repositories_truncated_with_warning():
 
     with patch("mcp_server.server.RepoClient") as mock_rc:
         mock_rc.create_instance.return_value = mock_client
-        result = await list_repositories()
+        data = await list_repositories()
 
-    data = json.loads(result)
     assert len(data["repositories"]) == 40
     assert "warning" in data
     assert "first 40" in data["warning"]
+    assert data["next_cursor"] is None  # narrow via search/topics, not paging
     # Verify limit was passed to the client
     mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=41)
 
@@ -682,9 +680,8 @@ async def test_list_repositories_error_handling():
 
     with patch("mcp_server.server.RepoClient") as mock_rc:
         mock_rc.create_instance.return_value = mock_client
-        result = await list_repositories()
+        data = await list_repositories()
 
-    data = json.loads(result)
     assert "error" in data
     assert "Failed to list repositories" in data["error"]
 

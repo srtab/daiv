@@ -2,7 +2,13 @@ from decimal import Decimal
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Scope
-from sandbox_envs.services import SandboxEnvOverride, build_env_trigger, get_global_default, resolve_sandbox_env
+from sandbox_envs.services import (
+    SandboxEnvOverride,
+    alist_visible_environments,
+    build_env_trigger,
+    get_global_default,
+    resolve_sandbox_env,
+)
 
 from accounts.models import User
 
@@ -857,3 +863,39 @@ def test_merge_falls_back_to_global_egress_when_no_per_run():
     eg = object()
     rt = merge_sandbox_runtime(per_run=None, global_default=_ov(egress=eg))
     assert rt.egress is eg
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_alist_visible_environments_paginates_by_scope_name_id():
+    """``after`` resumes after the cursor row in (scope, name, id) order; every visible
+    env is returned once with no gaps or repeats."""
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    user = await User.objects.acreate_user(username="ve", email="ve@e.com", password="x")  # noqa: S106
+    for name in ("alpha", "bravo", "charlie", "delta", "echo"):
+        await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name=name, base_image="x")
+
+    collected: list[str] = []
+    after = None
+    for _ in range(10):
+        page = await alist_visible_environments(user, limit=2, after=after)
+        if not page:
+            break
+        collected.extend(e.name for e in page)
+        last = page[-1]
+        after = (last.scope, last.name, last.id)
+
+    assert collected == ["alpha", "bravo", "charlie", "delta", "echo"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_alist_visible_environments_excludes_other_users():
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    user = await User.objects.acreate_user(username="ve2", email="ve2@e.com", password="x")  # noqa: S106
+    other = await User.objects.acreate_user(username="ve3", email="ve3@e.com", password="x")  # noqa: S106
+    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name="mine", base_image="x")
+    await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=other, name="theirs", base_image="x")
+
+    rows = await alist_visible_environments(user)
+    names = {e.name for e in rows}
+    assert "mine" in names
+    assert "theirs" not in names
