@@ -90,9 +90,10 @@ def build_tool_choices(discovered_tools, selected):
 class MCPServerForm(forms.ModelForm):
     """Create/edit a custom MCP server.
 
-    Tool-filter items render as a checkbox list when the view passes a
-    non-empty ``discovered_tools`` list; otherwise as a textarea (one tool
-    name per line). On edit, ``name`` is immutable.
+    Tool-filter items always use a getlist-aware textarea widget for data
+    handling; the discovered-tool checkbox list is rendered by the template
+    from ``build_tool_choices`` context, not by swapping this field's widget.
+    On edit, ``name`` is immutable (read-only + ``clean_name`` guard).
     """
 
     tool_filter_items = ToolFilterItemsField(
@@ -106,9 +107,8 @@ class MCPServerForm(forms.ModelForm):
         fields = ("name", "description", "transport", "url", "enabled", "tool_filter_mode")
         widgets = {"description": forms.Textarea(attrs={"rows": 2})}
 
-    def __init__(self, *args, discovered_tools=None, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.discovered_tools = discovered_tools
         if self.instance.pk is not None:
             self.fields["tool_filter_items"].initial = list(self.instance.tool_filter_items or [])
             # Name is immutable after creation (enforced by clean_name). Make the
@@ -116,27 +116,6 @@ class MCPServerForm(forms.ModelForm):
             # clean_name still rejects a crafted rename.
             self.fields["name"].widget.attrs["readonly"] = True
             self.fields["name"].widget.attrs["class"] = "mcp-name-readonly"
-
-        # Empty/None keeps the textarea — a transient discovery failure must not silently wipe the
-        # persisted filter (block-mode would otherwise degrade to "block none").
-        if discovered_tools:
-            discovered_names = [t.get("name") for t in discovered_tools if t.get("name")]
-            persisted = list(self.instance.tool_filter_items or []) if self.instance.pk is not None else []
-            extra = [n for n in persisted if n not in discovered_names]
-
-            choices: list[tuple[str, str]] = []
-            for t in discovered_tools:
-                if not t.get("name"):
-                    continue
-                desc = t.get("description") or ""
-                label = f"{t['name']} — {desc}" if desc else t["name"]
-                choices.append((t["name"], label))
-            # Keep persisted-but-not-discovered names as choices so an unchecked save can't drop them.
-            for n in extra:
-                choices.append((n, _("%(name)s (not in current tool list)") % {"name": n}))
-
-            # Widget-only swap: rendering changes by context, validation never does.
-            self.fields["tool_filter_items"].widget = forms.CheckboxSelectMultiple(choices=choices)
 
     def clean_name(self):
         name = self.cleaned_data["name"]

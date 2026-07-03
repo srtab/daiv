@@ -15,7 +15,7 @@ from asgiref.sync import async_to_sync
 from accounts.mixins import AdminRequiredMixin
 from core.encryption import DecryptionError
 from mcp_servers import services
-from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset
+from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset, build_tool_choices
 from mcp_servers.models import MCPServer
 
 logger = logging.getLogger("daiv.mcp_servers")
@@ -55,7 +55,14 @@ class MCPServerCreateView(AdminRequiredMixin, View):
         return redirect(reverse("mcp_servers:list"))
 
     def _render(self, request, form, formset, *, status=200):
-        return render(request, self.template_name, {"form": form, "formset": formset, "mode": "create"}, status=status)
+        # Create never has a saved server to discover against, so there are no
+        # checkbox choices — the template renders the textarea fallback.
+        return render(
+            request,
+            self.template_name,
+            {"form": form, "formset": formset, "mode": "create", "tool_choices": []},
+            status=status,
+        )
 
 
 class MCPServerEditView(AdminRequiredMixin, View):
@@ -75,7 +82,7 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 % {"name": obj.name},
             )
         discovered = services.discover_tools_cached(obj)
-        form = MCPServerForm(instance=obj, discovered_tools=discovered or None)
+        form = MCPServerForm(instance=obj)
         formset = MCPServerHeaderFormSet(initial=initial, prefix="headers")
         return render(
             request,
@@ -87,6 +94,7 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 "object": obj,
                 "builtin": obj.is_builtin(),
                 "headers_locked": headers_locked,
+                "tool_choices": build_tool_choices(discovered, obj.tool_filter_items),
             },
         )
 
@@ -106,14 +114,24 @@ class MCPServerEditView(AdminRequiredMixin, View):
             )
             return redirect(reverse("mcp_servers:edit", args=[obj.name]))
 
+        headers_locked = False
+
         discovered = services.discover_tools_cached(obj)
-        form = MCPServerForm(request.POST, instance=obj, discovered_tools=discovered or None)
+        form = MCPServerForm(request.POST, instance=obj)
         formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
         if not (form.is_valid() and formset.is_valid()):
             return render(
                 request,
                 self.template_name,
-                {"form": form, "formset": formset, "mode": "edit", "object": obj},
+                {
+                    "form": form,
+                    "formset": formset,
+                    "mode": "edit",
+                    "object": obj,
+                    "builtin": obj.is_builtin(),
+                    "headers_locked": headers_locked,
+                    "tool_choices": build_tool_choices(discovered, request.POST.getlist("tool_filter_items")),
+                },
                 status=400,
             )
         saved = form.save(commit=False)

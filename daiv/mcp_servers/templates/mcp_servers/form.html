@@ -3,7 +3,7 @@
 
 {% block title %}{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %} — DAIV{% endblock %}
 
-{% block container_width %}max-w-2xl{% endblock %}
+{% block container_width %}max-w-3xl{% endblock %}
 
 {% block alpine_plugins %}
 <script defer src="{% static 'core/js/django-formset.js' %}"></script>
@@ -15,11 +15,11 @@
     <h1 class="text-2xl font-bold tracking-tight">
         {% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}
     </h1>
-    {% if builtin %}
     <p class="mt-1.5 text-[15px] font-light text-gray-400">
-        {% translate "This is a built-in server. It can be edited and disabled, but not renamed or deleted." %}
+        {% if mode == "create" %}{% translate "Connect an MCP server to give the agent extra tools and context." %}
+        {% elif builtin %}{% translate "Built-in server — it can be edited and disabled, but not renamed or deleted." %}
+        {% else %}{% blocktranslate with name=object.name %}Update “{{ name }}”.{% endblocktranslate %}{% endif %}
     </p>
-    {% endif %}
 </div>
 
 {% if form.non_field_errors %}
@@ -36,92 +36,160 @@
 </div>
 {% endif %}
 
-<form method="post" class="animate-fade-up mt-8 space-y-6" style="animation-delay: 50ms"
-      x-data="mcpTestConnection({ testUrl: '{% url 'mcp_servers:test' %}' })">
+<form method="post"
+      class="animate-fade-up mt-8 space-y-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6"
+      style="animation-delay: 50ms"
+      x-data="mcpTestConnection({
+          testUrl: '{% url 'mcp_servers:test' %}',
+          transport: '{{ form.transport.value|default:'http'|escapejs }}',
+          filterMode: '{{ form.tool_filter_mode.value|default:'none'|escapejs }}',
+          filterPlaceholder: '{% translate 'Filter tools…'|escapejs %}',
+          notInListLabel: '{% translate 'not in current tool list'|escapejs %}'
+      })">
     {% csrf_token %}
 
-    <div>
-        <label for="{{ form.name.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.name.label }}</label>
-        <div class="mt-1.5">{{ form.name }}</div>
-        {% for e in form.name.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
-    </div>
+    {# ── Details ───────────────────────────────────────────────── #}
+    <fieldset class="space-y-5">
+        <legend class="text-[15px] font-semibold text-gray-200">{% translate "Details" %}</legend>
 
-    <div>
-        <label for="{{ form.description.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.description.label }}</label>
-        <div class="mt-1.5">{{ form.description }}</div>
-        {% for e in form.description.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
-    </div>
+        <div>
+            <label for="{{ form.name.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+                {{ form.name.label }} <span class="text-red-400">*</span>
+            </label>
+            <div class="mt-1.5">{{ form.name }}</div>
+            {% if mode == "edit" %}<p class="mt-1.5 text-sm text-gray-500">{% translate "Name can’t be changed after creation." %}</p>{% endif %}
+            {% for e in form.name.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        </div>
 
-    <div>
-        <label for="{{ form.transport.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.transport.label }}</label>
-        <div class="mt-1.5">{{ form.transport }}</div>
-        {% for e in form.transport.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
-    </div>
+        <div>
+            <label for="{{ form.description.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.description.label }}</label>
+            <div class="mt-1.5">{{ form.description }}</div>
+            {% for e in form.description.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        </div>
 
-    <div>
-        <label for="{{ form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.url.label }}</label>
-        <div class="mt-1.5">{{ form.url }}</div>
-        {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
-    </div>
-
-    <div class="flex items-center gap-3">
-        <button type="button" @click="test()" :disabled="state === 'testing'" class="btn-secondary text-sm">
-            <span x-show="state !== 'testing'">{% translate "Test connection" %}</span>
-            <span x-show="state === 'testing'" x-cloak>{% translate "Testing…" %}</span>
-        </button>
-        <span x-show="state === 'ok'" x-cloak class="text-sm text-emerald-300">
-            <span x-text="toolCount"></span> {% translate "tools discovered" %}
-        </span>
-        <span x-show="state === 'error'" x-cloak class="text-sm text-red-300" x-text="error"></span>
-    </div>
-
-    <label class="flex items-center gap-2.5">
-        {{ form.enabled }}
-        <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
-        {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
-    </label>
-
-    <fieldset class="rounded-2xl border border-white/[0.06] p-5">
-        <legend class="px-2 text-[15px] font-medium text-gray-300">{% translate "Tool filter" %}</legend>
-        <div class="space-y-4">
-            <div>
-                <label for="{{ form.tool_filter_mode.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.tool_filter_mode.label }}</label>
-                <div class="mt-1.5">{{ form.tool_filter_mode }}</div>
-                {% for e in form.tool_filter_mode.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
-            </div>
-            <div>
-                <label class="block text-[15px] font-medium text-gray-400">{{ form.tool_filter_items.label }}</label>
-                <div x-ref="filterItems" class="mt-1.5 space-y-1 text-sm text-gray-200">{{ form.tool_filter_items }}</div>
-                {% for e in form.tool_filter_items.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
-            </div>
+        <div class="flex items-center gap-3">
+            <label class="toggle-switch">
+                <input type="checkbox" name="{{ form.enabled.html_name }}" class="toggle-switch__input" {% if form.enabled.value %}checked{% endif %}>
+                <span class="toggle-switch__track"></span>
+            </label>
+            <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
+            {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
         </div>
     </fieldset>
 
-    <fieldset {% if headers_locked %}disabled{% endif %} class="rounded-2xl border border-white/[0.06] p-5">
-        <legend class="px-2 text-[15px] font-medium text-gray-300">{% translate "Headers" %}</legend>
-        <p class="mb-3 text-sm text-gray-400">
-            {% translate "HTTP headers sent to the MCP server. Choose “env_ref” to read the value from an environment variable at runtime instead of storing it." %}
-        </p>
-        <div x-data="djangoFormset({ totalFormsId: '{{ formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ formset.total_form_count }} })">
-            {{ formset.management_form }}
-            {% for e in formset.non_form_errors %}<p class="mb-3 text-sm text-red-300">{{ e }}</p>{% endfor %}
-            <div x-ref="rows" class="space-y-3">
-                {% for header_form in formset %}
-                {% include "mcp_servers/_header_row.html" with is_initial=True %}
+    {# ── Connection ────────────────────────────────────────────── #}
+    <fieldset class="space-y-5 border-t border-white/[0.06] pt-6">
+        <legend class="text-[15px] font-semibold text-gray-200">{% translate "Connection" %}</legend>
+
+        <div>
+            <label class="block text-[15px] font-medium text-gray-400">{{ form.transport.label }}</label>
+            <div class="mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                {% for value, label in form.transport.field.choices %}
+                <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                       :class="transport === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                    <input type="radio" name="{{ form.transport.html_name }}" value="{{ value }}" x-model="transport" class="sr-only">
+                    {{ label }}
+                </label>
                 {% endfor %}
             </div>
-            <template x-ref="rowTemplate">
-                {% include "mcp_servers/_header_row.html" with header_form=formset.empty_form %}
-            </template>
-            <button type="button" @click="addRow()" class="btn-secondary mt-4 text-sm">
-                + {% translate "Add header" %}
+            {% for e in form.transport.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        </div>
+
+        <div>
+            <label for="{{ form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+                {{ form.url.label }} <span class="text-red-400">*</span>
+            </label>
+            <div class="mt-1.5">{{ form.url }}</div>
+            {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        </div>
+
+        <fieldset {% if headers_locked %}disabled{% endif %}>
+            <span class="text-[15px] font-medium text-gray-400">{% translate "Headers" %}</span>
+            <p class="mt-1 text-sm text-gray-500">
+                {% translate "HTTP headers sent to the MCP server. Choose “env_ref” to read the value from an environment variable at runtime instead of storing it." %}
+            </p>
+            <div class="mt-3" x-data="djangoFormset({ totalFormsId: '{{ formset.management_form.TOTAL_FORMS.id_for_label }}', initialTotal: {{ formset.total_form_count }} })">
+                {{ formset.management_form }}
+                {% for e in formset.non_form_errors %}<p class="mb-3 text-sm text-red-300">{{ e }}</p>{% endfor %}
+                <div x-ref="rows" class="space-y-3">
+                    {% for header_form in formset %}
+                    {% include "mcp_servers/_header_row.html" with is_initial=True %}
+                    {% endfor %}
+                </div>
+                <template x-ref="rowTemplate">
+                    {% include "mcp_servers/_header_row.html" with header_form=formset.empty_form %}
+                </template>
+                <button type="button" @click="addRow()" class="btn-secondary mt-3 text-sm">
+                    + {% translate "Add header" %}
+                </button>
+            </div>
+        </fieldset>
+
+        <div class="flex items-center gap-3">
+            <button type="button" @click="test()" :disabled="state === 'testing'" class="btn-secondary text-sm">
+                <span x-show="state !== 'testing'">{% translate "Test connection" %}</span>
+                <span x-show="state === 'testing'" x-cloak>{% translate "Testing…" %}</span>
             </button>
+            <span x-show="state === 'ok'" x-cloak class="text-sm text-emerald-300">
+                <span x-text="toolCount"></span> {% translate "tools discovered" %}
+            </span>
+            <span x-show="state === 'error'" x-cloak class="text-sm text-red-300" x-text="error"></span>
         </div>
     </fieldset>
 
-    <div class="flex items-center gap-3">
+    {# ── Tool filter ───────────────────────────────────────────── #}
+    <fieldset class="space-y-5 border-t border-white/[0.06] pt-6">
+        <legend class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</legend>
+
+        <div>
+            <label class="block text-[15px] font-medium text-gray-400">{{ form.tool_filter_mode.label }}</label>
+            <div class="mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+                {% for value, label in form.tool_filter_mode.field.choices %}
+                <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                       :class="filterMode === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                    <input type="radio" name="{{ form.tool_filter_mode.html_name }}" value="{{ value }}" x-model="filterMode" class="sr-only">
+                    {{ label }}
+                </label>
+                {% endfor %}
+            </div>
+            {% for e in form.tool_filter_mode.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        </div>
+
+        <div x-show="filterMode !== 'none'" x-cloak>
+            <label class="block text-[15px] font-medium text-gray-400">{{ form.tool_filter_items.label }}</label>
+            <div x-ref="filterItems" class="mt-1.5">
+                {% if tool_choices %}
+                <div data-tool-list>
+                    <input type="text" data-tool-filter placeholder="{% translate 'Filter tools…' %}" class="mb-2">
+                    <div class="mcp-tool-list__scroll">
+                        {% for row in tool_choices %}
+                        <label data-tool-row data-tool-name="{{ row.name }}" class="mcp-tool-row">
+                            <input type="checkbox" name="tool_filter_items" value="{{ row.value }}" class="mt-0.5" {% if row.checked %}checked{% endif %}>
+                            <span class="min-w-0">
+                                <span class="mcp-tool-row__name">{{ row.name }}</span>
+                                {% if row.available %}{% if row.description %}<span class="mcp-tool-row__desc" title="{{ row.description }}">{{ row.description }}</span>{% endif %}
+                                {% else %}<span class="mcp-tool-row__desc">{% translate "not in current tool list" %}</span>{% endif %}
+                            </span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                {{ form.tool_filter_items }}
+                <p class="mt-1.5 text-sm text-gray-500">{% translate "One tool name per line, or Test the connection above to pick from a list." %}</p>
+                {% endif %}
+            </div>
+            {% for e in form.tool_filter_items.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        </div>
+    </fieldset>
+
+    {# ── Actions ───────────────────────────────────────────────── #}
+    <div class="flex items-center gap-3 border-t border-white/[0.06] pt-6">
         <button type="submit" class="btn-primary" {% if headers_locked %}disabled{% endif %}>{% translate "Save" %}</button>
         <a href="{% url 'mcp_servers:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
+        {% if mode == "edit" and not builtin %}
+        <a href="{% url 'mcp_servers:delete' object.name %}" class="btn-danger-outline ml-auto">{% translate "Delete" %}</a>
+        {% endif %}
     </div>
 </form>
 {% endblock app_content %}

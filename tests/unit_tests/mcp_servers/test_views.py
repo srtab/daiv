@@ -370,6 +370,8 @@ def test_edit_get_passes_discovered_tools_into_form(client, admin_user, monkeypa
     assert b'type="checkbox"' in resp.content
     assert b"alpha" in resp.content
     assert b"beta" in resp.content
+    # Rows render with the rich two-line markup contract (name + data attr).
+    assert b'data-tool-name="alpha"' in resp.content
 
 
 @pytest.mark.django_db
