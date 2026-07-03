@@ -17,7 +17,6 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 
 * **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic task scheduler
 * **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated environment for running commands (see [Sandbox](../features/sandbox.md))
-* **MCP Servers** — isolated containers for MCP tools via [supergateway](https://github.com/supercorp-ai/supergateway) (see [MCP Tools](../customization/mcp-tools.md))
 
 ---
 
@@ -88,9 +87,6 @@ x-app-environment-defaults: &app_environment_defaults
   EMAIL_USE_TLS: true
   # SANDBOX
   DAIV_SANDBOX_URL: http://sandbox:8000 (4)
-  # MCP (built-in supergateway containers)
-  MCP_SENTRY_URL: http://mcp-sentry:8000/mcp (17)
-  MCP_CONTEXT7_URL: http://mcp-context7:8000/mcp (17)
 
 x-deploy-defaults: &deploy_defaults
   replicas: 1
@@ -183,7 +179,7 @@ services:
       - email_host_password
     networks:
       - internal
-    # volumes:  (16)
+    # volumes:  (10)
     #   - ./custom-skills:/home/daiv/data/skills:ro
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
@@ -193,7 +189,7 @@ services:
       start_period: 30s
     deploy:
       <<: *deploy_defaults
-      replicas: 1 (10)
+      replicas: 1 (9)
 
   scheduler:
     image: ghcr.io/srtab/daiv:latest (5)
@@ -232,53 +228,6 @@ services:
     deploy:
       <<: *deploy_defaults
 
-  mcp-sentry:
-    image: supercorp/supergateway:latest
-    command:
-      - --stdio
-      - "SENTRY_ACCESS_TOKEN=$$(cat /run/secrets/sentry_access_token) npx @sentry/mcp-server@latest" (9)
-      - --outputTransport
-      - streamableHttp
-      - --healthEndpoint
-      - "/healthz"
-      - --stateful
-      - --sessionTimeout
-      - "300000"
-    environment:
-      SENTRY_HOST: your-sentry-host
-    secrets:
-      - sentry_access_token
-    networks:
-      - internal
-    healthcheck:
-      test: wget --spider -q http://localhost:8000/healthz || exit 1
-      interval: 30s
-      start_period: 30s
-    deploy:
-      <<: *deploy_defaults
-
-  mcp-context7:
-    image: supercorp/supergateway:latest
-    command:
-      - --stdio
-      - "npx @upstash/context7-mcp@latest"
-      - --outputTransport
-      - streamableHttp
-      - --healthEndpoint
-      - "/healthz"
-      - --stateful
-      - --sessionTimeout
-      - "300000"
-    networks:
-      - internal
-    healthcheck:
-      test: wget --spider -q http://localhost:8000/healthz || exit 1
-      interval: 30s
-      start_period: 30s
-    deploy:
-      <<: *deploy_defaults
-
-
 networks:
   internal:
     driver: overlay
@@ -306,8 +255,6 @@ secrets:
     external: true
   email_host_password:
     external: true
-  sentry_access_token:
-    external: true
   allauth_client_id:
     external: true
   allauth_client_secret:
@@ -324,10 +271,10 @@ secrets:
 6.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
 7.   **Required**: Sandbox needs Docker socket access to create isolated containers
 8.   **Optional**: Remove this volume if you don't need private registry access
-9.   The Sentry access token is read from the Docker secret and exported as the `SENTRY_ACCESS_TOKEN` environment variable that `@sentry/mcp-server` expects. Set `SENTRY_HOST` for self-hosted Sentry instances. These MCP services are optional — remove them if not needed
-10.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
-16.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
-17.  Built-in MCP tools connect over streamable HTTP at the `/mcp` path. Set these explicitly so the hyphenated service names resolve — the built-in defaults assume `mcp_sentry` / `mcp_context7` (underscores). See [MCP Tools](../customization/mcp-tools.md)
+9.   **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+10.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
+
+MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](../customization/mcp-tools.md).
 
 ### Step 3: Deploy the stack
 
@@ -405,9 +352,6 @@ x-app-defaults: &x_app_default
     EMAIL_USE_TLS: true
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
-    # MCP settings (built-in supergateway containers)
-    MCP_SENTRY_URL: http://mcp-sentry:8000/mcp (16)
-    MCP_CONTEXT7_URL: http://mcp-context7:8000/mcp (16)
     # Authentication (configure via UI at /dashboard/configuration/ or via env vars)
     ALLAUTH_CLIENT_ID: oauth-client-id
     ALLAUTH_CLIENT_SECRET: oauth-client-secret
@@ -460,7 +404,7 @@ services:
   worker:
     <<: *x_app_default
     command: sh /home/daiv/start-worker
-    # volumes:  (17)
+    # volumes:  (15)
     #   - ./custom-skills:/home/daiv/data/skills:ro
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
@@ -470,7 +414,7 @@ services:
       start_period: 30s
     ports: []
     deploy:
-      replicas: 1 (15)
+      replicas: 1 (14)
     depends_on:
       app:
         condition: service_healthy
@@ -503,52 +447,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
-  mcp-sentry:
-    image: supercorp/supergateway:latest
-    restart: unless-stopped
-    container_name: daiv-mcp-sentry
-    command:
-      - --stdio
-      - "npx @sentry/mcp-server@latest"
-      - --outputTransport
-      - streamableHttp
-      - --healthEndpoint
-      - "/healthz"
-      - --stateful
-      - --sessionTimeout
-      - "300000"
-    env_file:
-      - config.secrets.env (14)
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
-  mcp-context7:
-    image: supercorp/supergateway:latest
-    restart: unless-stopped
-    container_name: daiv-mcp-context7
-    command:
-      - --stdio
-      - "npx @upstash/context7-mcp@latest"
-      - --outputTransport
-      - streamableHttp
-      - --healthEndpoint
-      - "/healthz"
-      - --stateful
-      - --sessionTimeout
-      - "300000"
-    env_file:
-      - config.secrets.env
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
 volumes:
   db-volume:
     driver: local
@@ -570,10 +468,10 @@ volumes:
 11.  **Use the same API key** as defined in annotation 9
 12.  **Include the full URL with schema** (e.g., `https://your-hostname.com`)
 13.  **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
-14.  **Add MCP credentials** (`SENTRY_ACCESS_TOKEN`, `CONTEXT7_API_KEY`) to your env file. These MCP services are optional — remove them if not needed
-15.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
-16.  Built-in MCP tools connect over streamable HTTP at the `/mcp` path. Set these explicitly so the hyphenated service names resolve — the built-in defaults assume `mcp_sentry` / `mcp_context7` (underscores). See [MCP Tools](../customization/mcp-tools.md)
-17.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
+14.  **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
+15.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
+
+MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](../customization/mcp-tools.md).
 
 ### Step 2: Run the compose file
 
