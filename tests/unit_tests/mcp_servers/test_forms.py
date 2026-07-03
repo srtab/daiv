@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from django import forms
+from django.http import QueryDict
 
 import pytest
-from mcp_servers.forms import MCPServerForm
+from mcp_servers.forms import MCPServerForm, ToolFilterItemsField
 
 
 @pytest.mark.django_db
@@ -250,7 +251,7 @@ def test_form_renders_textarea_when_no_discovered_tools():
 
     obj = MCPServer.objects.create(name="demo", transport="http", url="http://demo.test")
     form = MCPServerForm(instance=obj)
-    assert isinstance(form.fields["tool_filter_items"], forms.CharField)
+    assert isinstance(form.fields["tool_filter_items"], ToolFilterItemsField)
     assert isinstance(form.fields["tool_filter_items"].widget, forms.Textarea)
 
 
@@ -267,9 +268,9 @@ def test_form_renders_checkboxes_when_tools_discovered():
         ],
     )
     field = form.fields["tool_filter_items"]
-    assert isinstance(field, forms.MultipleChoiceField)
+    assert isinstance(field, ToolFilterItemsField)
     assert isinstance(field.widget, forms.CheckboxSelectMultiple)
-    choices_map = dict(field.choices)
+    choices_map = dict(field.widget.choices)
     assert "search_events" in choices_map
     assert "find_orgs" in choices_map
 
@@ -308,7 +309,7 @@ def test_form_persisted_not_discovered_item_still_listed():
         tool_filter_items=["renamed_tool"],
     )
     form = MCPServerForm(instance=obj, discovered_tools=[{"name": "current_tool", "description": ""}])
-    choices_map = dict(form.fields["tool_filter_items"].choices)
+    choices_map = dict(form.fields["tool_filter_items"].widget.choices)
     # The persisted tool still appears so the admin can un-check it.
     assert "renamed_tool" in choices_map
     # And the label hints that it isn't currently available.
@@ -324,7 +325,48 @@ def test_form_falls_back_to_textarea_when_discovery_returns_empty():
         name="demo", transport="http", url="http://demo.test", tool_filter_mode="allow", tool_filter_items=["t1", "t2"]
     )
     form = MCPServerForm(instance=obj, discovered_tools=[])
-    assert isinstance(form.fields["tool_filter_items"], forms.CharField)
+    assert isinstance(form.fields["tool_filter_items"], ToolFilterItemsField)
     assert isinstance(form.fields["tool_filter_items"].widget, forms.Textarea)
     assert "t1" in form.fields["tool_filter_items"].initial
     assert "t2" in form.fields["tool_filter_items"].initial
+
+
+def _base_form_data(**overrides):
+    data = {
+        "name": "multi",
+        "description": "",
+        "transport": "http",
+        "url": "http://multi.test/mcp",
+        "enabled": "on",
+        "tool_filter_mode": "allow",
+    }
+    data.update(overrides)
+    return data
+
+
+@pytest.mark.django_db
+def test_tool_filter_items_accepts_repeated_checkbox_values():
+    qd = QueryDict(mutable=True)
+    qd.update(_base_form_data())
+    qd.setlist("tool_filter_items", ["tool_a", "tool_b"])
+    form = MCPServerForm(qd)
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["tool_filter_items"] == ["tool_a", "tool_b"]
+
+
+@pytest.mark.django_db
+def test_tool_filter_items_accepts_newline_joined_textarea():
+    qd = QueryDict(mutable=True)
+    qd.update(_base_form_data(tool_filter_items="tool_a\n tool_b \n\n"))
+    form = MCPServerForm(qd)
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["tool_filter_items"] == ["tool_a", "tool_b"]
+
+
+@pytest.mark.django_db
+def test_tool_filter_items_empty_with_mode_still_errors():
+    qd = QueryDict(mutable=True)
+    qd.update(_base_form_data(tool_filter_items=""))
+    form = MCPServerForm(qd)
+    assert not form.is_valid()
+    assert "tool_filter_items" in form.errors

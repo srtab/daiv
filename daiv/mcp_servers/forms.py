@@ -12,6 +12,45 @@ from mcp_servers.models import MCPServer
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$")
 
 
+class MultiValueTextarea(forms.Textarea):
+    """Textarea that also accepts multiple submitted values under the same name.
+
+    The form's tool-filter field renders either as this textarea or as a
+    checkbox list (server-side discovery, or the client-side Test-connection
+    swap). Both POST shapes must validate identically, so this widget reads
+    ``getlist()`` when available and hands the field a str or a list.
+    """
+
+    def value_from_datadict(self, data, files, name):
+        if hasattr(data, "getlist"):
+            values = data.getlist(name)
+            if len(values) != 1:
+                return values
+            return values[0]
+        return data.get(name)
+
+    def format_value(self, value):
+        if isinstance(value, (list, tuple)):
+            value = "\n".join(value)
+        return super().format_value(value)
+
+
+class ToolFilterItemsField(forms.Field):
+    """Normalises a newline-joined string or a list of values to ``list[str]``.
+
+    No choice validation on purpose: arbitrary tool names are legal by design
+    (the free-text path accepts them) and unknown names in an allow-list fail
+    closed at runtime.
+    """
+
+    def to_python(self, value):
+        if not value:
+            return []
+        if isinstance(value, str):
+            return [line.strip() for line in value.splitlines() if line.strip()]
+        return [item for item in (str(v).strip() for v in value) if item]
+
+
 class MCPServerForm(forms.ModelForm):
     """Create/edit a custom MCP server.
 
@@ -20,9 +59,9 @@ class MCPServerForm(forms.ModelForm):
     name per line). On edit, ``name`` is immutable.
     """
 
-    tool_filter_items = forms.CharField(
+    tool_filter_items = ToolFilterItemsField(
         required=False,
-        widget=forms.Textarea(attrs={"rows": 4, "placeholder": _("one tool name per line")}),
+        widget=MultiValueTextarea(attrs={"rows": 4, "placeholder": _("one tool name per line")}),
         help_text=_("One tool name per line."),
     )
 
@@ -35,7 +74,7 @@ class MCPServerForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.discovered_tools = discovered_tools
         if self.instance.pk is not None:
-            self.fields["tool_filter_items"].initial = "\n".join(self.instance.tool_filter_items or [])
+            self.fields["tool_filter_items"].initial = list(self.instance.tool_filter_items or [])
 
         # Empty/None keeps the textarea — a transient discovery failure must not silently wipe the
         # persisted filter (block-mode would otherwise degrade to "block none").
@@ -55,9 +94,8 @@ class MCPServerForm(forms.ModelForm):
             for n in extra:
                 choices.append((n, _("%(name)s (not in current tool list)") % {"name": n}))
 
-            self.fields["tool_filter_items"] = forms.MultipleChoiceField(
-                choices=choices, widget=forms.CheckboxSelectMultiple, required=False, initial=persisted
-            )
+            # Widget-only swap: rendering changes by context, validation never does.
+            self.fields["tool_filter_items"].widget = forms.CheckboxSelectMultiple(choices=choices)
 
     def clean_name(self):
         name = self.cleaned_data["name"]
@@ -68,12 +106,6 @@ class MCPServerForm(forms.ModelForm):
         if name in RESERVED_MCP_NAMES:
             raise forms.ValidationError(_("'%(name)s' is a reserved name and cannot be used.") % {"name": name})
         return name
-
-    def clean_tool_filter_items(self):
-        raw = self.cleaned_data.get("tool_filter_items") or []
-        if isinstance(raw, str):
-            return [line.strip() for line in raw.splitlines() if line.strip()]
-        return list(raw)
 
     def clean(self):
         cleaned = super().clean()
