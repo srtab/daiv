@@ -95,8 +95,8 @@ Add any HTTP- or SSE-reachable MCP server from **MCP Servers → New server**:
 | Tool filter | `allow`/`block` a list of tool names |
 
 **Test connection** probes the server and, on success, turns the tool-filter field into
-checkboxes listing the discovered tools. Tool discovery also runs on the server's detail and edit
-pages once it is saved.
+checkboxes listing the discovered tools. Tool discovery also runs when you open a saved
+server's edit page, so the checkboxes are populated without re-testing.
 
 ### Tool filtering
 

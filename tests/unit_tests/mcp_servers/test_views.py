@@ -242,17 +242,6 @@ def test_edit_builtin_rename_rejected(client, admin_user):
 
 
 @pytest.mark.django_db
-def test_detail_renders(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="dt", transport="http", url="http://x.test")
-    client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:detail", args=["dt"]))
-    assert resp.status_code == 200
-    assert b"dt" in resp.content
-
-
-@pytest.mark.django_db
 def test_delete_get_renders_confirm(client, admin_user):
     from mcp_servers.models import MCPServer
 
@@ -334,47 +323,18 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
 
 
 @pytest.mark.django_db
-def test_tools_endpoint_returns_discovered(client, admin_user, monkeypatch):
-    from django.core.cache import cache
-
-    cache.clear()
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="t", transport="http", url="http://x.test")
-
-    calls = {"n": 0}
-
-    async def fake_discover(server):
-        calls["n"] += 1
-        return [{"name": "tool_a", "description": "A"}]
-
-    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
-    client.force_login(admin_user)
-
-    r1 = client.get(reverse("mcp_servers:tools", args=["t"]))
-    r2 = client.get(reverse("mcp_servers:tools", args=["t"]))
-    assert r1.status_code == 200
-    assert r1.json()["tools"][0]["name"] == "tool_a"
-    # Second call within 60s is cached → discover_tools not invoked again
-    assert calls["n"] == 1
-    assert r2.json()["tools"] == r1.json()["tools"]
-
-
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     "method,url_name,kwargs",
     [
         ("get", "list", {}),
         ("get", "create", {}),
         ("post", "create", {}),
-        ("get", "detail", {"name": "demo"}),
         ("get", "edit", {"name": "demo"}),
         ("post", "edit", {"name": "demo"}),
         ("get", "delete", {"name": "demo"}),
         ("post", "delete", {"name": "demo"}),
         ("post", "toggle", {"name": "demo"}),
         ("post", "test", {}),
-        ("get", "tools", {"name": "demo"}),
     ],
 )
 def test_member_forbidden_across_all_endpoints(client, member_user, method, url_name, kwargs):
@@ -456,26 +416,6 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user, mo
 
 
 @pytest.mark.django_db
-def test_detail_renders_tools_when_discovered(client, admin_user, monkeypatch):
-    from django.core.cache import cache
-
-    cache.clear()
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="dt2", transport="http", url="http://x.test")
-
-    async def fake_discover(server):
-        return [{"name": "alpha", "description": "the first letter"}]
-
-    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
-    client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:detail", args=["dt2"]))
-    assert resp.status_code == 200
-    assert b"alpha" in resp.content
-    assert b"the first letter" in resp.content
-
-
-@pytest.mark.django_db
 def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
     """POST on a row whose ciphertext can't be decoded must not overwrite it with an empty list."""
     from mcp_servers.models import MCPServer
@@ -509,81 +449,6 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
     obj.refresh_from_db()
     assert obj.url == "http://locked.test"
     assert obj._headers_encrypted == "not-a-fernet-token"
-
-
-@pytest.mark.django_db
-def test_tools_endpoint_cache_busted_on_modify(client, admin_user, monkeypatch):
-    """A save must invalidate the cached tools snapshot via the ``modified`` stamp in the key."""
-    import time
-
-    from django.core.cache import cache
-
-    cache.clear()
-    from mcp_servers.models import MCPServer
-
-    obj = MCPServer.objects.create(name="cb", transport="http", url="http://x.test")
-    calls = {"n": 0}
-
-    async def fake_discover(server):
-        calls["n"] += 1
-        return [{"name": f"t{calls['n']}", "description": ""}]
-
-    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
-    client.force_login(admin_user)
-
-    r1 = client.get(reverse("mcp_servers:tools", args=["cb"]))
-    assert r1.status_code == 200
-    assert calls["n"] == 1
-
-    # int(timestamp()) has 1s resolution; sleep ensures ``modified`` crosses it.
-    time.sleep(1.05)
-    obj.url = "http://x2.test"
-    obj.save()
-
-    r2 = client.get(reverse("mcp_servers:tools", args=["cb"]))
-    assert r2.status_code == 200
-    assert calls["n"] == 2
-    assert r2.json()["tools"][0]["name"] == "t2"
-
-
-@pytest.mark.django_db
-def test_tools_endpoint_degrades_on_undecryptable_headers(client, admin_user):
-    """A key-rotation (undecryptable ciphertext) must degrade to an empty list with 200,
-    not 500 — matching the detail page's behavior."""
-    from django.core.cache import cache
-
-    cache.clear()
-    from mcp_servers.models import MCPServer
-
-    obj = MCPServer.objects.create(
-        name="rot",
-        transport="http",
-        url="http://rot.test",
-        headers=[{"name": "X-T", "mode": "literal", "value": "secret"}],
-    )
-    MCPServer.objects.filter(pk=obj.pk).update(_headers_encrypted="not-a-fernet-token")
-    client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:tools", args=["rot"]))
-    assert resp.status_code == 200
-    assert resp.json()["tools"] == []
-
-
-@pytest.mark.django_db
-def test_detail_builtin_discovers_tools(client, admin_user, monkeypatch):
-    """Built-in rows are probed for tools like any other row; the detail page must render them."""
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
-        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
-    )
-    monkeypatch.setattr(
-        "mcp_servers.views.services.discover_tools_cached",
-        lambda server: [{"name": "search_events", "description": ""}],
-    )
-    client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:detail", args=["bi"]))
-    assert resp.status_code == 200
-    assert b"search_events" in resp.content
 
 
 @pytest.mark.django_db

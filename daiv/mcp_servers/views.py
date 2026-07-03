@@ -123,15 +123,6 @@ class MCPServerEditView(AdminRequiredMixin, View):
         return redirect(reverse("mcp_servers:list"))
 
 
-class MCPServerDetailView(AdminRequiredMixin, View):
-    http_method_names = ["get"]
-
-    def get(self, request, name):
-        obj = get_object_or_404(MCPServer, name=name)
-        tools = services.discover_tools_cached(obj)
-        return render(request, "mcp_servers/detail.html", {"object": obj, "tools": tools, "builtin": obj.is_builtin()})
-
-
 class MCPServerDeleteView(AdminRequiredMixin, View):
     http_method_names = ["get", "post"]
 
@@ -167,14 +158,6 @@ class MCPServerTestView(AdminRequiredMixin, View):
         payload = {"transport": request.POST.get("transport"), "url": request.POST.get("url"), "headers": headers}
         result = async_to_sync(services.test_connection)(payload)
         return JsonResponse(result, status=200 if result.get("ok") else 502)
-
-
-class MCPServerToolsView(AdminRequiredMixin, View):
-    http_method_names = ["get"]
-
-    def get(self, request, name):
-        obj = get_object_or_404(MCPServer, name=name)
-        return JsonResponse({"tools": services.discover_tools_cached(obj)})
 
 
 def _existing_headers_for_formset(obj: MCPServer) -> tuple[list[dict], bool]:
