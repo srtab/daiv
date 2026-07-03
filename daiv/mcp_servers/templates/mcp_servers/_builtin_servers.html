@@ -8,13 +8,19 @@
             <div class="flex items-center gap-3">
                 <a href="{% url 'mcp_servers:detail' s.name %}"
                    class="text-[15px] font-medium text-white hover:text-violet-300">{{ s.name }}</a>
+                <span class="status-badge status-badge-pending">{{ s.get_transport_display }}</span>
                 {% if s.enabled %}
                 <span class="status-badge status-badge-success">{% translate "Enabled" %}</span>
                 {% else %}
                 <span class="status-badge status-badge-pending">{% translate "Disabled" %}</span>
                 {% endif %}
+                {% if s.enabled and not s.health.ok %}
+                <span class="status-badge status-badge-queued" title="{{ s.health.reason }}">
+                    {% translate "Broken" %}: {{ s.health.reason }}
+                </span>
+                {% endif %}
             </div>
-            <div class="mt-1 text-sm text-gray-400">{% translate "Provided by built-in code." %}</div>
+            <div class="mt-1 truncate text-sm text-gray-400">{{ s.url }}</div>
         </div>
         <div class="flex shrink-0 items-center gap-3">
             <form method="post" action="{% url 'mcp_servers:toggle' s.name %}">
@@ -24,6 +30,10 @@
                     {% if s.enabled %}{% translate "Disable" %}{% else %}{% translate "Enable" %}{% endif %}
                 </button>
             </form>
+            <a href="{% url 'mcp_servers:edit' s.name %}"
+               class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                {% translate "Edit" %}
+            </a>
         </div>
     </div>
     {% endfor %}

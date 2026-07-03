@@ -16,7 +16,7 @@
     </h1>
     {% if builtin %}
     <p class="mt-1.5 text-[15px] font-light text-gray-400">
-        {% translate "This is a built-in server. Only its enabled state can be changed." %}
+        {% translate "This is a built-in server. It can be edited and disabled, but not renamed or deleted." %}
     </p>
     {% endif %}
 </div>
@@ -52,25 +52,13 @@
 
     <div>
         <label for="{{ form.transport.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.transport.label }}</label>
-        <div class="mt-1.5">
-            {% if builtin %}
-            <p class="text-sm text-gray-300">{{ form.transport.value|default:"—" }} <span class="text-gray-500">({% translate "managed by built-in code" %})</span></p>
-            {% else %}
-            {{ form.transport }}
-            {% endif %}
-        </div>
+        <div class="mt-1.5">{{ form.transport }}</div>
         {% for e in form.transport.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
     </div>
 
     <div>
         <label for="{{ form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">{{ form.url.label }}</label>
-        <div class="mt-1.5">
-            {% if builtin %}
-            <p class="text-sm text-gray-300">{% translate "managed by built-in code" %}</p>
-            {% else %}
-            {{ form.url }}
-            {% endif %}
-        </div>
+        <div class="mt-1.5">{{ form.url }}</div>
         {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
     </div>
 
@@ -80,7 +68,7 @@
         {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
     </label>
 
-    <fieldset {% if builtin %}disabled{% endif %} class="rounded-2xl border border-white/[0.06] p-5">
+    <fieldset class="rounded-2xl border border-white/[0.06] p-5">
         <legend class="px-2 text-[15px] font-medium text-gray-300">{% translate "Tool filter" %}</legend>
         <div class="space-y-4">
             <div>
@@ -96,7 +84,7 @@
         </div>
     </fieldset>
 
-    <fieldset {% if builtin or headers_locked %}disabled{% endif %} class="rounded-2xl border border-white/[0.06] p-5">
+    <fieldset {% if headers_locked %}disabled{% endif %} class="rounded-2xl border border-white/[0.06] p-5">
         <legend class="px-2 text-[15px] font-medium text-gray-300">{% translate "Headers" %}</legend>
         <p class="mb-3 text-sm text-gray-400">
             {% translate "HTTP headers sent to the MCP server. Choose “env_ref” to read the value from an environment variable at runtime instead of storing it." %}

@@ -185,23 +185,23 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
 
 
 @pytest.mark.django_db
-def test_edit_builtin_only_enabled_is_editable(client, admin_user):
+def test_edit_builtin_full_form_persists(client, admin_user):
     from mcp_servers.models import MCPServer
 
-    obj = MCPServer.objects.create(
-        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi", enabled=True
+    MCPServer.objects.create(
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
     )
     client.force_login(admin_user)
-    # Attempt to change url + flip enabled
     resp = client.post(
-        reverse("mcp_servers:edit", args=[obj.name]),
+        reverse("mcp_servers:edit", args=["bi"]),
         data={
             "name": "bi",
-            "transport": "sse",  # smuggled
-            "url": "http://attacker.test",  # smuggled
-            # enabled deliberately omitted -> should disable
-            "tool_filter_mode": "block",  # smuggled
-            "tool_filter_items": "x",
+            "description": "repointed at on-prem bridge",
+            "transport": "http",
+            "url": "https://bridge.internal/mcp",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
             "headers-TOTAL_FORMS": "0",
             "headers-INITIAL_FORMS": "0",
             "headers-MIN_NUM_FORMS": "0",
@@ -209,11 +209,36 @@ def test_edit_builtin_only_enabled_is_editable(client, admin_user):
         },
     )
     assert resp.status_code == 302
-    obj.refresh_from_db()
-    assert obj.enabled is False  # the one editable field changed
-    assert obj.url == "builtin://bi"  # smuggled URL ignored
-    assert obj.transport == "http"  # smuggled transport ignored
-    assert obj.tool_filter_mode == "none"  # smuggled filter ignored
+    obj = MCPServer.objects.get(name="bi")
+    assert obj.url == "https://bridge.internal/mcp"
+    assert obj.description == "repointed at on-prem bridge"
+    assert obj.source == MCPServer.Source.BUILTIN  # source untouched
+
+
+@pytest.mark.django_db
+def test_edit_builtin_rename_rejected(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
+    )
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:edit", args=["bi"]),
+        data={
+            "name": "renamed",
+            "transport": "http",
+            "url": "https://mcp.sentry.dev/mcp",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 400
+    assert MCPServer.objects.filter(name="bi").exists()
 
 
 @pytest.mark.django_db
@@ -544,22 +569,21 @@ def test_tools_endpoint_degrades_on_undecryptable_headers(client, admin_user):
 
 
 @pytest.mark.django_db
-def test_detail_builtin_shows_runtime_tools_message(client, admin_user, monkeypatch):
-    """A built-in detail page with no discovered tools must explain that tools are provided at
-    runtime (not 'unreachable'), even though built-in rows are now probed like any custom row."""
+def test_detail_builtin_discovers_tools(client, admin_user, monkeypatch):
+    """Built-in rows are probed for tools like any other row; the detail page must render them."""
     from mcp_servers.models import MCPServer
 
-    async def _empty(payload):
-        return {"ok": True, "tools": []}
-
-    monkeypatch.setattr("mcp_servers.services.test_connection", _empty)
     MCPServer.objects.create(
-        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi", enabled=True
+        name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
+    )
+    monkeypatch.setattr(
+        "mcp_servers.views.services.discover_tools_cached",
+        lambda server: [{"name": "search_events", "description": ""}],
     )
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:detail", args=["bi"]))
     assert resp.status_code == 200
-    assert b"provided directly by their code at runtime" in resp.content
+    assert b"search_events" in resp.content
 
 
 @pytest.mark.django_db

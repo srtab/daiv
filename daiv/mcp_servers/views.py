@@ -27,10 +27,11 @@ class MCPServerListView(AdminRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         custom = list(MCPServer.objects.filter(source=MCPServer.Source.CUSTOM).select_related("created_by"))
-        for s in custom:
+        builtin = list(MCPServer.objects.filter(source=MCPServer.Source.BUILTIN))
+        for s in [*custom, *builtin]:
             s.health = services.server_health(s) if s.enabled else {"ok": True, "reason": None}
         ctx["custom_servers"] = custom
-        ctx["builtin_servers"] = list(MCPServer.objects.filter(source=MCPServer.Source.BUILTIN))
+        ctx["builtin_servers"] = builtin
         return ctx
 
 
@@ -91,13 +92,6 @@ class MCPServerEditView(AdminRequiredMixin, View):
 
     def post(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
-        if obj.is_builtin():
-            # Only ``enabled`` may change. Apply it directly and ignore everything else.
-            obj.enabled = request.POST.get("enabled") == "on"
-            obj.save(update_fields=["enabled", "modified"])
-            messages.success(request, _("MCP server '%(name)s' updated.") % {"name": obj.name})
-            return redirect(reverse("mcp_servers:list"))
-
         try:
             existing_headers = obj.headers or []
         except DecryptionError:

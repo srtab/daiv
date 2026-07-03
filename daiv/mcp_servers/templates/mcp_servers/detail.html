@@ -11,12 +11,12 @@
         <h1 class="text-2xl font-bold tracking-tight">{{ object.name }}</h1>
         <p class="mt-1.5 text-[15px] font-light text-gray-400">{{ object.get_source_display }}</p>
     </div>
-    {% if not builtin %}
     <div class="flex items-center gap-3">
         <a href="{% url 'mcp_servers:edit' object.name %}" class="btn-secondary">{% translate "Edit" %}</a>
+        {% if not builtin %}
         <a href="{% url 'mcp_servers:delete' object.name %}" class="btn-danger-outline">{% translate "Delete" %}</a>
+        {% endif %}
     </div>
-    {% endif %}
 </div>
 
 <div class="animate-fade-up mt-8 overflow-hidden rounded-2xl border border-white/[0.06]" style="animation-delay: 100ms">
@@ -27,9 +27,7 @@
         </div>
         <div class="flex justify-between gap-4 px-6 py-3">
             <dt class="text-sm text-gray-400">{% translate "URL" %}</dt>
-            <dd class="truncate text-sm text-white">
-                {% if builtin %}<em class="text-gray-400">{% translate "managed by built-in code" %}</em>{% else %}{{ object.url }}{% endif %}
-            </dd>
+            <dd class="truncate text-sm text-white">{{ object.url }}</dd>
         </div>
         <div class="flex justify-between gap-4 px-6 py-3">
             <dt class="text-sm text-gray-400">{% translate "Enabled" %}</dt>
