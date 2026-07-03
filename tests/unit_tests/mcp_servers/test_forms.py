@@ -370,3 +370,47 @@ def test_tool_filter_items_empty_with_mode_still_errors():
     form = MCPServerForm(qd)
     assert not form.is_valid()
     assert "tool_filter_items" in form.errors
+
+
+def test_build_tool_choices_marks_discovered_and_selected():
+    from mcp_servers.forms import build_tool_choices
+
+    rows = build_tool_choices(
+        [{"name": "search_events", "description": "Find events"}, {"name": "find_orgs", "description": "Look up orgs"}],
+        ["search_events"],
+    )
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["search_events"]["checked"] is True
+    assert by_name["search_events"]["available"] is True
+    assert by_name["search_events"]["description"] == "Find events"
+    assert by_name["find_orgs"]["checked"] is False
+    assert by_name["find_orgs"]["available"] is True
+
+
+def test_build_tool_choices_appends_persisted_not_discovered_last():
+    from mcp_servers.forms import build_tool_choices
+
+    rows = build_tool_choices([{"name": "current_tool", "description": ""}], ["renamed_tool"])
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["renamed_tool"]["available"] is False
+    assert by_name["renamed_tool"]["checked"] is True
+    assert rows[-1]["name"] == "renamed_tool"  # extras appended after discovered
+
+
+def test_build_tool_choices_empty_when_no_discovery():
+    """No live list → empty result, so the caller falls back to the textarea and
+    never wipes a persisted allow/block filter."""
+    from mcp_servers.forms import build_tool_choices
+
+    assert build_tool_choices([], ["t1", "t2"]) == []
+    assert build_tool_choices(None, ["t1"]) == []
+
+
+def test_build_tool_choices_skips_empty_and_deduplicates():
+    from mcp_servers.forms import build_tool_choices
+
+    rows = build_tool_choices(
+        [{"name": "a", "description": "x"}, {"name": ""}, {"name": "a", "description": "dup"}], ["a", "a", "extra"]
+    )
+    names = [r["name"] for r in rows]
+    assert names == ["a", "extra"]  # blank dropped, "a" deduped, extra appended once

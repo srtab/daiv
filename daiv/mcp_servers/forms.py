@@ -51,6 +51,42 @@ class ToolFilterItemsField(forms.Field):
         return [item for item in (str(v).strip() for v in value) if item]
 
 
+def build_tool_choices(discovered_tools, selected):
+    """Build tool-filter checkbox rows for the template.
+
+    ``discovered_tools`` is the list returned by discovery (dicts with
+    ``name``/``description``). ``selected`` is the currently-selected tool
+    names. Returns ``[]`` when nothing was discovered — the caller then renders
+    the textarea fail-safe so a transient discovery failure can't wipe a
+    persisted allow/block filter. Otherwise: discovered tools first, then any
+    selected names not in the discovered list (``available=False``) so a
+    renamed/removed tool stays un-checkable.
+    """
+    if not discovered_tools:
+        return []
+    selected = list(selected or [])
+    selected_set = set(selected)
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for tool in discovered_tools:
+        name = tool.get("name")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        rows.append({
+            "value": name,
+            "name": name,
+            "description": tool.get("description") or "",
+            "checked": name in selected_set,
+            "available": True,
+        })
+    for name in selected:
+        if name and name not in seen:
+            seen.add(name)
+            rows.append({"value": name, "name": name, "description": "", "checked": True, "available": False})
+    return rows
+
+
 class MCPServerForm(forms.ModelForm):
     """Create/edit a custom MCP server.
 
