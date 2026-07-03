@@ -21,7 +21,7 @@ classifiers = [
 dependencies = [
   "ag-ui-langgraph==0.0.42",
   "copilotkit==0.1.94",
-  "croniter==6.2.2",
+  "croniter==6.2.3",
   "ddgs==9.14.4",
   "deepagents==0.5.9",
   "django==6.0.6",
