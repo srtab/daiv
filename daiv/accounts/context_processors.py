@@ -42,12 +42,10 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "mcp_servers": {
         "mcp_servers:list",
         "mcp_servers:create",
-        "mcp_servers:detail",
         "mcp_servers:edit",
         "mcp_servers:delete",
         "mcp_servers:toggle",
         "mcp_servers:test",
-        "mcp_servers:tools",
     },
 }
 
