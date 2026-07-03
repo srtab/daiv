@@ -14,14 +14,16 @@ class MCPSettings(BaseSettings):
         ),
     )
 
-    # Built-in MCP server URLs (supergateway containers). Set to None to disable.
-    # Note: Docker Swarm normalizes service names with dashes to underscores.
+    # Deprecated: read once by migration 0004_materialize_builtin_rows (imported into the
+    # corresponding MCPServer row) and by the startup deprecation warning. Never consumed at
+    # runtime — edit the row at /dashboard/mcp-servers/ instead. Removal planned.
     SENTRY_URL: str | None = Field(
-        default="http://mcp_sentry:8000/mcp", description="The streamable HTTP URL of the Sentry supergateway container"
+        default="http://mcp_sentry:8000/mcp",
+        description="Deprecated: legacy URL of the Sentry supergateway container (see above).",
     )
     CONTEXT7_URL: str | None = Field(
         default="http://mcp_context7:8000/mcp",
-        description="The streamable HTTP URL of the Context7 supergateway container",
+        description="Deprecated: legacy URL of the Context7 supergateway container (see above).",
     )
 
     TOOL_LOAD_TIMEOUT: float = Field(

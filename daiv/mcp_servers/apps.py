@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import pathlib
 from typing import TYPE_CHECKING
 
 from django.apps import AppConfig
@@ -9,22 +11,31 @@ from django.db.utils import OperationalError, ProgrammingError
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from mcp_servers.seeds import BuiltinSeed
+
 logger = logging.getLogger("daiv.mcp_servers")
 
 _LEGACY_WARNED = False
 
+_DEPRECATED_URL_VARS = ("MCP_SENTRY_URL", "MCP_CONTEXT7_URL")
 
-def upsert_builtin_rows(builtin_names: Iterable[str]) -> None:
-    """Ensure each registered built-in MCP server has a DB row.
 
-    Existing rows are not touched (preserves the admin's ``enabled`` choice).
-    Missing rows are created with ``enabled=True``. The initial lookup guards
-    against a missing/partially-migrated table (e.g. tests, a fresh DB) so the
-    upsert is a no-op rather than an error in that state.
+def upsert_builtin_rows(seeds: Iterable[BuiltinSeed] | None = None) -> None:
+    """Ensure each built-in seed has a DB row, creating missing ones with the
+    full seed defaults (URL, description, tool filter, enabled state).
+
+    Existing rows are never touched — the row is the source of truth once it
+    exists (preserves admin edits and the enabled flag). The initial lookup
+    guards against a missing/partially-migrated table (e.g. tests, a fresh DB)
+    so the upsert is a no-op rather than an error in that state.
     """
     from django.db import IntegrityError
 
     from mcp_servers.models import MCPServer
+    from mcp_servers.seeds import BUILTIN_SEEDS
+
+    if seeds is None:
+        seeds = BUILTIN_SEEDS
 
     try:
         existing = set(MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).values_list("name", flat=True))
@@ -32,20 +43,22 @@ def upsert_builtin_rows(builtin_names: Iterable[str]) -> None:
         logger.warning("mcp_servers table not ready; skipping built-in upsert (run migrations).")
         return
 
-    for name in builtin_names:
-        if name in existing:
+    for seed in seeds:
+        if seed.name in existing:
             continue
         try:
-            # transport/url are schema-required but unused for built-ins (they supply their own Connection).
             MCPServer.objects.create(
-                name=name,
+                name=seed.name,
+                description=seed.description,
                 source=MCPServer.Source.BUILTIN,
                 transport=MCPServer.Transport.HTTP,
-                url="builtin://" + name,
-                enabled=True,
+                url=seed.url,
+                tool_filter_mode=seed.tool_filter_mode,
+                tool_filter_items=list(seed.tool_filter_items),
+                enabled=seed.enabled,
             )
         except IntegrityError:
-            logger.exception("Failed to upsert built-in MCP server row %r", name)
+            logger.exception("Failed to upsert built-in MCP server row %r", seed.name)
 
 
 def warn_legacy_env_if_present() -> None:
@@ -55,26 +68,39 @@ def warn_legacy_env_if_present() -> None:
     from automation.agent.mcp.conf import settings as mcp_conf
     from mcp_servers.models import MCPServer
 
-    if not mcp_conf.SERVERS_CONFIG_FILE:
-        return
-    try:
-        any_rows = MCPServer.objects.exists()
-    except OperationalError, ProgrammingError:
-        return
-    if not any_rows:
-        return
-    logger.warning(
-        "MCP_SERVERS_CONFIG_FILE is deprecated; servers are now managed via the UI at "
-        "/dashboard/mcp-servers/. Unset MCP_SERVERS_CONFIG_FILE to silence this warning."
-    )
-    _LEGACY_WARNED = True
+    warned = False
+
+    if mcp_conf.SERVERS_CONFIG_FILE:
+        try:
+            any_rows = MCPServer.objects.exists()
+        except OperationalError, ProgrammingError:
+            return
+        if any_rows:
+            logger.warning(
+                "MCP_SERVERS_CONFIG_FILE is deprecated; servers are now managed via the UI at "
+                "/dashboard/mcp-servers/. Unset MCP_SERVERS_CONFIG_FILE to silence this warning."
+            )
+            warned = True
+
+    for var in _DEPRECATED_URL_VARS:
+        # Explicit presence, not the settings value: the settings fields keep
+        # non-None defaults for the 0004 import migration.
+        if var in os.environ or pathlib.Path("/run/secrets", var).exists():
+            logger.warning(
+                "%s is deprecated and ignored at runtime; the URL now lives in the corresponding "
+                "MCP server row (see /dashboard/mcp-servers/). Unset %s to silence this warning.",
+                var,
+                var,
+            )
+            warned = True
+
+    if warned:
+        _LEGACY_WARNED = True
 
 
 def _on_post_migrate(sender, **kwargs):
     # Connected with ``sender=self`` below, so this only fires for this app's migrations.
-    from automation.agent.mcp.registry import mcp_registry
-
-    upsert_builtin_rows(mcp_registry.builtin_names())
+    upsert_builtin_rows()
     warn_legacy_env_if_present()
 
 
