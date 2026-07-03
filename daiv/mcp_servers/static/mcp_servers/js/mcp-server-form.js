@@ -36,15 +36,22 @@ document.addEventListener("alpine:init", () => {
         swapFilterField(tools) {
             const container = this.$refs.filterItems;
             if (!container) return;
+            // Read the current selection while any previously generated list is
+            // still present and enabled — it holds the user's live selection.
             const selected = new Set(this.currentSelection(container));
             const names = tools.map((t) => t.name).filter(Boolean);
             const extras = [...selected].filter((n) => !names.includes(n));
+            // Replace, don't accumulate: on a retest, drop the list a previous
+            // test generated. Only generated lists are removed — the original
+            // server-rendered widget stays in the DOM (hidden/disabled below).
+            container.querySelectorAll("[data-generated]").forEach((el) => el.remove());
             // Disable + hide the current widget (textarea or server-rendered checkboxes):
             // disabled inputs are not submitted, so the generated checkboxes own the name.
             for (const el of container.children) el.classList.add("hidden");
             container.querySelectorAll("textarea, input").forEach((el) => (el.disabled = true));
             const list = document.createElement("div");
             list.className = "space-y-1";
+            list.dataset.generated = "true";
             for (const name of [...names, ...extras]) {
                 const label = document.createElement("label");
                 label.className = "flex items-center gap-2";
