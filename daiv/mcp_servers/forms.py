@@ -111,6 +111,11 @@ class MCPServerForm(forms.ModelForm):
         self.discovered_tools = discovered_tools
         if self.instance.pk is not None:
             self.fields["tool_filter_items"].initial = list(self.instance.tool_filter_items or [])
+            # Name is immutable after creation (enforced by clean_name). Make the
+            # field visibly inert; readonly (not disabled) keeps it in the POST so
+            # clean_name still rejects a crafted rename.
+            self.fields["name"].widget.attrs["readonly"] = True
+            self.fields["name"].widget.attrs["class"] = "mcp-name-readonly"
 
         # Empty/None keeps the textarea — a transient discovery failure must not silently wipe the
         # persisted filter (block-mode would otherwise degrade to "block none").

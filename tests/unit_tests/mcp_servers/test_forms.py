@@ -246,6 +246,18 @@ def test_name_cannot_change_on_edit():
 
 
 @pytest.mark.django_db
+def test_name_widget_readonly_on_edit_not_on_create():
+    from mcp_servers.models import MCPServer
+
+    create_form = MCPServerForm()
+    assert "readonly" not in create_form.fields["name"].widget.attrs
+
+    obj = MCPServer.objects.create(name="fixed", transport="http", url="http://x.test")
+    edit_form = MCPServerForm(instance=obj)
+    assert edit_form.fields["name"].widget.attrs.get("readonly")
+
+
+@pytest.mark.django_db
 def test_form_renders_textarea_when_no_discovered_tools():
     from mcp_servers.models import MCPServer
 
