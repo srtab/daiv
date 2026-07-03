@@ -35,6 +35,30 @@ def test_create_get_renders_form(client, admin_user):
 
 
 @pytest.mark.django_db
+def test_create_get_transport_control_has_no_blank_pill(client, admin_user):
+    """``MCPServer.transport`` has no model default, so Django's ``formfield()``
+    injects a blank ``('', '---------')`` choice (``include_blank`` is set
+    whenever a choices field has no default, regardless of ``blank=False``).
+    The segmented-pill control must not render that as a clickable pill —
+    unlike the old ``<select>``, a blank ``<label>`` pill here is empty but
+    still visible and clickable. Assert the transport radio group renders
+    exactly the two real ``MCPServer.Transport`` choices, never a blank one.
+    """
+    from mcp_servers.models import MCPServer
+
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:create"))
+    assert resp.status_code == 200
+    content = resp.content
+    # Exactly one radio per real transport choice — a blank choice would add a third.
+    assert content.count(b'name="transport"') == len(MCPServer.Transport.choices)
+    for value, _label in MCPServer.Transport.choices:
+        assert f'value="{value}"'.encode() in content
+    # No transport radio with an empty value (the injected blank choice).
+    assert b'name="transport" value=""' not in content
+
+
+@pytest.mark.django_db
 def test_create_get_exposes_add_header_affordance(client, admin_user):
     """The Headers section must ship an empty-form template + an add-row control.
 

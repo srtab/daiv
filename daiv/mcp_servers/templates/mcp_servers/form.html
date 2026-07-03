@@ -85,11 +85,13 @@
             <label class="block text-[15px] font-medium text-gray-400">{{ form.transport.label }}</label>
             <div class="mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                 {% for value, label in form.transport.field.choices %}
+                {% if value %}
                 <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                        :class="transport === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
                     <input type="radio" name="{{ form.transport.html_name }}" value="{{ value }}" x-model="transport" class="sr-only">
                     {{ label }}
                 </label>
+                {% endif %}
                 {% endfor %}
             </div>
             {% for e in form.transport.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
@@ -145,11 +147,13 @@
             <label class="block text-[15px] font-medium text-gray-400">{{ form.tool_filter_mode.label }}</label>
             <div class="mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
                 {% for value, label in form.tool_filter_mode.field.choices %}
+                {% if value %}
                 <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
                        :class="filterMode === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
                     <input type="radio" name="{{ form.tool_filter_mode.html_name }}" value="{{ value }}" x-model="filterMode" class="sr-only">
                     {{ label }}
                 </label>
+                {% endif %}
                 {% endfor %}
             </div>
             {% for e in form.tool_filter_mode.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}

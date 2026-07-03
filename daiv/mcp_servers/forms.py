@@ -115,7 +115,6 @@ class MCPServerForm(forms.ModelForm):
             # field visibly inert; readonly (not disabled) keeps it in the POST so
             # clean_name still rejects a crafted rename.
             self.fields["name"].widget.attrs["readonly"] = True
-            self.fields["name"].widget.attrs["class"] = "mcp-name-readonly"
 
     def clean_name(self):
         name = self.cleaned_data["name"]
