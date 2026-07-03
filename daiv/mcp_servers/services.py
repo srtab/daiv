@@ -9,8 +9,8 @@ from django.core.cache import cache
 
 from asgiref.sync import async_to_sync
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.sessions import SSEConnection, StreamableHttpConnection
 
+from automation.agent.mcp.connections import build_connection
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
 from mcp_servers.constants import TOOLS_CACHE_KEY, TOOLS_CACHE_TIMEOUT, TOOLS_NEGATIVE_CACHE_TIMEOUT
@@ -111,15 +111,10 @@ def _build_client(payload: dict[str, Any]) -> MultiServerMCPClient:
     """
     url = payload.get("url")
     resolved = _resolve_header_entries(payload.get("headers"), server_name=url or "test-connection")
-    headers = resolved or None
     transport = payload.get("transport")
-    if transport == "http":
-        connection = StreamableHttpConnection(transport="streamable_http", url=url, headers=headers)
-    elif transport == "sse":
-        connection = SSEConnection(transport="sse", url=url, headers=headers)
-    else:
+    connection = build_connection(transport, url, resolved or None)
+    if connection is None:
         raise ValueError(f"Unsupported transport: {transport!r}")
-
     return MultiServerMCPClient({"__probe__": connection})
 
 
