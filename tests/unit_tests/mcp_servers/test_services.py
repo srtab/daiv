@@ -458,3 +458,43 @@ def test_discover_tools_cached_caches_success_with_full_ttl(monkeypatch):
 
     assert services.discover_tools_cached(server) == [{"name": "t", "description": ""}]
     assert captured["timeout"] == TOOLS_CACHE_TIMEOUT
+
+
+@pytest.mark.django_db
+def test_discover_tools_cached_reprobes_after_server_modified(monkeypatch):
+    """The cache key embeds ``server.modified``, so a save (which bumps ``modified``)
+    invalidates the snapshot and the next render re-probes instead of serving stale
+    tools for the full TTL."""
+    from datetime import timedelta
+
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    from mcp_servers import services
+    from mcp_servers.models import MCPServer
+
+    cache.clear()
+    server = MCPServer.objects.create(name="bust", transport=MCPServer.Transport.HTTP, url="http://bust.test")
+
+    calls = {"n": 0}
+
+    async def _counting(srv):
+        calls["n"] += 1
+        return [{"name": f"t{calls['n']}", "description": ""}]
+
+    monkeypatch.setattr("mcp_servers.services.discover_tools", _counting)
+
+    first = services.discover_tools_cached(server)
+    assert calls["n"] == 1
+    # Unchanged ``modified`` → served from cache, no re-probe.
+    assert services.discover_tools_cached(server) == first
+    assert calls["n"] == 1
+
+    # Bump ``modified`` the way a save does, without a real-time sleep. ``.update()``
+    # bypasses the AutoLastModifiedField so we set the stamp directly.
+    MCPServer.objects.filter(pk=server.pk).update(modified=timezone.now() + timedelta(seconds=5))
+    server.refresh_from_db()
+
+    second = services.discover_tools_cached(server)
+    assert calls["n"] == 2
+    assert second == [{"name": "t2", "description": ""}]
