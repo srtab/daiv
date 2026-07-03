@@ -168,11 +168,11 @@ async def discover_tools(server: MCPServer) -> list[dict[str, str]]:
 
 def discover_tools_cached(server: MCPServer) -> list[dict[str, str]]:
     """Cache-backed, exception-safe wrapper around :func:`discover_tools` for
-    the views.
+    the edit view.
 
-    Degrades to ``[]`` on :class:`DecryptionError` (key rotation) so no view
-    500s — every entry point (detail page, edit form, tools JSON endpoint)
-    shares this single guard. A successful discovery is cached for
+    Degrades to ``[]`` on :class:`DecryptionError` (key rotation) so the edit
+    form (its sole caller) never 500s on a key-rotated server. A successful
+    discovery is cached for
     ``TOOLS_CACHE_TIMEOUT``; an empty/unreachable result is cached only for the
     shorter ``TOOLS_NEGATIVE_CACHE_TIMEOUT`` so a transient failure is neither
     pinned for the full TTL nor re-probed (a 5s handshake) on every render.
