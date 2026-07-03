@@ -648,3 +648,11 @@ def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
     resp = client.get(reverse("mcp_servers:list"))
     assert resp.status_code == 200
     assert b"Broken" not in resp.content
+
+
+def test_create_form_renders_test_connection_button(client, admin_user):
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:create"))
+    assert resp.status_code == 200
+    assert b"mcpTestConnection" in resp.content
+    assert b"mcp-server-form.js" in resp.content

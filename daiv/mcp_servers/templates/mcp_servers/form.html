@@ -7,6 +7,7 @@
 
 {% block alpine_plugins %}
 <script defer src="{% static 'core/js/django-formset.js' %}"></script>
+<script defer src="{% static 'mcp_servers/js/mcp-server-form.js' %}"></script>
 {% endblock alpine_plugins %}
 
 {% block app_content %}
@@ -35,7 +36,8 @@
 </div>
 {% endif %}
 
-<form method="post" class="animate-fade-up mt-8 space-y-6" style="animation-delay: 50ms">
+<form method="post" class="animate-fade-up mt-8 space-y-6" style="animation-delay: 50ms"
+      x-data="mcpTestConnection({ testUrl: '{% url 'mcp_servers:test' %}' })">
     {% csrf_token %}
 
     <div>
@@ -62,6 +64,17 @@
         {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
     </div>
 
+    <div class="flex items-center gap-3">
+        <button type="button" @click="test()" :disabled="state === 'testing'" class="btn-secondary text-sm">
+            <span x-show="state !== 'testing'">{% translate "Test connection" %}</span>
+            <span x-show="state === 'testing'" x-cloak>{% translate "Testing…" %}</span>
+        </button>
+        <span x-show="state === 'ok'" x-cloak class="text-sm text-emerald-300">
+            <span x-text="toolCount"></span> {% translate "tools discovered" %}
+        </span>
+        <span x-show="state === 'error'" x-cloak class="text-sm text-red-300" x-text="error"></span>
+    </div>
+
     <label class="flex items-center gap-2.5">
         {{ form.enabled }}
         <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
@@ -78,7 +91,7 @@
             </div>
             <div>
                 <label class="block text-[15px] font-medium text-gray-400">{{ form.tool_filter_items.label }}</label>
-                <div class="mt-1.5 space-y-1 text-sm text-gray-200">{{ form.tool_filter_items }}</div>
+                <div x-ref="filterItems" class="mt-1.5 space-y-1 text-sm text-gray-200">{{ form.tool_filter_items }}</div>
                 {% for e in form.tool_filter_items.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
             </div>
         </div>
