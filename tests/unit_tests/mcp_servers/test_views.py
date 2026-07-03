@@ -545,19 +545,14 @@ def test_tools_endpoint_degrades_on_undecryptable_headers(client, admin_user):
 
 @pytest.mark.django_db
 def test_detail_builtin_shows_runtime_tools_message(client, admin_user, monkeypatch):
-    """A built-in detail page must not run discovery against its placeholder URL and
-    must explain that tools are provided at runtime (not 'unreachable')."""
+    """A built-in detail page with no discovered tools must explain that tools are provided at
+    runtime (not 'unreachable'), even though built-in rows are now probed like any custom row."""
     from mcp_servers.models import MCPServer
 
-    called = {"n": 0}
-
-    async def _should_not_run(payload):
-        called["n"] += 1
+    async def _empty(payload):
         return {"ok": True, "tools": []}
 
-    # Patch the network boundary (test_connection); the real discover_tools must short-circuit
-    # for built-ins before ever reaching it.
-    monkeypatch.setattr("mcp_servers.services.test_connection", _should_not_run)
+    monkeypatch.setattr("mcp_servers.services.test_connection", _empty)
     MCPServer.objects.create(
         name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi", enabled=True
     )
@@ -565,7 +560,6 @@ def test_detail_builtin_shows_runtime_tools_message(client, admin_user, monkeypa
     resp = client.get(reverse("mcp_servers:detail", args=["bi"]))
     assert resp.status_code == 200
     assert b"provided directly by their code at runtime" in resp.content
-    assert called["n"] == 0  # no doomed handshake against builtin://bi
 
 
 @pytest.mark.django_db

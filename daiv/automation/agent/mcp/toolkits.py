@@ -9,6 +9,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from automation.agent.toolkits import BaseToolkit
 
 from .conf import settings
+from .connections import build_connections_and_filters
 
 if TYPE_CHECKING:
     from langchain_core.tools.base import BaseTool
@@ -51,11 +52,8 @@ class MCPToolkit(BaseToolkit):
         from asgiref.sync import sync_to_async
         from mcp_servers.services import build_runtime_servers
 
-        from automation.agent.mcp.registry import mcp_registry
-
-        user_servers = await sync_to_async(build_runtime_servers)()
-        # Built-in ``is_enabled()`` hits the DB; marshal off the event loop.
-        connections, tool_filters = await sync_to_async(mcp_registry.get_connections_and_filters)(user_servers)
+        servers = await sync_to_async(build_runtime_servers)()
+        connections, tool_filters = build_connections_and_filters(servers)
 
         if not connections:
             return []

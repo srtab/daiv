@@ -34,16 +34,16 @@ class HeaderEntry(TypedDict, total=False):
 
 
 def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
-    """Read enabled ``MCPServer`` rows from the DB and convert each to the
-    ``UserMcpServer`` DTO the registry consumes. Returns a list of
-    ``(name, dto)`` tuples preserving DB ordering.
+    """Read all enabled ``MCPServer`` rows from the DB (built-in and custom
+    alike) and convert each to the ``UserMcpServer`` DTO the toolkit consumes.
+    Returns a list of ``(name, dto)`` tuples preserving DB ordering.
 
     A row whose ``headers`` cannot be decrypted is skipped with an error log;
     other rows still load. A failure of the DB query itself propagates to the
     caller: ``MCPToolkit.get_tools`` does not guard it, so a DB outage surfaces
     as a failed agent-graph build rather than as silently-empty tools.
     """
-    rows = MCPServer.objects.filter(enabled=True, source=MCPServer.Source.CUSTOM).order_by("name")
+    rows = MCPServer.objects.filter(enabled=True).order_by("name")
     out: list[tuple[str, UserMcpServer]] = []
     for row in rows:
         try:
@@ -157,13 +157,7 @@ async def discover_tools(server: MCPServer) -> list[dict[str, str]]:
     """Discover tools exposed by a saved server. Returns ``[]`` on handshake
     failure. Propagates :class:`core.encryption.DecryptionError` so views can
     surface a key-rotation error instead of 500-ing.
-
-    Built-in servers supply their own ``Connection`` from code at runtime; the
-    DB row only carries a ``builtin://`` placeholder URL, so a handshake would
-    always fail — discovery is skipped for them and returns ``[]``.
     """
-    if server.is_builtin():
-        return []
     payload = {"transport": server.transport, "url": server.url, "headers": server.headers or []}
     result = await test_connection(payload)
     if not result.get("ok"):

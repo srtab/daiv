@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import pytest
 from mcp_servers.models import MCPServer
-from mcp_servers.services import build_runtime_servers
+from mcp_servers.services import build_runtime_servers, discover_tools
 
 from automation.agent.mcp.schemas import UserMcpServer
 
 
 @pytest.mark.django_db
 def test_returns_only_enabled_rows():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(name="on", transport=MCPServer.Transport.HTTP, url="http://on", enabled=True)
     MCPServer.objects.create(name="off", transport=MCPServer.Transport.HTTP, url="http://off", enabled=False)
     out = build_runtime_servers()
@@ -18,6 +19,7 @@ def test_returns_only_enabled_rows():
 
 @pytest.mark.django_db
 def test_literal_headers_decrypt_into_dto():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="srv",
         transport=MCPServer.Transport.HTTP,
@@ -34,6 +36,7 @@ def test_literal_headers_decrypt_into_dto():
 
 @pytest.mark.django_db
 def test_env_ref_resolves_from_environment(monkeypatch):
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     monkeypatch.setenv("MY_TOKEN", "abc-from-env")
     MCPServer.objects.create(
         name="srv",
@@ -47,6 +50,7 @@ def test_env_ref_resolves_from_environment(monkeypatch):
 
 @pytest.mark.django_db
 def test_missing_env_ref_drops_one_header_keeps_others(caplog, monkeypatch):
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     monkeypatch.delenv("MISSING_VAR", raising=False)
     MCPServer.objects.create(
         name="srv",
@@ -65,6 +69,7 @@ def test_missing_env_ref_drops_one_header_keeps_others(caplog, monkeypatch):
 
 @pytest.mark.django_db
 def test_decryption_error_skips_row_keeps_others(caplog):
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     # Build two rows; corrupt the ciphertext of the first.
     bad = MCPServer.objects.create(
         name="bad",
@@ -89,22 +94,23 @@ def test_decryption_error_skips_row_keeps_others(caplog):
 
 
 @pytest.mark.django_db
-def test_builtin_row_excluded_from_user_servers():
-    # Built-ins are passed through the registry's own code path, not as
-    # user-server DTOs. ``build_runtime_servers`` returns only ``source=custom``.
+def test_builtin_row_included_in_runtime_servers():
     MCPServer.objects.create(
-        name="fake-builtin",
+        name="sentry-x",
         source=MCPServer.Source.BUILTIN,
         transport=MCPServer.Transport.HTTP,
-        url="http://db-stale-url",
+        url="https://mcp.sentry.dev/mcp",
         enabled=True,
     )
     out = build_runtime_servers()
-    assert out == []
+    assert "sentry-x" in [name for name, _ in out]
 
 
 @pytest.mark.django_db
 def test_disabled_builtin_row_excluded():
+    # Same context7-leak caveat as the exact-output tests above: this test's own assertion
+    # (out == []) only holds once the seeded enabled built-ins are cleared.
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="fake-builtin",
         source=MCPServer.Source.BUILTIN,
@@ -120,6 +126,7 @@ def test_disabled_builtin_row_excluded():
 def test_tool_filter_round_trips_through_dto():
     from automation.agent.mcp.schemas import ToolFilter
 
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="srv",
         transport=MCPServer.Transport.HTTP,
@@ -135,6 +142,7 @@ def test_tool_filter_round_trips_through_dto():
 
 @pytest.mark.django_db
 def test_tool_filter_none_when_mode_is_none():
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="srv2",
         transport=MCPServer.Transport.HTTP,
@@ -339,6 +347,7 @@ def test_build_client_warns_on_missing_env_ref(caplog, monkeypatch):
 @pytest.mark.django_db
 def test_build_runtime_servers_drops_header_with_unknown_mode(caplog):
     """An unrecognized header mode is dropped with a warning, never silently kept."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="srv",
         transport=MCPServer.Transport.HTTP,
@@ -354,24 +363,21 @@ def test_build_runtime_servers_drops_header_with_unknown_mode(caplog):
     assert "unrecognized mode" in caplog.text
 
 
-async def test_discover_tools_skips_builtin_without_network(monkeypatch):
-    """Built-ins carry a placeholder ``builtin://`` URL; discovery must not attempt
-    a (doomed) handshake against it."""
-    from mcp_servers.models import MCPServer
-    from mcp_servers.services import discover_tools
+async def test_discover_tools_probes_builtin_rows(monkeypatch):
+    """Built-in rows hold real URLs now — discovery must probe them like any custom row."""
+    called = {}
 
-    called = {"n": 0}
+    async def fake_test_connection(payload):
+        called["url"] = payload["url"]
+        return {"ok": True, "tools": [{"name": "t", "description": ""}]}
 
-    async def _should_not_run(payload):
-        called["n"] += 1
-        return {"ok": True, "tools": []}
-
-    monkeypatch.setattr("mcp_servers.services.test_connection", _should_not_run)
+    monkeypatch.setattr("mcp_servers.services.test_connection", fake_test_connection)
     server = MCPServer(
-        name="bi", source=MCPServer.Source.BUILTIN, transport=MCPServer.Transport.HTTP, url="builtin://bi"
+        name="bi", source=MCPServer.Source.BUILTIN, transport=MCPServer.Transport.HTTP, url="https://mcp.sentry.dev/mcp"
     )
-    assert await discover_tools(server) == []
-    assert called["n"] == 0
+    tools = await discover_tools(server)
+    assert called["url"] == "https://mcp.sentry.dev/mcp"
+    assert tools == [{"name": "t", "description": ""}]
 
 
 @pytest.mark.django_db

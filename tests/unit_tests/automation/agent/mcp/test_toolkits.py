@@ -96,7 +96,7 @@ class TestMCPToolkitGetTools:
     async def test_returns_empty_when_no_connections(self, monkeypatch):
         monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
         monkeypatch.setattr(
-            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters", lambda user_servers: ({}, {})
+            "automation.agent.mcp.toolkits.build_connections_and_filters", lambda user_servers: ({}, {})
         )
 
         result = await MCPToolkit.get_tools()
@@ -114,7 +114,7 @@ class TestMCPToolkitGetTools:
         good_conn = {"transport": "streamable_http", "url": "http://good/mcp"}
         monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
         monkeypatch.setattr(
-            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"bad": bad_conn, "good": good_conn}, {}),
         )
 
@@ -141,7 +141,7 @@ class TestMCPToolkitGetTools:
 
         monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
         monkeypatch.setattr(
-            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"slow": {"url": "http://slow/mcp"}, "good": {"url": "http://good/mcp"}}, {}),
         )
 
@@ -166,7 +166,7 @@ class TestMCPToolkitGetTools:
 
         assert [t.name for t in result] == ["good_t"]
 
-    async def test_passes_user_servers_to_registry(self, monkeypatch):
+    async def test_passes_servers_to_connection_builder(self, monkeypatch):
         captured = {}
 
         def fake_build():
@@ -177,9 +177,7 @@ class TestMCPToolkitGetTools:
             return ({}, {})
 
         monkeypatch.setattr("mcp_servers.services.build_runtime_servers", fake_build)
-        monkeypatch.setattr(
-            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters", fake_get_connections
-        )
+        monkeypatch.setattr("automation.agent.mcp.toolkits.build_connections_and_filters", fake_get_connections)
 
         await MCPToolkit.get_tools()
 
@@ -195,7 +193,7 @@ class TestMCPToolkitGetTools:
         fake_connection = {"type": "streamable_http", "url": "http://example.com/mcp"}
         monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
         monkeypatch.setattr(
-            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"sentry": fake_connection}, {}),
         )
 
@@ -215,7 +213,7 @@ class TestMCPToolkitGetTools:
         fake_connection = {"type": "streamable_http", "url": "http://example.com/mcp"}
         monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
         monkeypatch.setattr(
-            "automation.agent.mcp.registry.mcp_registry.get_connections_and_filters",
+            "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"sentry": fake_connection}, {}),
         )
 
