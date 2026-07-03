@@ -72,7 +72,8 @@ class MCPServer(TimeStampedModel):
 
     def is_builtin(self) -> bool:
         """Whether this row is a code-defined built-in (vs. an admin-created
-        custom server). Built-ins expose only their ``enabled`` toggle; their
-        connection details live in the registered ``automation.agent.mcp``
-        class, not in this row."""
+        custom server). Built-in rows are seeded from ``mcp_servers.seeds``,
+        cannot be renamed or deleted, but are otherwise fully editable — this
+        row is the source of truth for connection details (URL, headers,
+        tool filter, enabled)."""
         return self.source == self.Source.BUILTIN

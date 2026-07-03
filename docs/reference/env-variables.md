@@ -300,7 +300,7 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 
 | Variable                        | Description                                                    | Default                        | Example |
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
-| `MCP_SERVERS_CONFIG_FILE`       | Path to user-defined MCP servers JSON config file              | *(none)*                       | `/path/to/mcp.json` |
+| `MCP_SERVERS_CONFIG_FILE`       | **Deprecated.** Servers are managed at `/dashboard/mcp-servers/`; a set value only triggers a startup warning. | *(none)*                       | `/path/to/mcp.json` |
 | `MCP_SENTRY_URL`                | **Deprecated.** Read once by migration 0004 (imported into the `sentry` MCP server row), then ignored — manage the URL at `/dashboard/mcp-servers/` | `http://mcp_sentry:8000/mcp`   | — |
 | `MCP_CONTEXT7_URL`              | **Deprecated.** Read once by migration 0004 (imported into the `context7` MCP server row), then ignored — manage the URL at `/dashboard/mcp-servers/` | `http://mcp_context7:8000/mcp` | — |
 | `MCP_TOOL_LOAD_TIMEOUT`         | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30` | `10` |

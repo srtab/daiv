@@ -17,6 +17,8 @@ class MCPSettings(BaseSettings):
     # Deprecated: read once by migration 0004_materialize_builtin_rows (imported into the
     # corresponding MCPServer row) and by the startup deprecation warning. Never consumed at
     # runtime — edit the row at /dashboard/mcp-servers/ instead. Removal planned.
+    # Removing these fields requires rewriting migration 0004 to read os.environ directly,
+    # since it imports them from this module at migrate time.
     SENTRY_URL: str | None = Field(
         default="http://mcp_sentry:8000/mcp",
         description="Deprecated: legacy URL of the Sentry supergateway container (see above).",

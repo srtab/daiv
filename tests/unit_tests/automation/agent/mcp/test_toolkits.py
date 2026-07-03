@@ -228,8 +228,8 @@ class TestMCPToolkitGetTools:
 
 @pytest.mark.django_db(transaction=True)
 async def test_end_to_end_db_row_yields_tool():
-    """Exercise the full DB → build_runtime_servers → registry → client chain so a rename of any
-    boundary symbol breaks this test instead of slipping through the mocked happy path."""
+    """Exercise the full DB → build_runtime_servers → build_connections_and_filters → get_tools chain
+    so a rename of any boundary symbol breaks this test instead of slipping through the mocked happy path."""
     from asgiref.sync import sync_to_async
     from mcp_servers.models import MCPServer
 
@@ -263,7 +263,7 @@ async def test_end_to_end_db_row_yields_tool():
 @pytest.mark.django_db(transaction=True)
 async def test_end_to_end_db_tool_filter_applied():
     """A persisted block-mode filter must be honored through the real
-    build_runtime_servers → registry → get_tools → _apply_tool_filters chain
+    build_runtime_servers → build_connections_and_filters → get_tools → _apply_tool_filters chain
     (every other get_tools test passes an empty filter dict)."""
     from asgiref.sync import sync_to_async
     from mcp_servers.models import MCPServer

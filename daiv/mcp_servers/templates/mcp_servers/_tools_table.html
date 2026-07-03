@@ -11,11 +11,7 @@
 {% else %}
 <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
     <p class="text-[15px] text-gray-400">
-        {% if builtin %}
-            {% translate "Tools for built-in servers are provided directly by their code at runtime." %}
-        {% else %}
-            {% translate "No tools discovered (server unreachable or empty)." %}
-        {% endif %}
+        {% translate "No tools discovered (server unreachable or empty)." %}
     </p>
 </div>
 {% endif %}
