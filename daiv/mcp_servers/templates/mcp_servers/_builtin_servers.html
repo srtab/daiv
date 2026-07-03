@@ -6,7 +6,7 @@
     <div class="flex items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4 last:border-b-0 {% if not s.enabled %}opacity-60{% endif %}">
         <div class="min-w-0 flex-1">
             <div class="flex items-center gap-3">
-                <a href="{% url 'mcp_servers:detail' s.name %}"
+                <a href="{% url 'mcp_servers:edit' s.name %}"
                    class="text-[15px] font-medium text-white hover:text-violet-300">{{ s.name }}</a>
                 <span class="status-badge status-badge-pending">{{ s.get_transport_display }}</span>
                 {% if s.enabled %}
