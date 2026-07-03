@@ -215,3 +215,97 @@ def test_default_fallback_syntax_logs_warning(tmp_path, monkeypatch, caplog):
     obj = MCPServer.objects.get(name="demo")
     assert obj.headers == [{"name": "X-Tok", "mode": "env_ref", "value": "API"}]
     assert "default-value" in caplog.text  # warned about dropped fallback
+
+
+def _rollback_and_seed_placeholder(name: str, *, enabled: bool = True):
+    """Roll back to 0003 and put a pre-materialisation placeholder row in place."""
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")])
+
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.all().delete()
+    MCPServer.objects.create(name=name, source="builtin", transport="http", url=f"builtin://{name}", enabled=enabled)
+
+
+def _apply_0004():
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0004_materialize_builtin_rows")])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_0004_placeholder_gets_effective_env_url_and_legacy_filter(monkeypatch):
+    _rollback_and_seed_placeholder("sentry", enabled=True)
+    monkeypatch.setattr("automation.agent.mcp.conf.settings.SENTRY_URL", "http://mcp-sentry:8000/mcp")
+    _apply_0004()
+
+    from mcp_servers.models import MCPServer
+
+    row = MCPServer.objects.get(name="sentry")
+    assert row.url == "http://mcp-sentry:8000/mcp"
+    assert row.enabled is True  # preserved
+    assert row.transport == "http"
+    assert row.tool_filter_mode == "allow"
+    assert "search_issue" in row.tool_filter_items  # legacy stdio name
+    assert "find_teams" in row.tool_filter_items
+    assert row.description  # non-empty
+
+
+@pytest.mark.django_db(transaction=True)
+def test_0004_none_kill_switch_maps_to_remote_default_disabled(monkeypatch):
+    _rollback_and_seed_placeholder("sentry", enabled=True)
+    monkeypatch.setattr("automation.agent.mcp.conf.settings.SENTRY_URL", None)
+    _apply_0004()
+
+    from mcp_servers.models import MCPServer
+
+    row = MCPServer.objects.get(name="sentry")
+    assert row.url.startswith("https://mcp.sentry.dev/mcp")
+    assert row.enabled is False
+    assert "search_issues" in row.tool_filter_items  # hosted-endpoint name
+    assert "search_issue" not in row.tool_filter_items
+
+
+@pytest.mark.django_db(transaction=True)
+def test_0004_preserves_disabled_flag(monkeypatch):
+    _rollback_and_seed_placeholder("context7", enabled=False)
+    monkeypatch.setattr("automation.agent.mcp.conf.settings.CONTEXT7_URL", "http://mcp_context7:8000/mcp")
+    _apply_0004()
+
+    from mcp_servers.models import MCPServer
+
+    row = MCPServer.objects.get(name="context7")
+    assert row.url == "http://mcp_context7:8000/mcp"
+    assert row.enabled is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_0004_skips_already_materialized_rows(monkeypatch):
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")])
+
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.all().delete()
+    MCPServer.objects.create(
+        name="sentry", source="builtin", transport="http", url="https://my-bridge.internal/mcp", enabled=True
+    )
+    monkeypatch.setattr("automation.agent.mcp.conf.settings.SENTRY_URL", "http://mcp_sentry:8000/mcp")
+    _apply_0004()
+
+    row = MCPServer.objects.get(name="sentry")
+    assert row.url == "https://my-bridge.internal/mcp"  # untouched
+
+
+@pytest.mark.django_db(transaction=True)
+def test_0004_missing_rows_are_not_created():
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")])
+
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.all().delete()
+    _apply_0004()
+    assert MCPServer.objects.count() == 0  # fresh install: the post_migrate upsert seeds instead
