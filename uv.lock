@@ -634,7 +634,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.2.2" },
     { name = "langgraph", specifier = "==1.1.10" },
     { name = "langgraph-checkpoint-redis", specifier = "==0.5.0" },
-    { name = "langsmith", extras = ["pytest"], specifier = "==0.9.4" },
+    { name = "langsmith", extras = ["pytest"], specifier = "==0.9.7" },
     { name = "langsmith-fetch", specifier = "==0.3.1" },
     { name = "markdown", specifier = "==3.10.2" },
     { name = "markdownify", specifier = "==1.2.3" },
@@ -1787,7 +1787,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.9.4"
+version = "0.9.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1805,9 +1805,9 @@ dependencies = [
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/a7/a78b4105d1c01ee8d404d122d9acc047b8b9f628f3733cb837a321b2f6c6/langsmith-0.9.4.tar.gz", hash = "sha256:36c15e5a692e7812ee927e43d777c6166c839eb02b1d482ba9a805b438b1d91c", size = 4576594, upload-time = "2026-06-30T10:20:43.373Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/8b/a56b97a3b8a94f850fe2ec42351d4c508cc6bd7ca96644906c311e32ec5b/langsmith-0.9.7.tar.gz", hash = "sha256:40f8a66a466a7abd991a9df1b50de0a9d30c48ee0d3da46ce00516b68e41c9d7", size = 4711142, upload-time = "2026-07-02T20:11:09.619Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/15/79367a3d159141fe4fc138f41db4ef21eb4759cd64cf8f635f41d55ded67/langsmith-0.9.4-py3-none-any.whl", hash = "sha256:f10f07438c7c6f9f907e8c810d8f338268fe863a74c37ded3d8a90830bb25451", size = 603804, upload-time = "2026-06-30T10:20:41.052Z" },
+    { url = "https://files.pythonhosted.org/packages/54/95/0abb8647123c9ebbb31162bcdba3183f5f3d3bb2f752ef3d777ab715e88c/langsmith-0.9.7-py3-none-any.whl", hash = "sha256:a5ff9179b77eb0c3a0129294d30924eab13e51e2720f374372dbbc014c892911", size = 671052, upload-time = "2026-07-02T20:11:07.702Z" },
 ]
 
 [package.optional-dependencies]
