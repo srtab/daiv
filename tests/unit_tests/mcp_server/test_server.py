@@ -627,7 +627,7 @@ async def test_list_repositories_default():
     assert data["repositories"][0]["topics"] == ["python", "backend"]
     assert "warning" not in data
     assert data["next_cursor"] is None  # remote-backed: never cursor-paginates
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=41)
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=None)
 
 
 async def test_list_repositories_with_search():
@@ -640,7 +640,7 @@ async def test_list_repositories_with_search():
 
     assert len(data["repositories"]) == 1
     assert data["repositories"][0]["slug"] == "group/alpha"
-    mock_client.list_repositories.assert_called_once_with(search="alpha", topics=None, limit=41)
+    mock_client.list_repositories.assert_called_once_with(search="alpha", topics=None)
 
 
 async def test_list_repositories_with_topics():
@@ -652,12 +652,12 @@ async def test_list_repositories_with_topics():
         data = await list_repositories(topics=["python"])
 
     assert len(data["repositories"]) == 2
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=["python"], limit=41)
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=["python"])
 
 
 async def test_list_repositories_truncated_with_warning():
     """When client returns more than MAX_REPOSITORIES, result is truncated with a warning."""
-    # The tool fetches MAX_REPOSITORIES + 1 to detect truncation
+    # The tool fetches the full list (no client-side limit) and truncates after filtering.
     many_repos = [_make_repo(f"group/repo-{i}", f"repo-{i}") for i in range(41)]
     mock_client = MagicMock()
     mock_client.list_repositories.return_value = many_repos
@@ -670,8 +670,8 @@ async def test_list_repositories_truncated_with_warning():
     assert "warning" in data
     assert "first 40" in data["warning"]
     assert data["next_cursor"] is None  # narrow via search/topics, not paging
-    # Verify limit was passed to the client
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=41)
+    # Verify no limit is passed to the client — filtering happens after the full fetch.
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=None)
 
 
 async def test_list_repositories_error_handling():
@@ -770,3 +770,35 @@ async def test_get_job_status_other_user_activity_returns_not_found():
         result = await get_job_status(job_id=str(activity.id))
     data = json.loads(result)
     assert "Job not found" in data["error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_repositories_filters_to_viewable(mock_repo_client):
+    def _repo(slug):
+        return Repository(
+            pk=abs(hash(slug)) % (2**31),
+            slug=slug,
+            name=slug.split("/")[-1],
+            clone_url=f"https://x/{slug}.git",
+            html_url=f"https://x/{slug}",
+            default_branch="main",
+            git_platform=GitPlatform.GITLAB,
+            topics=[],
+        )
+
+    mock_repo_client.list_repositories.return_value = [_repo("a/b"), _repo("c/d")]
+
+    async def _only_ab(user, repos):
+        return [r for r in repos if r.slug == "a/b"]
+
+    with patch("mcp_server.server.afilter_viewable", new=AsyncMock(side_effect=_only_ab)):
+        result = await list_repositories()
+
+    assert [r["slug"] for r in result["repositories"]] == ["a/b"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_repositories_unauthenticated_rejected():
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
+        result = await list_repositories()
+    assert "error" in result

@@ -298,3 +298,23 @@ async def test_list_scheduled_jobs_db_error_returns_friendly_error():
         data = await list_scheduled_jobs()
     assert "error" in data
     assert "db down" not in data["error"]  # internal detail not leaked
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_denied_repo_returns_error():
+    from unittest.mock import AsyncMock, patch
+
+    from mcp_server.server import schedule_job
+
+    from codebase.authorization import RepositoryAccessDenied
+    from schedules.models import ScheduledJob
+
+    user = await _user("sj_denied")
+    with (
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch("mcp_server.server.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))),
+    ):
+        result = await schedule_job(name="s", prompt="p", repos=[{"repo_id": "a/b", "ref": None}], frequency="hourly")
+
+    assert result["error"] == "Repository not found or not accessible."
+    assert await ScheduledJob.objects.acount() == 0

@@ -196,5 +196,6 @@ def mock_repo_authorization():
         patch("jobs.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("mcp_server.server.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("activity.forms.assert_can_run", new=Mock(return_value=None)),
+        patch("mcp_server.server.afilter_viewable", new=AsyncMock(side_effect=lambda user, repos: repos)),
     ):
         yield

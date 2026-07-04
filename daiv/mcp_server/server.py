@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run, afilter_viewable
 from codebase.clients import RepoClient
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
@@ -588,14 +588,18 @@ async def list_repositories(
     cursor pagination — ``next_cursor`` is always ``None``. When results are capped, a
     ``warning`` is included; narrow with ``search`` or ``topics`` rather than paging.
     """
-    # Fetch one extra to detect truncation without loading everything
-    fetch_limit = MAX_REPOSITORIES + 1
+    mcp_user, auth_error = await _resolve_mcp_user()
+    if auth_error is not None:
+        return auth_error
+
     try:
         client = RepoClient.create_instance()
-        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics, limit=fetch_limit)
+        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics)
     except Exception:
         logger.exception("Failed to list repositories")
         return {"error": "Failed to list repositories. Please try again later."}
+
+    repos = await afilter_viewable(mcp_user, repos)
 
     truncated = len(repos) > MAX_REPOSITORIES
     result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES]), "next_cursor": None}
@@ -774,6 +778,11 @@ async def schedule_job(
 
     specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
     repo_dicts = [{"repo_id": s.repo_id, "ref": s.ref or ""} for s in specs]
+
+    try:
+        await aassert_can_run(mcp_user, [spec.repo_id for spec in specs])
+    except RepositoryAccessDenied:
+        return {"error": REPO_ACCESS_DENIED_MESSAGE}
 
     parsed_time = None
     if time:
