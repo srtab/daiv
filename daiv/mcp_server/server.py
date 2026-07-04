@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from codebase.clients import RepoClient
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
@@ -215,6 +216,11 @@ async def submit_job(
         latest = await Activity.objects.filter(thread_id=thread_id_str).order_by("-created_at").afirst()
         if latest is None or latest.user_id != mcp_user.pk:
             return json.dumps({"error": _THREAD_NOT_FOUND})
+
+    try:
+        await aassert_can_run(mcp_user, [spec.repo_id for spec in specs])
+    except RepositoryAccessDenied:
+        return json.dumps({"error": REPO_ACCESS_DENIED_MESSAGE})
 
     explicit_env_id: str | None = None
     if environment:

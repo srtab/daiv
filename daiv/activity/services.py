@@ -16,6 +16,7 @@ from jobs.tasks import run_job_task
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.signals import emit_activity_finished_if_terminal
 from automation.titling.tasks import generate_batch_title_task
+from codebase.authorization import aassert_can_run
 
 _PROMPT_DRIVEN = {TriggerType.API_JOB, TriggerType.MCP_JOB, TriggerType.UI_JOB}
 
@@ -251,6 +252,9 @@ async def asubmit_batch_runs(
     distinguish "submitted" from "orphaned" and recover accordingly.
     """
     _validate(repos)
+    if user is not None:
+        # Webhook/internal callers pass user=None and are gated by their own allowlist.
+        await aassert_can_run(user, [target.repo_id for target in repos])
     if thread_id is not None:
         if not thread_id:
             raise ValueError("thread_id must be a non-empty UUID string")

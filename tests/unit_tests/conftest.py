@@ -181,3 +181,19 @@ def mock_repo_client():
         mock_create_instance.return_value = mock_client
 
         yield mock_client
+
+
+@pytest.fixture(autouse=True)
+def mock_repo_authorization():
+    """Grant repository access by default.
+
+    The authorization layer has its own tests (tests/unit_tests/codebase/test_authorization.py);
+    every other test gets an allow-all so pre-authorization behavior is preserved. Tests that
+    exercise denial re-patch the same name inside their own ``with`` block (the inner patch wins).
+    """
+    with (
+        patch("activity.services.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch("jobs.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch("mcp_server.server.aassert_can_run", new=AsyncMock(return_value=None)),
+    ):
+        yield
