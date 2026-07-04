@@ -145,7 +145,7 @@ class MCPServerForm(forms.ModelForm):
 
 class MCPServerHeaderForm(forms.Form):
     name = forms.CharField(max_length=255)
-    mode = forms.ChoiceField(choices=[("literal", "literal"), ("env_ref", "env_ref")])
+    mode = forms.ChoiceField(choices=MCPServer.HeaderMode.choices)
     value = forms.CharField(required=False, max_length=4096)
 
     def has_changed(self):
@@ -173,7 +173,7 @@ class MCPServerHeaderForm(forms.Form):
         # with an empty value is valid: it means "preserve existing on edit"
         # (handled by build_headers_from_formset). On create, the existing
         # is None and the resulting empty literal is dropped from the list.
-        if mode == "env_ref" and not value:
+        if mode == MCPServer.HeaderMode.ENV_REF and not value:
             self.add_error("value", _("Environment variable name is required."))
         return cleaned
 
@@ -199,10 +199,10 @@ def build_headers_from_formset(formset, *, existing: list[dict] | None) -> list[
         name = form.cleaned_data["name"]
         mode = form.cleaned_data["mode"]
         value = (form.cleaned_data.get("value") or "").strip()
-        if mode == "literal" and not value and name in existing_by_name:
+        if mode == MCPServer.HeaderMode.LITERAL and not value and name in existing_by_name:
             out.append(existing_by_name[name])
             continue
-        if mode == "literal" and not value:
+        if mode == MCPServer.HeaderMode.LITERAL and not value:
             # Empty literal on create — skip (nothing to persist).
             continue
         out.append({"name": name, "mode": mode, "value": value})

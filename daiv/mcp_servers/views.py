@@ -81,22 +81,9 @@ class MCPServerEditView(AdminRequiredMixin, View):
                 )
                 % {"name": obj.name},
             )
-        discovered = services.discover_tools_cached(obj)
         form = MCPServerForm(instance=obj)
         formset = MCPServerHeaderFormSet(initial=initial, prefix="headers")
-        return render(
-            request,
-            self.template_name,
-            {
-                "form": form,
-                "formset": formset,
-                "mode": "edit",
-                "object": obj,
-                "builtin": obj.is_builtin(),
-                "headers_locked": headers_locked,
-                "tool_choices": build_tool_choices(discovered, obj.tool_filter_items),
-            },
-        )
+        return self._render(request, obj, form, formset, selected=obj.tool_filter_items, headers_locked=headers_locked)
 
     def post(self, request, name):
         obj = get_object_or_404(MCPServer, name=name)
@@ -114,31 +101,36 @@ class MCPServerEditView(AdminRequiredMixin, View):
             )
             return redirect(reverse("mcp_servers:edit", args=[obj.name]))
 
-        headers_locked = False
-
-        discovered = services.discover_tools_cached(obj)
         form = MCPServerForm(request.POST, instance=obj)
         formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
         if not (form.is_valid() and formset.is_valid()):
-            return render(
-                request,
-                self.template_name,
-                {
-                    "form": form,
-                    "formset": formset,
-                    "mode": "edit",
-                    "object": obj,
-                    "builtin": obj.is_builtin(),
-                    "headers_locked": headers_locked,
-                    "tool_choices": build_tool_choices(discovered, request.POST.getlist("tool_filter_items")),
-                },
-                status=400,
+            return self._render(
+                request, obj, form, formset, selected=request.POST.getlist("tool_filter_items"), status=400
             )
         saved = form.save(commit=False)
         saved.headers = build_headers_from_formset(formset, existing=existing_headers)
         saved.save()
         messages.success(request, _("MCP server '%(name)s' updated.") % {"name": obj.name})
         return redirect(reverse("mcp_servers:list"))
+
+    def _render(self, request, obj, form, formset, *, selected, headers_locked=False, status=200):
+        # Tool discovery (a cache-backed handshake) only feeds the checkbox list on a
+        # rendered form — never the successful-save path, which redirects — so it lives here.
+        discovered = services.discover_tools_cached(obj)
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "formset": formset,
+                "mode": "edit",
+                "object": obj,
+                "builtin": obj.is_builtin(),
+                "headers_locked": headers_locked,
+                "tool_choices": build_tool_choices(discovered, selected),
+            },
+            status=status,
+        )
 
 
 class MCPServerDeleteView(AdminRequiredMixin, View):
@@ -172,7 +164,19 @@ class MCPServerTestView(AdminRequiredMixin, View):
         formset = MCPServerHeaderFormSet(request.POST, prefix="headers")
         if not formset.is_valid():
             return JsonResponse({"ok": False, "error": "invalid headers"}, status=400)
-        headers = build_headers_from_formset(formset, existing=None)
+        # Re-testing a saved server: the form blanks preserved literal values (see
+        # _existing_headers_for_formset), so resolve them from the stored row here —
+        # otherwise a blank "preserve existing" secret would probe without it and fail.
+        existing_headers = None
+        name = request.POST.get("name")
+        if name:
+            obj = MCPServer.objects.filter(name=name).first()
+            if obj is not None:
+                try:
+                    existing_headers = obj.headers or []
+                except DecryptionError:
+                    existing_headers = None
+        headers = build_headers_from_formset(formset, existing=existing_headers)
         payload = {"transport": request.POST.get("transport"), "url": request.POST.get("url"), "headers": headers}
         result = async_to_sync(services.test_connection)(payload)
         return JsonResponse(result, status=200 if result.get("ok") else 502)
@@ -194,7 +198,11 @@ def _existing_headers_for_formset(obj: MCPServer) -> tuple[list[dict], bool]:
     out: list[dict] = []
     for h in rows:
         value = h.get("value", "")
-        if h.get("mode") == "literal" and value:
+        if h.get("mode") == MCPServer.HeaderMode.LITERAL and value:
             value = ""
-        out.append({"name": h.get("name", ""), "mode": h.get("mode", "literal"), "value": value})
+        out.append({
+            "name": h.get("name", ""),
+            "mode": h.get("mode", MCPServer.HeaderMode.LITERAL.value),
+            "value": value,
+        })
     return out, False

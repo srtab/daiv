@@ -18,11 +18,13 @@
 
 <section class="animate-fade-up mt-8" style="animation-delay: 100ms">
     <h2 class="text-lg font-semibold">{% translate "Custom servers" %}</h2>
-    {% include "mcp_servers/_custom_servers.html" %}
+    {% translate "No custom servers configured." as custom_empty %}
+    {% include "mcp_servers/_server_list.html" with servers=custom_servers empty_message=custom_empty %}
 </section>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 150ms">
     <h2 class="text-lg font-semibold">{% translate "Built-in servers" %}</h2>
-    {% include "mcp_servers/_builtin_servers.html" %}
+    {% translate "No built-in servers registered." as builtin_empty %}
+    {% include "mcp_servers/_server_list.html" with servers=builtin_servers empty_message=builtin_empty %}
 </section>
 {% endblock app_content %}

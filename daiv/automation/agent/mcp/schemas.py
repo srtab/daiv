@@ -27,7 +27,11 @@ class ToolFilter(BaseModel):
 
 
 class UserMcpServer(BaseModel):
-    """User-defined MCP server from config file (Claude Code .mcp.json format)."""
+    """Runtime DTO for an MCP server the toolkit consumes.
+
+    Produced from DB rows by ``mcp_servers.services.build_runtime_servers`` (built-in
+    and custom alike) and also used to parse the legacy Claude Code ``.mcp.json``
+    config-file format during the one-shot 0002 import migration."""
 
     model_config = ConfigDict(populate_by_name=True)
 

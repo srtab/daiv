@@ -541,6 +541,46 @@ def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
     assert b"Broken" not in resp.content
 
 
+@pytest.mark.django_db
+def test_test_endpoint_reuses_stored_headers_for_existing_server(client, admin_user, monkeypatch):
+    """Re-testing a saved server must not drop a preserved (blanked) literal secret header —
+    the edit form always blanks literal values on render, so a straight passthrough of the
+    formset would probe without the real header and report a false failure."""
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(
+        name="rt-test",
+        transport="http",
+        url="http://rt-test.test",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "real-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "name": "rt-test",
+            "transport": "http",
+            "url": "http://rt-test.test",
+            "headers-TOTAL_FORMS": "1",
+            "headers-INITIAL_FORMS": "1",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+            "headers-0-name": "Authorization",
+            "headers-0-mode": "literal",
+            "headers-0-value": "",
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["payload"]["headers"] == [{"name": "Authorization", "mode": "literal", "value": "real-secret"}]
+
+
 def test_create_form_renders_test_connection_button(client, admin_user):
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:create"))

@@ -59,6 +59,18 @@ def test_handles_missing_table_gracefully(monkeypatch, exc_cls):
 
 
 @pytest.mark.django_db
+def test_name_collision_with_existing_row_is_caught(caplog):
+    """A pre-existing row with the same name as a built-in seed (e.g. imported from
+    legacy JSON under a name that later became a built-in, like 'sentry') must not
+    crash post_migrate seeding — the unique-constraint IntegrityError is logged."""
+    MCPServer.objects.create(name="stub", source=MCPServer.Source.CUSTOM, transport="http", url="http://x.test")
+    with caplog.at_level("ERROR"):
+        upsert_builtin_rows([_STUB_SEED])
+    assert MCPServer.objects.filter(name="stub", source=MCPServer.Source.CUSTOM).exists()
+    assert "Failed to upsert built-in MCP server row" in caplog.text
+
+
+@pytest.mark.django_db
 def test_warns_when_deprecated_url_env_var_is_set(monkeypatch, caplog):
     import mcp_servers.apps as apps_mod
 

@@ -29,7 +29,7 @@ def upsert_builtin_rows(seeds: Iterable[BuiltinSeed] | None = None) -> None:
     guards against a missing/partially-migrated table (e.g. tests, a fresh DB)
     so the upsert is a no-op rather than an error in that state.
     """
-    from django.db import IntegrityError
+    from django.db import IntegrityError, transaction
 
     from mcp_servers.models import MCPServer
     from mcp_servers.seeds import BUILTIN_SEEDS
@@ -47,16 +47,21 @@ def upsert_builtin_rows(seeds: Iterable[BuiltinSeed] | None = None) -> None:
         if seed.name in existing:
             continue
         try:
-            MCPServer.objects.create(
-                name=seed.name,
-                description=seed.description,
-                source=MCPServer.Source.BUILTIN,
-                transport=MCPServer.Transport.HTTP,
-                url=seed.url,
-                tool_filter_mode=seed.tool_filter_mode,
-                tool_filter_items=list(seed.tool_filter_items),
-                enabled=seed.enabled,
-            )
+            # A nested atomic() isolates the failure to a savepoint: without it, a caller
+            # running this inside its own atomic block (tests, a wrapped migrate) would have
+            # every later query fail too, since an uncaught IntegrityError poisons the
+            # enclosing transaction until it's rolled back to a savepoint.
+            with transaction.atomic():
+                MCPServer.objects.create(
+                    name=seed.name,
+                    description=seed.description,
+                    source=MCPServer.Source.BUILTIN,
+                    transport=MCPServer.Transport.HTTP,
+                    url=seed.url,
+                    tool_filter_mode=seed.tool_filter_mode,
+                    tool_filter_items=list(seed.tool_filter_items),
+                    enabled=seed.enabled,
+                )
         except IntegrityError:
             logger.exception("Failed to upsert built-in MCP server row %r", seed.name)
 
@@ -74,6 +79,7 @@ def warn_legacy_env_if_present() -> None:
         try:
             any_rows = MCPServer.objects.exists()
         except OperationalError, ProgrammingError:
+            logger.warning("mcp_servers table not ready; skipping legacy-env deprecation check (run migrations).")
             return
         if any_rows:
             logger.warning(

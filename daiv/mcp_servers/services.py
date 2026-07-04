@@ -48,17 +48,23 @@ def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
     for row in rows:
         try:
             headers = _resolve_header_entries(row.headers or [], server_name=row.name)
+            tool_filter = None
+            if row.tool_filter_mode != MCPServer.FilterMode.NONE and row.tool_filter_items:
+                tool_filter = ToolFilter(mode=row.tool_filter_mode, items=list(row.tool_filter_items))
+            dto = UserMcpServer(type=row.transport, url=row.url, headers=headers or None, tool_filter=tool_filter)
         except DecryptionError:
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
-        tool_filter = None
-        if row.tool_filter_mode != MCPServer.FilterMode.NONE and row.tool_filter_items:
-            tool_filter = ToolFilter(mode=row.tool_filter_mode, items=list(row.tool_filter_items))
-
-        out.append((
-            row.name,
-            UserMcpServer(type=row.transport, url=row.url, headers=headers or None, tool_filter=tool_filter),
-        ))
+        except Exception:  # noqa: BLE001
+            # A single malformed row — e.g. a transport/mode outside the DTO's allowed literals,
+            # or a header column of the wrong JSON shape (reachable via a raw DB write, since the
+            # form and model choices otherwise constrain these) — must not blank tools from healthy
+            # peers. Skip it loudly, consistent with the per-server isolation in MCPToolkit.get_tools.
+            logger.exception(
+                "MCP server '%s' (pk=%s) could not be converted to a runtime DTO; skipping", row.name, row.pk
+            )
+            continue
+        out.append((row.name, dto))
     return out
 
 
@@ -81,9 +87,9 @@ def _resolve_header_entries(entries: list[HeaderEntry] | None, *, server_name: s
         value = entry.get("value", "")
         if not name:
             continue
-        if mode == "literal":
+        if mode == MCPServer.HeaderMode.LITERAL:
             resolved[name] = value
-        elif mode == "env_ref":
+        elif mode == MCPServer.HeaderMode.ENV_REF:
             env_value = os.environ.get(value)
             if env_value is None:
                 logger.warning(
@@ -146,7 +152,7 @@ def server_health(server: MCPServer) -> dict[str, Any]:
     missing = [
         entry.get("value") or "(empty)"
         for entry in raw
-        if entry.get("mode") == "env_ref" and os.environ.get(entry.get("value") or "") is None
+        if entry.get("mode") == MCPServer.HeaderMode.ENV_REF and os.environ.get(entry.get("value") or "") is None
     ]
     if missing:
         return {"ok": False, "reason": "missing env var(s): " + ", ".join(missing)}
@@ -155,8 +161,8 @@ def server_health(server: MCPServer) -> dict[str, Any]:
 
 async def discover_tools(server: MCPServer) -> list[dict[str, str]]:
     """Discover tools exposed by a saved server. Returns ``[]`` on handshake
-    failure. Propagates :class:`core.encryption.DecryptionError` so views can
-    surface a key-rotation error instead of 500-ing.
+    failure. Propagates :class:`core.encryption.DecryptionError` — its sole
+    caller, :func:`discover_tools_cached`, catches it and degrades to ``[]``.
     """
     payload = {"transport": server.transport, "url": server.url, "headers": server.headers or []}
     result = await test_connection(payload)
@@ -176,6 +182,11 @@ def discover_tools_cached(server: MCPServer) -> list[dict[str, str]]:
     ``TOOLS_CACHE_TIMEOUT``; an empty/unreachable result is cached only for the
     shorter ``TOOLS_NEGATIVE_CACHE_TIMEOUT`` so a transient failure is neither
     pinned for the full TTL nor re-probed (a 5s handshake) on every render.
+
+    The cache key is stamped with ``server.modified`` so any edit (URL, headers,
+    filter, or an enable/disable toggle) bumps the timestamp and transparently
+    orphans the old entry — the next render re-discovers against the new
+    connection instead of serving tools from the pre-edit one.
     """
     stamp = int(server.modified.timestamp())
     cache_key = TOOLS_CACHE_KEY.format(name=server.name, stamp=stamp)

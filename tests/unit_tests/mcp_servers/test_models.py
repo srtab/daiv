@@ -61,3 +61,41 @@ def test_check_constraint_allows_none_mode_with_empty_items():
         tool_filter_items=[],
     )
     assert obj.pk is not None
+
+
+@pytest.mark.django_db
+def test_delete_raises_for_builtin_row():
+    """Model-level backstop: the view protects built-ins via a queryset filter, but any
+    other caller (shell, management command) must not be able to delete one either."""
+    obj = MCPServer.objects.create(name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="http://x")
+    with pytest.raises(ValueError):
+        obj.delete()
+    assert MCPServer.objects.filter(name="bi").exists()
+
+
+@pytest.mark.django_db
+def test_delete_succeeds_for_custom_row():
+    obj = MCPServer.objects.create(name="cu", transport="http", url="http://x")
+    obj.delete()
+    assert not MCPServer.objects.filter(name="cu").exists()
+
+
+@pytest.mark.django_db
+def test_save_raises_on_rename():
+    """Model-level backstop for the rename guard MCPServerForm.clean_name already enforces —
+    name is a stable key (URLs, cache keys, tool-filter prefix) for any caller, not just forms."""
+    obj = MCPServer.objects.create(name="orig", transport="http", url="http://x")
+    obj.name = "renamed"
+    with pytest.raises(ValueError):
+        obj.save()
+    assert MCPServer.objects.filter(name="orig").exists()
+    assert not MCPServer.objects.filter(name="renamed").exists()
+
+
+@pytest.mark.django_db
+def test_save_allows_unrelated_field_update():
+    obj = MCPServer.objects.create(name="orig2", transport="http", url="http://x")
+    obj.url = "http://y"
+    obj.save()
+    obj.refresh_from_db()
+    assert obj.url == "http://y"

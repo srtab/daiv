@@ -166,6 +166,28 @@ class TestMCPToolkitGetTools:
 
         assert [t.name for t in result] == ["good_t"]
 
+    async def test_client_built_with_tool_name_prefix(self, monkeypatch):
+        """`_apply_tool_filters` matches tools to their server by the ``"{server}_"`` prefix, which
+        only exists because the client is built with tool_name_prefix=True. Pin the flag: a regression
+        would silently turn every allow-list into a no-op (fail-open), exposing filtered-out tools."""
+        captured = {}
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.toolkits.build_connections_and_filters",
+            lambda user_servers: ({"sentry": {"url": "http://example.com/mcp"}}, {}),
+        )
+
+        def _client_factory(connections, **kwargs):
+            captured.update(kwargs)
+            client = MagicMock()
+            client.get_tools = AsyncMock(return_value=[])
+            return client
+
+        with patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory):
+            await MCPToolkit.get_tools()
+
+        assert captured.get("tool_name_prefix") is True
+
     async def test_passes_servers_to_connection_builder(self, monkeypatch):
         captured = {}
 

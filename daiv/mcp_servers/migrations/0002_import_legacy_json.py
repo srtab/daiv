@@ -7,9 +7,29 @@ import re
 
 from django.db import migrations
 
+from pydantic import ValidationError
+
 logger = logging.getLogger("daiv.mcp_servers.migrations")
 
 _ENV_REF_FULL_RE = re.compile(r"^\$\{([^}]+)\}$")
+
+# Inlined (not imported from mcp_servers.constants) so this one-shot migration stays frozen
+# even if MCP_NAME_RE changes later: lowercase alphanumerics + dashes, must start alphanumeric,
+# <= 80 chars, matching the model's SlugField + RegexValidator.
+_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+_NAME_SANITIZE_RE = re.compile(r"[^a-z0-9-]+")
+
+
+def _normalize_name(name: str) -> str | None:
+    """Coerce a legacy server key into a valid model ``name``.
+
+    Legacy ``.mcp.json`` keys are arbitrary dict keys (``my_server``, ``MyServer``), but the
+    model rejects underscores/uppercase. Importing such a key verbatim (``objects.create``
+    bypasses validators) produces a row the edit form can never re-save. Returns the normalized
+    name, or ``None`` if nothing valid remains (caller skips-and-warns).
+    """
+    candidate = _NAME_SANITIZE_RE.sub("-", name.strip().lower()).strip("-")[:80].rstrip("-")
+    return candidate if candidate and _NAME_RE.match(candidate) else None
 
 
 def _convert_headers(name: str, raw_headers: dict | None) -> list[dict]:
@@ -63,20 +83,35 @@ def import_legacy_json(apps, schema_editor):
     try:
         raw = json.loads(path.read_text())
     except OSError, json.JSONDecodeError:
+        # Fail the migration/deploy loudly: this is the one-shot, non-reversible import of
+        # every custom server into the DB — swallowing the error here would silently drop
+        # them with no other code path left to retry the read.
         logger.exception("Failed to read MCP servers config from %s", path)
-        return
+        raise
 
     try:
         parsed = UserMcpServersConfig.model_validate(raw)
-    except Exception:
+    except ValidationError:
         logger.exception("Invalid MCP servers config in %s", path)
         return
 
     MCPServer = apps.get_model("mcp_servers", "MCPServer")
     from core.encryption import encrypt_value
 
-    for name, server in parsed.mcp_servers.items():
+    for raw_name, server in parsed.mcp_servers.items():
+        name = _normalize_name(raw_name)
+        if name is None:
+            logger.warning(
+                "Skipping legacy MCP server %r: its name cannot be normalized to the required format "
+                "(lowercase alphanumerics + dashes). Re-create it via /dashboard/mcp-servers/.",
+                raw_name,
+            )
+            continue
+        if name != raw_name:
+            logger.warning("Renaming legacy MCP server %r to %r to satisfy the naming rules.", raw_name, name)
         if MCPServer.objects.filter(name=name).exists():
+            # Already imported on a prior apply, or two legacy keys normalized to the same name.
+            logger.warning("Skipping legacy MCP server %r: a server named %r already exists.", raw_name, name)
             continue
         headers = _convert_headers(name, server.headers)
         # Migration uses historical model: descriptor not available — encrypt
@@ -86,9 +121,9 @@ def import_legacy_json(apps, schema_editor):
         filter_mode = server.tool_filter.mode if server.tool_filter else "none"
         filter_items = server.tool_filter.items if server.tool_filter else []
         if filter_mode != "none" and not filter_items:
-            # A non-"none" mode with no items would violate the 0003 check
-            # constraint and abort this migration. The legacy schema allows it
-            # (an empty allow/block list); normalize it to "none" instead.
+            # A non-"none" mode with no items would violate the constraint migration 0003
+            # adds, aborting that migration. The legacy schema allows it (an empty
+            # allow/block list); normalize it to "none" here instead.
             logger.warning(
                 "MCP server %r had tool-filter mode %r with no items in legacy config; importing as 'none'.",
                 name,
@@ -106,7 +141,7 @@ def import_legacy_json(apps, schema_editor):
             tool_filter_items=filter_items,
             enabled=True,
         )
-        logger.info("Imported MCP server %r from legacy config %s", name, path)
+        logger.info("Imported MCP server %r from legacy config %s as %r", raw_name, path, name)
 
 
 def noop_reverse(apps, schema_editor):

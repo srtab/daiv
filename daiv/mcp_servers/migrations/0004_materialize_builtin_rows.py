@@ -63,14 +63,21 @@ _REMOTE_FILTERS = {
 
 
 def materialize_builtin_rows(apps, schema_editor):
-    """Rewrite ``builtin://`` placeholder rows with the *effective* legacy URL so running
-    supergateway deployments keep working after the code-defined server classes are removed.
+    """Rewrite ``builtin://`` placeholder rows with the *effective* legacy URL.
+
+    No released version ever creates a ``builtin://`` row, so on a normal upgrade this is a
+    no-op — the ``post_migrate`` upsert seeds the full remote defaults instead (see CHANGELOG
+    upgrade note). This only matters for deployments already tracking an unreleased,
+    dashboard-managed row from this same rollout (a ``builtin://`` placeholder written by an
+    earlier commit on this branch): for those, it imports the effective legacy URL so they
+    keep working instead of silently reverting to the remote default.
 
     - env URL set (or container default) → import it, keep ``enabled``, write the legacy
       stdio tool filter (correct for a bridge URL).
     - env explicitly ``None`` (the old kill switch) → remote default URL, ``enabled=False``,
       hosted-endpoint tool filter.
-    - missing row → skip (fresh install: the post_migrate upsert seeds full remote defaults).
+    - missing row → skip (fresh install, or a normal upgrade: the post_migrate upsert seeds
+      full remote defaults).
     - already-materialised row (non-placeholder URL) → skip (re-run safety, preserves edits).
     """
     from automation.agent.mcp.conf import settings as mcp_conf

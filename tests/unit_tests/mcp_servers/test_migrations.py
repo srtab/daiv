@@ -75,6 +75,49 @@ def test_import_is_idempotent(tmp_path, monkeypatch):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_import_normalizes_invalid_legacy_name(tmp_path, monkeypatch, caplog):
+    """Legacy keys with underscores/uppercase are normalized to a valid slug on import.
+    Importing them verbatim (``objects.create`` bypasses validators) would create a row the
+    edit form can never re-save, since ``name`` is re-validated against MCP_NAME_RE on save."""
+    _populate_config_file(
+        tmp_path, monkeypatch, {"mcpServers": {"My_Server": {"type": "http", "url": "http://d.test"}}}
+    )
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0001_initial")])
+    executor.loader.build_graph()
+    executor = MigrationExecutor(connection)
+    with caplog.at_level("WARNING"):
+        executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+
+    from mcp_servers.constants import MCP_NAME_RE
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.get(source="custom")
+    assert obj.name == "my-server"
+    assert MCP_NAME_RE.match(obj.name)  # the crux: the row is now re-savable through the edit form
+    assert obj.url == "http://d.test"
+    assert "Renaming legacy MCP server" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
+def test_import_skips_unnormalizable_legacy_name(tmp_path, monkeypatch, caplog):
+    """A legacy key that yields nothing valid after normalization is skipped loudly rather
+    than creating a row that violates the slug validator."""
+    _populate_config_file(tmp_path, monkeypatch, {"mcpServers": {"___": {"type": "http", "url": "http://d.test"}}})
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0001_initial")])
+    executor.loader.build_graph()
+    executor = MigrationExecutor(connection)
+    with caplog.at_level("WARNING"):
+        executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+
+    from mcp_servers.models import MCPServer
+
+    assert MCPServer.objects.filter(source="custom").count() == 0
+    assert "cannot be normalized" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
 def test_env_ref_only_for_exact_dollar_brace_match(tmp_path, monkeypatch, caplog):
     """Mixed strings like ``Bearer ${TOKEN}`` must stay literal — the new model can't preserve the prefix."""
     _populate_config_file(
@@ -125,7 +168,10 @@ def test_missing_file_is_silent(tmp_path, monkeypatch):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_malformed_json_logs_and_returns(tmp_path, monkeypatch, caplog):
+def test_malformed_json_aborts_migration(tmp_path, monkeypatch, caplog):
+    """Unreadable/corrupt legacy config must fail the migration loudly, not silently
+    drop every custom server with only a log line as evidence (this is the one-shot,
+    non-reversible import — nothing else ever re-reads the file)."""
     path = tmp_path / "mcp.json"
     path.write_text("{not valid json")
     monkeypatch.setattr("automation.agent.mcp.conf.settings.SERVERS_CONFIG_FILE", str(path))
@@ -133,13 +179,27 @@ def test_malformed_json_logs_and_returns(tmp_path, monkeypatch, caplog):
     executor.migrate([("mcp_servers", "0001_initial")])
     executor.loader.build_graph()
     executor = MigrationExecutor(connection)
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("ERROR"), pytest.raises(json.JSONDecodeError):
         executor.migrate([("mcp_servers", "0002_import_legacy_json")])
 
-    from mcp_servers.models import MCPServer
-
-    assert MCPServer.objects.filter(source="custom").count() == 0
     assert "Failed to read MCP servers config" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unexpected_parse_error_propagates(tmp_path, monkeypatch):
+    """A bug during parsing (not a legacy-config validation issue) must fail the
+    migration loudly instead of being misreported as bad legacy config."""
+    _populate_config_file(tmp_path, monkeypatch, {"mcpServers": {}})
+    monkeypatch.setattr(
+        "automation.agent.mcp.schemas.UserMcpServersConfig.model_validate",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    executor = MigrationExecutor(connection)
+    executor.migrate([("mcp_servers", "0001_initial")])
+    executor.loader.build_graph()
+    executor = MigrationExecutor(connection)
+    with pytest.raises(RuntimeError):
+        executor.migrate([("mcp_servers", "0002_import_legacy_json")])
 
 
 @pytest.mark.django_db(transaction=True)

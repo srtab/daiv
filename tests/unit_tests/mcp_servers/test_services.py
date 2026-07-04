@@ -94,6 +94,25 @@ def test_decryption_error_skips_row_keeps_others(caplog):
 
 
 @pytest.mark.django_db
+def test_malformed_row_skipped_keeps_others(caplog):
+    """A row whose persisted transport is outside the DTO's allowed literals (reachable only via a
+    raw DB write, since the form and model choices otherwise constrain it) must be skipped without
+    blanking tools from healthy peers — matching the per-server isolation MCPToolkit.get_tools relies on."""
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    bad = MCPServer.objects.create(name="bad", transport=MCPServer.Transport.HTTP, url="http://bad")
+    MCPServer.objects.create(name="good", transport=MCPServer.Transport.HTTP, url="http://good")
+    # Bypass form/model choice validation to persist an invalid transport.
+    MCPServer.objects.filter(pk=bad.pk).update(transport="websocket")
+
+    with caplog.at_level("ERROR", logger="daiv.mcp_servers"):
+        out = dict(build_runtime_servers())
+
+    assert "bad" not in out
+    assert "good" in out
+    assert "could not be converted to a runtime DTO" in caplog.text
+
+
+@pytest.mark.django_db
 def test_builtin_row_included_in_runtime_servers():
     MCPServer.objects.create(
         name="sentry-x",

@@ -14,10 +14,10 @@ _UNSET = object()
 
 
 class MCPServer(TimeStampedModel):
-    """An outbound MCP server connection. Source of truth for the registry
-    at runtime; the file-based ``MCP_SERVERS_CONFIG_FILE`` is no longer read
-    into the runtime registry after the 0002 import migration (it is only
-    checked on startup to emit a deprecation warning)."""
+    """An outbound MCP server connection. Source of truth for the MCP servers
+    loaded at runtime (via ``mcp_servers.services.build_runtime_servers``); the
+    file-based ``MCP_SERVERS_CONFIG_FILE`` is imported once by the 0002 migration
+    and thereafter only checked on startup to emit a deprecation warning."""
 
     class Source(models.TextChoices):
         BUILTIN = "builtin", _("Built-in")
@@ -31,6 +31,13 @@ class MCPServer(TimeStampedModel):
         NONE = "none", _("None")
         ALLOW = "allow", _("Allow only listed tools")
         BLOCK = "block", _("Block listed tools")
+
+    class HeaderMode(models.TextChoices):
+        # Modes for entries in the JSON ``headers`` list (not a DB field): LITERAL stores the
+        # value verbatim; ENV_REF stores an env-var name resolved at runtime. Single source of
+        # truth for the mode strings shared by the form, services, and views.
+        LITERAL = "literal", "literal"
+        ENV_REF = "env_ref", "env_ref"
 
     name = models.SlugField(_("name"), max_length=80, unique=True, validators=[RegexValidator(regex=MCP_NAME_RE)])
     description = models.CharField(_("description"), max_length=1024, blank=True, default="")
@@ -69,6 +76,23 @@ class MCPServer(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def save(self, *args, **kwargs) -> None:
+        # Backstops clean_name's rename guard so it holds for any caller, not just
+        # MCPServerForm — name is used as a stable key (URLs, cache keys, tool-filter prefix).
+        if self.pk is not None:
+            original_name = type(self).objects.filter(pk=self.pk).values_list("name", flat=True).first()
+            if original_name is not None and original_name != self.name:
+                raise ValueError(
+                    f"Cannot rename MCP server {original_name!r} to {self.name!r}; delete and re-create instead."
+                )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        # Backstops the view's source=CUSTOM queryset filter so this holds for any caller.
+        if self.is_builtin():
+            raise ValueError(f"Cannot delete built-in MCP server {self.name!r}.")
+        return super().delete(*args, **kwargs)
 
     def is_builtin(self) -> bool:
         """Whether this row is a code-defined built-in (vs. an admin-created
