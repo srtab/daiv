@@ -58,3 +58,57 @@ class MergeMetric(TimeStampedModel):
         if self.title and len(self.title) > 512:
             self.title = self.title[:512]
         super().save(*args, **kwargs)
+
+
+class RepositoryAccessLevel(models.TextChoices):
+    READ = "read", _("Read")
+    WRITE = "write", _("Write")
+
+
+class RepositoryAccess(models.Model):
+    """
+    Mirror of a platform user's effective access to a repository.
+
+    Populated by the periodic sync task (one member-list call per bot-visible repo).
+    Keyed by platform identity — rows exist for every member of every bot-visible repo,
+    including platform users with no DAIV account, so a first OAuth login needs no sync.
+    Absence of a row means no access.
+    """
+
+    provider = models.CharField(_("provider"), max_length=10, choices=PlatformType.choices)
+    uid = models.CharField(_("platform user ID"), max_length=191)
+    username = models.CharField(_("platform username"), max_length=255, blank=True)
+    repo_id = models.CharField(_("repository ID"), max_length=255)
+    access_level = models.CharField(_("access level"), max_length=10, choices=RepositoryAccessLevel.choices)
+    synced_at = models.DateTimeField(_("synced at"))
+
+    class Meta:
+        verbose_name = _("Repository Access")
+        verbose_name_plural = _("Repository Accesses")
+        constraints = [models.UniqueConstraint(fields=["provider", "uid", "repo_id"], name="repo_access_unique")]
+        indexes = [models.Index(fields=["provider", "uid"]), models.Index(fields=["provider", "repo_id"])]
+
+    def __str__(self) -> str:
+        return f"{self.provider}:{self.uid} -> {self.repo_id} ({self.access_level})"
+
+
+class RepositoryAccessSyncState(models.Model):
+    """Singleton bookkeeping row driving the serve-stale / hard-ceiling authorization policy."""
+
+    SINGLETON_PK = 1
+
+    class Status(models.TextChoices):
+        NEVER = "never", _("Never synced")
+        OK = "ok", _("OK")
+        FAILED = "failed", _("Failed")
+
+    last_started_at = models.DateTimeField(_("last started at"), null=True, blank=True)
+    last_success_at = models.DateTimeField(_("last success at"), null=True, blank=True)
+    status = models.CharField(_("status"), max_length=10, choices=Status.choices, default=Status.NEVER)
+
+    class Meta:
+        verbose_name = _("Repository Access Sync State")
+        verbose_name_plural = _("Repository Access Sync States")
+
+    def __str__(self) -> str:
+        return f"repository access sync: {self.status} (last success: {self.last_success_at})"
