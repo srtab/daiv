@@ -44,7 +44,9 @@
           transport: '{{ form.transport.value|default:'http'|escapejs }}',
           filterMode: '{{ form.tool_filter_mode.value|default:'none'|escapejs }}',
           filterPlaceholder: '{% translate 'Filter tools…'|escapejs %}',
-          notInListLabel: '{% translate 'not in current tool list'|escapejs %}'
+          notInListLabel: '{% translate 'not in current tool list'|escapejs %}',
+          readonlyLabel: '{% translate 'read-only'|escapejs %}',
+          writableLabel: '{% translate 'writable'|escapejs %}'
       })">
     {% csrf_token %}
 
@@ -142,7 +144,11 @@
                         <label data-tool-row data-tool-name="{{ row.name }}" class="mcp-tool-row">
                             <input type="checkbox" name="tool_filter_items" value="{{ row.value }}" class="mt-0.5" {% if row.checked %}checked{% endif %}>
                             <span class="min-w-0">
-                                <span class="mcp-tool-row__name">{{ row.name }}</span>
+                                <span class="flex min-w-0 items-center gap-2">
+                                    <span class="mcp-tool-row__name min-w-0 truncate">{{ row.name }}</span>
+                                    {% if row.read_only is True %}<span class="mcp-tool-row__pill mcp-tool-row__pill--ro">{% translate "read-only" %}</span>
+                                    {% elif row.read_only is False %}<span class="mcp-tool-row__pill mcp-tool-row__pill--rw">{% translate "writable" %}</span>{% endif %}
+                                </span>
                                 {% if row.available %}{% if row.description %}<span class="mcp-tool-row__desc" title="{{ row.description }}">{{ row.description }}</span>{% endif %}
                                 {% else %}<span class="mcp-tool-row__desc">{% translate "not in current tool list" %}</span>{% endif %}
                             </span>

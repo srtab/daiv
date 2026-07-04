@@ -12,7 +12,7 @@
  * filterMode) for the pill toggles and the tool-filter progressive disclosure.
  */
 document.addEventListener("alpine:init", () => {
-    Alpine.data("mcpTestConnection", ({ testUrl, transport, filterMode, filterPlaceholder, notInListLabel }) => ({
+    Alpine.data("mcpTestConnection", ({ testUrl, transport, filterMode, filterPlaceholder, notInListLabel, readonlyLabel, writableLabel }) => ({
         state: "idle", // idle | testing | ok | error
         error: "",
         toolCount: 0,
@@ -20,6 +20,8 @@ document.addEventListener("alpine:init", () => {
         filterMode,
         filterPlaceholder,
         notInListLabel,
+        readonlyLabel,
+        writableLabel,
         async test() {
             this.state = "testing";
             this.error = "";
@@ -85,10 +87,22 @@ document.addEventListener("alpine:init", () => {
 
                 const wrap = document.createElement("span");
                 wrap.className = "min-w-0";
+                const nameRow = document.createElement("span");
+                nameRow.className = "flex min-w-0 items-center gap-2";
                 const nameEl = document.createElement("span");
-                nameEl.className = "mcp-tool-row__name";
+                nameEl.className = "mcp-tool-row__name min-w-0 truncate";
                 nameEl.textContent = name;
-                wrap.append(nameEl);
+                nameRow.append(nameEl);
+                // Advisory read/write pill, mirroring the server-rendered template:
+                // strict true/false only — null/undefined (unannotated) → no pill.
+                const readOnly = available ? tool.read_only : null;
+                if (readOnly === true || readOnly === false) {
+                    const pill = document.createElement("span");
+                    pill.className = `mcp-tool-row__pill mcp-tool-row__pill--${readOnly ? "ro" : "rw"}`;
+                    pill.textContent = readOnly ? this.readonlyLabel : this.writableLabel;
+                    nameRow.append(pill);
+                }
+                wrap.append(nameRow);
 
                 const descText = available ? tool.description || "" : this.notInListLabel;
                 if (descText) {

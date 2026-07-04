@@ -55,7 +55,8 @@ def build_tool_choices(discovered_tools, selected):
     """Build tool-filter checkbox rows for the template.
 
     ``discovered_tools`` is the list returned by discovery (dicts with
-    ``name``/``description``). ``selected`` is the currently-selected tool
+    ``name``/``description`` and an optional tri-state ``read_only``).
+    ``selected`` is the currently-selected tool
     names. Returns ``[]`` when nothing was discovered — the caller then renders
     the textarea fail-safe so a transient discovery failure can't wipe a
     persisted allow/block filter. Otherwise: discovered tools first, then any
@@ -77,13 +78,23 @@ def build_tool_choices(discovered_tools, selected):
             "value": name,
             "name": name,
             "description": tool.get("description") or "",
+            # Tri-state MCP readOnlyHint: True (read-only) / False (writable) /
+            # None (server left it unannotated — shown as no pill, not "writable").
+            "read_only": tool.get("read_only"),
             "checked": name in selected_set,
             "available": True,
         })
     for name in selected:
         if name and name not in seen:
             seen.add(name)
-            rows.append({"value": name, "name": name, "description": "", "checked": True, "available": False})
+            rows.append({
+                "value": name,
+                "name": name,
+                "description": "",
+                "read_only": None,
+                "checked": True,
+                "available": False,
+            })
     return rows
 
 
@@ -105,7 +116,7 @@ class MCPServerForm(forms.ModelForm):
     class Meta:
         model = MCPServer
         fields = ("name", "description", "transport", "url", "enabled", "tool_filter_mode")
-        widgets = {"description": forms.Textarea(attrs={"rows": 2})}
+        widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -146,7 +157,17 @@ class MCPServerForm(forms.ModelForm):
 class MCPServerHeaderForm(forms.Form):
     name = forms.CharField(max_length=255)
     mode = forms.ChoiceField(choices=MCPServer.HeaderMode.choices)
-    value = forms.CharField(required=False, max_length=4096)
+    # A header value is often a secret; keep browsers from autofilling or offering
+    # to save it (applies to every rendered row and the client-added template).
+    value = forms.CharField(required=False, max_length=4096, widget=forms.TextInput(attrs={"autocomplete": "off"}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # A stored literal value is blanked on edit (see _existing_headers_for_formset),
+        # so an empty box would read as "unset". The per-row ``value_stored`` initial flag
+        # advertises that a value is kept — leave blank to preserve it.
+        if self.initial.get("value_stored"):
+            self.fields["value"].widget.attrs["placeholder"] = _("🔒 keep existing")
 
     def has_changed(self):
         # A trailing blank row (user clicked "Add header" then left it empty) is

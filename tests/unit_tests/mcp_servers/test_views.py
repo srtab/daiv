@@ -136,22 +136,41 @@ def test_edit_custom_updates_fields(client, admin_user):
 def test_edit_get_renders_existing_headers_blanked_and_marked(client, admin_user):
     """Edit GET renders each stored header as a server-rendered (``data-initial``)
     row with the header name shown, and blanks the literal value so the stored
-    secret is never echoed into the HTML.
+    secret is never echoed into the HTML. A blanked literal value input carries a
+    "keep existing" placeholder so the empty box reads as "stored", not "unset".
+    An ``env_ref`` value is not a secret: it is shown verbatim and gets no such
+    placeholder.
     """
+    import re
+
     from mcp_servers.models import MCPServer
 
     MCPServer.objects.create(
         name="hdrs",
         transport="http",
         url="http://x.test",
-        headers=[{"name": "Authorization", "mode": "literal", "value": "Bearer super-secret"}],
+        headers=[
+            {"name": "Authorization", "mode": "literal", "value": "Bearer super-secret"},
+            {"name": "X-Env", "mode": "env_ref", "value": "MY_TOKEN"},
+        ],
     )
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:edit", args=["hdrs"]))
+    body = resp.content.decode()
     assert resp.status_code == 200
-    assert b"data-initial" in resp.content  # server-rendered row marker the JS remove() relies on
-    assert b"Authorization" in resp.content
-    assert b"Bearer super-secret" not in resp.content  # literal value blanked, not leaked
+    assert "data-initial" in body  # server-rendered row marker the JS remove() relies on
+    assert "Authorization" in body
+    assert "Bearer super-secret" not in body  # literal value blanked, not leaked
+    # The blanked literal advertises that a value is stored; the env_ref name shows verbatim.
+    assert "keep existing" in body
+    assert "MY_TOKEN" in body
+    # The placeholder lands on a header value input (the blanked literal), and only there:
+    # the env_ref value input, which shows its name, is not marked.
+    value_inputs = re.findall(r"<input[^>]*\bname=\"headers-\d+-value\"[^>]*>", body)
+    assert len(value_inputs) == 2
+    assert sum("keep existing" in tag for tag in value_inputs) == 1
+    # Header values are secret-ish: browser autofill/save is disabled on every value input.
+    assert all('autocomplete="off"' in tag for tag in value_inputs)
 
 
 @pytest.mark.django_db
@@ -396,6 +415,37 @@ def test_edit_get_passes_discovered_tools_into_form(client, admin_user, monkeypa
     assert b"beta" in resp.content
     # Rows render with the rich two-line markup contract (name + data attr).
     assert b'data-tool-name="alpha"' in resp.content
+
+
+@pytest.mark.django_db
+def test_edit_get_renders_read_only_pills(client, admin_user, monkeypatch):
+    """readOnlyHint renders tri-state: a read-only pill, a writable pill, and no
+    pill for an unannotated (None) tool. Guards the template's `is True`/`is False`
+    branches — a naive `{% if row.read_only %}` rewrite would wrongly pill None."""
+    from django.core.cache import cache
+
+    cache.clear()
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(
+        name="pills", transport="http", url="http://p.test", tool_filter_mode="allow", tool_filter_items=["reader"]
+    )
+
+    async def fake_discover(server):
+        return [
+            {"name": "reader", "description": "", "read_only": True},
+            {"name": "writer", "description": "", "read_only": False},
+            {"name": "unknown", "description": "", "read_only": None},
+        ]
+
+    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:edit", args=["pills"]))
+    assert resp.status_code == 200
+    assert b"mcp-tool-row__pill--ro" in resp.content
+    assert b"mcp-tool-row__pill--rw" in resp.content
+    # Exactly two pills for three tools — the unannotated (None) tool gets none.
+    assert resp.content.count(b"mcp-tool-row__pill--") == 2
 
 
 @pytest.mark.django_db

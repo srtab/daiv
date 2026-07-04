@@ -186,9 +186,11 @@ def _existing_headers_for_formset(obj: MCPServer) -> tuple[list[dict], bool]:
     """Return ``(initial, headers_locked)`` for the headers formset.
 
     Literal values are blanked: ``build_headers_from_formset`` treats blank
-    on POST as "preserve existing". ``headers_locked`` is True when the
-    ciphertext can't be decoded — callers must refuse the POST so the
-    recoverable ciphertext isn't overwritten with [].
+    on POST as "preserve existing". Each row carries a ``value_stored`` flag so
+    ``MCPServerHeaderForm`` can advertise "a value is stored here" on the
+    otherwise-empty input. ``headers_locked`` is True when the ciphertext can't
+    be decoded — callers must refuse the POST so the recoverable ciphertext
+    isn't overwritten with [].
     """
     try:
         rows = obj.headers or []
@@ -198,11 +200,13 @@ def _existing_headers_for_formset(obj: MCPServer) -> tuple[list[dict], bool]:
     out: list[dict] = []
     for h in rows:
         value = h.get("value", "")
-        if h.get("mode") == MCPServer.HeaderMode.LITERAL and value:
+        blanked = h.get("mode") == MCPServer.HeaderMode.LITERAL and bool(value)
+        if blanked:
             value = ""
         out.append({
             "name": h.get("name", ""),
             "mode": h.get("mode", MCPServer.HeaderMode.LITERAL.value),
             "value": value,
+            "value_stored": blanked,
         })
     return out, False

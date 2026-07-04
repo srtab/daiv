@@ -381,6 +381,26 @@ def test_build_tool_choices_marks_discovered_and_selected():
     assert by_name["find_orgs"]["available"] is True
 
 
+def test_build_tool_choices_carries_read_only_hint():
+    """readOnlyHint flows through tri-state; unannotated and not-discovered rows are None."""
+    from mcp_servers.forms import build_tool_choices
+
+    rows = build_tool_choices(
+        [
+            {"name": "reader", "description": "", "read_only": True},
+            {"name": "writer", "description": "", "read_only": False},
+            {"name": "unknown", "description": ""},  # server didn't annotate
+        ],
+        ["gone"],  # selected but not discovered
+    )
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["reader"]["read_only"] is True
+    assert by_name["writer"]["read_only"] is False
+    assert by_name["unknown"]["read_only"] is None
+    assert by_name["gone"]["read_only"] is None
+    assert by_name["gone"]["available"] is False
+
+
 def test_build_tool_choices_appends_persisted_not_discovered_last():
     from mcp_servers.forms import build_tool_choices
 

@@ -179,16 +179,21 @@ async def test_test_connection_returns_tools_on_success(monkeypatch):
     from mcp_servers.services import test_connection
 
     fake_client = MagicMock()
-    fake_tool = MagicMock()
-    fake_tool.name = "demo_tool"
-    fake_tool.description = "demo"
-    fake_client.get_tools = AsyncMock(return_value=[fake_tool])
+    ro_tool = MagicMock(name="demo_tool", description="demo", metadata={"readOnlyHint": True})
+    ro_tool.name = "demo_tool"  # `name` is a MagicMock ctor kwarg, so set it explicitly
+    rw_tool = MagicMock(description="mutates", metadata={"readOnlyHint": False})
+    rw_tool.name = "write_tool"
+    plain_tool = MagicMock(description="", metadata=None)  # server left it unannotated
+    plain_tool.name = "plain_tool"
+    fake_client.get_tools = AsyncMock(return_value=[ro_tool, rw_tool, plain_tool])
 
     monkeypatch.setattr("mcp_servers.services._build_client", lambda payload: fake_client)
 
     result = await test_connection({"transport": "http", "url": "http://demo.test/mcp", "headers": []})
     assert result["ok"] is True
-    assert [t["name"] for t in result["tools"]] == ["demo_tool"]
+    assert [t["name"] for t in result["tools"]] == ["demo_tool", "write_tool", "plain_tool"]
+    # readOnlyHint is surfaced tri-state: True / False / None (unannotated).
+    assert [t["read_only"] for t in result["tools"]] == [True, False, None]
 
 
 async def test_test_connection_reports_error(monkeypatch):

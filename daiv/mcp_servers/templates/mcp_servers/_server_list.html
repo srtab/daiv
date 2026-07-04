@@ -1,7 +1,7 @@
 {% load i18n %}
-{# Renders one section of the server list. Params: `servers` (queryset) and
+{% comment %}Renders one section of the server list. Params: `servers` (queryset) and
    `empty_message` (str). The Delete action is derived from the model
-   (`is_builtin` rows can't be deleted), not from which section renders it. #}
+   (`is_builtin` rows can't be deleted), not from which section renders it.{% endcomment %}
 <div class="mt-3">
 {% if servers %}
 <div class="overflow-hidden rounded-2xl border border-white/[0.06]">

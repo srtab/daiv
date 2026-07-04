@@ -138,7 +138,20 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
         # str(err) is empty for many httpx/asyncio exceptions; class name keeps the message greppable.
         detail = str(err) or type(err).__name__
         return {"ok": False, "error": f"{type(err).__name__}: {detail}"}
-    return {"ok": True, "tools": [{"name": t.name, "description": getattr(t, "description", "")} for t in tools]}
+    return {
+        "ok": True,
+        "tools": [
+            {
+                "name": t.name,
+                "description": getattr(t, "description", ""),
+                # MCP's optional readOnlyHint annotation, surfaced by
+                # langchain-mcp-adapters on the tool's metadata. bool | None —
+                # None means the server left it unannotated (unknown), not writable.
+                "read_only": (getattr(t, "metadata", None) or {}).get("readOnlyHint"),
+            }
+            for t in tools
+        ],
+    }
 
 
 def server_health(server: MCPServer) -> dict[str, Any]:
@@ -159,7 +172,7 @@ def server_health(server: MCPServer) -> dict[str, Any]:
     return {"ok": True, "reason": None}
 
 
-async def discover_tools(server: MCPServer) -> list[dict[str, str]]:
+async def discover_tools(server: MCPServer) -> list[dict[str, Any]]:
     """Discover tools exposed by a saved server. Returns ``[]`` on handshake
     failure. Propagates :class:`core.encryption.DecryptionError` — its sole
     caller, :func:`discover_tools_cached`, catches it and degrades to ``[]``.
@@ -172,7 +185,7 @@ async def discover_tools(server: MCPServer) -> list[dict[str, str]]:
     return result["tools"]
 
 
-def discover_tools_cached(server: MCPServer) -> list[dict[str, str]]:
+def discover_tools_cached(server: MCPServer) -> list[dict[str, Any]]:
     """Cache-backed, exception-safe wrapper around :func:`discover_tools` for
     the edit view.
 

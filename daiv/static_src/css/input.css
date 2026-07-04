@@ -111,7 +111,21 @@ main:has(.chat-shell) {
   }
 
   .mcp-tool-row__desc {
-    @apply mt-0.5 block text-xs leading-snug text-gray-500 line-clamp-2;
+    @apply mt-0.5 text-xs leading-snug text-gray-500 line-clamp-2;
+  }
+
+  /* Advisory read/write pills driven by MCP's optional readOnlyHint. Only shown
+     when the server annotated the tool; unannotated tools get no pill. */
+  .mcp-tool-row__pill {
+    @apply inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium;
+  }
+
+  .mcp-tool-row__pill--ro {
+    @apply bg-emerald-900/40 text-emerald-300;
+  }
+
+  .mcp-tool-row__pill--rw {
+    @apply bg-amber-900/40 text-amber-300;
   }
 }
 
