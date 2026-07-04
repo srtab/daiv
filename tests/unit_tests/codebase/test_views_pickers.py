@@ -53,7 +53,7 @@ class TestRepoPickerView:
         resp = logged_in_client.get(reverse("codebase:picker-repositories"))
 
         assert resp.status_code == 200
-        instance.list_repositories.assert_called_once_with(search=None, limit=10)
+        instance.list_repositories.assert_called_once_with(search=None, limit=50)
         assert b"acme/api" in resp.content
         assert b"acme/web" in resp.content
 
@@ -66,7 +66,7 @@ class TestRepoPickerView:
 
         logged_in_client.get(reverse("codebase:picker-repositories") + "?q=foo")
 
-        instance.list_repositories.assert_called_once_with(search="foo", limit=10)
+        instance.list_repositories.assert_called_once_with(search="foo", limit=50)
 
     @patch("codebase.views.RepoClient")
     def test_renders_empty_state_on_client_exception(self, mock_repo_client, logged_in_client):
@@ -167,3 +167,28 @@ class TestBranchPickerView:
 
         assert resp.status_code == 200
         instance.list_branches.assert_called_once_with("group/subgroup/repo", search=None, limit=10)
+
+
+class TestPickerAuthorization:
+    @patch("codebase.views.RepoClient")
+    def test_repo_picker_filters_to_viewable(self, mock_repo_client, logged_in_client):
+        instance = Mock()
+        instance.list_repositories.return_value = [_repo("acme/api"), _repo("acme/secret")]
+        mock_repo_client.create_instance.return_value = instance
+
+        def _only_api(user, repos):
+            return [r for r in repos if r.slug == "acme/api"]
+
+        with patch("codebase.views.filter_viewable", new=Mock(side_effect=_only_api)):
+            resp = logged_in_client.get(reverse("codebase:picker-repositories"))
+
+        assert resp.status_code == 200
+        assert b"acme/api" in resp.content
+        assert b"acme/secret" not in resp.content
+        instance.list_repositories.assert_called_once_with(search=None, limit=50)
+
+    @patch("codebase.views.RepoClient")
+    def test_branch_picker_hidden_repo_404(self, mock_repo_client, logged_in_client):
+        with patch("codebase.views.can_view", new=Mock(return_value=False)):
+            resp = logged_in_client.get(reverse("codebase:picker-branches", args=["acme/secret"]))
+        assert resp.status_code == 404

@@ -198,5 +198,8 @@ def mock_repo_authorization():
         patch("chat.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("activity.forms.assert_can_run", new=Mock(return_value=None)),
         patch("mcp_server.server.afilter_viewable", new=AsyncMock(side_effect=lambda user, repos: repos)),
+        patch("codebase.views.filter_viewable", new=Mock(side_effect=lambda user, repos: repos)),
+        patch("codebase.views.can_view", new=Mock(return_value=True)),
+        patch("codebase.api.router.filter_viewable", new=Mock(side_effect=lambda user, repos: repos)),
     ):
         yield
