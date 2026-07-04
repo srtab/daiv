@@ -19,6 +19,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    RepoMember,
     Repository,
     User,
 )
@@ -85,6 +86,22 @@ class RepoClient(abc.ABC):
     def list_repositories(
         self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
     ) -> list[Repository]:
+        pass
+
+    @abc.abstractmethod
+    def list_repository_members(self, repo_id: str) -> list[RepoMember]:
+        """
+        List members of a repository with their normalized access level.
+
+        Includes inherited/shared-group members (GitLab) and org/team collaborators
+        (GitHub). Members below READ tier are omitted.
+
+        Args:
+            repo_id: The repository ID.
+
+        Returns:
+            The list of members holding at least READ access.
+        """
         pass
 
     @abc.abstractmethod
