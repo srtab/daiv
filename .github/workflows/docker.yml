@@ -12,6 +12,14 @@ on:
       - 'uv.lock'
       - '.github/workflows/docker.yml'
 
+# Superseded builds of the same ref would race for the :main tag (last to
+# finish wins) — keep only the newest. Cancelling a build is harmless, and the
+# Deploy workflow only fires on conclusion == success, so a cancelled build
+# never deploys.
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
