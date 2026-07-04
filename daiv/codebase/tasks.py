@@ -16,6 +16,7 @@ from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import CommentsAddressorManager
+from core.utils import locked_task
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -32,6 +33,74 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
         Setup webhooks for all repositories periodically.
         """
         call_command("setup_webhooks", disable_ssl_verification=settings.DEBUG)  # noqa: S106
+
+
+@cron(codebase_settings.REPO_ACCESS_SYNC_CRON)
+@task
+@locked_task(key="repo-access")
+def sync_repository_access_cron_task():
+    """
+    Mirror per-user repository access levels from the git platform into ``RepositoryAccess``.
+
+    Repo-centric: one member-list call per bot-visible repository covers all users at once.
+    A per-repo failure keeps that repo's previous rows (serve-stale); ``last_success_at``
+    only advances when every repo synced, so persistent failures eventually trip the
+    authorization hard ceiling instead of silently serving stale data forever.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    from codebase.models import RepositoryAccess, RepositoryAccessSyncState
+
+    if codebase_settings.CLIENT == GitPlatform.SWE:
+        return
+
+    provider = codebase_settings.CLIENT.value
+    state, _ = RepositoryAccessSyncState.objects.get_or_create(pk=RepositoryAccessSyncState.SINGLETON_PK)
+    state.last_started_at = timezone.now()
+    state.save(update_fields=["last_started_at"])
+
+    client = RepoClient.create_instance()
+    try:
+        universe = client.list_repositories()
+    except Exception:
+        logger.exception("Repository access sync: failed to list repositories")
+        state.status = RepositoryAccessSyncState.Status.FAILED
+        state.save(update_fields=["status"])
+        return
+
+    failures = 0
+    for repo in universe:
+        try:
+            members = client.list_repository_members(repo.slug)
+        except Exception:
+            failures += 1
+            logger.exception("Repository access sync: failed to list members of %s (keeping previous rows)", repo.slug)
+            continue
+        synced_at = timezone.now()
+        rows = [
+            RepositoryAccess(
+                provider=provider,
+                uid=member.uid,
+                username=member.username,
+                repo_id=repo.slug,
+                access_level=member.access_level,
+                synced_at=synced_at,
+            )
+            for member in members
+        ]
+        with transaction.atomic():
+            RepositoryAccess.objects.filter(provider=provider, repo_id=repo.slug).delete()
+            RepositoryAccess.objects.bulk_create(rows)
+
+    RepositoryAccess.objects.filter(provider=provider).exclude(repo_id__in=[r.slug for r in universe]).delete()
+
+    if failures:
+        state.status = RepositoryAccessSyncState.Status.FAILED
+    else:
+        state.status = RepositoryAccessSyncState.Status.OK
+        state.last_success_at = timezone.now()
+    state.save(update_fields=["status", "last_success_at"])
 
 
 @task(dedup=True)
