@@ -14,6 +14,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
+from gitlab.const import AccessLevel
 from gitlab.exceptions import GitlabError
 
 from codebase.base import (
@@ -28,6 +29,8 @@ from codebase.base import (
     NotePosition,
     NotePositionLineRange,
     NoteType,
+    RepoAccessLevel,
+    RepoMember,
     Repository,
     User,
 )
@@ -198,6 +201,34 @@ class GitLabClient(RepoClient):
             if limit is not None and len(repos) >= limit:
                 break
         return repos
+
+    def list_repository_members(self, repo_id: str) -> list[RepoMember]:
+        """
+        List all project members (direct, inherited and shared-group) with their effective
+        access level normalized to :class:`RepoAccessLevel`.
+
+        Non-active accounts (blocked/awaiting) and levels below Reporter are omitted. The
+        ``members/all`` endpoint already reports the effective (share-clamped) level.
+
+        Args:
+            repo_id: The repository ID.
+
+        Returns:
+            The list of members holding at least READ access.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        members: list[RepoMember] = []
+        for member in project.members_all.list(iterator=True):
+            if getattr(member, "state", "active") != "active":
+                continue
+            if member.access_level >= AccessLevel.DEVELOPER:
+                level = RepoAccessLevel.WRITE
+            elif member.access_level >= AccessLevel.REPORTER:
+                level = RepoAccessLevel.READ
+            else:
+                continue
+            members.append(RepoMember(uid=str(member.id), username=member.username, access_level=level))
+        return members
 
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """
