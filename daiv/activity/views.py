@@ -28,6 +28,7 @@ from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import RepoTarget, submit_batch_runs
 from automation.agent.picker_context import agent_picker_context
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.activity")
@@ -312,6 +313,9 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=TriggerType.UI_JOB,
             )
+        except RepositoryAccessDenied:
+            form.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
+            return self.form_invalid(form)
         except Http404, PermissionDenied, SuspiciousOperation:
             # Let Django middleware render these as 4xx instead of swallowing as "submit failed" 200.
             raise

@@ -25,6 +25,8 @@ def dispatch_scheduled_jobs_cron_task():
     from activity.services import RepoTarget, submit_batch_runs
     from sandbox_envs.services import resolve_repo_envs
 
+    from codebase.authorization import RepositoryAccessDenied
+
     now = datetime.now(tz=UTC)
     dispatched = 0
     failed = 0
@@ -70,8 +72,15 @@ def dispatch_scheduled_jobs_cron_task():
                         len(result.failed),
                         [f.repo_id for f in result.failed],
                     )
-            except Exception:
-                logger.exception("Failed to dispatch scheduled job pk=%d (%s)", schedule.pk, schedule.name)
+            except Exception as err:
+                if isinstance(err, RepositoryAccessDenied):
+                    logger.warning(
+                        "Scheduled job pk=%d (%s) skipped: owner lacks access to its repositories",
+                        schedule.pk,
+                        schedule.name,
+                    )
+                else:
+                    logger.exception("Failed to dispatch scheduled job pk=%d (%s)", schedule.pk, schedule.name)
                 failed += 1
                 try:
                     schedule.refresh_from_db(fields=["run_count", "last_run_at", "last_run_batch_id", "next_run_at"])

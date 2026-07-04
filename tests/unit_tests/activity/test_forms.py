@@ -137,6 +137,29 @@ class TestAgentOverrideField:
         assert "agent_model" in form.errors
 
 
+def test_run_form_denied_repo_shows_repos_error(member_user):
+    from unittest.mock import Mock, patch
+
+    from activity.forms import AgentRunCreateForm
+
+    from codebase.authorization import RepositoryAccessDenied
+
+    data = {
+        "prompt": "p",
+        "repos": '[{"repo_id": "a/b", "ref": ""}]',
+        "agent_model": "",
+        "agent_thinking_level": "",
+        "notify_on": "never",
+    }
+    with (
+        patch("activity.forms.assert_can_run", new=Mock(side_effect=RepositoryAccessDenied(["a/b"]))),
+        patch("activity.forms.ensure_agent_model_available"),
+    ):
+        form = AgentRunCreateForm(data=data, user=member_user)
+        assert not form.is_valid()
+    assert "Repository not found or not accessible." in str(form.errors["repos"])
+
+
 class _OptionalRepoForm(forms.Form):
     """Tiny harness — exercises RepoListField(required=False) in isolation."""
 
