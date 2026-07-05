@@ -99,3 +99,10 @@ def test_save_allows_unrelated_field_update():
     obj.save()
     obj.refresh_from_db()
     assert obj.url == "http://y"
+
+
+@pytest.mark.django_db
+def test_new_server_has_empty_tool_snapshot():
+    s = MCPServer.objects.create(name="snap1", transport=MCPServer.Transport.HTTP, url="http://snap1.test")
+    assert s.discovered_tools == []
+    assert s.tools_synced_at is None
