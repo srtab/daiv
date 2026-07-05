@@ -269,3 +269,13 @@ async def test_submit_job_denied_repo_returns_error():
         result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
 
     assert json.loads(result)["error"] == "Repository not found or not accessible."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rate_limited():
+    from mcp_server.server import submit_job
+
+    with patch("mcp_server.server._allow_job_submission", return_value=False):
+        result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
+
+    assert "Rate limit" in json.loads(result)["error"]

@@ -76,6 +76,20 @@ continue polling with `get_job_status` if the result is not yet available.\
 
 _THREAD_NOT_FOUND = "thread_id not found"
 
+
+def _allow_job_submission(user) -> bool:
+    """Apply the shared per-user jobs budget (same cache bucket as the REST/chat endpoints).
+
+    FastMCP has no ninja throttle layer, so reuse ``JobsRateThrottle`` with a minimal
+    request stand-in — ``AuthRateThrottle`` only reads ``request.auth``.
+    """
+    from types import SimpleNamespace
+
+    from core.api.throttling import JobsRateThrottle
+
+    return JobsRateThrottle().allow_request(SimpleNamespace(auth=user))  # ty: ignore[invalid-argument-type]
+
+
 TERMINAL_STATUSES = {ActivityStatus.SUCCESSFUL, ActivityStatus.FAILED}
 POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
@@ -197,6 +211,9 @@ async def submit_job(
                 "retry; if this persists, contact your administrator."
             )
         })
+
+    if not await asyncio.to_thread(_allow_job_submission, mcp_user):
+        return json.dumps({"error": "Rate limit exceeded for job submissions. Try again later."})
 
     try:
         agent_model, agent_thinking_level = validate_agent_override(agent_model, agent_thinking_level)

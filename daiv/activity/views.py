@@ -131,7 +131,12 @@ class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):
     model = Activity
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return super().get_queryset().filter(status=ActivityStatus.SUCCESSFUL).select_related("task_result")
+        return (
+            Activity.objects
+            .by_owner(self.request.user)
+            .filter(status=ActivityStatus.SUCCESSFUL)
+            .select_related("task_result")
+        )
 
     def get(self, request, *args, **kwargs):
         activity = self.get_object()

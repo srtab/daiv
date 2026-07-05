@@ -29,6 +29,9 @@ async def get_current_user() -> User | None:
         logger.warning("OAuth token not found during user resolution (token may have been revoked)")
         return None
 
+    if not oauth_token.user.is_active:
+        logger.warning("OAuth token used by an inactive user during user resolution")
+        return None
     return oauth_token.user
 
 
@@ -38,7 +41,7 @@ class DjangoOAuthTokenVerifier:
     async def verify_token(self, token: str) -> MCPAccessToken | None:
         token_checksum = hashlib.sha256(token.encode("utf-8")).hexdigest()
         try:
-            access_token = await OAuthAccessToken.objects.select_related("application").aget(
+            access_token = await OAuthAccessToken.objects.select_related("application", "user").aget(
                 token_checksum=token_checksum
             )
         except OAuthAccessToken.DoesNotExist:
@@ -57,6 +60,10 @@ class DjangoOAuthTokenVerifier:
 
         if not access_token.application:
             logger.warning("OAuth token used for MCP access has no associated application")
+            return None
+
+        if access_token.user is None or not access_token.user.is_active:
+            logger.warning("OAuth token used for MCP access belongs to a missing or inactive user")
             return None
 
         return MCPAccessToken(

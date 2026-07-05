@@ -83,3 +83,12 @@ async def test_authenticate_future_expiry_key(auth: AuthBearer, api_key: tuple[A
     # Delete user and key to avoid conflicts with other tests. The teardown is not deleting the user and key.
     # This only happens when running the tests with asyncio.
     await api_key[0].user.adelete()
+
+
+@pytest.mark.django_db
+async def test_authenticate_inactive_user_rejected(auth: AuthBearer, api_key: tuple[APIKey, str]):
+    api_key[0].user.is_active = False
+    await api_key[0].user.asave(update_fields=["is_active"])
+
+    assert await auth.authenticate(None, api_key[1]) is None
+    await api_key[0].user.adelete()

@@ -53,9 +53,9 @@ def _create_activity(*, status=ActivityStatus.SUCCESSFUL, task_result=None, **kw
 
 @pytest.mark.django_db
 class TestActivityDownloadMarkdownView:
-    def test_download_with_task_result(self, logged_in_client):
+    def test_download_with_task_result(self, logged_in_client, user):
         tr = _create_task_result(return_value={"response": "# Security Report\n\nAll good.", "code_changes": False})
-        activity = _create_activity(task_result=tr)
+        activity = _create_activity(user=user, task_result=tr)
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -70,8 +70,8 @@ class TestActivityDownloadMarkdownView:
         assert "# Security Report" in body
         assert "All good." in body
 
-    def test_download_with_result_summary_fallback(self, logged_in_client):
-        activity = _create_activity(result_summary="Summary of the result")
+    def test_download_with_result_summary_fallback(self, logged_in_client, user):
+        activity = _create_activity(user=user, result_summary="Summary of the result")
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -79,9 +79,9 @@ class TestActivityDownloadMarkdownView:
         body = response.content.decode()
         assert "Summary of the result" in body
 
-    def test_download_includes_metadata(self, logged_in_client):
+    def test_download_includes_metadata(self, logged_in_client, user):
         activity = _create_activity(
-            result_summary="Result content", ref="feature-branch", issue_iid=42, merge_request_iid=10
+            user=user, result_summary="Result content", ref="feature-branch", issue_iid=42, merge_request_iid=10
         )
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
@@ -92,8 +92,8 @@ class TestActivityDownloadMarkdownView:
         assert "merge_request: '!10'" in body
         assert "trigger: Scheduled Run" in body
 
-    def test_download_filename_format(self, logged_in_client):
-        activity = _create_activity(result_summary="Content")
+    def test_download_filename_format(self, logged_in_client, user):
+        activity = _create_activity(user=user, result_summary="Content")
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -101,9 +101,9 @@ class TestActivityDownloadMarkdownView:
         assert disposition.startswith('attachment; filename="daiv-group-project-')
         assert disposition.endswith('.md"')
 
-    def test_task_result_response_takes_priority_over_result_summary(self, logged_in_client):
+    def test_task_result_response_takes_priority_over_result_summary(self, logged_in_client, user):
         tr = _create_task_result(return_value={"response": "Full response text", "code_changes": False})
-        activity = _create_activity(task_result=tr, result_summary="Truncated summary")
+        activity = _create_activity(user=user, task_result=tr, result_summary="Truncated summary")
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -111,9 +111,9 @@ class TestActivityDownloadMarkdownView:
         assert "Full response text" in body
         assert "Truncated summary" not in body
 
-    def test_legacy_return_value_without_response_falls_back_to_summary(self, logged_in_client):
+    def test_legacy_return_value_without_response_falls_back_to_summary(self, logged_in_client, user):
         tr = _create_task_result(return_value={"code_changes": True})
-        activity = _create_activity(task_result=tr, result_summary="Fallback summary")
+        activity = _create_activity(user=user, task_result=tr, result_summary="Fallback summary")
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -142,6 +142,24 @@ class TestActivityDownloadMarkdownView:
 
         assert response.status_code == 302
         assert "/accounts/login/" in response.url
+
+
+@pytest.mark.django_db
+def test_download_md_other_users_activity_404(member_client, admin_user, create_db_task_result):
+    task_result = create_db_task_result(return_value={"response": "secret result"})
+    activity = Activity.objects.create(
+        trigger_type=TriggerType.UI_JOB,
+        repo_id="a/b",
+        prompt="p",
+        user=admin_user,
+        status=ActivityStatus.SUCCESSFUL,
+        task_result=task_result,
+        thread_id=str(uuid.uuid4()),
+    )
+
+    resp = member_client.get(reverse("activity_download_md", args=[activity.pk]))
+
+    assert resp.status_code == 404
 
 
 @pytest.mark.django_db
