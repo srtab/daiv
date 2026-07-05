@@ -15,6 +15,29 @@ def _populate_config_file(tmp_path, monkeypatch, payload: dict) -> str:
     return str(path)
 
 
+def _migrate_to_head():
+    """Migrate the mcp_servers app forward to its current leaf migration, so a
+    real-model query runs against a schema that has every field the model
+    declares. The leaf is derived dynamically (not hard-coded) so a future
+    migration that adds a column won't rebreak these tests — they previously
+    assumed 0004 was the leaf, and migration 0005 (new columns) broke every
+    real-model access at a rolled-back state."""
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    leaves = executor.loader.graph.leaf_nodes("mcp_servers")
+    executor.migrate(leaves)
+
+
+def _historical_mcpserver(migration: str):
+    """The MCPServer model as it existed at ``migration`` state — it has no
+    columns from later migrations, so a create/delete against a DB rolled back
+    to that state works (the real model would reference not-yet-added columns)."""
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    state = executor.loader.project_state((("mcp_servers", migration),))
+    return state.apps.get_model("mcp_servers", "MCPServer")
+
+
 @pytest.mark.django_db(transaction=True)
 def test_import_creates_rows_from_json(tmp_path, monkeypatch):
     _populate_config_file(
@@ -38,6 +61,8 @@ def test_import_creates_rows_from_json(tmp_path, monkeypatch):
     executor.loader.build_graph()
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+
+    _migrate_to_head()
 
     from mcp_servers.models import MCPServer
 
@@ -69,6 +94,9 @@ def test_import_is_idempotent(tmp_path, monkeypatch):
     executor.loader.build_graph()
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+
+    _migrate_to_head()
+
     from mcp_servers.models import MCPServer
 
     assert MCPServer.objects.filter(name="demo").count() == 1
@@ -88,6 +116,8 @@ def test_import_normalizes_invalid_legacy_name(tmp_path, monkeypatch, caplog):
     executor = MigrationExecutor(connection)
     with caplog.at_level("WARNING"):
         executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+
+    _migrate_to_head()
 
     from mcp_servers.constants import MCP_NAME_RE
     from mcp_servers.models import MCPServer
@@ -110,6 +140,8 @@ def test_import_skips_unnormalizable_legacy_name(tmp_path, monkeypatch, caplog):
     executor = MigrationExecutor(connection)
     with caplog.at_level("WARNING"):
         executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+
+    _migrate_to_head()
 
     from mcp_servers.models import MCPServer
 
@@ -140,6 +172,8 @@ def test_env_ref_only_for_exact_dollar_brace_match(tmp_path, monkeypatch, caplog
     with caplog.at_level("WARNING"):
         executor.migrate([("mcp_servers", "0002_import_legacy_json")])
 
+    _migrate_to_head()
+
     from mcp_servers.models import MCPServer
 
     obj = MCPServer.objects.get(name="demo")
@@ -161,6 +195,8 @@ def test_missing_file_is_silent(tmp_path, monkeypatch):
     executor.loader.build_graph()
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+
+    _migrate_to_head()
 
     from mcp_servers.models import MCPServer
 
@@ -184,6 +220,15 @@ def test_malformed_json_aborts_migration(tmp_path, monkeypatch, caplog):
 
     assert "Failed to read MCP servers config" in caplog.text
 
+    # 0002's atomic transaction rolled back, so the DB is stuck at 0001 (missing the 0005
+    # columns). TransactionTestCase teardown flushes the DB and fires post_migrate, whose
+    # builtin-row upsert (mcp_servers/apps.py::_on_post_migrate) always runs against the
+    # CURRENT model regardless of test outcome — repoint the config to a not-found path so a
+    # retry of 0002 is the same silent no-op as test_missing_file_is_silent, then migrate to
+    # head so that upsert has every column it expects.
+    monkeypatch.setattr("automation.agent.mcp.conf.settings.SERVERS_CONFIG_FILE", str(tmp_path / "no-longer-here.json"))
+    _migrate_to_head()
+
 
 @pytest.mark.django_db(transaction=True)
 def test_unexpected_parse_error_propagates(tmp_path, monkeypatch):
@@ -201,6 +246,13 @@ def test_unexpected_parse_error_propagates(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         executor.migrate([("mcp_servers", "0002_import_legacy_json")])
 
+    # Same rationale as test_malformed_json_aborts_migration above: bring the schema back to
+    # head before teardown's post_migrate-driven builtin-row upsert runs. Repointing to a
+    # not-found path also sidesteps the monkeypatched model_validate (never reached once
+    # import_legacy_json's path.exists() check short-circuits), so the retry doesn't re-raise.
+    monkeypatch.setattr("automation.agent.mcp.conf.settings.SERVERS_CONFIG_FILE", str(tmp_path / "no-longer-here.json"))
+    _migrate_to_head()
+
 
 @pytest.mark.django_db(transaction=True)
 def test_schema_validation_failure_logs_and_returns(tmp_path, monkeypatch, caplog):
@@ -212,6 +264,8 @@ def test_schema_validation_failure_logs_and_returns(tmp_path, monkeypatch, caplo
     executor = MigrationExecutor(connection)
     with caplog.at_level("ERROR"):
         executor.migrate([("mcp_servers", "0002_import_legacy_json")])
+
+    _migrate_to_head()
 
     from mcp_servers.models import MCPServer
 
@@ -243,6 +297,8 @@ def test_empty_filter_list_normalized_to_none_survives_constraint(tmp_path, monk
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")])
 
+    _migrate_to_head()
+
     from mcp_servers.models import MCPServer
 
     obj = MCPServer.objects.get(name="demo")
@@ -270,6 +326,8 @@ def test_default_fallback_syntax_logs_warning(tmp_path, monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         executor.migrate([("mcp_servers", "0002_import_legacy_json")])
 
+    _migrate_to_head()
+
     from mcp_servers.models import MCPServer
 
     obj = MCPServer.objects.get(name="demo")
@@ -282,8 +340,7 @@ def _rollback_and_seed_placeholder(name: str, *, enabled: bool = True):
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")])
 
-    from mcp_servers.models import MCPServer
-
+    MCPServer = _historical_mcpserver("0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")  # noqa: N806
     MCPServer.objects.all().delete()
     MCPServer.objects.create(name=name, source="builtin", transport="http", url=f"builtin://{name}", enabled=enabled)
 
@@ -293,6 +350,7 @@ def _apply_0004():
     executor.loader.build_graph()
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0004_materialize_builtin_rows")])
+    _migrate_to_head()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -346,14 +404,15 @@ def test_0004_skips_already_materialized_rows(monkeypatch):
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")])
 
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.all().delete()
-    MCPServer.objects.create(
+    Historical = _historical_mcpserver("0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")  # noqa: N806
+    Historical.objects.all().delete()
+    Historical.objects.create(
         name="sentry", source="builtin", transport="http", url="https://my-bridge.internal/mcp", enabled=True
     )
     monkeypatch.setattr("automation.agent.mcp.conf.settings.SENTRY_URL", "http://mcp_sentry:8000/mcp")
     _apply_0004()
+
+    from mcp_servers.models import MCPServer
 
     row = MCPServer.objects.get(name="sentry")
     assert row.url == "https://my-bridge.internal/mcp"  # untouched
@@ -364,8 +423,10 @@ def test_0004_missing_rows_are_not_created():
     executor = MigrationExecutor(connection)
     executor.migrate([("mcp_servers", "0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")])
 
+    Historical = _historical_mcpserver("0003_mcpserver_mcp_tool_filter_items_required_when_mode_set")  # noqa: N806
+    Historical.objects.all().delete()
+    _apply_0004()
+
     from mcp_servers.models import MCPServer
 
-    MCPServer.objects.all().delete()
-    _apply_0004()
     assert MCPServer.objects.count() == 0  # fresh install: the post_migrate upsert seeds instead
