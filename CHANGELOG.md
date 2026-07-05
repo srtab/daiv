@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Security
+
+- Repository access is now authorized per user, mirrored from the git platform. Members only see and act on repositories they can access on GitLab/GitHub: viewing (pickers, search, branch lists, memory, MCP `list_repositories`) requires platform read access, and triggering agent runs, chat, or schedules requires platform write access. Access levels are synced every 15 minutes (configurable via `CODEBASE_REPO_ACCESS_SYNC_CRON`) using one member-list call per repository; a verified platform login (OAuth) is required — invited users who only used login-by-code have no repository access until they connect their GitLab/GitHub account. Admins are exempt. Previously, any authenticated user could enumerate and run the agent against every repository the DAIV bot credential could reach.
+- Activity result downloads are now owner-scoped (previously any authenticated user with a run UUID could download any user's result).
+- Deactivated users are now rejected on the API-key and MCP OAuth bearer paths (previously outstanding keys/tokens kept working).
+- MCP `submit_job` now enforces the same per-user rate limit as the REST jobs and chat endpoints.
+
 ### Added
 
 - Sandbox environments now automatically allow and authenticate their repository's git platform (GitLab/GitHub) for git operations over HTTPS in the sandbox. DAIV injects an `Authorization: Basic` credential at the egress proxy, built from a short-lived token — the same project-scoped ephemeral clone token for GitLab, and a `contents:write` installation token for GitHub — so `git fetch`/clone/push of the repository works without configuring a per-environment host rule. Because DAIV pushes from inside the sandbox, this applies even to **Network Off** environments when a push token exists: the environment is opened solely for its git platform (everything else stays blocked) so publishing always works, while token-less eval/benchmark runs stay fully network-isolated. The rule is applied at runtime (never stored on the environment) and takes precedence over a user-defined rule for the same host.
