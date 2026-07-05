@@ -157,6 +157,28 @@ class MCPServerToggleView(AdminRequiredMixin, View):
         return redirect(reverse("mcp_servers:list"))
 
 
+class MCPServerRefreshToolsView(AdminRequiredMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request, name):
+        obj = get_object_or_404(MCPServer, name=name)
+        result = services.sync_discovered_tools(obj)
+        if result.get("ok"):
+            messages.success(
+                request,
+                _("Refreshed tools for '%(name)s' (%(count)d found).") % {"name": obj.name, "count": result["count"]},
+            )
+        else:
+            messages.error(
+                request,
+                _("Could not refresh tools for '%(name)s': %(error)s")
+                % {"name": obj.name, "error": result.get("error") or _("unknown error")},
+            )
+        if request.POST.get("next") == "edit":
+            return redirect(reverse("mcp_servers:edit", args=[obj.name]))
+        return redirect(reverse("mcp_servers:list"))
+
+
 class MCPServerTestView(AdminRequiredMixin, View):
     http_method_names = ["post"]
 

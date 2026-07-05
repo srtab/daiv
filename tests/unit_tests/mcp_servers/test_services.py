@@ -8,6 +8,14 @@ from mcp_servers.services import build_runtime_servers, discover_tools
 from automation.agent.mcp.schemas import UserMcpServer
 
 
+@pytest.fixture(autouse=True)
+def _no_network_tool_sync():
+    """Override the directory-wide autouse stub (``tests/unit_tests/mcp_servers/conftest.py``)
+    for this module: it patches ``services.sync_discovered_tools`` itself, which this file
+    exercises directly (mocking only the lower-level ``services.test_connection``)."""
+    yield
+
+
 @pytest.mark.django_db
 def test_returns_only_enabled_rows():
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()

@@ -637,3 +637,44 @@ def test_create_form_renders_test_connection_button(client, admin_user):
     assert resp.status_code == 200
     assert b"mcpTestConnection" in resp.content
     assert b"mcp-server-form.js" in resp.content
+
+
+@pytest.mark.django_db
+def test_refresh_tools_denies_member(client, member_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="rf-m", transport="http", url="http://x.test")
+    client.force_login(member_user)
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-m"]))
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_refresh_tools_triggers_sync_and_redirects(client, admin_user, monkeypatch):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="rf-ok", transport="http", url="http://x.test")
+    called = {}
+
+    def fake_sync(server):
+        called["name"] = server.name
+        return {"ok": True, "count": 3}
+
+    monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-ok"]))
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:list")
+    assert called["name"] == "rf-ok"
+
+
+@pytest.mark.django_db
+def test_refresh_tools_next_edit_redirects_to_edit(client, admin_user, monkeypatch):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="rf-edit", transport="http", url="http://x.test")
+    monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": True, "count": 0})
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-edit"]), data={"next": "edit"})
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:edit", args=["rf-edit"])

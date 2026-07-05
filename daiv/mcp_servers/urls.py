@@ -5,6 +5,7 @@ from mcp_servers.views import (
     MCPServerDeleteView,
     MCPServerEditView,
     MCPServerListView,
+    MCPServerRefreshToolsView,
     MCPServerTestView,
     MCPServerToggleView,
 )
@@ -18,4 +19,5 @@ urlpatterns = [
     path("<slug:name>/edit/", MCPServerEditView.as_view(), name="edit"),
     path("<slug:name>/delete/", MCPServerDeleteView.as_view(), name="delete"),
     path("<slug:name>/toggle/", MCPServerToggleView.as_view(), name="toggle"),
+    path("<slug:name>/refresh-tools/", MCPServerRefreshToolsView.as_view(), name="refresh_tools"),
 ]
