@@ -5,7 +5,6 @@ import logging
 import os
 from typing import Any, TypedDict
 
-from django.core.cache import cache
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -14,7 +13,6 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from automation.agent.mcp.connections import build_connection
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
-from mcp_servers.constants import TOOLS_CACHE_KEY, TOOLS_CACHE_TIMEOUT, TOOLS_NEGATIVE_CACHE_TIMEOUT
 from mcp_servers.models import MCPServer
 
 logger = logging.getLogger("daiv.mcp_servers")
@@ -173,49 +171,6 @@ def server_health(server: MCPServer) -> dict[str, Any]:
     return {"ok": True, "reason": None}
 
 
-async def discover_tools(server: MCPServer) -> list[dict[str, Any]]:
-    """Discover tools exposed by a saved server. Returns ``[]`` on handshake
-    failure. Propagates :class:`core.encryption.DecryptionError` — its sole
-    caller, :func:`discover_tools_cached`, catches it and degrades to ``[]``.
-    """
-    payload = {"transport": server.transport, "url": server.url, "headers": server.headers or []}
-    result = await test_connection(payload)
-    if not result.get("ok"):
-        logger.warning("Tool discovery failed for MCP server '%s': %s", server.name, result.get("error"))
-        return []
-    return result["tools"]
-
-
-def discover_tools_cached(server: MCPServer) -> list[dict[str, Any]]:
-    """Cache-backed, exception-safe wrapper around :func:`discover_tools` for
-    the edit view.
-
-    Degrades to ``[]`` on :class:`DecryptionError` (key rotation) so the edit
-    form (its sole caller) never 500s on a key-rotated server. A successful
-    discovery is cached for
-    ``TOOLS_CACHE_TIMEOUT``; an empty/unreachable result is cached only for the
-    shorter ``TOOLS_NEGATIVE_CACHE_TIMEOUT`` so a transient failure is neither
-    pinned for the full TTL nor re-probed (a 5s handshake) on every render.
-
-    The cache key is stamped with ``server.modified`` so any edit (URL, headers,
-    filter, or an enable/disable toggle) bumps the timestamp and transparently
-    orphans the old entry — the next render re-discovers against the new
-    connection instead of serving tools from the pre-edit one.
-    """
-    stamp = int(server.modified.timestamp())
-    cache_key = TOOLS_CACHE_KEY.format(name=server.name, stamp=stamp)
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-    try:
-        tools = async_to_sync(discover_tools)(server)
-    except DecryptionError:
-        logger.warning("Cannot discover tools for %r: header decryption failed.", server.name)
-        return []
-    cache.set(cache_key, tools, TOOLS_CACHE_TIMEOUT if tools else TOOLS_NEGATIVE_CACHE_TIMEOUT)
-    return tools
-
-
 def exposed_tools(server: MCPServer) -> list[dict[str, Any]]:
     """The tools ``server`` currently exposes to the agent: its persisted
     discovered catalog passed through the configured allow/block filter. Pure
@@ -233,12 +188,12 @@ def sync_discovered_tools(server: MCPServer) -> dict[str, Any]:
     """Probe ``server`` and persist its tool catalog. The single place that
     touches the network on an admin's behalf.
 
-    Wraps ``test_connection`` (not ``discover_tools``) so a server that
-    genuinely exposes zero tools (``ok=True, tools=[]``) is recorded as synced,
-    while an unreachable server (``ok=False``) or undecryptable headers leave
-    the previous snapshot and timestamp untouched — a transient failure never
-    wipes known-good data. Returns ``{"ok": True, "count": n}`` on success or
-    ``{"ok": False, "error": str}`` otherwise."""
+    Wraps ``test_connection`` directly so a server that genuinely exposes zero
+    tools (``ok=True, tools=[]``) is recorded as synced, while an unreachable
+    server (``ok=False``) or undecryptable headers leave the previous snapshot
+    and timestamp untouched — a transient failure never wipes known-good data.
+    Returns ``{"ok": True, "count": n}`` on success or ``{"ok": False, "error":
+    str}`` otherwise."""
     try:
         payload = {"transport": server.transport, "url": server.url, "headers": server.headers or []}
     except DecryptionError:

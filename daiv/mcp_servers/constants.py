@@ -10,9 +10,3 @@ MCP_NAME_RE: re.Pattern[str] = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 # Reserved so a server can't be named after a top-level mcp_servers action/route
 # ("new", "test") — avoids user confusion even though no current route collides on these.
 RESERVED_MCP_NAMES: frozenset[str] = frozenset({"new", "test"})
-
-TOOLS_CACHE_KEY = "mcp_server:tools:{name}:{stamp}"
-TOOLS_CACHE_TIMEOUT = 60  # seconds
-# Empty/unreachable discoveries are cached only briefly: long enough to avoid re-running a
-# 5s handshake on every page render, short enough that a recovered server reappears quickly.
-TOOLS_NEGATIVE_CACHE_TIMEOUT = 10  # seconds

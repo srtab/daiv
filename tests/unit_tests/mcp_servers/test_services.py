@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from mcp_servers import services
 from mcp_servers.models import MCPServer
-from mcp_servers.services import build_runtime_servers, discover_tools
+from mcp_servers.services import build_runtime_servers
 
 from automation.agent.mcp.schemas import UserMcpServer
 
@@ -236,43 +236,6 @@ async def test_test_connection_reports_blank_exception_with_class_name(monkeypat
     assert "_SilentError" in result["error"]
 
 
-async def test_discover_tools_returns_empty_on_failure(monkeypatch, caplog):
-    from mcp_servers.models import MCPServer
-    from mcp_servers.services import discover_tools
-
-    async def _fail(payload):
-        return {"ok": False, "error": "boom"}
-
-    monkeypatch.setattr("mcp_servers.services.test_connection", _fail)
-    server = MCPServer(name="x", transport=MCPServer.Transport.HTTP, url="http://x.test")
-    with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
-        tools = await discover_tools(server)
-    assert tools == []
-    assert "Tool discovery failed" in caplog.text
-
-
-async def test_discover_tools_propagates_decryption_error(monkeypatch):
-    """Propagated so views can show a key-rotation error instead of 500-ing."""
-    from mcp_servers.services import discover_tools
-
-    from core.encryption import DecryptionError
-
-    class _Stub:
-        name = "broken"
-        transport = "http"
-        url = "http://broken.test"
-
-        def is_builtin(self) -> bool:
-            return False
-
-        @property
-        def headers(self):
-            raise DecryptionError("key rotated")
-
-    with pytest.raises(DecryptionError):
-        await discover_tools(_Stub())
-
-
 @pytest.mark.django_db
 def test_server_health_ok_for_resolved_env_ref(monkeypatch):
     from mcp_servers.models import MCPServer
@@ -394,143 +357,6 @@ def test_build_runtime_servers_drops_header_with_unknown_mode(caplog):
         [(_, dto)] = build_runtime_servers()
     assert dto.headers == {"X-Keep": "kept"}
     assert "unrecognized mode" in caplog.text
-
-
-async def test_discover_tools_probes_builtin_rows(monkeypatch):
-    """Built-in rows hold real URLs now — discovery must probe them like any custom row."""
-    called = {}
-
-    async def fake_test_connection(payload):
-        called["url"] = payload["url"]
-        return {"ok": True, "tools": [{"name": "t", "description": ""}]}
-
-    monkeypatch.setattr("mcp_servers.services.test_connection", fake_test_connection)
-    server = MCPServer(
-        name="bi", source=MCPServer.Source.BUILTIN, transport=MCPServer.Transport.HTTP, url="https://mcp.sentry.dev/mcp"
-    )
-    tools = await discover_tools(server)
-    assert called["url"] == "https://mcp.sentry.dev/mcp"
-    assert tools == [{"name": "t", "description": ""}]
-
-
-@pytest.mark.django_db
-def test_discover_tools_cached_degrades_on_decryption_error(monkeypatch):
-    """The cache wrapper must swallow a DecryptionError so views never 500."""
-    from django.core.cache import cache
-
-    from mcp_servers.models import MCPServer
-    from mcp_servers.services import discover_tools_cached
-
-    from core.encryption import DecryptionError
-
-    cache.clear()
-    server = MCPServer.objects.create(name="rot", transport=MCPServer.Transport.HTTP, url="http://rot.test")
-
-    async def _boom(srv):
-        raise DecryptionError("key rotated")
-
-    monkeypatch.setattr("mcp_servers.services.discover_tools", _boom)
-    assert discover_tools_cached(server) == []
-
-
-@pytest.mark.django_db
-def test_discover_tools_cached_negative_caches_empty_with_short_ttl(monkeypatch):
-    """An empty/unreachable result is cached with the short negative TTL (not the full
-    success TTL): a broken server isn't re-probed every render, nor pinned empty for 60s."""
-    from django.core.cache import cache
-
-    from mcp_servers import services
-    from mcp_servers.constants import TOOLS_CACHE_TIMEOUT, TOOLS_NEGATIVE_CACHE_TIMEOUT
-    from mcp_servers.models import MCPServer
-
-    cache.clear()
-    server = MCPServer.objects.create(name="flap", transport=MCPServer.Transport.HTTP, url="http://flap.test")
-
-    captured: dict = {}
-    real_set = services.cache.set
-
-    def spy_set(key, value, timeout=None, **kw):
-        captured["timeout"] = timeout
-        return real_set(key, value, timeout, **kw)
-
-    async def _empty(srv):
-        return []
-
-    monkeypatch.setattr("mcp_servers.services.discover_tools", _empty)
-    monkeypatch.setattr(services.cache, "set", spy_set)
-
-    assert services.discover_tools_cached(server) == []
-    assert captured["timeout"] == TOOLS_NEGATIVE_CACHE_TIMEOUT
-    assert TOOLS_NEGATIVE_CACHE_TIMEOUT < TOOLS_CACHE_TIMEOUT
-
-
-@pytest.mark.django_db
-def test_discover_tools_cached_caches_success_with_full_ttl(monkeypatch):
-    """A successful discovery is cached for the full TTL."""
-    from django.core.cache import cache
-
-    from mcp_servers import services
-    from mcp_servers.constants import TOOLS_CACHE_TIMEOUT
-    from mcp_servers.models import MCPServer
-
-    cache.clear()
-    server = MCPServer.objects.create(name="ok", transport=MCPServer.Transport.HTTP, url="http://ok.test")
-
-    captured: dict = {}
-    real_set = services.cache.set
-
-    def spy_set(key, value, timeout=None, **kw):
-        captured["timeout"] = timeout
-        return real_set(key, value, timeout, **kw)
-
-    async def _ok(srv):
-        return [{"name": "t", "description": ""}]
-
-    monkeypatch.setattr("mcp_servers.services.discover_tools", _ok)
-    monkeypatch.setattr(services.cache, "set", spy_set)
-
-    assert services.discover_tools_cached(server) == [{"name": "t", "description": ""}]
-    assert captured["timeout"] == TOOLS_CACHE_TIMEOUT
-
-
-@pytest.mark.django_db
-def test_discover_tools_cached_reprobes_after_server_modified(monkeypatch):
-    """The cache key embeds ``server.modified``, so a save (which bumps ``modified``)
-    invalidates the snapshot and the next render re-probes instead of serving stale
-    tools for the full TTL."""
-    from datetime import timedelta
-
-    from django.core.cache import cache
-    from django.utils import timezone
-
-    from mcp_servers import services
-    from mcp_servers.models import MCPServer
-
-    cache.clear()
-    server = MCPServer.objects.create(name="bust", transport=MCPServer.Transport.HTTP, url="http://bust.test")
-
-    calls = {"n": 0}
-
-    async def _counting(srv):
-        calls["n"] += 1
-        return [{"name": f"t{calls['n']}", "description": ""}]
-
-    monkeypatch.setattr("mcp_servers.services.discover_tools", _counting)
-
-    first = services.discover_tools_cached(server)
-    assert calls["n"] == 1
-    # Unchanged ``modified`` → served from cache, no re-probe.
-    assert services.discover_tools_cached(server) == first
-    assert calls["n"] == 1
-
-    # Bump ``modified`` the way a save does, without a real-time sleep. ``.update()``
-    # bypasses the AutoLastModifiedField so we set the stamp directly.
-    MCPServer.objects.filter(pk=server.pk).update(modified=timezone.now() + timedelta(seconds=5))
-    server.refresh_from_db()
-
-    second = services.discover_tools_cached(server)
-    assert calls["n"] == 2
-    assert second == [{"name": "t2", "description": ""}]
 
 
 @pytest.mark.django_db
