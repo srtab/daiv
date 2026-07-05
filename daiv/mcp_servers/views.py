@@ -30,6 +30,10 @@ class MCPServerListView(AdminRequiredMixin, TemplateView):
         builtin = list(MCPServer.objects.filter(source=MCPServer.Source.BUILTIN))
         for s in [*custom, *builtin]:
             s.health = services.server_health(s) if s.enabled else {"ok": True, "reason": None}
+            s.exposed = services.exposed_tools(s)
+            s.filtered_out = (
+                len(s.discovered_tools) - len(s.exposed) if s.tool_filter_mode != MCPServer.FilterMode.NONE else 0
+            )
         ctx["custom_servers"] = custom
         ctx["builtin_servers"] = builtin
         return ctx

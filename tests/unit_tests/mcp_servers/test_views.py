@@ -687,3 +687,40 @@ def test_refresh_tools_reports_sync_failure(client, admin_user, monkeypatch):
     assert resp.url == reverse("mcp_servers:list")
     stored = list(get_messages(resp.wsgi_request))
     assert any(m.level_tag == "error" for m in stored)
+
+
+@pytest.mark.django_db
+def test_list_renders_exposed_tool_pills(client, admin_user):
+    from django.utils import timezone
+
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="withtools",
+        transport="http",
+        url="http://x.test",
+        enabled=True,
+        discovered_tools=[
+            {"name": "create_pr", "description": "", "read_only": False},
+            {"name": "get_file", "description": "", "read_only": True},
+        ],
+        tools_synced_at=timezone.now(),
+    )
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"create_pr" in resp.content
+    assert b"get_file" in resp.content
+    assert b"mcp-tool-pill" in resp.content
+
+
+@pytest.mark.django_db
+def test_list_shows_not_synced_when_never_synced(client, admin_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(name="nosync", transport="http", url="http://x.test", enabled=True)
+    client.force_login(admin_user)
+    resp = client.get(reverse("mcp_servers:list"))
+    assert b"not synced yet" in resp.content.lower()

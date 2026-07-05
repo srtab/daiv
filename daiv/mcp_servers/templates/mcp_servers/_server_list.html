@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n icon_tags %}
 {% comment %}Renders one section of the server list. Params: `servers` (queryset) and
    `empty_message` (str). The Delete action is derived from the model
    (`is_builtin` rows can't be deleted), not from which section renders it.{% endcomment %}
@@ -24,8 +24,36 @@
                 {% endif %}
             </div>
             <div class="mt-1 truncate text-sm text-gray-400">{{ s.url }}</div>
+            <div class="mt-2">
+                {% if s.tools_synced_at %}
+                    {% if s.exposed %}
+                    <div class="flex flex-wrap gap-1.5">
+                        {% for t in s.exposed %}
+                        <span class="mcp-tool-pill {% if t.read_only is True %}mcp-tool-pill--ro{% elif t.read_only is False %}mcp-tool-pill--rw{% endif %}"
+                              {% if t.description %}title="{{ t.description }}"{% endif %}>{{ t.name }}</span>
+                        {% endfor %}
+                    </div>
+                    <p class="mt-1.5 text-xs text-gray-500">
+                        {% blocktranslate count counter=s.exposed|length %}{{ counter }} tool exposed{% plural %}{{ counter }} tools exposed{% endblocktranslate %}
+                        {% if s.filtered_out %} · {% blocktranslate count counter=s.filtered_out %}{{ counter }} filtered out{% plural %}{{ counter }} filtered out{% endblocktranslate %}{% endif %}
+                        · {% blocktranslate with when=s.tools_synced_at|timesince %}synced {{ when }} ago{% endblocktranslate %}
+                    </p>
+                    {% else %}
+                    <p class="text-xs text-gray-500">{% translate "No tools exposed" %}</p>
+                    {% endif %}
+                {% else %}
+                <p class="text-xs text-gray-500">{% translate "Tools not synced yet" %}</p>
+                {% endif %}
+            </div>
         </div>
         <div class="flex shrink-0 items-center gap-3">
+            <form method="post" action="{% url 'mcp_servers:refresh_tools' s.name %}">
+                {% csrf_token %}
+                <button type="submit" title="{% translate 'Refresh tools' %}"
+                        class="rounded-lg border border-white/[0.06] bg-white/[0.03] p-1.5 text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                    {% icon "arrow-path" "h-4 w-4" %}
+                </button>
+            </form>
             <form method="post" action="{% url 'mcp_servers:toggle' s.name %}">
                 {% csrf_token %}
                 <button type="submit"
