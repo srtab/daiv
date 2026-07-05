@@ -483,9 +483,12 @@ def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
 
     MCPServer.objects.create(name="synced", transport="http", url="http://old.test")
     called = {}
-    monkeypatch.setattr(
-        "mcp_servers.views.services.sync_discovered_tools", lambda server: called.setdefault("name", server.name)
-    )
+
+    def fake_sync(server):
+        called["name"] = server.name
+        return {"ok": True, "count": 0}
+
+    monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
     client.force_login(admin_user)
     resp = client.post(
         reverse("mcp_servers:edit", args=["synced"]),
@@ -504,6 +507,70 @@ def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
     )
     assert resp.status_code == 302
     assert called["name"] == "synced"
+
+
+@pytest.mark.django_db
+def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
+    from mcp_servers.models import MCPServer
+
+    called = {}
+
+    def fake_sync(server):
+        called["name"] = server.name
+        return {"ok": True, "count": 0}
+
+    monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:create"),
+        data={
+            "name": "synced-create",
+            "transport": "http",
+            "url": "http://from-ui.test/mcp",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+    assert MCPServer.objects.filter(name="synced-create").exists()
+    assert called["name"] == "synced-create"
+
+
+@pytest.mark.django_db
+def test_edit_post_warns_when_sync_fails(client, admin_user, monkeypatch):
+    """A failed on-save probe adds a soft warning flash but the save still succeeds."""
+    from django.contrib.messages import get_messages
+
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="warned", transport="http", url="http://old.test")
+    monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": False, "error": "boom"})
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:edit", args=["warned"]),
+        data={
+            "name": "warned",
+            "transport": "http",
+            "url": "http://new.test",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302  # save still succeeded
+    obj = MCPServer.objects.get(name="warned")
+    assert obj.url == "http://new.test"  # the edit persisted
+    msgs = [(m.level_tag, str(m)) for m in get_messages(resp.wsgi_request)]
+    assert any(tag == "warning" and "boom" in text for tag, text in msgs)
 
 
 @pytest.mark.django_db

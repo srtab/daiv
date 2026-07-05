@@ -55,8 +55,14 @@ class MCPServerCreateView(AdminRequiredMixin, View):
         obj.created_by = request.user
         obj.headers = build_headers_from_formset(formset, existing=None)
         obj.save()
-        services.sync_discovered_tools(obj)
+        result = services.sync_discovered_tools(obj)
         messages.success(request, _("MCP server '%(name)s' created.") % {"name": obj.name})
+        if not result.get("ok"):
+            messages.warning(
+                request,
+                _("'%(name)s' was saved, but its tools couldn't be refreshed: %(error)s")
+                % {"name": obj.name, "error": result.get("error") or _("unknown error")},
+            )
         return redirect(reverse("mcp_servers:list"))
 
     def _render(self, request, form, formset, *, status=200):
@@ -115,8 +121,14 @@ class MCPServerEditView(AdminRequiredMixin, View):
         saved = form.save(commit=False)
         saved.headers = build_headers_from_formset(formset, existing=existing_headers)
         saved.save()
-        services.sync_discovered_tools(saved)
+        result = services.sync_discovered_tools(saved)
         messages.success(request, _("MCP server '%(name)s' updated.") % {"name": obj.name})
+        if not result.get("ok"):
+            messages.warning(
+                request,
+                _("'%(name)s' was saved, but its tools couldn't be refreshed: %(error)s")
+                % {"name": obj.name, "error": result.get("error") or _("unknown error")},
+            )
         return redirect(reverse("mcp_servers:list"))
 
     def _render(self, request, obj, form, formset, *, selected, headers_locked=False, status=200):
