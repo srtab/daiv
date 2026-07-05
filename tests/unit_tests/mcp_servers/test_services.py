@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from mcp_servers import services
 from mcp_servers.models import MCPServer
 from mcp_servers.services import build_runtime_servers, discover_tools
 
@@ -522,3 +523,79 @@ def test_discover_tools_cached_reprobes_after_server_modified(monkeypatch):
     second = services.discover_tools_cached(server)
     assert calls["n"] == 2
     assert second == [{"name": "t2", "description": ""}]
+
+
+@pytest.mark.django_db
+def test_exposed_tools_none_returns_all():
+    s = MCPServer.objects.create(
+        name="ex-none",
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        tool_filter_mode=MCPServer.FilterMode.NONE,
+        discovered_tools=[
+            {"name": "a", "description": "", "read_only": None},
+            {"name": "b", "description": "", "read_only": True},
+        ],
+    )
+    assert [t["name"] for t in services.exposed_tools(s)] == ["a", "b"]
+
+
+@pytest.mark.django_db
+def test_exposed_tools_allow_keeps_only_listed():
+    s = MCPServer.objects.create(
+        name="ex-allow",
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        tool_filter_mode=MCPServer.FilterMode.ALLOW,
+        tool_filter_items=["a"],
+        discovered_tools=[{"name": "a", "description": ""}, {"name": "b", "description": ""}],
+    )
+    assert [t["name"] for t in services.exposed_tools(s)] == ["a"]
+
+
+@pytest.mark.django_db
+def test_exposed_tools_block_drops_listed():
+    s = MCPServer.objects.create(
+        name="ex-block",
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        tool_filter_mode=MCPServer.FilterMode.BLOCK,
+        tool_filter_items=["a"],
+        discovered_tools=[{"name": "a", "description": ""}, {"name": "b", "description": ""}],
+    )
+    assert [t["name"] for t in services.exposed_tools(s)] == ["b"]
+
+
+@pytest.mark.django_db
+def test_sync_discovered_tools_ok_persists_snapshot(monkeypatch):
+    s = MCPServer.objects.create(name="sync-ok", transport=MCPServer.Transport.HTTP, url="http://x")
+
+    async def fake_test_connection(payload):
+        return {"ok": True, "tools": [{"name": "t", "description": "d", "read_only": True}]}
+
+    monkeypatch.setattr(services, "test_connection", fake_test_connection)
+    result = services.sync_discovered_tools(s)
+    s.refresh_from_db()
+    assert result == {"ok": True, "count": 1}
+    assert s.discovered_tools == [{"name": "t", "description": "d", "read_only": True}]
+    assert s.tools_synced_at is not None
+
+
+@pytest.mark.django_db
+def test_sync_discovered_tools_failure_preserves_prior_snapshot(monkeypatch):
+    s = MCPServer.objects.create(
+        name="sync-fail",
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        discovered_tools=[{"name": "old", "description": ""}],
+    )
+
+    async def fake_test_connection(payload):
+        return {"ok": False, "error": "boom"}
+
+    monkeypatch.setattr(services, "test_connection", fake_test_connection)
+    result = services.sync_discovered_tools(s)
+    s.refresh_from_db()
+    assert result["ok"] is False
+    assert s.discovered_tools == [{"name": "old", "description": ""}]  # untouched
+    assert s.tools_synced_at is None  # not stamped on failure

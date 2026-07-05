@@ -6,6 +6,7 @@ import os
 from typing import Any, TypedDict
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -213,3 +214,40 @@ def discover_tools_cached(server: MCPServer) -> list[dict[str, Any]]:
         return []
     cache.set(cache_key, tools, TOOLS_CACHE_TIMEOUT if tools else TOOLS_NEGATIVE_CACHE_TIMEOUT)
     return tools
+
+
+def exposed_tools(server: MCPServer) -> list[dict[str, Any]]:
+    """The tools ``server`` currently exposes to the agent: its persisted
+    discovered catalog passed through the configured allow/block filter. Pure
+    and network-free — reads only ``discovered_tools``. Mirrors the runtime
+    filter (``automation.agent.mcp.toolkits._apply_tool_filters``) via the
+    shared ``ToolFilter.allows`` predicate so the two cannot drift."""
+    discovered = server.discovered_tools or []
+    if server.tool_filter_mode == MCPServer.FilterMode.NONE:
+        return discovered
+    tool_filter = ToolFilter(mode=server.tool_filter_mode, items=list(server.tool_filter_items or []))
+    return [tool for tool in discovered if tool_filter.allows(tool.get("name", ""))]
+
+
+def sync_discovered_tools(server: MCPServer) -> dict[str, Any]:
+    """Probe ``server`` and persist its tool catalog. The single place that
+    touches the network on an admin's behalf.
+
+    Wraps ``test_connection`` (not ``discover_tools``) so a server that
+    genuinely exposes zero tools (``ok=True, tools=[]``) is recorded as synced,
+    while an unreachable server (``ok=False``) or undecryptable headers leave
+    the previous snapshot and timestamp untouched — a transient failure never
+    wipes known-good data. Returns ``{"ok": True, "count": n}`` on success or
+    ``{"ok": False, "error": str}`` otherwise."""
+    try:
+        payload = {"transport": server.transport, "url": server.url, "headers": server.headers or []}
+    except DecryptionError:
+        logger.warning("Cannot sync tools for %r: header decryption failed.", server.name)
+        return {"ok": False, "error": "headers cannot be decrypted"}
+    result = async_to_sync(test_connection)(payload)
+    if not result.get("ok"):
+        return {"ok": False, "error": result.get("error")}
+    server.discovered_tools = result["tools"]
+    server.tools_synced_at = timezone.now()
+    server.save(update_fields=["discovered_tools", "tools_synced_at", "modified"])
+    return {"ok": True, "count": len(result["tools"])}
