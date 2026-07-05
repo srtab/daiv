@@ -378,6 +378,7 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
         ("post", "delete", {"name": "demo"}),
         ("post", "toggle", {"name": "demo"}),
         ("post", "test", {}),
+        ("post", "refresh_tools", {"name": "demo"}),
     ],
 )
 def test_member_forbidden_across_all_endpoints(client, member_user, method, url_name, kwargs):
@@ -640,16 +641,6 @@ def test_create_form_renders_test_connection_button(client, admin_user):
 
 
 @pytest.mark.django_db
-def test_refresh_tools_denies_member(client, member_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="rf-m", transport="http", url="http://x.test")
-    client.force_login(member_user)
-    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-m"]))
-    assert resp.status_code == 403
-
-
-@pytest.mark.django_db
 def test_refresh_tools_triggers_sync_and_redirects(client, admin_user, monkeypatch):
     from mcp_servers.models import MCPServer
 
@@ -678,3 +669,21 @@ def test_refresh_tools_next_edit_redirects_to_edit(client, admin_user, monkeypat
     resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-edit"]), data={"next": "edit"})
     assert resp.status_code == 302
     assert resp.url == reverse("mcp_servers:edit", args=["rf-edit"])
+
+
+@pytest.mark.django_db
+def test_refresh_tools_reports_sync_failure(client, admin_user, monkeypatch):
+    """A failed sync (``ok=False``) flashes an error and still redirects to the list
+    without crashing — exercises the view's ``messages.error`` branch."""
+    from django.contrib.messages import get_messages
+
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="rf-bad", transport="http", url="http://x.test")
+    monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": False, "error": "boom"})
+    client.force_login(admin_user)
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-bad"]))
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:list")
+    stored = list(get_messages(resp.wsgi_request))
+    assert any(m.level_tag == "error" for m in stored)
