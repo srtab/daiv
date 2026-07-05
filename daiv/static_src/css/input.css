@@ -128,18 +128,20 @@ main:has(.chat-shell) {
     @apply bg-amber-900/40 text-amber-300;
   }
 
-  /* Compact name pills for the exposed-tools list on the servers page. Read/write
-     coloring mirrors .mcp-tool-row__pill on the edit form. */
+  /* Compact name pills for the exposed-tools list on the servers page. The body
+     stays neutral gray so a row of pills never competes with the emerald "Enabled"
+     / amber "Broken" status badges above it; read/write is a faint border tint only
+     (the edit form carries the explicit "read-only"/"writable" labels). */
   .mcp-tool-pill {
     @apply inline-flex items-center rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-mono text-xs text-gray-300;
   }
 
   .mcp-tool-pill--ro {
-    @apply border-emerald-900/40 bg-emerald-900/20 text-emerald-300;
+    @apply border-emerald-500/25 bg-emerald-500/[0.04];
   }
 
   .mcp-tool-pill--rw {
-    @apply border-amber-900/40 bg-amber-900/20 text-amber-300;
+    @apply border-amber-500/25 bg-amber-500/[0.04];
   }
 }
 

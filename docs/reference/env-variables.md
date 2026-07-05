@@ -300,7 +300,7 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 
 | Variable                        | Description                                                    | Default                        | Example |
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
-| `MCP_SERVERS_CONFIG_FILE`       | **Deprecated.** Servers are managed at `/dashboard/mcp-servers/`; a set value only triggers a startup warning. | *(none)*                       | `/path/to/mcp.json` |
+| `MCP_SERVERS_CONFIG_FILE`       | **Deprecated.** Servers are managed at `/dashboard/mcp-servers/`; a set value only triggers a warning when migrations run (every web-container start). | *(none)*                       | `/path/to/mcp.json` |
 | `MCP_SENTRY_URL`                | **Deprecated and ignored.** The `sentry` server row is seeded with the official remote endpoint; this var is read at migrate time only to convert a pre-existing dashboard-managed placeholder row (a no-op on a normal upgrade). Manage the URL at `/dashboard/mcp-servers/`. | `http://mcp_sentry:8000/mcp`   | — |
 | `MCP_CONTEXT7_URL`              | **Deprecated and ignored.** The `context7` server row is seeded with the official remote endpoint; this var is read at migrate time only to convert a pre-existing dashboard-managed placeholder row (a no-op on a normal upgrade). Manage the URL at `/dashboard/mcp-servers/`. | `http://mcp_context7:8000/mcp` | — |
 | `MCP_TOOL_LOAD_TIMEOUT`         | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30` | `10` |

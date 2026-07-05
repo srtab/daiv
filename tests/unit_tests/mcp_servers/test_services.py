@@ -269,6 +269,26 @@ def test_server_health_flags_missing_env_ref(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_server_health_flags_unexpanded_env_ref_in_literal():
+    """A legacy header imported as a literal that still contains a ``${...}`` reference
+    (migration 0002 can't split ``"Bearer ${TOKEN}"``) will never expand at runtime.
+    ``server_health`` must flag it rather than reporting ok=True — otherwise the list-view
+    badge lies while the agent silently runs without that server's auth header."""
+    from mcp_servers.models import MCPServer
+    from mcp_servers.services import server_health
+
+    s = MCPServer.objects.create(
+        name="legacy-lit",
+        transport=MCPServer.Transport.HTTP,
+        url="http://legacy.test",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "Bearer ${SENTRY_TOKEN}"}],
+    )
+    health = server_health(s)
+    assert health["ok"] is False
+    assert "Authorization" in health["reason"]
+
+
+@pytest.mark.django_db
 def test_server_health_flags_undecryptable_headers():
     from mcp_servers.models import MCPServer
     from mcp_servers.services import server_health
@@ -341,22 +361,27 @@ def test_build_client_warns_on_missing_env_ref(caplog, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_build_runtime_servers_drops_header_with_unknown_mode(caplog):
-    """An unrecognized header mode is dropped with a warning, never silently kept."""
+@pytest.mark.parametrize(
+    ("bad_header", "expected_log"),
+    [
+        ({"name": "X-Weird", "mode": "bogus", "value": "v"}, "unrecognized mode"),
+        ({"name": "", "mode": "literal", "value": "orphan"}, "no name"),
+    ],
+)
+def test_build_runtime_servers_drops_bad_header_with_warning(bad_header, expected_log, caplog):
+    """A malformed header — an unrecognized mode, or no name (both reachable only via a raw DB
+    write) — is dropped loudly, never silently kept."""
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
         name="srv",
         transport=MCPServer.Transport.HTTP,
         url="http://srv",
-        headers=[
-            {"name": "X-Keep", "mode": "literal", "value": "kept"},
-            {"name": "X-Weird", "mode": "bogus", "value": "v"},
-        ],
+        headers=[{"name": "X-Keep", "mode": "literal", "value": "kept"}, bad_header],
     )
     with caplog.at_level("WARNING", logger="daiv.mcp_servers"):
         [(_, dto)] = build_runtime_servers()
     assert dto.headers == {"X-Keep": "kept"}
-    assert "unrecognized mode" in caplog.text
+    assert expected_log in caplog.text
 
 
 @pytest.mark.django_db
@@ -433,3 +458,57 @@ def test_sync_discovered_tools_failure_preserves_prior_snapshot(monkeypatch):
     assert result["ok"] is False
     assert s.discovered_tools == [{"name": "old", "description": ""}]  # untouched
     assert s.tools_synced_at is None  # not stamped on failure
+
+
+@pytest.mark.django_db
+def test_sync_discovered_tools_ok_empty_clears_prior_snapshot(monkeypatch):
+    """A server that genuinely exposes zero tools (``ok=True, tools=[]``) must be *recorded*
+    as synced — clearing a stale snapshot and stamping the timestamp. This is the axis that
+    distinguishes 'recorded zero' from 'preserved on failure'; conflating empty-with-failure
+    would leave the admin UI showing a stale catalog forever."""
+    s = MCPServer.objects.create(
+        name="sync-empty",
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        discovered_tools=[{"name": "old", "description": ""}],
+    )
+
+    async def fake_test_connection(payload):
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr(services, "test_connection", fake_test_connection)
+    result = services.sync_discovered_tools(s)
+    s.refresh_from_db()
+    assert result == {"ok": True, "count": 0}
+    assert s.discovered_tools == []  # stale snapshot cleared, not preserved
+    assert s.tools_synced_at is not None  # genuinely-empty sync is still a sync
+
+
+@pytest.mark.django_db
+def test_sync_discovered_tools_decryption_error_preserves_snapshot(monkeypatch):
+    """If a server's headers can't be decrypted (e.g. key rotation), sync must return an
+    error without probing the network or touching the known-good snapshot — never a 500."""
+    s = MCPServer.objects.create(
+        name="sync-dec",
+        transport=MCPServer.Transport.HTTP,
+        url="http://x",
+        headers=[{"name": "X", "mode": "literal", "value": "secret"}],
+        discovered_tools=[{"name": "old", "description": ""}],
+    )
+    MCPServer.objects.filter(pk=s.pk).update(_headers_encrypted="not-a-fernet-token")
+    s.refresh_from_db()
+
+    probed = False
+
+    async def fake_test_connection(payload):
+        nonlocal probed
+        probed = True
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr(services, "test_connection", fake_test_connection)
+    result = services.sync_discovered_tools(s)
+    s.refresh_from_db()
+    assert result == {"ok": False, "error": "headers cannot be decrypted"}
+    assert probed is False  # never reached the network probe
+    assert s.discovered_tools == [{"name": "old", "description": ""}]  # untouched
+    assert s.tools_synced_at is None

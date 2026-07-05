@@ -38,6 +38,14 @@ def _convert_headers(name: str, raw_headers: dict | None) -> list[dict]:
     out: list[dict] = []
     for header_name, value in raw_headers.items():
         if not isinstance(value, str):
+            # Every other lossy path in this one-shot import warns; a non-string header value
+            # (number/object in the legacy JSON) can't be stored, so drop it loudly too.
+            logger.warning(
+                "MCP server %r header %r has a non-string value (%s); dropping it during import.",
+                name,
+                header_name,
+                type(value).__name__,
+            )
             continue
         # Mixed strings like "Bearer ${TOKEN}" stay literal: the new model can't preserve the "Bearer " prefix.
         match = _ENV_REF_FULL_RE.match(value)

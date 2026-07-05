@@ -188,6 +188,63 @@ class TestMCPToolkitGetTools:
 
         assert captured.get("tool_name_prefix") is True
 
+    async def test_broken_tool_prefix_on_filtered_server_logs_loudly(self, monkeypatch, caplog):
+        """A filtered server that returns tools NOT carrying its ``"{server}_"`` prefix means the
+        tool_name_prefix contract regressed — its allow/block rules silently no-op (a fail-open on a
+        security boundary). That must be logged loudly."""
+        unprefixed = MagicMock()
+        unprefixed.name = "search_issues"  # no "sentry_" prefix → prefix scheme broke
+        unprefixed.tags = []
+        unprefixed.metadata = {}
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.toolkits.build_connections_and_filters",
+            lambda user_servers: (
+                {"sentry": {"url": "http://x/mcp"}},
+                {"sentry": ToolFilter(mode="allow", items=["search_issues"])},
+            ),
+        )
+
+        def _client_factory(connections, **kwargs):
+            client = MagicMock()
+            client.get_tools = AsyncMock(return_value=[unprefixed])
+            return client
+
+        with (
+            patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory),
+            caplog.at_level("ERROR", logger="daiv.tools"),
+        ):
+            await MCPToolkit.get_tools()
+
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+        assert "sentry" in caplog.text
+
+    async def test_down_filtered_server_does_not_log_prefix_regression(self, monkeypatch, caplog):
+        """A filtered server that returns NO tools (down / timed out / empty) must NOT trip the
+        prefix-regression error — that would cry wolf on routine outages."""
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr(
+            "automation.agent.mcp.toolkits.build_connections_and_filters",
+            lambda user_servers: (
+                {"sentry": {"url": "http://x/mcp"}},
+                {"sentry": ToolFilter(mode="allow", items=["search_issues"])},
+            ),
+        )
+
+        def _client_factory(connections, **kwargs):
+            client = MagicMock()
+            client.get_tools = AsyncMock(return_value=[])
+            return client
+
+        with (
+            patch("automation.agent.mcp.toolkits.MultiServerMCPClient", side_effect=_client_factory),
+            caplog.at_level("ERROR", logger="daiv.tools"),
+        ):
+            result = await MCPToolkit.get_tools()
+
+        assert result == []
+        assert not any(r.levelname == "ERROR" for r in caplog.records)
+
     async def test_passes_servers_to_connection_builder(self, monkeypatch):
         captured = {}
 

@@ -39,8 +39,10 @@ class UserMcpServer(BaseModel):
     """Runtime DTO for an MCP server the toolkit consumes.
 
     Produced from DB rows by ``mcp_servers.services.build_runtime_servers`` (built-in
-    and custom alike) and also used to parse the legacy Claude Code ``.mcp.json``
-    config-file format during the one-shot 0002 import migration."""
+    and custom alike) and also used to parse the legacy DAIV MCP-servers JSON config
+    (``MCP_SERVERS_CONFIG_FILE``) during the one-shot 0002 import migration. That format
+    shares only the ``mcpServers`` top-level key with Claude Code's ``.mcp.json`` — it has
+    no stdio ``command``/``args`` support (``type`` is HTTP/SSE only)."""
 
     model_config = ConfigDict(populate_by_name=True)
 

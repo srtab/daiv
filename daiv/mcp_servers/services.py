@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from django.utils import timezone
 
@@ -23,12 +23,17 @@ _TEST_CONNECTION_TIMEOUT = 5.0  # seconds
 class HeaderEntry(TypedDict, total=False):
     """Stored shape of a single header in ``MCPServer.headers``.
 
-    ``mode`` is ``"literal"`` (``value`` used verbatim) or ``"env_ref"``
-    (``value`` is the name of an env var resolved at runtime).
+    ``mode`` is ``"literal"`` (``value`` used verbatim) or ``"env_ref"`` (``value``
+    is the name of an env var resolved at runtime) — the same two strings as
+    ``MCPServer.HeaderMode``, restated as a ``Literal`` because a Django
+    ``TextChoices`` can't feed ``typing.Literal``. This narrows the JSON contract
+    for readers; it is not enforced upstream (producers return plain ``dict`` and
+    the JSON descriptor yields ``Any``), so ``_resolve_header_entries``'s runtime
+    ``else`` guard remains the actual enforcement point for an unrecognized mode.
     """
 
     name: str
-    mode: str
+    mode: Literal["literal", "env_ref"]
     value: str
 
 
@@ -85,6 +90,7 @@ def _resolve_header_entries(entries: list[HeaderEntry] | None, *, server_name: s
         mode = entry.get("mode")
         value = entry.get("value", "")
         if not name:
+            logger.warning("MCP server '%s' has a header with no name; dropping it", server_name)
             continue
         if mode == MCPServer.HeaderMode.LITERAL:
             resolved[name] = value
@@ -156,7 +162,11 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
 def server_health(server: MCPServer) -> dict[str, Any]:
     """Synchronous decryption + env-ref check, no network. Flags rows that
     look enabled but whose headers ``build_runtime_servers`` would skip
-    (undecryptable) or partially drop (missing env-ref var)."""
+    (undecryptable) or partially drop (missing env-ref var), plus literal
+    headers that still carry an unexpanded ``${...}`` reference (migration
+    0002 imports ``"Bearer ${TOKEN}"``-style headers verbatim because the
+    model can't split the literal prefix from the ref — those never expand
+    at runtime, so the badge must not report them healthy)."""
     try:
         raw = server.headers or []
     except DecryptionError:
@@ -168,13 +178,21 @@ def server_health(server: MCPServer) -> dict[str, Any]:
     ]
     if missing:
         return {"ok": False, "reason": "missing env var(s): " + ", ".join(missing)}
+    unexpanded = [
+        entry.get("name") or "(unnamed)"
+        for entry in raw
+        if entry.get("mode") == MCPServer.HeaderMode.LITERAL and "${" in (entry.get("value") or "")
+    ]
+    if unexpanded:
+        return {"ok": False, "reason": "header(s) with an unexpanded ${...} reference: " + ", ".join(unexpanded)}
     return {"ok": True, "reason": None}
 
 
 def exposed_tools(server: MCPServer) -> list[dict[str, Any]]:
     """The tools ``server`` currently exposes to the agent: its persisted
     discovered catalog passed through the configured allow/block filter. Pure
-    and network-free — reads only ``discovered_tools``. Mirrors the runtime
+    and network-free — reads only persisted fields (``discovered_tools`` plus
+    the tool filter); never probes the network. Mirrors the runtime
     filter (``automation.agent.mcp.toolkits._apply_tool_filters``) via the
     shared ``ToolFilter.allows`` predicate so the two cannot drift."""
     discovered = server.discovered_tools or []
@@ -186,7 +204,9 @@ def exposed_tools(server: MCPServer) -> list[dict[str, Any]]:
 
 def sync_discovered_tools(server: MCPServer) -> dict[str, Any]:
     """Probe ``server`` and persist its tool catalog. The single place that
-    touches the network on an admin's behalf.
+    *persists* a server's discovered catalog (wrapping ``test_connection`` —
+    which ``MCPServerTestView`` also calls directly for the un-persisted
+    "Test connection" button).
 
     Wraps ``test_connection`` directly so a server that genuinely exposes zero
     tools (``ok=True, tools=[]``) is recorded as synced, while an unreachable

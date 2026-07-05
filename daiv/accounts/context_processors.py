@@ -39,14 +39,10 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "sandbox_envs:set_default",
     },
     "memory": {"memory:list", "memory:detail", "memory:consolidate"},
-    "mcp_servers": {
-        "mcp_servers:list",
-        "mcp_servers:create",
-        "mcp_servers:edit",
-        "mcp_servers:delete",
-        "mcp_servers:toggle",
-        "mcp_servers:test",
-    },
+    # Only page-rendering routes need a section for sidebar highlighting. The endpoints that only
+    # return JSON (``test``) or redirect (``toggle``, ``refresh_tools``) never render a sidebar, so
+    # they are omitted; ``delete`` stays because its GET renders a confirmation page.
+    "mcp_servers": {"mcp_servers:list", "mcp_servers:create", "mcp_servers:edit", "mcp_servers:delete"},
 }
 
 

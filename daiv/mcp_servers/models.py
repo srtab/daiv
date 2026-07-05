@@ -17,7 +17,9 @@ class MCPServer(TimeStampedModel):
     """An outbound MCP server connection. Source of truth for the MCP servers
     loaded at runtime (via ``mcp_servers.services.build_runtime_servers``); the
     file-based ``MCP_SERVERS_CONFIG_FILE`` is imported once by the 0002 migration
-    and thereafter only checked on startup to emit a deprecation warning."""
+    and thereafter only checked on ``post_migrate`` (i.e. whenever migrations run —
+    every web-container start, since ``start-app`` runs ``migrate``) to emit a
+    deprecation warning."""
 
     class Source(models.TextChoices):
         BUILTIN = "builtin", _("Built-in")
@@ -81,7 +83,7 @@ class MCPServer(TimeStampedModel):
 
     def save(self, *args, **kwargs) -> None:
         # Backstops clean_name's rename guard so it holds for any caller, not just
-        # MCPServerForm — name is used as a stable key (URLs, cache keys, tool-filter prefix).
+        # MCPServerForm — name is used as a stable key (URLs, built-in seed lookup, tool-filter prefix).
         if self.pk is not None:
             original_name = type(self).objects.filter(pk=self.pk).values_list("name", flat=True).first()
             if original_name is not None and original_name != self.name:

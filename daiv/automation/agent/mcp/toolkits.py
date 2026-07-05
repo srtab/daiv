@@ -69,6 +69,7 @@ class MCPToolkit(BaseToolkit):
         tools = [tool for server_tools in per_server for tool in server_tools]
 
         if tool_filters:
+            _warn_on_broken_tool_prefix(connections, per_server, tool_filters)
             tools = _apply_tool_filters(tools, tool_filters)
 
         for tool in tools:
@@ -78,6 +79,31 @@ class MCPToolkit(BaseToolkit):
             tool.metadata = {"mcp_server": tool.name}
 
         return tools
+
+
+def _warn_on_broken_tool_prefix(
+    connections: dict, per_server: list[list[BaseTool]], filters: dict[str, ToolFilter]
+) -> None:
+    """Detect a regressed ``tool_name_prefix`` contract before filtering.
+
+    A filtered server that returned tools *none* of which carry its ``"{server}_"`` prefix means the
+    prefix scheme broke — its allow/block rules would silently no-op, a fail-open on a security
+    boundary (e.g. a read-only allow-list suddenly exposing mutating tools). Checked here, where each
+    server's own tool list is still separate, so a server that merely returned nothing (down, timed
+    out, or genuinely empty) never trips it — unlike a check over the flattened list, which can't
+    tell "no tools" from "unprefixed tools".
+    """
+    for (server_name, _conn), server_tools in zip(connections.items(), per_server, strict=False):
+        if server_name not in filters or not server_tools:
+            continue
+        prefix = f"{server_name}_"
+        if not any(tool.name.startswith(prefix) for tool in server_tools):
+            logger.error(
+                "MCP server %r returned tools, none carrying the expected %r prefix; its tool filter was "
+                "not applied (tool_name_prefix contract regressed — allow/block silently became a no-op)",
+                server_name,
+                prefix,
+            )
 
 
 def _apply_tool_filters(tools: list[BaseTool], filters: dict[str, ToolFilter]) -> list[BaseTool]:

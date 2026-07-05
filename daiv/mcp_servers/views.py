@@ -197,6 +197,19 @@ class MCPServerRefreshToolsView(AdminRequiredMixin, View):
 
 
 class MCPServerTestView(AdminRequiredMixin, View):
+    """Probe an MCP endpoint from the form's "Test connection" button, returning discovered tools as JSON.
+
+    Kept as a CBV JSON endpoint rather than a django-ninja router (cf. the "views split by content
+    type" convention) on purpose: it re-parses a live ``MCPServerHeaderFormSet`` and reuses
+    ``build_headers_from_formset`` for secret-preservation, which ninja's schema-based body parsing
+    handles poorly — and there is no other formset-POST action modeled as a router.
+
+    Admin-only. ``url``/``transport``/``headers`` come from the POST as-is, so an admin can probe an
+    arbitrary URL while borrowing a saved server's stored secret (matched by ``name``). This grants
+    no capability an admin lacks already (admins can read/use any stored secret at runtime), but note
+    the probed URL is client-supplied and not bound to the named row.
+    """
+
     http_method_names = ["post"]
 
     def post(self, request):

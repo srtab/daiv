@@ -16,8 +16,8 @@ class MCPSettings(BaseSettings):
 
     # Deprecated: these fields are read only by migration 0004_materialize_builtin_rows at
     # migrate time, and on a normal upgrade that migration is a no-op (it only matters for a
-    # pre-existing ``builtin://`` placeholder row — see that migration's docstring). The startup
-    # deprecation warning inspects os.environ / /run/secrets directly, not these fields, and
+    # pre-existing ``builtin://`` placeholder row — see that migration's docstring). The
+    # post_migrate deprecation warning inspects os.environ / /run/secrets directly, not these fields, and
     # nothing consumes them at runtime — edit the row at /dashboard/mcp-servers/ instead.
     # Removal planned; removing these fields requires rewriting migration 0004 to read
     # os.environ directly, since it imports them from this module at migrate time.
