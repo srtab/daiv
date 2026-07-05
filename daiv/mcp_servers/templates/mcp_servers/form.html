@@ -131,6 +131,17 @@
     <fieldset class="space-y-5 border-t border-white/[0.06] pt-6">
         <legend class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</legend>
 
+        {% if mode == "edit" %}
+        <div class="flex items-center gap-3">
+            <button type="submit" form="refresh-tools-form" class="btn-secondary text-sm">{% translate "Refresh tools" %}</button>
+            {% if object.tools_synced_at %}
+            <span class="text-sm text-gray-500">{% blocktranslate with when=object.tools_synced_at|timesince %}synced {{ when }} ago{% endblocktranslate %}</span>
+            {% else %}
+            <span class="text-sm text-gray-500">{% translate "not synced yet" %}</span>
+            {% endif %}
+        </div>
+        {% endif %}
+
         {% include "mcp_servers/_segmented_control.html" with field=form.tool_filter_mode model="filterMode" %}
 
         <div x-show="filterMode !== 'none'" x-cloak>
@@ -174,4 +185,11 @@
         {% endif %}
     </div>
 </form>
+
+{% if mode == "edit" %}
+<form id="refresh-tools-form" method="post" action="{% url 'mcp_servers:refresh_tools' object.name %}" class="hidden">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="edit">
+</form>
+{% endif %}
 {% endblock app_content %}

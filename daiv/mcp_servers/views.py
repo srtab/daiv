@@ -55,6 +55,7 @@ class MCPServerCreateView(AdminRequiredMixin, View):
         obj.created_by = request.user
         obj.headers = build_headers_from_formset(formset, existing=None)
         obj.save()
+        services.sync_discovered_tools(obj)
         messages.success(request, _("MCP server '%(name)s' created.") % {"name": obj.name})
         return redirect(reverse("mcp_servers:list"))
 
@@ -114,13 +115,13 @@ class MCPServerEditView(AdminRequiredMixin, View):
         saved = form.save(commit=False)
         saved.headers = build_headers_from_formset(formset, existing=existing_headers)
         saved.save()
+        services.sync_discovered_tools(saved)
         messages.success(request, _("MCP server '%(name)s' updated.") % {"name": obj.name})
         return redirect(reverse("mcp_servers:list"))
 
     def _render(self, request, obj, form, formset, *, selected, headers_locked=False, status=200):
-        # Tool discovery (a cache-backed handshake) only feeds the checkbox list on a
-        # rendered form — never the successful-save path, which redirects — so it lives here.
-        discovered = services.discover_tools_cached(obj)
+        # Choices come from the persisted snapshot — no network on render.
+        discovered = obj.discovered_tools or []
         return render(
             request,
             self.template_name,

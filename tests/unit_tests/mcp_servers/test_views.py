@@ -393,83 +393,70 @@ def test_member_forbidden_across_all_endpoints(client, member_user, method, url_
 
 
 @pytest.mark.django_db
-def test_edit_get_passes_discovered_tools_into_form(client, admin_user, monkeypatch):
-    from django.core.cache import cache
-
-    cache.clear()
+def test_edit_get_passes_discovered_tools_into_form(client, admin_user):
     from mcp_servers.models import MCPServer
 
     MCPServer.objects.create(
-        name="dt3", transport="http", url="http://x.test", tool_filter_mode="allow", tool_filter_items=["alpha"]
+        name="dt3",
+        transport="http",
+        url="http://x.test",
+        tool_filter_mode="allow",
+        tool_filter_items=["alpha"],
+        discovered_tools=[
+            {"name": "alpha", "description": "the first letter"},
+            {"name": "beta", "description": "the second"},
+        ],
     )
-
-    async def fake_discover(server):
-        return [{"name": "alpha", "description": "the first letter"}, {"name": "beta", "description": "the second"}]
-
-    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:edit", args=["dt3"]))
     assert resp.status_code == 200
-    # The form rendered checkboxes (multi-choice), not a textarea.
     assert b'type="checkbox"' in resp.content
     assert b"alpha" in resp.content
     assert b"beta" in resp.content
-    # Rows render with the rich two-line markup contract (name + data attr).
     assert b'data-tool-name="alpha"' in resp.content
 
 
 @pytest.mark.django_db
-def test_edit_get_renders_read_only_pills(client, admin_user, monkeypatch):
-    """readOnlyHint renders tri-state: a read-only pill, a writable pill, and no
-    pill for an unannotated (None) tool. Guards the template's `is True`/`is False`
-    branches — a naive `{% if row.read_only %}` rewrite would wrongly pill None."""
-    from django.core.cache import cache
-
-    cache.clear()
+def test_edit_get_renders_read_only_pills(client, admin_user):
     from mcp_servers.models import MCPServer
 
     MCPServer.objects.create(
-        name="pills", transport="http", url="http://p.test", tool_filter_mode="allow", tool_filter_items=["reader"]
-    )
-
-    async def fake_discover(server):
-        return [
+        name="pills",
+        transport="http",
+        url="http://p.test",
+        tool_filter_mode="allow",
+        tool_filter_items=["reader"],
+        discovered_tools=[
             {"name": "reader", "description": "", "read_only": True},
             {"name": "writer", "description": "", "read_only": False},
             {"name": "unknown", "description": "", "read_only": None},
-        ]
-
-    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
+        ],
+    )
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:edit", args=["pills"]))
     assert resp.status_code == 200
     assert b"mcp-tool-row__pill--ro" in resp.content
     assert b"mcp-tool-row__pill--rw" in resp.content
-    # Exactly two pills for three tools — the unannotated (None) tool gets none.
     assert resp.content.count(b"mcp-tool-row__pill--") == 2
 
 
 @pytest.mark.django_db
-def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user, monkeypatch):
-    from django.core.cache import cache
-
-    cache.clear()
+def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
     from mcp_servers.models import MCPServer
 
     MCPServer.objects.create(
-        name="multi", transport="http", url="http://multi.test", tool_filter_mode="allow", tool_filter_items=["seed"]
-    )
-
-    async def fake_discover(server):
-        return [
+        name="multi",
+        transport="http",
+        url="http://multi.test",
+        tool_filter_mode="allow",
+        tool_filter_items=["seed"],
+        discovered_tools=[
             {"name": "alpha", "description": ""},
             {"name": "beta", "description": ""},
             {"name": "gamma", "description": ""},
-        ]
-
-    monkeypatch.setattr("mcp_servers.views.services.discover_tools", fake_discover)
+        ],
+    )
     client.force_login(admin_user)
-
     resp = client.post(
         reverse("mcp_servers:edit", args=["multi"]),
         data={
@@ -478,7 +465,6 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user, mo
             "url": "http://multi.test",
             "enabled": "on",
             "tool_filter_mode": "allow",
-            # Multiple values for the same name — the bug was collapsing to ['gamma'] only.
             "tool_filter_items": ["alpha", "beta", "gamma"],
             "headers-TOTAL_FORMS": "0",
             "headers-INITIAL_FORMS": "0",
@@ -487,9 +473,37 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user, mo
         },
     )
     assert resp.status_code == 302
-
     obj = MCPServer.objects.get(name="multi")
     assert sorted(obj.tool_filter_items) == ["alpha", "beta", "gamma"]
+
+
+@pytest.mark.django_db
+def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(name="synced", transport="http", url="http://old.test")
+    called = {}
+    monkeypatch.setattr(
+        "mcp_servers.views.services.sync_discovered_tools", lambda server: called.setdefault("name", server.name)
+    )
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:edit", args=["synced"]),
+        data={
+            "name": "synced",
+            "transport": "http",
+            "url": "http://new.test",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+    assert called["name"] == "synced"
 
 
 @pytest.mark.django_db
