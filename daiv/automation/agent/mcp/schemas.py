@@ -25,6 +25,15 @@ class ToolFilter(BaseModel):
         description="List of tool names to filter based on the mode",
     )
 
+    def allows(self, base_name: str) -> bool:
+        """Whether ``base_name`` (server prefix already stripped) passes this
+        filter. Single source of truth shared by the runtime toolkit and the
+        mcp_servers UI so the displayed 'exposed' set can't drift from what the
+        agent actually receives."""
+        if self.mode == "allow":
+            return base_name in self.items
+        return base_name not in self.items
+
 
 class UserMcpServer(BaseModel):
     """Runtime DTO for an MCP server the toolkit consumes.

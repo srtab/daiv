@@ -99,9 +99,7 @@ def _apply_tool_filters(tools: list[BaseTool], filters: dict[str, ToolFilter]) -
                 continue
             matched = True
             base_name = tool.name[len(prefix) :]
-            if (tool_filter.mode == "allow" and base_name in tool_filter.items) or (
-                tool_filter.mode == "block" and base_name not in tool_filter.items
-            ):
+            if tool_filter.allows(base_name):
                 filtered.append(tool)
             break
 
