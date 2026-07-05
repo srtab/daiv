@@ -73,25 +73,25 @@ def sync_repository_access_cron_task():
     for repo in universe:
         try:
             members = client.list_repository_members(repo.slug)
+            synced_at = timezone.now()
+            rows = [
+                RepositoryAccess(
+                    provider=provider,
+                    uid=member.uid,
+                    username=member.username,
+                    repo_id=repo.slug,
+                    access_level=member.access_level,
+                    synced_at=synced_at,
+                )
+                for member in members
+            ]
+            with transaction.atomic():
+                RepositoryAccess.objects.filter(provider=provider, repo_id=repo.slug).delete()
+                RepositoryAccess.objects.bulk_create(rows)
         except Exception:
             failures += 1
-            logger.exception("Repository access sync: failed to list members of %s (keeping previous rows)", repo.slug)
+            logger.exception("Repository access sync: failed to sync %s (keeping previous rows)", repo.slug)
             continue
-        synced_at = timezone.now()
-        rows = [
-            RepositoryAccess(
-                provider=provider,
-                uid=member.uid,
-                username=member.username,
-                repo_id=repo.slug,
-                access_level=member.access_level,
-                synced_at=synced_at,
-            )
-            for member in members
-        ]
-        with transaction.atomic():
-            RepositoryAccess.objects.filter(provider=provider, repo_id=repo.slug).delete()
-            RepositoryAccess.objects.bulk_create(rows)
 
     RepositoryAccess.objects.filter(provider=provider).exclude(repo_id__in=[r.slug for r in universe]).delete()
 

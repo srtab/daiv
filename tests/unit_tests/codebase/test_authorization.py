@@ -109,6 +109,20 @@ class TestAssertCanRun:
     def test_admin_passes_without_rows(self, admin_user, db):
         assert_can_run(admin_user, ["any/repo"])
 
+    def test_never_synced_denies(self, linked_member, db, _no_backstop_enqueue):
+        _grant("101", "a/b", RepoAccessLevel.WRITE)
+        with pytest.raises(RepositoryAccessDenied) as exc:
+            assert_can_run(linked_member, ["a/b"])
+        assert exc.value.repo_ids == ["a/b"]
+
+    def test_stale_beyond_hard_ttl_denies(self, linked_member, fresh_sync):
+        fresh_sync.last_success_at = timezone.now() - timedelta(hours=25)
+        fresh_sync.save(update_fields=["last_success_at"])
+        _grant("101", "a/b", RepoAccessLevel.WRITE)
+        with pytest.raises(RepositoryAccessDenied) as exc:
+            assert_can_run(linked_member, ["a/b"])
+        assert exc.value.repo_ids == ["a/b"]
+
 
 class TestViewableFilters:
     def test_viewable_repo_ids_subset(self, linked_member, fresh_sync):
@@ -124,3 +138,13 @@ class TestViewableFilters:
     def test_admin_sees_all(self, admin_user, db):
         repos = [_repo("a/b"), _repo("x/y")]
         assert filter_viewable(admin_user, repos) == repos
+
+    def test_never_synced_returns_empty(self, linked_member, db, _no_backstop_enqueue):
+        _grant("101", "a/b", RepoAccessLevel.WRITE)
+        assert viewable_repo_ids(linked_member, ["a/b"]) == set()
+
+    def test_stale_beyond_hard_ttl_returns_empty(self, linked_member, fresh_sync):
+        fresh_sync.last_success_at = timezone.now() - timedelta(hours=25)
+        fresh_sync.save(update_fields=["last_success_at"])
+        _grant("101", "a/b", RepoAccessLevel.WRITE)
+        assert viewable_repo_ids(linked_member, ["a/b"]) == set()

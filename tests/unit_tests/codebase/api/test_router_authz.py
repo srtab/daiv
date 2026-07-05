@@ -39,3 +39,4 @@ def test_search_repositories_filters_to_viewable(member_user, mock_repo_client):
 
     assert resp.status_code == 200
     assert [row["slug"] for row in resp.json()] == ["acme/api"]
+    mock_repo_client.list_repositories.assert_called_once_with(search="acme", limit=50)
