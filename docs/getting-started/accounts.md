@@ -33,7 +33,7 @@ A repository the user can't read never appears in a listing; one they can read b
 
 **Admins bypass all repository checks** — the pre-existing "admin sees everything" behavior is unchanged.
 
-Access data is refreshed by a periodic background sync (every 15 minutes by default, `CODEBASE_REPO_ACCESS_SYNC_CRON`), so a permission change on the Git platform (added, removed, or role-changed) takes effect on the next sync rather than immediately. If syncs stop succeeding, member access is served from the last known-good data for a grace period; beyond `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` (24 hours by default) without a successful sync, member repository access **fails closed** rather than trusting stale grants. Admin access is never affected by sync health.
+Access data is refreshed by a periodic background sync (every 15 minutes by default, `CODEBASE_REPO_ACCESS_SYNC_CRON`), so a permission change on the Git platform (added, removed, or role-changed) takes effect on the next sync rather than immediately. Freshness is tracked **per repository**: if a repository's sync stops succeeding, its access data is served from the last known-good data for a grace period, and beyond `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` (24 hours by default) that repository's member access **fails closed** rather than trusting stale grants — repositories that keep syncing cleanly are unaffected. Admin access is never affected by sync health.
 
 !!! note "Deactivation revokes access immediately"
     Setting a user to inactive (see [Managing users](#managing-users-admin-only)) immediately blocks that user's API keys and MCP tokens, in addition to signing them out of the dashboard — outstanding credentials stop working right away rather than at the next sync.

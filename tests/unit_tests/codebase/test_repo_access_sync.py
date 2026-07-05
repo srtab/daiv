@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -118,6 +119,74 @@ class TestSyncRepositoryAccess:
         state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
         assert state.status == RepositoryAccessSyncState.Status.FAILED
         assert state.last_success_at is None
+
+    def test_empty_members_with_prior_rows_keeps_them_and_marks_failed(self, mock_repo_client):
+        # An empty member list for a repo that had members is treated as a degraded response:
+        # keep the previous rows (serve-stale) rather than silently wiping access, and count it
+        # as a failure so last_success_at does not advance.
+        _row("a/b", "7", RepoAccessLevel.WRITE)
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.return_value = []
+
+        sync_repository_access_cron_task.func()
+
+        assert RepositoryAccess.objects.filter(repo_id="a/b", uid="7").exists()
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.FAILED
+        assert state.last_success_at is None
+
+    def test_empty_members_without_prior_rows_is_clean(self, mock_repo_client):
+        # A repo that legitimately has no members and no prior rows is not a failure.
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.return_value = []
+
+        sync_repository_access_cron_task.func()
+
+        assert not RepositoryAccess.objects.filter(repo_id="a/b").exists()
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.OK
+        assert state.last_success_at is not None
+
+    def test_empty_universe_with_rows_skips_prune_and_marks_failed(self, mock_repo_client):
+        # An empty repository listing while rows exist (e.g. a transient scope change) must not
+        # wipe every access row; the prune is skipped, rows are preserved, and the run is marked
+        # failed rather than reading as a clean success.
+        _row("a/b", "7", RepoAccessLevel.WRITE)
+        mock_repo_client.list_repositories.return_value = []
+
+        sync_repository_access_cron_task.func()
+
+        assert RepositoryAccess.objects.filter(repo_id="a/b", uid="7").exists()
+        assert not mock_repo_client.list_repository_members.called
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.FAILED
+        assert state.last_success_at is None
+
+    def test_empty_universe_without_rows_is_clean(self, mock_repo_client):
+        # A genuinely empty install (no repos, no rows) is a clean success, not a failure.
+        mock_repo_client.list_repositories.return_value = []
+
+        sync_repository_access_cron_task.func()
+
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.OK
+        assert state.last_success_at is not None
+
+    def test_rows_aged_past_hard_ttl_are_pruned(self, mock_repo_client):
+        # Rows older than the hard TTL grant no access; the sync clears them so a genuinely
+        # member-less repo self-heals and stops tripping the empty-member guard.
+        stale = _row("a/b", "7", RepoAccessLevel.WRITE)
+        stale.synced_at = timezone.now() - timedelta(hours=codebase_settings.REPO_ACCESS_HARD_TTL_HOURS + 1)
+        stale.save(update_fields=["synced_at"])
+        mock_repo_client.list_repositories.return_value = [_repo("c/d")]
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="8", username="carol", access_level=RepoAccessLevel.READ)
+        ]
+
+        sync_repository_access_cron_task.func()
+
+        assert not RepositoryAccess.objects.filter(repo_id="a/b").exists()  # aged out and pruned
+        assert RepositoryAccess.objects.filter(repo_id="c/d", uid="8").exists()
 
     def test_swe_platform_is_a_noop(self, mock_repo_client):
         with patch.object(codebase_settings, "CLIENT", GitPlatform.SWE):

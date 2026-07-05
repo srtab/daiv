@@ -141,11 +141,15 @@ class GitHubClient(RepoClient):
         List repository collaborators (direct, team and org grants combined) with their
         effective permission normalized to :class:`RepoAccessLevel`.
 
+        Collaborators are deduplicated by uid, keeping the highest level, so a user surfaced
+        through more than one grant never violates the ``(provider, uid, repo_id)`` uniqueness
+        the sync task relies on.
+
         Args:
             repo_id: The repository ID.
 
         Returns:
-            The list of members holding at least READ access.
+            The list of members holding at least READ access, one entry per user.
         """
         repo = self.client.get_repo(repo_id, lazy=True)
         members: list[RepoMember] = []
@@ -159,7 +163,7 @@ class GitHubClient(RepoClient):
             else:
                 continue
             members.append(RepoMember(uid=str(collaborator.id), username=collaborator.login, access_level=level))
-        return members
+        return self._dedupe_members(members)
 
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """

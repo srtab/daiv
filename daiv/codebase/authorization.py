@@ -4,6 +4,7 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -22,9 +23,15 @@ logger = logging.getLogger("daiv.codebase")
 
 REPO_ACCESS_DENIED_MESSAGE = "Repository not found or not accessible."
 
-# Enqueue a backstop sync when the last successful sync is older than this — covers a dead
-# crontask scheduler well before the hard TTL starts denying access.
+# Enqueue a backstop sync when no sync has *started* within this window — covers a dead
+# crontask scheduler well before the per-repo hard TTL starts denying access.
 _BACKSTOP_STALENESS = timedelta(hours=1)
+
+# The backstop only needs to detect a scheduler that has been dead for an hour, so probing the
+# sync-state row on every authorization check is wildly over-sampled. This cache marker collapses
+# the probe to at most once per minute process-wide, keeping it off the hot path.
+_BACKSTOP_PROBE_KEY = "repo-access:backstop-probe"
+_BACKSTOP_PROBE_INTERVAL = 60
 
 
 class RepositoryAccessDenied(Exception):  # noqa: N818
@@ -56,30 +63,61 @@ def _enqueue_sync() -> None:
         logger.exception("Failed to enqueue repository access sync")
 
 
-def _sync_is_usable() -> bool:
-    """Whether synced rows may be trusted (fail-closed beyond the hard TTL).
+def _fresh_rows(uid: str):
+    """Fresh (within-hard-TTL) access rows for ``uid`` on the configured provider.
 
-    Enqueues a backstop sync when data is missing or stale; the task's lock dedupes
-    concurrent triggers.
+    Centralizes the provider + identity + freshness scoping shared by every authorization
+    query so no call site can drift on the security-load-bearing freshness filter.
     """
-    state = RepositoryAccessSyncState.objects.first()
-    last_success = state.last_success_at if state else None
+    return RepositoryAccess.objects.fresh().filter(provider=_provider(), uid=uid)
+
+
+def _maybe_enqueue_backstop() -> None:
+    """Enqueue a backstop sync when the scheduler looks dead.
+
+    Keyed on ``last_started_at`` (scheduler liveness), not ``last_success_at``: a single
+    persistently-failing repository never lets ``last_success_at`` advance, and gating on it
+    would flood the task queue with an enqueue on every authorization check. A running
+    scheduler advances ``last_started_at`` every cycle even when some repos fail, so this
+    only fires when no sync has *started* recently. The task's lock dedupes concurrent
+    triggers.
+
+    The sync-state row is probed at most once per ``_BACKSTOP_PROBE_INTERVAL`` (cache marker)
+    to keep this off the per-request hot path.
+    """
+    if not cache.add(_BACKSTOP_PROBE_KEY, 1, timeout=_BACKSTOP_PROBE_INTERVAL):
+        return
+    state = RepositoryAccessSyncState.objects.filter(pk=RepositoryAccessSyncState.SINGLETON_PK).first()
+    last_started = state.last_started_at if state else None
     now = timezone.now()
-    if last_success is None or now - last_success > _BACKSTOP_STALENESS:
+    if last_started is None or now - last_started > _BACKSTOP_STALENESS:
         _enqueue_sync()
-    return last_success is not None and now - last_success <= timedelta(hours=settings.REPO_ACCESS_HARD_TTL_HOURS)
+
+
+def _resolve_uid(user: User) -> str | None:
+    """Probe the backstop, then resolve ``user`` to their platform uid (``None`` if unlinked).
+
+    Groups the two steps every non-admin authorization entry point shares, so the
+    security-load-bearing "keep the sync alive, then map to a platform identity" ordering
+    lives in one place and cannot drift between call sites.
+    """
+    _maybe_enqueue_backstop()
+    return _identity(user)
 
 
 def get_access_level(user: User, repo_id: str) -> RepoAccessLevel | None:
-    """Effective access tier of ``user`` on ``repo_id``. Admins always hold WRITE."""
+    """Effective access tier of ``user`` on ``repo_id``. Admins always hold WRITE.
+
+    Freshness is enforced per repository: a row is trusted only while its own ``synced_at``
+    is within the hard TTL, so a repo whose sync keeps failing eventually denies access to
+    that repo alone without affecting repos that are still syncing cleanly.
+    """
     if user.is_admin:
         return RepoAccessLevel.WRITE
-    if not _sync_is_usable():
-        return None
-    uid = _identity(user)
+    uid = _resolve_uid(user)
     if uid is None:
         return None
-    row = RepositoryAccess.objects.filter(provider=_provider(), uid=uid, repo_id=repo_id).only("access_level").first()
+    row = _fresh_rows(uid).filter(repo_id=repo_id).only("access_level").first()
     return RepoAccessLevel(row.access_level) if row else None
 
 
@@ -89,7 +127,7 @@ def can_view(user: User, repo_id: str) -> bool:
 
 
 def assert_can_run(user: User, repo_ids: Iterable[str]) -> None:
-    """Require WRITE access on every repo.
+    """Require WRITE access on every repo (fresh within the hard TTL).
 
     Raises:
         RepositoryAccessDenied: carrying the denied repo ids.
@@ -97,15 +135,13 @@ def assert_can_run(user: User, repo_ids: Iterable[str]) -> None:
     repo_ids = list(repo_ids)
     if user.is_admin:
         return
-    if not _sync_is_usable():
-        raise RepositoryAccessDenied(repo_ids)
-    uid = _identity(user)
+    uid = _resolve_uid(user)
     if uid is None:
         raise RepositoryAccessDenied(repo_ids)
     writable = set(
-        RepositoryAccess.objects.filter(
-            provider=_provider(), uid=uid, repo_id__in=repo_ids, access_level=RepoAccessLevel.WRITE
-        ).values_list("repo_id", flat=True)
+        _fresh_rows(uid)
+        .filter(repo_id__in=repo_ids, access_level=RepoAccessLevel.WRITE)
+        .values_list("repo_id", flat=True)
     )
     denied = [repo_id for repo_id in repo_ids if repo_id not in writable]
     if denied:
@@ -113,20 +149,14 @@ def assert_can_run(user: User, repo_ids: Iterable[str]) -> None:
 
 
 def viewable_repo_ids(user: User, repo_ids: Iterable[str]) -> set[str]:
-    """Subset of ``repo_ids`` on which the user holds at least READ access."""
+    """Subset of ``repo_ids`` on which the user holds at least READ access (fresh within the hard TTL)."""
     repo_ids = list(repo_ids)
     if user.is_admin:
         return set(repo_ids)
-    if not _sync_is_usable():
-        return set()
-    uid = _identity(user)
+    uid = _resolve_uid(user)
     if uid is None:
         return set()
-    return set(
-        RepositoryAccess.objects.filter(provider=_provider(), uid=uid, repo_id__in=repo_ids).values_list(
-            "repo_id", flat=True
-        )
-    )
+    return set(_fresh_rows(uid).filter(repo_id__in=repo_ids).values_list("repo_id", flat=True))
 
 
 def filter_viewable(user: User, repositories: list[Repository]) -> list[Repository]:
@@ -135,8 +165,18 @@ def filter_viewable(user: User, repositories: list[Repository]) -> list[Reposito
     return [repo for repo in repositories if repo.slug in viewable]
 
 
-aget_access_level = sync_to_async(get_access_level)
-acan_view = sync_to_async(can_view)
+# Repository listings over-fetch by this factor before per-user filtering, so a display window
+# can still be filled after unauthorized repositories are dropped. Single-sourced here rather
+# than re-derived at each picker/search/MCP surface, which would let the window silently drift.
+VIEWABLE_FETCH_MULTIPLIER = 5
+
+
+def viewable_fetch_limit(display_limit: int) -> int:
+    """Platform fetch size to request for a ``display_limit`` window that will then be filtered
+    down to the repositories the caller can view."""
+    return display_limit * VIEWABLE_FETCH_MULTIPLIER
+
+
+# Only the wrappers with async call sites are exported; add more via ``sync_to_async`` as needed.
 aassert_can_run = sync_to_async(assert_can_run)
-aviewable_repo_ids = sync_to_async(viewable_repo_ids)
 afilter_viewable = sync_to_async(filter_viewable)

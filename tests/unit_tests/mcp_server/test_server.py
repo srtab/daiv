@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from mcp_server.server import get_job_status, list_repositories, submit_job
+from mcp_server.server import _REPO_FETCH_LIMIT, get_job_status, list_repositories, submit_job
 
 from codebase.base import GitPlatform, Repository
 
@@ -627,7 +627,7 @@ async def test_list_repositories_default():
     assert data["repositories"][0]["topics"] == ["python", "backend"]
     assert "warning" not in data
     assert data["next_cursor"] is None  # remote-backed: never cursor-paginates
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=None)
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=_REPO_FETCH_LIMIT)
 
 
 async def test_list_repositories_with_search():
@@ -640,7 +640,7 @@ async def test_list_repositories_with_search():
 
     assert len(data["repositories"]) == 1
     assert data["repositories"][0]["slug"] == "group/alpha"
-    mock_client.list_repositories.assert_called_once_with(search="alpha", topics=None)
+    mock_client.list_repositories.assert_called_once_with(search="alpha", topics=None, limit=_REPO_FETCH_LIMIT)
 
 
 async def test_list_repositories_with_topics():
@@ -652,12 +652,12 @@ async def test_list_repositories_with_topics():
         data = await list_repositories(topics=["python"])
 
     assert len(data["repositories"]) == 2
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=["python"])
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=["python"], limit=_REPO_FETCH_LIMIT)
 
 
 async def test_list_repositories_truncated_with_warning():
-    """When client returns more than MAX_REPOSITORIES, result is truncated with a warning."""
-    # The tool fetches the full list (no client-side limit) and truncates after filtering.
+    """When more than MAX_REPOSITORIES survive filtering, the result is truncated with a warning."""
+    # The tool fetches a bounded window and truncates after per-user filtering.
     many_repos = [_make_repo(f"group/repo-{i}", f"repo-{i}") for i in range(41)]
     mock_client = MagicMock()
     mock_client.list_repositories.return_value = many_repos
@@ -668,10 +668,33 @@ async def test_list_repositories_truncated_with_warning():
 
     assert len(data["repositories"]) == 40
     assert "warning" in data
-    assert "first 40" in data["warning"]
+    assert "Not all accessible repositories" in data["warning"]
     assert data["next_cursor"] is None  # narrow via search/topics, not paging
-    # Verify no limit is passed to the client — filtering happens after the full fetch.
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=None)
+    # The client fetch is bounded (fix for unbounded enumeration on large installs).
+    mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=_REPO_FETCH_LIMIT)
+
+
+async def test_list_repositories_capped_fetch_warns_even_when_few_viewable():
+    """A fetch that fills the window warns even if filtering leaves a short list — accessible
+    repos may sit unseen beyond the fetch cap, so a small result must not read as complete."""
+    # Fetch fills the whole window; per-user filtering keeps only one repo.
+    full_window = [_make_repo(f"group/repo-{i}", f"repo-{i}") for i in range(_REPO_FETCH_LIMIT)]
+    mock_client = MagicMock()
+    mock_client.list_repositories.return_value = full_window
+
+    async def _only_first(user, repos):
+        return repos[:1]
+
+    with (
+        patch("mcp_server.server.RepoClient") as mock_rc,
+        patch("mcp_server.server.afilter_viewable", new=AsyncMock(side_effect=_only_first)),
+    ):
+        mock_rc.create_instance.return_value = mock_client
+        data = await list_repositories()
+
+    assert len(data["repositories"]) == 1
+    assert "warning" in data
+    assert "Not all accessible repositories" in data["warning"]
 
 
 async def test_list_repositories_error_handling():

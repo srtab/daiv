@@ -45,6 +45,35 @@ class TestListRepositoryMembers:
         ]
         assert result[0].username == "reporter"
 
+    def test_deduplicates_by_uid_keeping_highest_level(self, gitlab_client):
+        # members/all can surface a user more than once (direct + inherited + shared-group).
+        # The result must have one entry per uid at the highest level to satisfy the
+        # (provider, uid, repo_id) uniqueness the sync task relies on.
+        self._install_members(
+            gitlab_client,
+            [
+                _member(3, "reporter", 20),  # READ
+                _member(3, "reporter", 30),  # same user, WRITE via another grant
+            ],
+        )
+
+        result = gitlab_client.list_repository_members("group/repo")
+
+        assert [(m.uid, m.access_level) for m in result] == [("3", RepoAccessLevel.WRITE)]
+
+    def test_dedup_keeps_write_regardless_of_order(self, gitlab_client):
+        self._install_members(
+            gitlab_client,
+            [
+                _member(3, "reporter", 30),  # WRITE first
+                _member(3, "reporter", 20),  # then a READ grant — must not downgrade
+            ],
+        )
+
+        result = gitlab_client.list_repository_members("group/repo")
+
+        assert [(m.uid, m.access_level) for m in result] == [("3", RepoAccessLevel.WRITE)]
+
     def test_skips_non_active_members(self, gitlab_client):
         self._install_members(
             gitlab_client, [_member(1, "blocked", 40, state="blocked"), _member(2, "waiting", 40, state="awaiting")]

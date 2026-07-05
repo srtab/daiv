@@ -53,6 +53,34 @@ class TestListRepositoryMembers:
         ]
         assert result[0].username == "reader"
 
+    def test_deduplicates_by_uid_keeping_highest_level(self, github_client):
+        # A collaborator surfaced through more than one grant must yield one entry at the
+        # highest level, satisfying the (provider, uid, repo_id) uniqueness the sync relies on.
+        self._install_collaborators(
+            github_client,
+            [
+                _collaborator(3, "writer", pull=True),  # READ
+                _collaborator(3, "writer", pull=True, push=True),  # same user, WRITE
+            ],
+        )
+
+        result = github_client.list_repository_members("owner/repo")
+
+        assert [(m.uid, m.access_level) for m in result] == [("3", RepoAccessLevel.WRITE)]
+
+    def test_dedup_keeps_write_regardless_of_order(self, github_client):
+        self._install_collaborators(
+            github_client,
+            [
+                _collaborator(3, "writer", pull=True, push=True),  # WRITE first
+                _collaborator(3, "writer", pull=True),  # then a READ grant — must not downgrade
+            ],
+        )
+
+        result = github_client.list_repository_members("owner/repo")
+
+        assert [(m.uid, m.access_level) for m in result] == [("3", RepoAccessLevel.WRITE)]
+
     def test_uses_lazy_repo(self, github_client):
         repo = self._install_collaborators(github_client, [])
 

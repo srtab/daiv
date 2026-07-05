@@ -253,7 +253,8 @@ async def asubmit_batch_runs(
     """
     _validate(repos)
     if user is not None:
-        # Webhook/internal callers pass user=None and are gated by their own allowlist.
+        # Gate only when a user is attached. All current callers supply one; the None branch
+        # is a defensive allowance for future internal callers with no user context.
         await aassert_can_run(user, [target.repo_id for target in repos])
     if thread_id is not None:
         if not thread_id:

@@ -208,13 +208,16 @@ class GitLabClient(RepoClient):
         access level normalized to :class:`RepoAccessLevel`.
 
         Non-active accounts (blocked/awaiting) and levels below Reporter are omitted. The
-        ``members/all`` endpoint already reports the effective (share-clamped) level.
+        ``members/all`` endpoint already reports the effective (share-clamped) level. A user
+        can surface more than once (direct + inherited + shared-group grants); members are
+        deduplicated by uid, keeping the highest level, so the result never violates the
+        ``(provider, uid, repo_id)`` uniqueness the sync task relies on.
 
         Args:
             repo_id: The repository ID.
 
         Returns:
-            The list of members holding at least READ access.
+            The list of members holding at least READ access, one entry per user.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         members: list[RepoMember] = []
@@ -228,7 +231,7 @@ class GitLabClient(RepoClient):
             else:
                 continue
             members.append(RepoMember(uid=str(member.id), username=member.username, access_level=level))
-        return members
+        return self._dedupe_members(members)
 
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """

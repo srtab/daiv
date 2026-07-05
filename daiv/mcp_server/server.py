@@ -23,7 +23,13 @@ from pydantic import BaseModel, Field
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run, afilter_viewable
+from codebase.authorization import (
+    REPO_ACCESS_DENIED_MESSAGE,
+    RepositoryAccessDenied,
+    aassert_can_run,
+    afilter_viewable,
+    viewable_fetch_limit,
+)
 from codebase.clients import RepoClient
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
@@ -586,6 +592,13 @@ async def list_jobs(
 
 
 MAX_REPOSITORIES = 40
+# Bound the platform fetch so a non-admin caller does not force enumeration of the entire
+# bot-visible universe on installs with thousands of repos. A wider window than
+# MAX_REPOSITORIES lets per-user filtering still fill the result. When the fetch itself fills this
+# window, accessible repositories may exist beyond it that filtering never saw, so the truncation
+# warning fires on a capped fetch too — narrowing with ``search``/``topics`` is the only way to
+# reach them (this tool does not page the platform).
+_REPO_FETCH_LIMIT = viewable_fetch_limit(MAX_REPOSITORIES)
 
 
 def _serialize_repositories(repos: list[Repository]) -> list[dict]:
@@ -598,12 +611,15 @@ async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
     topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
 ) -> dict:
-    """List repositories accessible to DAIV, optionally filtered by name or topic.
+    """List repositories the calling user can read on the Git platform (admins see all).
 
-    Returns ``{"repositories": [...], "next_cursor": None}`` for a contract shared with the
-    other listing tools. This tool is backed by the remote Git platform and does NOT support
-    cursor pagination — ``next_cursor`` is always ``None``. When results are capped, a
-    ``warning`` is included; narrow with ``search`` or ``topics`` rather than paging.
+    Returns the intersection of the caller's authorized repositories and the bot-visible ones
+    (fetched up to an internal cap, not the entire universe), as
+    ``{"repositories": [...], "next_cursor": None}`` for a contract shared with the other listing
+    tools. This tool is backed by the remote Git platform and does NOT support cursor pagination —
+    ``next_cursor`` is always ``None``. When the listing may be incomplete — either the fetch hit
+    its cap or more accessible repositories remain than are shown — a ``warning`` is included;
+    narrow with ``search`` or ``topics`` rather than paging.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
@@ -611,19 +627,22 @@ async def list_repositories(
 
     try:
         client = RepoClient.create_instance()
-        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics)
+        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics, limit=_REPO_FETCH_LIMIT)
     except Exception:
         logger.exception("Failed to list repositories")
         return {"error": "Failed to list repositories. Please try again later."}
 
+    # Capture whether the platform fetch filled its window *before* filtering: a capped fetch can
+    # still filter down to a short viewable list, which would otherwise look complete while
+    # accessible repos sit unseen beyond the window.
+    fetch_capped = len(repos) >= _REPO_FETCH_LIMIT
     repos = await afilter_viewable(mcp_user, repos)
 
-    truncated = len(repos) > MAX_REPOSITORIES
     result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES]), "next_cursor": None}
-    if truncated:
+    if len(repos) > MAX_REPOSITORIES or fetch_capped:
         result["warning"] = (
-            f"Only the first {MAX_REPOSITORIES} repositories are shown. "
-            "There are more results available. Ask the user to provide a search term or topic to narrow down."
+            "Not all accessible repositories may be shown. "
+            "Ask the user to provide a search term or topic to narrow down the results."
         )
     return result
 

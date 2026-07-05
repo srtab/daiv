@@ -283,6 +283,24 @@ class TestScheduleRunNowView:
         content = response.content.decode()
         assert "triggered with failures" in content or "Failed to trigger" in content
 
+    def test_denied_repo_shows_error_and_creates_no_activity(self, member_client, schedule):
+        """An owner who lost repo access clicks Run now → dedicated deny branch: redirect to
+        schedule_list with the deny message and, crucially, no Activity row (the check fires
+        before activity creation, so this must not fall through to the generic handler)."""
+        from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
+
+        with mock.patch(
+            "activity.services.aassert_can_run", new=mock.AsyncMock(side_effect=RepositoryAccessDenied(["owner/repo"]))
+        ):
+            response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
+
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == reverse("schedule_list")
+        assert not Activity.objects.filter(scheduled_job=schedule).exists()
+        content = response.content.decode()
+        assert "was not triggered" in content
+        assert REPO_ACCESS_DENIED_MESSAGE in content
+
     def test_run_now_persists_explicit_env_on_activity(self, member_client, member_user, schedule):
         """Schedule with an explicit env → run-now stamps that env on the generated Activity."""
         from sandbox_envs.models import SandboxEnvironment, Scope

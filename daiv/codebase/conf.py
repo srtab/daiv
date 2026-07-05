@@ -25,7 +25,7 @@ class CodebaseSettings(BaseSettings):
     )
     REPO_ACCESS_HARD_TTL_HOURS: int = Field(
         default=24,
-        description="Deny non-admin repository access when the last successful sync is older than this many hours",
+        description="Deny non-admin access to a repository when its synced access data is older than this many hours",
     )
 
     # GitHub
