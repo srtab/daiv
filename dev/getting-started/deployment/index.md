@@ -65,6 +65,20 @@ Customize Environment Variables
 
 **Replace all annotated values with your own configuration**. See the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) page for complete configuration options.
 
+Raise the open-file limit (`nofile`)
+
+Each DAIV agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of **1024** open files is too low and surfaces under load as `[Errno 24] Too many open files`. Swarm **ignores** service-level `ulimits`, so raise it on the Docker daemon of **each node** — add to `/etc/docker/daemon.json`:
+
+```
+{
+  "default-ulimits": {
+    "nofile": { "Name": "nofile", "Soft": 65536, "Hard": 524288 }
+  }
+}
+```
+
+then restart Docker (e.g. `systemctl restart docker`).
+
 ```
 x-app-environment-defaults: &app_environment_defaults
   # DJANGO
@@ -376,6 +390,10 @@ Environment Variable Configuration
 x-app-defaults: &x_app_default
   image: ghcr.io/srtab/daiv:latest
   restart: unless-stopped
+  ulimits: # (18)!
+    nofile:
+      soft: 65536
+      hard: 524288
   environment:
     DJANGO_SETTINGS_MODULE: daiv.settings.production
     DJANGO_SECRET_KEY: secret-key (1)
@@ -570,6 +588,7 @@ volumes:
 1. **Scaling**: Increase `replicas` to handle more concurrent tasks (e.g., `replicas: 3`). Each worker processes tasks independently from the shared queue, so adding replicas scales DAIV's throughput with no architecture changes
 1. Built-in MCP tools connect over streamable HTTP at the `/mcp` path. Set these explicitly so the hyphenated service names resolve — the built-in defaults assume `mcp_sentry` / `mcp_context7` (underscores). See [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md)
 1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
+1. **Raise the open-file limit**: each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of 1024 open files is too low and surfaces under load as `[Errno 24] Too many open files`. This raises `nofile` for the `app`, `worker`, and `scheduler` services (which share this anchor)
 
 ### Step 2: Run the compose file
 
