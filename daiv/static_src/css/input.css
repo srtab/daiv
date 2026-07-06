@@ -97,6 +97,52 @@ main:has(.chat-shell) {
            border border-red-800/30 bg-red-950/20 text-red-400 transition-all duration-200
            hover:border-red-800/50 hover:bg-red-950/40 hover:text-red-300;
   }
+
+  .mcp-tool-list__scroll {
+    @apply max-h-72 space-y-0.5 overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02] p-1;
+  }
+
+  .mcp-tool-row {
+    @apply flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors duration-150 hover:bg-white/[0.03];
+  }
+
+  .mcp-tool-row__name {
+    @apply block font-mono text-sm text-gray-200;
+  }
+
+  .mcp-tool-row__desc {
+    @apply mt-0.5 text-xs leading-snug text-gray-500 line-clamp-2;
+  }
+
+  /* Advisory read/write pills driven by MCP's optional readOnlyHint. Only shown
+     when the server annotated the tool; unannotated tools get no pill. */
+  .mcp-tool-row__pill {
+    @apply inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium;
+  }
+
+  .mcp-tool-row__pill--ro {
+    @apply bg-emerald-900/40 text-emerald-300;
+  }
+
+  .mcp-tool-row__pill--rw {
+    @apply bg-amber-900/40 text-amber-300;
+  }
+
+  /* Compact name pills for the exposed-tools list on the servers page. The body
+     stays neutral gray so a row of pills never competes with the emerald "Enabled"
+     / amber "Broken" status badges above it; read/write is a faint border tint only
+     (the edit form carries the explicit "read-only"/"writable" labels). */
+  .mcp-tool-pill {
+    @apply inline-flex items-center rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 font-mono text-xs text-gray-300;
+  }
+
+  .mcp-tool-pill--ro {
+    @apply border-emerald-500/25 bg-emerald-500/[0.04];
+  }
+
+  .mcp-tool-pill--rw {
+    @apply border-amber-500/25 bg-amber-500/[0.04];
+  }
 }
 
 /* -- Form element base styles ------------------------------------------- */
@@ -135,6 +181,11 @@ main:has(.chat-shell) {
   select:disabled,
   textarea:disabled {
     @apply opacity-50 cursor-not-allowed;
+  }
+
+  input[readonly],
+  textarea[readonly] {
+    @apply opacity-60 cursor-not-allowed;
   }
 }
 

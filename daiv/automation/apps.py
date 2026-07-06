@@ -1,5 +1,4 @@
 from django.apps import AppConfig
-from django.utils.module_loading import autodiscover_modules
 from django.utils.translation import gettext_lazy as _
 
 
@@ -12,4 +11,3 @@ class AutomationConfig(AppConfig):
         from automation.agent.profile import register as register_harness_profile
 
         register_harness_profile()
-        autodiscover_modules("agent.mcp.servers")
