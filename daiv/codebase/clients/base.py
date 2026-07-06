@@ -50,8 +50,10 @@ class GitEgressCredential:
     """Egress-proxy contribution for a repo's git platform: which host to allow and the
     ``Authorization`` header to inject so git-over-HTTPS in the sandbox is authenticated.
 
-    ``value`` is ``None`` when no token could be provisioned — the host is still returned so
-    reachability works (the repo's origin remote authenticates via its ``.git/config`` token)."""
+    The injected header is the sandbox's *only* git credential — the seeded clone carries none
+    (see :func:`codebase.clients.utils.git_auth_env`). ``value`` is ``None`` when no token could
+    be provisioned — the host is still returned so reachability works for platforms whose
+    remotes need no credential (e.g. SWE eval's public repos)."""
 
     host: str
     header: str = "Authorization"
@@ -60,7 +62,7 @@ class GitEgressCredential:
     @classmethod
     def for_token(cls, *, host: str, token: str | None) -> GitEgressCredential:
         """Build a credential injecting ``Authorization: Basic base64("oauth2:<token>")`` —
-        the same shape DAIV's clone URL uses. ``value`` is ``None`` when ``token`` is falsy."""
+        the same shape DAIV's clone auth env uses. ``value`` is ``None`` when ``token`` is falsy."""
         value = None
         if token:
             encoded = base64.b64encode(f"oauth2:{token}".encode()).decode()
@@ -156,6 +158,22 @@ class RepoClient(abc.ABC):
         """Short-lived token authenticating git-over-HTTPS for this repo's platform, or ``None`` for
         platforms that need no credential (host-only reachability). Overridden by GitLab/GitHub."""
         return None
+
+    def get_git_auth_env(self, repository: Repository) -> dict[str, str] | None:
+        """Per-invocation credential env for *local-mode* git network operations
+        (push/fetch/ls-remote), or ``None`` for platforms whose remotes need no credential
+        (e.g. SWE eval's public repos).
+
+        The clone persists no credential (see :func:`codebase.clients.utils.git_auth_env`), so
+        sandbox-disabled runs must overlay this env on each git subprocess instead. Resolved at
+        call time — the token is short-lived, so it is minted/fetched per publish rather than
+        pinned at clone time."""
+        from codebase.clients.utils import git_auth_env
+
+        token = self._git_egress_token(repository)
+        if not token:
+            return None
+        return git_auth_env(repository.clone_url, token)
 
     # Issue
     @abc.abstractmethod

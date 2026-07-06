@@ -14,6 +14,7 @@ from codebase.clients.gitlab.client import (
     GitLabClient,
     _is_source_branch_missing_error,
 )
+from codebase.clients.utils import git_auth_env
 
 
 def test_git_egress_credential_for_token_builds_basic_oauth2_header():
@@ -125,14 +126,16 @@ class TestGitLabClient:
 
         clone_url, clone_dir = clone_from.call_args.args[:2]
         branch = clone_from.call_args.kwargs["branch"]
-        assert clone_url == "https://oauth2:pat-token@gitlab.com/group/repo.git"
+        assert clone_url == "https://gitlab.com/group/repo.git"
+        assert clone_from.call_args.kwargs["env"] == git_auth_env("https://gitlab.com/group/repo.git", "pat-token")
         assert clone_dir.name == "repo"
         assert branch == "main"
         mock_writer.set_value.assert_any_call("user", "name", "daiv")
         mock_writer.set_value.assert_any_call("user", "email", "daiv@users.noreply.gitlab.com")
 
     def test_load_repo_prefers_ephemeral_token(self, gitlab_client, clone_setup):
-        """When provisioning succeeds, the ephemeral token is embedded in the clone URL, not the PAT."""
+        """When provisioning succeeds, the ephemeral token authenticates the clone, not the PAT —
+        and only via the command-scoped env, never the URL (which would persist it in .git/config)."""
         repository, clone_from, _ = clone_setup
 
         with (
@@ -142,12 +145,13 @@ class TestGitLabClient:
             pass
 
         get_token.assert_called_once_with(gitlab_client.client, 1)
-        assert clone_from.call_args.args[0] == "https://oauth2:glpat-eph@gitlab.com/group/repo.git"
+        assert clone_from.call_args.args[0] == "https://gitlab.com/group/repo.git"
+        assert clone_from.call_args.kwargs["env"] == git_auth_env("https://gitlab.com/group/repo.git", "glpat-eph")
 
     def test_load_repo_falls_back_to_pat_when_provisioning_fails(self, gitlab_client, clone_setup, caplog):
         """When provisioning returns None (tier/role/API failure), the PAT keeps clones working.
 
-        The fallback embeds the full-API PAT in the workspace, so each clone taking it must say so
+        The fallback authenticates with the full-API PAT, so each clone taking it must say so
         in its own log stream (the mint-time warning fires once per hour on one worker only).
         """
         repository, clone_from, _ = clone_setup
@@ -159,7 +163,8 @@ class TestGitLabClient:
         ):
             pass
 
-        assert clone_from.call_args.args[0] == "https://oauth2:pat-token@gitlab.com/group/repo.git"
+        assert clone_from.call_args.args[0] == "https://gitlab.com/group/repo.git"
+        assert clone_from.call_args.kwargs["env"] == git_auth_env("https://gitlab.com/group/repo.git", "pat-token")
         assert "with the configured PAT" in caplog.text
 
     def test_load_repo_raises_when_pat_is_missing(self, gitlab_client, clone_setup):
@@ -197,8 +202,10 @@ class TestGitLabClient:
 
         invalidate.assert_called_once_with(1)
         assert clone_from.call_count == 2
-        assert clone_from.call_args_list[0].args[0] == "https://oauth2:glpat-stale@gitlab.com/group/repo.git"
-        assert clone_from.call_args_list[1].args[0] == "https://oauth2:glpat-fresh@gitlab.com/group/repo.git"
+        first_env = clone_from.call_args_list[0].kwargs["env"]
+        second_env = clone_from.call_args_list[1].kwargs["env"]
+        assert first_env == git_auth_env("https://gitlab.com/group/repo.git", "glpat-stale")
+        assert second_env == git_auth_env("https://gitlab.com/group/repo.git", "glpat-fresh")
 
     def test_load_repo_retries_exactly_once_then_propagates_when_fresh_token_also_rejected(
         self, gitlab_client, clone_setup
@@ -240,6 +247,25 @@ class TestGitLabClient:
 
         invalidate.assert_not_called()
         assert clone_from.call_count == 1
+
+    def test_get_git_auth_env_reuses_clone_token(self, gitlab_client, clone_setup):
+        """Local-mode git (sandbox-disabled publishes) authenticates each invocation with the same
+        short-lived clone token the clone used — nothing is persisted in the clone itself."""
+        repository, _, _ = clone_setup
+
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"):
+            env = gitlab_client.get_git_auth_env(repository)
+
+        assert env == git_auth_env("https://gitlab.com/group/repo.git", "glpat-eph")
+
+    def test_get_git_auth_env_none_when_no_token(self, gitlab_client, clone_setup):
+        """No token at all (no ephemeral, no PAT) means nothing to authenticate with — callers
+        get None instead of a bogus header."""
+        repository, _, _ = clone_setup
+        gitlab_client.client.private_token = None
+
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            assert gitlab_client.get_git_auth_env(repository) is None
 
     def test_load_repo_does_not_retry_non_auth_clone_failures(self, gitlab_client, clone_setup):
         """A missing branch (or any non-auth 128) won't be fixed by a fresh credential, so it must

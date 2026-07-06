@@ -29,12 +29,17 @@ def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches
     return gm
 
 
-def _patch_open_git_manager(monkeypatch, gm: Mock) -> None:
+def _patch_open_git_manager(monkeypatch, gm: Mock) -> dict:
+    """Swap in a fake manager and return a dict capturing the kwargs the publisher opened it with."""
+    captured = {}
+
     @asynccontextmanager
-    async def _fake_open(*, sandbox_backend, gitrepo):  # noqa: ARG001
+    async def _fake_open(*, sandbox_backend, gitrepo, local_auth_env=None):  # noqa: ARG001
+        captured["local_auth_env"] = local_auth_env
         yield gm
 
     monkeypatch.setattr("automation.agent.publishers.open_git_manager", _fake_open)
+    return captured
 
 
 def _make_merge_request(**overrides) -> MergeRequest:
@@ -225,6 +230,34 @@ class TestBuildIssueCreationUrl:
         assert "body" in params
         assert "labels" in params
         assert params["labels"][0] == BOT_AUTO_LABEL
+
+
+class TestPublishLocalAuthEnv:
+    async def test_local_mode_overlays_client_credential_env(self, monkeypatch):
+        """Sandbox-disabled publishes push from the DAIV-container clone, whose .git/config no
+        longer holds a credential — the publisher must fetch the per-run env from the repo client
+        and open the local manager with it."""
+        publisher = _make_publisher()
+        auth_env = {"GIT_CONFIG_COUNT": "1"}
+        publisher.client.get_git_auth_env.return_value = auth_env
+        captured = _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
+
+        await publisher.publish(merge_request=None)
+
+        assert captured["local_auth_env"] == auth_env
+        publisher.client.get_git_auth_env.assert_called_once_with(publisher.ctx.repository)
+
+    async def test_sandbox_mode_skips_credential_env(self, monkeypatch):
+        """Sandbox git authenticates via the egress proxy's injected header; minting a token here
+        would be a needless platform API call and a needless secret in memory."""
+        publisher = _make_publisher()
+        publisher.sandbox_backend = Mock()
+        captured = _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
+
+        await publisher.publish(merge_request=None)
+
+        assert captured["local_auth_env"] is None
+        publisher.client.get_git_auth_env.assert_not_called()
 
 
 class TestPublishSuggestsContextFile:

@@ -146,6 +146,60 @@ def test_classmethod_constructors(tmp_path: Path) -> None:
     assert gm.repo is None
 
 
+async def test_local_env_overlay_reaches_git_subprocess(tmp_path: Path) -> None:
+    """``for_local(env=...)`` must overlay the vars on every local git invocation — this is how
+    the ephemeral credential reaches git now that the clone's ``.git/config`` carries none. The
+    probe uses git's own env-config mechanism (``GIT_CONFIG_*``), the same one ``git_auth_env``
+    relies on, so a pass proves both the overlay and the mechanism."""
+    repo = _init_repo(tmp_path)
+    manager = GitManager.for_local(
+        repo, env={"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "daiv.probe", "GIT_CONFIG_VALUE_0": "injected"}
+    )
+
+    result = await manager._git("config", "daiv.probe")
+
+    assert result.output.strip() == "injected"
+
+
+async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypatch) -> None:
+    """Every local git invocation must run with prompting fully disabled. With no credential in
+    ``.git/config``, an auth-required remote otherwise makes git prompt — on the tty, or via an
+    inherited ``SSH_ASKPASS`` GUI helper — hanging an unattended publish forever. Both
+    ``GIT_TERMINAL_PROMPT=0`` (no tty prompt) and ``GIT_ASKPASS=''`` (no askpass fallback) are
+    required; together they make a rejected credential fail fast with ``could not read Username``,
+    a marker ``is_git_auth_error_text`` classifies."""
+    import subprocess as subprocess_module  # noqa: S404
+
+    repo = _init_repo(tmp_path)
+    captured: dict[str, dict[str, str] | None] = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return subprocess_module.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("automation.agent.git_manager.subprocess.run", fake_run)
+
+    await GitManager.for_local(repo)._git("status")
+    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert captured["env"]["GIT_ASKPASS"] == ""
+
+    # The credential env wins over the default when both set the same key.
+    await GitManager.for_local(repo, env={"GIT_TERMINAL_PROMPT": "0", "X_MARKER": "wins"})._git("status")
+    assert captured["env"]["X_MARKER"] == "wins"
+
+
+async def test_local_env_overlay_keeps_process_environment(tmp_path: Path) -> None:
+    """The overlay must extend the inherited environment, not replace it — wiping PATH/HOME
+    would break git itself (and drop e.g. commit identity from the environment)."""
+    repo = _init_repo(tmp_path)
+    manager = GitManager.for_local(repo, env={"GIT_CONFIG_COUNT": "0"})
+
+    # Succeeds only if git is still resolvable and the repo readable under the merged env.
+    result = await manager._git("status", "--porcelain")
+
+    assert result.exit_code == 0
+
+
 # ---------------------------------------------------------------------------
 # _shell_quote (sandbox command construction)
 # ---------------------------------------------------------------------------
