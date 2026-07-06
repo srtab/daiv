@@ -87,6 +87,16 @@ def is_transient_sandbox_error(exc: httpx.HTTPError) -> bool:
     return True
 
 
+# Cap the run-scoped sandbox connection pool. Sandbox calls within a run are near-sequential — the
+# bash and file tools run one at a time, and the widest fan-out is GitManager's small command batch —
+# so a handful of connections is ample. httpx's DEFAULT ``max_connections`` is 100; a single long run
+# (heavy merge request, high thinking budget) let one pool climb toward that ceiling, and combined
+# with the other per-run pools (LLM, git platform, Redis) against a low container fd limit it exhausted
+# file descriptors ("[Errno 24] Too many open files"). An explicit cap bounds one run's sandbox sockets
+# regardless of run length while leaving headroom for the legitimate concurrent calls above.
+SANDBOX_CONNECTION_LIMITS = httpx.Limits(max_connections=32, max_keepalive_connections=16)
+
+
 class DAIVSandboxClient:
     """
     Client to interact with the daiv-sandbox service.
@@ -106,7 +116,10 @@ class DAIVSandboxClient:
         if self._client is not None:
             raise RuntimeError("DAIVSandboxClient is already open; nested entry would leak the previous httpx client")
         self._client = httpx.AsyncClient(
-            base_url=self.url, headers=self._get_headers(), timeout=site_settings.sandbox_timeout
+            base_url=self.url,
+            headers=self._get_headers(),
+            timeout=site_settings.sandbox_timeout,
+            limits=SANDBOX_CONNECTION_LIMITS,
         )
         return self
 
