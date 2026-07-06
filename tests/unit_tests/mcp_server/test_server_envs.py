@@ -16,10 +16,90 @@ async def test_list_environments_returns_user_and_global():
     from mcp_server.server import list_environments
 
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
-        envs = await list_environments()
-    names = sorted(env["name"] for env in envs)
+        result = await list_environments()
+    names = sorted(env["name"] for env in result["environments"])
     assert "dev" in names
     assert "GlobalExtra" in names
+    assert result["next_cursor"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_environments_cursor_paginates_without_overlap():
+    """Walking pages via next_cursor covers every visible env once, ordered by (scope, name)."""
+    from accounts.models import User
+
+    await SandboxEnvironment.objects.filter(scope=Scope.GLOBAL).adelete()
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    for name in ("alpha", "bravo", "charlie", "delta", "echo"):
+        await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name=name, base_image="x")
+
+    from mcp_server.server import list_environments
+
+    seen: list[str] = []
+    cursor = None
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        for _ in range(10):
+            result = await list_environments(limit=2, cursor=cursor)
+            seen.extend(env["name"] for env in result["environments"])
+            cursor = result["next_cursor"]
+            if cursor is None:
+                break
+
+    assert cursor is None
+    assert seen == ["alpha", "bravo", "charlie", "delta", "echo"]  # (scope, name) order, no gaps/repeats
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_environments_invalid_cursor_returns_error():
+    from accounts.models import User
+
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    from mcp_server.server import list_environments
+
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        result = await list_environments(cursor="garbage")
+    assert "error" in result
+    assert "cursor" in result["error"].lower()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_environments_non_string_id_cursor_returns_invalid_not_crash():
+    """A well-formed base64(JSON) cursor whose ``id`` is a non-string (e.g. a JSON number)
+    must return "Invalid cursor.", not raise AttributeError from uuid.UUID(<int>)."""
+    from accounts.models import User
+
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    from mcp_server.server import _encode_cursor, list_environments
+
+    bad = _encode_cursor({"s": "USER", "n": "x", "id": 123})  # non-string id
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        result = await list_environments(cursor=bad)
+    assert result.get("error") == "Invalid cursor."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_environments_unauthenticated_returns_error():
+    from mcp_server.server import list_environments
+
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=None)):
+        result = await list_environments()
+    assert "error" in result
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_environments_db_error_returns_friendly_error():
+    from accounts.models import User
+
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    from mcp_server.server import list_environments
+
+    with (
+        patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
+        patch("mcp_server.server.alist_visible_environments", new=AsyncMock(side_effect=RuntimeError("db down"))),
+    ):
+        result = await list_environments()
+    assert "error" in result
+    assert "db down" not in result["error"]  # internal detail not leaked
 
 
 @pytest.mark.django_db(transaction=True)
@@ -171,8 +251,8 @@ async def test_list_environments_excludes_other_users_envs():
     from mcp_server.server import list_environments
 
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
-        envs = await list_environments()
-    names = {env["name"] for env in envs}
+        result = await list_environments()
+    names = {env["name"] for env in result["environments"]}
     assert "mine" in names
     assert "theirs" not in names
 

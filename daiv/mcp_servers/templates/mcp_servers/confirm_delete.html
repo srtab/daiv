@@ -1,0 +1,24 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "Delete MCP server" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-2xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up">
+    <h1 class="text-2xl font-bold tracking-tight">
+        {% blocktranslate with name=object.name %}Delete {{ name }}?{% endblocktranslate %}
+    </h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        {% translate "This permanently removes the server and its stored headers. This cannot be undone." %}
+    </p>
+    <form method="post" class="mt-8">
+        {% csrf_token %}
+        <div class="flex items-center gap-3">
+            <button type="submit" class="btn-danger">{% translate "Delete" %}</button>
+            <a href="{% url 'mcp_servers:edit' object.name %}" class="btn-secondary">{% translate "Cancel" %}</a>
+        </div>
+    </form>
+</div>
+{% endblock app_content %}

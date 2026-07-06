@@ -26,7 +26,14 @@ document.addEventListener("alpine:init", () => {
         removeRow(rowEl) {
             const idInput = rowEl.querySelector('input[name$="-id"]');
             const deleteInput = rowEl.querySelector('input[name$="-DELETE"]');
-            if (idInput && idInput.value) {
+            // A row is "server-rendered" — and must be kept in the POST so its
+            // index slot survives — when it maps to a persisted object (ModelFormSet:
+            // has a non-empty ``-id``) or is explicitly marked ``data-initial``
+            // (plain formset: dropping its DOM node would leave a gap that an
+            // initial-index form validates as an empty, invalid row). Such rows are
+            // marked for deletion and hidden; only brand-new client rows are removed.
+            const serverRendered = (idInput && idInput.value) || rowEl.hasAttribute("data-initial");
+            if (serverRendered) {
                 if (deleteInput) deleteInput.checked = true;
                 rowEl.classList.add("hidden");
             } else {

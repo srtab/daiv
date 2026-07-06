@@ -25,9 +25,24 @@ class ToolFilter(BaseModel):
         description="List of tool names to filter based on the mode",
     )
 
+    def allows(self, base_name: str) -> bool:
+        """Whether ``base_name`` (server prefix already stripped) passes this
+        filter. Single source of truth shared by the runtime toolkit and the
+        mcp_servers UI so the displayed 'exposed' set can't drift from what the
+        agent actually receives."""
+        if self.mode == "allow":
+            return base_name in self.items
+        return base_name not in self.items
+
 
 class UserMcpServer(BaseModel):
-    """User-defined MCP server from config file (Claude Code .mcp.json format)."""
+    """Runtime DTO for an MCP server the toolkit consumes.
+
+    Produced from DB rows by ``mcp_servers.services.build_runtime_servers`` (built-in
+    and custom alike) and also used to parse the legacy DAIV MCP-servers JSON config
+    (``MCP_SERVERS_CONFIG_FILE``) during the one-shot 0002 import migration. That format
+    shares only the ``mcpServers`` top-level key with Claude Code's ``.mcp.json`` — it has
+    no stdio ``command``/``args`` support (``type`` is HTTP/SSE only)."""
 
     model_config = ConfigDict(populate_by_name=True)
 

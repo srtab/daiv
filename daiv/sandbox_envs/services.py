@@ -6,6 +6,8 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
+from django.db.models import Q
+
 from asgiref.sync import async_to_sync
 
 from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
@@ -258,6 +260,29 @@ async def resolve_env_for_user(user, name_or_id: str | None) -> SandboxEnvironme
         valid = [n async for n in qs.values_list("name", flat=True)]
         raise LookupError(f"unknown environment '{name_or_id}'; valid: {valid}")
     return env
+
+
+async def alist_visible_environments(
+    user, *, limit: int | None = None, after: tuple[str, str, UUID] | None = None
+) -> list[SandboxEnvironment]:
+    """Return the environments visible to ``user`` (own USER envs plus all GLOBAL envs),
+    ordered by ``(scope, name, id)``.
+
+    ``after`` is a keyset cursor ``(scope, name, id)`` of the last row already seen; only
+    rows strictly after it in that ordering are returned. The ``id`` tie-break keeps the
+    cursor unambiguous when two envs share a ``(scope, name)``. ``limit=None`` returns all.
+    """
+    qs = SandboxEnvironment.objects.visible_to(user).order_by("scope", "name", "id")
+    if after is not None:
+        after_scope, after_name, after_id = after
+        qs = qs.filter(
+            Q(scope__gt=after_scope)
+            | Q(scope=after_scope, name__gt=after_name)
+            | Q(scope=after_scope, name=after_name, id__gt=after_id)
+        )
+    if limit is not None:
+        qs = qs[:limit]
+    return [env async for env in qs]
 
 
 async def resolve_env_for_run(*, user, repo_id: str | None) -> SandboxEnvironment | None:
