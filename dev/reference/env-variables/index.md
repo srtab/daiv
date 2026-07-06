@@ -295,14 +295,14 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 
 ### MCP Tools
 
-MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. Each MCP server runs in its own isolated container.
+MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. MCP servers are configured as database rows at `/dashboard/mcp-servers/` and connected to directly by the DAIV app — no sidecar containers are required.
 
-| Variable                  | Description                                                                                                                                  | Default                        | Example                     |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | --------------------------- |
-| `MCP_SERVERS_CONFIG_FILE` | Path to user-defined MCP servers JSON config file                                                                                            | *(none)*                       | `/path/to/mcp.json`         |
-| `MCP_SENTRY_URL`          | Streamable HTTP URL for the Sentry supergateway container (set to `None` to disable)                                                         | `http://mcp_sentry:8000/mcp`   | `http://localhost:8001/mcp` |
-| `MCP_CONTEXT7_URL`        | Streamable HTTP URL for the Context7 supergateway container (set to `None` to disable)                                                       | `http://mcp_context7:8000/mcp` | `http://localhost:8002/mcp` |
-| `MCP_TOOL_LOAD_TIMEOUT`   | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30`                           | `10`                        |
+| Variable                  | Description                                                                                                                                                                                                                                                                      | Default                        | Example             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------- |
+| `MCP_SERVERS_CONFIG_FILE` | **Deprecated.** Servers are managed at `/dashboard/mcp-servers/`; a set value only triggers a warning when migrations run (every web-container start).                                                                                                                           | *(none)*                       | `/path/to/mcp.json` |
+| `MCP_SENTRY_URL`          | **Deprecated and ignored.** The `sentry` server row is seeded with the official remote endpoint; this var is read at migrate time only to convert a pre-existing dashboard-managed placeholder row (a no-op on a normal upgrade). Manage the URL at `/dashboard/mcp-servers/`.   | `http://mcp_sentry:8000/mcp`   | —                   |
+| `MCP_CONTEXT7_URL`        | **Deprecated and ignored.** The `context7` server row is seeded with the official remote endpoint; this var is read at migrate time only to convert a pre-existing dashboard-managed placeholder row (a no-op on a normal upgrade). Manage the URL at `/dashboard/mcp-servers/`. | `http://mcp_context7:8000/mcp` | —                   |
+| `MCP_TOOL_LOAD_TIMEOUT`   | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs)                                                                                                                                     | `30`                           | `10`                |
 
 Info
 

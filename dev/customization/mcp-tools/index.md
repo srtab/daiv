@@ -1,170 +1,38 @@
 # MCP Tools
 
-[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with access to external services. Each MCP server runs in its own isolated container via [supergateway](https://github.com/supercorp-ai/supergateway), ensuring that a compromised or misbehaving server cannot affect others.
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with access to external services. MCP servers are managed from the dashboard at **Settings → MCP Servers** (`/dashboard/mcp-servers/`): each server is a row with a URL, a transport (`http` or `sse`), optional HTTP headers (stored encrypted, or referenced from an env var), and an optional tool filter. Connections are opened by the DAIV app itself at runtime — no sidecar containers are required.
 
-## Built-in MCP servers
+## Built-in servers
+
+DAIV seeds two built-in servers pointing at the official remote MCP endpoints. Built-in rows are fully editable (URL, headers, tool filter) but cannot be renamed or deleted — only disabled.
 
 ### Sentry
 
-The [Sentry MCP Server](https://www.npmjs.com/package/@sentry/mcp-server) gives DAIV access to your error tracking data.
+Seeded with `https://mcp.sentry.dev/mcp?disable-skills=seer,docs,project-management` and **disabled** by default, because the endpoint requires authentication:
 
-**Available tools** (read-only allow-list):
+1. Create a [Sentry User Auth Token](https://docs.sentry.io/account/auth-tokens/) with read scopes (`org:read`, `project:read`, `team:read`, `event:read`).
+1. Edit the `sentry` server and add a header: name `Authorization`, value `Sentry-Bearer <your token>` (literal values are encrypted at rest; alternatively use an `env_ref` to a variable holding that full string).
+1. Click **Test connection**, adjust the tool filter if needed, save, and enable the server.
 
-| Tool                   | Description                            |
-| ---------------------- | -------------------------------------- |
-| `whoami`               | Identify the authenticated Sentry user |
-| `find_organizations`   | Discover Sentry organizations          |
-| `find_projects`        | List projects in an organization       |
-| `find_teams`           | List teams in an organization          |
-| `find_releases`        | List releases in a project             |
-| `search_issue`         | Look up a specific issue               |
-| `search_issue_events`  | Search events within an issue          |
-| `search_events`        | Search for events                      |
-| `get_issue_tag_values` | List tag values seen on an issue       |
-| `get_event_attachment` | Fetch an attachment from an event      |
-| `get_replay_details`   | Get details of a session replay        |
-| `get_profile_details`  | Get details of a profiling sample      |
-| `get_sentry_resource`  | Fetch a Sentry resource by reference   |
-
-**Use cases:** Analyzing error patterns when fixing bugs, correlating code changes with production errors, gathering debugging context.
-
-**Configuration:**
-
-```
-MCP_SENTRY_URL=http://mcp_sentry:8000/mcp   # Default; set to None to disable
-```
-
-`SENTRY_ACCESS_TOKEN` is consumed by the `mcp_sentry` container — add it to your secrets env file. `SENTRY_HOST` is set as a regular environment variable on the container.
-
-Note
-
-The default hostname uses an underscore (`mcp_sentry`). Docker Swarm does **not** normalize service names with dashes to underscores on internal DNS, so a service declared as `mcp-sentry` (hyphen) is only reachable at the hyphenated hostname. If your deployment uses the hyphenated service name — as the [deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) stack examples do — set `MCP_SENTRY_URL=http://mcp-sentry:8000/mcp` explicitly so the service resolves.
+The seeded tool filter allows only read-only tools. `Sentry-Bearer` (not `Bearer`) is Sentry's scheme for passing an API token directly to their hosted MCP.
 
 ### Context7
 
-The [Context7 MCP Server](https://www.npmjs.com/package/@upstash/context7-mcp) provides up-to-date library documentation lookup.
+Seeded with `https://mcp.context7.com/mcp` and **enabled** by default — it works without credentials at low rate limits. To raise them, add a header: name `CONTEXT7_API_KEY`, value your API key from [context7.com/dashboard](https://context7.com/dashboard).
 
-**Available tools:**
+## On-premise Sentry
 
-| Tool                 | Description                                |
-| -------------------- | ------------------------------------------ |
-| `resolve-library-id` | Resolve a library name to its Context7 ID  |
-| `query-docs`         | Query documentation for a specific library |
+Sentry's hosted MCP only serves sentry.io. The official [`@sentry/mcp-server`](https://www.npmjs.com/package/@sentry/mcp-server) package is stdio-only, so for a self-hosted Sentry you expose it over HTTP yourself and point the `sentry` row's URL at it. Two options:
 
-**Use cases:** Looking up current API documentation, finding code examples for libraries used in the project.
-
-**Configuration:**
+**Option A — stdio bridge container** (any stdio→HTTP bridge works; this example uses [supergateway](https://github.com/supercorp-ai/supergateway)):
 
 ```
-MCP_CONTEXT7_URL=http://mcp_context7:8000/mcp  # Default; set to None to disable
-```
-
-Context7 credentials (`CONTEXT7_API_KEY`) are consumed by the `mcp_context7` container. Add them to your secrets env file. As with Sentry, the default hostname uses an underscore, and Swarm does **not** normalize dashes to underscores on internal DNS. If your deployment declares the service as `mcp-context7` (hyphen) — as the [deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) stack examples do — set `MCP_CONTEXT7_URL=http://mcp-context7:8000/mcp` explicitly so the service resolves.
-
-## User-defined MCP servers
-
-DAIV can connect to any MCP server that implements the [Model Context Protocol](https://modelcontextprotocol.io/). If you need to build a custom server, see the [MCP server documentation](https://modelcontextprotocol.io/docs/concepts/servers). This section covers how to connect an existing server to DAIV.
-
-Provide a JSON config file following the [Claude Code `.mcp.json` standard](https://docs.anthropic.com/en/docs/claude-code/mcp). Set the file path via the `MCP_SERVERS_CONFIG_FILE` environment variable.
-
-Only `sse` and `http` (streamable HTTP) transport types are supported, since user MCP servers must be network-accessible.
-
-Note
-
-When running in Docker, the config file must be accessible inside the container. Mount it as a volume and set `MCP_SERVERS_CONFIG_FILE` to the container path:
-
-```
-# docker-compose.yml
-app:
-  volumes:
-    - ./mcp.json:/home/app/mcp.json:ro
-  environment:
-    MCP_SERVERS_CONFIG_FILE: /home/app/mcp.json
-```
-
-### Config file format
-
-```
-{
-  "mcpServers": {
-    "my-internal-api": {
-      "type": "sse",
-      "url": "http://my-mcp-host:8080/sse",
-      "headers": {
-        "Authorization": "Bearer ${MY_API_TOKEN}"
-      }
-    },
-    "another-service": {
-      "type": "http",
-      "url": "http://another-host:9000/mcp",
-      "headers": {
-        "X-Api-Key": "${ANOTHER_API_KEY}"
-      },
-      "toolFilter": {
-        "mode": "allow",
-        "list": ["search", "get_document"]
-      }
-    }
-  }
-}
-```
-
-Each server entry supports:
-
-| Field        | Required | Description                                       |
-| ------------ | -------- | ------------------------------------------------- |
-| `type`       | Yes      | Transport type: `sse` or `http` (streamable HTTP) |
-| `url`        | Yes      | URL of the MCP server                             |
-| `headers`    | No       | HTTP headers (supports env var expansion)         |
-| `toolFilter` | No       | Restrict which tools are exposed (see below)      |
-
-### Tool filtering
-
-Use `toolFilter` to control which tools from a server are available to the agent:
-
-- **`mode: "allow"`** — only tools in the `list` are exposed
-- **`mode: "block"`** — all tools except those in the `list` are exposed
-
-```
-{
-  "toolFilter": {
-    "mode": "allow",
-    "list": ["tool_a", "tool_b"]
-  }
-}
-```
-
-If `toolFilter` is omitted, all tools from the server are available.
-
-### Environment variable expansion
-
-The `url` and `headers` values support environment variable expansion:
-
-- `${VAR}` — replaced with the value of `VAR`, kept as-is if unset
-- `${VAR:-default}` — replaced with the value of `VAR`, or `default` if unset
-
-This allows you to keep secrets out of the config file and inject them via environment variables.
-
-## Running custom MCP servers
-
-To add a custom stdio-based MCP server, wrap it with [supergateway](https://github.com/supercorp-ai/supergateway) in its own container. Each MCP server should run in a separate container for security isolation.
-
-Important
-
-Always run supergateway in **stateful mode** (`--stateful`). In stateless mode (the default), every tool call spawns a fresh child process chain (`npx` → `npm` → `sh` → `node`), which can exhaust the system's thread limit (`kernel.threads-max`) under concurrent load. Stateful mode keeps a single long-lived child process and multiplexes all requests through it.
-
-Use `--sessionTimeout` to automatically clean up idle sessions (in milliseconds). A value of `300000` (5 minutes) works well for typical agent runs.
-
-Example `docker-compose.yml` service:
-
-```
-mcp-my-tool:
+mcp-sentry:
   image: supercorp/supergateway:latest
   restart: unless-stopped
-  container_name: daiv-mcp-my-tool
   command:
     - --stdio
-    - "npx my-mcp-server@latest"
+    - "npx @sentry/mcp-server@latest --host=sentry.example.com"
     - --outputTransport
     - streamableHttp
     - --healthEndpoint
@@ -173,7 +41,7 @@ mcp-my-tool:
     - --sessionTimeout
     - "300000"
   environment:
-    MY_TOOL_API_KEY: ${MY_TOOL_API_KEY:-}
+    SENTRY_ACCESS_TOKEN: ${SENTRY_ACCESS_TOKEN}
   healthcheck:
     test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/healthz"]
     interval: 30s
@@ -182,23 +50,41 @@ mcp-my-tool:
     start_period: 30s
 ```
 
-Then reference it in your config file:
+Then edit the `sentry` server row: set the URL to `http://mcp-sentry:8000/mcp` and remove the `Authorization` header (the bridge authenticates via its own `SENTRY_ACCESS_TOKEN`). Add `--insecure-http` to the `npx` command for plain-HTTP Sentry installs.
 
-```
-{
-  "mcpServers": {
-    "my-tool": {
-      "type": "http",
-      "url": "http://mcp-my-tool:8000/mcp"
-    }
-  }
-}
-```
+**Option B — self-deploy Sentry's worker.** The [sentry-mcp](https://github.com/getsentry/sentry-mcp) repository ships the open-source Cloudflare worker behind mcp.sentry.dev. Deploying your own instance gives you a bridge-free HTTP endpoint; keep the `Authorization: Sentry-Bearer <token>` header in the row.
+
+Important
+
+When running a stdio bridge, always use **stateful mode** (`--stateful`). In stateless mode every tool call spawns a fresh child process chain, which can exhaust the system's thread limit under concurrent load. Use `--sessionTimeout` (milliseconds; `300000` works well) to clean up idle sessions.
+
+## Custom servers
+
+Add any HTTP- or SSE-reachable MCP server from **MCP Servers → New server**:
+
+| Field       | Description                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| Name        | Unique slug (lowercase, dashes)                                                                       |
+| Transport   | `http` (streamable HTTP) or `sse`                                                                     |
+| URL         | The MCP endpoint URL                                                                                  |
+| Headers     | Per-header: literal value (encrypted at rest) or `env_ref` (resolved from the environment at runtime) |
+| Tool filter | `allow`/`block` a list of tool names                                                                  |
+
+**Test connection** probes the server and, on success, turns the tool-filter field into checkboxes listing the discovered tools. Tool discovery also runs when you open a saved server's edit page, so the checkboxes are populated without re-testing.
+
+### Tool filtering
+
+- **`allow`** — only the listed tools are exposed.
+- **`block`** — all tools except the listed ones are exposed.
+
+Unknown names in an allow-list fail closed: a tool that disappears upstream simply stops being exposed. If no filter is set, all tools from the server are available.
+
+### Stdio-only servers
+
+DAIV connects over HTTP/SSE only. To use a stdio-based MCP server, wrap it with a stdio→HTTP bridge in its own container (see the on-premise Sentry example above) and add the bridge URL as a custom server. Run one bridge container per MCP server for isolation.
 
 ## Security considerations
 
-- **One container per MCP server** — each MCP runs in its own isolated container, so a vulnerability in one cannot compromise others
-- **Environment variable expansion** — use `${VAR}` syntax to inject secrets from the environment instead of hardcoding them in config files
-- **Store tokens securely** — use Docker secrets for sensitive values like access tokens
-- **Network segmentation** — MCP containers only need to reach the services they interact with; consider restricting their network access
-- **Review server permissions** — MCP servers may require network access to external services
+- **Secrets in headers** are encrypted at rest and never rendered back into the form; `env_ref` headers keep the value out of the database entirely.
+- **Read-only filters** — prefer allow-lists that exclude mutating tools, as the seeded Sentry filter does.
+- **Network** — MCP connections originate from the DAIV app/worker containers; the sandbox egress proxy does not apply to them. Restrict outbound access at your network layer if needed.
