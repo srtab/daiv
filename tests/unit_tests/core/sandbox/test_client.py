@@ -121,6 +121,30 @@ async def test_connection_pool_reused_across_calls_in_one_block(fake_settings, m
     assert len(set(mock_post["client_ids"])) == 1, "expected the same httpx.AsyncClient to handle all three calls"
 
 
+async def test_open_bounds_connection_pool(fake_settings, monkeypatch):
+    """open() must cap the pool below httpx's default (100) so one long run can't exhaust fds."""
+    from core.sandbox.client import SANDBOX_CONNECTION_LIMITS, DAIVSandboxClient
+
+    captured: dict = {}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr("core.sandbox.client.httpx.AsyncClient", FakeAsyncClient)
+
+    client = DAIVSandboxClient()
+    await client.open()
+    await client.close()
+
+    assert captured["limits"] is SANDBOX_CONNECTION_LIMITS
+    assert SANDBOX_CONNECTION_LIMITS.max_connections is not None
+    assert SANDBOX_CONNECTION_LIMITS.max_connections < 100
+
+
 async def test_double_open_raises(fake_settings):
     """Re-entering an already-open client would leak the previous httpx.AsyncClient."""
     from core.sandbox.client import DAIVSandboxClient
