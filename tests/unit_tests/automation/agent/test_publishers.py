@@ -8,6 +8,7 @@ import pytest
 from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import GitChangePublisher, PublishOutcome
 from codebase.base import GitPlatform, MergeRequest, User
+from codebase.clients.utils import GitAuthEnv
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 
 
@@ -34,8 +35,8 @@ def _patch_open_git_manager(monkeypatch, gm: Mock) -> dict:
     captured = {}
 
     @asynccontextmanager
-    async def _fake_open(*, sandbox_backend, gitrepo, local_auth_env=None):  # noqa: ARG001
-        captured["local_auth_env"] = local_auth_env
+    async def _fake_open(*, sandbox_backend, gitrepo, auth_env=None):  # noqa: ARG001
+        captured["auth_env"] = auth_env
         yield gm
 
     monkeypatch.setattr("automation.agent.publishers.open_git_manager", _fake_open)
@@ -238,13 +239,13 @@ class TestPublishLocalAuthEnv:
         longer holds a credential — the publisher must fetch the per-run env from the repo client
         and open the local manager with it."""
         publisher = _make_publisher()
-        auth_env = {"GIT_CONFIG_COUNT": "1"}
+        auth_env = GitAuthEnv.for_token("https://gitlab.com/owner/repo.git", "tok")
         publisher.client.get_git_auth_env.return_value = auth_env
         captured = _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
 
         await publisher.publish(merge_request=None)
 
-        assert captured["local_auth_env"] == auth_env
+        assert captured["auth_env"] is auth_env
         publisher.client.get_git_auth_env.assert_called_once_with(publisher.ctx.repository)
 
     async def test_sandbox_mode_skips_credential_env(self, monkeypatch):
@@ -256,7 +257,7 @@ class TestPublishLocalAuthEnv:
 
         await publisher.publish(merge_request=None)
 
-        assert captured["local_auth_env"] is None
+        assert captured["auth_env"] is None
         publisher.client.get_git_auth_env.assert_not_called()
 
 

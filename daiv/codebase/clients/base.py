@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from github import Github
     from gitlab import Gitlab
 
+    from codebase.clients.utils import GitAuthEnv
+
 logger = logging.getLogger("daiv.clients")
 
 
@@ -51,9 +53,10 @@ class GitEgressCredential:
     ``Authorization`` header to inject so git-over-HTTPS in the sandbox is authenticated.
 
     The injected header is the sandbox's *only* git credential — the seeded clone carries none
-    (see :func:`codebase.clients.utils.git_auth_env`). ``value`` is ``None`` when no token could
-    be provisioned — the host is still returned so reachability works for platforms whose
-    remotes need no credential (e.g. SWE eval's public repos)."""
+    (see :class:`codebase.clients.utils.GitAuthEnv`). ``value`` is ``None`` when no token was
+    provisioned — either the platform needs none (e.g. SWE eval's public repos) or one was required
+    but could not be minted. The host is still returned so reachability works; auth, if required,
+    then fails at the git layer."""
 
     host: str
     header: str = "Authorization"
@@ -159,21 +162,27 @@ class RepoClient(abc.ABC):
         platforms that need no credential (host-only reachability). Overridden by GitLab/GitHub."""
         return None
 
-    def get_git_auth_env(self, repository: Repository) -> dict[str, str] | None:
-        """Per-invocation credential env for *local-mode* git network operations
+    def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
+        """Per-invocation credential overlay for *local-mode* git network operations
         (push/fetch/ls-remote), or ``None`` for platforms whose remotes need no credential
         (e.g. SWE eval's public repos).
 
-        The clone persists no credential (see :func:`codebase.clients.utils.git_auth_env`), so
-        sandbox-disabled runs must overlay this env on each git subprocess instead. Resolved at
-        call time — the token is short-lived, so it is minted/fetched per publish rather than
-        pinned at clone time."""
-        from codebase.clients.utils import git_auth_env
+        The clone persists no credential (see :class:`codebase.clients.utils.GitAuthEnv`), so
+        sandbox-disabled runs must overlay it on each git subprocess instead. Resolved at call
+        time — the token is short-lived, so it is minted/fetched per publish rather than pinned at
+        clone time. A ``None`` return also covers the case where a credential *was* required but
+        could not be minted; the debug log distinguishes that from the no-credential-needed case."""
+        from codebase.clients.utils import GitAuthEnv
 
         token = self._git_egress_token(repository)
         if not token:
+            logger.debug(
+                "No git credential resolved for %s; local-mode git will run unauthenticated "
+                "(expected for public-repo platforms, otherwise a token could not be minted)",
+                repository.slug,
+            )
             return None
-        return git_auth_env(repository.clone_url, token)
+        return GitAuthEnv.for_token(repository.clone_url, token)
 
     # Issue
     @abc.abstractmethod

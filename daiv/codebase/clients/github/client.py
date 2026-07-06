@@ -248,7 +248,7 @@ class GitHubClient(RepoClient):
         Yields:
             The repository object cloned to the temporary directory.
         """
-        from codebase.clients.utils import git_auth_env, safe_slug
+        from codebase.clients.utils import GitAuthEnv, safe_slug
 
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
@@ -260,7 +260,10 @@ class GitHubClient(RepoClient):
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
             repo = Repo.clone_from(
-                repository.clone_url, clone_dir, branch=sha, env=git_auth_env(repository.clone_url, token)
+                repository.clone_url,
+                clone_dir,
+                branch=sha,
+                env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
             )
             self._configure_commit_identity(repo)
             yield repo
@@ -279,6 +282,13 @@ class GitHubClient(RepoClient):
             headers={"Accept": Consts.mediaTypeIntegrationPreview},
             input={"permissions": {"contents": "write"}, "repository_ids": [repository.pk]},
         )
+        # requestJsonAndCheck raises GithubException on non-2xx, but a 2xx whose body lacks "token"
+        # (API contract drift) would otherwise surface as a bare, contextless KeyError far downstream.
+        if "token" not in response:
+            raise RuntimeError(
+                f"GitHub installation-token response for installation {self.client_installation.id} "
+                f"contained no 'token' (keys: {sorted(response)})"
+            )
         return response["token"]
 
     def _git_egress_token(self, repository: Repository) -> str | None:

@@ -23,6 +23,7 @@ from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
 if TYPE_CHECKING:
     from automation.agent.middlewares.file_system import SandboxFileBackend
+    from codebase.clients.utils import GitAuthEnv
     from codebase.context import RuntimeCtx
 
 
@@ -82,15 +83,15 @@ class GitChangePublisher(ChangePublisher):
         default_branch = cast("str", self.ctx.config.default_branch)
 
         # Local-mode git (sandbox-disabled runs) pushes from the DAIV-container clone, whose
-        # .git/config deliberately holds no credential — overlay the per-run credential env on
-        # its git subprocesses. Sandbox runs skip the lookup: in-sandbox git authenticates via
-        # the egress proxy, and (on GitHub) the lookup mints a token via a platform API call.
-        local_auth_env: dict[str, str] | None = None
+        # .git/config deliberately holds no credential — overlay the per-run credential on its git
+        # subprocesses. Sandbox runs skip the lookup: in-sandbox git authenticates via the egress
+        # proxy, and (on GitHub) the lookup mints a token via a platform API call.
+        auth_env: GitAuthEnv | None = None
         if self.sandbox_backend is None:
-            local_auth_env = await sync_to_async(self.client.get_git_auth_env)(self.ctx.repository)
+            auth_env = await sync_to_async(self.client.get_git_auth_env)(self.ctx.repository)
 
         async with open_git_manager(
-            sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, local_auth_env=local_auth_env
+            sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
         ) as git_manager:
             snapshot = await git_manager.status_snapshot(
                 base_branch=default_branch,

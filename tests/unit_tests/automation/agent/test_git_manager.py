@@ -146,19 +146,31 @@ def test_classmethod_constructors(tmp_path: Path) -> None:
     assert gm.repo is None
 
 
-async def test_local_env_overlay_reaches_git_subprocess(tmp_path: Path) -> None:
-    """``for_local(env=...)`` must overlay the vars on every local git invocation — this is how
-    the ephemeral credential reaches git now that the clone's ``.git/config`` carries none. The
-    probe uses git's own env-config mechanism (``GIT_CONFIG_*``), the same one ``git_auth_env``
-    relies on, so a pass proves both the overlay and the mechanism."""
+async def test_local_auth_env_reaches_git_but_never_persists_to_config(tmp_path: Path) -> None:
+    """``for_local(auth_env=...)`` must overlay the credential on every local git invocation via
+    git's own ``GIT_CONFIG_*`` env mechanism — this is how the ephemeral credential reaches git now
+    that the clone's ``.git/config`` carries none — AND that credential must stay ephemeral: it must
+    never be written into ``.git/config``. Reading it back in-process proves the overlay reaches git;
+    reading the on-disk config proves it did not persist (guarding the core security contract against
+    a future switch to a persisted ``git config`` write, which would re-seed the token into the
+    sandbox)."""
+    from pathlib import Path as _Path
+
+    from codebase.clients.utils import GitAuthEnv
+
     repo = _init_repo(tmp_path)
-    manager = GitManager.for_local(
-        repo, env={"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "daiv.probe", "GIT_CONFIG_VALUE_0": "injected"}
-    )
+    auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "sekret-token")
+    manager = GitManager.for_local(repo, auth_env=auth_env)
 
-    result = await manager._git("config", "daiv.probe")
+    # The extraheader is visible to git during the invocation (proves the overlay is applied).
+    result = await manager._git("config", "--get", "http.https://gitlab.com/.extraheader")
+    assert "Authorization: Basic" in result.output
 
-    assert result.output.strip() == "injected"
+    # …but it was never written to disk.
+    config_on_disk = (_Path(repo.working_dir) / ".git" / "config").read_text()
+    assert "sekret-token" not in config_on_disk
+    assert "extraheader" not in config_on_disk
+    assert "GIT_CONFIG" not in config_on_disk
 
 
 async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypatch) -> None:
@@ -170,6 +182,8 @@ async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypat
     a marker ``is_git_auth_error_text`` classifies."""
     import subprocess as subprocess_module  # noqa: S404
 
+    from codebase.clients.utils import GitAuthEnv
+
     repo = _init_repo(tmp_path)
     captured: dict[str, dict[str, str] | None] = {}
 
@@ -179,20 +193,24 @@ async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypat
 
     monkeypatch.setattr("automation.agent.git_manager.subprocess.run", fake_run)
 
+    # No credential: the prompt-disabling defaults must still be present.
     await GitManager.for_local(repo)._git("status")
     assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
     assert captured["env"]["GIT_ASKPASS"] == ""
 
-    # The credential env wins over the default when both set the same key.
-    await GitManager.for_local(repo, env={"GIT_TERMINAL_PROMPT": "0", "X_MARKER": "wins"})._git("status")
-    assert captured["env"]["X_MARKER"] == "wins"
+    # With a credential: the header is applied and the prompt-disabling vars remain.
+    auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "tok")
+    await GitManager.for_local(repo, auth_env=auth_env)._git("status")
+    assert "Authorization: Basic" in captured["env"]["GIT_CONFIG_VALUE_0"]
+    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert captured["env"]["GIT_ASKPASS"] == ""
 
 
 async def test_local_env_overlay_keeps_process_environment(tmp_path: Path) -> None:
     """The overlay must extend the inherited environment, not replace it — wiping PATH/HOME
     would break git itself (and drop e.g. commit identity from the environment)."""
     repo = _init_repo(tmp_path)
-    manager = GitManager.for_local(repo, env={"GIT_CONFIG_COUNT": "0"})
+    manager = GitManager.for_local(repo)
 
     # Succeeds only if git is still resolvable and the repo readable under the merged env.
     result = await manager._git("status", "--porcelain")
@@ -305,6 +323,31 @@ async def test_status_snapshot_raises_on_no_index_hard_error() -> None:
         "ls-files --others": (0, "weird.bin\n"),
         "--no-index": (2, "fatal: something broke"),
     })
+    with pytest.raises(GitCommandError):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+
+
+async def test_status_snapshot_classifies_lsremote_auth_failure() -> None:
+    # In local mode the FIRST network op of a publish is status_snapshot's `ls-remote`, not the push.
+    # A rejected/absent credential there must surface as the actionable typed GitPushPermissionError
+    # (same as a push auth failure), not a raw GitCommandError that bypasses the classifier.
+    gm, _ = _sandbox_manager({
+        "ls-remote --heads origin": (128, "fatal: could not read Username for 'https://x': terminal prompts disabled")
+    })
+    with pytest.raises(GitPushPermissionError):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+
+
+async def test_status_snapshot_classifies_lsremote_network_failure() -> None:
+    # An unreachable remote on the same first network op must classify as GitPushNetworkError.
+    gm, _ = _sandbox_manager({"ls-remote --heads origin": (128, "fatal: unable to access ... Could not resolve host")})
+    with pytest.raises(GitPushNetworkError):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+
+
+async def test_status_snapshot_non_transport_lsremote_failure_still_raises_git_command_error() -> None:
+    # A non-auth/non-network ls-remote failure keeps the original raw GitCommandError (unchanged).
+    gm, _ = _sandbox_manager({"ls-remote --heads origin": (128, "fatal: something entirely unexpected")})
     with pytest.raises(GitCommandError):
         await gm.status_snapshot(base_branch="main", mr_source_branch=None)
 

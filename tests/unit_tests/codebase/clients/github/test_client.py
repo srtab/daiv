@@ -9,7 +9,7 @@ from github.PullRequestComment import PullRequestComment
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
 from codebase.clients.base import Emoji
 from codebase.clients.github.client import GitHubClient
-from codebase.clients.utils import git_auth_env
+from codebase.clients.utils import GitAuthEnv
 
 
 class TestGitHubClient:
@@ -227,7 +227,10 @@ class TestGitHubClient:
         clone_url, clone_dir = mock_clone_from.call_args.args[:2]
         branch = mock_clone_from.call_args.kwargs["branch"]
         assert clone_url == "https://github.com/owner/repo.git"
-        assert mock_clone_from.call_args.kwargs["env"] == git_auth_env("https://github.com/owner/repo.git", "token")
+        assert (
+            mock_clone_from.call_args.kwargs["env"]
+            == GitAuthEnv.for_token("https://github.com/owner/repo.git", "token").as_env()
+        )
         assert clone_dir.name == "repo"
         assert branch == "main"
         mock_writer.set_value.assert_any_call("user", "name", "daiv-agent-test[bot]")
@@ -241,6 +244,24 @@ class TestGitHubClient:
             input={"permissions": {"contents": "write"}, "repository_ids": [1]},
         )
         github_client._integration.get_access_token.assert_not_called()
+
+    def test_mint_installation_token_raises_contextual_error_on_missing_token(self, github_client):
+        """A 2xx whose body lacks 'token' (API contract drift) must fail with a named, actionable
+        error identifying the installation — not a bare KeyError six frames from the cause."""
+        github_client.client_installation.id = 67890
+        github_client._integration.requester.requestJsonAndCheck.return_value = ({}, {"unexpected": "shape"})
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+
+        with pytest.raises(RuntimeError, match="installation.token response.*67890"):
+            github_client._mint_installation_token(repository)
 
     def test_get_merge_request_commits_returns_commit_list(self, github_client):
         """Test that commits are returned with author email and stats."""

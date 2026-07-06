@@ -11,11 +11,12 @@ if TYPE_CHECKING:
     from git import Repo
 
     from automation.agent.middlewares.file_system import SandboxFileBackend
+    from codebase.clients.utils import GitAuthEnv
 
 
 @asynccontextmanager
 async def open_git_manager(
-    *, sandbox_backend: SandboxFileBackend | None, gitrepo: Repo | None, local_auth_env: dict[str, str] | None = None
+    *, sandbox_backend: SandboxFileBackend | None, gitrepo: Repo | None, auth_env: GitAuthEnv | None = None
 ) -> AsyncIterator[GitManager]:
     """Yield a :class:`GitManager` matched to the run's mode.
 
@@ -24,13 +25,13 @@ async def open_git_manager(
     repoless runs pass ``sandbox_backend=None`` and get a local-mode manager over the
     GitPython clone.
 
-    ``local_auth_env`` (``RepoClient.get_git_auth_env``) is overlaid on local-mode git
-    subprocesses so network operations can authenticate — the clone's ``.git/config``
-    deliberately holds no credential. Only callers doing network git (push/fetch/ls-remote,
-    i.e. the publisher) need it; offline callers (status/diff) can omit it. Sandbox mode
-    ignores it: in-sandbox git authenticates via the egress proxy's injected header.
+    ``auth_env`` (``RepoClient.get_git_auth_env``) is overlaid on local-mode git subprocesses so
+    network operations can authenticate — the clone's ``.git/config`` deliberately holds no
+    credential. Only callers doing network git (push/fetch/ls-remote, i.e. the publisher) need it;
+    offline callers (status/diff) can omit it. Sandbox mode ignores it: in-sandbox git
+    authenticates via the egress proxy's injected header.
     """
     if sandbox_backend is not None:
         yield GitManager.for_sandbox(sandbox_backend)
     else:
-        yield GitManager.for_local(cast("Repo", gitrepo), env=local_auth_env)
+        yield GitManager.for_local(cast("Repo", gitrepo), auth_env=auth_env)
