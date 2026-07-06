@@ -248,7 +248,8 @@ class GitHubClient(RepoClient):
         Yields:
             The repository object cloned to the temporary directory.
         """
-        from codebase.clients.utils import GitAuthEnv, safe_slug
+        from codebase.clients.base import GitAuthEnv
+        from codebase.clients.utils import safe_slug
 
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)

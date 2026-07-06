@@ -156,7 +156,7 @@ async def test_local_auth_env_reaches_git_but_never_persists_to_config(tmp_path:
     sandbox)."""
     from pathlib import Path as _Path
 
-    from codebase.clients.utils import GitAuthEnv
+    from codebase.clients.base import GitAuthEnv
 
     repo = _init_repo(tmp_path)
     auth_env = GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "sekret-token")
@@ -182,7 +182,7 @@ async def test_local_git_never_prompts_for_credentials(tmp_path: Path, monkeypat
     a marker ``is_git_auth_error_text`` classifies."""
     import subprocess as subprocess_module  # noqa: S404
 
-    from codebase.clients.utils import GitAuthEnv
+    from codebase.clients.base import GitAuthEnv
 
     repo = _init_repo(tmp_path)
     captured: dict[str, dict[str, str] | None] = {}

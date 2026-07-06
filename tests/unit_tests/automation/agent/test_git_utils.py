@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 from automation.agent.git_utils import open_git_manager
-from codebase.clients.utils import GitAuthEnv
+from codebase.clients.base import GitAuthEnv
 
 
 async def test_open_git_manager_sandbox_uses_injected_backend():

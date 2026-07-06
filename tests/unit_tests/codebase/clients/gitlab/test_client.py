@@ -8,13 +8,19 @@ from git import GitCommandError
 from gitlab.exceptions import GitlabCreateError, GitlabGetError
 
 from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
-from codebase.clients.base import Emoji
+from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.gitlab.client import (
     MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS,
     GitLabClient,
     _is_source_branch_missing_error,
 )
-from codebase.clients.utils import GitAuthEnv
+
+_CLONE_URL = "https://gitlab.com/group/repo.git"
+
+
+def _expected_clone_env(token: str) -> dict[str, str]:
+    """The git env the clone/publish is expected to run with for ``token`` (fixture's clone_url)."""
+    return GitAuthEnv.for_token(_CLONE_URL, token).as_env()
 
 
 def test_git_egress_credential_for_token_builds_basic_oauth2_header():
@@ -127,10 +133,7 @@ class TestGitLabClient:
         clone_url, clone_dir = clone_from.call_args.args[:2]
         branch = clone_from.call_args.kwargs["branch"]
         assert clone_url == "https://gitlab.com/group/repo.git"
-        assert (
-            clone_from.call_args.kwargs["env"]
-            == GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "pat-token").as_env()
-        )
+        assert clone_from.call_args.kwargs["env"] == _expected_clone_env("pat-token")
         assert clone_dir.name == "repo"
         assert branch == "main"
         mock_writer.set_value.assert_any_call("user", "name", "daiv")
@@ -149,10 +152,7 @@ class TestGitLabClient:
 
         get_token.assert_called_once_with(gitlab_client.client, 1)
         assert clone_from.call_args.args[0] == "https://gitlab.com/group/repo.git"
-        assert (
-            clone_from.call_args.kwargs["env"]
-            == GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "glpat-eph").as_env()
-        )
+        assert clone_from.call_args.kwargs["env"] == _expected_clone_env("glpat-eph")
 
     def test_load_repo_falls_back_to_pat_when_provisioning_fails(self, gitlab_client, clone_setup, caplog):
         """When provisioning returns None (tier/role/API failure), the PAT keeps clones working.
@@ -170,10 +170,7 @@ class TestGitLabClient:
             pass
 
         assert clone_from.call_args.args[0] == "https://gitlab.com/group/repo.git"
-        assert (
-            clone_from.call_args.kwargs["env"]
-            == GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "pat-token").as_env()
-        )
+        assert clone_from.call_args.kwargs["env"] == _expected_clone_env("pat-token")
         assert "with the configured PAT" in caplog.text
 
     def test_load_repo_raises_when_pat_is_missing(self, gitlab_client, clone_setup):
@@ -213,8 +210,8 @@ class TestGitLabClient:
         assert clone_from.call_count == 2
         first_env = clone_from.call_args_list[0].kwargs["env"]
         second_env = clone_from.call_args_list[1].kwargs["env"]
-        assert first_env == GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "glpat-stale").as_env()
-        assert second_env == GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "glpat-fresh").as_env()
+        assert first_env == _expected_clone_env("glpat-stale")
+        assert second_env == _expected_clone_env("glpat-fresh")
 
     def test_load_repo_retries_exactly_once_then_propagates_when_fresh_token_also_rejected(
         self, gitlab_client, clone_setup
@@ -265,7 +262,7 @@ class TestGitLabClient:
         with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"):
             auth_env = gitlab_client.get_git_auth_env(repository)
 
-        assert auth_env == GitAuthEnv.for_token("https://gitlab.com/group/repo.git", "glpat-eph")
+        assert auth_env == GitAuthEnv.for_token(_CLONE_URL, "glpat-eph")
 
     def test_get_git_auth_env_none_when_no_token(self, gitlab_client, clone_setup, caplog):
         """No token at all (no ephemeral, no PAT) means nothing to authenticate with — callers

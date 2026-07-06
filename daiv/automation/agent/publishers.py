@@ -23,7 +23,7 @@ from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
 if TYPE_CHECKING:
     from automation.agent.middlewares.file_system import SandboxFileBackend
-    from codebase.clients.utils import GitAuthEnv
+    from codebase.clients.base import GitAuthEnv
     from codebase.context import RuntimeCtx
 
 

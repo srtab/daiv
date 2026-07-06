@@ -7,9 +7,8 @@ from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
 
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
-from codebase.clients.base import Emoji
+from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.github.client import GitHubClient
-from codebase.clients.utils import GitAuthEnv
 
 
 class TestGitHubClient:

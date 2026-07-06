@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from git import Repo
 
     from automation.agent.middlewares.file_system import SandboxFileBackend
-    from codebase.clients.utils import GitAuthEnv
+    from codebase.clients.base import GitAuthEnv
 
 logger = logging.getLogger("daiv.tools")
 
@@ -159,10 +159,11 @@ class GitManager:
         # remote otherwise makes git prompt (tty, or an inherited SSH_ASKPASS GUI helper) and hang an
         # unattended publish forever. GIT_TERMINAL_PROMPT=0 kills the tty prompt; empty GIT_ASKPASS
         # short-circuits the askpass fallback chain. Failing fast yields "could not read Username",
-        # which is_git_auth_error_text classifies as an auth rejection. The credential overlay (which
-        # re-asserts both vars) is applied last so it wins. Materialised here, at the innermost
-        # boundary, so the plaintext credential never lives as a named local in an outer frame.
-        overlay = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", **(self._auth_env.as_env() if self._auth_env else {})}
+        # which is_git_auth_error_text classifies as an auth rejection. The credential overlay carries
+        # the same prompt-disabling vars (via as_env), so the no-credential branch sets them itself.
+        # Materialised here, at the innermost boundary, so the plaintext credential never lives as a
+        # named local in an outer frame.
+        overlay = self._auth_env.as_env() if self._auth_env else {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""}
 
         def _run() -> _GitResult:
             proc = subprocess.run(  # noqa: S603

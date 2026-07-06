@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from git import Repo
 
     from automation.agent.middlewares.file_system import SandboxFileBackend
-    from codebase.clients.utils import GitAuthEnv
+    from codebase.clients.base import GitAuthEnv
 
 
 @asynccontextmanager

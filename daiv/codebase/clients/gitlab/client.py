@@ -367,7 +367,7 @@ class GitLabClient(RepoClient):
         drop that token and retry once with a freshly minted one. The PAT fallback is not retried:
         re-minting can't produce a different credential when the ephemeral token was unavailable.
         """
-        from codebase.clients.utils import GitAuthEnv
+        from codebase.clients.base import GitAuthEnv
 
         def clone_with(token: str) -> Repo:
             clone_dir.mkdir(exist_ok=True)

@@ -8,7 +8,7 @@ import pytest
 from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import GitChangePublisher, PublishOutcome
 from codebase.base import GitPlatform, MergeRequest, User
-from codebase.clients.utils import GitAuthEnv
+from codebase.clients.base import GitAuthEnv
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 
 
