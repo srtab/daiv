@@ -197,7 +197,6 @@ def mock_repo_authorization():
         patch("mcp_server.server.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("chat.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("activity.forms.assert_can_run", new=Mock(return_value=None)),
-        patch("mcp_server.server.afilter_viewable", new=AsyncMock(side_effect=lambda user, repos: repos)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.viewable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),

@@ -27,10 +27,8 @@ from codebase.authorization import (
     REPO_ACCESS_DENIED_MESSAGE,
     RepositoryAccessDenied,
     aassert_can_run,
-    afilter_viewable,
-    viewable_fetch_limit,
+    asearch_viewable_repositories,
 )
-from codebase.clients import RepoClient
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
 from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
@@ -40,7 +38,7 @@ from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 if TYPE_CHECKING:
     from sandbox_envs.models import SandboxEnvironment
 
-    from codebase.base import Repository
+    from codebase.models import RepositoryCatalog
 
 logger = logging.getLogger("daiv.mcp_server")
 
@@ -592,18 +590,16 @@ async def list_jobs(
 
 
 MAX_REPOSITORIES = 40
-# Bound the platform fetch so a non-admin caller does not force enumeration of the entire
-# bot-visible universe on installs with thousands of repos. A wider window than
-# MAX_REPOSITORIES lets per-user filtering still fill the result. When the fetch itself fills this
-# window, accessible repositories may exist beyond it that filtering never saw, so the truncation
-# warning fires on a capped fetch too — narrowing with ``search``/``topics`` is the only way to
-# reach them (this tool does not page the platform).
-_REPO_FETCH_LIMIT = viewable_fetch_limit(MAX_REPOSITORIES)
+# Served from the local RepositoryCatalog mirror (a DB join), so there is no platform fetch to
+# bound and the overflow warning below is exact: we fetch one extra row and warn iff it exists.
 
 
-def _serialize_repositories(repos: list[Repository]) -> list[dict]:
-    """Convert a list of Repository objects to serializable dicts."""
-    return [repo.model_dump(include={"slug", "name", "html_url", "default_branch", "topics"}) for repo in repos]
+def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
+    """Convert catalog rows to the tool's repository payload."""
+    return [
+        {"slug": r.slug, "name": r.name, "html_url": r.html_url, "default_branch": r.default_branch, "topics": r.topics}
+        for r in repos
+    ]
 
 
 @mcp.tool()
@@ -626,20 +622,17 @@ async def list_repositories(
         return auth_error
 
     try:
-        client = RepoClient.create_instance()
-        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics, limit=_REPO_FETCH_LIMIT)
+        repos = await asearch_viewable_repositories(mcp_user, search=search, topics=topics, limit=MAX_REPOSITORIES + 1)
     except Exception:
         logger.exception("Failed to list repositories")
         return {"error": "Failed to list repositories. Please try again later."}
 
-    # Capture whether the platform fetch filled its window *before* filtering: a capped fetch can
-    # still filter down to a short viewable list, which would otherwise look complete while
-    # accessible repos sit unseen beyond the window.
-    fetch_capped = len(repos) >= _REPO_FETCH_LIMIT
-    repos = await afilter_viewable(mcp_user, repos)
-
+    # One extra row was requested, so a full+1 result means more accessible repos exist than the
+    # window shows — an exact signal (no fetch-cap heuristic). next_cursor stays None per the tool
+    # contract; narrowing with search/topics is the only way to reach the rest.
+    over_limit = len(repos) > MAX_REPOSITORIES
     result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES]), "next_cursor": None}
-    if len(repos) > MAX_REPOSITORIES or fetch_capped:
+    if over_limit:
         result["warning"] = (
             "Not all accessible repositories may be shown. "
             "Ask the user to provide a search term or topic to narrow down the results."

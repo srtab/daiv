@@ -1,10 +1,10 @@
 import json
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
-from mcp_server.server import _REPO_FETCH_LIMIT, get_job_status, list_repositories, submit_job
+from mcp_server.server import MAX_REPOSITORIES, get_job_status, list_repositories, submit_job
 
 from codebase.base import GitPlatform, Repository
 
@@ -609,100 +609,74 @@ SAMPLE_REPOS = [
 ]
 
 
+def _cat(slug: str, name: str, topics: list[str] | None = None):
+    from codebase.models import RepositoryCatalog
+
+    return RepositoryCatalog(
+        provider="gitlab",
+        slug=slug,
+        name=name,
+        default_branch="main",
+        html_url=f"https://example.com/{slug}",
+        topics=topics or [],
+    )
+
+
 # ---------------------------------------------------------------------------
 # list_repositories tests
 # ---------------------------------------------------------------------------
 
 
 async def test_list_repositories_default():
-    mock_client = MagicMock()
-    mock_client.list_repositories.return_value = SAMPLE_REPOS
+    rows = [_cat("group/alpha", "alpha", ["python", "backend"]), _cat("group/beta", "beta")]
 
-    with patch("mcp_server.server.RepoClient") as mock_rc:
-        mock_rc.create_instance.return_value = mock_client
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
         data = await list_repositories()
 
-    assert len(data["repositories"]) == 3
-    assert data["repositories"][0]["slug"] == "group/alpha"
+    assert [r["slug"] for r in data["repositories"]] == ["group/alpha", "group/beta"]
     assert data["repositories"][0]["topics"] == ["python", "backend"]
+    assert data["repositories"][0]["default_branch"] == "main"
+    assert data["repositories"][0]["html_url"] == "https://example.com/group/alpha"
     assert "warning" not in data
-    assert data["next_cursor"] is None  # remote-backed: never cursor-paginates
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=_REPO_FETCH_LIMIT)
+    assert data["next_cursor"] is None
+    mock_search.assert_awaited_once_with(ANY, search=None, topics=None, limit=MAX_REPOSITORIES + 1)
 
 
 async def test_list_repositories_with_search():
-    mock_client = MagicMock()
-    mock_client.list_repositories.return_value = [SAMPLE_REPOS[0]]
-
-    with patch("mcp_server.server.RepoClient") as mock_rc:
-        mock_rc.create_instance.return_value = mock_client
+    with patch(
+        "mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=[_cat("group/alpha", "alpha")])
+    ) as mock_search:
         data = await list_repositories(search="alpha")
 
-    assert len(data["repositories"]) == 1
-    assert data["repositories"][0]["slug"] == "group/alpha"
-    mock_client.list_repositories.assert_called_once_with(search="alpha", topics=None, limit=_REPO_FETCH_LIMIT)
+    assert [r["slug"] for r in data["repositories"]] == ["group/alpha"]
+    mock_search.assert_awaited_once_with(ANY, search="alpha", topics=None, limit=MAX_REPOSITORIES + 1)
 
 
 async def test_list_repositories_with_topics():
-    mock_client = MagicMock()
-    mock_client.list_repositories.return_value = [SAMPLE_REPOS[0], SAMPLE_REPOS[1]]
+    rows = [_cat("group/alpha", "alpha", ["python"]), _cat("group/beta", "beta", ["python"])]
 
-    with patch("mcp_server.server.RepoClient") as mock_rc:
-        mock_rc.create_instance.return_value = mock_client
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
         data = await list_repositories(topics=["python"])
 
     assert len(data["repositories"]) == 2
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=["python"], limit=_REPO_FETCH_LIMIT)
+    mock_search.assert_awaited_once_with(ANY, search=None, topics=["python"], limit=MAX_REPOSITORIES + 1)
 
 
 async def test_list_repositories_truncated_with_warning():
-    """When more than MAX_REPOSITORIES survive filtering, the result is truncated with a warning."""
-    # The tool fetches a bounded window and truncates after per-user filtering.
-    many_repos = [_make_repo(f"group/repo-{i}", f"repo-{i}") for i in range(41)]
-    mock_client = MagicMock()
-    mock_client.list_repositories.return_value = many_repos
+    """More than MAX_REPOSITORIES accessible → truncated to MAX with an exact overflow warning."""
+    rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(MAX_REPOSITORIES + 1)]
 
-    with patch("mcp_server.server.RepoClient") as mock_rc:
-        mock_rc.create_instance.return_value = mock_client
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
         data = await list_repositories()
 
-    assert len(data["repositories"]) == 40
+    assert len(data["repositories"]) == MAX_REPOSITORIES
     assert "warning" in data
     assert "Not all accessible repositories" in data["warning"]
-    assert data["next_cursor"] is None  # narrow via search/topics, not paging
-    # The client fetch is bounded (fix for unbounded enumeration on large installs).
-    mock_client.list_repositories.assert_called_once_with(search=None, topics=None, limit=_REPO_FETCH_LIMIT)
-
-
-async def test_list_repositories_capped_fetch_warns_even_when_few_viewable():
-    """A fetch that fills the window warns even if filtering leaves a short list — accessible
-    repos may sit unseen beyond the fetch cap, so a small result must not read as complete."""
-    # Fetch fills the whole window; per-user filtering keeps only one repo.
-    full_window = [_make_repo(f"group/repo-{i}", f"repo-{i}") for i in range(_REPO_FETCH_LIMIT)]
-    mock_client = MagicMock()
-    mock_client.list_repositories.return_value = full_window
-
-    async def _only_first(user, repos):
-        return repos[:1]
-
-    with (
-        patch("mcp_server.server.RepoClient") as mock_rc,
-        patch("mcp_server.server.afilter_viewable", new=AsyncMock(side_effect=_only_first)),
-    ):
-        mock_rc.create_instance.return_value = mock_client
-        data = await list_repositories()
-
-    assert len(data["repositories"]) == 1
-    assert "warning" in data
-    assert "Not all accessible repositories" in data["warning"]
+    assert data["next_cursor"] is None
 
 
 async def test_list_repositories_error_handling():
-    mock_client = MagicMock()
-    mock_client.list_repositories.side_effect = RuntimeError("API down")
-
-    with patch("mcp_server.server.RepoClient") as mock_rc:
-        mock_rc.create_instance.return_value = mock_client
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(side_effect=RuntimeError("DB down"))):
         data = await list_repositories()
 
     assert "error" in data
@@ -793,31 +767,6 @@ async def test_get_job_status_other_user_activity_returns_not_found():
         result = await get_job_status(job_id=str(activity.id))
     data = json.loads(result)
     assert "Job not found" in data["error"]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_list_repositories_filters_to_viewable(mock_repo_client):
-    def _repo(slug):
-        return Repository(
-            pk=abs(hash(slug)) % (2**31),
-            slug=slug,
-            name=slug.split("/")[-1],
-            clone_url=f"https://x/{slug}.git",
-            html_url=f"https://x/{slug}",
-            default_branch="main",
-            git_platform=GitPlatform.GITLAB,
-            topics=[],
-        )
-
-    mock_repo_client.list_repositories.return_value = [_repo("a/b"), _repo("c/d")]
-
-    async def _only_ab(user, repos):
-        return [r for r in repos if r.slug == "a/b"]
-
-    with patch("mcp_server.server.afilter_viewable", new=AsyncMock(side_effect=_only_ab)):
-        result = await list_repositories()
-
-    assert [r["slug"] for r in result["repositories"]] == ["a/b"]
 
 
 @pytest.mark.django_db(transaction=True)
