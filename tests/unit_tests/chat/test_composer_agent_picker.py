@@ -67,7 +67,7 @@ def test_existing_thread_renders_locked_agent_pill(member_client, member_user, e
     )
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
@@ -202,7 +202,7 @@ def test_composer_locked_pill_seeds_from_pinned_thread(member_client, member_use
     )
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
@@ -229,7 +229,7 @@ def test_thread_without_pinned_override_renders_auto_label(member_client, member
     thread = ChatThread.objects.create(thread_id="t-auto", user=member_user, repo_id="a/b", ref="main")
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()

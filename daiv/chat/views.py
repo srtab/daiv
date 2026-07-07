@@ -11,24 +11,13 @@ from django.views.generic import DetailView, ListView, View
 from activity.models import Activity
 from asgiref.sync import async_to_sync
 from sandbox_envs.models import SandboxEnvironment
+from sessions.hydration import ahydrate_thread
 
 from accounts.mixins import BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context
 from chat.models import ChatThread
-from chat.repo_state import aget_existing_mr_payload, mr_to_payload
+from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
-from core.checkpointer import open_checkpointer
-
-
-async def _ahydrate(thread_id: str) -> tuple[list[Any], bool, dict | None]:
-    """Return (messages, expired, merge_request_payload) for a thread."""
-    async with open_checkpointer() as cp:
-        tup = await cp.aget_tuple({"configurable": {"thread_id": thread_id}})
-    if tup is None:
-        return [], True, None
-    channel_values = (tup.checkpoint or {}).get("channel_values", {})
-    messages = channel_values.get("messages", [])
-    return messages, False, mr_to_payload(channel_values.get("merge_request"))
 
 
 class ChatThreadListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
@@ -87,7 +76,7 @@ class ChatThreadDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         if thread is None:
             ctx.update({"turns": [], "expired": False, "active_run_id": "", "merge_request": None})
             return ctx
-        messages_history, expired, merge_request = async_to_sync(_ahydrate)(thread.thread_id)
+        messages_history, expired, merge_request = async_to_sync(ahydrate_thread)(thread.thread_id)
         if merge_request is None and thread.repo_id and thread.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(thread.repo_id, thread.ref)
         ctx["turns"] = build_turns(messages_history)
@@ -115,7 +104,7 @@ class ChatThreadFromActivityView(LoginRequiredMixin, View):
         if not activity.thread_id:
             raise Http404
 
-        messages, expired, _mr = async_to_sync(_ahydrate)(activity.thread_id)
+        messages, expired, _mr = async_to_sync(ahydrate_thread)(activity.thread_id)
         if expired:
             return HttpResponseGone("This run's state has expired. Start a fresh chat from its prompt.")
 

@@ -1,0 +1,286 @@
+{% extends "base_app.html" %}
+{% load i18n icon_tags static %}
+
+{% block title %}{% if session.title %}{{ session.title }} — {% endif %}DAIV Sessions{% endblock %}
+
+{% block container_width %}max-w-6xl flex flex-col min-h-full{% endblock %}
+
+{% block head_extra %}
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'chat/css/diff.css' %}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark-dimmed.min.css">
+{% endblock head_extra %}
+
+{% block alpine_plugins %}
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.2/lib/marked.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.4.1/dist/purify.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/diff@9.0.0/dist/diff.min.js"></script>
+  <script defer src="{% static 'chat/js/markdown.js' %}"></script>
+  <script defer src="{% static 'chat/js/tool-renderers.js' %}"></script>
+  <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+  <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
+  <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
+  {% include "sandbox_envs/_scripts.html" %}
+{% endblock alpine_plugins %}
+
+{% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
+
+{% block app_content %}
+  {{ turns|json_script:"chat-initial-turns" }}
+  {{ merge_request|json_script:"chat-initial-merge-request" }}
+
+  {# Translation lookups for the locked-pill fallbacks in chat({…}) below. #}
+  {# Tag→variable lets us pipe them through ``|escapejs`` for safe quoting in JS. #}
+  {% translate "Pick a model" as locked_agent_fallback %}
+  {% translate "Auto" as locked_env_fallback %}
+
+  <div x-data='chat({
+         endpoint: "{% url 'api:completions' %}",
+         {# TODO(task-13): swap to sessions status endpoint once Task 13 ships. #}
+         statusEndpoint: {% if session %}"{% url 'api:thread_status' session.thread_id %}"{% else %}""{% endif %},
+         activeRunId: "{{ active_run_id|default:''|escapejs }}",
+         csrfToken: "{{ csrf_token|escapejs }}",
+         thread: {% if session %}{
+           thread_id: "{{ session.thread_id|escapejs }}",
+           repo_id: "{{ session.repo_id|escapejs }}",
+           ref: "{{ session.ref|escapejs }}",
+           merge_request: null
+         }{% else %}null{% endif %},
+         selectedSandboxEnvId: "{{ selected_sandbox_env_id|default:''|escapejs }}",
+         initialAgentLabel: "{{ agent_picker_initial_model_display|default:agent_picker_initial_model|default:locked_agent_fallback|escapejs }}",
+         initialAgentEffortDots: {{ agent_picker_initial_effort_dots|default:0 }},
+         initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
+         initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
+         envAutoLabel: "{{ locked_env_fallback|escapejs }}"
+       })'
+       @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
+       @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
+       @daiv:agent-changed.window="applyAgentSelection($event.detail)"
+       x-cloak
+       class="chat-shell"
+       :class="{ 'chat-shell--empty': !thread && turns.length === 0 }">
+
+    <div class="chat-column"
+         :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
+      {% if expired %}
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
+          <span>{% translate "This session's state has expired. Start a new session to continue." %}</span>
+          <a href="{% url 'session_new' %}" class="btn-primary">{% translate "New session" %}</a>
+        </div>
+      {% endif %}
+
+      {# Responsive summary strip shown below 1100px #}
+      <div class="chat-summary" x-show="turns.length > 0 || thread">
+        <span x-show="thread"><span x-text="thread ? thread.repo_id : ''"></span> <span class="chat-summary__sep">·</span> <span x-text="thread ? thread.ref : ''" style="color:#93c5fd;"></span></span>
+        <span class="chat-summary__sep">·</span>
+        <span x-text="runStatus.label"></span>
+        <template x-if="latestTodos.length">
+          <span><span class="chat-summary__sep">·</span> <span x-text="`${todosDone}/${latestTodos.length} todos`"></span></span>
+        </template>
+        <template x-if="filesTouched.length">
+          <span><span class="chat-summary__sep">·</span> <span x-text="`${filesTouched.length} files`"></span></span>
+        </template>
+      </div>
+
+      <div class="chat-transcript">
+        {# Empty state — pick a repo first, then the composer fades in. #}
+        <template x-if="!thread && turns.length === 0">
+          <div class="chat-hero">
+            <span class="chat-hero__eyebrow">{% translate "New session" %}</span>
+            <h1 class="chat-hero__title">{% translate "What are we building today?" %}</h1>
+            <div class="chat-hero__subtitle-stack">
+              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': draftRepoId }">
+                {% translate "Pick a repository to get started." %}
+              </p>
+              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': !draftRepoId }">
+                {% translate "Ready when you are — describe the change, the bug, or what to explore." %}
+              </p>
+            </div>
+            <div class="chat-hero__picker">
+              {% include "sandbox_envs/_env_picker.html" with envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
+              {% include "automation/_agent_picker.html" with providers=agent_picker_providers initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model default_model=agent_picker_default_model default_thinking=agent_picker_default_thinking %}
+              {% include "codebase/_repo_picker.html" with max_repos=1 initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
+            </div>
+          </div>
+        </template>
+
+        {# Queued / running state: background run started but no checkpoint yet. #}
+        {% if not turns and is_in_flight %}
+          {% with latest_run=runs|last %}
+            {% if latest_run.status == "QUEUED" %}
+              <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
+                <div class="mt-4 flex flex-col items-center justify-center rounded-xl bg-black/20 px-6 py-10 text-center"
+                     role="status" aria-live="polite">
+                  <div class="h-9 w-9 rounded-full border-[3px] border-amber-400/20"
+                       style="border-top-color: rgb(251 191 36 / 0.7);"></div>
+                  <span class="sr-only">{% translate "Job is queued" %}</span>
+                  <p class="mt-3 text-[15px] font-medium text-gray-200">{% translate "Waiting in queue" %}</p>
+                  <p class="mt-1 text-sm text-gray-400">{% translate "This job will start shortly." %}</p>
+                </div>
+              </div>
+            {% else %}
+              <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6">
+                <div class="mt-4 flex flex-col items-center justify-center rounded-xl bg-black/20 px-6 py-10 text-center"
+                     role="status" aria-live="polite">
+                  <div class="h-9 w-9 animate-spin rounded-full border-[3px] border-blue-400/20 border-t-blue-400"></div>
+                  <span class="sr-only">{% translate "Agent is still running" %}</span>
+                  <p class="mt-3 text-[15px] font-medium text-gray-200">{% translate "Agent is working" %}</p>
+                  <p class="mt-1 text-sm text-gray-400">{% translate "This page refreshes automatically when the run finishes." %}</p>
+                  {% if latest_run.started_at %}
+                    <p class="mt-3 font-mono text-sm text-blue-300"
+                       x-data="{
+                           elapsed: 0,
+                           tickId: null,
+                           fmt(s) { const m = Math.floor(s/60); const r = s%60; return m ? `${m}m ${r}s` : `${r}s`; },
+                           init() {
+                               const startedMs = new Date('{{ latest_run.started_at|date:"c" }}').getTime();
+                               if (!Number.isFinite(startedMs)) return;
+                               this.elapsed = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+                               this.tickId = setInterval(() => this.elapsed++, 1000);
+                           },
+                           destroy() {
+                               if (this.tickId) clearInterval(this.tickId);
+                           }
+                       }"
+                       x-text="'⏱ ' + fmt(elapsed) + ' elapsed'">⏱ elapsed</p>
+                  {% endif %}
+                </div>
+              </div>
+            {% endif %}
+          {% endwith %}
+        {% endif %}
+
+        {# Turns #}
+        <template x-for="(turn, ti) in turns" :key="turn.id">
+          <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
+          <article class="chat-turn" :class="`chat-turn--${turn.role}`">
+            <div class="chat-turn__body">
+              <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
+                <div class="chat-segment" :class="`chat-segment--${seg.type}`">
+                  <template x-if="seg.type === 'text'">
+                    <template x-if="turn.role === 'assistant'">
+                      <div class="chat-text" x-html="renderMarkdown(seg.content)"></div>
+                    </template>
+                  </template>
+                  <template x-if="seg.type === 'text' && turn.role === 'user'">
+                    <span class="chat-text" x-text="seg.content"></span>
+                  </template>
+
+                  <template x-if="seg.type === 'thinking'">
+                    <details class="chat-thinking-seg">
+                      <summary class="chat-thinking-seg__summary">
+                        <span x-show="seg.status === 'running'" class="chat-thinking-seg__dot"></span>
+                        <span x-text="thinkingLabel(seg)"></span>
+                      </summary>
+                      <div class="chat-thinking-seg__body chat-text" x-html="renderMarkdown(seg.content)"></div>
+                    </details>
+                  </template>
+
+                  <template x-if="seg.type === 'publish_phase'">
+                    <div class="chat-phase" :class="`chat-phase--${seg.status}`" :data-status="seg.status">
+                      <span class="chat-phase__icon" aria-hidden="true">
+                        <template x-if="seg.status === 'running'"><span class="chat-phase__spinner"></span></template>
+                        <template x-if="seg.status === 'done'"><span>✓</span></template>
+                      </span>
+                      <span class="chat-phase__label" x-text="seg.label"></span>
+                      <span class="chat-phase__suffix" x-show="seg.status === 'running'">…</span>
+                    </div>
+                  </template>
+
+                  <template x-if="seg.type === 'tool_call'">
+                    <details class="chat-tool" :id="`tool-${seg.id}`"
+                             :class="`chat-tool--${seg.status}`"
+                             :data-status="seg.status">
+                      <summary class="chat-tool__summary">
+                        <span class="chat-tool__icon">
+                          <template x-if="seg.status === 'running'"><span class="chat-tool__spinner"></span></template>
+                          <template x-if="seg.status === 'done'"><span>✓</span></template>
+                          <template x-if="seg.status === 'error'"><span>×</span></template>
+                        </span>
+                        <span class="chat-tool__name" x-text="toolSignature(seg).label"></span>
+                        <span class="chat-tool__path" x-text="toolSignature(seg).path"></span>
+                        <template x-for="b in toolSignature(seg).badges" :key="b.text">
+                          <span class="chat-tool__badge" :class="`chat-tool__badge--${b.tone}`" x-text="b.text"></span>
+                        </template>
+                        {% icon "chevron-down" "chat-tool__chev h-3.5 w-3.5" %}
+                      </summary>
+                      <div class="chat-tool__body" x-html="toolBodyHTML(seg)"></div>
+                    </details>
+                  </template>
+                </div>
+              </template>
+
+              <template x-if="turn.error">
+                <p class="text-sm text-red-400 mt-2" x-text="turn.error"></p>
+              </template>
+              <template x-if="turn.aborted">
+                <p class="text-sm text-gray-500 mt-2">{% translate "You stopped this run." %}</p>
+              </template>
+            </div>
+          </article>
+          </template>
+        </template>
+
+        <div class="chat-thinking" x-show="streaming || resuming" x-transition.opacity aria-live="polite">
+          <span class="chat-thinking__dot"></span>
+          <span x-text="runStatus.label"></span>
+        </div>
+      </div>
+
+      {% if not expired %}
+        {% include "chat/_composer.html" %}
+      {% endif %}
+    </div>
+
+    {# Session rail: todos + files from chat, plus the run timeline below. #}
+    <aside class="chat-rail" aria-label="{% translate 'Session context' %}">
+      <div class="chat-rail__block">
+        <div class="chat-rail__label">
+          {% translate "Todos" %} <span x-show="latestTodos.length" x-text="`· ${todosDone}/${latestTodos.length}`"></span>
+        </div>
+        <template x-if="!latestTodos.length">
+          <div style="color: #64748b;">—</div>
+        </template>
+        <template x-for="t in latestTodos" :key="t.content">
+          <div class="chat-todo" :class="`chat-todo--${(t.status||'pending').toLowerCase()}`">
+            <span class="chat-todo__icon" x-text="todoIcon(t.status)"></span>
+            <span x-text="t.content"></span>
+          </div>
+        </template>
+      </div>
+
+      <div class="chat-rail__block">
+        <div class="chat-rail__label">{% translate "Files changed" %}</div>
+        <template x-if="!filesTouched.length">
+          <div style="color: #64748b;">—</div>
+        </template>
+        <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
+          <button type="button" class="chat-rail__file"
+                  :class="[{ 'chat-rail__file--new': f.isNew }, `chat-rail__file--${f.op || 'modified'}`]"
+                  @click="jumpToTool(f.segmentId)"
+                  :title="f.fromPath ? `${f.op}: ${f.fromPath} → ${f.path}` : `${f.op || 'modified'}: ${f.path}`">
+            <span class="chat-rail__file-op" x-text="fileOpMark(f.op)"></span>
+            <span class="chat-rail__file-path" x-text="f.path"></span>
+          </button>
+        </template>
+        <button type="button" class="chat-rail__file"
+                style="color: #64748b; padding-top: 6px;"
+                x-show="filesTouched.length > filesTouchedLimit"
+                @click="filesTouchedLimit = filesTouched.length">
+          {% translate "Show all" %} (<span x-text="filesTouched.length"></span>)
+        </button>
+      </div>
+
+      {# Run timeline — shows all runs for this session. #}
+      {% if runs or session %}
+        <div class="chat-rail__block">
+          {% include "sessions/_run_timeline.html" %}
+        </div>
+      {% endif %}
+    </aside>
+  </div>
+
+  {% include "sandbox_envs/_env_drawer.html" %}
+{% endblock app_content %}

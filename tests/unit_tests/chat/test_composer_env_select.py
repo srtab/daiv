@@ -41,7 +41,7 @@ def test_composer_renders_env_picker_with_envs(member_client, member_user):
     thread = ChatThread.objects.create(thread_id="t-env", user=member_user, repo_id="a/b", ref="main")
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()

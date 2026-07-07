@@ -46,7 +46,7 @@ def test_detail_view_with_live_checkpoint_renders_transcript(member_client, memb
     msg = AIMessage(content="hello from agent", id="m-1")
     tup = MagicMock(checkpoint={"channel_values": {"messages": [msg]}})
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
@@ -67,7 +67,7 @@ def test_detail_view_with_live_checkpoint_renders_transcript(member_client, memb
 def test_detail_view_with_missing_checkpoint_flags_expired(member_client, member_user):
     thread = ChatThread.objects.create(thread_id="t-gone", user=member_user, repo_id="a/b", ref="main")
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
@@ -112,7 +112,7 @@ def test_detail_view_surfaces_existing_mr_when_checkpoint_has_none(member_client
     repo_client = MagicMock()
     repo_client.get_merge_request_by_branches.return_value = existing_mr
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
         patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
     ):
@@ -146,7 +146,7 @@ def test_detail_view_skips_mr_lookup_when_checkpoint_already_has_one(member_clie
     tup = MagicMock(checkpoint={"channel_values": {"messages": [], "merge_request": stored_mr}})
     repo_client = MagicMock()
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client) as factory,
     ):
         saver = MagicMock()
@@ -170,7 +170,7 @@ def test_detail_view_swallows_platform_errors_in_mr_lookup(member_client, member
     thread = ChatThread.objects.create(thread_id="t-err", user=member_user, repo_id="a/b", ref="feature-z")
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.repo_state.RepositoryConfig.get_config", side_effect=httpx.ConnectError("platform unreachable")),
     ):
         saver = MagicMock()
@@ -192,7 +192,7 @@ def test_detail_view_propagates_unexpected_errors_in_mr_lookup(member_client, me
     thread = ChatThread.objects.create(thread_id="t-bug", user=member_user, repo_id="a/b", ref="feature-z")
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.repo_state.RepositoryConfig.get_config", side_effect=KeyError("config missing")),
     ):
         saver = MagicMock()
@@ -210,7 +210,7 @@ def test_detail_view_skips_mr_lookup_when_branch_is_default(member_client, membe
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
     repo_client = MagicMock()
     with (
-        patch("chat.views.open_checkpointer") as cp_ctx,
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client) as factory,
         patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
     ):
@@ -249,7 +249,7 @@ def test_from_activity_succeeds_for_webhook_activity_matched_by_external_usernam
         external_username=member_user.username,
     )
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
-    with patch("chat.views.open_checkpointer") as cp_ctx:
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
         cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
@@ -274,7 +274,7 @@ def test_from_activity_410_when_checkpoint_missing(member_client, member_user):
     activity = Activity.objects.create(
         trigger_type=TriggerType.UI_JOB, repo_id="a/b", ref="main", prompt="x", thread_id="t-gone", user=member_user
     )
-    with patch("chat.views.open_checkpointer") as cp_ctx:
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=None)
         cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
@@ -294,7 +294,7 @@ def test_from_activity_creates_thread_and_redirects(member_client, member_user):
         user=member_user,
     )
     tup = MagicMock(checkpoint={"channel_values": {"messages": []}})
-    with patch("chat.views.open_checkpointer") as cp_ctx:
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
         cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
