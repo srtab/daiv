@@ -2,11 +2,11 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from activity.models import Activity, ActivityStatus, TriggerType
 from asgiref.sync import async_to_sync
 from django_tasks_db.models import DBTaskResult
 from jobs.tasks import run_job_task
 from ninja.testing import TestAsyncClient
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
@@ -45,7 +45,7 @@ def _single_repo_body(**overrides):
 
 
 async def _make_task_row(task_id=None) -> AsyncMock:
-    """Create a real DBTaskResult row so the Activity FK is satisfied, and return a mock that
+    """Create a real DBTaskResult row so the Run FK is satisfied, and return a mock that
     exposes the row's id."""
     tid = task_id or uuid.uuid4()
     await DBTaskResult.objects.acreate(
@@ -63,25 +63,28 @@ async def _make_task_row(task_id=None) -> AsyncMock:
     return m
 
 
-class _FakeActivity:
-    """Stand-in for Activity returned from a mocked ``acreate_activity`` in tests that patch it."""
+class _FakeRun:
+    """Stand-in for Run returned from a mocked ``acreate_run`` in tests that patch it."""
 
     def __init__(self, task_result_id):
         self.id = uuid.uuid4()
+        self.pk = self.id
         self.task_result_id = task_result_id
-        self.thread_id = str(uuid.uuid4())
-        self.status = ActivityStatus.READY
-        # Tests bypass the real ORM via ``_patch_acreate``; provide an async no-op
-        # for the post-acreate ``activity.asave(update_fields=...)`` call.
+        self.session_id = str(uuid.uuid4())
+        self.status = RunStatus.READY
+        self.started_at = None
+        self.finished_at = None
+        # Tests bypass the real ORM via ``_patch_acreate_run``; provide an async no-op
+        # for the post-acreate ``run.asave(update_fields=...)`` call.
         self.asave = AsyncMock(return_value=None)
 
 
-async def _fake_acreate_activity(**kwargs):
-    return _FakeActivity(task_result_id=kwargs["task_result_id"])
+async def _fake_acreate_run(**kwargs):
+    return _FakeRun(task_result_id=kwargs.get("task_result_id"))
 
 
-def _patch_acreate():
-    return patch("activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity)
+def _patch_acreate_run():
+    return patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_fake_acreate_run)
 
 
 # --- Authentication tests ---
@@ -148,7 +151,7 @@ async def test_submit_job_success(authenticated_client: TestAsyncClient):
     async def _aenq(**kwargs):
         return await _make_task_row(task_id)
 
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run():
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="List all files"))
@@ -178,7 +181,7 @@ async def test_submit_job_multi_repo(authenticated_client: TestAsyncClient):
     async def _aenq(**kwargs):
         return await _make_task_row()
 
-    with patch("activity.services.run_job_task") as mock_task:
+    with patch("sessions.services.run_job_task") as mock_task:
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post(
@@ -224,7 +227,7 @@ async def test_submit_job_forwards_agent_override(authenticated_client: TestAsyn
     async def _aenq(**kwargs):
         return await _make_task_row()
 
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run() as mock_create:
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post(
@@ -246,13 +249,13 @@ async def test_submit_job_forwards_agent_override(authenticated_client: TestAsyn
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_forwards_notify_on_to_activity(authenticated_client: TestAsyncClient):
-    """POST /jobs threads ``notify_on`` into ``acreate_activity``."""
+async def test_submit_job_forwards_notify_on_to_run(authenticated_client: TestAsyncClient):
+    """POST /jobs threads ``notify_on`` into ``acreate_run``."""
 
     async def _aenq(**kwargs):
         return await _make_task_row()
 
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run() as mock_create:
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post("/jobs", json=_single_repo_body(notify_on="always"))
@@ -268,7 +271,7 @@ async def test_submit_job_notify_on_optional(authenticated_client: TestAsyncClie
     async def _aenq(**kwargs):
         return await _make_task_row()
 
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run() as mock_create:
         mock_task.aenqueue.side_effect = _aenq
         mock_task.module_path = run_job_task.module_path
         response = await authenticated_client.post("/jobs", json=_single_repo_body())
@@ -285,7 +288,7 @@ async def test_submit_job_invalid_notify_on_returns_422(authenticated_client: Te
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_all_enqueue_failures_reported(authenticated_client: TestAsyncClient):
-    with patch("activity.services.run_job_task") as mock_task:
+    with patch("sessions.services.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
         response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="List all files"))
 
@@ -296,19 +299,21 @@ async def test_submit_job_all_enqueue_failures_reported(authenticated_client: Te
     assert data["failed"][0]["repo_id"] == "group/project"
 
 
-# --- Get job status tests (Activity-based) ---
+# --- Get job status tests (Run-based) ---
 
 
-async def _create_activity_row(
-    user, status="SUCCESSFUL", result_summary="", merge_request_web_url="", error_message=""
-):
-    """Create a real Activity row for use in get_job_status tests."""
-    return await Activity.objects.acreate(
-        trigger_type=TriggerType.API_JOB,
+async def _create_run_row(user, status="SUCCESSFUL", result_summary="", merge_request_web_url="", error_message=""):
+    """Create a real Session+Run row for use in get_job_status tests."""
+    thread_id = str(uuid.uuid4())
+    session = await Session.objects.acreate(
+        thread_id=thread_id, origin=SessionOrigin.API_JOB, repo_id="group/project", user=user
+    )
+    return await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.API_JOB,
         repo_id="group/project",
         user=user,
         status=status,
-        thread_id=str(uuid.uuid4()),
         result_summary=result_summary,
         merge_request_web_url=merge_request_web_url,
         error_message=error_message,
@@ -318,12 +323,12 @@ async def _create_activity_row(
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_successful(authenticated_client: TestAsyncClient):
     user = await User.objects.aget(username="testuser")
-    activity = await _create_activity_row(user, status="SUCCESSFUL", result_summary="Here are the files...")
-    response = await authenticated_client.get(f"/jobs/{activity.id}")
+    run = await _create_run_row(user, status="SUCCESSFUL", result_summary="Here are the files...")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["job_id"] == str(activity.id)
+    assert data["job_id"] == str(run.id)
     assert data["status"] == "SUCCESSFUL"
     assert data["result"] == "Here are the files..."
     assert data["error"] is None
@@ -332,8 +337,8 @@ async def test_get_job_status_successful(authenticated_client: TestAsyncClient):
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_failed(authenticated_client: TestAsyncClient):
     user = await User.objects.aget(username="testuser")
-    activity = await _create_activity_row(user, status="FAILED")
-    response = await authenticated_client.get(f"/jobs/{activity.id}")
+    run = await _create_run_row(user, status="FAILED")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
 
     assert response.status_code == 200
     data = response.json()
@@ -357,11 +362,11 @@ async def test_get_job_status_invalid_uuid(authenticated_client: TestAsyncClient
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_other_user_activity_returns_404(authenticated_client: TestAsyncClient):
-    """Activities belonging to other users must not be accessible."""
+async def test_get_job_status_other_user_run_returns_404(authenticated_client: TestAsyncClient):
+    """Runs belonging to other users must not be accessible."""
     other = await User.objects.acreate_user(username="other2", email="other2@test.com", password="x")  # noqa: S106
-    activity = await _create_activity_row(other, status="SUCCESSFUL", result_summary="secret")
-    response = await authenticated_client.get(f"/jobs/{activity.id}")
+    run = await _create_run_row(other, status="SUCCESSFUL", result_summary="secret")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
     assert response.status_code == 404
 
 
@@ -371,8 +376,8 @@ async def test_get_job_status_other_user_activity_returns_404(authenticated_clie
 @pytest.mark.django_db(transaction=True)
 class TestThreadContinuationAPI:
     async def test_response_includes_thread_id_and_status(self, authenticated_client):
-        # New thread, no prior Activity — should be READY
-        with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+        # New thread, no prior Run — should be READY
+        with patch("sessions.services.run_job_task") as mock_task, _patch_acreate_run():
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
             mock_task.module_path = run_job_task.module_path
             response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x"))
@@ -390,7 +395,10 @@ class TestThreadContinuationAPI:
     async def test_continuation_with_other_user_thread_id_rejects(self, authenticated_client, db):
         other = await User.objects.acreate_user(username="other", email="o@t.com", password="x")  # noqa: S106
         thread = str(uuid.uuid4())
-        await Activity.objects.acreate(trigger_type=TriggerType.API_JOB, repo_id="a/b", thread_id=thread, user=other)
+        session = await Session.objects.acreate(
+            thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="a/b", user=other
+        )
+        await Run.objects.acreate(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="a/b", user=other)
         body = _single_repo_body(prompt="x", thread_id=thread)
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 400
@@ -406,27 +414,27 @@ class TestThreadContinuationAPI:
         assert response.status_code == 400
         assert "exactly one repo" in response.json()["detail"]
 
-    async def test_job_id_is_activity_id(self, authenticated_client):
-        created_activities: list = []
+    async def test_job_id_is_run_id(self, authenticated_client):
+        created_runs: list = []
 
-        async def capture_acreate(**kwargs):
-            activity = _FakeActivity(task_result_id=kwargs["task_result_id"])
-            created_activities.append(activity)
-            return activity
+        async def capture_acreate_run(**kwargs):
+            run = _FakeRun(task_result_id=kwargs.get("task_result_id"))
+            created_runs.append(run)
+            return run
 
         with (
-            patch("activity.services.run_job_task") as mock_task,
-            patch("activity.services.acreate_activity", new_callable=AsyncMock, side_effect=capture_acreate),
-            patch("activity.services.generate_batch_title_task"),
+            patch("sessions.services.run_job_task") as mock_task,
+            patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=capture_acreate_run),
+            patch("sessions.services.generate_batch_title_task"),
         ):
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
             mock_task.module_path = run_job_task.module_path
             response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x"))
 
         body = response.json()
-        assert len(created_activities) == 1
-        assert body["jobs"][0]["job_id"] == str(created_activities[0].id)
-        assert body["jobs"][0]["job_id"] != str(created_activities[0].task_result_id)
+        assert len(created_runs) == 1
+        assert body["jobs"][0]["job_id"] == str(created_runs[0].id)
+        assert body["jobs"][0]["job_id"] != str(created_runs[0].task_result_id)
 
     async def test_empty_thread_id_rejected_at_schema(self, authenticated_client):
         """An empty-string thread_id is malformed at the protocol layer (422, not 400)."""
@@ -441,18 +449,20 @@ class TestThreadContinuationAPI:
         assert response.status_code == 422
 
     async def test_continuation_creates_queued_when_sibling_running(self, authenticated_client):
-        """An IntegrityError fallback path: when an active sibling exists on the thread,
-        the second submission lands in QUEUED with no enqueue."""
+        """When an active sibling exists on the session, the second submission lands in QUEUED."""
         user = await User.objects.aget(username="testuser")
         thread = str(uuid.uuid4())
-        await Activity.objects.acreate(
-            trigger_type=TriggerType.API_JOB,
+        session = await Session.objects.acreate(
+            thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="group/project", user=user
+        )
+        await Run.objects.acreate(
+            session=session,
+            trigger_type=SessionOrigin.API_JOB,
             repo_id="group/project",
-            thread_id=thread,
-            status=ActivityStatus.RUNNING,
+            status=RunStatus.RUNNING,
             user=user,
         )
-        with patch("activity.services.run_job_task") as mock_task:
+        with patch("sessions.services.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
             mock_task.module_path = run_job_task.module_path
             response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x", thread_id=thread))
@@ -464,9 +474,22 @@ class TestThreadContinuationAPI:
 
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_queued_passes_through(authenticated_client: TestAsyncClient):
-    """A QUEUED Activity surfaces as ``status='QUEUED'`` in get_job_status (not 'PENDING')."""
+    """A QUEUED Run surfaces as ``status='QUEUED'`` in get_job_status (not 'PENDING')."""
     user = await User.objects.aget(username="testuser")
-    activity = await _create_activity_row(user, status=ActivityStatus.QUEUED)
-    response = await authenticated_client.get(f"/jobs/{activity.id}")
+    run = await _create_run_row(user, status=RunStatus.QUEUED)
+    response = await authenticated_client.get(f"/jobs/{run.id}")
     assert response.status_code == 200
     assert response.json()["status"] == "QUEUED"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_thread_validation_uses_session_ownership(authenticated_client: TestAsyncClient):
+    """Continuation of a thread whose session belongs to someone else -> 400 opaque error."""
+    other = await User.objects.acreate_user(username="outsider", email="outsider@test.com", password="x")  # noqa: S106
+    thread = str(uuid.uuid4())
+    session = await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="a/b", user=other)
+    await Run.objects.acreate(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="a/b", user=other)
+    body = _single_repo_body(prompt="x", thread_id=thread)
+    response = await authenticated_client.post("/jobs", json=body)
+    assert response.status_code == 400
+    assert "thread_id not found" in response.json()["detail"]
