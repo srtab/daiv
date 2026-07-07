@@ -66,8 +66,14 @@ def test_active_run_id_nonempty_constraint():
 
 def test_by_owner_admin_sees_all(admin_user, django_user_model):
     other = django_user_model.objects.create_user(username="other", email="o@x.io", password="x")  # noqa: S106
-    _mk_session(user=other)
-    assert Session.objects.by_owner(admin_user).count() == 1
+    mine = _mk_session(user=admin_user)
+    theirs = _mk_session(user=other)
+    orphan = _mk_session(user=None, external_username="ext")
+    # Admin sees all sessions, including ones it does not own. Subset (not equality)
+    # keeps the assertion correct even if other tests committed rows into the shared
+    # in-memory DB (async writes can escape the transaction rollback).
+    visible = set(Session.objects.by_owner(admin_user).values_list("pk", flat=True))
+    assert {mine.pk, theirs.pk, orphan.pk} <= visible
 
 
 def test_by_owner_matches_session_user(django_user_model):

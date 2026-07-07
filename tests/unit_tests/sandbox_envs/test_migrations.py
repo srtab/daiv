@@ -16,6 +16,23 @@ from django.db.migrations.executor import MigrationExecutor
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _restore_migrations_to_head():
+    """Re-apply all migrations to head after this test.
+
+    Migrating ``sandbox_envs`` down to 0005 reverses every migration that
+    depends on 0006 — including ``agent_sessions.0001`` — which DROPS the
+    agent_sessions tables. This test only migrates ``sandbox_envs`` back up, so
+    without this teardown the dropped tables stay gone and every later test that
+    touches Session/Run fails with "no such table" (the test DB is a single
+    in-memory SQLite shared across the whole session).
+    """
+    yield
+    executor = MigrationExecutor(connection)
+    executor.migrate(executor.loader.graph.leaf_nodes())
+    executor.loader.build_graph()
+
+
 @pytest.mark.django_db(transaction=True)
 def test_off_env_with_policy_loses_policy():
     """null_egress_for_off_envs: network-off env's policy is nulled; network-on env's policy is kept."""
