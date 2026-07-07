@@ -1,8 +1,10 @@
+import uuid
+
 from django.test import Client
 from django.urls import reverse
 
 import pytest
-from activity.models import Activity, ActivityStatus, TriggerType
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import Role, User
 
@@ -34,7 +36,7 @@ class TestSidebarSmoke:
         "url_name,kwargs_fn",
         [
             ("dashboard", lambda u: {}),
-            ("activity_list", lambda u: {}),
+            ("session_list", lambda u: {}),
             ("schedule_list", lambda u: {}),
             ("sandbox_envs:list", lambda u: {}),
             ("user_channels", lambda u: {}),
@@ -68,11 +70,25 @@ class TestRunningJobsBadge:
         assert b'data-testid="nav-running-badge"' not in response.content
 
     def test_badge_shows_count_when_running(self, member):
-        Activity.objects.create(
-            status=ActivityStatus.RUNNING, trigger_type=TriggerType.MCP_JOB, user=member, repo_id="daiv/api"
+        session1 = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/api", user=member
         )
-        Activity.objects.create(
-            status=ActivityStatus.RUNNING, trigger_type=TriggerType.MCP_JOB, user=member, repo_id="daiv/api"
+        session2 = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/api2", user=member
+        )
+        Run.objects.create(
+            session=session1,
+            status=RunStatus.RUNNING,
+            trigger_type=SessionOrigin.UI_JOB,
+            repo_id="daiv/api",
+            user=member,
+        )
+        Run.objects.create(
+            session=session2,
+            status=RunStatus.RUNNING,
+            trigger_type=SessionOrigin.UI_JOB,
+            repo_id="daiv/api2",
+            user=member,
         )
         response = _client(member).get(reverse("dashboard"))
         assert b'data-testid="nav-running-badge"' in response.content
@@ -88,7 +104,7 @@ class TestNavActiveState:
         "url_name,expected_section",
         [
             ("dashboard", "dashboard"),
-            ("activity_list", "activity"),
+            ("session_list", "sessions"),
             ("schedule_list", "schedules"),
             ("sandbox_envs:list", "sandbox_envs"),
             ("user_channels", "channels"),

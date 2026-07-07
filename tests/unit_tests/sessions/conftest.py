@@ -2,6 +2,9 @@ import uuid
 
 import pytest
 from django_tasks_db.models import DBTaskResult, get_date_max
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+from accounts.models import User
 
 
 @pytest.fixture
@@ -33,3 +36,30 @@ def create_db_task_result():
         )
 
     return _create
+
+
+@pytest.fixture
+def admin_user(db):
+    return User.objects.create_user(
+        username="admin",
+        email="admin@test.com",
+        password="testpass123",  # noqa: S106
+        role="admin",
+    )
+
+
+@pytest.fixture
+def session_fixture(admin_user):
+    return Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main", user=admin_user
+    )
+
+
+@pytest.fixture
+def run_fixture(session_fixture):
+    return Run.objects.create(
+        session=session_fixture,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id=session_fixture.repo_id,
+        status=RunStatus.SUCCESSFUL,
+    )

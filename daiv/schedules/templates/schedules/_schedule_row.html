@@ -7,7 +7,7 @@
        class="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
        aria-label="Edit {{ schedule.name }}"></a>
     {% else %}
-    <a href="{% url 'activity_list' %}?schedule={{ schedule.pk }}"
+    <a href="{% url 'session_list' %}?schedule={{ schedule.pk }}"
        class="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
        aria-label="View runs for {{ schedule.name }}"></a>
     {% endif %}
@@ -98,7 +98,7 @@
             {% if schedule.last_run_at %}<span>Last run {{ schedule.last_run_at|timesince }} ago</span>{% endif %}
             {% if schedule.last_run_at and schedule.run_count %}<span>&middot;</span>{% endif %}
             {% if schedule.run_count %}
-            <a href="{% url 'activity_list' %}?schedule={{ schedule.pk }}"
+            <a href="{% url 'session_list' %}?schedule={{ schedule.pk }}"
                class="relative z-10 underline decoration-gray-600 underline-offset-2 hover:text-gray-300 hover:decoration-gray-400">
                 {{ schedule.run_count }} run{{ schedule.run_count|pluralize }}
             </a>

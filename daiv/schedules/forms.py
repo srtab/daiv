@@ -1,6 +1,6 @@
 from django import forms
 
-from activity.forms import AgentRunFieldsMixin, RepoListField
+from sessions.forms import AgentRunFieldsMixin, RepoListField
 
 from accounts.models import User
 from schedules.models import ScheduledJob, ScheduleTemplate

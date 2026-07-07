@@ -4,7 +4,7 @@ from django.test import Client, RequestFactory
 from django.urls import reverse
 
 import pytest
-from activity.models import Activity, ActivityStatus, TriggerType
+from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.context_processors import _resolve_active_section, nav, running_jobs_count
 from accounts.models import User
@@ -31,15 +31,31 @@ class TestNavContextProcessor:
         assert out["nav_active_section"] == ""
 
     def test_counts_only_running_jobs_owned_by_user(self, user, db):
-        Activity.objects.create(
-            status=ActivityStatus.RUNNING, trigger_type=TriggerType.MCP_JOB, user=user, repo_id="daiv/api"
+        from sessions.models import Session
+
+        session = Session.objects.create(
+            thread_id="test-thread-1", origin=SessionOrigin.MCP_JOB, repo_id="daiv/api", user=user
         )
-        Activity.objects.create(
-            status=ActivityStatus.SUCCESSFUL, trigger_type=TriggerType.MCP_JOB, user=user, repo_id="daiv/api"
+        Run.objects.create(
+            session=session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.MCP_JOB, repo_id="daiv/api", user=user
+        )
+        Run.objects.create(
+            session=session,
+            status=RunStatus.SUCCESSFUL,
+            trigger_type=SessionOrigin.MCP_JOB,
+            repo_id="daiv/api",
+            user=user,
         )
         other = User.objects.create_user(username="bob", email="bob@test.com", password="x123456789")  # noqa: S106
-        Activity.objects.create(
-            status=ActivityStatus.RUNNING, trigger_type=TriggerType.MCP_JOB, user=other, repo_id="daiv/api"
+        session2 = Session.objects.create(
+            thread_id="test-thread-2", origin=SessionOrigin.MCP_JOB, repo_id="daiv/api", user=other
+        )
+        Run.objects.create(
+            session=session2,
+            status=RunStatus.RUNNING,
+            trigger_type=SessionOrigin.MCP_JOB,
+            repo_id="daiv/api",
+            user=other,
         )
 
         request = RequestFactory().get("/dashboard/")
@@ -59,7 +75,7 @@ class TestNavContextProcessor:
         # A transient DB failure should log-and-degrade the badge rather than crash rendering.
         failing_qs = mocker.MagicMock()
         failing_qs.filter.return_value.count.side_effect = DatabaseError("connection lost")
-        mocker.patch("activity.models.ActivityManager.by_owner", return_value=failing_qs)
+        mocker.patch("sessions.models.RunManager.by_owner", return_value=failing_qs)
         request = RequestFactory().get("/dashboard/")
         request.user = user
         assert running_jobs_count(request, user) == 0
@@ -70,7 +86,7 @@ class TestNavContextProcessor:
         request.user = user
         assert running_jobs_count(request, user) == 0
 
-        spy = mocker.patch("activity.models.ActivityManager.by_owner")
+        spy = mocker.patch("sessions.models.RunManager.by_owner")
         assert running_jobs_count(request, user) == 0
         spy.assert_not_called()
 

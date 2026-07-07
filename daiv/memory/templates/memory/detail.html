@@ -74,7 +74,7 @@
       </div>
       <p class="mt-1.5 text-sm text-gray-300">{{ obs.content }}</p>
       {% if obs.run %}
-      <a href="{% url 'activity_detail' obs.run.pk %}"
+      <a href="{% url 'session_detail' thread_id=obs.run.session_id %}#run-{{ obs.run.pk }}"
          class="mt-1 inline-block text-xs text-violet-300 hover:text-violet-200">{% translate "View source run" %}</a>
       {% endif %}
     </li>

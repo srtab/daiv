@@ -228,7 +228,7 @@ class TestScheduleRunNowView:
         m.id = tid
         return m
 
-    def test_enqueues_single_repo_and_redirects_to_activity_detail(self, member_client, member_user, schedule):
+    def test_enqueues_single_repo_and_redirects_to_session_detail(self, member_client, member_user, schedule):
         with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
@@ -237,7 +237,7 @@ class TestScheduleRunNowView:
         run = Run.objects.get(session__scheduled_job=schedule)
         assert run.trigger_type == SessionOrigin.SCHEDULE
         assert run.batch_id is not None
-        assert response.url == reverse("activity_detail", args=[run.pk])
+        assert response.url == reverse("session_detail", kwargs={"thread_id": run.session_id})
 
     def test_multi_repo_redirects_to_batch_filtered_activity_list(self, member_client, member_user, schedule):
         schedule.repos = [{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": ""}]
@@ -267,7 +267,7 @@ class TestScheduleRunNowView:
 
         assert response.status_code == 302
         run = Run.objects.get(session__scheduled_job=schedule)
-        assert response.url == reverse("activity_detail", args=[run.pk])
+        assert response.url == reverse("session_detail", kwargs={"thread_id": run.session_id})
 
     def test_enqueue_failure_returns_error_message(self, member_client, schedule):
         with mock.patch("sessions.services.run_job_task") as m_task:
@@ -474,7 +474,7 @@ class TestScheduleUnsubscribeView:
         assert response.status_code == 302
         assert response.url == "/dashboard/activity/"
 
-    def test_unsafe_next_falls_back_to_activity_list(self, schedule):
+    def test_unsafe_next_falls_back_to_session_list(self, schedule):
         sub = self._subscriber()
         schedule.subscribers.add(sub)
         client = Client()
@@ -483,7 +483,7 @@ class TestScheduleUnsubscribeView:
             reverse("schedule_unsubscribe", args=[schedule.pk]), data={"next": "https://evil.example.com/phish"}
         )
         assert response.status_code == 302
-        assert response.url == reverse("activity_list")
+        assert response.url == reverse("session_list")
 
     def test_unauthenticated_redirects_to_login(self, schedule):
         client = Client()

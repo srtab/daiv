@@ -2,20 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.text import slugify
+from django.utils.translation import gettext_lazy as _
 from django.views import View
-from django.views.generic import DetailView
+from django.views.generic import DetailView, FormView
 
 from asgiref.sync import async_to_sync
 from django_filters.views import FilterView
 from sandbox_envs.models import SandboxEnvironment
+from sandbox_envs.services import env_picker_context, resolve_repo_envs
 
 from accounts.mixins import BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context
@@ -23,8 +29,12 @@ from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
 from schedules.models import ScheduledJob
 from sessions.filters import SessionFilter
+from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.services import RepoTarget, submit_batch_runs
+
+logger = logging.getLogger("daiv.sessions")
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -295,3 +305,94 @@ class RunDownloadMarkdownView(LoginRequiredMixin, DetailView):
         repo_slug = slugify(run.repo_id.replace("/", "-")) or "unknown"
         date_str = run.created_at.strftime("%Y-%m-%d")
         return f"daiv-{repo_slug}-{date_str}.md"
+
+
+class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
+    """Serve the "Start a run" page and submit new UI-initiated agent runs.
+
+    ``GET /runs/new/`` renders a blank form. ``GET /runs/new/?from=<pk>``
+    pre-fills the form from a retryable source Run. ``POST`` enqueues
+    ``run_job_task`` and creates a Run, redirecting to the session detail page.
+    """
+
+    template_name = "sessions/agent_run_form.html"
+    form_class = AgentRunCreateForm
+
+    _SOURCE_UNSET = object()
+
+    def _get_source_run(self) -> Run | None:
+        # Memoize per-request: ``get_initial`` and ``get_context_data`` both call this on retry GETs.
+        cached = getattr(self, "_source_cached", self._SOURCE_UNSET)
+        if cached is not self._SOURCE_UNSET:
+            return cached
+        source_id = self.request.GET.get("from")
+        if not source_id:
+            self._source_cached = None
+            return None
+        try:
+            source = Run.objects.by_owner(self.request.user).filter(pk=source_id).first()
+        except (ValueError, ValidationError) as err:
+            raise Http404("Invalid run id.") from err
+        self._source_cached = source
+        return source
+
+    def get_initial(self) -> dict:
+        initial: dict = {"notify_on": self.request.user.notify_on_jobs}
+        source = self._get_source_run()
+        if source is not None:
+            initial.update({
+                "prompt": source.prompt,
+                "repos": [{"repo_id": source.repo_id, "ref": source.ref}],
+                "agent_model": source.agent_model,
+                "agent_thinking_level": source.agent_thinking_level,
+            })
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["source_run"] = self._get_source_run()
+        ctx.update(env_picker_context(ctx["form"]))
+        ctx.update(agent_picker_context(ctx["form"]))
+        return ctx
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in form.cleaned_data["repos"]]
+        env = form.cleaned_data.get("sandbox_environment")
+        repos = resolve_repo_envs(user=self.request.user, repos=repos, explicit_env_id=str(env.id) if env else None)
+        try:
+            result = submit_batch_runs(
+                user=self.request.user,
+                prompt=form.cleaned_data["prompt"],
+                repos=repos,
+                agent_model=form.cleaned_data["agent_model"],
+                agent_thinking_level=form.cleaned_data["agent_thinking_level"],
+                notify_on=form.cleaned_data["notify_on"],
+                trigger_type=SessionOrigin.UI_JOB,
+            )
+        except Http404, PermissionDenied, SuspiciousOperation:
+            raise
+        except Exception:
+            logger.exception(
+                "Failed to submit UI run",
+                extra={"user_pk": self.request.user.pk, "repos": form.cleaned_data.get("repos")},
+            )
+            form.add_error(None, _("Failed to submit the run. Please try again in a moment."))
+            return self.form_invalid(form)
+
+        if result.failed:
+            failed_ids = ", ".join(f.repo_id for f in result.failed)
+            messages_module.warning(
+                self.request, _("Some repositories failed to submit: %(ids)s") % {"ids": failed_ids}
+            )
+
+        if len(result.runs) == 1 and not result.failed:
+            return redirect("session_detail", thread_id=result.runs[0].session_id)
+        return redirect(reverse("session_list") + f"?batch={result.batch_id}")
+
+    def get_breadcrumbs(self):
+        return [{"label": "Sessions", "url": reverse("session_list")}, {"label": "Start a run", "url": None}]

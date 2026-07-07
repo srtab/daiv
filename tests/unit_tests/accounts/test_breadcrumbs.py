@@ -24,8 +24,8 @@ def _client(user):
 
 @pytest.mark.django_db
 class TestBreadcrumbs:
-    def test_activity_list_has_no_breadcrumb(self, admin):
-        response = _client(admin).get(reverse("activity_list"))
+    def test_session_list_has_no_breadcrumb(self, admin):
+        response = _client(admin).get(reverse("session_list"))
         assert b'data-testid="app-breadcrumb"' not in response.content
 
     def test_schedule_create_breadcrumb(self, admin):

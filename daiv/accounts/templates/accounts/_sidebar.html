@@ -9,7 +9,7 @@
   </div>
 
   {# Primary action — promoted out of the nav list #}
-  <a href="{% url 'chat_new' %}"
+  <a href="{% url 'session_new' %}"
      data-testid="nav-chat-cta"
      class="group relative mx-3 mb-5 flex items-center gap-2.5 overflow-hidden rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 px-3 py-2.5 text-sm font-semibold tracking-tight text-white shadow-lg shadow-violet-500/20 ring-1 ring-inset ring-white/15 transition-all duration-200 hover:shadow-violet-500/40 hover:ring-white/25">
     <span aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/15 to-transparent"></span>
@@ -29,24 +29,17 @@
       <span>{% translate "Dashboard" %}</span>
     </a>
 
-    <a href="{% url 'activity_list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'activity' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'activity' %}opacity-0{% endif %}"></span>
-      {% icon "bolt" "h-4 w-4" %}
-      <span class="flex-1">{% translate "Activity" %}</span>
+    <a href="{% url 'session_list' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'sessions' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'sessions' %}opacity-0{% endif %}"></span>
+      {% icon "chat-bubble" "h-4 w-4" %}
+      <span class="flex-1">{% translate "Sessions" %}</span>
       {% if nav_running_jobs %}
       <span data-testid="nav-running-badge"
             class="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300">
         {% blocktranslate count counter=nav_running_jobs %}{{ counter }} running{% plural %}{{ counter }} running{% endblocktranslate %}
       </span>
       {% endif %}
-    </a>
-
-    <a href="{% url 'chat_list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'chat' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'chat' %}opacity-0{% endif %}"></span>
-      {% icon "chat-bubble" "h-4 w-4" %}
-      <span>{% translate "Chat" %}</span>
     </a>
 
     <a href="{% url 'schedule_list' %}"

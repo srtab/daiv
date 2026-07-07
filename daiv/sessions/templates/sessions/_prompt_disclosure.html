@@ -1,0 +1,21 @@
+{% load activity_tags markdown_tags %}
+{% if activity.prompt %}
+{{ activity.prompt|json_script:"activity-prompt-raw" }}
+<details {% if prompt_open_by_default %}open{% endif %} class="mt-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 group">
+    <summary class="flex cursor-pointer items-center justify-between gap-3 list-none">
+        <div class="flex items-center gap-2 text-sm">
+            <span class="text-gray-500 transition-transform group-open:rotate-90">▸</span>
+            <span class="font-medium text-gray-300">Prompt</span>
+            {% with tokens=activity.prompt|approx_prompt_tokens %}
+            {% if tokens %}
+            <span class="text-xs text-gray-500">&mdash; &approx; {{ tokens|format_tokens }} tokens</span>
+            {% endif %}
+            {% endwith %}
+        </div>
+        {% include "activity/_copy_markdown_button.html" with source_id="activity-prompt-raw" label="Copy prompt" %}
+    </summary>
+    <div class="prose-dark mt-3 rounded-xl bg-black/30 p-4">
+        {{ activity.prompt|render_markdown }}
+    </div>
+</details>
+{% endif %}

@@ -126,7 +126,7 @@ def on_activity_finished(sender, activity: Activity, **kwargs) -> None:
     channels = [cls.channel_type for cls in enabled_channels()] if _status_matches(effective, activity.status) else []
 
     subject, body, context = _render_payload(activity)
-    link_url = reverse("activity_detail", args=[activity.pk])
+    link_url = reverse("session_list")
     event_type = EventType.SCHEDULE_FINISHED if _is_schedule(activity) else EventType.JOB_FINISHED
 
     for recipient in recipients.values():
@@ -197,7 +197,7 @@ def _handle_batch_completion(activity: Activity, siblings, total: int) -> None:
         "cost_usd": float(agg["total_cost_usd"]) if agg["total_cost_usd"] is not None else None,
     }
     subject, body, context = _render_batch_payload(activity, rows, total, successful, failed, agg_status, usage)
-    link_url = f"{reverse('activity_list')}?batch={activity.batch_id}"
+    link_url = f"{reverse('session_list')}?batch={activity.batch_id}"
 
     for recipient in recipients.values():
         try:
@@ -453,8 +453,7 @@ def _handle_batch_completion_run(run, siblings, total: int) -> None:
         "cost_usd": float(agg["total_cost_usd"]) if agg["total_cost_usd"] is not None else None,
     }
     subject, body, context = _render_batch_payload_run(run, rows, total, successful, failed, agg_status, usage)
-    # Task 14 will add sessions list/detail URLs; fall back to activity_list for now.
-    link_url = f"{reverse('activity_list')}?batch={run.batch_id}"
+    link_url = f"{reverse('session_list')}?batch={run.batch_id}"
 
     for recipient in recipients.values():
         try:
@@ -586,9 +585,7 @@ def on_run_finished(sender, run, **kwargs) -> None:
         )
 
         subject, body, context = _render_payload_run(run)
-        # Task 14 will add the sessions:detail URL; for now fall back to activity_detail
-        # (Run.pk == Activity.pk so the link resolves to the same run row).
-        link_url = reverse("activity_detail", args=[run.pk])
+        link_url = reverse("session_detail", kwargs={"thread_id": run.session_id})
         event_type = EventType.SCHEDULE_FINISHED if _is_schedule_run(run) else EventType.JOB_FINISHED
 
         for recipient in recipients.values():

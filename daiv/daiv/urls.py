@@ -3,6 +3,7 @@ from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path, reverse
 
 from mcp_server.oauth import oauth_metadata
+from sessions.urls_legacy import legacy_activity_urlpatterns, legacy_chat_urlpatterns
 
 from accounts.views import homepage
 from core.views import HealthCheckView
@@ -27,10 +28,10 @@ urlpatterns = [
     path("accounts/users/", include("accounts.urls.users")),
     path("dashboard/", include("accounts.urls.dashboard")),
     path("dashboard/configuration/", include("core.urls.configuration")),
-    path("dashboard/activity/", include("activity.urls")),
+    path("dashboard/activity/", include(legacy_activity_urlpatterns)),
     path("dashboard/sessions/", include("sessions.urls")),
-    path("dashboard/chat/", include("chat.urls")),
-    path("dashboard/runs/", include("activity.urls_runs", namespace="runs")),
+    path("dashboard/chat/", include(legacy_chat_urlpatterns)),
+    path("dashboard/runs/", include("sessions.urls_runs", namespace="runs")),
     path("dashboard/notifications/", include("notifications.urls")),
     path("dashboard/sandbox-envs/", include("sandbox_envs.urls", namespace="sandbox_envs")),
     path("dashboard/schedules/", include("schedules.urls")),

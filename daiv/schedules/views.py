@@ -251,9 +251,9 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
             messages.success(request, f"Schedule '{schedule.name}' triggered successfully.")
 
         if len(result.runs) == 1 and not result.failed:
-            return redirect("activity_detail", pk=result.runs[0].pk)
+            return redirect("session_detail", thread_id=result.runs[0].session_id)
         if result.runs:
-            return redirect(reverse("activity_list") + f"?batch={result.batch_id}")
+            return redirect(reverse("session_list") + f"?batch={result.batch_id}")
         return redirect("schedule_list")
 
 
@@ -271,7 +271,7 @@ class ScheduleUnsubscribeView(LoginRequiredMixin, View):
         next_url = request.POST.get("next", "")
         if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
             return redirect(next_url)
-        return redirect("activity_list")
+        return redirect("session_list")
 
 
 class ScheduleDeleteView(BreadcrumbMixin, _ScheduleOwnerMixin, SuccessMessageMixin, LoginRequiredMixin, DeleteView):
