@@ -11,26 +11,12 @@ from codebase.authorization import (
     RepositoryAccessDenied,
     assert_can_run,
     can_view,
-    filter_viewable,
     get_access_level,
     search_viewable_repositories,
     viewable_repo_ids,
 )
-from codebase.base import GitPlatform, RepoAccessLevel, Repository
+from codebase.base import RepoAccessLevel
 from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
-
-
-def _repo(slug: str) -> Repository:
-    return Repository(
-        pk=abs(hash(slug)) % (2**31),
-        slug=slug,
-        name=slug.split("/")[-1],
-        clone_url=f"https://example/{slug}.git",
-        html_url=f"https://example/{slug}",
-        default_branch="main",
-        git_platform=GitPlatform.GITLAB,
-        topics=[],
-    )
 
 
 @pytest.fixture
@@ -207,16 +193,6 @@ class TestViewableFilters:
         _grant("101", "a/b", RepoAccessLevel.READ)
         _grant("101", "c/d", RepoAccessLevel.READ, synced_at=timezone.now() - timedelta(hours=25))
         assert viewable_repo_ids(linked_member, ["a/b", "c/d"]) == {"a/b"}
-
-    def test_filter_viewable_preserves_order(self, linked_member, fresh_sync):
-        _grant("101", "c/d", RepoAccessLevel.WRITE)
-        _grant("101", "a/b", RepoAccessLevel.READ)
-        repos = [_repo("a/b"), _repo("x/y"), _repo("c/d")]
-        assert [r.slug for r in filter_viewable(linked_member, repos)] == ["a/b", "c/d"]
-
-    def test_admin_sees_all(self, admin_user, db):
-        repos = [_repo("a/b"), _repo("x/y")]
-        assert filter_viewable(admin_user, repos) == repos
 
     def test_no_rows_returns_empty(self, linked_member, db, _no_backstop_enqueue):
         assert viewable_repo_ids(linked_member, ["a/b"]) == set()

@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from accounts.models import User
-    from codebase.base import Repository
 
 logger = logging.getLogger("daiv.codebase")
 
@@ -160,12 +159,6 @@ def viewable_repo_ids(user: User, repo_ids: Iterable[str]) -> set[str]:
     return set(_fresh_rows(uid).filter(repo_id__in=repo_ids).values_list("repo_id", flat=True))
 
 
-def filter_viewable(user: User, repositories: list[Repository]) -> list[Repository]:
-    """Filter a platform repository list down to the entries the user can view."""
-    viewable = viewable_repo_ids(user, [repo.slug for repo in repositories])
-    return [repo for repo in repositories if repo.slug in viewable]
-
-
 def search_viewable_repositories(
     user: User, *, search: str | None = None, topics: list[str] | None = None, limit: int
 ) -> list[RepositoryCatalog]:
@@ -193,19 +186,6 @@ def search_viewable_repositories(
     return list(rows[:limit])
 
 
-# Repository listings over-fetch by this factor before per-user filtering, so a display window
-# can still be filled after unauthorized repositories are dropped. Single-sourced here rather
-# than re-derived at each picker/search/MCP surface, which would let the window silently drift.
-VIEWABLE_FETCH_MULTIPLIER = 5
-
-
-def viewable_fetch_limit(display_limit: int) -> int:
-    """Platform fetch size to request for a ``display_limit`` window that will then be filtered
-    down to the repositories the caller can view."""
-    return display_limit * VIEWABLE_FETCH_MULTIPLIER
-
-
 # Only the wrappers with async call sites are exported; add more via ``sync_to_async`` as needed.
 aassert_can_run = sync_to_async(assert_can_run)
-afilter_viewable = sync_to_async(filter_viewable)
 asearch_viewable_repositories = sync_to_async(search_viewable_repositories)
