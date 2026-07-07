@@ -67,6 +67,7 @@ async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
     # We're not setting up enough scaffolding to complete the agent invoke;
     # the assertion below is what matters.
     with (
+        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("jobs.tasks.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("jobs.tasks.open_checkpointer"),
         patch("jobs.tasks.create_daiv_agent", AsyncMock()),
