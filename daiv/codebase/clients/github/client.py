@@ -6,10 +6,9 @@ from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 from git import Repo
-from github import Github, GithubIntegration, Installation, UnknownObjectException
+from github import Consts, Github, GithubIntegration, Installation, UnknownObjectException
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
@@ -249,35 +248,62 @@ class GitHubClient(RepoClient):
         Yields:
             The repository object cloned to the temporary directory.
         """
+        from codebase.clients.base import GitAuthEnv
         from codebase.clients.utils import safe_slug
 
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
-            # the access token is valid for 1 hour
-            access_token = self._integration.get_access_token(
-                self.client_installation.id, permissions={"contents": "write"}
-            )
-            parsed = urlparse(repository.clone_url)
-            clone_url = f"{parsed.scheme}://oauth2:{access_token.token}@{parsed.netloc}{parsed.path}"
+            # The token (valid for 1 hour) rides a command-scoped env header instead of the clone
+            # URL, so it never persists in .git/config — which is seeded into the sandbox — or
+            # appears on argv. In-sandbox git authenticates via the egress proxy's injected header;
+            # local-mode git gets the same env per invocation via RepoClient.get_git_auth_env.
+            token = self._mint_installation_token(repository)
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
-            repo = Repo.clone_from(clone_url, clone_dir, branch=sha)
+            repo = Repo.clone_from(
+                repository.clone_url,
+                clone_dir,
+                branch=sha,
+                env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
+            )
             self._configure_commit_identity(repo)
             yield repo
 
-    def _git_egress_token(self, repository: Repository) -> str | None:
-        """Mint a short-lived installation token scoped to ``contents: write``.
+    def _mint_installation_token(self, repository: Repository) -> str:
+        """Mint a short-lived installation token with ``contents: write`` on this repository only.
 
-        The egress proxy injects this token over the ``Authorization`` header for *every* request to the
-        platform host (the platform rule matches all methods and forces interception), superseding the
-        token git embeds from ``.git/config``. DAIV's publish push runs from inside the sandbox and goes
-        through the same path, so the injected token must be **write**-capable or the push is rejected.
-        It matches the ``contents: write`` token used to clone. The agent is still prevented from pushing
-        ad-hoc from ``bash`` by the command policy, not by withholding write scope here."""
-        access_token = self._integration.get_access_token(
-            self.client_installation.id, permissions={"contents": "write"}
+        An unscoped installation token is valid for *every* repository the installation covers, so
+        both the clone credential and the egress-proxy secret would carry cross-repo write access.
+        PyGithub's ``get_access_token`` cannot restrict the token (no ``repository_ids`` support),
+        so the same REST endpoint is called directly through the integration's app-authenticated
+        requester, mirroring ``get_access_token``'s headers."""
+        _headers, response = self._integration.requester.requestJsonAndCheck(
+            "POST",
+            f"/app/installations/{self.client_installation.id}/access_tokens",
+            headers={"Accept": Consts.mediaTypeIntegrationPreview},
+            input={"permissions": {"contents": "write"}, "repository_ids": [repository.pk]},
         )
-        return access_token.token
+        # requestJsonAndCheck raises GithubException on non-2xx, but a 2xx whose body lacks "token"
+        # (API contract drift) would otherwise surface as a bare, contextless KeyError far downstream.
+        if "token" not in response:
+            raise RuntimeError(
+                f"GitHub installation-token response for installation {self.client_installation.id} "
+                f"contained no 'token' (keys: {sorted(response)})"
+            )
+        return response["token"]
+
+    def _git_egress_token(self, repository: Repository) -> str | None:
+        """Mint a short-lived installation token scoped to ``contents: write`` on this repository.
+
+        The egress proxy injects this token over the ``Authorization`` header for *every* request to
+        the platform host (the platform rule matches all methods and forces interception) — which is
+        also why the token must be repository-scoped: anything running in the sandbox can send
+        authenticated requests to that host. DAIV's publish push runs from inside the sandbox and
+        goes through the same path, so the injected token must be **write**-capable or the push is
+        rejected. It matches the ``contents: write`` token used to clone. The agent is still
+        prevented from pushing ad-hoc from ``bash`` by the command policy, not by withholding write
+        scope here."""
+        return self._mint_installation_token(repository)
 
     # Issue
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:

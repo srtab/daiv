@@ -35,11 +35,11 @@ def get_ephemeral_clone_token(client: Gitlab, project_pk: int) -> str | None:
     """
     Get a short-lived project access token suitable for git clone/push over HTTPS.
 
-    The token is scoped to the single project (``write_repository``) so the credential
-    embedded in the clone's ``.git/config`` — which travels into the sandbox — cannot
-    reach the API or other projects. Tokens are minted roughly once per day per project
-    (per shared cache) and retired by natural expiry only: rotating or revoking would
-    instantly invalidate the token inside still-running jobs that cloned with it.
+    The token is scoped to the single project (``write_repository``) so the credential —
+    which also feeds the sandbox egress proxy's injected header — cannot reach the API or
+    other projects. Tokens are minted roughly once per day per project (per shared cache)
+    and retired by natural expiry only: rotating or revoking would instantly invalidate
+    the token inside still-running jobs whose egress proxy was provisioned with it.
 
     Returns ``None`` when the token cannot be provisioned (e.g. the PAT user lacks the
     Maintainer role, the instance tier does not support project access tokens, or a
@@ -88,8 +88,8 @@ def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
             "expires_at": expires_at,
         })
     except GitlabAuthenticationError as e:
-        # The fallback embeds the very credential GitLab just rejected, so the clone is likely
-        # to fail too — name the real culprit instead of claiming a benign degradation.
+        # The fallback authenticates with the very credential GitLab just rejected, so the clone
+        # is likely to fail too — name the real culprit instead of claiming a benign degradation.
         logger.warning(
             "GitLab rejected the configured PAT while provisioning a clone token for project %s "
             "(is the PAT revoked or expired?); the clone will fall back to the PAT: %s",

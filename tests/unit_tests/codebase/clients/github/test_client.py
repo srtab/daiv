@@ -1,13 +1,13 @@
 from unittest.mock import Mock, patch
 
 import pytest
-from github import UnknownObjectException
+from github import Consts, UnknownObjectException
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
 
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
-from codebase.clients.base import Emoji
+from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.github.client import GitHubClient
 
 
@@ -205,7 +205,7 @@ class TestGitHubClient:
 
         github_client.client_installation.id = 67890
         github_client.client_installation.app_slug = "daiv-agent-test"
-        github_client._integration.get_access_token.return_value = Mock(token="token")  # noqa: S106
+        github_client._integration.requester.requestJsonAndCheck.return_value = ({}, {"token": "token"})
         monkeypatch.setattr(
             type(github_client), "current_user", User(id=123456, username="daiv-agent-test", name="DAIV Agent Test")
         )
@@ -225,11 +225,42 @@ class TestGitHubClient:
 
         clone_url, clone_dir = mock_clone_from.call_args.args[:2]
         branch = mock_clone_from.call_args.kwargs["branch"]
-        assert clone_url == "https://oauth2:token@github.com/owner/repo.git"
+        assert clone_url == "https://github.com/owner/repo.git"
+        assert (
+            mock_clone_from.call_args.kwargs["env"]
+            == GitAuthEnv.for_token("https://github.com/owner/repo.git", "token").as_env()
+        )
         assert clone_dir.name == "repo"
         assert branch == "main"
         mock_writer.set_value.assert_any_call("user", "name", "daiv-agent-test[bot]")
         mock_writer.set_value.assert_any_call("user", "email", "123456+daiv-agent-test[bot]@users.noreply.github.com")
+        # The token must be minted restricted to this single repository — an unscoped
+        # installation token would be valid for every repo the installation covers.
+        github_client._integration.requester.requestJsonAndCheck.assert_called_once_with(
+            "POST",
+            "/app/installations/67890/access_tokens",
+            headers={"Accept": Consts.mediaTypeIntegrationPreview},
+            input={"permissions": {"contents": "write"}, "repository_ids": [1]},
+        )
+        github_client._integration.get_access_token.assert_not_called()
+
+    def test_mint_installation_token_raises_contextual_error_on_missing_token(self, github_client):
+        """A 2xx whose body lacks 'token' (API contract drift) must fail with a named, actionable
+        error identifying the installation — not a bare KeyError six frames from the cause."""
+        github_client.client_installation.id = 67890
+        github_client._integration.requester.requestJsonAndCheck.return_value = ({}, {"unexpected": "shape"})
+        repository = Repository(
+            pk=1,
+            slug="owner/repo",
+            name="repo",
+            clone_url="https://github.com/owner/repo.git",
+            html_url="https://github.com/owner/repo",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+
+        with pytest.raises(RuntimeError, match="installation.token response.*67890"):
+            github_client._mint_installation_token(repository)
 
     def test_get_merge_request_commits_returns_commit_list(self, github_client):
         """Test that commits are returned with author email and stats."""
@@ -427,13 +458,15 @@ class TestGitHubClient:
 
         assert result is None
 
-    def test_get_git_egress_credential_uses_installation_token(self, github_client):
+    def test_get_git_egress_credential_uses_repo_scoped_installation_token(self, github_client):
+        """The egress-proxy token is injected on every request to the platform host, so it must be
+        minted restricted to the run's repository — not the whole installation."""
         import base64
-        from unittest.mock import Mock
 
-        github_client._integration.get_access_token.return_value = Mock(token="ghs-install")  # noqa: S106
+        github_client.client_installation.id = 67890
+        github_client._integration.requester.requestJsonAndCheck.return_value = ({}, {"token": "ghs-install"})
         repository = Repository(
-            pk=1,
+            pk=42,
             slug="owner/repo",
             name="repo",
             clone_url="https://github.com/owner/repo.git",
@@ -447,6 +480,10 @@ class TestGitHubClient:
         assert cred.host == "github.com"
         assert cred.header == "Authorization"
         assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:ghs-install").decode()
-        github_client._integration.get_access_token.assert_called_once_with(
-            github_client.client_installation.id, permissions={"contents": "write"}
+        github_client._integration.requester.requestJsonAndCheck.assert_called_once_with(
+            "POST",
+            "/app/installations/67890/access_tokens",
+            headers={"Accept": Consts.mediaTypeIntegrationPreview},
+            input={"permissions": {"contents": "write"}, "repository_ids": [42]},
         )
+        github_client._integration.get_access_token.assert_not_called()
