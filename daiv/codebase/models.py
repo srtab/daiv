@@ -73,6 +73,12 @@ class MergeMetric(TimeStampedModel):
         super().save(*args, **kwargs)
 
 
+def _hard_ttl_cutoff():
+    """Cutoff for the hard-TTL freshness window shared by RepositoryAccess and RepositoryCatalog:
+    a synced row is trusted only while ``synced_at >= _hard_ttl_cutoff()``."""
+    return timezone.now() - timedelta(hours=codebase_settings.REPO_ACCESS_HARD_TTL_HOURS)
+
+
 class RepositoryAccessQuerySet(models.QuerySet):
     """Freshness helpers so the hard-TTL invariant lives on the model, not in each caller.
 
@@ -83,7 +89,7 @@ class RepositoryAccessQuerySet(models.QuerySet):
 
     @staticmethod
     def _cutoff():
-        return timezone.now() - timedelta(hours=codebase_settings.REPO_ACCESS_HARD_TTL_HOURS)
+        return _hard_ttl_cutoff()
 
     def fresh(self):
         """Rows synced within the hard TTL — still trusted for authorization decisions."""
@@ -149,3 +155,40 @@ class RepositoryAccessSyncState(models.Model):
 
     def __str__(self) -> str:
         return f"repository access sync: {self.status} (last success: {self.last_success_at})"
+
+
+class RepositoryCatalogQuerySet(models.QuerySet):
+    """Freshness helper mirroring RepositoryAccess: only rows synced within the hard TTL are
+    trusted, so a dead sync eventually stops surfacing a stale catalog."""
+
+    def fresh(self):
+        return self.filter(synced_at__gte=_hard_ttl_cutoff())
+
+
+class RepositoryCatalog(models.Model):
+    """Local mirror of the bot-visible repository catalog.
+
+    Upserted by the access sync (which already lists the universe each cycle). Repository
+    *listings* (pickers, search, MCP) are served from here as local DB joins instead of live
+    platform fetches. Not security-load-bearing: what a user may *view* is still gated by
+    ``RepositoryAccess``; this table only supplies repo metadata and the admin-visible universe.
+    """
+
+    provider = models.CharField(_("provider"), max_length=10, choices=PlatformType.choices)
+    slug = models.CharField(_("repository slug"), max_length=255)
+    name = models.CharField(_("name"), max_length=255, blank=True)
+    default_branch = models.CharField(_("default branch"), max_length=255, blank=True)
+    html_url = models.CharField(_("HTML URL"), max_length=512, blank=True)
+    topics = models.JSONField(_("topics"), default=list, blank=True)
+    synced_at = models.DateTimeField(_("synced at"))
+
+    objects = RepositoryCatalogQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = _("Repository Catalog")
+        verbose_name_plural = _("Repository Catalog")
+        constraints = [models.UniqueConstraint(fields=["provider", "slug"], name="repo_catalog_unique")]
+        indexes = [models.Index(fields=["provider", "slug"])]
+
+    def __str__(self) -> str:
+        return f"{self.provider}:{self.slug}"
