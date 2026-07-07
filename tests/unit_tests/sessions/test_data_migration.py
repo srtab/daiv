@@ -10,6 +10,7 @@ from sessions.backfill import run_backfill
 from sessions.models import Run, Session, SessionOrigin
 
 from chat.models import ChatThread
+from core.models import ThinkingLevelChoices
 
 pytestmark = pytest.mark.django_db
 
@@ -72,6 +73,29 @@ def test_created_at_and_timestamps_preserved():
     run_backfill(global_apps)
     assert Run.objects.get(pk=a.pk).created_at == old
     assert Session.objects.get(pk=tid).created_at == old
+
+
+def test_chat_merge_model_pins_win(django_user_model):
+    user = django_user_model.objects.create_user(username="u", email="u@x.io", password="x")  # noqa: S106
+    tid = str(uuid.uuid4())
+    Activity.objects.create(
+        trigger_type=TriggerType.API_JOB,
+        repo_id="g/r",
+        thread_id=tid,
+        agent_model="activity-model",
+        agent_thinking_level=ThinkingLevelChoices.LOW,
+    )
+    ChatThread.objects.create(
+        thread_id=tid,
+        user=user,
+        repo_id="g/r",
+        agent_model="chat-model",
+        agent_thinking_level=ThinkingLevelChoices.HIGH,
+    )
+    run_backfill(global_apps)
+    session = Session.objects.get(pk=tid)
+    assert session.agent_model == "chat-model"  # chat metadata wins on merge
+    assert session.agent_thinking_level == ThinkingLevelChoices.HIGH
 
 
 def test_backfill_is_idempotent():

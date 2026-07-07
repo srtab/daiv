@@ -136,5 +136,11 @@ def run_backfill(apps, schema_editor=None) -> None:
             if thread.last_active_at > session.last_active_at:
                 session.last_active_at = thread.last_active_at
                 update_fields.append("last_active_at")
+            if thread.agent_model and thread.agent_model != session.agent_model:
+                session.agent_model = thread.agent_model
+                update_fields.append("agent_model")
+            if thread.agent_thinking_level and thread.agent_thinking_level != session.agent_thinking_level:
+                session.agent_thinking_level = thread.agent_thinking_level
+                update_fields.append("agent_thinking_level")
             if update_fields:
                 session.save(update_fields=update_fields)
