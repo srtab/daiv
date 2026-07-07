@@ -200,7 +200,6 @@ def mock_repo_authorization():
         patch("mcp_server.server.afilter_viewable", new=AsyncMock(side_effect=lambda user, repos: repos)),
         patch("codebase.views.filter_viewable", new=Mock(side_effect=lambda user, repos: repos)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),
-        patch("codebase.api.router.filter_viewable", new=Mock(side_effect=lambda user, repos: repos)),
         patch("memory.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.viewable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),
     ):
