@@ -607,15 +607,14 @@ async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
     topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
 ) -> dict:
-    """List repositories the calling user can read on the Git platform (admins see all).
+    """List repositories the calling user can view, served from the local RepositoryCatalog mirror.
 
-    Returns the intersection of the caller's authorized repositories and the bot-visible ones
-    (fetched up to an internal cap, not the entire universe), as
-    ``{"repositories": [...], "next_cursor": None}`` for a contract shared with the other listing
-    tools. This tool is backed by the remote Git platform and does NOT support cursor pagination —
-    ``next_cursor`` is always ``None``. When the listing may be incomplete — either the fetch hit
-    its cap or more accessible repositories remain than are shown — a ``warning`` is included;
-    narrow with ``search`` or ``topics`` rather than paging.
+    Members see only repositories for which they have at least read access; admins see the full
+    catalog. Results are returned as ``{"repositories": [...], "next_cursor": None}`` — this tool
+    does NOT support cursor pagination and ``next_cursor`` is always ``None``. To reach repositories
+    not shown, narrow the result set with ``search`` or ``topics``. A ``warning`` key is included
+    when strictly more accessible repositories exist than the cap allows to show — this is an exact
+    signal (one extra row is fetched; the warning fires only when that extra row is present).
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:

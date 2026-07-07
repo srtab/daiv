@@ -6,8 +6,6 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 from mcp_server.server import MAX_REPOSITORIES, get_job_status, list_repositories, submit_job
 
-from codebase.base import GitPlatform, Repository
-
 
 def _mock_task():
     m = MagicMock()
@@ -587,26 +585,6 @@ async def test_get_job_status_db_exception():
 # ---------------------------------------------------------------------------
 # Helpers for list_repositories / list_topics tests
 # ---------------------------------------------------------------------------
-
-
-def _make_repo(slug: str, name: str, topics: list[str] | None = None) -> Repository:
-    return Repository(
-        pk=1,
-        slug=slug,
-        name=name,
-        clone_url=f"https://example.com/{slug}.git",
-        html_url=f"https://example.com/{slug}",
-        default_branch="main",
-        git_platform=GitPlatform.GITLAB,
-        topics=topics or [],
-    )
-
-
-SAMPLE_REPOS = [
-    _make_repo("group/alpha", "alpha", ["python", "backend"]),
-    _make_repo("group/beta", "beta", ["python", "frontend"]),
-    _make_repo("group/gamma", "gamma", ["rust"]),
-]
 
 
 def _cat(slug: str, name: str, topics: list[str] | None = None):

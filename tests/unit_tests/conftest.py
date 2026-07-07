@@ -190,6 +190,11 @@ def mock_repo_authorization():
     The authorization layer has its own tests (tests/unit_tests/codebase/test_authorization.py);
     every other test gets an allow-all so pre-authorization behavior is preserved. Tests that
     exercise denial re-patch the same name inside their own ``with`` block (the inner patch wins).
+
+    Note: ``search_viewable_repositories`` / ``asearch_viewable_repositories`` are intentionally
+    NOT patched here — they are catalog-backed DB queries. Tests that hit the search API, repo
+    picker, or MCP ``list_repositories`` must seed ``RepositoryCatalog`` rows or patch the query
+    themselves; otherwise they will see ``[]`` against an empty test catalog.
     """
     with (
         patch("activity.services.aassert_can_run", new=AsyncMock(return_value=None)),
