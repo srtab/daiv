@@ -6,9 +6,9 @@ from django.test import Client
 from django.urls import reverse
 
 import pytest
-from activity.models import Activity, ActivityStatus, TriggerType
 from django_tasks_db.models import DBTaskResult, get_date_max
 from notifications.choices import NotifyOn
+from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob, ScheduleTemplate
@@ -229,15 +229,15 @@ class TestScheduleRunNowView:
         return m
 
     def test_enqueues_single_repo_and_redirects_to_activity_detail(self, member_client, member_user, schedule):
-        with mock.patch("activity.services.run_job_task") as m_task:
+        with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
         assert response.status_code == 302
-        activity = Activity.objects.get(scheduled_job=schedule)
-        assert activity.trigger_type == TriggerType.SCHEDULE
-        assert activity.batch_id is not None
-        assert response.url == reverse("activity_detail", args=[activity.pk])
+        run = Run.objects.get(session__scheduled_job=schedule)
+        assert run.trigger_type == SessionOrigin.SCHEDULE
+        assert run.batch_id is not None
+        assert response.url == reverse("activity_detail", args=[run.pk])
 
     def test_multi_repo_redirects_to_batch_filtered_activity_list(self, member_client, member_user, schedule):
         schedule.repos = [{"repo_id": "a/b", "ref": ""}, {"repo_id": "c/d", "ref": ""}]
@@ -246,58 +246,58 @@ class TestScheduleRunNowView:
         async def _aenq(**kwargs):
             return await self._amake_task_row()
 
-        with mock.patch("activity.services.run_job_task") as m_task:
+        with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue.side_effect = _aenq
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
         assert response.status_code == 302
         assert "batch=" in response.url
-        activities = list(Activity.objects.filter(scheduled_job=schedule))
-        assert len(activities) == 2
-        assert len({a.batch_id for a in activities}) == 1
+        runs = list(Run.objects.filter(session__scheduled_job=schedule))
+        assert len(runs) == 2
+        assert len({r.batch_id for r in runs}) == 1
 
     def test_works_on_disabled_schedule(self, member_client, schedule):
         schedule.is_enabled = False
         schedule.next_run_at = None
         schedule.save(update_fields=["is_enabled", "next_run_at"])
 
-        with mock.patch("activity.services.run_job_task") as m_task:
+        with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
         assert response.status_code == 302
-        activity = Activity.objects.get(scheduled_job=schedule)
-        assert response.url == reverse("activity_detail", args=[activity.pk])
+        run = Run.objects.get(session__scheduled_job=schedule)
+        assert response.url == reverse("activity_detail", args=[run.pk])
 
     def test_enqueue_failure_returns_error_message(self, member_client, schedule):
-        with mock.patch("activity.services.run_job_task") as m_task:
+        with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(side_effect=RuntimeError("backend down"))
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]), follow=True)
 
-        # All repos failed → the schedule_list view shows a warning. The Activity row
+        # All repos failed → the schedule_list view shows a warning. The Run row
         # exists (created before the enqueue attempt) and is marked FAILED so the
         # audit trail remains visible.
         assert response.status_code == 200
-        activities = list(Activity.objects.filter(scheduled_job=schedule))
-        assert activities and all(a.status == ActivityStatus.FAILED for a in activities)
+        runs = list(Run.objects.filter(session__scheduled_job=schedule))
+        assert runs and all(r.status == RunStatus.FAILED for r in runs)
         content = response.content.decode()
         assert "triggered with failures" in content or "Failed to trigger" in content
 
-    def test_run_now_persists_explicit_env_on_activity(self, member_client, member_user, schedule):
-        """Schedule with an explicit env → run-now stamps that env on the generated Activity."""
+    def test_run_now_persists_explicit_env_on_run(self, member_client, member_user, schedule):
+        """Schedule with an explicit env → run-now stamps that env on the generated Run."""
         from sandbox_envs.models import SandboxEnvironment, Scope
 
         env = SandboxEnvironment.objects.create(scope=Scope.USER, user=member_user, name="prod", base_image="x")
         schedule.sandbox_environment = env
         schedule.save(update_fields=["sandbox_environment"])
 
-        with mock.patch("activity.services.run_job_task") as m_task:
+        with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = member_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
         assert response.status_code == 302
-        activity = Activity.objects.get(scheduled_job=schedule)
-        assert activity.sandbox_environment_id == env.id
+        run = Run.objects.get(session__scheduled_job=schedule)
+        assert run.sandbox_environment_id == env.id
 
     def test_run_now_auto_resolves_against_schedule_owner_not_request_user(
         self, member_client, member_user, schedule, admin_user
@@ -318,13 +318,13 @@ class TestScheduleRunNowView:
 
         admin_client = Client()
         admin_client.force_login(admin_user)
-        with mock.patch("activity.services.run_job_task") as m_task:
+        with mock.patch("sessions.services.run_job_task") as m_task:
             m_task.aenqueue = mock.AsyncMock(return_value=self._make_task_row())
             response = admin_client.post(reverse("schedule_run_now", args=[schedule.pk]))
 
         assert response.status_code == 302
-        activity = Activity.objects.get(scheduled_job=schedule)
-        assert activity.sandbox_environment_id == owner_env.id
+        run = Run.objects.get(session__scheduled_job=schedule)
+        assert run.sandbox_environment_id == owner_env.id
 
 
 @pytest.mark.django_db

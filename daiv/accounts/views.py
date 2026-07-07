@@ -12,8 +12,8 @@ from django.utils.timezone import localdate
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
-from activity.models import Activity, ActivityStatus, TriggerType
 from django_filters.views import FilterView
+from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
@@ -134,16 +134,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return context
 
     def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
-        owned = Activity.objects.by_owner(user)
+        owned = Run.objects.by_owner(user)
         activities = owned.filter(created_at__date__gte=cutoff_date) if cutoff_date is not None else owned
 
-        successful = Q(status=ActivityStatus.SUCCESSFUL)
-        failed = Q(status=ActivityStatus.FAILED)
-        issue_trigger = Q(trigger_type=TriggerType.ISSUE_WEBHOOK)
-        mr_trigger = Q(trigger_type=TriggerType.MR_WEBHOOK)
-        mcp_trigger = Q(trigger_type=TriggerType.MCP_JOB)
-        schedule_trigger = Q(trigger_type=TriggerType.SCHEDULE)
-        api_trigger = Q(trigger_type=TriggerType.API_JOB)
+        successful = Q(status=RunStatus.SUCCESSFUL)
+        failed = Q(status=RunStatus.FAILED)
+        issue_trigger = Q(trigger_type=SessionOrigin.ISSUE_WEBHOOK)
+        mr_trigger = Q(trigger_type=SessionOrigin.MR_WEBHOOK)
+        mcp_trigger = Q(trigger_type=SessionOrigin.MCP_JOB)
+        schedule_trigger = Q(trigger_type=SessionOrigin.SCHEDULE)
+        api_trigger = Q(trigger_type=SessionOrigin.API_JOB)
         duration_expr = ExpressionWrapper(F("finished_at") - F("started_at"), output_field=DurationField())
 
         stats = activities.aggregate(
@@ -181,13 +181,13 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             0, total - issues_count - mrs_count - mcp_jobs_count - scheduled_count - api_jobs_count - failed_count
         )
         raw_segments = [
-            ("Issues", issues_count, "bg-amber-500/50", f"{activity_url}?trigger={TriggerType.ISSUE_WEBHOOK}"),
-            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{activity_url}?trigger={TriggerType.MR_WEBHOOK}"),
-            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{activity_url}?trigger={TriggerType.MCP_JOB}"),
-            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{activity_url}?trigger={TriggerType.SCHEDULE}"),
-            ("API", api_jobs_count, "bg-emerald-500/50", f"{activity_url}?trigger={TriggerType.API_JOB}"),
+            ("Issues", issues_count, "bg-amber-500/50", f"{activity_url}?trigger={SessionOrigin.ISSUE_WEBHOOK}"),
+            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{activity_url}?trigger={SessionOrigin.MR_WEBHOOK}"),
+            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{activity_url}?trigger={SessionOrigin.MCP_JOB}"),
+            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{activity_url}?trigger={SessionOrigin.SCHEDULE}"),
+            ("API", api_jobs_count, "bg-emerald-500/50", f"{activity_url}?trigger={SessionOrigin.API_JOB}"),
             ("Other", other_count, "bg-gray-500/30", None),
-            ("Failed", failed_count, "bg-red-500/40", f"{activity_url}?status={ActivityStatus.FAILED}"),
+            ("Failed", failed_count, "bg-red-500/40", f"{activity_url}?status={RunStatus.FAILED}"),
         ]
         segments = []
         for label, value, css, url in raw_segments:

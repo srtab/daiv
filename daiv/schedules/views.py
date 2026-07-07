@@ -14,9 +14,9 @@ from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from activity.models import TriggerType
-from activity.services import RepoTarget, submit_batch_runs
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
+from sessions.models import SessionOrigin
+from sessions.services import RepoTarget, submit_batch_runs
 
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.templatetags.avatar_tags import user_color_index, user_initials
@@ -236,7 +236,7 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 agent_model=schedule.agent_model,
                 agent_thinking_level=schedule.agent_thinking_level,
                 notify_on=None,
-                trigger_type=TriggerType.SCHEDULE,
+                trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )
         except Exception:
@@ -250,9 +250,9 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
         else:
             messages.success(request, f"Schedule '{schedule.name}' triggered successfully.")
 
-        if len(result.activities) == 1 and not result.failed:
-            return redirect("activity_detail", pk=result.activities[0].pk)
-        if result.activities:
+        if len(result.runs) == 1 and not result.failed:
+            return redirect("activity_detail", pk=result.runs[0].pk)
+        if result.runs:
             return redirect(reverse("activity_list") + f"?batch={result.batch_id}")
         return redirect("schedule_list")
 

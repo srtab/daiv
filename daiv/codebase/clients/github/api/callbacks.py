@@ -2,11 +2,11 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
-from activity.models import TriggerType
-from activity.services import acreate_activity
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 from sandbox_envs.services import resolve_env_for_run
+from sessions.models import SessionOrigin
+from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
@@ -113,12 +113,16 @@ class IssueCallback(GitHubCallback):
         )
         daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
-            await acreate_activity(
-                trigger_type=TriggerType.ISSUE_WEBHOOK,
+            from core.site_settings import site_settings
+
+            has_max = self.issue.has_max_label()
+            await acreate_run(
+                trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                 task_result_id=result.id,
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
-                use_max=self.issue.has_max_label(),
+                agent_model=site_settings.agent_max_model_name if has_max else "",
+                agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
                 user=daiv_user,
                 external_username=self.sender.username,
                 title=self.issue.title,
@@ -191,13 +195,17 @@ class IssueCommentCallback(GitHubCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
             try:
-                await acreate_activity(
-                    trigger_type=TriggerType.ISSUE_WEBHOOK,
+                from core.site_settings import site_settings
+
+                has_max = self.issue.has_max_label()
+                await acreate_run(
+                    trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.repository.full_name,
                     issue_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
-                    use_max=self.issue.has_max_label(),
+                    agent_model=site_settings.agent_max_model_name if has_max else "",
+                    agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
                     user=daiv_user,
                     external_username=self.comment.user.username,
                     title=self.issue.title,
@@ -239,14 +247,18 @@ class IssueCommentCallback(GitHubCallback):
                     "Failed to resolve source branch for PR comment %s#%s", self.repository.full_name, self.issue.number
                 )
             try:
-                await acreate_activity(
-                    trigger_type=TriggerType.MR_WEBHOOK,
+                from core.site_settings import site_settings
+
+                has_max = self.issue.has_max_label()
+                await acreate_run(
+                    trigger_type=SessionOrigin.MR_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.repository.full_name,
                     ref=source_branch,
                     merge_request_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
-                    use_max=self.issue.has_max_label(),
+                    agent_model=site_settings.agent_max_model_name if has_max else "",
+                    agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
                     user=daiv_user,
                     external_username=self.comment.user.username,
                     title=self.issue.title,

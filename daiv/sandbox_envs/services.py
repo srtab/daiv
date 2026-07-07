@@ -13,7 +13,7 @@ from asgiref.sync import async_to_sync
 from sandbox_envs.models import SandboxEnvironment, Scope, _fmt_cpus, _fmt_memory
 
 if TYPE_CHECKING:
-    from activity.services import RepoTarget
+    from sessions.services import RepoTarget
 
     from codebase.base import Repository
     from codebase.clients import RepoClient
@@ -192,7 +192,7 @@ def env_picker_context(form) -> dict:
 
 
 async def aresolve_repo_envs(*, user, repos: list[RepoTarget], explicit_env_id: str | None) -> list[RepoTarget]:
-    """Stamp ``sandbox_environment_id`` on each :class:`activity.services.RepoTarget`.
+    """Stamp ``sandbox_environment_id`` on each :class:`sessions.services.RepoTarget`.
 
     When ``explicit_env_id`` is set every target gets that id; otherwise each repo is
     matched against a per-call snapshot of USER envs (owned by ``user``), GLOBAL non-default
