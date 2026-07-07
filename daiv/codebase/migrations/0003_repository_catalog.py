@@ -27,7 +27,6 @@ class Migration(migrations.Migration):
             options={
                 "verbose_name": "Repository Catalog",
                 "verbose_name_plural": "Repository Catalog",
-                "indexes": [models.Index(fields=["provider", "slug"], name="codebase_re_provide_55b7c2_idx")],
                 "constraints": [models.UniqueConstraint(fields=("provider", "slug"), name="repo_catalog_unique")],
             },
         )

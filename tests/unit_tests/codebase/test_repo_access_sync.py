@@ -268,3 +268,54 @@ class TestSyncRepositoryCatalog:
         sync_repository_access_cron_task.func()
 
         assert RepositoryCatalog.objects.filter(slug="a/b").exists()
+
+    def test_upsert_round_trips_topics_and_default_branch_fallback(self, mock_repo_client):
+        repo = _repo("a/b")
+        repo.topics = ["python", "api"]
+        repo.default_branch = None  # a repo with no default branch (e.g. empty repo) → coerced to ""
+        mock_repo_client.list_repositories.return_value = [repo]
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="1", username="alice", access_level=RepoAccessLevel.READ)
+        ]
+
+        sync_repository_access_cron_task.func()
+
+        cat = RepositoryCatalog.objects.get(slug="a/b")
+        assert cat.topics == ["python", "api"]
+        assert cat.default_branch == ""
+
+    def test_catalog_upsert_failure_does_not_block_access_sync(self, mock_repo_client):
+        # The catalog is not security-load-bearing: a failed catalog write must still let the
+        # access sync run and must mark the run degraded (not leave it unrecorded/clean).
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="1", username="alice", access_level=RepoAccessLevel.READ)
+        ]
+
+        with patch(
+            "codebase.models.RepositoryCatalog.objects.bulk_create", side_effect=RuntimeError("catalog write failed")
+        ):
+            sync_repository_access_cron_task.func()
+
+        assert RepositoryAccess.objects.filter(repo_id="a/b", uid="1").exists()
+        assert not RepositoryCatalog.objects.filter(slug="a/b").exists()
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.FAILED
+        assert state.last_success_at is None
+
+    def test_catalog_prune_failure_does_not_block_access_prune(self, mock_repo_client):
+        _row("old/gone", "1")  # a vanished repo's access row → the access prune should still remove it
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="1", username="alice", access_level=RepoAccessLevel.READ)
+        ]
+
+        with patch(
+            "codebase.models.RepositoryCatalog.objects.filter", side_effect=RuntimeError("catalog prune failed")
+        ):
+            sync_repository_access_cron_task.func()
+
+        assert RepositoryAccess.objects.filter(repo_id="a/b", uid="1").exists()
+        assert not RepositoryAccess.objects.filter(repo_id="old/gone").exists()
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.FAILED

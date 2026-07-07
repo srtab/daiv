@@ -187,8 +187,11 @@ class RepositoryCatalog(models.Model):
     class Meta:
         verbose_name = _("Repository Catalog")
         verbose_name_plural = _("Repository Catalog")
+        # The unique constraint's backing index already serves the ``provider`` + ``slug`` lookups
+        # (equality and the ``provider``-prefixed ``slug__in``/``icontains`` scans), so no separate
+        # index is declared — unlike ``RepositoryAccess``, whose indexes cover different prefixes
+        # than its unique key.
         constraints = [models.UniqueConstraint(fields=["provider", "slug"], name="repo_catalog_unique")]
-        indexes = [models.Index(fields=["provider", "slug"])]
 
     def __str__(self) -> str:
         return f"{self.provider}:{self.slug}"

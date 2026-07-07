@@ -167,8 +167,9 @@ def search_viewable_repositories(
     Members are restricted to repos with a fresh ``RepositoryAccess`` row for their platform uid;
     admins see the whole fresh catalog. Results are ordered by ``slug`` and capped at ``limit``.
     ``topics`` is AND-matched in Python because the SQLite test backend does not support the
-    ``JSONField __contains`` lookup used on Postgres; the candidate set (a caller's accessible
-    repos matching ``search``) is small, so this is cheap and backend-agnostic.
+    ``JSONField __contains`` lookup used on Postgres. The match streams slug-ordered rows and stops
+    once ``limit`` are found, so it never materializes more of the catalog than the window needs —
+    important for an admin, whose unfiltered candidate set is the entire fresh catalog.
     """
     _maybe_enqueue_backstop()
     rows = RepositoryCatalog.objects.fresh().filter(provider=_provider())
@@ -182,7 +183,13 @@ def search_viewable_repositories(
     rows = rows.order_by("slug")
     if topics:
         wanted = set(topics)
-        return [row for row in rows if wanted.issubset(set(row.topics))][:limit]
+        matched: list[RepositoryCatalog] = []
+        for row in rows.iterator():
+            if wanted.issubset(set(row.topics)):
+                matched.append(row)
+                if len(matched) >= limit:
+                    break
+        return matched
     return list(rows[:limit])
 
 

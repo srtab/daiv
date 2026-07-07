@@ -40,7 +40,13 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
 @locked_task(key="repo-access")
 def sync_repository_access_cron_task():
     """
-    Mirror per-user repository access levels from the git platform into ``RepositoryAccess``.
+    Mirror per-user repository access levels and the repository catalog from the git platform
+    into ``RepositoryAccess`` and ``RepositoryCatalog``.
+
+    The catalog (repo metadata + the admin-visible universe) is upserted from the same universe
+    listing and pruned under the same non-empty guard as the access rows, so repository listings
+    never surface a repo the bot has lost. The catalog is not security-load-bearing, so its writes
+    are isolated: a catalog failure marks the run degraded but never aborts the access sync.
 
     Repo-centric: one member-list call per bot-visible repository covers all users at once.
     A per-repo failure keeps that repo's previous rows (serve-stale) and leaves their
@@ -81,29 +87,36 @@ def sync_repository_access_cron_task():
         RepositoryAccess.objects.filter(provider=provider).values_list("repo_id", flat=True).distinct()
     )
 
-    # Mirror the repository catalog (metadata + admin-visible universe) from the same universe
-    # listing. Repo listings are served from this table instead of live platform fetches. An
-    # empty universe yields an empty bulk_create (no-op); the prune below is guarded on it.
-    catalog_synced_at = timezone.now()
-    RepositoryCatalog.objects.bulk_create(
-        [
-            RepositoryCatalog(
-                provider=provider,
-                slug=repo.slug,
-                name=repo.name,
-                default_branch=repo.default_branch or "",
-                html_url=repo.html_url,
-                topics=repo.topics,
-                synced_at=catalog_synced_at,
-            )
-            for repo in universe
-        ],
-        update_conflicts=True,
-        unique_fields=["provider", "slug"],
-        update_fields=["name", "default_branch", "html_url", "topics", "synced_at"],
-    )
-
     failures = 0
+
+    # Mirror the repository catalog (metadata + admin-visible universe) from the same universe
+    # listing, so repo listings are served from this table instead of live platform fetches. The
+    # catalog is not security-load-bearing, so a failure here is isolated: it marks the run
+    # degraded but must not abort the access sync below. An empty universe yields an empty
+    # bulk_create (no-op); the prune below is guarded on it.
+    catalog_synced_at = timezone.now()
+    try:
+        RepositoryCatalog.objects.bulk_create(
+            [
+                RepositoryCatalog(
+                    provider=provider,
+                    slug=repo.slug,
+                    name=repo.name,
+                    default_branch=repo.default_branch or "",
+                    html_url=repo.html_url,
+                    topics=repo.topics,
+                    synced_at=catalog_synced_at,
+                )
+                for repo in universe
+            ],
+            update_conflicts=True,
+            unique_fields=["provider", "slug"],
+            update_fields=["name", "default_branch", "html_url", "topics", "synced_at"],
+        )
+    except Exception:
+        failures += 1
+        logger.exception("Repository access sync: failed to upsert repository catalog (%d repos)", len(universe))
+
     for repo in universe:
         try:
             members = client.list_repository_members(repo.slug)
@@ -156,7 +169,14 @@ def sync_repository_access_cron_task():
     if universe:
         universe_slugs = [r.slug for r in universe]
         RepositoryAccess.objects.filter(provider=provider).exclude(repo_id__in=universe_slugs).delete()
-        RepositoryCatalog.objects.filter(provider=provider).exclude(slug__in=universe_slugs).delete()
+        # Isolated like the catalog upsert above: a prune failure must not pre-empt the sync-state
+        # write below, which would leave an otherwise-clean access sync recorded as neither OK nor
+        # FAILED. Freshness bounds any rows this fails to prune until the next clean cycle.
+        try:
+            RepositoryCatalog.objects.filter(provider=provider).exclude(slug__in=universe_slugs).delete()
+        except Exception:
+            failures += 1
+            logger.exception("Repository access sync: failed to prune repository catalog")
     elif repos_with_rows:
         # Empty listing while rows exist is a degraded response, not a real "no repos" state:
         # skip the destructive prune and mark the run failed so it does not read as clean.

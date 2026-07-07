@@ -256,3 +256,14 @@ class TestSearchViewableRepositories:
             _catalog(f"a/r{i}")
 
         assert len(search_viewable_repositories(admin_user, limit=3)) == 3
+
+    def test_topics_filter_respects_limit_in_slug_order(self, admin_user, fresh_sync):
+        # More topic matches than the limit: the cap applies *after* the Python topic filter, and
+        # the slug-first matches win (guards against re-ordering the slice before the filter).
+        for i in range(5):
+            _catalog(f"a/r{i}", topics=["python"])
+        _catalog("a/other", topics=["rust"])  # non-match must not consume a slot
+
+        result = search_viewable_repositories(admin_user, topics=["python"], limit=3)
+
+        assert [r.slug for r in result] == ["a/r0", "a/r1", "a/r2"]

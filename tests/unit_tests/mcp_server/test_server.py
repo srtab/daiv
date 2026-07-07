@@ -653,6 +653,18 @@ async def test_list_repositories_truncated_with_warning():
     assert data["next_cursor"] is None
 
 
+async def test_list_repositories_at_limit_no_warning():
+    """Exactly MAX_REPOSITORIES accessible → full window, no overflow warning (negative boundary)."""
+    rows = [_cat(f"group/repo-{i}", f"repo-{i}") for i in range(MAX_REPOSITORIES)]
+
+    with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)):
+        data = await list_repositories()
+
+    assert len(data["repositories"]) == MAX_REPOSITORIES
+    assert "warning" not in data
+    assert data["next_cursor"] is None
+
+
 async def test_list_repositories_error_handling():
     with patch("mcp_server.server.asearch_viewable_repositories", new=AsyncMock(side_effect=RuntimeError("DB down"))):
         data = await list_repositories()
