@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from mcp_server.server import get_job_status, list_repositories, submit_job
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from codebase.base import GitPlatform, Repository
 
@@ -15,33 +16,31 @@ def _mock_task():
     return m
 
 
-class _FakeActivity:
+class _FakeRun:
     _next_pk = 0
 
     def __init__(self, task_result_id):
         self.id = uuid.uuid4()
         self.task_result_id = task_result_id
-        self.thread_id = str(uuid.uuid4())
+        self.session_id = str(uuid.uuid4())
         self.status = "READY"
         type(self)._next_pk += 1
         self.pk = type(self)._next_pk
         # Tests bypass the real ORM via ``_patch_acreate``; provide an async no-op
-        # so the post-acreate ``activity.asave(update_fields=...)`` call in
+        # so the post-acreate ``run.asave(update_fields=...)`` call in
         # ``asubmit_batch_runs`` doesn't AttributeError on this stub.
         self.asave = AsyncMock(return_value=None)
 
 
-async def _fake_acreate_activity(**kwargs):
-    return _FakeActivity(task_result_id=kwargs["task_result_id"])
+async def _fake_acreate_run(**kwargs):
+    return _FakeRun(task_result_id=kwargs["task_result_id"])
 
 
 def _patch_acreate():
-    # Patch acreate_activity and silence the post-create title task enqueue so
+    # Patch acreate_run and silence the post-create title task enqueue so
     # tests don't depend on the queue backend.
-    acreate_patch = patch(
-        "activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_fake_acreate_activity
-    )
-    title_patch = patch("activity.services.generate_batch_title_task")
+    acreate_patch = patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_fake_acreate_run)
+    title_patch = patch("sessions.services.generate_batch_title_task")
 
     class _Combined:
         def __enter__(self):
@@ -75,7 +74,7 @@ def _default_mcp_user(db):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_single_repo_returns_batch_response():
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
@@ -96,7 +95,7 @@ async def test_submit_job_multi_repo_enqueues_each():
         call_log.append(kwargs)
         return tasks[len(call_log) - 1]
 
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = _aenqueue
         result = await submit_job(
             repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": "dev"}, {"repo_id": "o/c", "ref": ""}],
@@ -117,7 +116,7 @@ async def test_submit_job_reports_partial_failure():
             raise RuntimeError("boom")
         return _mock_task()
 
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = _flaky
         result = await submit_job(repos=[{"repo_id": "o/a", "ref": None}, {"repo_id": "o/b", "ref": None}], prompt="p")
 
@@ -129,7 +128,7 @@ async def test_submit_job_reports_partial_failure():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_passes_ref():
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate():
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate():
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": "feature-branch"}], prompt="Fix the bug")
         mock_task.aenqueue.assert_called_once()
@@ -195,7 +194,7 @@ async def test_submit_job_rejects_invalid_thinking_level(openrouter_provider):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_agent_override(openrouter_provider):
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(
             repos=[{"repo_id": "group/project", "ref": None}],
@@ -213,10 +212,10 @@ async def test_submit_job_forwards_agent_override(openrouter_provider):
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_notify_on_to_activity():
-    """MCP submit tool threads ``notify_on`` into ``acreate_activity``."""
+    """MCP submit tool threads ``notify_on`` into ``acreate_run``."""
     from notifications.choices import NotifyOn
 
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p", notify_on=NotifyOn.ALWAYS)
 
@@ -225,8 +224,8 @@ async def test_submit_job_forwards_notify_on_to_activity():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_notify_on_defaults_to_none():
-    """Omitting ``notify_on`` forwards ``None`` to the activity."""
-    with patch("activity.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
+    """Omitting ``notify_on`` forwards ``None`` to the run."""
+    with patch("sessions.services.run_job_task") as mock_task, _patch_acreate() as mock_create:
         mock_task.aenqueue = AsyncMock(return_value=_mock_task())
         await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="p")
 
@@ -236,7 +235,7 @@ async def test_submit_job_notify_on_defaults_to_none():
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_all_fail():
     """When every enqueue fails, no jobs in response, all entries in failed."""
-    with patch("activity.services.run_job_task") as mock_task:
+    with patch("sessions.services.run_job_task") as mock_task:
         mock_task.aenqueue = AsyncMock(side_effect=Exception("DB down"))
         result = await submit_job(repos=[{"repo_id": "group/project", "ref": None}], prompt="Fix the bug")
 
@@ -268,12 +267,12 @@ async def test_submit_job_wait_success():
     mock_result.id = str(uuid.uuid4())
 
     now = datetime.now(UTC)
-    created_activities: list[_FakeActivity] = []
+    created_runs: list[_FakeRun] = []
 
     async def _capture_acreate(**kwargs):
-        act = _FakeActivity(task_result_id=kwargs["task_result_id"])
-        created_activities.append(act)
-        return act
+        run = _FakeRun(task_result_id=kwargs["task_result_id"])
+        created_runs.append(run)
+        return run
 
     class _AsyncRows:
         def __init__(self, rows):
@@ -286,30 +285,28 @@ async def test_submit_job_wait_success():
             for r in self._rows:
                 yield r
 
-    from activity.models import ActivityStatus
-
     with (
-        patch("activity.services.run_job_task") as mock_task,
-        patch("activity.services.acreate_activity", new_callable=AsyncMock, side_effect=_capture_acreate),
-        patch("activity.services.generate_batch_title_task") as mock_title,
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("sessions.services.run_job_task") as mock_task,
+        patch("sessions.services.acreate_run", new_callable=AsyncMock, side_effect=_capture_acreate),
+        patch("sessions.services.generate_batch_title_task") as mock_title,
+        patch("mcp_server.server.Run") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
     ):
         mock_task.aenqueue = AsyncMock(return_value=mock_result)
         mock_task.module_path = "jobs.tasks.run_job_task"
         mock_title.aenqueue = AsyncMock(return_value=None)
 
-        # We need to capture the activity ID after submit to build the finished mock.
-        # Use a filter side effect that builds the row from the captured activity.
+        # We need to capture the run ID after submit to build the finished mock.
+        # Use a filter side effect that builds the row from the captured run.
         def _make_filter(**kwargs):
-            if not created_activities:
+            if not created_runs:
                 return _AsyncRows([])
             finished = MagicMock()
-            finished.id = created_activities[0].id
-            finished.status = ActivityStatus.SUCCESSFUL
+            finished.id = created_runs[0].id
+            finished.status = RunStatus.SUCCESSFUL
             finished.result_summary = "All done"
             finished.merge_request_web_url = ""
-            finished.thread_id = None
+            finished.session_id = None
             finished.created_at = now
             finished.started_at = now
             finished.finished_at = now
@@ -330,7 +327,7 @@ async def test_submit_job_wait_success():
 async def test_submit_job_wait_running_when_never_terminal():
     """When the batch poll times out without terminal results, statuses surface as RUNNING.
 
-    RUNNING is the closest valid Activity status; PENDING is not in the documented enum.
+    RUNNING is the closest valid Run status; PENDING is not in the documented enum.
     """
     mock_result = MagicMock()
     mock_result.id = str(uuid.uuid4())
@@ -344,8 +341,8 @@ async def test_submit_job_wait_running_when_never_terminal():
                 yield None  # never yields
 
     with (
-        patch("activity.services.run_job_task") as mock_task,
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("sessions.services.run_job_task") as mock_task,
+        patch("mcp_server.server.Run") as mock_model,
         _patch_acreate(),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
@@ -363,7 +360,7 @@ async def test_submit_job_wait_running_when_never_terminal():
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_user):
-    """The batch poll must scope its Activity lookup by ``user=mcp_user`` to prevent
+    """The batch poll must scope its Run lookup by ``user=mcp_user`` to prevent
     cross-user reads. Asserts the call construction (not just behavior) so a refactor
     that drops the kwarg fails immediately."""
     from mcp_server.server import _poll_batch_until_complete
@@ -384,7 +381,7 @@ async def test_submit_job_batch_poll_filters_by_authenticated_user(_default_mcp_
 
     job_id = str(uuid.uuid4())
     with (
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.Run") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 2.0),
         patch("mcp_server.server.POLL_INTERVAL", 2.0),
@@ -409,7 +406,7 @@ async def test_get_job_status_not_found():
 
     with (
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.Run") as mock_model,
     ):
         mock_model.DoesNotExist = _DoesNotExistError
         mock_model.objects.aget = AsyncMock(side_effect=_DoesNotExistError)
@@ -429,26 +426,24 @@ async def test_get_job_status_invalid_uuid():
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_wait_already_complete():
     """When wait=True but the job is already complete, return immediately."""
-    from activity.models import ActivityStatus
-
     job_id = str(uuid.uuid4())
     now = datetime.now(UTC)
-    mock_activity = MagicMock()
-    mock_activity.id = uuid.UUID(job_id)
-    mock_activity.status = ActivityStatus.SUCCESSFUL
-    mock_activity.result_summary = "Done"
-    mock_activity.merge_request_web_url = ""
-    mock_activity.thread_id = None
-    mock_activity.created_at = now
-    mock_activity.started_at = now
-    mock_activity.finished_at = now
+    mock_run = MagicMock()
+    mock_run.id = uuid.UUID(job_id)
+    mock_run.status = RunStatus.SUCCESSFUL
+    mock_run.result_summary = "Done"
+    mock_run.merge_request_web_url = ""
+    mock_run.session_id = None
+    mock_run.created_at = now
+    mock_run.started_at = now
+    mock_run.finished_at = now
 
     caller = MagicMock(pk=1)
     with (
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.Run") as mock_model,
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
-        mock_model.objects.aget = AsyncMock(return_value=mock_activity)
+        mock_model.objects.aget = AsyncMock(return_value=mock_run)
         mock_model.DoesNotExist = Exception
 
         result = await get_job_status(job_id=job_id, wait=True)
@@ -463,28 +458,26 @@ async def test_get_job_status_wait_already_complete():
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_wait_polls_until_complete():
     """When wait=True and the job is still running, poll until complete."""
-    from activity.models import ActivityStatus
-
     job_id = str(uuid.uuid4())
     now = datetime.now(UTC)
 
     running_result = MagicMock()
     running_result.id = uuid.UUID(job_id)
-    running_result.status = ActivityStatus.RUNNING
+    running_result.status = RunStatus.RUNNING
 
     finished_result = MagicMock()
     finished_result.id = uuid.UUID(job_id)
-    finished_result.status = ActivityStatus.SUCCESSFUL
+    finished_result.status = RunStatus.SUCCESSFUL
     finished_result.result_summary = "Done"
     finished_result.merge_request_web_url = ""
-    finished_result.thread_id = None
+    finished_result.session_id = None
     finished_result.created_at = now
     finished_result.started_at = now
     finished_result.finished_at = now
 
     caller = MagicMock(pk=1)
     with (
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.Run") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
@@ -503,17 +496,15 @@ async def test_get_job_status_wait_polls_until_complete():
 @pytest.mark.django_db(transaction=True)
 async def test_get_job_status_wait_not_found_then_appears():
     """When wait=True and the job doesn't exist yet, poll until it appears."""
-    from activity.models import ActivityStatus
-
     job_id = str(uuid.uuid4())
     now = datetime.now(UTC)
 
     finished_result = MagicMock()
     finished_result.id = uuid.UUID(job_id)
-    finished_result.status = ActivityStatus.SUCCESSFUL
+    finished_result.status = RunStatus.SUCCESSFUL
     finished_result.result_summary = "Done"
     finished_result.merge_request_web_url = ""
-    finished_result.thread_id = None
+    finished_result.session_id = None
     finished_result.created_at = now
     finished_result.started_at = now
     finished_result.finished_at = now
@@ -523,7 +514,7 @@ async def test_get_job_status_wait_not_found_then_appears():
 
     caller = MagicMock(pk=1)
     with (
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.Run") as mock_model,
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
@@ -544,8 +535,8 @@ async def test_submit_job_batch_poll_db_exception_breaks_loop():
     mock_result.id = str(uuid.uuid4())
 
     with (
-        patch("activity.services.run_job_task") as mock_task,
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("sessions.services.run_job_task") as mock_task,
+        patch("mcp_server.server.Run") as mock_model,
         _patch_acreate(),
         patch("mcp_server.server.asyncio.sleep", new_callable=AsyncMock),
         patch("mcp_server.server.MAX_POLL_DURATION", 4.0),
@@ -571,7 +562,7 @@ async def test_get_job_status_db_exception():
 
     caller = MagicMock(pk=1)
     with (
-        patch("mcp_server.server.Activity") as mock_model,
+        patch("mcp_server.server.Run") as mock_model,
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)),
     ):
         mock_model.DoesNotExist = _DoesNotExistError
@@ -690,7 +681,7 @@ async def test_list_repositories_error_handling():
 class TestMCPThreadContinuation:
     async def test_response_includes_thread_id_and_status(self):
         with (
-            patch("activity.services.run_job_task") as mock_task,
+            patch("sessions.services.run_job_task") as mock_task,
             _patch_acreate(),
             patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=MagicMock(pk=1))),
             patch("mcp_server.server.aresolve_repo_envs", new=AsyncMock(side_effect=lambda **kw: kw["repos"])),
@@ -744,29 +735,30 @@ class TestMCPThreadContinuation:
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_job_status_other_user_activity_returns_not_found():
-    """An MCP caller cannot read another user's Activity by id."""
-    from activity.models import Activity, ActivityStatus, TriggerType
-
+async def test_get_job_status_other_user_run_returns_not_found():
+    """An MCP caller cannot read another user's Run by id."""
     from accounts.models import User
 
-    # One user owns the Activity
+    # One user owns the Run
     owner = await User.objects.acreate_user(
         username="owner_mcp",
         email="owner_mcp@example.com",
         password="x",  # noqa: S106
     )
-    activity = await Activity.objects.acreate(
-        trigger_type=TriggerType.MCP_JOB, repo_id="a/b", status=ActivityStatus.SUCCESSFUL, user=owner
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, user=owner, repo_id="a/b"
+    )
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.MCP_JOB, repo_id="a/b", status=RunStatus.SUCCESSFUL, user=owner
     )
 
-    # A different caller tries to read the same Activity id
+    # A different caller tries to read the same Run id
     caller = await User.objects.acreate_user(
         username="caller_mcp",
         email="caller_mcp@example.com",
         password="x",  # noqa: S106
     )
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=caller)):
-        result = await get_job_status(job_id=str(activity.id))
+        result = await get_job_status(job_id=str(run.id))
     data = json.loads(result)
     assert "Job not found" in data["error"]

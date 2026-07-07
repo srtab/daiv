@@ -13,14 +13,14 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from activity.models import Activity, ActivityStatus, TriggerType
-from activity.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_activities, asubmit_batch_runs
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from notifications.choices import NotifyOn  # noqa: TC002 - required at runtime for MCP tool schema
 from pydantic import BaseModel, Field
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs, asubmit_batch_runs
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.clients import RepoClient
@@ -75,7 +75,7 @@ continue polling with `get_job_status` if the result is not yet available.\
 
 _THREAD_NOT_FOUND = "thread_id not found"
 
-TERMINAL_STATUSES = {ActivityStatus.SUCCESSFUL, ActivityStatus.FAILED}
+TERMINAL_STATUSES = {RunStatus.SUCCESSFUL, RunStatus.FAILED}
 POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
 
@@ -156,7 +156,7 @@ async def submit_job(
             description=(
                 "Optional. Continue an existing thread by passing its UUID (from a prior"
                 " submit_job or get_job_status response). When set, ``repos`` must contain"
-                " exactly one entry whose latest Activity belongs to the calling user."
+                " exactly one entry whose session belongs to the calling user."
                 " If a prior run on this thread is still in flight, the new job is queued"
                 " and runs FIFO after it terminates."
             )
@@ -212,8 +212,8 @@ async def submit_job(
         except ValueError, TypeError:
             logger.info("submit_job: rejecting malformed thread_id", extra={"user_id": mcp_user.pk})
             return json.dumps({"error": _THREAD_NOT_FOUND})
-        latest = await Activity.objects.filter(thread_id=thread_id_str).order_by("-created_at").afirst()
-        if latest is None or latest.user_id != mcp_user.pk:
+        owned = await Session.objects.by_owner(mcp_user).filter(thread_id=thread_id_str).aexists()
+        if not owned:
             return json.dumps({"error": _THREAD_NOT_FOUND})
 
     explicit_env_id: str | None = None
@@ -234,28 +234,28 @@ async def submit_job(
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
         notify_on=notify_on,
-        trigger_type=TriggerType.MCP_JOB,
+        trigger_type=SessionOrigin.MCP_JOB,
         thread_id=thread_id_str,
     )
 
     # Preserve the client-sent ref value (None vs "") by walking the specs and pairing each
-    # non-failed one with the next activity in result.activities (same order as input).
+    # non-failed one with the next run in result.runs (same order as input).
     failed_keys = {(f.repo_id, f.ref) for f in result.failed}
-    activities_iter = iter(result.activities)
+    runs_iter = iter(result.runs)
     jobs: list[dict] = []
     job_ids: list[str] = []
     for spec in specs:
         if (spec.repo_id, spec.ref or "") in failed_keys:
             continue
-        activity = next(activities_iter)
+        run = next(runs_iter)
         jobs.append({
-            "job_id": str(activity.id),
+            "job_id": str(run.id),
             "repo_id": spec.repo_id,
             "ref": spec.ref,
-            "thread_id": str(activity.thread_id) if activity.thread_id else None,
-            "status": str(activity.status),
+            "thread_id": str(run.session_id) if run.session_id else None,
+            "status": str(run.status),
         })
-        job_ids.append(str(activity.id))
+        job_ids.append(str(run.id))
 
     failed_out = [{"repo_id": f.repo_id, "ref": f.ref, "error": f.error} for f in result.failed]
 
@@ -268,28 +268,28 @@ async def submit_job(
     return await _poll_batch_until_complete(str(result.batch_id), job_ids, response, mcp_user)
 
 
-def _build_job_response_dict(activity: Activity) -> dict:
-    """Build a dict response from an Activity (shared by single + batch paths)."""
-    error = "Job execution failed." if activity.status == ActivityStatus.FAILED else None
+def _build_job_response_dict(run: Run) -> dict:
+    """Build a dict response from a Run (shared by single + batch paths)."""
+    error = "Job execution failed." if run.status == RunStatus.FAILED else None
     return {
-        "job_id": str(activity.id),
-        "status": str(activity.status),
-        "thread_id": str(activity.thread_id) if activity.thread_id else None,
-        "result": activity.result_summary or None,
-        "merge_request_url": activity.merge_request_web_url or None,
+        "job_id": str(run.id),
+        "status": str(run.status),
+        "thread_id": str(run.session_id) if run.session_id else None,
+        "result": run.result_summary or None,
+        "merge_request_url": run.merge_request_web_url or None,
         "error": error,
-        "created_at": activity.created_at.isoformat() if activity.created_at else None,
-        "started_at": activity.started_at.isoformat() if activity.started_at else None,
-        "finished_at": activity.finished_at.isoformat() if activity.finished_at else None,
+        "created_at": run.created_at.isoformat() if run.created_at else None,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
     }
 
 
-def _build_job_response(activity: Activity) -> str:
-    """Build a JSON response string from an Activity."""
-    return json.dumps(_build_job_response_dict(activity))
+def _build_job_response(run: Run) -> str:
+    """Build a JSON response string from a Run."""
+    return json.dumps(_build_job_response_dict(run))
 
 
-def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[str, Activity]) -> str:
+def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[str, Run]) -> str:
     return json.dumps({
         "batch_id": batch_id,
         "jobs": enqueue_response["jobs"],
@@ -297,7 +297,7 @@ def _batch_response(batch_id: str, enqueue_response: dict, results_by_id: dict[s
         "statuses": [
             _build_job_response_dict(results_by_id[jid])
             if jid in results_by_id
-            else {"job_id": jid, "status": str(ActivityStatus.RUNNING)}
+            else {"job_id": jid, "status": str(RunStatus.RUNNING)}
             for jid in [j["job_id"] for j in enqueue_response["jobs"]]
         ],
     })
@@ -312,7 +312,7 @@ async def _poll_batch_until_complete(
     terminal ones), so on timeout the response reports each job's real status
     (QUEUED/READY/RUNNING) rather than a placeholder.
     """
-    results_by_id: dict[str, Activity] = {}
+    results_by_id: dict[str, Run] = {}
     if not job_ids:
         return _batch_response(batch_id, enqueue_response, results_by_id)
 
@@ -324,7 +324,7 @@ async def _poll_batch_until_complete(
         elapsed += POLL_INTERVAL
 
         try:
-            async for row in Activity.objects.filter(id__in=list(outstanding), user=mcp_user):
+            async for row in Run.objects.filter(id__in=list(outstanding), user=mcp_user):
                 results_by_id[str(row.id)] = row
                 if row.status in TERMINAL_STATUSES:
                     outstanding.discard(row.id)
@@ -339,15 +339,15 @@ async def _poll_job_until_complete(job_id: str, mcp_user: object) -> str:
     """Poll a job until it reaches a terminal status or the timeout is exceeded."""
     job_uuid = uuid_mod.UUID(job_id)
     elapsed = 0.0
-    last: Activity | None = None
+    last: Run | None = None
 
     while elapsed < MAX_POLL_DURATION:
         await asyncio.sleep(POLL_INTERVAL)
         elapsed += POLL_INTERVAL
 
         try:
-            last = await Activity.objects.aget(id=job_uuid, user=mcp_user)
-        except Activity.DoesNotExist:
+            last = await Run.objects.aget(id=job_uuid, user=mcp_user)
+        except Run.DoesNotExist:
             logger.debug("Job %s not yet available, retrying (%.0fs elapsed)", job_id, elapsed)
             continue
         except Exception:
@@ -395,13 +395,13 @@ async def get_job_status(
         return json.dumps({"error": "Authentication failed: unable to resolve the current user."})
 
     try:
-        activity_uuid = uuid_mod.UUID(job_id)
+        run_uuid = uuid_mod.UUID(job_id)
     except ValueError:
         return json.dumps({"error": "Invalid job_id format."})
 
     try:
-        activity = await Activity.objects.aget(id=activity_uuid, user=mcp_user)
-    except Activity.DoesNotExist:
+        run = await Run.objects.aget(id=run_uuid, user=mcp_user)
+    except Run.DoesNotExist:
         if wait:
             return await _poll_job_until_complete(job_id, mcp_user)
         return json.dumps({"error": "Job not found."})
@@ -409,10 +409,10 @@ async def get_job_status(
         logger.exception("Failed to retrieve job status for job_id=%s", job_id)
         return json.dumps({"error": "Failed to retrieve job status. Please try again later."})
 
-    if wait and activity.status not in TERMINAL_STATUSES:
+    if wait and run.status not in TERMINAL_STATUSES:
         return await _poll_job_until_complete(job_id, mcp_user)
 
-    return _build_job_response(activity)
+    return _build_job_response(run)
 
 
 async def _resolve_mcp_user() -> tuple[object | None, dict | None]:
@@ -479,7 +479,7 @@ def _encode_created_id_cursor(created: datetime, obj_id: object) -> str:
 def _decode_created_id_cursor(raw: str, id_type: type) -> tuple[datetime, Any]:
     """Decode a ``(created, id)`` cursor → ``(datetime, id)``; raises on malformed input.
 
-    ``id_type`` coerces the id string to the PK's Python type (``uuid.UUID`` for Activity,
+    ``id_type`` coerces the id string to the PK's Python type (``uuid.UUID`` for Run,
     ``int`` for ScheduledJob) *inside* this guarded decode. Coercing here — rather than
     deferring to the ORM's ``id__lt`` lookup — means a wrong-type or wrong-tool cursor (the
     two listings share this format) fails as a caught ``ValueError``/``TypeError`` reported
@@ -495,23 +495,23 @@ def _decode_created_id_cursor(raw: str, id_type: type) -> tuple[datetime, Any]:
     return parsed, id_type(payload["id"])
 
 
-def _serialize_job_summary(activity: Activity) -> dict:
+def _serialize_job_summary(run: Run) -> dict:
     """Lean per-row summary for list_jobs — excludes result_summary (use get_job_status for that)."""
     return {
-        "job_id": str(activity.id),
-        "repo_id": activity.repo_id,
-        "ref": activity.ref or None,
-        "status": str(activity.status),
-        "title": activity.title or None,
-        "trigger_type": str(activity.trigger_type),
-        "thread_id": str(activity.thread_id) if activity.thread_id else None,
-        "batch_id": str(activity.batch_id) if activity.batch_id else None,
-        "merge_request_url": activity.merge_request_web_url or None,
-        "code_changes": activity.code_changes,
-        "created_at": activity.created_at.isoformat() if activity.created_at else None,
-        "finished_at": activity.finished_at.isoformat() if activity.finished_at else None,
-        "cost_usd": str(activity.cost_usd) if activity.cost_usd is not None else None,
-        "total_tokens": activity.total_tokens,
+        "job_id": str(run.id),
+        "repo_id": run.repo_id,
+        "ref": run.ref or None,
+        "status": str(run.status),
+        "title": run.title or None,
+        "trigger_type": str(run.trigger_type),
+        "thread_id": str(run.session_id) if run.session_id else None,
+        "batch_id": str(run.batch_id) if run.batch_id else None,
+        "merge_request_url": run.merge_request_web_url or None,
+        "code_changes": run.code_changes,
+        "created_at": run.created_at.isoformat() if run.created_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "cost_usd": str(run.cost_usd) if run.cost_usd is not None else None,
+        "total_tokens": run.total_tokens,
     }
 
 
@@ -519,7 +519,7 @@ def _serialize_job_summary(activity: Activity) -> dict:
 async def list_jobs(
     repo_id: Annotated[str | None, Field(description="Filter to one repository (repo_id).")] = None,
     status: Annotated[
-        ActivityStatus | None, Field(description="Filter by status: QUEUED, READY, RUNNING, SUCCESSFUL, or FAILED.")
+        RunStatus | None, Field(description="Filter by status: QUEUED, READY, RUNNING, SUCCESSFUL, or FAILED.")
     ] = None,
     limit: LimitParam = DEFAULT_LIST_LIMIT,
     cursor: Annotated[
@@ -550,7 +550,7 @@ async def list_jobs(
         except _CURSOR_ERRORS:
             return {"error": "Invalid cursor."}
     try:
-        rows = await alist_user_activities(
+        rows = await alist_user_runs(
             mcp_user, repo_id=repo_id, status=str(status) if status else None, limit=capped + 1, before=before
         )
     except Exception:

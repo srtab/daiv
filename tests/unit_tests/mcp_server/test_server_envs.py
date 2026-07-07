@@ -111,10 +111,8 @@ async def test_submit_job_resolves_environment_name():
     env = await SandboxEnvironment.objects.acreate(scope=Scope.USER, user=user, name="dev", base_image="alpine:latest")
     from mcp_server.server import submit_job
 
-    fake_activity = type(
-        "A", (), {"id": "00000000-0000-0000-0000-000000000001", "thread_id": None, "status": "READY"}
-    )()  # noqa: E501
-    fake_result = type("R", (), {"batch_id": "b", "activities": [fake_activity], "failed": []})()
+    fake_run = type("R", (), {"id": "00000000-0000-0000-0000-000000000001", "session_id": None, "status": "READY"})()
+    fake_result = type("R", (), {"batch_id": "b", "runs": [fake_run], "failed": []})()
     with (
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
         patch("mcp_server.server.asubmit_batch_runs", new=AsyncMock(return_value=fake_result)) as submit,
