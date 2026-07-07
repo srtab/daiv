@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from activity.models import Activity, TriggerType
+from sessions.models import Run, Session, SessionOrigin
 
 from automation.titling import tasks as titling_tasks
 from automation.titling.tasks import GeneratedTitle, _ref_is_informative, generate_batch_title_task, generate_title_task
@@ -89,6 +90,25 @@ class TestGenerateTitleTask:
         activity.refresh_from_db()
         assert activity.title == "Add login feature"
 
+    def test_writes_generated_title_for_session_entity(self):
+        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo")
+        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Session title")):
+            generate_title_task.func(
+                entity_type="session", pk=session.thread_id, prompt="do a thing", repo_id="group/repo"
+            )
+        session.refresh_from_db()
+        assert session.title == "Session title"
+
+    def test_writes_generated_title_for_run_entity(self):
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="group/repo"
+        )
+        run = Run.objects.create(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="group/repo")
+        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Run title")):
+            generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="do a thing", repo_id="group/repo")
+        run.refresh_from_db()
+        assert run.title == "Run title"
+
     def test_user_text_includes_branch_when_informative(self):
         activity = self._make_activity()
         capture: dict = {}
@@ -130,26 +150,50 @@ class TestGenerateTitleTask:
 
 @pytest.mark.django_db
 class TestGenerateBatchTitleTask:
-    def _make_activity(self, batch_id, *, title: str = "", repo_id: str = "group/repo") -> Activity:
-        return Activity.objects.create(
-            trigger_type=TriggerType.API_JOB, repo_id=repo_id, batch_id=batch_id, title=title
+    def _make_run(self, batch_id, *, title: str = "", session_title: str = "", repo_id: str = "group/repo") -> Run:
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id=repo_id, title=session_title
+        )
+        return Run.objects.create(
+            session=session, trigger_type=SessionOrigin.API_JOB, repo_id=repo_id, batch_id=batch_id, title=title
         )
 
     def test_applies_single_title_to_all_batch_members(self):
         batch_id = uuid.uuid4()
-        members = [self._make_activity(batch_id, repo_id=f"o/r{i}") for i in range(3)]
+        members = [self._make_run(batch_id, repo_id=f"o/r{i}") for i in range(3)]
 
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Add login feature")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="add login")
 
-        for activity in members:
-            activity.refresh_from_db()
-            assert activity.title == "Add login feature"
+        for run in members:
+            run.refresh_from_db()
+            assert run.title == "Add login feature"
+
+    def test_stamps_session_title_when_empty(self):
+        """The batch title also backfills each run's parent Session when its title is empty."""
+        batch_id = uuid.uuid4()
+        run = self._make_run(batch_id, repo_id="o/r")
+
+        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Batch title")):
+            generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
+
+        session = Session.objects.get(pk=run.session_id)
+        assert session.title == "Batch title"
+
+    def test_does_not_overwrite_already_titled_session(self):
+        batch_id = uuid.uuid4()
+        run = self._make_run(batch_id, repo_id="o/r", session_title="Session pinned")
+
+        with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
+            generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
+
+        session = Session.objects.get(pk=run.session_id)
+        assert session.title == "Session pinned"
 
     def test_invokes_llm_exactly_once_for_n_repos(self):
         batch_id = uuid.uuid4()
         for i in range(5):
-            self._make_activity(batch_id, repo_id=f"o/r{i}")
+            self._make_run(batch_id, repo_id=f"o/r{i}")
 
         chain = _fake_chain(title="One shared title")
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=chain):
@@ -159,21 +203,21 @@ class TestGenerateBatchTitleTask:
         # so we assert on ``invoke`` directly.
         assert chain.invoke.call_count == 1
 
-    def test_does_not_overwrite_already_titled_activities(self):
+    def test_does_not_overwrite_already_titled_runs(self):
         batch_id = uuid.uuid4()
-        activity = self._make_activity(batch_id, title="Already set")
+        run = self._make_run(batch_id, title="Already set")
 
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
 
-        activity.refresh_from_db()
-        assert activity.title == "Already set"
+        run.refresh_from_db()
+        assert run.title == "Already set"
 
     def test_preserves_pre_existing_titles_in_mixed_batch(self):
         """Schedule runs set a synchronous title; LLM titles must not overwrite them."""
         batch_id = uuid.uuid4()
-        prefilled = self._make_activity(batch_id, title="job · run #1", repo_id="o/sched")
-        empty = self._make_activity(batch_id, repo_id="o/r")
+        prefilled = self._make_run(batch_id, title="job · run #1", repo_id="o/sched")
+        empty = self._make_run(batch_id, repo_id="o/r")
 
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="LLM choice")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
@@ -186,8 +230,8 @@ class TestGenerateBatchTitleTask:
     def test_user_text_omits_repo_and_branch_context(self):
         """Batch titling spans multiple repos, so per-repo context is intentionally dropped."""
         batch_id = uuid.uuid4()
-        self._make_activity(batch_id, repo_id="o/r1")
-        self._make_activity(batch_id, repo_id="o/r2")
+        self._make_run(batch_id, repo_id="o/r1")
+        self._make_run(batch_id, repo_id="o/r2")
         capture: dict = {}
 
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
@@ -200,8 +244,8 @@ class TestGenerateBatchTitleTask:
 
     def test_returns_when_model_not_configured(self):
         batch_id = uuid.uuid4()
-        activity = self._make_activity(batch_id)
+        run = self._make_run(batch_id)
         with patch.object(titling_tasks.BaseAgent, "get_model", side_effect=RuntimeError("no key")):
             generate_batch_title_task.func(batch_id=str(batch_id), prompt="task")
-        activity.refresh_from_db()
-        assert activity.title == ""
+        run.refresh_from_db()
+        assert run.title == ""

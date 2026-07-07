@@ -3,20 +3,26 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, fields, is_dataclass
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+
+from django.utils import timezone
 
 from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
+from sessions.locks import SessionLock
+from sessions.models import Run, RunStatus, SessionOrigin
 
 from automation.agent.graph import create_daiv_agent
+from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
 
 from .event_filter import SubagentEventFilter
-from .threads import ChatThreadService
+from .threads import ChatSessionService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -28,6 +34,44 @@ if TYPE_CHECKING:
     from codebase.context import RuntimeCtx
 
 logger = logging.getLogger("daiv.chat")
+
+
+async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str, ref: str) -> Run:
+    """Record the chat turn as a RUNNING Run. Chat runs execute inline: no
+    task_result, no QUEUED/READY phase.
+    """
+    return await Run.objects.acreate(
+        session_id=session_id,
+        trigger_type=SessionOrigin.CHAT,
+        status=RunStatus.RUNNING,
+        user_id=user_id,
+        prompt=prompt[:2000],
+        repo_id=repo_id,
+        ref=ref,
+        started_at=timezone.now(),
+    )
+
+
+async def finalize_chat_run(run_pk, *, success: bool, usage: dict | None, response_text: str) -> None:
+    """Terminal transition for a chat Run. Mirrors the denormalization
+    ``sync_from_task_result`` performs for background runs.
+    """
+    update = {"status": RunStatus.SUCCESSFUL if success else RunStatus.FAILED, "finished_at": timezone.now()}
+    if response_text:
+        update["result_summary"] = response_text[:2000]
+    if usage:
+        for key in ("input_tokens", "output_tokens", "total_tokens"):
+            if usage.get(key) is not None:
+                update[key] = usage[key]
+        if usage.get("cost_usd") is not None:
+            try:
+                update["cost_usd"] = Decimal(usage["cost_usd"])
+            except Exception:  # noqa: BLE001
+                logger.warning("Invalid cost_usd %r for chat run %s", usage["cost_usd"], run_pk)
+        if usage.get("by_model") is not None:
+            update["usage_by_model"] = usage["by_model"]
+    await Run.objects.filter(pk=run_pk).aupdate(**update)
+
 
 # GitState fields that survive the ag-ui output-schema filter and reach the
 # chat client through STATE_SNAPSHOT events.
@@ -78,8 +122,8 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
 @dataclass(frozen=True, kw_only=True)
 class ChatRunStreamer:
     """SSE generator: configures the agent, runs it through the subagent filter,
-    captures the latest MR from STATE_SNAPSHOTs, and persists the ref before
-    releasing the per-thread run slot.
+    captures the latest MR from STATE_SNAPSHOTs, records the turn as a ``Run`` with
+    token/cost usage, and persists the ref before releasing the per-session run slot.
     """
 
     repo_id: str
@@ -88,6 +132,8 @@ class ChatRunStreamer:
     run_id: str
     input_data: RunAgentInput
     encoder: EventEncoder
+    user_id: int | None = None
+    prompt: str = ""
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
@@ -109,10 +155,15 @@ class ChatRunStreamer:
         last_mr: MergeRequest | None = None
         clean_run = False
         last_heartbeat = time.monotonic()
+        # The Run row (a separate object from the AG-UI run_id that holds the lock).
+        # Created after the stream context opens; finalized in ``finally``.
+        chat_run: Run | None = None
+        usage_handler = None
+        response_buffer = ""
         try:
             # Surface the auto-resolved env before any agent output so the locked composer
             # pill swaps "Auto" → real env name as early as possible. Kept inside the
-            # ``try`` so an encode failure still routes through RUN_ERROR + ``release_run``
+            # ``try`` so an encode failure still routes through RUN_ERROR + lock release
             # in ``finally``; the emit precedes ``set_runtime_ctx`` so the user still sees
             # what would have run even if agent setup fails.
             if self.auto_resolved_env is not None:
@@ -125,6 +176,14 @@ class ChatRunStreamer:
                     repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref, sandbox_env_id=self.sandbox_environment_id
                 ) as runtime_ctx,
             ):
+                # Record the turn as a RUNNING Run once we're committed to executing.
+                chat_run = await start_chat_run(
+                    session_id=self.thread_id,
+                    user_id=self.user_id,
+                    prompt=self.prompt,
+                    repo_id=self.repo_id,
+                    ref=self.ref,
+                )
                 agent_kwargs = get_daiv_agent_kwargs(
                     model_config=runtime_ctx.config.models.agent,
                     agent_model=self.agent_model,
@@ -148,20 +207,31 @@ class ChatRunStreamer:
                     config={"recursion_limit": 500, **langsmith_config},
                     runtime_context=runtime_ctx,
                 )
-                async for event in SubagentEventFilter().apply(langgraph_agent.run(self.input_data)):
-                    if event.type == EventType.STATE_SNAPSHOT:
-                        snap = getattr(event, "snapshot", None) or {}
-                        if isinstance(snap, dict) and "merge_request" in snap:
-                            last_mr = snap["merge_request"]
-                    yield self.encoder.encode(event)
+                # ``track_usage_metadata`` sets a ContextVar whose hook propagates the
+                # cost-aware callback to every nested runnable (subagents included) — the
+                # same mechanism ``run_job_task`` relies on. The whole generator body runs
+                # in one task, so the ContextVar scope holds across ``yield``.
+                with track_usage_metadata() as usage_handler:
+                    async for event in SubagentEventFilter().apply(langgraph_agent.run(self.input_data)):
+                        if event.type == EventType.STATE_SNAPSHOT:
+                            snap = getattr(event, "snapshot", None) or {}
+                            if isinstance(snap, dict) and "merge_request" in snap:
+                                last_mr = snap["merge_request"]
+                        elif event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
+                            # Buffer the assistant text deltas for ``result_summary``. Capped at
+                            # 2000 chars — the same bound ``finalize_chat_run`` re-applies.
+                            delta = getattr(event, "delta", None)
+                            if delta and len(response_buffer) < 2000:
+                                response_buffer = (response_buffer + delta)[:2000]
+                        yield self.encoder.encode(event)
 
-                    now = time.monotonic()
-                    if now - last_heartbeat >= HEARTBEAT_INTERVAL_S:
-                        last_heartbeat = now
-                        try:
-                            await ChatThreadService.heartbeat(self.thread_id, self.run_id)
-                        except Exception:
-                            logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
+                        now = time.monotonic()
+                        if now - last_heartbeat >= HEARTBEAT_INTERVAL_S:
+                            last_heartbeat = now
+                            try:
+                                await SessionLock.heartbeat(self.thread_id, self.run_id)
+                            except Exception:
+                                logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
                 clean_run = True
         except Exception:
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
@@ -171,18 +241,27 @@ class ChatRunStreamer:
                 )
             )
         finally:
-            # Both cleanup steps are wrapped: a post-stream DB hiccup must not
-            # retroactively paint a clean run as RUN_ERROR, and a release_run
-            # failure must not leave the per-thread slot permanently claimed.
-            # ref is only persisted on a clean finish — a partial run could have
-            # checked out a branch without committing, and pinning it would
-            # silently retarget reloads at half-built state.
+            # Each cleanup step is wrapped independently: a post-stream DB hiccup must not
+            # retroactively paint a clean run as RUN_ERROR, and a lock-release failure must
+            # not leave the per-session slot permanently claimed. ref is only persisted on a
+            # clean finish — a partial run could have checked out a branch without committing,
+            # and pinning it would silently retarget reloads at half-built state.
             if clean_run:
                 try:
-                    await ChatThreadService.persist_ref(self.thread_id, self.ref, last_mr)
+                    await ChatSessionService.persist_ref(self.thread_id, self.ref, last_mr)
                 except Exception:
-                    logger.exception("chat: failed to persist thread ref for thread_id=%s", self.thread_id)
+                    logger.exception("chat: failed to persist session ref for thread_id=%s", self.thread_id)
+            if chat_run is not None:
+                try:
+                    await finalize_chat_run(
+                        chat_run.pk,
+                        success=clean_run,
+                        usage=build_usage_summary(usage_handler).to_dict() if usage_handler else None,
+                        response_text=response_buffer,
+                    )
+                except Exception:
+                    logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)
             try:
-                await ChatThreadService.release_run(self.thread_id, self.run_id)
+                await SessionLock.release(self.thread_id, self.run_id)
             except Exception:
                 logger.exception("chat: failed to release run slot for thread_id=%s", self.thread_id)
