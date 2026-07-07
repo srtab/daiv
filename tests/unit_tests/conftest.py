@@ -95,16 +95,10 @@ def mock_generate_title_task():
     Patching the module-level binding at each import site (rather than the frozen
     ``Task`` instance) avoids ``patch.object`` teardown issues on slotted dataclasses.
     """
-    with (
-        patch("activity.services.generate_batch_title_task") as m1,
-        patch("chat.models.generate_title_task") as m2,
-        patch("chat.api.threads.generate_title_task") as m3,
-    ):
-        for m in (m1, m2, m3):
-            m.aenqueue = AsyncMock(return_value=None)
-        # Patch sessions.services with the *same* mock object so tests that
-        # override mock_generate_title_task.aenqueue mid-test affect both sites.
-        with patch("sessions.services.generate_batch_title_task", m1):
+    with patch("chat.api.threads.generate_title_task") as m3:
+        m3.aenqueue = AsyncMock(return_value=None)
+        with patch("sessions.services.generate_batch_title_task") as m1:
+            m1.aenqueue = AsyncMock(return_value=None)
             yield m1
 
 

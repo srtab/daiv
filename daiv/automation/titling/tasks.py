@@ -85,31 +85,22 @@ def _invoke_titler(structured_llm, *, prompt: str, repo_id: str = "", ref: str =
 
 @task()
 def generate_title_task(
-    entity_type: Literal["session", "run", "chat_thread", "activity"], pk: str, prompt: str, repo_id: str, ref: str = ""
+    entity_type: Literal["session", "run"], pk: str, prompt: str, repo_id: str, ref: str = ""
 ) -> None:
-    """Overwrite a Session/Run (or legacy ChatThread/Activity) title with an LLM-generated one.
+    """Overwrite a Session/Run title with an LLM-generated one.
 
     Failures propagate to django-tasks (which logs + marks the task failed); the
     title set synchronously remains (heuristic for chat sessions, possibly empty
-    for prompt-driven runs). The legacy ``chat_thread``/``activity`` literals stay
-    supported during the sessions-unification dual period (removed in Task 15).
+    for prompt-driven runs).
     """
     if entity_type == "session":
         from sessions.models import Session
 
         model_cls = Session
-    elif entity_type == "run":
+    else:
         from sessions.models import Run
 
         model_cls = Run
-    elif entity_type == "chat_thread":
-        from chat.models import ChatThread
-
-        model_cls = ChatThread
-    else:
-        from activity.models import Activity
-
-        model_cls = Activity
 
     try:
         entity = model_cls.objects.get(pk=pk)

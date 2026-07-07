@@ -4,7 +4,6 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from activity.models import Activity, TriggerType
 from sessions.models import Run, Session, SessionOrigin
 
 from automation.titling import tasks as titling_tasks
@@ -53,13 +52,23 @@ def _fake_chain(title: str = "Generated test title", capture: dict | None = None
 
 @pytest.mark.django_db
 class TestGenerateTitleTask:
-    def _make_activity(self, *, title: str = "") -> Activity:
-        return Activity.objects.create(trigger_type=TriggerType.API_JOB, repo_id="group/repo", title=title)
+    def _make_session(self, *, title: str = "") -> Session:
+        return Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="group/repo", title=title
+        )
+
+    def _make_run(self, *, title: str = "") -> Run:
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="group/repo"
+        )
+        return Run.objects.create(
+            session=session, trigger_type=SessionOrigin.API_JOB, repo_id="group/repo", title=title
+        )
 
     def test_returns_silently_when_entity_missing(self):
         with patch.object(titling_tasks.BaseAgent, "get_model") as get_model:
             generate_title_task.func(
-                entity_type="activity", pk="00000000-0000-0000-0000-000000000000", prompt="any", repo_id="x/y"
+                entity_type="run", pk="00000000-0000-0000-0000-000000000000", prompt="any", repo_id="x/y"
             )
         get_model.assert_not_called()
 
@@ -68,27 +77,25 @@ class TestGenerateTitleTask:
         title must overwrite them. (No user-facing edit endpoint exists, so no
         need to protect manual edits.)
         """
-        activity = self._make_activity(title="Heuristic placeholder")
+        run = self._make_run(title="Heuristic placeholder")
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="LLM generated")):
-            generate_title_task.func(entity_type="activity", pk=str(activity.pk), prompt="any", repo_id="group/repo")
-        activity.refresh_from_db()
-        assert activity.title == "LLM generated"
+            generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
+        run.refresh_from_db()
+        assert run.title == "LLM generated"
 
     def test_returns_when_model_not_configured(self):
-        activity = self._make_activity()
+        run = self._make_run()
         with patch.object(titling_tasks.BaseAgent, "get_model", side_effect=RuntimeError("no key")):
-            generate_title_task.func(entity_type="activity", pk=str(activity.pk), prompt="any", repo_id="group/repo")
-        activity.refresh_from_db()
-        assert activity.title == ""
+            generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="any", repo_id="group/repo")
+        run.refresh_from_db()
+        assert run.title == ""
 
     def test_writes_generated_title(self):
-        activity = self._make_activity()
+        run = self._make_run()
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(title="Add login feature")):
-            generate_title_task.func(
-                entity_type="activity", pk=str(activity.pk), prompt="add login", repo_id="group/repo"
-            )
-        activity.refresh_from_db()
-        assert activity.title == "Add login feature"
+            generate_title_task.func(entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo")
+        run.refresh_from_db()
+        assert run.title == "Add login feature"
 
     def test_writes_generated_title_for_session_entity(self):
         session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo")
@@ -110,15 +117,11 @@ class TestGenerateTitleTask:
         assert run.title == "Run title"
 
     def test_user_text_includes_branch_when_informative(self):
-        activity = self._make_activity()
+        run = self._make_run()
         capture: dict = {}
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
             generate_title_task.func(
-                entity_type="activity",
-                pk=str(activity.pk),
-                prompt="add login",
-                repo_id="group/repo",
-                ref="feat/copilotkit-chat",
+                entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo", ref="feat/copilotkit-chat"
             )
         human_text = capture["messages"][-1].content
         assert "Repository: group/repo" in human_text
@@ -126,23 +129,21 @@ class TestGenerateTitleTask:
         assert "Task: add login" in human_text
 
     def test_user_text_omits_branch_for_generic_ref(self):
-        activity = self._make_activity()
+        run = self._make_run()
         capture: dict = {}
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
             generate_title_task.func(
-                entity_type="activity", pk=str(activity.pk), prompt="add login", repo_id="group/repo", ref="main"
+                entity_type="run", pk=str(run.pk), prompt="add login", repo_id="group/repo", ref="main"
             )
         human_text = capture["messages"][-1].content
         assert "Branch:" not in human_text
 
     def test_prompt_truncated_to_500_chars(self):
-        activity = self._make_activity()
+        run = self._make_run()
         capture: dict = {}
         long_prompt = "x" * 1000
         with patch.object(titling_tasks.BaseAgent, "get_model", return_value=_fake_chain(capture=capture)):
-            generate_title_task.func(
-                entity_type="activity", pk=str(activity.pk), prompt=long_prompt, repo_id="group/repo"
-            )
+            generate_title_task.func(entity_type="run", pk=str(run.pk), prompt=long_prompt, repo_id="group/repo")
         human_text = capture["messages"][-1].content
         assert human_text.endswith("x" * 500)
         assert "x" * 501 not in human_text
