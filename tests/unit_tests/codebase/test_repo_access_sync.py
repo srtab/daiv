@@ -7,7 +7,7 @@ import pytest
 
 from codebase.base import GitPlatform, RepoAccessLevel, RepoMember, Repository
 from codebase.conf import settings as codebase_settings
-from codebase.models import RepositoryAccess, RepositoryAccessSyncState
+from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
 from codebase.tasks import sync_repository_access_cron_task
 
 
@@ -195,3 +195,76 @@ class TestSyncRepositoryAccess:
         assert not mock_repo_client.list_repositories.called
         assert not RepositoryAccess.objects.exists()
         assert not RepositoryAccessSyncState.objects.exists()
+
+
+@pytest.mark.django_db
+class TestSyncRepositoryCatalog:
+    def test_upserts_catalog_from_universe(self, mock_repo_client):
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="1", username="alice", access_level=RepoAccessLevel.READ)
+        ]
+
+        sync_repository_access_cron_task.func()
+
+        cat = RepositoryCatalog.objects.get(provider="gitlab", slug="a/b")
+        assert cat.name == "b"
+        assert cat.default_branch == "main"
+        assert cat.html_url == "https://example/a/b"
+
+    def test_upsert_updates_existing_row_in_place(self, mock_repo_client):
+        RepositoryCatalog.objects.create(
+            provider="gitlab",
+            slug="a/b",
+            name="old-name",
+            default_branch="x",
+            html_url="https://old",
+            topics=[],
+            synced_at=timezone.now() - timedelta(hours=1),
+        )
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="1", username="alice", access_level=RepoAccessLevel.READ)
+        ]
+
+        sync_repository_access_cron_task.func()
+
+        assert RepositoryCatalog.objects.filter(slug="a/b").count() == 1
+        assert RepositoryCatalog.objects.get(slug="a/b").name == "b"
+
+    def test_prunes_vanished_repos(self, mock_repo_client):
+        RepositoryCatalog.objects.create(
+            provider="gitlab",
+            slug="old/gone",
+            name="gone",
+            default_branch="main",
+            html_url="https://x",
+            topics=[],
+            synced_at=timezone.now(),
+        )
+        mock_repo_client.list_repositories.return_value = [_repo("a/b")]
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="1", username="alice", access_level=RepoAccessLevel.READ)
+        ]
+
+        sync_repository_access_cron_task.func()
+
+        assert not RepositoryCatalog.objects.filter(slug="old/gone").exists()
+        assert RepositoryCatalog.objects.filter(slug="a/b").exists()
+
+    def test_empty_universe_keeps_catalog(self, mock_repo_client):
+        RepositoryCatalog.objects.create(
+            provider="gitlab",
+            slug="a/b",
+            name="b",
+            default_branch="main",
+            html_url="https://x",
+            topics=[],
+            synced_at=timezone.now(),
+        )
+        _row("a/b", "1")  # non-empty access rows → the degraded "empty universe" branch
+        mock_repo_client.list_repositories.return_value = []
+
+        sync_repository_access_cron_task.func()
+
+        assert RepositoryCatalog.objects.filter(slug="a/b").exists()

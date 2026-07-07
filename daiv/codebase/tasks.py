@@ -56,7 +56,7 @@ def sync_repository_access_cron_task():
     from django.db import transaction
     from django.utils import timezone
 
-    from codebase.models import RepositoryAccess, RepositoryAccessSyncState
+    from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
 
     if codebase_settings.CLIENT == GitPlatform.SWE:
         return
@@ -79,6 +79,28 @@ def sync_repository_access_cron_task():
     # issue a per-repo EXISTS query across the whole universe every run.
     repos_with_rows = set(
         RepositoryAccess.objects.filter(provider=provider).values_list("repo_id", flat=True).distinct()
+    )
+
+    # Mirror the repository catalog (metadata + admin-visible universe) from the same universe
+    # listing. Repo listings are served from this table instead of live platform fetches. An
+    # empty universe yields an empty bulk_create (no-op); the prune below is guarded on it.
+    catalog_synced_at = timezone.now()
+    RepositoryCatalog.objects.bulk_create(
+        [
+            RepositoryCatalog(
+                provider=provider,
+                slug=repo.slug,
+                name=repo.name,
+                default_branch=repo.default_branch or "",
+                html_url=repo.html_url,
+                topics=repo.topics,
+                synced_at=catalog_synced_at,
+            )
+            for repo in universe
+        ],
+        update_conflicts=True,
+        unique_fields=["provider", "slug"],
+        update_fields=["name", "default_branch", "html_url", "topics", "synced_at"],
     )
 
     failures = 0
@@ -132,7 +154,9 @@ def sync_repository_access_cron_task():
     # alternative of never pruning, which would let a lost repo keep granting access for a full
     # hard-TTL window.
     if universe:
-        RepositoryAccess.objects.filter(provider=provider).exclude(repo_id__in=[r.slug for r in universe]).delete()
+        universe_slugs = [r.slug for r in universe]
+        RepositoryAccess.objects.filter(provider=provider).exclude(repo_id__in=universe_slugs).delete()
+        RepositoryCatalog.objects.filter(provider=provider).exclude(slug__in=universe_slugs).delete()
     elif repos_with_rows:
         # Empty listing while rows exist is a degraded response, not a real "no repos" state:
         # skip the destructive prune and mark the run failed so it does not read as clean.
