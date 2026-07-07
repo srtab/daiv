@@ -264,12 +264,14 @@ class Run(models.Model):
         Raises whatever ``sync_from_task_result`` or ``self.save`` raise — callers running
         in long-lived loops (signal handlers, management commands) must catch.
         """
-        previous_status = self.status  # noqa: F841 — used by Task-3 emit
+        previous_status = self.status
         changed = self.sync_from_task_result()
         if not changed:
             return False
         self.save(update_fields=changed)
-        # TODO(task-3): emit_run_finished_if_terminal(self, previous_status=previous_status)
+        from sessions.signals import emit_run_finished_if_terminal  # local import to avoid circular deps
+
+        emit_run_finished_if_terminal(self, previous_status=previous_status)
         return True
 
     def sync_from_task_result(self) -> list[str]:

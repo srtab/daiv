@@ -102,7 +102,10 @@ def mock_generate_title_task():
     ):
         for m in (m1, m2, m3):
             m.aenqueue = AsyncMock(return_value=None)
-        yield m1
+        # Patch sessions.services with the *same* mock object so tests that
+        # override mock_generate_title_task.aenqueue mid-test affect both sites.
+        with patch("sessions.services.generate_batch_title_task", m1):
+            yield m1
 
 
 @pytest.fixture(autouse=True)
