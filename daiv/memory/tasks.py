@@ -166,18 +166,18 @@ async def consolidate_memory_task(repo_id: str) -> None:
 
 
 @task(dedup=True)
-async def extract_observations_task(activity_id: str) -> None:
+async def extract_observations_task(run_id: str) -> None:
     """Extract candidate memory observations from a finished run's transcript.
 
     Transcripts live in the Redis checkpointer behind a TTL, so this must run
     promptly after the run finishes; an expired checkpoint is a silent skip.
 
-    ``dedup=True`` is keyed on the unique ``activity_id``: a duplicate
-    ``activity_finished`` delivery for the same run is suppressed (no double
+    ``dedup=True`` is keyed on the unique ``run_id``: a duplicate
+    ``run_finished`` delivery for the same run is suppressed (no double
     observations), while a different run always re-runs. (Consolidation, keyed on
     the reusable ``repo_id``, must NOT dedup — see ``consolidate_memory_task``.)
 
-    Precondition failures (missing activity, disabled flag, expired checkpoint,
+    Precondition failures (missing run, disabled flag, expired checkpoint,
     unconfigured model) are log + return — never an error confused with a run
     failure. The LLM ``ainvoke`` itself is deliberately NOT guarded: a schema
     mismatch must surface loudly, and a transient failure marks this task FAILED
@@ -185,48 +185,47 @@ async def extract_observations_task(activity_id: str) -> None:
     lost. Losing a single run's learnings is an accepted trade-off; agent runs
     are unaffected because this runs out-of-band.
     """
-    from activity.models import Activity
+    from sessions.models import Run
 
     if not site_settings.memory_enabled:
-        logger.info("extract_observations_task: memory disabled site-wide, skipping activity %s", activity_id)
+        logger.info("extract_observations_task: memory disabled site-wide, skipping run %s", run_id)
         return
 
-    activity = await Activity.objects.filter(pk=activity_id).afirst()
-    if activity is None:
-        logger.warning("extract_observations_task: activity %s not found, skipping", activity_id)
+    run = await Run.objects.filter(pk=run_id).afirst()
+    if run is None:
+        logger.warning("extract_observations_task: run %s not found, skipping", run_id)
         return
-    if not activity.thread_id:
+    if not run.session_id:
         logger.warning(
-            "extract_observations_task: activity %s has no thread_id (violates thread_id contract), skipping",
-            activity_id,
+            "extract_observations_task: run %s has no session_id (violates thread_id contract), skipping", run_id
         )
         return
 
-    config = await asyncio.to_thread(RepositoryConfig.get_config, activity.repo_id)
+    config = await asyncio.to_thread(RepositoryConfig.get_config, run.repo_id)
     if not config.memory.enabled:
-        logger.info("extract_observations_task: memory disabled for repo %s, skipping", activity.repo_id)
+        logger.info("extract_observations_task: memory disabled for repo %s, skipping", run.repo_id)
         return
 
     async with open_checkpointer() as checkpointer:
-        checkpoint_tuple = await checkpointer.aget_tuple({"configurable": {"thread_id": activity.thread_id}})
+        checkpoint_tuple = await checkpointer.aget_tuple({"configurable": {"thread_id": str(run.session_id)}})
 
     channel_values = (checkpoint_tuple.checkpoint or {}).get("channel_values", {}) if checkpoint_tuple else {}
     if not (messages := channel_values.get("messages", [])):
         if checkpoint_tuple is None:
             # Benign: the checkpoint expired from Redis before this task ran.
             logger.info(
-                "extract_observations_task: checkpoint missing/expired for thread %s (activity=%s), skipping",
-                activity.thread_id,
-                activity_id,
+                "extract_observations_task: checkpoint missing/expired for thread %s (run=%s), skipping",
+                run.session_id,
+                run_id,
             )
         else:
             # A present checkpoint with no messages signals a real defect (serialization
             # or channel-name drift), not normal TTL expiry — surface it louder.
             logger.warning(
-                "extract_observations_task: checkpoint present but has no messages for thread %s (activity=%s); "
+                "extract_observations_task: checkpoint present but has no messages for thread %s (run=%s); "
                 "available channels: %s — skipping (serialization or channel-name drift?)",
-                activity.thread_id,
-                activity_id,
+                run.session_id,
+                run_id,
                 sorted(channel_values),
             )
         return
@@ -245,8 +244,8 @@ async def extract_observations_task(activity_id: str) -> None:
         # raise IndexError on model_names[0], which would crash the task with no breadcrumb.
         logger.error(
             "extract_observations_task: no extraction model configured "
-            "(check DAIV_MEMORY_EXTRACTION_MODEL_NAME / _FALLBACK_MODEL_NAME), skipping activity %s",
-            activity_id,
+            "(check DAIV_MEMORY_EXTRACTION_MODEL_NAME / _FALLBACK_MODEL_NAME), skipping run %s",
+            run_id,
         )
         return
     try:
@@ -262,15 +261,13 @@ async def extract_observations_task(activity_id: str) -> None:
         await structured_llm.with_config(
             run_name="MemoryExtraction",
             tags=["MemoryExtraction"],
-            metadata={"repo_id": activity.repo_id, "activity_id": str(activity.pk)},
+            metadata={"repo_id": run.repo_id, "run_id": str(run.pk)},
         ).ainvoke([
             SystemMessage(content=cast("str", extraction_system.format().content)),
             HumanMessage(
                 content=cast(
                     "str",
-                    extraction_human.format(
-                        repo_id=activity.repo_id, status=activity.status, transcript=transcript
-                    ).content,
+                    extraction_human.format(repo_id=run.repo_id, status=run.status, transcript=transcript).content,
                 )
             ),
         ]),
@@ -278,14 +275,14 @@ async def extract_observations_task(activity_id: str) -> None:
 
     if result and result.observations:
         await MemoryObservation.objects.abulk_create([
-            MemoryObservation(repo_id=activity.repo_id, activity=activity, category=obs.category, content=obs.content)
+            MemoryObservation(repo_id=run.repo_id, run=run, category=obs.category, content=obs.content)
             for obs in result.observations
         ])
         logger.info(
-            "extract_observations_task: stored %d observations for repo %s (activity=%s)",
+            "extract_observations_task: stored %d observations for repo %s (run=%s)",
             len(result.observations),
-            activity.repo_id,
-            activity_id,
+            run.repo_id,
+            run_id,
         )
 
 

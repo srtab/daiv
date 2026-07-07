@@ -1,24 +1,25 @@
 import pytest
-from activity.models import Activity, ActivityStatus, TriggerType
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 
 @pytest.mark.django_db
-def test_observation_defaults_to_pending_and_survives_activity_deletion():
-    activity = Activity.objects.create(
-        trigger_type=TriggerType.API_JOB, repo_id="group/project", status=ActivityStatus.SUCCESSFUL
+def test_observation_defaults_to_pending_and_survives_run_deletion():
+    session = Session.objects.create(thread_id="t1", origin=SessionOrigin.API_JOB, repo_id="group/project")
+    run = Run.objects.create(
+        session=session, trigger_type=SessionOrigin.API_JOB, repo_id="group/project", status=RunStatus.SUCCESSFUL
     )
     obs = MemoryObservation.objects.create(
         repo_id="group/project",
-        activity=activity,
+        run=run,
         category=ObservationCategory.BUILD_TEST,
         content="`make test` requires LANGCHAIN_TRACING_V2=false",
     )
     assert obs.status == ObservationStatus.PENDING
 
-    activity.delete()
+    run.delete()
     obs.refresh_from_db()
-    assert obs.activity is None, "FK must be SET_NULL so observations outlive activity retention"
+    assert obs.run is None, "FK must be SET_NULL so observations outlive run retention"
 
 
 @pytest.mark.django_db

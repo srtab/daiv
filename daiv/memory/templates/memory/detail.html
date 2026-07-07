@@ -73,8 +73,8 @@
         <span class="ml-auto text-xs text-gray-500">{{ obs.created_at|naturaltime }}</span>
       </div>
       <p class="mt-1.5 text-sm text-gray-300">{{ obs.content }}</p>
-      {% if obs.activity %}
-      <a href="{% url 'activity_detail' obs.activity.pk %}"
+      {% if obs.run %}
+      <a href="{% url 'activity_detail' obs.run.pk %}"
          class="mt-1 inline-block text-xs text-violet-300 hover:text-violet-200">{% translate "View source run" %}</a>
       {% endif %}
     </li>
