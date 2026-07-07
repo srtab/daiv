@@ -25,6 +25,16 @@ class TestToolFilter:
         tf = ToolFilter.model_validate(data)
         assert tf.items == ["tool_a"]
 
+    def test_tool_filter_allows_allow_mode(self):
+        tf = ToolFilter(mode="allow", items=["a", "b"])
+        assert tf.allows("a") is True
+        assert tf.allows("c") is False
+
+    def test_tool_filter_allows_block_mode(self):
+        tf = ToolFilter(mode="block", items=["a"])
+        assert tf.allows("a") is False
+        assert tf.allows("b") is True
+
 
 class TestUserMcpServer:
     def test_sse_server(self):

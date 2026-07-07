@@ -1,0 +1,17 @@
+{% comment %}Radio-pill segmented control bound to an Alpine var. Params:
+   `field` (a bound form field with choices) and `model` (the x-model var name).{% endcomment %}
+<div>
+    <label class="block text-[15px] font-medium text-gray-400">{{ field.label }}</label>
+    <div class="mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+        {% for value, label in field.field.choices %}
+        {% if value %}
+        <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+               :class="{{ model }} === '{{ value }}' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+            <input type="radio" name="{{ field.html_name }}" value="{{ value }}" x-model="{{ model }}" class="sr-only">
+            {{ label }}
+        </label>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% for e in field.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+</div>

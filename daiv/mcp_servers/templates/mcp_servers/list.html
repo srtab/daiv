@@ -1,0 +1,30 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+
+{% block title %}{% translate "MCP Servers" %} — DAIV{% endblock %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "MCP Servers" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% translate "MCP servers provide tools and context to the agent." %}
+        </p>
+    </div>
+    <a href="{% url 'mcp_servers:create' %}" class="btn-primary">{% translate "New server" %}</a>
+</div>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 100ms">
+    <h2 class="text-lg font-semibold">{% translate "Custom servers" %}</h2>
+    {% translate "No custom servers configured." as custom_empty %}
+    {% include "mcp_servers/_server_list.html" with servers=custom_servers empty_message=custom_empty %}
+</section>
+
+<section class="animate-fade-up mt-8" style="animation-delay: 150ms">
+    <h2 class="text-lg font-semibold">{% translate "Built-in servers" %}</h2>
+    {% translate "No built-in servers registered." as builtin_empty %}
+    {% include "mcp_servers/_server_list.html" with servers=builtin_servers empty_message=builtin_empty %}
+</section>
+{% endblock app_content %}

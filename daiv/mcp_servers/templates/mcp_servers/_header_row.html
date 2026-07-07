@@ -1,0 +1,22 @@
+{% load i18n icon_tags %}
+<div data-row {% if is_initial %}data-initial{% endif %}
+     class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_8rem_1fr_auto] sm:items-start">
+    <div>
+        {{ header_form.name }}
+        {% for e in header_form.name.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+    </div>
+    <div>{{ header_form.mode }}</div>
+    <div>
+        {{ header_form.value }}
+        {% for e in header_form.value.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+    </div>
+    <div class="flex items-center justify-end sm:pt-0.5">
+        <span class="hidden">{{ header_form.DELETE }}</span>
+        <button type="button"
+                @click="removeRow($el.closest('[data-row]'))"
+                aria-label="{% translate 'Remove' %}" title="{% translate 'Remove' %}"
+                class="inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-400 hover:bg-white/[0.06] hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-red-400/40">
+            {% icon "trash" "h-5 w-5" %}
+        </button>
+    </div>
+</div>
