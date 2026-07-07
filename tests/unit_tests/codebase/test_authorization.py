@@ -13,10 +13,11 @@ from codebase.authorization import (
     can_view,
     filter_viewable,
     get_access_level,
+    search_viewable_repositories,
     viewable_repo_ids,
 )
 from codebase.base import GitPlatform, RepoAccessLevel, Repository
-from codebase.models import RepositoryAccess, RepositoryAccessSyncState
+from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
 
 
 def _repo(slug: str) -> Repository:
@@ -57,6 +58,18 @@ def _grant(uid: str, repo_id: str, level: RepoAccessLevel, synced_at: datetime |
         username="u",
         repo_id=repo_id,
         access_level=level,
+        synced_at=synced_at or timezone.now(),
+    )
+
+
+def _catalog(slug: str, *, name: str | None = None, topics: list[str] | None = None, synced_at: datetime | None = None):
+    return RepositoryCatalog.objects.create(
+        provider="gitlab",
+        slug=slug,
+        name=name if name is not None else slug.split("/")[-1],
+        default_branch="main",
+        html_url=f"https://example/{slug}",
+        topics=topics or [],
         synced_at=synced_at or timezone.now(),
     )
 
@@ -212,3 +225,58 @@ class TestViewableFilters:
         # No linked platform identity (uid=None) -> empty viewable set, regardless of any rows.
         _grant("101", "a/b", RepoAccessLevel.READ)
         assert viewable_repo_ids(member_user, ["a/b"]) == set()
+
+
+class TestSearchViewableRepositories:
+    def test_member_sees_only_accessible_repos(self, linked_member, fresh_sync):
+        _catalog("a/one")
+        _catalog("a/two")
+        _grant("101", "a/one", RepoAccessLevel.READ)
+
+        result = search_viewable_repositories(linked_member, limit=10)
+
+        assert [r.slug for r in result] == ["a/one"]
+
+    def test_admin_sees_all_fresh_catalog(self, admin_user, fresh_sync):
+        _catalog("a/one")
+        _catalog("b/two")
+
+        result = search_viewable_repositories(admin_user, limit=10)
+
+        assert {r.slug for r in result} == {"a/one", "b/two"}
+
+    def test_excludes_stale_catalog_rows(self, admin_user, fresh_sync):
+        _catalog("a/one")
+        _catalog("b/stale", synced_at=timezone.now() - timedelta(hours=48))
+
+        result = search_viewable_repositories(admin_user, limit=10)
+
+        assert {r.slug for r in result} == {"a/one"}
+
+    def test_search_matches_slug_or_name(self, admin_user, fresh_sync):
+        _catalog("team/alpha", name="Alpha service")
+        _catalog("team/beta", name="Beta service")
+
+        result = search_viewable_repositories(admin_user, search="alph", limit=10)
+
+        assert [r.slug for r in result] == ["team/alpha"]
+
+    def test_topics_are_and_matched(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["python", "api"])
+        _catalog("a/two", topics=["python"])
+
+        result = search_viewable_repositories(admin_user, topics=["python", "api"], limit=10)
+
+        assert [r.slug for r in result] == ["a/one"]
+
+    def test_unlinked_member_sees_nothing(self, member_user, fresh_sync):
+        _catalog("a/one")
+        _grant("999", "a/one", RepoAccessLevel.READ)
+
+        assert search_viewable_repositories(member_user, limit=10) == []
+
+    def test_limit_caps_results(self, admin_user, fresh_sync):
+        for i in range(5):
+            _catalog(f"a/r{i}")
+
+        assert len(search_viewable_repositories(admin_user, limit=3)) == 3

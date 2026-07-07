@@ -5,13 +5,14 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.core.cache import cache
+from django.db.models import Q
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
 from codebase.base import RepoAccessLevel
 from codebase.conf import settings
-from codebase.models import RepositoryAccess, RepositoryAccessSyncState
+from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -165,6 +166,33 @@ def filter_viewable(user: User, repositories: list[Repository]) -> list[Reposito
     return [repo for repo in repositories if repo.slug in viewable]
 
 
+def search_viewable_repositories(
+    user: User, *, search: str | None = None, topics: list[str] | None = None, limit: int
+) -> list[RepositoryCatalog]:
+    """Repositories the user may view (READ+), served from the local ``RepositoryCatalog`` mirror.
+
+    Members are restricted to repos with a fresh ``RepositoryAccess`` row for their platform uid;
+    admins see the whole fresh catalog. Results are ordered by ``slug`` and capped at ``limit``.
+    ``topics`` is AND-matched in Python because the SQLite test backend does not support the
+    ``JSONField __contains`` lookup used on Postgres; the candidate set (a caller's accessible
+    repos matching ``search``) is small, so this is cheap and backend-agnostic.
+    """
+    _maybe_enqueue_backstop()
+    rows = RepositoryCatalog.objects.fresh().filter(provider=_provider())
+    if not user.is_admin:
+        uid = _identity(user)
+        if uid is None:
+            return []
+        rows = rows.filter(slug__in=_fresh_rows(uid).values_list("repo_id", flat=True))
+    if search:
+        rows = rows.filter(Q(slug__icontains=search) | Q(name__icontains=search))
+    rows = rows.order_by("slug")
+    if topics:
+        wanted = set(topics)
+        return [row for row in rows if wanted.issubset(set(row.topics))][:limit]
+    return list(rows[:limit])
+
+
 # Repository listings over-fetch by this factor before per-user filtering, so a display window
 # can still be filled after unauthorized repositories are dropped. Single-sourced here rather
 # than re-derived at each picker/search/MCP surface, which would let the window silently drift.
@@ -180,3 +208,4 @@ def viewable_fetch_limit(display_limit: int) -> int:
 # Only the wrappers with async call sites are exported; add more via ``sync_to_async`` as needed.
 aassert_can_run = sync_to_async(assert_can_run)
 afilter_viewable = sync_to_async(filter_viewable)
+asearch_viewable_repositories = sync_to_async(search_viewable_repositories)
