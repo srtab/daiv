@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
 from django.urls import reverse
 from django.utils.text import slugify
+from django.views import View
 from django.views.generic import DetailView
 
 from asgiref.sync import async_to_sync
@@ -23,6 +28,72 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
+
+
+POLL_INTERVAL = 2.0
+MAX_DURATION = 300.0
+
+
+class SessionStreamView(View):
+    """SSE endpoint that streams Run status updates for in-flight sessions."""
+
+    async def get(self, request: HttpResponseBase) -> HttpResponseBase:
+        user = await request.auser()
+        if not user.is_authenticated:
+            return HttpResponse(status=403)
+
+        ids_param = request.GET.get("ids", "")
+        uuids: list[uuid.UUID] = []
+        for part in ids_param.split(","):
+            try:
+                uuids.append(uuid.UUID(part.strip()))
+            except ValueError:
+                continue
+
+        if not uuids:
+            return HttpResponse(status=400)
+
+        return StreamingHttpResponse(
+            self._stream(uuids, user),
+            content_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    async def _stream(self, run_ids: list[uuid.UUID], user):
+        """Stream current Run state to the browser.
+
+        Sync from DBTaskResult happens in the worker via django-tasks signals; this view
+        only reads already-synced rows and emits SSE events for state changes.
+        """
+        tracking = set(run_ids)
+        terminal = RunStatus.terminal()
+        start = time.monotonic()
+        last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
+
+        while tracking and (time.monotonic() - start) < MAX_DURATION:
+            await asyncio.sleep(POLL_INTERVAL)
+
+            runs = Run.objects.by_owner(user).filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
+
+            async for run in runs:
+                started_iso = run.started_at.isoformat() if run.started_at else None
+                finished_iso = run.finished_at.isoformat() if run.finished_at else None
+                current_state = (run.status, started_iso, finished_iso)
+
+                if last_emitted.get(run.id) != current_state:
+                    last_emitted[run.id] = current_state
+                    data = json.dumps({
+                        "id": str(run.id),
+                        "status": run.status,
+                        "started_at": started_iso,
+                        "finished_at": finished_iso,
+                    })
+                    yield f"data: {data}\n\n"
+
+                if run.status in terminal:
+                    tracking.discard(run.id)
+
+        yield 'data: {"done": true}\n\n'
 
 
 class SessionListView(LoginRequiredMixin, FilterView):
@@ -153,6 +224,15 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["runs"] = runs
         ctx["is_in_flight"] = any(r.status not in RunStatus.terminal() for r in runs)
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in runs if r.status not in RunStatus.terminal())
+
+        # Engage transcript polling when a background run holds the slot and there is
+        # no live chat stream from this tab (chat stream manages its own turns in JS;
+        # the poller only kicks in for non-chat background runs).
+        ctx["poll_transcript"] = bool(
+            self.object
+            and self.object.active_run_id
+            and any(r.trigger_type != SessionOrigin.CHAT and r.status not in RunStatus.terminal() for r in ctx["runs"])
+        )
 
         return ctx
 

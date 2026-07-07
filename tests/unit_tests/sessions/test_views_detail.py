@@ -204,6 +204,47 @@ def test_detail_in_flight_context(member_client, member_user):
     assert str(run_done.id) not in resp.context["in_flight_ids"]
 
 
+@pytest.mark.django_db
+def test_poll_transcript_only_for_background_runs(member_client, member_user):
+    """poll_transcript is True only for non-chat in-flight runs; chat runs manage themselves via AG-UI stream."""
+    # Case 1: in-flight CHAT run — poller must NOT engage (chat uses AG-UI stream).
+    session_chat = _create_session(user=member_user)
+    chat_run = _create_run(session_chat, trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING)
+    session_chat.active_run_id = chat_run.id
+    session_chat.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_chat.thread_id}))
+
+    assert resp.context["poll_transcript"] is False, (
+        "A live CHAT run should not activate the transcript poller (it streams via AG-UI)"
+    )
+
+    # Case 2: in-flight background (API_JOB) run — poller MUST engage.
+    session_bg = _create_session(user=member_user)
+    bg_run = _create_run(session_bg, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING)
+    session_bg.active_run_id = bg_run.id
+    session_bg.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_bg.thread_id}))
+
+    assert resp.context["poll_transcript"] is True, (
+        "A live background (API_JOB) run should activate the transcript poller"
+    )
+
+    # Case 3: all runs are terminal — poller must NOT engage.
+    session_done = _create_session(user=member_user)
+    done_run = _create_run(session_done, trigger_type=SessionOrigin.API_JOB, status=RunStatus.SUCCESSFUL)
+    session_done.active_run_id = done_run.id
+    session_done.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_done.thread_id}))
+
+    assert resp.context["poll_transcript"] is False, "All-terminal runs should not activate the transcript poller"
+
+
 # ---------------------------------------------------------------------------
 # session_run_download_md
 # ---------------------------------------------------------------------------

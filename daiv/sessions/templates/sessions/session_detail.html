@@ -22,6 +22,9 @@
   <script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
   <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
   <script defer src="{% static 'chat/js/chat-stream.js' %}"></script>
+  {% if poll_transcript %}
+  <script defer src="{% static 'sessions/js/session-sync.js' %}"></script>
+  {% endif %}
   {% include "sandbox_envs/_scripts.html" %}
 {% endblock alpine_plugins %}
 
@@ -31,6 +34,11 @@
   {{ turns|json_script:"chat-initial-turns" }}
   {{ merge_request|json_script:"chat-initial-merge-request" }}
 
+  {% if poll_transcript %}
+  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', active: true })"
+       style="display:none" aria-hidden="true"></div>
+  {% endif %}
+
   {# Translation lookups for the locked-pill fallbacks in chat({…}) below. #}
   {# Tag→variable lets us pipe them through ``|escapejs`` for safe quoting in JS. #}
   {% translate "Pick a model" as locked_agent_fallback %}
@@ -38,8 +46,7 @@
 
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
-         {# TODO(task-13): swap to sessions status endpoint once Task 13 ships. #}
-         statusEndpoint: {% if session %}"{% url 'api:thread_status' session.thread_id %}"{% else %}""{% endif %},
+         statusEndpoint: {% if session %}"{% url 'api:session_status' session.thread_id %}"{% else %}""{% endif %},
          activeRunId: "{{ active_run_id|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
@@ -58,6 +65,7 @@
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
+       @daiv:session-turns.window="turns = $event.detail.turns"
        x-cloak
        class="chat-shell"
        :class="{ 'chat-shell--empty': !thread && turns.length === 0 }">

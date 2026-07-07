@@ -10,10 +10,11 @@
         integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
         crossorigin="anonymous"></script>
 <script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
+<script defer src="{% static 'sessions/js/session-stream.js' %}"></script>
 {% endblock alpine_plugins %}
 
 {% block app_content %}
-<div>
+<div x-data="sessionStream('{% url "session_stream" %}', '{{ in_flight_ids }}')">
     <div class="animate-fade-up flex items-start justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold tracking-tight">Agent Sessions</h1>
