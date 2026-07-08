@@ -179,16 +179,22 @@ ______________________________________________________________________
 
 ### General
 
-| Variable                      | Description                                              | Default       | Example                      |
-| ----------------------------- | -------------------------------------------------------- | ------------- | ---------------------------- |
-| `CODEBASE_CLIENT`             | Client to use for codebase operations                    | `gitlab`      | `gitlab`, `github`, or `swe` |
-| `CODEBASE_WEBHOOK_SETUP_CRON` | Cron expression for periodic webhook setup (GitLab only) | `*/5 * * * *` | `*/10 * * * *`               |
+| Variable                              | Description                                                                                                      | Default        | Example                      |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------- | ---------------------------- |
+| `CODEBASE_CLIENT`                     | Client to use for codebase operations                                                                            | `gitlab`       | `gitlab`, `github`, or `swe` |
+| `CODEBASE_WEBHOOK_SETUP_CRON`         | Cron expression for periodic webhook setup (GitLab only)                                                         | `*/5 * * * *`  | `*/10 * * * *`               |
+| `CODEBASE_REPO_ACCESS_SYNC_CRON`      | Cron expression for the periodic repository access sync                                                          | `*/15 * * * *` | `*/10 * * * *`               |
+| `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` | Hours a repository's synced access data stays trusted before it is denied (fails closed); tracked per repository | `24`           | `12`                         |
 
 Note
 
 Set `CODEBASE_CLIENT` to either `gitlab`, `github`, or `swe` depending on which platform you want to use. Only one platform can be active at a time.
 
 The `swe` client type is designed for SWE-bench style evaluations and clones public OSS repositories to temporary directories without requiring credentials. It uses ephemeral temporary clones per run and does not cache repositories across runs. Repository identifiers should be in the format `owner/name` (e.g., `psf/requests`).
+
+Repository access sync
+
+`CODEBASE_REPO_ACCESS_SYNC_CRON` controls how often DAIV mirrors per-user repository membership from the connected Git platform into the database (one member-list call per repository). Admins are exempt from repository authorization and always have full access. Freshness is tracked per repository: if a repository's sync stops succeeding — e.g. the platform token loses access to it — its access data keeps working on the last known-good data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapses, after which that repository fails closed while others keep syncing normally. See [Accounts & Roles](https://srtab.github.io/daiv/dev/getting-started/accounts/#repository-access) for the access model this enforces.
 
 ### GitLab Integration
 
