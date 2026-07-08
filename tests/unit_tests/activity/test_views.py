@@ -2,13 +2,30 @@ import uuid
 
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
+from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.models import DBTaskResult
 
 from accounts.models import User
+from codebase.base import RepoAccessLevel
+from codebase.models import RepositoryAccess
 from schedules.models import Frequency, ScheduledJob
+
+
+def _grant_access(user, repo_id, level):
+    SocialAccount.objects.get_or_create(user=user, provider="gitlab", defaults={"uid": f"uid-{user.pk}"})
+    account = SocialAccount.objects.get(user=user, provider="gitlab")
+    RepositoryAccess.objects.create(
+        provider="gitlab",
+        uid=account.uid,
+        username=user.username,
+        repo_id=repo_id,
+        access_level=level,
+        synced_at=timezone.now(),
+    )
 
 
 @pytest.fixture
@@ -245,6 +262,7 @@ class TestActivityDetailView:
         assert "Issue #412" in body
 
     def test_status_strip_shows_retry_when_retryable(self, logged_in_client, user):
+        _grant_access(user, "group/project", RepoAccessLevel.WRITE)
         activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL)
         body = self._get(logged_in_client, activity).content.decode()
         assert reverse("runs:agent_run_new") + f"?from={activity.pk}" in body
@@ -602,3 +620,37 @@ class TestActivityDetailSubscriberContext:
         response = client.get(reverse("activity_detail", args=[activity.pk]))
         html = response.content.decode()
         assert reverse("schedule_update", args=[schedule.pk]) in html
+
+
+@pytest.mark.django_db
+class TestRetryGating:
+    def test_read_only_member_sees_detail_but_no_retry(self, user, logged_in_client):
+        _grant_access(user, "team/repo", RepoAccessLevel.READ)
+        other = User.objects.create_user(username="carol", email="carol@test.com", password="pw")  # noqa: S106
+        activity = _create_activity(user=other, repo_id="team/repo", status=ActivityStatus.SUCCESSFUL)
+
+        response = logged_in_client.get(reverse("activity_detail", kwargs={"pk": activity.pk}))
+
+        assert response.status_code == 200  # visible via READ
+        assert response.context["can_retry"] is False
+
+    def test_read_only_member_cannot_open_retry_form(self, user, logged_in_client):
+        _grant_access(user, "team/repo", RepoAccessLevel.READ)
+        other = User.objects.create_user(username="carol", email="carol@test.com", password="pw")  # noqa: S106
+        activity = _create_activity(user=other, repo_id="team/repo", status=ActivityStatus.SUCCESSFUL)
+
+        response = logged_in_client.get(reverse("runs:agent_run_new"), {"from": str(activity.pk)})
+
+        assert response.status_code == 404
+
+    def test_write_member_can_open_retry_form(self, user, logged_in_client):
+        _grant_access(user, "team/repo", RepoAccessLevel.WRITE)
+        other = User.objects.create_user(username="carol", email="carol@test.com", password="pw")  # noqa: S106
+        activity = _create_activity(user=other, repo_id="team/repo", status=ActivityStatus.SUCCESSFUL)
+
+        detail = logged_in_client.get(reverse("activity_detail", kwargs={"pk": activity.pk}))
+        assert detail.context["can_retry"] is True
+
+        form = logged_in_client.get(reverse("runs:agent_run_new"), {"from": str(activity.pk)})
+        assert form.status_code == 200
+        assert form.context["source_activity"].pk == activity.pk

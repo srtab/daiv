@@ -5,13 +5,30 @@ from unittest import mock
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
 from django.http import Http404
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
+from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.models import DBTaskResult, get_date_max
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
+from codebase.base import RepoAccessLevel
+from codebase.models import RepositoryAccess
+
+
+def _grant_access(user, repo_id, level):
+    SocialAccount.objects.get_or_create(user=user, provider="gitlab", defaults={"uid": f"uid-{user.pk}"})
+    account = SocialAccount.objects.get(user=user, provider="gitlab")
+    RepositoryAccess.objects.create(
+        provider="gitlab",
+        uid=account.uid,
+        username=user.username,
+        repo_id=repo_id,
+        access_level=level,
+        synced_at=timezone.now(),
+    )
 
 
 def _make_user(username: str) -> AccountUser:
@@ -75,6 +92,7 @@ def test_get_blank_renders_empty_form(member_client):
 
 @pytest.mark.django_db
 def test_get_retry_prefills_fields(member_client, member_user):
+    _grant_access(member_user, "a/b", RepoAccessLevel.WRITE)
     source = Activity.objects.create(
         user=member_user,
         status=ActivityStatus.SUCCESSFUL,

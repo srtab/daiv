@@ -28,7 +28,7 @@ from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import RepoTarget, submit_batch_runs
 from automation.agent.picker_context import agent_picker_context
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.activity")
@@ -116,6 +116,7 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
             env
             and ((env.scope == Scope.GLOBAL and user.is_admin) or (env.scope == Scope.USER and env.user_id == user.pk))
         )
+        context["can_retry"] = activity.is_retryable and can_run(user, activity.repo_id)
         return context
 
     def get_breadcrumbs(self):
@@ -272,6 +273,8 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             # Malformed UUID on ``?from=`` is user error, not server error.
             raise Http404("Invalid activity id.") from err
         if source is None or not source.is_retryable:
+            raise Http404("Activity is not retryable.")
+        if not can_run(self.request.user, source.repo_id):
             raise Http404("Activity is not retryable.")
         self._source_cached = source
         return source
