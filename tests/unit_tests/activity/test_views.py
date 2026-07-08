@@ -622,6 +622,35 @@ class TestActivityDetailSubscriberContext:
         assert reverse("schedule_update", args=[schedule.pk]) in html
 
 
+@pytest.mark.django_db(transaction=True)
+class TestActivityStreamView:
+    async def test_stream_is_async_safe_for_member(self, mocker):
+        from activity.views import ActivityStreamView
+        from asgiref.sync import sync_to_async
+
+        # Keep the SSE poll loop tight so the test doesn't sleep on the real 2s interval.
+        mocker.patch("activity.views.POLL_INTERVAL", 0.01)
+
+        @sync_to_async
+        def _setup():
+            member = User.objects.create_user(username="streamer", email="s@test.com", password="pw")  # noqa: S106
+            _grant_access(member, "team/repo", RepoAccessLevel.READ)
+            other = User.objects.create_user(username="runner", email="r@test.com", password="pw")  # noqa: S106
+            activity = _create_activity(user=other, repo_id="team/repo", status=ActivityStatus.SUCCESSFUL)
+            return member, activity.id
+
+        member, activity_id = await _setup()
+
+        # Pre-fix this raised SynchronousOnlyOperation: visible_to() runs a sync SocialAccount
+        # query at queryset-construction time for members, inside this async coroutine.
+        chunks = [chunk async for chunk in ActivityStreamView()._stream([activity_id], member)]
+        body = "".join(chunks)
+
+        # Member saw another user's run on a READ-able repo via the async stream.
+        assert str(activity_id) in body
+        assert '"done": true' in body
+
+
 @pytest.mark.django_db
 class TestRetryGating:
     def test_read_only_member_sees_detail_but_no_retry(self, user, logged_in_client):

@@ -18,6 +18,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import DetailView, FormView
 
+from asgiref.sync import sync_to_async
 from django_filters.views import FilterView
 from sandbox_envs.models import Scope
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
@@ -217,7 +218,7 @@ class ActivityStreamView(View):
         terminal = ActivityStatus.terminal()
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
-        base_qs = Activity.objects.visible_to(user)
+        base_qs = await sync_to_async(Activity.objects.visible_to)(user)
 
         while tracking and (time.monotonic() - start) < MAX_DURATION:
             await asyncio.sleep(POLL_INTERVAL)
