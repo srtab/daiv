@@ -19,81 +19,81 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 msgid "Skill zip"
-msgstr ""
+msgstr "Zip da competência"
 
 msgid "Replace existing"
-msgstr ""
+msgstr "Substituir existente"
 
 #, python-format
 msgid "Zip exceeds maximum size of %(max)d bytes."
-msgstr ""
+msgstr "O zip excede o tamanho máximo de %(max)d bytes."
 
 msgid "name"
-msgstr ""
+msgstr "nome"
 
 msgid "description"
-msgstr ""
+msgstr "descrição"
 
 msgid "size (bytes)"
-msgstr ""
+msgstr "tamanho (bytes)"
 
 msgid "file count"
-msgstr ""
+msgstr "número de ficheiros"
 
 msgid "checksum"
-msgstr ""
+msgstr "checksum"
 
 msgid "Built-in"
-msgstr ""
+msgstr "Incorporada"
 
 msgid "Custom global"
-msgstr ""
+msgstr "Personalizada global"
 
 msgid "Per-repo"
-msgstr ""
+msgstr "Por repositório"
 
 msgid "source"
-msgstr ""
+msgstr "origem"
 
 msgid "repository"
-msgstr ""
+msgstr "repositório"
 
 msgid "thread id"
-msgstr ""
+msgstr "id da thread"
 
 msgid "Lifetime invocations"
-msgstr ""
+msgstr "Invocações totais"
 
 #, python-format
 msgid "%(counter)s invocation"
 msgid_plural "%(counter)s invocations"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%(counter)s invocação"
+msgstr[1] "%(counter)s invocações"
 
 msgid "No built-in skills shipped."
-msgstr ""
+msgstr "Nenhuma competência incorporada disponibilizada."
 
 #, python-format
 msgid "Open %(name)s"
-msgstr ""
+msgstr "Abrir %(name)s"
 
 msgid "Skill actions"
-msgstr ""
+msgstr "Ações da competência"
 
 msgid "Download zip"
-msgstr ""
+msgstr "Transferir zip"
 
 msgid "Delete"
-msgstr ""
+msgstr "Eliminar"
 
 msgid "Overrides built-in"
-msgstr ""
+msgstr "Substitui a incorporada"
 
 msgid "Uploaded by"
-msgstr ""
+msgstr "Carregada por"
 
 msgid "Uploaded by (unknown)"
-msgstr ""
+msgstr "Carregada por (desconhecido)"
 
 #, python-format
 msgid ""
@@ -105,104 +105,126 @@ msgid_plural ""
 "                Uploaded %(when)s ago · %(size)s · %(counter)s files\n"
 "                "
 msgstr[0] ""
+"\n"
+"                Carregada há %(when)s · %(size)s · %(counter)s ficheiro\n"
+"                "
 msgstr[1] ""
+"\n"
+"                Carregada há %(when)s · %(size)s · %(counter)s ficheiros\n"
+"                "
 
 msgid "No custom skills uploaded yet."
-msgstr ""
+msgstr "Ainda não foram carregadas competências personalizadas."
 
 msgid "Usage"
-msgstr ""
+msgstr "Utilização"
 
 msgid "Total invocations"
-msgstr ""
+msgstr "Invocações totais"
 
 msgid "Last 30 days"
-msgstr ""
+msgstr "Últimos 30 dias"
 
 msgid "No usage in the last 30 days."
-msgstr ""
+msgstr "Sem utilização nos últimos 30 dias."
 
 msgid "Recent activity"
-msgstr ""
+msgstr "Atividade recente"
 
 msgid "Skills"
-msgstr ""
+msgstr "Competências"
 
 msgid "Delete skill"
-msgstr ""
+msgstr "Eliminar competência"
 
 msgid "(unknown)"
-msgstr ""
+msgstr "(desconhecido)"
 
 msgid "SKILL.md body"
-msgstr ""
+msgstr "Corpo do SKILL.md"
 
 msgid "Show more"
-msgstr ""
+msgstr "Mostrar mais"
 
 msgid "Show less"
-msgstr ""
+msgstr "Mostrar menos"
 
 msgid "Files"
-msgstr ""
+msgstr "Ficheiros"
 
 msgid "Skills uploaded as zip archives are available to every agent run."
 msgstr ""
+"As competências carregadas como arquivos zip estão disponíveis para todas as"
+" execuções do agente."
 
 msgid "Upload skill"
-msgstr ""
+msgstr "Carregar competência"
 
 msgid "Custom skills"
-msgstr ""
+msgstr "Competências personalizadas"
 
 msgid "Built-in skills"
-msgstr ""
+msgstr "Competências incorporadas"
 
-msgid "The skill is moved to a recycle bin for 24 hours before being permanently removed."
+msgid ""
+"The skill is moved to a recycle bin for 24 hours before being permanently "
+"removed."
 msgstr ""
+"A competência é movida para a reciclagem durante 24 horas antes de ser "
+"removida permanentemente."
 
 #, python-format
 msgid "Are you sure you want to delete <strong>%(name)s</strong>?"
-msgstr ""
+msgstr "Tem a certeza de que pretende eliminar <strong>%(name)s</strong>?"
 
 msgid "Cancel"
-msgstr ""
+msgstr "Cancelar"
 
 msgid "Replace existing skill"
-msgstr ""
+msgstr "Substituir competência existente"
 
-msgid "Upload a zip archive containing a single skill directory with a SKILL.md at its root."
+msgid ""
+"Upload a zip archive containing a single skill directory with a SKILL.md at "
+"its root."
 msgstr ""
+"Carregue um arquivo zip que contenha um único diretório de competência com "
+"um SKILL.md na sua raiz."
 
 #, python-format
 msgid "A skill named \"%(name)s\" already exists."
-msgstr ""
+msgstr "Já existe uma competência com o nome \"%(name)s\"."
 
 #, python-format
 msgid ""
 "\n"
 "        Uploaded by %(by)s on %(at)s."
 msgstr ""
+"\n"
+"        Carregada por %(by)s em %(at)s."
 
-msgid "Choose the zip again to replace the existing version. The previous version is kept in a recycle bin for 24 hours."
+msgid ""
+"Choose the zip again to replace the existing version. The previous version "
+"is kept in a recycle bin for 24 hours."
 msgstr ""
+"Escolha novamente o zip para substituir a versão existente. A versão "
+"anterior é mantida na reciclagem durante 24 horas."
 
 msgid "Replace"
-msgstr ""
+msgstr "Substituir"
 
 msgid "Upload"
-msgstr ""
+msgstr "Carregar"
 
 msgid "Could not save the skill. Please try again."
-msgstr ""
+msgstr "Não foi possível guardar a competência. Tente novamente."
 
 #, python-format
 msgid "Skill '%(name)s' uploaded."
-msgstr ""
+msgstr "Competência '%(name)s' carregada."
 
 msgid "Could not delete the skill."
-msgstr ""
+msgstr "Não foi possível eliminar a competência."
 
 #, python-format
 msgid "Skill '%(name)s' deleted."
-msgstr ""
+msgstr "Competência '%(name)s' eliminada."

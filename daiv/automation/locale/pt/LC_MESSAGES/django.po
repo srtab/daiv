@@ -20,38 +20,41 @@ msgstr ""
 msgid "Automation"
 msgstr "Automação"
 
-msgid "This model is no longer available — start a new thread to pick another."
+msgid ""
+"This model is no longer available — start a new thread to pick another."
 msgstr ""
+"Este modelo já não está disponível — inicie um novo tópico para escolher "
+"outro."
 
 msgid "Locked for this conversation"
-msgstr ""
+msgstr "Bloqueado para esta conversa"
 
 msgid "Pick a model"
-msgstr ""
+msgstr "Selecionar um modelo"
 
 msgid "This model is no longer available — pick another."
-msgstr ""
+msgstr "Este modelo já não está disponível — escolha outro."
 
 msgid "Provider"
-msgstr ""
+msgstr "Fornecedor"
 
 msgid "No enabled providers — configure one in the Providers section."
-msgstr ""
+msgstr "Nenhum fornecedor ativado — configure um na secção Fornecedores."
 
 msgid "Model name…"
-msgstr ""
+msgstr "Nome do modelo…"
 
 msgid "Loading models…"
-msgstr ""
+msgstr "A carregar modelos…"
 
 msgid "No models match"
-msgstr ""
+msgstr "Nenhum modelo corresponde"
 
 msgid "Use exact name:"
-msgstr ""
+msgstr "Usar o nome exato:"
 
 msgid "Effort"
-msgstr ""
+msgstr "Esforço"
 
 msgid "Use default"
-msgstr ""
+msgstr "Usar predefinição"

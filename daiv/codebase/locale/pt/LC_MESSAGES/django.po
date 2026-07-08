@@ -81,35 +81,33 @@ msgid "Merge Metrics"
 msgstr "Métricas de Merge"
 
 msgid "Could not load branches."
-msgstr ""
+msgstr "Não foi possível carregar os ramos."
 
 msgid "No branches found."
-msgstr ""
+msgstr "Nenhum ramo encontrado."
 
-#, fuzzy
 #| msgid "repository ID"
 msgid "Choose repository"
-msgstr "ID do repositório"
+msgstr "Escolher repositório"
 
 msgid "Search repositories..."
-msgstr ""
+msgstr "Pesquisar repositórios..."
 
 msgid "Search branches..."
-msgstr ""
+msgstr "Pesquisar ramos..."
 
 msgid "default"
-msgstr ""
+msgstr "predefinição"
 
 msgid "Repository already in the list: __LABEL__."
-msgstr ""
+msgstr "Repositório já na lista: __LABEL__."
 
-#, fuzzy
 #| msgid "repository ID"
 msgid "Add repository"
-msgstr "ID do repositório"
+msgstr "Adicionar repositório"
 
 msgid "Could not load repositories."
-msgstr ""
+msgstr "Não foi possível carregar os repositórios."
 
 msgid "No repositories found."
-msgstr ""
+msgstr "Nenhum repositório encontrado."

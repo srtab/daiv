@@ -19,268 +19,307 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 msgid "one tool name per line"
-msgstr ""
+msgstr "um nome de ferramenta por linha"
 
 msgid "One tool name per line."
-msgstr ""
+msgstr "Um nome de ferramenta por linha."
 
-msgid "Renaming an existing MCP server is not supported. Delete and re-create instead."
+msgid ""
+"Renaming an existing MCP server is not supported. Delete and re-create "
+"instead."
 msgstr ""
+"Não é possível renomear um servidor MCP existente. Em vez disso, elimine e "
+"crie novamente."
 
 #, python-format
 msgid "'%(name)s' is a reserved name and cannot be used."
-msgstr ""
+msgstr "'%(name)s' é um nome reservado e não pode ser utilizado."
 
-msgid "At least one item is required when a filter mode other than 'none' is set."
+msgid ""
+"At least one item is required when a filter mode other than 'none' is set."
 msgstr ""
+"É necessário pelo menos um item quando está definido um modo de filtro "
+"diferente de 'none'."
 
 msgid "🔒 keep existing"
-msgstr ""
+msgstr "🔒 manter existente"
 
 msgid "Header name cannot be empty."
-msgstr ""
+msgstr "O nome do cabeçalho não pode estar vazio."
 
 msgid "Invalid header name (RFC 7230 token characters only)."
-msgstr ""
+msgstr "Nome de cabeçalho inválido (apenas caracteres de token RFC 7230)."
 
 msgid "Environment variable name is required."
-msgstr ""
+msgstr "O nome da variável de ambiente é obrigatório."
 
 msgid "Built-in"
-msgstr ""
+msgstr "Incorporado"
 
 msgid "Custom"
-msgstr ""
+msgstr "Personalizado"
 
 msgid "HTTP (streamable)"
-msgstr ""
+msgstr "HTTP (streamable)"
 
 msgid "SSE"
-msgstr ""
+msgstr "SSE"
 
 msgid "None"
-msgstr ""
+msgstr "Nenhum"
 
 msgid "Allow only listed tools"
-msgstr ""
+msgstr "Permitir apenas as ferramentas listadas"
 
 msgid "Block listed tools"
-msgstr ""
+msgstr "Bloquear as ferramentas listadas"
 
 msgid "name"
-msgstr ""
+msgstr "nome"
 
 msgid "description"
-msgstr ""
+msgstr "descrição"
 
 msgid "source"
-msgstr ""
+msgstr "origem"
 
 msgid "transport"
-msgstr ""
+msgstr "transporte"
 
 msgid "URL"
-msgstr ""
+msgstr "URL"
 
 msgid "tool filter mode"
-msgstr ""
+msgstr "modo de filtro de ferramentas"
 
 msgid "tool filter items"
-msgstr ""
+msgstr "itens do filtro de ferramentas"
 
 msgid "enabled"
-msgstr ""
+msgstr "ativado"
 
 msgid "discovered tools"
-msgstr ""
+msgstr "ferramentas descobertas"
 
 msgid "tools synced at"
-msgstr ""
+msgstr "ferramentas sincronizadas em"
 
 msgid "Remove"
-msgstr ""
+msgstr "Remover"
 
 msgid "Enabled"
-msgstr ""
+msgstr "Ativado"
 
 msgid "Disabled"
-msgstr ""
+msgstr "Desativado"
 
 msgid "Broken"
-msgstr ""
+msgstr "Avariado"
 
 #, python-format
 msgid "%(counter)s tool exposed"
 msgid_plural "%(counter)s tools exposed"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%(counter)s ferramenta exposta"
+msgstr[1] "%(counter)s ferramentas expostas"
 
 #, python-format
 msgid "%(counter)s filtered out"
 msgid_plural "%(counter)s filtered out"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%(counter)s filtrada"
+msgstr[1] "%(counter)s filtradas"
 
 #, python-format
 msgid "synced %(when)s ago"
-msgstr ""
+msgstr "sincronizado há %(when)s"
 
 msgid "No tools exposed"
-msgstr ""
+msgstr "Nenhuma ferramenta exposta"
 
 msgid "Tools not synced yet"
-msgstr ""
+msgstr "Ferramentas ainda não sincronizadas"
 
 msgid "Refresh tools"
-msgstr ""
+msgstr "Atualizar ferramentas"
 
 msgid "Disable"
-msgstr ""
+msgstr "Desativar"
 
 msgid "Enable"
-msgstr ""
+msgstr "Ativar"
 
 msgid "Edit"
-msgstr ""
+msgstr "Editar"
 
 msgid "Delete"
-msgstr ""
+msgstr "Eliminar"
 
 msgid "Delete MCP server"
-msgstr ""
+msgstr "Eliminar servidor MCP"
 
 #, python-format
 msgid "Delete %(name)s?"
-msgstr ""
+msgstr "Eliminar %(name)s?"
 
-msgid "This permanently removes the server and its stored headers. This cannot be undone."
+msgid ""
+"This permanently removes the server and its stored headers. This cannot be "
+"undone."
 msgstr ""
+"Isto remove permanentemente o servidor e os seus cabeçalhos armazenados. Não"
+" é possível anular esta ação."
 
 msgid "Cancel"
-msgstr ""
+msgstr "Cancelar"
 
 msgid "New MCP server"
-msgstr ""
+msgstr "Novo servidor MCP"
 
 msgid "Edit MCP server"
-msgstr ""
+msgstr "Editar servidor MCP"
 
 msgid "Connect an MCP server to give the agent extra tools and context."
 msgstr ""
+"Ligue um servidor MCP para dar ao agente ferramentas e contexto adicionais."
 
-msgid "Built-in server — it can be edited and disabled, but not renamed or deleted."
+msgid ""
+"Built-in server — it can be edited and disabled, but not renamed or deleted."
 msgstr ""
+"Servidor incorporado — pode ser editado e desativado, mas não renomeado nem "
+"eliminado."
 
 #, python-format
 msgid "Update “%(name)s”."
-msgstr ""
+msgstr "Atualizar “%(name)s”."
 
-msgid "Stored headers could not be decrypted (encryption key changed?). Saving is disabled until they are reset."
+msgid ""
+"Stored headers could not be decrypted (encryption key changed?). Saving is "
+"disabled until they are reset."
 msgstr ""
+"Não foi possível desencriptar os cabeçalhos armazenados (a chave de "
+"encriptação foi alterada?). A gravação está desativada até serem repostos."
 
 msgid "Filter tools…"
-msgstr ""
+msgstr "Filtrar ferramentas…"
 
 msgid "not in current tool list"
-msgstr ""
+msgstr "não está na lista de ferramentas atual"
 
 msgid "read-only"
-msgstr ""
+msgstr "só de leitura"
 
 msgid "writable"
-msgstr ""
+msgstr "editável"
 
 msgid "Details"
-msgstr ""
+msgstr "Detalhes"
 
 msgid "Name can’t be changed after creation."
-msgstr ""
+msgstr "O nome não pode ser alterado após a criação."
 
 msgid "Connection"
-msgstr ""
+msgstr "Ligação"
 
 msgid "Headers"
-msgstr ""
+msgstr "Cabeçalhos"
 
-msgid "HTTP headers sent to the MCP server. Choose “env_ref” to read the value from an environment variable at runtime instead of storing it."
+msgid ""
+"HTTP headers sent to the MCP server. Choose “env_ref” to read the value from"
+" an environment variable at runtime instead of storing it."
 msgstr ""
+"Cabeçalhos HTTP enviados para o servidor MCP. Escolha “env_ref” para ler o "
+"valor a partir de uma variável de ambiente em tempo de execução, em vez de o"
+" armazenar."
 
 msgid "Add header"
-msgstr ""
+msgstr "Adicionar cabeçalho"
 
 msgid "Test connection"
-msgstr ""
+msgstr "Testar ligação"
 
 msgid "Testing…"
-msgstr ""
+msgstr "A testar…"
 
 msgid "tools discovered"
-msgstr ""
+msgstr "ferramentas descobertas"
 
 msgid "Tool filter"
-msgstr ""
+msgstr "Filtro de ferramentas"
 
 msgid "not synced yet"
-msgstr ""
+msgstr "ainda não sincronizado"
 
-msgid "One tool name per line, or Test the connection above to pick from a list."
+msgid ""
+"One tool name per line, or Test the connection above to pick from a list."
 msgstr ""
+"Um nome de ferramenta por linha, ou teste a ligação acima para selecionar de"
+" uma lista."
 
 msgid "Save"
-msgstr ""
+msgstr "Guardar"
 
 msgid "MCP Servers"
-msgstr ""
+msgstr "Servidores MCP"
 
 msgid "MCP servers provide tools and context to the agent."
-msgstr ""
+msgstr "Os servidores MCP fornecem ferramentas e contexto ao agente."
 
 msgid "New server"
-msgstr ""
+msgstr "Novo servidor"
 
 msgid "Custom servers"
-msgstr ""
+msgstr "Servidores personalizados"
 
 msgid "No custom servers configured."
-msgstr ""
+msgstr "Nenhum servidor personalizado configurado."
 
 msgid "Built-in servers"
-msgstr ""
+msgstr "Servidores incorporados"
 
 msgid "No built-in servers registered."
-msgstr ""
+msgstr "Nenhum servidor incorporado registado."
 
 #, python-format
 msgid "MCP server '%(name)s' created."
-msgstr ""
+msgstr "Servidor MCP '%(name)s' criado."
 
 #, python-format
 msgid "'%(name)s' was saved, but its tools couldn't be refreshed: %(error)s"
 msgstr ""
+"'%(name)s' foi guardado, mas não foi possível atualizar as suas ferramentas:"
+" %(error)s"
 
 msgid "unknown error"
-msgstr ""
+msgstr "erro desconhecido"
 
 #, python-format
-msgid "Stored headers for '%(name)s' could not be decrypted (encryption key changed?). Saving from here is disabled until you reset them manually."
+msgid ""
+"Stored headers for '%(name)s' could not be decrypted (encryption key "
+"changed?). Saving from here is disabled until you reset them manually."
 msgstr ""
+"Não foi possível desencriptar os cabeçalhos armazenados de '%(name)s' (a "
+"chave de encriptação foi alterada?). A gravação a partir daqui está "
+"desativada até os repor manualmente."
 
 #, python-format
-msgid "Cannot save '%(name)s': existing headers could not be decrypted. Delete the server and re-create it, or rotate the encryption key back."
+msgid ""
+"Cannot save '%(name)s': existing headers could not be decrypted. Delete the "
+"server and re-create it, or rotate the encryption key back."
 msgstr ""
+"Não é possível guardar '%(name)s': não foi possível desencriptar os "
+"cabeçalhos existentes. Elimine o servidor e crie-o novamente, ou reverta a "
+"chave de encriptação."
 
 #, python-format
 msgid "MCP server '%(name)s' updated."
-msgstr ""
+msgstr "Servidor MCP '%(name)s' atualizado."
 
 #, python-format
 msgid "MCP server '%(name)s' deleted."
-msgstr ""
+msgstr "Servidor MCP '%(name)s' eliminado."
 
 #, python-format
 msgid "Refreshed tools for '%(name)s' (%(count)d found)."
-msgstr ""
+msgstr "Ferramentas de '%(name)s' atualizadas (%(count)d encontradas)."
 
 #, python-format
 msgid "Could not refresh tools for '%(name)s': %(error)s"
-msgstr ""
+msgstr "Não foi possível atualizar as ferramentas de '%(name)s': %(error)s"

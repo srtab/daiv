@@ -17,11 +17,12 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
 msgid "Repository already in the list: __LABEL__."
-msgstr ""
+msgstr "Repositório já na lista: __LABEL__."
 
 msgid "Prompt"
-msgstr ""
+msgstr "Prompt"
 
 msgid "Describe what the agent should do in each run..."
-msgstr ""
+msgstr "Descreva o que o agente deve fazer em cada execução..."

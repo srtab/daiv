@@ -17,565 +17,671 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
 #, python-format
 msgid "Default (%(name)s)"
-msgstr ""
+msgstr "Predefinição (%(name)s)"
 
 msgid "Pick a model"
-msgstr ""
+msgstr "Selecionar um modelo"
 
 msgid "Locked by environment variable"
-msgstr ""
+msgstr "Bloqueado por variável de ambiente"
 
 #, python-format
 msgid "Unsupported model: %(m)s."
-msgstr ""
+msgstr "Modelo não suportado: %(m)s."
 
 #, python-format
 msgid "Provider '%(s)s' is not configured."
-msgstr ""
+msgstr "O fornecedor '%(s)s' não está configurado."
 
 #, python-format
 msgid "Provider '%(s)s' is disabled. Enable it in the Providers section."
-msgstr ""
+msgstr "O fornecedor '%(s)s' está desativado. Ative-o na secção Fornecedores."
 
 #, python-format
 msgid "Provider '%(s)s' has no API key. Set it in the Providers section."
 msgstr ""
+"O fornecedor '%(s)s' não tem chave API. Defina-a na secção Fornecedores."
 
-msgid "Tavily requires an API key. Set the web search API key below or via environment variable."
+msgid ""
+"Tavily requires an API key. Set the web search API key below or via "
+"environment variable."
 msgstr ""
+"O Tavily requer uma chave API. Defina a chave API de pesquisa web abaixo ou "
+"através de variável de ambiente."
 
 msgid "OAuth requires both a client ID and a client secret."
-msgstr ""
+msgstr "O OAuth requer um client ID e um client secret."
 
 msgid "API key for Tavily web search engine."
-msgstr ""
+msgstr "Chave API do motor de pesquisa web Tavily."
 
 msgid "API key for the sandbox service."
-msgstr ""
+msgstr "Chave API do serviço de sandbox."
 
 msgid "OAuth application client secret for the configured Git platform."
-msgstr ""
+msgstr "Client secret da aplicação OAuth para a plataforma Git configurada."
 
 msgid "Bot user personal access token (X-Auth-Token)."
-msgstr ""
+msgstr "Token de acesso pessoal do utilizador do bot (X-Auth-Token)."
 
 msgid "header value"
-msgstr ""
+msgstr "valor do cabeçalho"
 
 msgid "Domain"
-msgstr ""
+msgstr "Domínio"
 
 msgid "Header name"
-msgstr ""
+msgstr "Nome do cabeçalho"
 
 msgid "Header value"
-msgstr ""
+msgstr "Valor do cabeçalho"
 
 msgid "Enter a host only (e.g. example.com)."
-msgstr ""
+msgstr "Introduza apenas um host (ex.: example.com)."
 
 msgid "Use letters, digits, and hyphens only (e.g. X-API-Key)."
-msgstr ""
+msgstr "Use apenas letras, dígitos e hífenes (ex.: X-API-Key)."
 
 msgid "Required."
-msgstr ""
+msgstr "Obrigatório."
 
 #, python-format
 msgid "Duplicate (domain, header name) pair: %(domain)s / %(header)s."
-msgstr ""
+msgstr "Par (domínio, nome do cabeçalho) duplicado: %(domain)s / %(header)s."
 
 msgid "API key"
-msgstr ""
+msgstr "Chave API"
 
 msgid "Extra headers (JSON)"
-msgstr ""
+msgstr "Cabeçalhos extra (JSON)"
 
 msgid "Use Responses API"
-msgstr ""
+msgstr "Usar Responses API"
 
 msgid "Verify TLS certificates"
-msgstr ""
+msgstr "Verificar certificados TLS"
 
 msgid "'google' is a reserved alias."
-msgstr ""
+msgstr "'google' é um alias reservado."
 
-msgid "Slug must start with a lowercase letter; lowercase letters, digits, '-' and '_'; max 32 chars."
+msgid ""
+"Slug must start with a lowercase letter; lowercase letters, digits, '-' and "
+"'_'; max 32 chars."
 msgstr ""
+"O slug tem de começar por uma letra minúscula; letras minúsculas, dígitos, "
+"'-' e '_'; máximo 32 caracteres."
 
 msgid "Slug is immutable after creation; delete and re-add to change."
 msgstr ""
+"O slug é imutável após a criação; elimine e volte a adicionar para o "
+"alterar."
 
 msgid "Locked provider; provider type cannot be changed."
-msgstr ""
+msgstr "Fornecedor bloqueado; o tipo de fornecedor não pode ser alterado."
 
 msgid "Base URL must use http or https."
-msgstr ""
+msgstr "O URL base tem de usar http ou https."
 
-msgid "Base URL looks like it is missing a version segment (e.g. '/v1'). The OpenAI SDK appends paths verbatim, so requests may hit the wrong route."
+msgid ""
+"Base URL looks like it is missing a version segment (e.g. '/v1'). The OpenAI"
+" SDK appends paths verbatim, so requests may hit the wrong route."
 msgstr ""
+"O URL base parece não ter um segmento de versão (ex.: '/v1'). O SDK da "
+"OpenAI acrescenta os caminhos tal como estão, pelo que os pedidos podem "
+"chegar à rota errada."
 
-msgid "verify_ssl=False has no effect for this provider type — the SDK doesn't accept a custom HTTP client. Mount the CA into the daiv containers instead."
+msgid ""
+"verify_ssl=False has no effect for this provider type — the SDK doesn't "
+"accept a custom HTTP client. Mount the CA into the daiv containers instead."
 msgstr ""
+"verify_ssl=False não tem efeito para este tipo de fornecedor — o SDK não "
+"aceita um cliente HTTP personalizado. Em vez disso, monte a CA nos "
+"contentores do daiv."
 
 #, python-format
 msgid "Invalid JSON: %s"
-msgstr ""
+msgstr "JSON inválido: %s"
 
 msgid "Extra headers must be a JSON object."
-msgstr ""
+msgstr "Os cabeçalhos extra têm de ser um objeto JSON."
 
 #, python-format
 msgid "Invalid header name: %s"
-msgstr ""
+msgstr "Nome de cabeçalho inválido: %s"
 
 #, python-format
 msgid "Header value for %s must be a string."
-msgstr ""
+msgstr "O valor do cabeçalho para %s tem de ser uma string."
 
 msgid "Required when enabled."
-msgstr ""
+msgstr "Obrigatório quando ativado."
 
 #, python-format
 msgid "Locked provider '%s' cannot be deleted."
-msgstr ""
+msgstr "O fornecedor bloqueado '%s' não pode ser eliminado."
 
 #, python-format
 msgid "Duplicate slug: %s"
-msgstr ""
+msgstr "Slug duplicado: %s"
 
 msgid "Minimal"
-msgstr ""
+msgstr "Mínimo"
 
 msgid "Low"
-msgstr ""
+msgstr "Baixo"
 
 msgid "Medium"
-msgstr ""
+msgstr "Médio"
 
 msgid "High"
-msgstr ""
+msgstr "Alto"
 
 msgid "Extra high"
-msgstr ""
+msgstr "Extra alto"
 
 msgid "DuckDuckGo"
-msgstr ""
+msgstr "DuckDuckGo"
 
 msgid "Tavily"
-msgstr ""
+msgstr "Tavily"
 
 msgid "OpenAI"
-msgstr ""
+msgstr "OpenAI"
 
 msgid "Anthropic"
-msgstr ""
+msgstr "Anthropic"
 
 msgid "Google Gemini"
-msgstr ""
+msgstr "Google Gemini"
 
 msgid "OpenRouter"
-msgstr ""
+msgstr "OpenRouter"
 
 msgid "model"
-msgstr ""
+msgstr "modelo"
 
 msgid "Primary model for agent tasks."
-msgstr ""
+msgstr "Modelo principal para tarefas do agente."
 
 msgid "fallback model"
-msgstr ""
+msgstr "modelo de recurso"
 
 msgid "Fallback model when the primary model fails."
-msgstr ""
+msgstr "Modelo de recurso quando o modelo principal falha."
 
 msgid "fallback thinking level"
-msgstr ""
+msgstr "nível de raciocínio de recurso"
 
-msgid "Thinking depth applied to the fallback model. Independent of the primary thinking level."
+msgid ""
+"Thinking depth applied to the fallback model. Independent of the primary "
+"thinking level."
 msgstr ""
+"Profundidade de raciocínio aplicada ao modelo de recurso. Independente do "
+"nível de raciocínio principal."
 
 msgid "thinking level"
-msgstr ""
+msgstr "nível de raciocínio"
 
-msgid "Extended thinking depth for agent tasks. Leave empty to disable thinking."
+msgid ""
+"Extended thinking depth for agent tasks. Leave empty to disable thinking."
 msgstr ""
+"Profundidade de raciocínio alargado para tarefas do agente. Deixe vazio para"
+" desativar o raciocínio."
 
 msgid "max model"
-msgstr ""
+msgstr "modelo max"
 
 msgid "Model for tasks when the daiv-max label is present."
-msgstr ""
+msgstr "Modelo para tarefas quando a etiqueta daiv-max está presente."
 
 msgid "max thinking level"
-msgstr ""
+msgstr "nível de raciocínio max"
 
 msgid "Thinking depth for daiv-max tasks. Leave empty to disable thinking."
 msgstr ""
+"Profundidade de raciocínio para tarefas daiv-max. Deixe vazio para desativar"
+" o raciocínio."
 
 msgid "explore model"
-msgstr ""
+msgstr "modelo de exploração"
 
 msgid "Fast model for the explore subagent."
-msgstr ""
+msgstr "Modelo rápido para o subagente de exploração."
 
 msgid "explore fallback model"
-msgstr ""
+msgstr "modelo de recurso de exploração"
 
 msgid "Fallback model when the explore model fails."
-msgstr ""
+msgstr "Modelo de recurso quando o modelo de exploração falha."
 
 msgid "recursion limit"
-msgstr ""
+msgstr "limite de recursão"
 
 msgid "Maximum recursion depth for agent loops."
-msgstr ""
+msgstr "Profundidade máxima de recursão para os ciclos do agente."
 
 msgid "Model for generating commit messages and PR descriptions from diffs."
 msgstr ""
+"Modelo para gerar mensagens de commit e descrições de PR a partir de diffs."
 
 msgid "Fallback model used when the primary fails."
-msgstr ""
+msgstr "Modelo de recurso usado quando o principal falha."
 
 msgid "Model for generating chat thread and activity titles from prompts."
 msgstr ""
+"Modelo para gerar títulos de conversas de chat e de atividade a partir de "
+"prompts."
 
 msgid "memory enabled"
-msgstr ""
+msgstr "memória ativada"
 
-msgid "Capture learnings from finished runs, consolidate them, and inject them into future runs. A per-repository .daiv.yml flag can still opt an individual repository out."
+msgid ""
+"Capture learnings from finished runs, consolidate them, and inject them into"
+" future runs. A per-repository .daiv.yml flag can still opt an individual "
+"repository out."
 msgstr ""
+"Captura aprendizagens de execuções concluídas, consolida-as e injeta-as em "
+"execuções futuras. Uma flag .daiv.yml por repositório pode ainda excluir um "
+"repositório individual."
 
 msgid "extraction model"
-msgstr ""
+msgstr "modelo de extração"
 
-msgid "Cheap model that extracts candidate observations from each finished run's transcript."
+msgid ""
+"Cheap model that extracts candidate observations from each finished run's "
+"transcript."
 msgstr ""
+"Modelo económico que extrai observações candidatas do transcrito de cada "
+"execução concluída."
 
 msgid "extraction fallback model"
-msgstr ""
+msgstr "modelo de recurso de extração"
 
 msgid "Fallback model when the extraction model fails."
-msgstr ""
+msgstr "Modelo de recurso quando o modelo de extração falha."
 
 msgid "consolidation model"
-msgstr ""
+msgstr "modelo de consolidação"
 
-msgid "Model that rewrites the memory document. Leave empty to reuse the repository's agent model."
+msgid ""
+"Model that rewrites the memory document. Leave empty to reuse the "
+"repository's agent model."
 msgstr ""
+"Modelo que reescreve o documento de memória. Deixe vazio para reutilizar o "
+"modelo do agente do repositório."
 
 msgid "consolidation threshold"
-msgstr ""
+msgstr "limiar de consolidação"
 
-msgid "Consolidate once at least this many pending observations have accumulated (subject to the consolidation interval below)."
+msgid ""
+"Consolidate once at least this many pending observations have accumulated "
+"(subject to the consolidation interval below)."
 msgstr ""
+"Consolida quando tiverem acumulado pelo menos este número de observações "
+"pendentes (sujeito ao intervalo de consolidação abaixo)."
 
 msgid "consolidation interval (hours)"
-msgstr ""
+msgstr "intervalo de consolidação (horas)"
 
 msgid "Minimum hours between consolidations for the same repository."
-msgstr ""
+msgstr "Número mínimo de horas entre consolidações para o mesmo repositório."
 
 msgid "memory max lines"
-msgstr ""
+msgstr "máximo de linhas de memória"
 
 msgid "Hard cap on the consolidated memory document length, in lines."
 msgstr ""
+"Limite máximo do comprimento do documento de memória consolidado, em linhas."
 
 msgid "memory max bytes"
-msgstr ""
+msgstr "máximo de bytes de memória"
 
 msgid "Hard cap on the consolidated memory document size, in bytes."
 msgstr ""
+"Limite máximo do tamanho do documento de memória consolidado, em bytes."
 
 msgid "web search enabled"
-msgstr ""
+msgstr "pesquisa web ativada"
 
 msgid "Enable or disable the web search tool."
-msgstr ""
+msgstr "Ativar ou desativar a ferramenta de pesquisa web."
 
 msgid "web search max results"
-msgstr ""
+msgstr "máximo de resultados de pesquisa web"
 
 msgid "Maximum number of results returned from web search."
-msgstr ""
+msgstr "Número máximo de resultados devolvidos pela pesquisa web."
 
 msgid "web search engine"
-msgstr ""
+msgstr "motor de pesquisa web"
 
 msgid "Search engine to use. Tavily requires an API key."
-msgstr ""
+msgstr "Motor de pesquisa a usar. O Tavily requer uma chave API."
 
 msgid "web fetch enabled"
-msgstr ""
+msgstr "obtenção web ativada"
 
 msgid "Enable or disable the web fetch tool."
-msgstr ""
+msgstr "Ativar ou desativar a ferramenta de obtenção web."
 
 msgid "web fetch model"
-msgstr ""
+msgstr "modelo de obtenção web"
 
 msgid "Model used to process fetched page content."
-msgstr ""
+msgstr "Modelo usado para processar o conteúdo das páginas obtidas."
 
 msgid "web fetch cache TTL"
-msgstr ""
+msgstr "TTL da cache de obtenção web"
 
 msgid "Cache time-to-live for fetched pages, in seconds."
-msgstr ""
+msgstr "Tempo de vida da cache para páginas obtidas, em segundos."
 
 msgid "web fetch timeout"
-msgstr ""
+msgstr "tempo limite de obtenção web"
 
 msgid "HTTP timeout for web fetch requests, in seconds."
-msgstr ""
+msgstr "Tempo limite HTTP para pedidos de obtenção web, em segundos."
 
 msgid "web fetch max content"
-msgstr ""
+msgstr "máximo de conteúdo de obtenção web"
 
 msgid "Maximum page content size (in characters) to analyze in one pass."
 msgstr ""
+"Tamanho máximo do conteúdo da página (em caracteres) a analisar numa só "
+"passagem."
 
 msgid "sandbox timeout"
-msgstr ""
+msgstr "tempo limite da sandbox"
 
 msgid "Timeout for sandbox requests, in seconds."
-msgstr ""
+msgstr "Tempo limite para pedidos à sandbox, em segundos."
 
 msgid "enable OAuth login"
-msgstr ""
+msgstr "ativar início de sessão OAuth"
 
-msgid "Allow users to sign in with their Git platform account (GitHub or GitLab)."
+msgid ""
+"Allow users to sign in with their Git platform account (GitHub or GitLab)."
 msgstr ""
+"Permitir que os utilizadores iniciem sessão com a sua conta da plataforma "
+"Git (GitHub ou GitLab)."
 
 msgid "open social signup"
-msgstr ""
+msgstr "registo social aberto"
 
-msgid "Allow anyone who authenticates via the configured Git platform to create an account. When disabled, only users pre-created by an admin can sign in."
+msgid ""
+"Allow anyone who authenticates via the configured Git platform to create an "
+"account. When disabled, only users pre-created by an admin can sign in."
 msgstr ""
+"Permitir que qualquer pessoa que se autentique através da plataforma Git "
+"configurada crie uma conta. Quando desativado, apenas os utilizadores pré-"
+"criados por um administrador podem iniciar sessão."
 
 msgid "OAuth client ID"
-msgstr ""
+msgstr "OAuth client ID"
 
 msgid "OAuth application client ID for the configured Git platform."
-msgstr ""
+msgstr "Client ID da aplicação OAuth para a plataforma Git configurada."
 
 msgid "GitLab URL"
-msgstr ""
+msgstr "URL do GitLab"
 
 msgid "Browser-facing URL of your GitLab instance."
-msgstr ""
+msgstr "URL da sua instância GitLab visível pelo navegador."
 
 msgid "GitLab server URL"
-msgstr ""
+msgstr "URL do servidor GitLab"
 
-msgid "Server-to-server URL for GitLab API calls (token exchange, profile fetch) in Docker-internal networks. Leave empty to use the GitLab URL."
+msgid ""
+"Server-to-server URL for GitLab API calls (token exchange, profile fetch) in"
+" Docker-internal networks. Leave empty to use the GitLab URL."
 msgstr ""
+"URL servidor-a-servidor para chamadas à API do GitLab (troca de token, "
+"obtenção de perfil) em redes internas do Docker. Deixe vazio para usar o URL"
+" do GitLab."
 
 msgid "suggest context file"
-msgstr ""
+msgstr "sugerir ficheiro de contexto"
 
-msgid "Suggest creating a context file (e.g. AGENTS.md) on new merge requests."
+msgid ""
+"Suggest creating a context file (e.g. AGENTS.md) on new merge requests."
 msgstr ""
+"Sugerir a criação de um ficheiro de contexto (ex.: AGENTS.md) em novos merge"
+" requests."
 
 msgid "jobs throttle rate"
-msgstr ""
+msgstr "limite de frequência de tarefas"
 
-msgid "Rate limit for job submissions per authenticated user (e.g. '20/hour')."
+msgid ""
+"Rate limit for job submissions per authenticated user (e.g. '20/hour')."
 msgstr ""
+"Limite de frequência para submissões de tarefas por utilizador autenticado "
+"(ex.: '20/hour')."
 
 msgid "enable Rocket Chat"
-msgstr ""
+msgstr "ativar Rocket Chat"
 
 msgid "Offer Rocket Chat as a notification channel for users."
 msgstr ""
+"Oferecer o Rocket Chat como canal de notificação para os utilizadores."
 
 msgid "Rocket Chat URL"
-msgstr ""
+msgstr "URL do Rocket Chat"
 
 msgid "Base URL of your Rocket Chat instance (e.g. https://rc.example.com)."
-msgstr ""
+msgstr "URL base da sua instância Rocket Chat (ex.: https://rc.example.com)."
 
 msgid "Rocket Chat bot user ID"
-msgstr ""
+msgstr "ID do utilizador do bot do Rocket Chat"
 
 msgid "The bot user's _id, sent as the X-User-Id header."
-msgstr ""
+msgstr "O _id do utilizador do bot, enviado como cabeçalho X-User-Id."
 
 msgid "Agent"
-msgstr ""
+msgstr "Agente"
 
 msgid "Commit & PR Writer"
-msgstr ""
+msgstr "Redator de Commit e PR"
 
 msgid "Titling"
-msgstr ""
+msgstr "Titulação"
 
 msgid "Memory"
-msgstr ""
+msgstr "Memória"
 
 msgid "Providers"
-msgstr ""
+msgstr "Fornecedores"
 
 msgid "Web Search"
-msgstr ""
+msgstr "Pesquisa Web"
 
 msgid "Web Fetch"
-msgstr ""
+msgstr "Obtenção Web"
 
 msgid "Sandbox"
-msgstr ""
+msgstr "Sandbox"
 
 msgid "Jobs"
-msgstr ""
+msgstr "Tarefas"
 
 msgid "Rocket Chat"
-msgstr ""
+msgstr "Rocket Chat"
 
 msgid "Authentication"
-msgstr ""
+msgstr "Autenticação"
 
 msgid "site configuration"
-msgstr ""
+msgstr "configuração do site"
 
 msgid "domain"
-msgstr ""
+msgstr "domínio"
 
 msgid "header name"
-msgstr ""
+msgstr "nome do cabeçalho"
 
 msgid "web fetch auth header"
-msgstr ""
+msgstr "cabeçalho de autenticação de obtenção web"
 
 msgid "web fetch auth headers"
-msgstr ""
+msgstr "cabeçalhos de autenticação de obtenção web"
 
 msgid "slug"
-msgstr ""
+msgstr "slug"
 
 msgid "display name"
-msgstr ""
+msgstr "nome de apresentação"
 
 msgid "provider type"
-msgstr ""
+msgstr "tipo de fornecedor"
 
 msgid "base URL"
-msgstr ""
+msgstr "URL base"
 
 msgid "extra headers"
-msgstr ""
+msgstr "cabeçalhos extra"
 
 msgid "enabled"
-msgstr ""
+msgstr "ativado"
 
 msgid "use Responses API"
-msgstr ""
+msgstr "usar Responses API"
 
-msgid "Only honored for OpenAI-typed providers. Enable for servers that expose /v1/responses (real OpenAI, some hosted gateways). Disable for /v1/chat/completions-only servers (vLLM, llama.cpp, most LiteLLM setups)."
+msgid ""
+"Only honored for OpenAI-typed providers. Enable for servers that expose "
+"/v1/responses (real OpenAI, some hosted gateways). Disable for "
+"/v1/chat/completions-only servers (vLLM, llama.cpp, most LiteLLM setups)."
 msgstr ""
+"Apenas considerado para fornecedores do tipo OpenAI. Ative para servidores "
+"que expõem /v1/responses (OpenAI real, alguns gateways alojados). Desative "
+"para servidores apenas com /v1/chat/completions (vLLM, llama.cpp, a maioria "
+"das configurações LiteLLM)."
 
 msgid "verify TLS certificates"
-msgstr ""
+msgstr "verificar certificados TLS"
 
-msgid "Disable only for self-hosted endpoints behind an internal/self-signed CA. Skipping verification exposes the connection to MITM attacks; prefer mounting the internal CA into the daiv containers when possible."
+msgid ""
+"Disable only for self-hosted endpoints behind an internal/self-signed CA. "
+"Skipping verification exposes the connection to MITM attacks; prefer "
+"mounting the internal CA into the daiv containers when possible."
 msgstr ""
+"Desative apenas para endpoints auto-alojados por detrás de uma CA "
+"interna/autoassinada. Ignorar a verificação expõe a ligação a ataques MITM; "
+"sempre que possível, prefira montar a CA interna nos contentores do daiv."
 
 msgid "provider"
-msgstr ""
+msgstr "fornecedor"
 
 msgid "providers"
-msgstr ""
+msgstr "fornecedores"
 
-msgid "Configure model providers. Reach a model from agent config via the form"
+msgid ""
+"Configure model providers. Reach a model from agent config via the form"
 msgstr ""
+"Configure os fornecedores de modelos. Alcance um modelo a partir da "
+"configuração do agente através do formulário"
 
 msgid "Providers could not be saved — please fix the errors below:"
-msgstr ""
+msgstr "Não foi possível guardar os fornecedores — corrija os erros abaixo:"
 
 msgid "new row"
-msgstr ""
+msgstr "nova linha"
 
 msgid "Built-in"
-msgstr ""
+msgstr "Integrado"
 
 msgid "Custom"
-msgstr ""
+msgstr "Personalizado"
 
 msgid "Add custom provider"
-msgstr ""
+msgstr "Adicionar fornecedor personalizado"
 
 msgid "Per-domain auth headers"
-msgstr ""
+msgstr "Cabeçalhos de autenticação por domínio"
 
-msgid "Send custom HTTP headers when web_fetch contacts a domain. Match is exact (no subdomains)."
+msgid ""
+"Send custom HTTP headers when web_fetch contacts a domain. Match is exact "
+"(no subdomains)."
 msgstr ""
+"Enviar cabeçalhos HTTP personalizados quando o web_fetch contacta um "
+"domínio. A correspondência é exata (sem subdomínios)."
 
 msgid "No headers configured via DAIV_WEB_FETCH_AUTH_HEADERS."
-msgstr ""
+msgstr "Nenhum cabeçalho configurado através de DAIV_WEB_FETCH_AUTH_HEADERS."
 
 msgid "Add header"
-msgstr ""
+msgstr "Adicionar cabeçalho"
 
 msgid "Reorder"
-msgstr ""
+msgstr "Reordenar"
 
 msgid "New provider"
-msgstr ""
+msgstr "Novo fornecedor"
 
 msgid "API key set"
-msgstr ""
+msgstr "Chave API definida"
 
 msgid "key set"
-msgstr ""
+msgstr "chave definida"
 
 msgid "API key missing"
-msgstr ""
+msgstr "Chave API em falta"
 
 msgid "no key"
-msgstr ""
+msgstr "sem chave"
 
 msgid "Enabled"
-msgstr ""
+msgstr "Ativado"
 
 msgid "Remove"
-msgstr ""
+msgstr "Remover"
 
 msgid "Base URL"
-msgstr ""
+msgstr "URL base"
 
 msgid "override"
-msgstr ""
+msgstr "substituir"
 
 msgid "Empty = SDK default. Useful for Azure / proxies."
-msgstr ""
+msgstr "Vazio = predefinição do SDK. Útil para Azure / proxies."
 
 msgid "Advanced"
-msgstr ""
+msgstr "Avançado"
 
 msgid "Display name"
-msgstr ""
+msgstr "Nome de apresentação"
 
 msgid "Provider type"
-msgstr ""
+msgstr "Tipo de fornecedor"
 
 msgid "Slug"
-msgstr ""
+msgstr "Slug"
 
 msgid "Slug is set at creation; delete and re-add to change."
 msgstr ""
+"O slug é definido na criação; elimine e volte a adicionar para o alterar."
 
-msgid "OpenAI-typed providers only. Enable for servers exposing /v1/responses; disable for /v1/chat/completions-only servers."
+msgid ""
+"OpenAI-typed providers only. Enable for servers exposing /v1/responses; "
+"disable for /v1/chat/completions-only servers."
 msgstr ""
+"Apenas para fornecedores do tipo OpenAI. Ative para servidores que expõem "
+"/v1/responses; desative para servidores apenas com /v1/chat/completions."
 
-msgid "Disable only for self-hosted endpoints behind an internal/self-signed CA. Insecure — prefer mounting the CA into the daiv containers."
+msgid ""
+"Disable only for self-hosted endpoints behind an internal/self-signed CA. "
+"Insecure — prefer mounting the CA into the daiv containers."
 msgstr ""
+"Desative apenas para endpoints auto-alojados por detrás de uma CA "
+"interna/autoassinada. Inseguro — prefira montar a CA nos contentores do "
+"daiv."
 
 msgid "Clear"
-msgstr ""
+msgstr "Limpar"
 
 msgid "Stored:"
-msgstr ""
+msgstr "Armazenado:"
 
 msgid "(new)"
-msgstr ""
+msgstr "(novo)"

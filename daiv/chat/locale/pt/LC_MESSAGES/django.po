@@ -17,41 +17,42 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
 msgid "Jump to latest"
-msgstr ""
+msgstr "Ir para o mais recente"
 
 msgid "Message DAIV"
-msgstr ""
+msgstr "Enviar mensagem ao DAIV"
 
 msgid "Describe the change, the bug, or what to explore…"
-msgstr ""
+msgstr "Descreva a alteração, o erro ou o que explorar…"
 
 msgid "MR"
-msgstr ""
+msgstr "MR"
 
 msgid "draft"
-msgstr ""
+msgstr "rascunho"
 
 msgid "Stop"
-msgstr ""
+msgstr "Parar"
 
 msgid "Sending…"
-msgstr ""
+msgstr "A enviar…"
 
 msgid "Send"
-msgstr ""
+msgstr "Enviar"
 
 msgid "DAIV can make mistakes. Verify important information."
-msgstr ""
+msgstr "O DAIV pode cometer erros. Verifique informações importantes."
 
 msgid "Session context"
-msgstr ""
+msgstr "Contexto da sessão"
 
 msgid "Todos"
-msgstr ""
+msgstr "Tarefas"
 
 msgid "Files changed"
-msgstr ""
+msgstr "Ficheiros alterados"
 
 msgid "Show all"
-msgstr ""
+msgstr "Mostrar tudo"

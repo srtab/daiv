@@ -19,139 +19,152 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 msgid "Memory"
-msgstr ""
+msgstr "Memória"
 
 msgid "Build & test"
-msgstr ""
+msgstr "Compilação e testes"
 
 msgid "Codebase fact"
-msgstr ""
+msgstr "Facto da base de código"
 
 msgid "Pitfall"
-msgstr ""
+msgstr "Armadilha"
 
 msgid "Reviewer preference"
-msgstr ""
+msgstr "Preferência do revisor"
 
 msgid "Workflow"
-msgstr ""
+msgstr "Fluxo de trabalho"
 
 msgid "Pending"
-msgstr ""
+msgstr "Pendente"
 
 msgid "Consolidated"
-msgstr ""
+msgstr "Consolidada"
 
 msgid "Discarded"
-msgstr ""
+msgstr "Descartada"
 
 msgid "repository"
-msgstr ""
+msgstr "repositório"
 
 msgid "run"
-msgstr ""
+msgstr "execução"
 
 msgid "category"
-msgstr ""
+msgstr "categoria"
 
 msgid "content"
-msgstr ""
+msgstr "conteúdo"
 
 msgid "status"
-msgstr ""
+msgstr "estado"
 
 msgid "created at"
-msgstr ""
+msgstr "criado em"
 
 msgid "Memory observation"
-msgstr ""
+msgstr "Observação de memória"
 
 msgid "Memory observations"
-msgstr ""
+msgstr "Observações de memória"
 
 msgid "last consolidated at"
-msgstr ""
+msgstr "última consolidação em"
 
 msgid "updated at"
-msgstr ""
+msgstr "atualizado em"
 
 msgid "Repository memory"
-msgstr ""
+msgstr "Memória do repositório"
 
 msgid "Repository memories"
-msgstr ""
+msgstr "Memórias do repositório"
 
 msgid "All"
-msgstr ""
+msgstr "Todas"
 
 msgid "Last consolidated"
-msgstr ""
+msgstr "Última consolidação"
 
 msgid "lines"
-msgstr ""
+msgstr "linhas"
 
 msgid "Never consolidated"
-msgstr ""
+msgstr "Nunca consolidada"
 
 msgid "Consolidate now"
-msgstr ""
+msgstr "Consolidar agora"
 
 msgid "Consolidated document"
-msgstr ""
+msgstr "Documento consolidado"
 
 #, python-format
 msgid "No consolidated document yet — %(n)s observation so far."
 msgid_plural "No consolidated document yet — %(n)s observations so far."
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "Ainda sem documento consolidado — %(n)s observação até agora."
+msgstr[1] "Ainda sem documento consolidado — %(n)s observações até agora."
 
 msgid "Observations"
-msgstr ""
+msgstr "Observações"
 
 msgid "Status"
-msgstr ""
+msgstr "Estado"
 
 msgid "Category"
-msgstr ""
+msgstr "Categoria"
 
 msgid "View source run"
-msgstr ""
+msgstr "Ver execução de origem"
 
 msgid "No observations match the current filters."
-msgstr ""
+msgstr "Nenhuma observação corresponde aos filtros atuais."
 
 msgid "Learned memory captured from finished agent runs, per repository."
 msgstr ""
+"Memória aprendida capturada a partir de execuções concluídas do agente, por "
+"repositório."
 
-msgid "Memory capture is currently disabled site-wide. Existing data is shown below."
+msgid ""
+"Memory capture is currently disabled site-wide. Existing data is shown "
+"below."
 msgstr ""
+"A captura de memória está atualmente desativada em todo o site. Os dados "
+"existentes são apresentados abaixo."
 
 msgid "Document"
-msgstr ""
+msgstr "Documento"
 
 msgid "No document"
-msgstr ""
+msgstr "Sem documento"
 
 #, python-format
 msgid "%(n)s pending"
-msgstr ""
+msgstr "%(n)s pendente(s)"
 
 #, python-format
 msgid "%(n)s observation"
 msgid_plural "%(n)s observations"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%(n)s observação"
+msgstr[1] "%(n)s observações"
 
-msgid "No repository memory yet. Memory is captured automatically as agent runs finish."
+msgid ""
+"No repository memory yet. Memory is captured automatically as agent runs "
+"finish."
 msgstr ""
+"Ainda sem memória do repositório. A memória é capturada automaticamente à "
+"medida que as execuções do agente terminam."
 
 msgid "Memory capture is disabled site-wide; consolidation was not queued."
 msgstr ""
+"A captura de memória está desativada em todo o site; a consolidação não foi "
+"colocada em fila."
 
 #, python-format
 msgid "Nothing to consolidate for %(repo)s — no pending observations."
-msgstr ""
+msgstr "Nada para consolidar em %(repo)s — sem observações pendentes."
 
 #, python-format
 msgid "Consolidation queued for %(repo)s (%(count)d pending observation(s))."
 msgstr ""
+"Consolidação em fila para %(repo)s (%(count)d observação(ões) pendente(s))."
