@@ -17,7 +17,30 @@ from __future__ import annotations
 import logging
 import uuid
 
+from django.db import models
+
 logger = logging.getLogger("daiv.sessions")
+
+# Discriminator columns whose value is meaningful, never an empty string. A NULL here is real
+# corruption (and "" would violate their enum check constraints), so they are left untouched by
+# the NULL->"" coalescing below and surface loudly if ever NULL.
+_DISCRIMINATOR_FIELDS = frozenset({"origin", "trigger_type", "status"})
+
+
+def _blank_null_text(obj) -> None:
+    """Coalesce NULL -> "" on every non-nullable text column of ``obj``.
+
+    Legacy Activity/ChatThread rows can carry NULL on columns that are NOT NULL on
+    Session/Run (those columns pre-date their NOT NULL / ``default=""`` tightening on some
+    deployments). A single stray NULL would otherwise abort the whole atomic migration. Uses
+    model introspection so every current and future text column is covered without re-listing.
+    """
+    for field in obj._meta.concrete_fields:
+        if field.attname in _DISCRIMINATOR_FIELDS or field.null:
+            continue
+        if isinstance(field, (models.CharField, models.TextField)) and getattr(obj, field.attname) is None:
+            setattr(obj, field.attname, "")
+
 
 RUN_COPY_FIELDS = [
     # Activity field -> Run field, 1:1 names
@@ -70,7 +93,7 @@ def run_backfill(apps, schema_editor=None) -> None:
             continue  # already backfilled — also prevents re-minting sessions for null-thread rows
         thread_id = activity.thread_id or str(uuid.uuid4())  # mint for legacy null-thread rows
         if thread_id not in sessions_to_create and thread_id not in existing_sessions:
-            sessions_to_create[thread_id] = Session(
+            session = Session(
                 thread_id=thread_id,
                 origin=activity.trigger_type,  # earliest activity wins
                 user_id=activity.user_id,
@@ -87,6 +110,8 @@ def run_backfill(apps, schema_editor=None) -> None:
                 created_at=activity.created_at,
                 last_active_at=activity.finished_at or activity.created_at,
             )
+            _blank_null_text(session)  # legacy rows may carry NULL on NOT NULL text columns
+            sessions_to_create[thread_id] = session
         elif thread_id in sessions_to_create:
             session = sessions_to_create[thread_id]
             # Latest-wins fields.
@@ -111,6 +136,7 @@ def run_backfill(apps, schema_editor=None) -> None:
             run = Run(id=activity.id, session_id=thread_id)
             for field in RUN_COPY_FIELDS:
                 setattr(run, field, getattr(activity, field))
+            _blank_null_text(run)  # legacy rows may carry NULL on NOT NULL text columns
             runs_to_create.append(run)
 
     # Wrap so a DB error names the failing step instead of surfacing as an opaque
@@ -140,11 +166,12 @@ def run_backfill(apps, schema_editor=None) -> None:
             defaults={
                 "origin": "chat",
                 "user_id": thread.user_id,
-                "repo_id": thread.repo_id,
-                "ref": thread.ref,
-                "title": thread.title,
-                "agent_model": thread.agent_model,
-                "agent_thinking_level": thread.agent_thinking_level,
+                # NOT NULL on Session; legacy chat rows may carry NULL on these text columns.
+                "repo_id": thread.repo_id or "",
+                "ref": thread.ref or "",
+                "title": thread.title or "",
+                "agent_model": thread.agent_model or "",
+                "agent_thinking_level": thread.agent_thinking_level or "",
                 "sandbox_environment_id": thread.sandbox_environment_id,
                 "created_at": thread.created_at,
                 "last_active_at": thread.last_active_at,

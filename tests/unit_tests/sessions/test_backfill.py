@@ -177,3 +177,63 @@ def test_backfill_is_idempotent(h):
     run_backfill(h.apps)
     assert h.session.objects.count() == sessions_after_first
     assert h.run.objects.count() == runs_after_first
+
+
+@pytest.mark.django_db(transaction=True)
+def test_backfill_coalesces_null_text_columns_from_activity(h, monkeypatch):
+    """Legacy Activity rows with NULLs on NOT NULL text columns must not abort the migration.
+
+    Those columns pre-date their NOT NULL tightening on some deployments, so production rows can
+    carry NULL on any of them (repo_id and ref have both been observed). SQLite enforces NOT NULL
+    on the historical ``activity`` table, so the null row can't be stored — feed an in-memory
+    instance through the (only) Activity iterator instead.
+    """
+    user = _mk_user("owner")
+    act = _mk_activity(
+        h.activity,
+        thread_id="T-null",
+        trigger_type="mcp_job",
+        user_id=user.pk,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    # Simulate the legacy NULLs in memory across several NOT NULL text columns.
+    for field in ("repo_id", "ref", "title", "prompt", "agent_model", "external_username"):
+        setattr(act, field, None)
+
+    # run_backfill reads activities only via ``Activity.objects.order_by(...).iterator()``.
+    monkeypatch.setattr(h.activity.objects, "order_by", lambda *a, **k: SimpleNamespace(iterator=lambda: iter([act])))
+
+    run_backfill(h.apps)
+
+    session = h.session.objects.get(thread_id="T-null")
+    run = h.run.objects.get(pk=act.id)
+    assert (session.repo_id, session.ref, session.title, session.agent_model, session.external_username) == ("",) * 5
+    assert (run.repo_id, run.ref, run.title, run.prompt, run.agent_model, run.external_username) == ("",) * 6
+    # Discriminator survives untouched (it is never coalesced to "").
+    assert run.trigger_type == "mcp_job"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_backfill_coalesces_null_text_columns_from_chat(h, monkeypatch):
+    """Same guard for the chat pass: a ChatThread with NULL ref/title/etc. must backfill cleanly."""
+    user = _mk_user("owner")
+    at = datetime(2026, 1, 1, tzinfo=UTC)
+    thread = SimpleNamespace(
+        thread_id="T-chat-null",
+        user_id=user.pk,
+        repo_id=None,
+        ref=None,
+        title=None,
+        agent_model=None,
+        agent_thinking_level=None,
+        sandbox_environment_id=None,
+        created_at=at,
+        last_active_at=at,
+    )
+    monkeypatch.setattr(h.chat.objects, "iterator", lambda *a, **k: iter([thread]))
+
+    run_backfill(h.apps)
+
+    session = h.session.objects.get(thread_id="T-chat-null")
+    assert (session.repo_id, session.ref, session.title, session.agent_model) == ("", "", "", "")
+    assert session.origin == "chat"
