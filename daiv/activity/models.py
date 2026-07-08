@@ -51,7 +51,8 @@ class ActivityManager(models.Manager["Activity"]):
         """
         if user.is_admin:
             return self.all()
-        # Local import: activity → codebase.authorization is a load-time cycle at module level.
+        # Local import: keep this models module from pulling codebase.authorization
+        # (and its codebase.* / allauth graph) in at app-load time.
         from codebase.authorization import viewable_repo_ids_subquery
 
         return self.filter(

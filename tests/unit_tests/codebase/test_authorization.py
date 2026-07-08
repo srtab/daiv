@@ -141,6 +141,15 @@ class TestGetAccessLevel:
         get_access_level(linked_member, "a/b")
         _no_backstop_enqueue.assert_not_called()
 
+    def test_unknown_access_tier_denies_instead_of_raising(self, linked_member, fresh_sync):
+        # A row carrying a tier this enum doesn't know (bad migration / a future platform level)
+        # must fail closed with a log, not raise ValueError and 500 the caller.
+        RepositoryAccess.objects.create(
+            provider="gitlab", uid="101", username="u", repo_id="a/b", access_level="owner", synced_at=timezone.now()
+        )
+        assert get_access_level(linked_member, "a/b") is None
+        assert can_run(linked_member, "a/b") is False
+
 
 class TestAssertCanRun:
     def test_write_rows_pass(self, linked_member, fresh_sync):

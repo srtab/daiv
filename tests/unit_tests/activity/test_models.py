@@ -12,6 +12,7 @@ from allauth.socialaccount.models import SocialAccount
 from accounts.models import User
 from codebase.base import RepoAccessLevel
 from codebase.models import RepositoryAccess
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
@@ -113,6 +114,28 @@ class TestVisibleTo:
         own = _create_activity(user=member_user)  # repo_id "group/repo", no access grant
         qs = Activity.objects.visible_to(member_user)
         assert own.pk in set(qs.values_list("pk", flat=True))
+
+    def test_deduplicates_run_matching_multiple_branches(self, member_user):
+        # A run the member owns, whose scheduled_job has >1 subscriber, matches the owner-FK
+        # branch on *every* row of the ``scheduled_job__subscribers`` M2M join. Without
+        # ``.distinct()`` the join surfaces the same activity once per subscriber, inflating
+        # list rows and dashboard/nav counts. Assert as a list so a duplicate isn't masked.
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="s",
+            prompt="p",
+            repos=[{"repo_id": "group/repo", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+        )
+        sub1 = User.objects.create_user(username="sub1", email="sub1@test.com", password="pw")  # noqa: S106
+        sub2 = User.objects.create_user(username="sub2", email="sub2@test.com", password="pw")  # noqa: S106
+        schedule.subscribers.add(sub1, sub2)
+        own = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE, repo_id="group/repo", user=member_user, scheduled_job=schedule
+        )
+        qs = Activity.objects.visible_to(member_user)
+        assert list(qs.values_list("pk", flat=True)) == [own.pk]
 
 
 @pytest.mark.django_db

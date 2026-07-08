@@ -118,7 +118,15 @@ def get_access_level(user: User, repo_id: str) -> RepoAccessLevel | None:
     if uid is None:
         return None
     row = _fresh_rows(uid).filter(repo_id=repo_id).only("access_level").first()
-    return RepoAccessLevel(row.access_level) if row else None
+    if row is None:
+        return None
+    try:
+        return RepoAccessLevel(row.access_level)
+    except ValueError:
+        # An unknown tier (bad migration, a platform level this enum hasn't learned) must
+        # deny rather than 500 the caller — this is a security decision, so fail closed.
+        logger.warning("Unknown access_level %r on %s for uid %s; denying", row.access_level, repo_id, uid)
+        return None
 
 
 def can_view(user: User, repo_id: str) -> bool:

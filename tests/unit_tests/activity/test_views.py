@@ -650,6 +650,21 @@ class TestActivityStreamView:
         assert str(activity_id) in body
         assert '"done": true' in body
 
+    async def test_stream_logs_and_ends_cleanly_on_query_error(self, mocker):
+        from activity.views import ActivityStreamView
+
+        mocker.patch("activity.views.POLL_INTERVAL", 0.01)
+        mocker.patch("activity.models.ActivityManager.visible_to", side_effect=RuntimeError("db down"))
+        log = mocker.patch("activity.views.logger")
+
+        user = mocker.MagicMock(pk=42)
+        # A query failure must not propagate out of the generator: it logs and ends the stream
+        # WITHOUT the ``done`` sentinel, so the client's onerror closes without a reload loop.
+        chunks = [chunk async for chunk in ActivityStreamView()._stream([uuid.uuid4()], user)]
+
+        assert chunks == []
+        assert log.exception.called
+
 
 @pytest.mark.django_db
 class TestRetryGating:

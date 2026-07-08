@@ -218,30 +218,43 @@ class ActivityStreamView(View):
         terminal = ActivityStatus.terminal()
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
-        base_qs = await sync_to_async(Activity.objects.visible_to)(user)
 
-        while tracking and (time.monotonic() - start) < MAX_DURATION:
-            await asyncio.sleep(POLL_INTERVAL)
+        try:
+            base_qs = await sync_to_async(Activity.objects.visible_to)(user)
 
-            activities = base_qs.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
+            while tracking and (time.monotonic() - start) < MAX_DURATION:
+                await asyncio.sleep(POLL_INTERVAL)
 
-            async for activity in activities:
-                started_iso = activity.started_at.isoformat() if activity.started_at else None
-                finished_iso = activity.finished_at.isoformat() if activity.finished_at else None
-                current_state = (activity.status, started_iso, finished_iso)
+                activities = base_qs.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
 
-                if last_emitted.get(activity.id) != current_state:
-                    last_emitted[activity.id] = current_state
-                    data = json.dumps({
-                        "id": str(activity.id),
-                        "status": activity.status,
-                        "started_at": started_iso,
-                        "finished_at": finished_iso,
-                    })
-                    yield f"data: {data}\n\n"
+                async for activity in activities:
+                    started_iso = activity.started_at.isoformat() if activity.started_at else None
+                    finished_iso = activity.finished_at.isoformat() if activity.finished_at else None
+                    current_state = (activity.status, started_iso, finished_iso)
 
-                if activity.status in terminal:
-                    tracking.discard(activity.id)
+                    if last_emitted.get(activity.id) != current_state:
+                        last_emitted[activity.id] = current_state
+                        data = json.dumps({
+                            "id": str(activity.id),
+                            "status": activity.status,
+                            "started_at": started_iso,
+                            "finished_at": finished_iso,
+                        })
+                        yield f"data: {data}\n\n"
+
+                    if activity.status in terminal:
+                        tracking.discard(activity.id)
+        except Exception:
+            # A query failure here would otherwise drop the connection with no server-side trace.
+            # Log it and end the stream; the client's EventSource.onerror closes cleanly (it does
+            # not reload), so we deliberately skip the ``done`` sentinel to avoid a reload loop on
+            # the detail page under a sustained failure.
+            logger.exception(
+                "Activity status stream failed for user %s (tracking %s)",
+                user.pk,
+                sorted(str(activity_id) for activity_id in tracking),
+            )
+            return
 
         yield 'data: {"done": true}\n\n'
 
