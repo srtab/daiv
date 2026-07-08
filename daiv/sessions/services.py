@@ -15,7 +15,7 @@ from jobs.tasks import run_job_task
 
 from automation.titling.tasks import generate_batch_title_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.signals import emit_run_finished_if_terminal
+from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal
 
 _PROMPT_DRIVEN = {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.UI_JOB}
 
@@ -193,12 +193,15 @@ async def acreate_run(
     )
 
 
-async def _mark_failed_and_release(run: Run, *, prefix: str, err: Exception, previous_status: str) -> None:
+async def _mark_failed_and_advance(run: Run, *, prefix: str, err: Exception, previous_status: str) -> None:
     """Transition a row to FAILED with finished_at and emit ``run_finished``.
 
-    Used by the services-layer post-create error paths (enqueue or task-result-id-link
-    failure). The emit is best-effort — if it raises, we log loudly and recommend the
-    operator run ``release_orphan_queued_sessions`` to recover stranded siblings.
+    Does NOT touch ``Session.active_run_id`` (that is ``SessionLock``'s job); the
+    "advance" is emitting ``run_finished`` so any QUEUED siblings on the session
+    get dispatched. Used by the services-layer post-create error paths (enqueue or
+    task-result-id-link failure). The emit is best-effort — if it raises, we log
+    loudly and recommend the operator run ``release_orphan_queued_sessions`` to
+    recover stranded siblings.
     """
     now = timezone.now()
     run.status = RunStatus.FAILED
@@ -316,7 +319,7 @@ async def asubmit_batch_runs(
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)
-            await _mark_failed_and_release(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
+            await _mark_failed_and_advance(run, prefix="enqueue_failed", err=err, previous_status=RunStatus.READY)
             return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(err).__name__}: {err}")
 
         try:
@@ -330,7 +333,12 @@ async def asubmit_batch_runs(
             logger.exception(
                 "submit_batch_runs: failed to link task_result_id=%s to run=%s (orphan task will run)", task.id, run.pk
             )
-            await _mark_failed_and_release(run, prefix="link_failed", err=save_err, previous_status=RunStatus.READY)
+            # Surface in error_message that the agent may run to completion (push a
+            # commit / open an MR) while this row shows FAILED — the work is real but
+            # uncapturable because nothing links back to it.
+            await _mark_failed_and_advance(
+                run, prefix=LINK_FAILED_PREFIX, err=save_err, previous_status=RunStatus.READY
+            )
             return BatchSubmitFailure(
                 repo_id=target.repo_id, ref=target.ref, error=f"LinkFailed: {type(save_err).__name__}: {save_err}"
             )

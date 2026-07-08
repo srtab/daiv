@@ -27,8 +27,12 @@ async def _acquire_session_lock(thread_id: str, holder_id: str) -> bool | None:
 
     Returns True when claimed, None when the session row doesn't exist (legacy
     rows — run unlocked rather than fail), and raises TimeoutError if the slot
-    never frees within LOCK_WAIT_TIMEOUT_S (stale takeover in SessionLock
-    guarantees eventual success against crashed holders well before that).
+    never frees within LOCK_WAIT_TIMEOUT_S. Note ``LOCK_WAIT_TIMEOUT_S`` and
+    ``STALE_RUN_MINUTES`` are the same length (30 min): a fresh waiter that
+    started polling strictly after the holder went stale takes it over well
+    before timing out, but a waiter that began at (roughly) the moment the
+    holder crashed can hit its own timeout at about the same time takeover
+    would first succeed. Takeover is not guaranteed for that co-incident case.
     """
     if not await Session.objects.filter(pk=thread_id).aexists():
         logger.warning("run_job_task: no session row for thread_id=%s; running without lock", thread_id)
@@ -45,7 +49,15 @@ async def _heartbeat_loop(thread_id: str, holder_id: str) -> None:
     while True:
         await asyncio.sleep(LOCK_HEARTBEAT_INTERVAL_S)
         try:
-            await SessionLock.heartbeat(thread_id, holder_id)
+            if not await SessionLock.heartbeat(thread_id, holder_id):
+                # We no longer hold the slot (stale takeover reassigned it). We
+                # can't safely abort the in-flight invocation, but surface it.
+                logger.warning(
+                    "run_job_task: lost session lock for thread_id=%s (holder=%s superseded); "
+                    "another holder may be running against the same checkpoint",
+                    thread_id,
+                    holder_id,
+                )
         except Exception:
             logger.exception("run_job_task: heartbeat failed for thread_id=%s", thread_id)
 
@@ -121,6 +133,9 @@ async def run_job_task(
     finally:
         if heartbeat_task is not None:
             heartbeat_task.cancel()
+            # Await the cancellation so an in-flight heartbeat aupdate can't land
+            # after release() and re-touch a freed slot.
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
         if locked:
             try:
                 await SessionLock.release(thread_id, holder_id)

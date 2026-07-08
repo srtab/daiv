@@ -8,16 +8,9 @@ from django.urls import reverse
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
-from accounts.models import Role, User
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def other_user(db):
-    return User.objects.create_user(username="other", email="other@test.com", password="x", role=Role.MEMBER)  # noqa: S106
 
 
 def _create_session(**kwargs) -> Session:

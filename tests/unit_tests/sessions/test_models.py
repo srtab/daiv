@@ -119,3 +119,54 @@ def test_run_duration():
     now = timezone.now()
     run = _mk_run(session, started_at=now, finished_at=now + timedelta(seconds=90))
     assert run.duration == 90.0
+
+
+# --- Enum / constraint drift guards ----------------------------------------
+
+
+def test_active_constraint_literals_match_enums():
+    """The partial unique constraint hardcodes literals (Django serializes them into
+    migrations). Guard against the enum drifting away from those literals, which would
+    silently break the one-active-run-per-session guarantee."""
+    constraint = next(c for c in Run._meta.constraints if c.name == "run_one_active_per_session")
+    conditions = dict(constraint.condition.children)
+    assert set(conditions["status__in"]) == {RunStatus.READY, RunStatus.RUNNING}
+    assert set(conditions["trigger_type__in"]) == {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB}
+
+
+def test_session_origin_check_constraint_rejects_unknown_value():
+    with pytest.raises(IntegrityError):
+        _mk_session(origin="bogus_origin")
+
+
+def test_run_status_check_constraint_rejects_unknown_value():
+    session = _mk_session()
+    with pytest.raises(IntegrityError):
+        _mk_run(session, status="BOGUS")
+
+
+def test_run_trigger_type_check_constraint_rejects_unknown_value():
+    session = _mk_session()
+    with pytest.raises(IntegrityError):
+        _mk_run(session, trigger_type="bogus_trigger")
+
+
+# --- effective_notify_on ---------------------------------------------------
+
+
+def test_effective_notify_on_explicit_override_wins(django_user_model):
+    from notifications.choices import NotifyOn
+
+    user = django_user_model.objects.create_user(username="n1", email="n1@x.io", password="x")  # noqa: S106
+    session = _mk_session(user=user)
+    run = _mk_run(session, user=user, notify_on=NotifyOn.ALWAYS)
+    # Even though the user default would apply, the explicit per-run override takes precedence.
+    assert run.effective_notify_on == NotifyOn.ALWAYS
+
+
+def test_effective_notify_on_falls_back_to_never_without_override_schedule_or_user():
+    from notifications.choices import NotifyOn
+
+    session = _mk_session(user=None)
+    run = _mk_run(session, user=None, notify_on=None)
+    assert run.effective_notify_on == NotifyOn.NEVER

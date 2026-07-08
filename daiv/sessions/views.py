@@ -103,7 +103,11 @@ class SessionStreamView(View):
                 if run.status in terminal:
                     tracking.discard(run.id)
 
-        yield 'data: {"done": true}\n\n'
+        # ``complete`` distinguishes a clean finish (all tracked runs reached a
+        # terminal state) from a timeout with runs still pending, so the client
+        # can decide whether to re-subscribe rather than freeze on stale state.
+        done = json.dumps({"done": True, "complete": not tracking})
+        yield f"data: {done}\n\n"
 
 
 class SessionListView(LoginRequiredMixin, FilterView):
@@ -163,7 +167,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
             schedule = ScheduledJob.objects.filter(pk=schedule_id).values_list("name", flat=True).first()
             context["schedule_name"] = schedule or ""
 
-        # In-flight RUN ids across the page's sessions, for the SSE status stream (Task 13).
+        # In-flight RUN ids across the page's sessions, for the SSE status stream.
         page_ids = [s.pk for s in context["sessions"]]
         in_flight = Run.objects.filter(session_id__in=page_ids).exclude(status__in=RunStatus.terminal())
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))

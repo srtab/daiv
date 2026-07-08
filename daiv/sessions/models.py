@@ -115,7 +115,10 @@ class Session(models.Model):
             models.CheckConstraint(
                 condition=models.Q(active_run_id__isnull=True) | ~models.Q(active_run_id=""),
                 name="session_active_run_id_nonempty",
-            )
+            ),
+            # ``choices=`` is not enforced at the DB layer, and the lock writes via
+            # ``.aupdate()`` (bypassing field validation), so pin the enum here too.
+            models.CheckConstraint(condition=models.Q(origin__in=SessionOrigin.values), name="session_origin_valid"),
         ]
 
     def __str__(self) -> str:
@@ -206,20 +209,27 @@ class Run(models.Model):
             # At most one active (READY or RUNNING) API/MCP run per session. QUEUED is
             # intentionally outside the constraint so FIFO siblings can stack; webhook
             # triggers share deterministic sessions and are intentionally excluded.
-            # Exact port of activity_one_active_per_thread.
+            # Exact port of activity_one_active_per_thread. The status/trigger_type
+            # literals here must equal {RunStatus.READY, RunStatus.RUNNING} and
+            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB} — Django serializes
+            # constraints with literals, so a drift is caught by
+            # ``test_active_constraint_literals_match_enums``.
             models.UniqueConstraint(
                 fields=["session"],
                 condition=models.Q(status__in=["READY", "RUNNING"], trigger_type__in=["api_job", "mcp_job"]),
                 name="run_one_active_per_session",
-            )
+            ),
+            # DB-level enum enforcement (``choices=`` alone is not enforced, and
+            # ``.aupdate()``/raw writes bypass field validation).
+            models.CheckConstraint(
+                condition=models.Q(trigger_type__in=SessionOrigin.values), name="run_trigger_type_valid"
+            ),
+            models.CheckConstraint(condition=models.Q(status__in=RunStatus.values), name="run_status_valid"),
         ]
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
 
-    # --- Ported verbatim from Activity (adjust names only) ---
-    # effective_notify_on: identical body; ``scheduled_job`` is now reached via
-    # ``self.session.scheduled_job`` — change the property to:
     @property
     def effective_notify_on(self) -> NotifyOn:
         if self.notify_on:

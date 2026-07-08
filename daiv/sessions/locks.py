@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
-from django.db.models import Q
 from django.utils import timezone
 
 from sessions.models import Session
+
+logger = logging.getLogger("daiv.sessions")
 
 # A claim that hasn't bumped last_active_at within this window is considered
 # orphaned (worker crashed / OOM-killed before the holder's finally ran) and
@@ -18,31 +20,77 @@ class SessionLock:
     """Unified execution slot for a session.
 
     Holders are chat turns (holder_id = the AG-UI run_id) and background jobs
-    (holder_id = str(Run.pk)). Exactly one holder executes against a thread's
-    checkpoint at a time — this closes the historical race where a chat
-    continuation and a webhook/API run on the same thread ran concurrently.
+    routed through ``run_job_task`` (holder_id = str(Run.pk)). Exactly one such
+    holder executes against a thread's checkpoint at a time — this closes the
+    historical race where a chat continuation and a ``run_job_task`` run on the
+    same thread ran concurrently.
+
+    Not covered: webhook addressors (issue/MR) call ``create_daiv_agent``
+    directly and never route through this lock, so they are not mutually
+    excluded with chat/job holders. Stale takeover (below) guards only the DB
+    slot, not the in-flight work: a holder that stalls past ``STALE_RUN_MINUTES``
+    can be superseded while its own graph invocation is still running (there is
+    no fencing token). The generous window makes that rare, and a takeover logs
+    a warning so it is observable.
     """
 
     @staticmethod
     async def try_claim(thread_id: str, holder_id: str) -> bool:
-        """Atomic claim: succeeds if the slot is free OR its heartbeat is stale."""
-        stale_cutoff = timezone.now() - timedelta(minutes=STALE_RUN_MINUTES)
-        free_or_stale = Q(active_run_id__isnull=True) | Q(last_active_at__lt=stale_cutoff)
-        claimed = await Session.objects.filter(Q(thread_id=thread_id) & free_or_stale).aupdate(
-            active_run_id=holder_id, last_active_at=timezone.now()
+        """Claim the slot if it is free OR its heartbeat is stale.
+
+        A stale takeover (claiming a slot a prior holder never released) is logged
+        at WARNING so it surfaces in monitoring — the prior holder may still be
+        executing against the checkpoint.
+        """
+        now = timezone.now()
+        # Fast path: claim a free slot (the common, uncontended case) in one query.
+        if await Session.objects.filter(thread_id=thread_id, active_run_id__isnull=True).aupdate(
+            active_run_id=holder_id, last_active_at=now
+        ):
+            return True
+
+        # Slow path: the slot is held. Take it over only if the holder's heartbeat
+        # is stale. Read the prior holder first so the takeover is observable; the
+        # CAS on ``active_run_id`` keeps the claim itself race-safe.
+        stale_cutoff = now - timedelta(minutes=STALE_RUN_MINUTES)
+        prior_holder = await (
+            Session.objects
+            .filter(thread_id=thread_id, active_run_id__isnull=False, last_active_at__lt=stale_cutoff)
+            .values_list("active_run_id", flat=True)
+            .afirst()
         )
-        return bool(claimed)
+        if prior_holder is None:
+            return False  # held by a live holder — nothing to take over
+
+        taken = await Session.objects.filter(
+            thread_id=thread_id, active_run_id=prior_holder, last_active_at__lt=stale_cutoff
+        ).aupdate(active_run_id=holder_id, last_active_at=now)
+        if taken:
+            logger.warning(
+                "SessionLock: stale takeover of thread_id=%s from prior holder=%s by holder=%s; "
+                "prior holder may still be executing against the same checkpoint",
+                thread_id,
+                prior_holder,
+                holder_id,
+            )
+        return bool(taken)
 
     @staticmethod
-    async def heartbeat(thread_id: str, holder_id: str) -> None:
-        """Bump ``last_active_at`` while the slot is still ours."""
-        await Session.objects.filter(thread_id=thread_id, active_run_id=holder_id).aupdate(
+    async def heartbeat(thread_id: str, holder_id: str) -> bool:
+        """Bump ``last_active_at`` while the slot is still ours.
+
+        Returns ``False`` if we no longer hold the slot (e.g. a stale takeover
+        reassigned it) — the caller can then stop writing to a checkpoint it no
+        longer owns.
+        """
+        bumped = await Session.objects.filter(thread_id=thread_id, active_run_id=holder_id).aupdate(
             last_active_at=timezone.now()
         )
+        return bool(bumped)
 
     @staticmethod
     async def release(thread_id: str, holder_id: str) -> None:
-        """Clear the slot only if we still hold it."""
+        """Clear the slot only if we still hold it (no-op if already reassigned)."""
         await Session.objects.filter(thread_id=thread_id, active_run_id=holder_id).aupdate(
             active_run_id=None, last_active_at=timezone.now()
         )

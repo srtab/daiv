@@ -36,19 +36,48 @@ document.addEventListener("alpine:init", () => {
 
     Alpine.data("sessionStream", (streamUrl, inFlightIds) => ({
         updates: {},
+        _source: null,
+        // Bound so a server that keeps timing out with pending work can't spin
+        // up an endless chain of re-subscriptions.
+        _reconnects: 0,
+        _maxReconnects: 3,
         init() {
             if (!inFlightIds) return;
-            const url = streamUrl + "?ids=" + inFlightIds;
+            this._connect(streamUrl + "?ids=" + inFlightIds);
+        },
+        destroy() {
+            if (this._source) this._source.close();
+        },
+        _connect(url) {
             const source = new EventSource(url);
+            this._source = source;
             source.onmessage = (event) => {
-                const data = JSON.parse(event.data);
+                let data;
+                try {
+                    data = JSON.parse(event.data);
+                } catch (e) {
+                    console.warn("sessionStream: ignoring malformed SSE frame", e);
+                    return;
+                }
                 if (data.done) {
                     source.close();
+                    // The stream timed out (server MAX_DURATION) with runs still in
+                    // flight — re-subscribe so badges don't freeze on stale state.
+                    if (data.complete === false && this._reconnects < this._maxReconnects) {
+                        this._reconnects += 1;
+                        this._connect(url);
+                    }
                     return;
                 }
                 this.updates[data.id] = data;
             };
-            source.onerror = () => source.close();
+            source.onerror = () => {
+                // Let EventSource auto-reconnect on transient drops; only warn once
+                // the browser has permanently closed the connection.
+                if (source.readyState === EventSource.CLOSED) {
+                    console.warn("sessionStream: SSE connection closed; live status updates stopped");
+                }
+            };
         },
         statusClass(id, fallback) {
             return variantClassMap("status-badge-", statusVariantFor(this.updates[id]?.status || fallback));

@@ -1,14 +1,23 @@
 """Backfill Session/Run rows from historical Activity and ChatThread tables.
 
-Called by migration 0002. Kept as a real module so the logic is unit-testable
-with live models. Uses ``apps.get_model`` so it works with both historical
-(migration) and current (test) app registries. Idempotent: rows that already
-exist are skipped, so re-running after a partial failure is safe.
+Called by migration 0002. Kept as a standalone module so the logic can be
+exercised in isolation. It takes an ``apps`` registry (never imports the models
+directly) because the source ``Activity``/``ChatThread`` models no longer exist
+in the live app registry — they are dropped by ``activity 0016`` / ``chat 0004``
+right after this backfill runs. Tests must therefore drive it through a
+historical-state registry (see ``tests/unit_tests/sessions/test_backfill.py``,
+which uses ``MigrationExecutor``), not the current one.
+
+Idempotent: rows that already exist are skipped, so re-running after a partial
+failure is safe.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger("daiv.sessions")
 
 RUN_COPY_FIELDS = [
     # Activity field -> Run field, 1:1 names
@@ -104,11 +113,27 @@ def run_backfill(apps, schema_editor=None) -> None:
                 setattr(run, field, getattr(activity, field))
             runs_to_create.append(run)
 
-    Session.objects.bulk_create(sessions_to_create.values(), batch_size=500)
-    Run.objects.bulk_create(runs_to_create, batch_size=500)
+    # Wrap so a DB error names the failing step instead of surfacing as an opaque
+    # DataError with no context (the whole migration is atomic and rolls back).
+    try:
+        Session.objects.bulk_create(sessions_to_create.values(), batch_size=500)
+        Run.objects.bulk_create(runs_to_create, batch_size=500)
+    except Exception as err:
+        raise RuntimeError(
+            f"backfill: bulk_create failed while copying {len(sessions_to_create)} sessions / "
+            f"{len(runs_to_create)} runs from Activity ({type(err).__name__}: {err})"
+        ) from err
 
-    # Pass 2: chat threads. Merge into existing sessions (chat metadata wins for
-    # title/last_active/user/model pins) or create chat-origin sessions.
+    logger.info(
+        "backfill pass 1 (activity): created %d sessions, %d runs", len(sessions_to_create), len(runs_to_create)
+    )
+
+    # Pass 2: chat threads. For a session that already exists (activity-origin),
+    # chat wins for title/model pins and last_active_at is max-of-both; ``user``
+    # is first-wins (kept from the earliest activity, only filled if still empty).
+    # Otherwise a fresh chat-origin session is created.
+    chat_created = 0
+    chat_merged = 0
     for thread in ChatThread.objects.iterator():
         session, created = Session.objects.get_or_create(
             thread_id=thread.thread_id,
@@ -125,22 +150,27 @@ def run_backfill(apps, schema_editor=None) -> None:
                 "last_active_at": thread.last_active_at,
             },
         )
-        if not created:
-            update_fields = []
-            if thread.title:
-                session.title = thread.title
-                update_fields.append("title")
-            if session.user_id is None and thread.user_id is not None:
-                session.user_id = thread.user_id
-                update_fields.append("user_id")
-            if thread.last_active_at > session.last_active_at:
-                session.last_active_at = thread.last_active_at
-                update_fields.append("last_active_at")
-            if thread.agent_model and thread.agent_model != session.agent_model:
-                session.agent_model = thread.agent_model
-                update_fields.append("agent_model")
-            if thread.agent_thinking_level and thread.agent_thinking_level != session.agent_thinking_level:
-                session.agent_thinking_level = thread.agent_thinking_level
-                update_fields.append("agent_thinking_level")
-            if update_fields:
-                session.save(update_fields=update_fields)
+        if created:
+            chat_created += 1
+            continue
+        chat_merged += 1
+        update_fields = []
+        if thread.title:
+            session.title = thread.title
+            update_fields.append("title")
+        if session.user_id is None and thread.user_id is not None:
+            session.user_id = thread.user_id
+            update_fields.append("user_id")
+        if thread.last_active_at > session.last_active_at:
+            session.last_active_at = thread.last_active_at
+            update_fields.append("last_active_at")
+        if thread.agent_model and thread.agent_model != session.agent_model:
+            session.agent_model = thread.agent_model
+            update_fields.append("agent_model")
+        if thread.agent_thinking_level and thread.agent_thinking_level != session.agent_thinking_level:
+            session.agent_thinking_level = thread.agent_thinking_level
+            update_fields.append("agent_thinking_level")
+        if update_fields:
+            session.save(update_fields=update_fields)
+
+    logger.info("backfill pass 2 (chat): created %d sessions, merged %d into existing", chat_created, chat_merged)

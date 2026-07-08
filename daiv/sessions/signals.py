@@ -19,6 +19,13 @@ logger = logging.getLogger("daiv.sessions")
 # Arguments: run (Run instance).
 run_finished = Signal()
 
+# ``error_message`` prefix for the orphan-task failure mode: the broker holds a task
+# that couldn't be linked back to its Run row, so the agent may run to completion
+# (push a commit / open an MR) while the row shows FAILED. Shared by both the
+# batch-submit path (services) and the dispatcher (signals) so the sentinel an
+# operator greps for stays identical across them.
+LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
+
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def backfill_session_user(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
@@ -217,11 +224,12 @@ def _enqueue_queued_run(run: Any) -> bool:
     except Exception as save_err:
         # Broker holds an orphan task that won't be linked back via task_result_id.
         # Mark FAILED so siblings advance; the orphan runs but ``_sync_run_for_task``
-        # no-ops because no Run row matches the task_result_id.
+        # no-ops because no Run row matches the task_result_id. The agent may run to
+        # completion (push a commit / open an MR) while this row shows FAILED — say so.
         logger.exception("dispatch_next_in_session: failed to link task_result_id=%s to run=%s", task.id, run.pk)
         now = timezone.now()
         run.status = RunStatus.FAILED
-        run.error_message = f"link_failed: {type(save_err).__name__}: {save_err}"
+        run.error_message = f"{LINK_FAILED_PREFIX}: {type(save_err).__name__}: {save_err}"
         run.finished_at = now
         if run.started_at is None:
             run.started_at = now

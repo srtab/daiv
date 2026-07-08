@@ -63,3 +63,13 @@ def run_fixture(session_fixture):
         repo_id=session_fixture.repo_id,
         status=RunStatus.SUCCESSFUL,
     )
+
+
+@pytest.fixture
+def other_user(db):
+    return User.objects.create_user(
+        username="other",
+        email="other@test.com",
+        password="testpass123",  # noqa: S106
+        role="member",
+    )
