@@ -254,6 +254,82 @@ async def test_events_releases_run_even_when_persist_ref_raises():
     assert release_calls == [("t-stream", "r-1")]
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_events_finalizes_failed_when_run_error_event_emitted():
+    """ag_ui surfaces an agent failure as a streamed RUN_ERROR event and returns
+    normally (no raise) — so the ``async for`` loop completes. The turn must still be
+    finalized FAILED with the error captured, not silently recorded SUCCESSFUL, and a
+    failed run must not pin the session ref.
+    """
+    from ag_ui.core.events import RunErrorEvent
+
+    err = RunErrorEvent(type=EventType.RUN_ERROR, message="boom in agent", code="run_failed")
+
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+        finalize_calls.append({"success": success, "error_message": error_message})
+
+    persist_calls: list = []
+
+    async def _capture_persist(*args):
+        persist_calls.append(args)
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([err])),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert len(finalize_calls) == 1
+    assert finalize_calls[0]["success"] is False
+    assert "boom in agent" in finalize_calls[0]["error_message"]
+    assert persist_calls == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_finalizes_failed_with_message_when_agent_raises():
+    """A raised agent error finalizes the Run FAILED *and* records an error_message
+    so the timeline shows a reason instead of a blank FAILED pill.
+    """
+
+    async def _events_then_boom():
+        raise RuntimeError("kaboom")
+        yield  # pragma: no cover - unreachable, makes this an async generator
+
+    runner = MagicMock()
+    runner.run = lambda _input: _events_then_boom()
+
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+        finalize_calls.append({"success": success, "error_message": error_message})
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert len(finalize_calls) == 1
+    assert finalize_calls[0]["success"] is False
+    assert finalize_calls[0]["error_message"]  # non-empty reason persisted
+
+
 class _FakeGraph:
     """Minimal stand-in for a CompiledStateGraph. ``nodes`` feeds the subgraph
     scan in ``LangGraphAGUIAgent.__init__``; ``astream_events`` exists only so

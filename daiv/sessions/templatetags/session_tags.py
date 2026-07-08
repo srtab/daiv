@@ -5,7 +5,6 @@ from django import template
 register = template.Library()
 
 _CENT = Decimal("0.01")
-_TITLE_MAX_LEN = 100
 
 
 @register.simple_tag
@@ -56,6 +55,14 @@ def format_tokens(value):
     if value >= 1_000:
         return f"{value / 1_000:.1f}k"
     return str(value)
+
+
+@register.filter
+def approx_prompt_tokens(prompt) -> int:
+    """Rough token count via the 4-chars-per-token heuristic; avoids a tokenizer dep for display-only hints."""
+    if not prompt:
+        return 0
+    return len(str(prompt)) // 4
 
 
 _STATUS_VARIANTS = {"SUCCESSFUL": "success", "FAILED": "failed", "RUNNING": "running", "QUEUED": "queued"}

@@ -21,8 +21,6 @@ from notifications.services import notify
 
 logger = logging.getLogger("daiv.notifications")
 
-EXCLUDED_RUN_TRIGGERS = {"issue_webhook", "mr_webhook"}
-
 
 def _summarize_repos(repo_ids: list[str], limit: int = 3) -> str:
     if not repo_ids:
@@ -277,9 +275,8 @@ def on_run_finished(sender, run, **kwargs) -> None:
     from sessions.models import Run, SessionOrigin
 
     try:
-        if run.trigger_type == SessionOrigin.CHAT:
-            return
-        if run.trigger_type in EXCLUDED_RUN_TRIGGERS:
+        # Chat turns are interactive (no bell/email); webhook runs are automated ops (too noisy).
+        if run.trigger_type in (SessionOrigin.webhooks() | {SessionOrigin.CHAT}):
             return
 
         if run.batch_id is not None:
@@ -293,6 +290,9 @@ def on_run_finished(sender, run, **kwargs) -> None:
         if not recipients:
             return
 
+        # The Notification row doubles as the in-app bell entry and is always written for
+        # terminal runs with a recipient. notify_on only gates external delivery channels
+        # (email, etc.) — an empty channels list means bell-only, no external dispatch.
         effective = run.effective_notify_on
         channels = (
             [cls.channel_type for cls in enabled_channels()] if _status_matches_run(effective, run.status) else []

@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import uuid
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages as messages_module
@@ -75,15 +76,21 @@ class SessionStreamView(View):
         Sync from DBTaskResult happens in the worker via django-tasks signals; this view
         only reads already-synced rows and emits SSE events for state changes.
         """
-        tracking = set(run_ids)
         terminal = RunStatus.terminal()
+        # Authorize the requested ids once: run visibility is stable for the life of the
+        # stream, so re-running the (distinct-join) owner filter every tick is wasted work.
+        # Restricting ``tracking`` to visible ids also lets the loop finish cleanly instead
+        # of spinning to MAX_DURATION on ids the caller can't see.
+        tracking: set[uuid.UUID] = {
+            rid async for rid in Run.objects.by_owner(user).filter(id__in=run_ids).values_list("id", flat=True)
+        }
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
 
         while tracking and (time.monotonic() - start) < MAX_DURATION:
             await asyncio.sleep(POLL_INTERVAL)
 
-            runs = Run.objects.by_owner(user).filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
+            runs = Run.objects.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
 
             async for run in runs:
                 started_iso = run.started_at.isoformat() if run.started_at else None
@@ -121,20 +128,10 @@ class SessionListView(LoginRequiredMixin, FilterView):
     strict = False
 
     def get_queryset(self) -> QuerySet[Session]:
-        from django.db import models as db_models
-
-        from sessions.models import Run
-
-        user = self.request.user
-        # Apply owner scoping first (returns a plain QuerySet), then annotate.
-        base_qs = Session.objects.by_owner(user)
-        latest = Run.objects.filter(session=db_models.OuterRef("pk")).order_by("-created_at", "-id")
-        return (
-            base_qs
-            .annotate(latest_run_status=db_models.Subquery(latest.values("status")[:1]))
-            .select_related("user", "scheduled_job")
-            .prefetch_related("runs")
-        )
+        # ``latest_run_status`` (annotation) drives the row status; the SSE in-flight
+        # ids come from a separate targeted query in ``get_context_data`` — the list
+        # template never iterates ``session.runs``, so no prefetch is needed.
+        return Session.objects.by_owner(self.request.user).with_latest_status().select_related("user", "scheduled_job")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -322,27 +319,20 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     template_name = "sessions/agent_run_form.html"
     form_class = AgentRunCreateForm
 
-    _SOURCE_UNSET = object()
-
-    def _get_source_run(self) -> Run | None:
-        # Memoize per-request: ``get_initial`` and ``get_context_data`` both call this on retry GETs.
-        cached = getattr(self, "_source_cached", self._SOURCE_UNSET)
-        if cached is not self._SOURCE_UNSET:
-            return cached
+    @cached_property
+    def source_run(self) -> Run | None:
+        # Cached per-request: ``get_initial`` and ``get_context_data`` both read this on retry GETs.
         source_id = self.request.GET.get("from")
         if not source_id:
-            self._source_cached = None
             return None
         try:
-            source = Run.objects.by_owner(self.request.user).filter(pk=source_id).first()
+            return Run.objects.by_owner(self.request.user).filter(pk=source_id).first()
         except (ValueError, ValidationError) as err:
             raise Http404("Invalid run id.") from err
-        self._source_cached = source
-        return source
 
     def get_initial(self) -> dict:
         initial: dict = {"notify_on": self.request.user.notify_on_jobs}
-        source = self._get_source_run()
+        source = self.source_run
         if source is not None:
             initial.update({
                 "prompt": source.prompt,
@@ -354,7 +344,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["source_run"] = self._get_source_run()
+        ctx["source_run"] = self.source_run
         ctx.update(env_picker_context(ctx["form"]))
         ctx.update(agent_picker_context(ctx["form"]))
         return ctx

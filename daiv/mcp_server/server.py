@@ -75,7 +75,7 @@ continue polling with `get_job_status` if the result is not yet available.\
 
 _THREAD_NOT_FOUND = "thread_id not found"
 
-TERMINAL_STATUSES = {RunStatus.SUCCESSFUL, RunStatus.FAILED}
+TERMINAL_STATUSES = RunStatus.terminal()
 POLL_INTERVAL = 2.0
 MAX_POLL_DURATION = 600.0  # 10 minutes
 

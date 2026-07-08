@@ -111,3 +111,10 @@ class TestResolveActiveSection:
 
         request.resolver_match = type("Match", (), {"view_name": "notifications:list"})()
         assert _resolve_active_section(request) == ""
+
+    def test_namespaced_agent_run_new_highlights_sessions_section(self):
+        # The "Start a run" page lives in the ``runs`` namespace, so its view_name is
+        # prefixed. The sessions section must list the prefixed name to highlight it.
+        request = RequestFactory().get("/")
+        request.resolver_match = type("Match", (), {"view_name": "runs:agent_run_new"})()
+        assert _resolve_active_section(request) == "sessions"

@@ -3,11 +3,10 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
-from notifications.choices import ChannelType, NotifyOn
+from notifications.choices import ChannelType
 from notifications.models import Notification, UserChannelBinding
 
 from accounts.models import User
-from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.mark.django_db
@@ -58,19 +57,6 @@ class TestUserBindingSeeder:
 
 # Run-based notification tests (run_finished signal → on_run_finished receiver)
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def run_schedule(member_user, email_binding):
-    return ScheduledJob.objects.create(
-        user=member_user,
-        name="run-schedule",
-        prompt="p",
-        repos=[{"repo_id": "x/y", "ref": ""}],
-        frequency=Frequency.DAILY,
-        time="12:00",
-        notify_on=NotifyOn.ALWAYS,
-    )
 
 
 def _make_run_with_session(

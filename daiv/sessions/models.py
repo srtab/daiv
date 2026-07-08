@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from decimal import Decimal
+from typing import Any
 
 from django.conf import settings
 from django.db import models
@@ -47,6 +48,16 @@ class SessionOrigin(models.TextChoices):
     UI_JOB = "ui_job", _("UI Run")
     ISSUE_WEBHOOK = "issue_webhook", _("Issue Webhook")
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
+
+    @classmethod
+    def webhooks(cls) -> frozenset[str]:
+        """Trigger types originating from a git-platform webhook (issue / MR comment)."""
+        return frozenset({cls.ISSUE_WEBHOOK, cls.MR_WEBHOOK})
+
+    @classmethod
+    def prompt_driven(cls) -> frozenset[str]:
+        """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
+        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
 
 
 class Session(models.Model):
@@ -119,6 +130,12 @@ class Session(models.Model):
             # ``choices=`` is not enforced at the DB layer, and the lock writes via
             # ``.aupdate()`` (bypassing field validation), so pin the enum here too.
             models.CheckConstraint(condition=models.Q(origin__in=SessionOrigin.values), name="session_origin_valid"),
+            # Blank ("" = no override) or a valid ThinkingLevelChoices value.
+            models.CheckConstraint(
+                condition=models.Q(agent_thinking_level="")
+                | models.Q(agent_thinking_level__in=ThinkingLevelChoices.values),
+                name="session_agent_thinking_level_valid",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -127,6 +144,28 @@ class Session(models.Model):
     async def atouch(self) -> None:
         """Bump ``last_active_at`` (queryset update; safe from async contexts)."""
         await type(self).objects.filter(pk=self.pk).aupdate(last_active_at=timezone.now())
+
+
+def usage_field_updates(usage: dict, *, run_ref: object) -> dict[str, Any]:
+    """Map an agent usage summary to ``Run`` field updates (tokens, cost, per-model).
+
+    Shared by :meth:`Run.sync_from_task_result` (task-backed runs) and the chat
+    finalizer (``chat.api.streaming.finalize_chat_run``) so the two denormalization
+    paths cannot drift. Only keys present (non-None) in ``usage`` produce updates;
+    an unparseable ``cost_usd`` is logged against ``run_ref`` and skipped.
+    """
+    updates: dict[str, Any] = {}
+    for key in ("input_tokens", "output_tokens", "total_tokens"):
+        if usage.get(key) is not None:
+            updates[key] = usage[key]
+    if usage.get("cost_usd") is not None:
+        try:
+            updates["cost_usd"] = Decimal(usage["cost_usd"])
+        except Exception:
+            logger.warning("Invalid cost_usd value %r for run %s", usage["cost_usd"], run_ref)
+    if usage.get("by_model") is not None:
+        updates["usage_by_model"] = usage["by_model"]
+    return updates
 
 
 class Run(models.Model):
@@ -225,6 +264,17 @@ class Run(models.Model):
                 condition=models.Q(trigger_type__in=SessionOrigin.values), name="run_trigger_type_valid"
             ),
             models.CheckConstraint(condition=models.Q(status__in=RunStatus.values), name="run_status_valid"),
+            # Blank ("" = no override) or a valid ThinkingLevelChoices value.
+            models.CheckConstraint(
+                condition=models.Q(agent_thinking_level="")
+                | models.Q(agent_thinking_level__in=ThinkingLevelChoices.values),
+                name="run_agent_thinking_level_valid",
+            ),
+            # NULL ("no override", distinct from explicit "never") or a valid NotifyOn value.
+            models.CheckConstraint(
+                condition=models.Q(notify_on__isnull=True) | models.Q(notify_on__in=NotifyOn.values),
+                name="run_notify_on_valid",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -243,11 +293,9 @@ class Run(models.Model):
 
     @property
     def is_retryable(self) -> bool:
-        return self.status in RunStatus.terminal() and self.trigger_type not in {
-            SessionOrigin.ISSUE_WEBHOOK,
-            SessionOrigin.MR_WEBHOOK,
-            SessionOrigin.CHAT,
-        }
+        return self.status in RunStatus.terminal() and self.trigger_type not in (
+            SessionOrigin.webhooks() | {SessionOrigin.CHAT}
+        )
 
     @property
     def duration(self) -> float | None:
@@ -264,6 +312,22 @@ class Run(models.Model):
             if parsed["response"]:
                 return parsed["response"]
         return self.result_summary
+
+    def mark_failed(self, prefix: str, err: Exception) -> list[str]:
+        """Set the terminal FAILED fields in-memory and return the ``update_fields`` list.
+
+        Centralizes the exact field set + ``started_at`` backfill shared by the
+        post-create failure paths (batch-submit enqueue/link failure in
+        ``sessions.services`` and the dispatcher in ``sessions.signals``). The caller
+        owns the save and the ``run_finished`` emit — this only mutates the instance.
+        """
+        now = timezone.now()
+        self.status = RunStatus.FAILED
+        self.error_message = f"{prefix}: {type(err).__name__}: {err}"
+        self.finished_at = now
+        if self.started_at is None:
+            self.started_at = now
+        return ["status", "error_message", "finished_at", "started_at"]
 
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.
@@ -318,25 +382,9 @@ class Run(models.Model):
                 changed.append("merge_request_web_url")
 
             if (usage := parsed["usage"]) and self.input_tokens is None:
-                if usage.get("input_tokens") is not None:
-                    self.input_tokens = usage["input_tokens"]
-                    changed.append("input_tokens")
-                if usage.get("output_tokens") is not None:
-                    self.output_tokens = usage["output_tokens"]
-                    changed.append("output_tokens")
-                if usage.get("total_tokens") is not None:
-                    self.total_tokens = usage["total_tokens"]
-                    changed.append("total_tokens")
-                if usage.get("cost_usd") is not None:
-                    try:
-                        self.cost_usd = Decimal(usage["cost_usd"])
-                    except Exception:
-                        logger.warning("Invalid cost_usd value %r for run %s", usage["cost_usd"], self.pk)
-                    else:
-                        changed.append("cost_usd")
-                if usage.get("by_model") is not None:
-                    self.usage_by_model = usage["by_model"]
-                    changed.append("usage_by_model")
+                for field, value in usage_field_updates(usage, run_ref=self.pk).items():
+                    setattr(self, field, value)
+                    changed.append(field)
 
         if tr.status == RunStatus.FAILED and tr.exception_class_path and not self.error_message:
             self.error_message = tr.exception_class_path

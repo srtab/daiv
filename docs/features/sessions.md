@@ -136,7 +136,7 @@ The composer accepts:
 - **Prompt** — what you want the agent to do
 - **Repositories** — one or more repositories. Submitting one prompt across multiple repositories creates a [batch](#filtering): each repository runs as an independent session, and after submission you land on the batch-filtered Sessions list.
 - **Ref** — the starting branch or commit each run reads from (defaults to the repository's default branch)
-- **Sandbox environment** — the [sandbox](sandbox.md) environment to run in
+- **Sandbox environment** — the named [sandbox environment](sandbox-environments.md) the run executes in
 - **Agent model and thinking level** — per-run overrides (leave empty to inherit the repo defaults)
 - **Notify me** — when to send a notification for this run
 

@@ -113,16 +113,12 @@ class IssueCallback(GitHubCallback):
         )
         daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
-            from core.site_settings import site_settings
-
-            has_max = self.issue.has_max_label()
             await acreate_run(
                 trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                 task_result_id=result.id,
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
-                agent_model=site_settings.agent_max_model_name if has_max else "",
-                agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
+                use_max=self.issue.has_max_label(),
                 user=daiv_user,
                 external_username=self.sender.username,
                 title=self.issue.title,
@@ -195,17 +191,13 @@ class IssueCommentCallback(GitHubCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
             try:
-                from core.site_settings import site_settings
-
-                has_max = self.issue.has_max_label()
                 await acreate_run(
                     trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.repository.full_name,
                     issue_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
-                    agent_model=site_settings.agent_max_model_name if has_max else "",
-                    agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
+                    use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
                     title=self.issue.title,
@@ -247,9 +239,6 @@ class IssueCommentCallback(GitHubCallback):
                     "Failed to resolve source branch for PR comment %s#%s", self.repository.full_name, self.issue.number
                 )
             try:
-                from core.site_settings import site_settings
-
-                has_max = self.issue.has_max_label()
                 await acreate_run(
                     trigger_type=SessionOrigin.MR_WEBHOOK,
                     task_result_id=result.id,
@@ -257,8 +246,7 @@ class IssueCommentCallback(GitHubCallback):
                     ref=source_branch,
                     merge_request_iid=self.issue.number,
                     mention_comment_id=str(self.comment.id),
-                    agent_model=site_settings.agent_max_model_name if has_max else "",
-                    agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
+                    use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.comment.user.username,
                     title=self.issue.title,

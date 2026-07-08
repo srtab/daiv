@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, fields, is_dataclass
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
@@ -12,7 +11,7 @@ from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.models import Run, RunStatus, SessionOrigin, usage_field_updates
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
@@ -52,24 +51,21 @@ async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str,
     )
 
 
-async def finalize_chat_run(run_pk, *, success: bool, usage: dict | None, response_text: str) -> None:
-    """Terminal transition for a chat Run. Mirrors the denormalization
-    ``sync_from_task_result`` performs for background runs.
+async def finalize_chat_run(
+    run_pk, *, success: bool, usage: dict | None, response_text: str, error_message: str = ""
+) -> None:
+    """Terminal transition for a chat Run. Reuses ``usage_field_updates`` so the
+    token/cost denormalization stays identical to the task-backed path
+    (``Run.sync_from_task_result``). On failure, ``error_message`` is persisted so the
+    run timeline shows a reason instead of a blank FAILED pill.
     """
     update = {"status": RunStatus.SUCCESSFUL if success else RunStatus.FAILED, "finished_at": timezone.now()}
     if response_text:
         update["result_summary"] = response_text[:2000]
+    if not success and error_message:
+        update["error_message"] = error_message[:2000]
     if usage:
-        for key in ("input_tokens", "output_tokens", "total_tokens"):
-            if usage.get(key) is not None:
-                update[key] = usage[key]
-        if usage.get("cost_usd") is not None:
-            try:
-                update["cost_usd"] = Decimal(usage["cost_usd"])
-            except Exception:  # noqa: BLE001
-                logger.warning("Invalid cost_usd %r for chat run %s", usage["cost_usd"], run_pk)
-        if usage.get("by_model") is not None:
-            update["usage_by_model"] = usage["by_model"]
+        update.update(usage_field_updates(usage, run_ref=run_pk))
     await Run.objects.filter(pk=run_pk).aupdate(**update)
 
 
@@ -154,6 +150,11 @@ class ChatRunStreamer:
     async def events(self) -> AsyncIterator[str]:
         last_mr: MergeRequest | None = None
         clean_run = False
+        # Set when the agent surfaces a failure. ``ag_ui_langgraph`` reports a LangGraph
+        # stream error as a RUN_ERROR *event* and then returns normally (it does not raise),
+        # so a clean loop exit is not sufficient proof of success — this flag is folded into
+        # the finalize decision so an errored turn is recorded FAILED, not SUCCESSFUL.
+        run_error_message: str | None = None
         last_heartbeat = time.monotonic()
         # The Run row (a separate object from the AG-UI run_id that holds the lock).
         # Created after the stream context opens; finalized in ``finally``.
@@ -223,6 +224,10 @@ class ChatRunStreamer:
                             delta = getattr(event, "delta", None)
                             if delta and len(response_buffer) < 2000:
                                 response_buffer = (response_buffer + delta)[:2000]
+                        elif event.type == EventType.RUN_ERROR:
+                            # Agent failure surfaced as an event (no raise) — capture the reason
+                            # so the finally block finalizes FAILED and records it.
+                            run_error_message = getattr(event, "message", None) or "Run failed."
                         yield self.encoder.encode(event)
 
                         now = time.monotonic()
@@ -233,20 +238,24 @@ class ChatRunStreamer:
                             except Exception:
                                 logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
                 clean_run = True
-        except Exception:
+        except Exception as exc:
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
+            run_error_message = f"{type(exc).__name__}: {exc}"
             yield self.encoder.encode(
                 RunErrorEvent(
                     type=EventType.RUN_ERROR, message="Run failed. Check server logs for details.", code="run_failed"
                 )
             )
         finally:
-            # Each cleanup step is wrapped independently: a post-stream DB hiccup must not
-            # retroactively paint a clean run as RUN_ERROR, and a lock-release failure must
-            # not leave the per-session slot permanently claimed. ref is only persisted on a
-            # clean finish — a partial run could have checked out a branch without committing,
-            # and pinning it would silently retarget reloads at half-built state.
-            if clean_run:
+            # A run is a success only if the loop finished cleanly AND the agent did not
+            # surface a RUN_ERROR event mid-stream (ag_ui reports stream errors as events,
+            # not exceptions). Each cleanup step is wrapped independently: a post-stream DB
+            # hiccup must not retroactively paint a clean run as RUN_ERROR, and a lock-release
+            # failure must not leave the per-session slot permanently claimed. ref is only
+            # persisted on success — a failed/partial run could have checked out a branch
+            # without committing, and pinning it would silently retarget reloads at half-built state.
+            succeeded = clean_run and run_error_message is None
+            if succeeded:
                 try:
                     await ChatSessionService.persist_ref(self.thread_id, self.ref, last_mr)
                 except Exception:
@@ -255,9 +264,10 @@ class ChatRunStreamer:
                 try:
                     await finalize_chat_run(
                         chat_run.pk,
-                        success=clean_run,
+                        success=succeeded,
                         usage=build_usage_summary(usage_handler).to_dict() if usage_handler else None,
                         response_text=response_buffer,
+                        error_message=run_error_message or "",
                     )
                 except Exception:
                     logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)

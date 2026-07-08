@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from django.db import IntegrityError
 from django.db.models import Q
-from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from jobs.tasks import run_job_task
@@ -16,8 +15,6 @@ from jobs.tasks import run_job_task
 from automation.titling.tasks import generate_batch_title_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal
-
-_PROMPT_DRIVEN = {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.UI_JOB}
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -142,6 +139,7 @@ async def acreate_run(
     prompt: str = "",
     agent_model: str = "",
     agent_thinking_level: str = "",
+    use_max: bool = False,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
     mention_comment_id: str = "",
@@ -155,7 +153,16 @@ async def acreate_run(
     sandbox_environment_id: str | None = None,
     status: str = RunStatus.READY,
 ) -> Run:
-    """Async: create a Session (idempotent) then a Run linked to it."""
+    """Async: create a Session (idempotent) then a Run linked to it.
+
+    ``use_max=True`` pins the site-configured max agent model/thinking level (used by
+    the ``daiv-max`` webhook label) unless an explicit ``agent_model`` was supplied.
+    """
+    if use_max and not agent_model:
+        from core.site_settings import site_settings
+
+        agent_model = site_settings.agent_max_model_name
+        agent_thinking_level = site_settings.agent_max_thinking_level
     effective_thread_id = thread_id or str(uuid.uuid4())
     session = await aget_or_create_session(
         thread_id=effective_thread_id,
@@ -203,15 +210,13 @@ async def _mark_failed_and_advance(run: Run, *, prefix: str, err: Exception, pre
     loudly and recommend the operator run ``release_orphan_queued_sessions`` to
     recover stranded siblings.
     """
-    now = timezone.now()
-    run.status = RunStatus.FAILED
-    run.error_message = f"{prefix}: {type(err).__name__}: {err}"
-    run.finished_at = now
-    if run.started_at is None:
-        run.started_at = now
+    update_fields = run.mark_failed(prefix, err)
     try:
-        await run.asave(update_fields=["status", "error_message", "finished_at", "started_at"])
+        await run.asave(update_fields=update_fields)
     except Exception:
+        # Best-effort: on a failed save the row may be left non-terminal (still READY)
+        # while we still emit below to advance siblings. release_orphan_queued_sessions
+        # reconciles any row stranded this way.
         logger.exception("submit_batch_runs: terminal save failed for run=%s", run.pk)
     try:
         await asyncio.to_thread(emit_run_finished_if_terminal, run, previous_status=previous_status)
@@ -361,7 +366,7 @@ async def asubmit_batch_runs(
         else:
             runs.append(outcome)
 
-    if runs and trigger_type in _PROMPT_DRIVEN and prompt:
+    if runs and trigger_type in SessionOrigin.prompt_driven() and prompt:
         try:
             await generate_batch_title_task.aenqueue(batch_id=str(batch_id), prompt=prompt)
         except Exception:  # noqa: BLE001

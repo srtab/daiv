@@ -12,7 +12,9 @@ logger = logging.getLogger("daiv.sessions")
 # A claim that hasn't bumped last_active_at within this window is considered
 # orphaned (worker crashed / OOM-killed before the holder's finally ran) and
 # can be taken over by a fresh claim. Live holders heartbeat well within this
-# window. Port of chat.api.threads.STALE_RUN_MINUTES semantics.
+# window. This (and the takeover semantics below) was ported from the old
+# chat.api.threads.ChatThreadService when the per-thread run slot was unified into
+# SessionLock; it is now the single source of truth.
 STALE_RUN_MINUTES = 30
 
 

@@ -151,6 +151,85 @@ def test_run_trigger_type_check_constraint_rejects_unknown_value():
         _mk_run(session, trigger_type="bogus_trigger")
 
 
+def test_run_agent_thinking_level_check_constraint():
+    """Blank ("" = no override) and valid levels pass; an unknown level is rejected."""
+    from core.models import ThinkingLevelChoices
+
+    session = _mk_session()
+    _mk_run(session, agent_thinking_level="")  # no override
+    _mk_run(session, status=RunStatus.QUEUED, agent_thinking_level=ThinkingLevelChoices.HIGH)
+    with pytest.raises(IntegrityError):
+        _mk_run(session, status=RunStatus.QUEUED, agent_thinking_level="ludicrous")
+
+
+def test_session_agent_thinking_level_check_constraint_rejects_unknown_value():
+    with pytest.raises(IntegrityError):
+        _mk_session(agent_thinking_level="ludicrous")
+
+
+def test_run_notify_on_check_constraint():
+    """NULL ("no override") and valid NotifyOn values pass; an unknown value is rejected."""
+    from notifications.choices import NotifyOn
+
+    session = _mk_session()
+    _mk_run(session, notify_on=None)  # no override
+    _mk_run(session, status=RunStatus.QUEUED, notify_on=NotifyOn.ALWAYS)
+    with pytest.raises(IntegrityError):
+        _mk_run(session, status=RunStatus.QUEUED, notify_on="sometimes")
+
+
+def test_run_status_superset_of_task_result_status():
+    """``Run.sync_from_task_result`` assigns ``DBTaskResult.status`` straight into
+    ``Run.status``, so every django-tasks status must be a valid ``RunStatus`` member —
+    otherwise a synced row would violate the ``run_status_valid`` CHECK constraint. This
+    guards a django-tasks upgrade that introduces a new status value."""
+    from django_tasks.base import TaskResultStatus
+
+    assert set(TaskResultStatus.values) <= set(RunStatus.values)
+
+
+# --- RunManager.by_owner (run-level authorization boundary) ----------------
+
+
+def test_run_by_owner_admin_sees_all(admin_user, django_user_model):
+    other = django_user_model.objects.create_user(username="ro", email="ro@x.io", password="x")  # noqa: S106
+    session = _mk_session(user=other)
+    mine = _mk_run(session, user=admin_user, status=RunStatus.QUEUED)
+    theirs = _mk_run(session, user=other, status=RunStatus.SUCCESSFUL)
+    visible = set(Run.objects.by_owner(admin_user).values_list("pk", flat=True))
+    assert {mine.pk, theirs.pk} <= visible
+
+
+def test_run_by_owner_matches_user_and_external_username_but_not_stranger(django_user_model):
+    user = django_user_model.objects.create_user(username="ru1", email="ru1@x.io", password="x")  # noqa: S106
+    other = django_user_model.objects.create_user(username="ru2", email="ru2@x.io", password="x")  # noqa: S106
+    # Webhook session: runs are exempt from the one-active-per-session constraint, so
+    # several active runs can coexist for this authorization test.
+    session = _mk_session(user=None, origin=SessionOrigin.ISSUE_WEBHOOK)
+    own = _mk_run(session, user=user, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
+    ext = _mk_run(session, user=None, external_username="ru1", trigger_type=SessionOrigin.ISSUE_WEBHOOK)
+    stranger = _mk_run(session, user=other, trigger_type=SessionOrigin.ISSUE_WEBHOOK)
+    visible = set(Run.objects.by_owner(user).values_list("pk", flat=True))
+    assert own.pk in visible
+    assert ext.pk in visible
+    assert stranger.pk not in visible
+
+
+def test_run_by_owner_matches_subscribed_schedule(django_user_model):
+    from schedules.models import Frequency, ScheduledJob
+
+    owner = django_user_model.objects.create_user(username="rowner", email="rowner@x.io", password="x")  # noqa: S106
+    sub = django_user_model.objects.create_user(username="rsub", email="rsub@x.io", password="x")  # noqa: S106
+    sched = ScheduledJob.objects.create(
+        user=owner, name="s", prompt="p", repos=[{"repo_id": "x/y", "ref": ""}], frequency=Frequency.DAILY, time="12:00"
+    )
+    sched.subscribers.add(sub)
+    session = _mk_session(user=owner, origin=SessionOrigin.SCHEDULE, scheduled_job=sched)
+    run = _mk_run(session, user=owner, trigger_type=SessionOrigin.SCHEDULE, status=RunStatus.SUCCESSFUL)
+    # A subscriber to the session's schedule can see its runs.
+    assert run.pk in set(Run.objects.by_owner(sub).values_list("pk", flat=True))
+
+
 # --- effective_notify_on ---------------------------------------------------
 
 

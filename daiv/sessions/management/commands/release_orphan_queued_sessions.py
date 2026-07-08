@@ -21,9 +21,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         active_sessions = set(
-            Run.objects.filter(status__in=[RunStatus.READY, RunStatus.RUNNING], session_id__isnull=False).values_list(
-                "session_id", flat=True
-            )
+            Run.objects.filter(status__in=[RunStatus.READY, RunStatus.RUNNING]).values_list("session_id", flat=True)
         )
 
         orphans = (

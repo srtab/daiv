@@ -7,7 +7,6 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.db.models.signals import post_save
 from django.dispatch import Signal, receiver
-from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from django_tasks.signals import task_finished, task_started
@@ -208,13 +207,7 @@ def _enqueue_queued_run(run: Any) -> bool:
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("dispatch_next_in_session: enqueue failed for run=%s", run.pk)
-        now = timezone.now()
-        run.status = RunStatus.FAILED
-        run.error_message = f"dispatch_failed: {type(err).__name__}: {err}"
-        run.finished_at = now
-        if run.started_at is None:
-            run.started_at = now
-        run.save(update_fields=["status", "error_message", "finished_at", "started_at"])
+        run.save(update_fields=run.mark_failed("dispatch_failed", err))
         emit_run_finished_if_terminal(run, previous_status=RunStatus.READY, skip_dispatch=True)
         return False
 
@@ -227,14 +220,9 @@ def _enqueue_queued_run(run: Any) -> bool:
         # no-ops because no Run row matches the task_result_id. The agent may run to
         # completion (push a commit / open an MR) while this row shows FAILED — say so.
         logger.exception("dispatch_next_in_session: failed to link task_result_id=%s to run=%s", task.id, run.pk)
-        now = timezone.now()
-        run.status = RunStatus.FAILED
-        run.error_message = f"{LINK_FAILED_PREFIX}: {type(save_err).__name__}: {save_err}"
-        run.finished_at = now
-        if run.started_at is None:
-            run.started_at = now
+        update_fields = run.mark_failed(LINK_FAILED_PREFIX, save_err)
         try:
-            run.save(update_fields=["status", "error_message", "finished_at", "started_at"])
+            run.save(update_fields=update_fields)
         except Exception:
             logger.exception("dispatch_next_in_session: terminal save also failed for run=%s", run.pk)
         emit_run_finished_if_terminal(run, previous_status=RunStatus.READY, skip_dispatch=True)

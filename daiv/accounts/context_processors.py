@@ -16,7 +16,9 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "session_detail",
         "session_stream",
         "session_run_download_md",
-        "agent_run_new",
+        # ``runs`` namespace (include(..., namespace="runs")) — match.view_name is prefixed,
+        # so the bare name would never highlight the sidebar on the "Start a run" page.
+        "runs:agent_run_new",
     },
     "schedules": {
         "schedule_list",

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from sessions.models import Run, Session
 
 
-class SessionManager(models.Manager["Session"]):
+class SessionQuerySet(models.QuerySet["Session"]):
     def by_owner(self, user: User) -> models.QuerySet[Session]:
         """Return sessions visible to the given user.
 
@@ -41,6 +41,13 @@ class SessionManager(models.Manager["Session"]):
 
         latest = Run.objects.filter(session=models.OuterRef("pk")).order_by("-created_at", "-id")
         return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
+
+
+# ``by_owner``/``with_latest_status`` live on the QuerySet so they chain
+# (``Session.objects.by_owner(user).with_latest_status()``); the manager re-exports
+# them for the bare ``Session.objects.by_owner(...)`` call sites.
+class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
+    pass
 
 
 class RunManager(models.Manager["Run"]):

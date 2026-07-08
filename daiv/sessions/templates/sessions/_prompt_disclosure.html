@@ -1,4 +1,4 @@
-{% load activity_tags markdown_tags %}
+{% load markdown_tags session_tags %}
 {% if activity.prompt %}
 {{ activity.prompt|json_script:"activity-prompt-raw" }}
 <details {% if prompt_open_by_default %}open{% endif %} class="mt-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 group">

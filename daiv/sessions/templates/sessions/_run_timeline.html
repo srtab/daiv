@@ -5,8 +5,8 @@
     <div class="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2" id="run-{{ run.id }}"
          data-run-id="{{ run.id }}">
       <div class="flex items-center justify-between gap-2">
-        {% include "sessions/_status_pill.html" with variant=run.status|status_variant label=run.status %}
-        {% include "sessions/_origin_badge.html" with origin=run.trigger_type %}
+        {% include "sessions/_status_pill.html" with variant=run.status|status_variant label=run.get_status_display %}
+        {% include "sessions/_origin_badge.html" with origin=run.trigger_type origin_display=run.get_trigger_type_display %}
         <span class="text-xs text-gray-500">{{ run.created_at|date:"M j, H:i" }}</span>
       </div>
       <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-400">

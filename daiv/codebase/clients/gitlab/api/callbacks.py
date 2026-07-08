@@ -128,16 +128,12 @@ class IssueCallback(BaseCallback):
         )
         daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         try:
-            from core.site_settings import site_settings
-
-            has_max = self.object_attributes.has_max_label()
             await acreate_run(
                 trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                 task_result_id=result.id,
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.object_attributes.iid,
-                agent_model=site_settings.agent_max_model_name if has_max else "",
-                agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
+                use_max=self.object_attributes.has_max_label(),
                 user=daiv_user,
                 external_username=self.user.username,
                 title=self.object_attributes.title,
@@ -216,17 +212,13 @@ class NoteCallback(BaseCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
             try:
-                from core.site_settings import site_settings
-
-                has_max = self.issue.has_max_label()
                 await acreate_run(
                     trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.project.path_with_namespace,
                     issue_iid=self.issue.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
-                    agent_model=site_settings.agent_max_model_name if has_max else "",
-                    agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
+                    use_max=self.issue.has_max_label(),
                     user=daiv_user,
                     external_username=self.user.username,
                     title=self.issue.title,
@@ -258,9 +250,6 @@ class NoteCallback(BaseCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
             try:
-                from core.site_settings import site_settings
-
-                has_max = self.merge_request.has_max_label()
                 await acreate_run(
                     trigger_type=SessionOrigin.MR_WEBHOOK,
                     task_result_id=result.id,
@@ -268,8 +257,7 @@ class NoteCallback(BaseCallback):
                     ref=self.merge_request.source_branch,
                     merge_request_iid=self.merge_request.iid,
                     mention_comment_id=self.object_attributes.discussion_id,
-                    agent_model=site_settings.agent_max_model_name if has_max else "",
-                    agent_thinking_level=site_settings.agent_max_thinking_level if has_max else "",
+                    use_max=self.merge_request.has_max_label(),
                     user=daiv_user,
                     external_username=self.user.username,
                     title=self.merge_request.title,

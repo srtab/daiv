@@ -54,6 +54,30 @@ def _create_run(session: Session, **kwargs) -> Run:
 
 
 # ---------------------------------------------------------------------------
+# auth gate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_endpoints_reject_anonymous_and_bad_token(db):
+    """Both endpoints sit behind AuthBearer/django_auth — anonymous or bad-token callers
+    get 401 and never reach the session lookup (no state/transcript leak). Exercised
+    through the real Django client so the SessionMiddleware ``django_auth`` needs is present
+    (the ninja TestAsyncClient's mock request has no session)."""
+    from django.test import Client
+    from django.urls import reverse
+
+    anon = Client()
+    thread_id = str(uuid.uuid4())
+    for name in ("api:session_status", "api:session_turns"):
+        url = reverse(name, kwargs={"thread_id": thread_id})
+        assert anon.get(url).status_code == 401, f"{name}: anonymous should be 401"
+        assert anon.get(url, HTTP_AUTHORIZATION="Bearer not-a-real-key").status_code == 401, (
+            f"{name}: bad token should be 401"
+        )
+
+
+# ---------------------------------------------------------------------------
 # session_status
 # ---------------------------------------------------------------------------
 
@@ -162,3 +186,25 @@ async def test_session_turns_expired(client, authed):
     assert data["expired"] is True
     assert data["turns"] == []
     assert data["active"] is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_404_for_other_users_session(client, authed):
+    """turns goes through the same by_owner scoping as status — a stranger's thread_id
+    must 404 (no re-hydrated transcript leak), and ahydrate_thread is never reached."""
+    _key_obj, raw, _user = authed
+    other = await User.objects.acreate_user(
+        username="other-turns",
+        email="other-turns@example.com",
+        password="x",  # noqa: S106
+    )
+    session_other = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main", user=other
+    )
+
+    hydrate = AsyncMock(return_value=([], False, None))
+    with patch("sessions.api.views.ahydrate_thread", hydrate):
+        resp = await client.get(f"/sessions/{session_other.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == 404
+    hydrate.assert_not_called()

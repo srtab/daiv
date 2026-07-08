@@ -151,6 +151,25 @@ def test_detail_includes_run_timeline(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_run_timeline_renders_display_labels_not_raw_enums(member_client, member_user):
+    """The timeline (no Alpine pk to relabel client-side) must render the human-readable
+    status label ('Pending', not the raw 'READY') and a non-empty origin badge for API
+    runs ('API Run' via get_trigger_type_display, not an empty indigo pill)."""
+    session = _create_session(user=member_user)
+    _create_run(session, trigger_type=SessionOrigin.API_JOB, status=RunStatus.READY)
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    content = resp.content.decode()
+    # Status pill shows the display label, not the raw enum member.
+    assert "Pending" in content
+    assert ">\n            READY" not in content and ">READY<" not in content
+    # Origin badge for an API run renders its display label, not an empty badge.
+    assert "API Run" in content
+
+
+@pytest.mark.django_db
 def test_detail_expired_checkpoint_disables_composer(member_client, member_user):
     """_ahydrate returning (.., expired=True, ..) => context['expired'] is True
     and the template renders the expired notice."""

@@ -20,6 +20,25 @@ class TestNotification:
         assert n.created is not None
         assert n.context == {}
 
+    def test_context_serializes_lazy_proxy_and_datetime(self, member_user):
+        """context uses DjangoJSONEncoder, so payload builders can store gettext_lazy
+        proxies and datetimes directly. Without it the save raises TypeError and the
+        notification is silently lost (the batch-rollup regression this guards against)."""
+        from django.utils import timezone
+        from django.utils.translation import gettext_lazy as _
+
+        n = Notification.objects.create(
+            recipient=member_user,
+            event_type="job.finished",
+            subject="s",
+            body="b",
+            context={"status_label": _("Successful"), "finished_at": timezone.now()},
+        )
+        n.refresh_from_db()
+        # Lazy proxy is forced to its translated string; datetime becomes an ISO string.
+        assert n.context["status_label"] == "Successful"
+        assert isinstance(n.context["finished_at"], str)
+
     def test_mark_as_read(self, member_user):
         n = Notification.objects.create(recipient=member_user, event_type="e", subject="s", body="b", link_url="/")
         assert n.read_at is None
