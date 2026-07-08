@@ -10,7 +10,7 @@
         <span class="text-xs text-gray-500">{{ run.created_at|date:"M j, H:i" }}</span>
       </div>
       <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-        {% if run.duration %}<span>{{ run|duration }}</span>{% endif %}
+        {% if run.duration %}<span>{{ run.duration|duration }}</span>{% endif %}
         {% if run.total_tokens %}<span>{{ run.total_tokens|format_tokens }}</span>{% endif %}
         {% if run.cost_usd %}<span>{{ run.cost_usd|format_cost }}</span>{% endif %}
         {% if run.merge_request_web_url %}

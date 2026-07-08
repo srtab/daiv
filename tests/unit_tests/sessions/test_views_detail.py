@@ -151,6 +151,27 @@ def test_detail_includes_run_timeline(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_run_timeline_renders_duration_for_finished_run(member_client, member_user):
+    """A finished run (started_at + finished_at set) renders its formatted duration in the
+    timeline. Regression: the template applied the ``duration`` filter to the ``Run`` object
+    (``run|duration``) instead of the numeric ``run.duration`` property, raising
+    ``TypeError: int() argument must be ... not 'Run'`` for any session with a finished run."""
+    from django.utils import timezone
+
+    session = _create_session(user=member_user)
+    started = timezone.now()
+    finished = started + timezone.timedelta(seconds=95)
+    _create_run(session, status=RunStatus.SUCCESSFUL, started_at=started, finished_at=finished)
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    # 95s -> "1m 35s" via the duration filter.
+    assert "1m 35s" in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_run_timeline_renders_display_labels_not_raw_enums(member_client, member_user):
     """The timeline (no Alpine pk to relabel client-side) must render the human-readable
     status label ('Pending', not the raw 'READY') and a non-empty origin badge for API

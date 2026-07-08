@@ -160,6 +160,16 @@ class TestSessionListView:
         assert str(successful_run.pk) not in in_flight_ids
         assert str(failed_run.pk) not in in_flight_ids
 
+    def test_session_row_links_to_detail(self, logged_in_client, user):
+        """Each row renders a stretched anchor to session_detail so the whole row is clickable."""
+        session = _create_session(user=user)
+
+        response = logged_in_client.get(reverse("session_list"))
+
+        assert response.status_code == 200
+        expected_href = reverse("session_detail", kwargs={"thread_id": session.thread_id})
+        assert f'href="{expected_href}"' in response.content.decode()
+
     def test_pagination_uses_paginate_by(self, logged_in_client, user):
         """Check that paginated results are returned when there are more than paginate_by sessions."""
         # Create 30 sessions to exceed typical paginate_by=25.
