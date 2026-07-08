@@ -1,10 +1,11 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.utils import timezone
 
 import pytest
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -88,6 +89,41 @@ class TestSyncStuckRunsCommand:
         call_command("sync_stuck_runs", stdout=out)
 
         assert "Synced: 0" in out.getvalue()
+
+    def test_reaps_orphaned_chat_run_when_session_heartbeat_stale(self):
+        """A task-less chat run stuck RUNNING is failed once its session heartbeat goes stale."""
+        stale = timezone.now() - timedelta(hours=1)
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", last_active_at=stale
+        )
+        run = Run.objects.create(
+            session=session, trigger_type=SessionOrigin.CHAT, repo_id="group/project", status=RunStatus.RUNNING
+        )
+
+        out = StringIO()
+        call_command("sync_stuck_runs", stdout=out)
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.FAILED
+        assert run.finished_at is not None
+        assert run.error_message
+        assert "chat runs reaped: 1" in out.getvalue()
+
+    def test_does_not_reap_live_chat_run(self):
+        """A chat run whose session is still heartbeating (fresh last_active_at) is left alone."""
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project"
+        )
+        run = Run.objects.create(
+            session=session, trigger_type=SessionOrigin.CHAT, repo_id="group/project", status=RunStatus.RUNNING
+        )
+
+        out = StringIO()
+        call_command("sync_stuck_runs", stdout=out)
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.RUNNING
+        assert "chat runs reaped: 0" in out.getvalue()
 
     def test_continues_after_per_row_error(self, create_db_task_result):
         ok_tr = create_db_task_result(

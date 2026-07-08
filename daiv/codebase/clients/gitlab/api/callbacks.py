@@ -146,9 +146,7 @@ class IssueCallback(BaseCallback):
             )
         except Exception:
             logger.exception(
-                "Failed to create activity for issue %s#%s",
-                self.project.path_with_namespace,
-                self.object_attributes.iid,
+                "Failed to create run for issue %s#%s", self.project.path_with_namespace, self.object_attributes.iid
             )
 
 
@@ -237,9 +235,7 @@ class NoteCallback(BaseCallback):
                 )
             except Exception:
                 logger.exception(
-                    "Failed to create activity for issue comment %s#%s",
-                    self.project.path_with_namespace,
-                    self.issue.iid,
+                    "Failed to create run for issue comment %s#%s", self.project.path_with_namespace, self.issue.iid
                 )
 
         elif self.merge_request and self._is_merge_request_comment:
@@ -282,7 +278,7 @@ class NoteCallback(BaseCallback):
                 )
             except Exception:
                 logger.exception(
-                    "Failed to create activity for MR comment %s#%s",
+                    "Failed to create run for MR comment %s#%s",
                     self.project.path_with_namespace,
                     self.merge_request.iid,
                 )

@@ -245,7 +245,7 @@ def _render_batch_payload_run(
 
     context = {
         "status": str(agg_status),
-        "status_label": str(agg_status),
+        "status_label": RunStatus(agg_status).label,
         "is_successful": ok,
         "trigger_label": run.get_trigger_type_display(),
         "trigger_name": name,

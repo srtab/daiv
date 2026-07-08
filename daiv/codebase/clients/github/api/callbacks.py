@@ -130,7 +130,7 @@ class IssueCallback(GitHubCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
         except Exception:
-            logger.exception("Failed to create activity for issue %s#%s", self.repository.full_name, self.issue.number)
+            logger.exception("Failed to create run for issue %s#%s", self.repository.full_name, self.issue.number)
 
 
 class IssueCommentCallback(GitHubCallback):
@@ -214,7 +214,7 @@ class IssueCommentCallback(GitHubCallback):
                 )
             except Exception:
                 logger.exception(
-                    "Failed to create activity for issue comment %s#%s", self.repository.full_name, self.issue.number
+                    "Failed to create run for issue comment %s#%s", self.repository.full_name, self.issue.number
                 )
 
         elif self._is_merge_request_review:
@@ -267,7 +267,7 @@ class IssueCommentCallback(GitHubCallback):
                 )
             except Exception:
                 logger.exception(
-                    "Failed to create activity for PR comment %s#%s", self.repository.full_name, self.issue.number
+                    "Failed to create run for PR comment %s#%s", self.repository.full_name, self.issue.number
                 )
 
     @property
