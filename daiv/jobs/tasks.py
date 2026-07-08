@@ -64,8 +64,8 @@ async def run_job_task(
     """Run the DAIV agent for a submitted job and return a standardized result.
 
     The ``thread_id`` is used as the LangGraph checkpoint key. Callers MUST mint one
-    up-front and persist it on the corresponding ``Activity`` — chat resume is built
-    on the assumption that the activity row and the checkpointer share the same key.
+    up-front and persist it on the corresponding ``Run`` — chat resume is built
+    on the assumption that the Session and the checkpointer share the same thread_id key.
     A silent UUID fallback here would break that contract on the resume path.
 
     ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``.
