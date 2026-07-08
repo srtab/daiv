@@ -1,0 +1,208 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Skill zip"
+msgstr ""
+
+msgid "Replace existing"
+msgstr ""
+
+#, python-format
+msgid "Zip exceeds maximum size of %(max)d bytes."
+msgstr ""
+
+msgid "name"
+msgstr ""
+
+msgid "description"
+msgstr ""
+
+msgid "size (bytes)"
+msgstr ""
+
+msgid "file count"
+msgstr ""
+
+msgid "checksum"
+msgstr ""
+
+msgid "Built-in"
+msgstr ""
+
+msgid "Custom global"
+msgstr ""
+
+msgid "Per-repo"
+msgstr ""
+
+msgid "source"
+msgstr ""
+
+msgid "repository"
+msgstr ""
+
+msgid "thread id"
+msgstr ""
+
+msgid "Lifetime invocations"
+msgstr ""
+
+#, python-format
+msgid "%(counter)s invocation"
+msgid_plural "%(counter)s invocations"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "No built-in skills shipped."
+msgstr ""
+
+#, python-format
+msgid "Open %(name)s"
+msgstr ""
+
+msgid "Skill actions"
+msgstr ""
+
+msgid "Download zip"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Overrides built-in"
+msgstr ""
+
+msgid "Uploaded by"
+msgstr ""
+
+msgid "Uploaded by (unknown)"
+msgstr ""
+
+#, python-format
+msgid ""
+"\n"
+"                Uploaded %(when)s ago · %(size)s · %(counter)s file\n"
+"                "
+msgid_plural ""
+"\n"
+"                Uploaded %(when)s ago · %(size)s · %(counter)s files\n"
+"                "
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "No custom skills uploaded yet."
+msgstr ""
+
+msgid "Usage"
+msgstr ""
+
+msgid "Total invocations"
+msgstr ""
+
+msgid "Last 30 days"
+msgstr ""
+
+msgid "No usage in the last 30 days."
+msgstr ""
+
+msgid "Recent activity"
+msgstr ""
+
+msgid "Skills"
+msgstr ""
+
+msgid "Delete skill"
+msgstr ""
+
+msgid "(unknown)"
+msgstr ""
+
+msgid "SKILL.md body"
+msgstr ""
+
+msgid "Show more"
+msgstr ""
+
+msgid "Show less"
+msgstr ""
+
+msgid "Files"
+msgstr ""
+
+msgid "Skills uploaded as zip archives are available to every agent run."
+msgstr ""
+
+msgid "Upload skill"
+msgstr ""
+
+msgid "Custom skills"
+msgstr ""
+
+msgid "Built-in skills"
+msgstr ""
+
+msgid "The skill is moved to a recycle bin for 24 hours before being permanently removed."
+msgstr ""
+
+#, python-format
+msgid "Are you sure you want to delete <strong>%(name)s</strong>?"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Replace existing skill"
+msgstr ""
+
+msgid "Upload a zip archive containing a single skill directory with a SKILL.md at its root."
+msgstr ""
+
+#, python-format
+msgid "A skill named \"%(name)s\" already exists."
+msgstr ""
+
+#, python-format
+msgid ""
+"\n"
+"        Uploaded by %(by)s on %(at)s."
+msgstr ""
+
+msgid "Choose the zip again to replace the existing version. The previous version is kept in a recycle bin for 24 hours."
+msgstr ""
+
+msgid "Replace"
+msgstr ""
+
+msgid "Upload"
+msgstr ""
+
+msgid "Could not save the skill. Please try again."
+msgstr ""
+
+#, python-format
+msgid "Skill '%(name)s' uploaded."
+msgstr ""
+
+msgid "Could not delete the skill."
+msgstr ""
+
+#, python-format
+msgid "Skill '%(name)s' deleted."
+msgstr ""

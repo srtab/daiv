@@ -21,7 +21,7 @@ The configuration is split into the following groups, organized by category.
 |-------|----------|--------------------|
 | **Agent** | AI tasks | Primary, fallback, `daiv-max`, and explore models; their thinking levels; the agent recursion limit; and whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests. |
 | **Commit & PR Writer** | AI tasks | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs. |
-| **Titling** | AI tasks | Primary and fallback models that generate chat thread and activity titles from prompts. |
+| **Titling** | AI tasks | Primary and fallback models that generate session and run titles from prompts. |
 | **Providers** | Models | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from. |
 | **Web Search** | Agent tools | Enable/disable the web search tool, pick the engine (DuckDuckGo or Tavily), set max results, and store the Tavily API key. |
 | **Web Fetch** | Agent tools | Enable/disable the web fetch tool, choose the model that processes fetched pages, set cache TTL / timeout / max content size, and define per-domain auth headers. |

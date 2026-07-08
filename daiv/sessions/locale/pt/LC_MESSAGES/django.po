@@ -1,0 +1,272 @@
+# Portuguese translations for DAIV sessions.
+# Copyright (C) 2024 DAIV
+# This file is distributed under the same license as the DAIV package.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: 2026-07-08 09:00+0100\n"
+"Last-Translator: \n"
+"Language-Team: Portuguese <pt@li.org>\n"
+"Language: pt\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Malformed repository list."
+msgstr "Lista de repositórios inválida."
+
+msgid "Prompt"
+msgstr "Prompt"
+
+msgid "Agent model"
+msgstr "Modelo do agente"
+
+msgid "Override the configured model for this run."
+msgstr "Substituir o modelo configurado para esta execução."
+
+msgid "Thinking effort"
+msgstr "Esforço de raciocínio"
+
+msgid "Notify me"
+msgstr "Notificar-me"
+
+msgid "(global default)"
+msgstr "(predefinição global)"
+
+msgid "Sandbox environment"
+msgstr "Ambiente sandbox"
+
+msgid "Queued"
+msgstr "Em fila"
+
+msgid "Pending"
+msgstr "Pendente"
+
+msgid "Running"
+msgstr "A executar"
+
+msgid "Successful"
+msgstr "Com sucesso"
+
+msgid "Failed"
+msgstr "Falhou"
+
+msgid "Chat"
+msgstr "Chat"
+
+msgid "API Run"
+msgstr "Execução via API"
+
+msgid "MCP Run"
+msgstr "Execução via MCP"
+
+msgid "Scheduled Run"
+msgstr "Execução agendada"
+
+msgid "UI Run"
+msgstr "Execução via interface"
+
+msgid "Issue Webhook"
+msgstr "Webhook de issue"
+
+msgid "MR/PR Webhook"
+msgstr "Webhook de MR/PR"
+
+msgid "origin"
+msgstr "origem"
+
+msgid "user"
+msgstr "utilizador"
+
+msgid "external username"
+msgstr "nome de utilizador externo"
+
+msgid "repository"
+msgstr "repositório"
+
+msgid "branch / ref"
+msgstr "ramo / ref"
+
+msgid "title"
+msgstr "título"
+
+msgid "agent model"
+msgstr "modelo do agente"
+
+msgid "agent thinking level"
+msgstr "nível de raciocínio do agente"
+
+msgid "sandbox environment"
+msgstr "ambiente sandbox"
+
+msgid "scheduled job"
+msgstr "tarefa agendada"
+
+msgid "issue IID"
+msgstr "IID da issue"
+
+msgid "merge request IID"
+msgstr "IID do merge request"
+
+msgid "created at"
+msgstr "criado em"
+
+msgid "last active at"
+msgstr "última atividade em"
+
+msgid "Session"
+msgstr "Sessão"
+
+msgid "Sessions"
+msgstr "Sessões"
+
+msgid "session"
+msgstr "sessão"
+
+msgid "trigger type"
+msgstr "tipo de acionador"
+
+msgid "status"
+msgstr "estado"
+
+msgid "task result"
+msgstr "resultado da tarefa"
+
+msgid "batch ID"
+msgstr "ID do lote"
+
+msgid "prompt"
+msgstr "prompt"
+
+msgid "notify on"
+msgstr "notificar em"
+
+msgid "mention comment ID"
+msgstr "ID do comentário de menção"
+
+msgid "merge request URL"
+msgstr "URL do merge request"
+
+msgid "result summary"
+msgstr "resumo do resultado"
+
+msgid "error message"
+msgstr "mensagem de erro"
+
+msgid "code changes"
+msgstr "alterações de código"
+
+msgid "input tokens"
+msgstr "tokens de entrada"
+
+msgid "output tokens"
+msgstr "tokens de saída"
+
+msgid "total tokens"
+msgstr "total de tokens"
+
+msgid "cost (USD)"
+msgstr "custo (USD)"
+
+msgid "usage by model"
+msgstr "utilização por modelo"
+
+msgid "started at"
+msgstr "iniciado em"
+
+msgid "finished at"
+msgstr "terminado em"
+
+msgid "Run"
+msgstr "Execução"
+
+msgid "Runs"
+msgstr "Execuções"
+
+msgid "Repository already in the list: __LABEL__."
+msgstr "Repositório já na lista: __LABEL__."
+
+msgid "Describe what the agent should do in each run..."
+msgstr "Descreva o que o agente deve fazer em cada execução..."
+
+msgid "Markdown"
+msgstr "Markdown"
+
+msgid "No recorded runs — this conversation predates run tracking."
+msgstr "Sem execuções registadas — esta conversa é anterior ao registo de execuções."
+
+msgid "Pick a model"
+msgstr "Selecionar um modelo"
+
+msgid "Auto"
+msgstr "Automático"
+
+msgid "This session's state has expired. Start a new session to continue."
+msgstr "O estado desta sessão expirou. Inicie uma nova sessão para continuar."
+
+msgid "New session"
+msgstr "Nova sessão"
+
+msgid "What are we building today?"
+msgstr "O que vamos construir hoje?"
+
+msgid "Pick a repository to get started."
+msgstr "Selecione um repositório para começar."
+
+msgid "Ready when you are — describe the change, the bug, or what to explore."
+msgstr "Pronto quando quiser — descreva a alteração, o erro ou o que explorar."
+
+msgid "Job is queued"
+msgstr "Tarefa em fila"
+
+msgid "Waiting in queue"
+msgstr "À espera na fila"
+
+msgid "This job will start shortly."
+msgstr "Esta tarefa vai iniciar em breve."
+
+msgid "Agent is still running"
+msgstr "O agente ainda está a executar"
+
+msgid "Agent is working"
+msgstr "O agente está a trabalhar"
+
+msgid "This page refreshes automatically when the run finishes."
+msgstr "Esta página atualiza automaticamente quando a execução terminar."
+
+msgid "You stopped this run."
+msgstr "Parou esta execução."
+
+msgid "Session context"
+msgstr "Contexto da sessão"
+
+msgid "Todos"
+msgstr "Tarefas"
+
+msgid "Files changed"
+msgstr "Ficheiros alterados"
+
+msgid "Show all"
+msgstr "Mostrar tudo"
+
+#, python-format
+msgid "Batch %(id)s"
+msgstr "Lote %(id)s"
+
+msgid "Clear batch filter"
+msgstr "Limpar filtro de lote"
+
+msgid "generating title…"
+msgstr "a gerar título…"
+
+msgid "Failed to submit the run. Please try again in a moment."
+msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
+
+#, python-format
+msgid "Some repositories failed to submit: %(ids)s"
+msgstr "Alguns repositórios falharam ao submeter: %(ids)s"

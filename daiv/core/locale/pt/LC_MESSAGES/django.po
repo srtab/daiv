@@ -1,0 +1,581 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+#, python-format
+msgid "Default (%(name)s)"
+msgstr ""
+
+msgid "Pick a model"
+msgstr ""
+
+msgid "Locked by environment variable"
+msgstr ""
+
+#, python-format
+msgid "Unsupported model: %(m)s."
+msgstr ""
+
+#, python-format
+msgid "Provider '%(s)s' is not configured."
+msgstr ""
+
+#, python-format
+msgid "Provider '%(s)s' is disabled. Enable it in the Providers section."
+msgstr ""
+
+#, python-format
+msgid "Provider '%(s)s' has no API key. Set it in the Providers section."
+msgstr ""
+
+msgid "Tavily requires an API key. Set the web search API key below or via environment variable."
+msgstr ""
+
+msgid "OAuth requires both a client ID and a client secret."
+msgstr ""
+
+msgid "API key for Tavily web search engine."
+msgstr ""
+
+msgid "API key for the sandbox service."
+msgstr ""
+
+msgid "OAuth application client secret for the configured Git platform."
+msgstr ""
+
+msgid "Bot user personal access token (X-Auth-Token)."
+msgstr ""
+
+msgid "header value"
+msgstr ""
+
+msgid "Domain"
+msgstr ""
+
+msgid "Header name"
+msgstr ""
+
+msgid "Header value"
+msgstr ""
+
+msgid "Enter a host only (e.g. example.com)."
+msgstr ""
+
+msgid "Use letters, digits, and hyphens only (e.g. X-API-Key)."
+msgstr ""
+
+msgid "Required."
+msgstr ""
+
+#, python-format
+msgid "Duplicate (domain, header name) pair: %(domain)s / %(header)s."
+msgstr ""
+
+msgid "API key"
+msgstr ""
+
+msgid "Extra headers (JSON)"
+msgstr ""
+
+msgid "Use Responses API"
+msgstr ""
+
+msgid "Verify TLS certificates"
+msgstr ""
+
+msgid "'google' is a reserved alias."
+msgstr ""
+
+msgid "Slug must start with a lowercase letter; lowercase letters, digits, '-' and '_'; max 32 chars."
+msgstr ""
+
+msgid "Slug is immutable after creation; delete and re-add to change."
+msgstr ""
+
+msgid "Locked provider; provider type cannot be changed."
+msgstr ""
+
+msgid "Base URL must use http or https."
+msgstr ""
+
+msgid "Base URL looks like it is missing a version segment (e.g. '/v1'). The OpenAI SDK appends paths verbatim, so requests may hit the wrong route."
+msgstr ""
+
+msgid "verify_ssl=False has no effect for this provider type — the SDK doesn't accept a custom HTTP client. Mount the CA into the daiv containers instead."
+msgstr ""
+
+#, python-format
+msgid "Invalid JSON: %s"
+msgstr ""
+
+msgid "Extra headers must be a JSON object."
+msgstr ""
+
+#, python-format
+msgid "Invalid header name: %s"
+msgstr ""
+
+#, python-format
+msgid "Header value for %s must be a string."
+msgstr ""
+
+msgid "Required when enabled."
+msgstr ""
+
+#, python-format
+msgid "Locked provider '%s' cannot be deleted."
+msgstr ""
+
+#, python-format
+msgid "Duplicate slug: %s"
+msgstr ""
+
+msgid "Minimal"
+msgstr ""
+
+msgid "Low"
+msgstr ""
+
+msgid "Medium"
+msgstr ""
+
+msgid "High"
+msgstr ""
+
+msgid "Extra high"
+msgstr ""
+
+msgid "DuckDuckGo"
+msgstr ""
+
+msgid "Tavily"
+msgstr ""
+
+msgid "OpenAI"
+msgstr ""
+
+msgid "Anthropic"
+msgstr ""
+
+msgid "Google Gemini"
+msgstr ""
+
+msgid "OpenRouter"
+msgstr ""
+
+msgid "model"
+msgstr ""
+
+msgid "Primary model for agent tasks."
+msgstr ""
+
+msgid "fallback model"
+msgstr ""
+
+msgid "Fallback model when the primary model fails."
+msgstr ""
+
+msgid "fallback thinking level"
+msgstr ""
+
+msgid "Thinking depth applied to the fallback model. Independent of the primary thinking level."
+msgstr ""
+
+msgid "thinking level"
+msgstr ""
+
+msgid "Extended thinking depth for agent tasks. Leave empty to disable thinking."
+msgstr ""
+
+msgid "max model"
+msgstr ""
+
+msgid "Model for tasks when the daiv-max label is present."
+msgstr ""
+
+msgid "max thinking level"
+msgstr ""
+
+msgid "Thinking depth for daiv-max tasks. Leave empty to disable thinking."
+msgstr ""
+
+msgid "explore model"
+msgstr ""
+
+msgid "Fast model for the explore subagent."
+msgstr ""
+
+msgid "explore fallback model"
+msgstr ""
+
+msgid "Fallback model when the explore model fails."
+msgstr ""
+
+msgid "recursion limit"
+msgstr ""
+
+msgid "Maximum recursion depth for agent loops."
+msgstr ""
+
+msgid "Model for generating commit messages and PR descriptions from diffs."
+msgstr ""
+
+msgid "Fallback model used when the primary fails."
+msgstr ""
+
+msgid "Model for generating chat thread and activity titles from prompts."
+msgstr ""
+
+msgid "memory enabled"
+msgstr ""
+
+msgid "Capture learnings from finished runs, consolidate them, and inject them into future runs. A per-repository .daiv.yml flag can still opt an individual repository out."
+msgstr ""
+
+msgid "extraction model"
+msgstr ""
+
+msgid "Cheap model that extracts candidate observations from each finished run's transcript."
+msgstr ""
+
+msgid "extraction fallback model"
+msgstr ""
+
+msgid "Fallback model when the extraction model fails."
+msgstr ""
+
+msgid "consolidation model"
+msgstr ""
+
+msgid "Model that rewrites the memory document. Leave empty to reuse the repository's agent model."
+msgstr ""
+
+msgid "consolidation threshold"
+msgstr ""
+
+msgid "Consolidate once at least this many pending observations have accumulated (subject to the consolidation interval below)."
+msgstr ""
+
+msgid "consolidation interval (hours)"
+msgstr ""
+
+msgid "Minimum hours between consolidations for the same repository."
+msgstr ""
+
+msgid "memory max lines"
+msgstr ""
+
+msgid "Hard cap on the consolidated memory document length, in lines."
+msgstr ""
+
+msgid "memory max bytes"
+msgstr ""
+
+msgid "Hard cap on the consolidated memory document size, in bytes."
+msgstr ""
+
+msgid "web search enabled"
+msgstr ""
+
+msgid "Enable or disable the web search tool."
+msgstr ""
+
+msgid "web search max results"
+msgstr ""
+
+msgid "Maximum number of results returned from web search."
+msgstr ""
+
+msgid "web search engine"
+msgstr ""
+
+msgid "Search engine to use. Tavily requires an API key."
+msgstr ""
+
+msgid "web fetch enabled"
+msgstr ""
+
+msgid "Enable or disable the web fetch tool."
+msgstr ""
+
+msgid "web fetch model"
+msgstr ""
+
+msgid "Model used to process fetched page content."
+msgstr ""
+
+msgid "web fetch cache TTL"
+msgstr ""
+
+msgid "Cache time-to-live for fetched pages, in seconds."
+msgstr ""
+
+msgid "web fetch timeout"
+msgstr ""
+
+msgid "HTTP timeout for web fetch requests, in seconds."
+msgstr ""
+
+msgid "web fetch max content"
+msgstr ""
+
+msgid "Maximum page content size (in characters) to analyze in one pass."
+msgstr ""
+
+msgid "sandbox timeout"
+msgstr ""
+
+msgid "Timeout for sandbox requests, in seconds."
+msgstr ""
+
+msgid "enable OAuth login"
+msgstr ""
+
+msgid "Allow users to sign in with their Git platform account (GitHub or GitLab)."
+msgstr ""
+
+msgid "open social signup"
+msgstr ""
+
+msgid "Allow anyone who authenticates via the configured Git platform to create an account. When disabled, only users pre-created by an admin can sign in."
+msgstr ""
+
+msgid "OAuth client ID"
+msgstr ""
+
+msgid "OAuth application client ID for the configured Git platform."
+msgstr ""
+
+msgid "GitLab URL"
+msgstr ""
+
+msgid "Browser-facing URL of your GitLab instance."
+msgstr ""
+
+msgid "GitLab server URL"
+msgstr ""
+
+msgid "Server-to-server URL for GitLab API calls (token exchange, profile fetch) in Docker-internal networks. Leave empty to use the GitLab URL."
+msgstr ""
+
+msgid "suggest context file"
+msgstr ""
+
+msgid "Suggest creating a context file (e.g. AGENTS.md) on new merge requests."
+msgstr ""
+
+msgid "jobs throttle rate"
+msgstr ""
+
+msgid "Rate limit for job submissions per authenticated user (e.g. '20/hour')."
+msgstr ""
+
+msgid "enable Rocket Chat"
+msgstr ""
+
+msgid "Offer Rocket Chat as a notification channel for users."
+msgstr ""
+
+msgid "Rocket Chat URL"
+msgstr ""
+
+msgid "Base URL of your Rocket Chat instance (e.g. https://rc.example.com)."
+msgstr ""
+
+msgid "Rocket Chat bot user ID"
+msgstr ""
+
+msgid "The bot user's _id, sent as the X-User-Id header."
+msgstr ""
+
+msgid "Agent"
+msgstr ""
+
+msgid "Commit & PR Writer"
+msgstr ""
+
+msgid "Titling"
+msgstr ""
+
+msgid "Memory"
+msgstr ""
+
+msgid "Providers"
+msgstr ""
+
+msgid "Web Search"
+msgstr ""
+
+msgid "Web Fetch"
+msgstr ""
+
+msgid "Sandbox"
+msgstr ""
+
+msgid "Jobs"
+msgstr ""
+
+msgid "Rocket Chat"
+msgstr ""
+
+msgid "Authentication"
+msgstr ""
+
+msgid "site configuration"
+msgstr ""
+
+msgid "domain"
+msgstr ""
+
+msgid "header name"
+msgstr ""
+
+msgid "web fetch auth header"
+msgstr ""
+
+msgid "web fetch auth headers"
+msgstr ""
+
+msgid "slug"
+msgstr ""
+
+msgid "display name"
+msgstr ""
+
+msgid "provider type"
+msgstr ""
+
+msgid "base URL"
+msgstr ""
+
+msgid "extra headers"
+msgstr ""
+
+msgid "enabled"
+msgstr ""
+
+msgid "use Responses API"
+msgstr ""
+
+msgid "Only honored for OpenAI-typed providers. Enable for servers that expose /v1/responses (real OpenAI, some hosted gateways). Disable for /v1/chat/completions-only servers (vLLM, llama.cpp, most LiteLLM setups)."
+msgstr ""
+
+msgid "verify TLS certificates"
+msgstr ""
+
+msgid "Disable only for self-hosted endpoints behind an internal/self-signed CA. Skipping verification exposes the connection to MITM attacks; prefer mounting the internal CA into the daiv containers when possible."
+msgstr ""
+
+msgid "provider"
+msgstr ""
+
+msgid "providers"
+msgstr ""
+
+msgid "Configure model providers. Reach a model from agent config via the form"
+msgstr ""
+
+msgid "Providers could not be saved — please fix the errors below:"
+msgstr ""
+
+msgid "new row"
+msgstr ""
+
+msgid "Built-in"
+msgstr ""
+
+msgid "Custom"
+msgstr ""
+
+msgid "Add custom provider"
+msgstr ""
+
+msgid "Per-domain auth headers"
+msgstr ""
+
+msgid "Send custom HTTP headers when web_fetch contacts a domain. Match is exact (no subdomains)."
+msgstr ""
+
+msgid "No headers configured via DAIV_WEB_FETCH_AUTH_HEADERS."
+msgstr ""
+
+msgid "Add header"
+msgstr ""
+
+msgid "Reorder"
+msgstr ""
+
+msgid "New provider"
+msgstr ""
+
+msgid "API key set"
+msgstr ""
+
+msgid "key set"
+msgstr ""
+
+msgid "API key missing"
+msgstr ""
+
+msgid "no key"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Base URL"
+msgstr ""
+
+msgid "override"
+msgstr ""
+
+msgid "Empty = SDK default. Useful for Azure / proxies."
+msgstr ""
+
+msgid "Advanced"
+msgstr ""
+
+msgid "Display name"
+msgstr ""
+
+msgid "Provider type"
+msgstr ""
+
+msgid "Slug"
+msgstr ""
+
+msgid "Slug is set at creation; delete and re-add to change."
+msgstr ""
+
+msgid "OpenAI-typed providers only. Enable for servers exposing /v1/responses; disable for /v1/chat/completions-only servers."
+msgstr ""
+
+msgid "Disable only for self-hosted endpoints behind an internal/self-signed CA. Insecure — prefer mounting the CA into the daiv containers."
+msgstr ""
+
+msgid "Clear"
+msgstr ""
+
+msgid "Stored:"
+msgstr ""
+
+msgid "(new)"
+msgstr ""

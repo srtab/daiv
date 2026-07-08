@@ -80,8 +80,8 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
    daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo=...)
    ```
 
-3. Open the DAIV **Activity** page and confirm a new `API_JOB` run exists for the target repo.
-4. Within a minute or two, an internal comment with the triage report should appear on the ticket. If it doesn't, check the Activity detail page — the agent may have errored mid-run or failed to post via the RT MCP.
+3. Open the DAIV **Sessions** page and confirm a new `API Run` session exists for the target repo.
+4. Within a minute or two, an internal comment with the triage report should appear on the ticket. If it doesn't, check the session detail page — the agent may have errored mid-run or failed to post via the RT MCP.
 
 ## Troubleshooting
 
@@ -92,10 +92,10 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
 | `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To" |
 | `failed to submit job … 401` | Wrong or expired DAIV API key | Rotate via `python manage.py create_api_key` and update `RT_SiteConfig.pm` |
 | `rate-limited for ticket … 429` (warning) | Jobs API rate limit exceeded (default 20/hour per user) | Raise the jobs throttle rate in Site Configuration (`jobs_throttle_rate`), or use a separate API-key user per queue. Logged at `warning` — safe to alert on `error` only |
-| `failed to submit job … <non-2xx, non-429>` | DAIV returned 4xx/5xx other than rate-limit | Check the DAIV activity log and access log; the status line + body are captured |
+| `failed to submit job … <non-2xx, non-429>` | DAIV returned 4xx/5xx other than rate-limit | Check the DAIV sessions list and access log; the status line + body are captured |
 | `exception in triage scrip: daiv-triage timeout` | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS |
 | `exception in triage scrip: <other>` | Unexpected die from LWP, the RT ticket object, or elsewhere | Inspect `rt.log` around the timestamp; the captured `$@` will point at the source |
-| Job completes in DAIV but no comment on the ticket | RT MCP auth user lacks comment rights on the queue, or MCP call errored | Grant the MCP's RT user the `CommentOnTicket` right on the queue; inspect the run's tool calls in Activity |
+| Job completes in DAIV but no comment on the ticket | RT MCP auth user lacks comment rights on the queue, or MCP call errored | Grant the MCP's RT user the `CommentOnTicket` right on the queue; inspect the run's tool calls in the session detail |
 
 ## Cost considerations
 

@@ -1,0 +1,286 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "one tool name per line"
+msgstr ""
+
+msgid "One tool name per line."
+msgstr ""
+
+msgid "Renaming an existing MCP server is not supported. Delete and re-create instead."
+msgstr ""
+
+#, python-format
+msgid "'%(name)s' is a reserved name and cannot be used."
+msgstr ""
+
+msgid "At least one item is required when a filter mode other than 'none' is set."
+msgstr ""
+
+msgid "🔒 keep existing"
+msgstr ""
+
+msgid "Header name cannot be empty."
+msgstr ""
+
+msgid "Invalid header name (RFC 7230 token characters only)."
+msgstr ""
+
+msgid "Environment variable name is required."
+msgstr ""
+
+msgid "Built-in"
+msgstr ""
+
+msgid "Custom"
+msgstr ""
+
+msgid "HTTP (streamable)"
+msgstr ""
+
+msgid "SSE"
+msgstr ""
+
+msgid "None"
+msgstr ""
+
+msgid "Allow only listed tools"
+msgstr ""
+
+msgid "Block listed tools"
+msgstr ""
+
+msgid "name"
+msgstr ""
+
+msgid "description"
+msgstr ""
+
+msgid "source"
+msgstr ""
+
+msgid "transport"
+msgstr ""
+
+msgid "URL"
+msgstr ""
+
+msgid "tool filter mode"
+msgstr ""
+
+msgid "tool filter items"
+msgstr ""
+
+msgid "enabled"
+msgstr ""
+
+msgid "discovered tools"
+msgstr ""
+
+msgid "tools synced at"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Broken"
+msgstr ""
+
+#, python-format
+msgid "%(counter)s tool exposed"
+msgid_plural "%(counter)s tools exposed"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "%(counter)s filtered out"
+msgid_plural "%(counter)s filtered out"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "synced %(when)s ago"
+msgstr ""
+
+msgid "No tools exposed"
+msgstr ""
+
+msgid "Tools not synced yet"
+msgstr ""
+
+msgid "Refresh tools"
+msgstr ""
+
+msgid "Disable"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Delete MCP server"
+msgstr ""
+
+#, python-format
+msgid "Delete %(name)s?"
+msgstr ""
+
+msgid "This permanently removes the server and its stored headers. This cannot be undone."
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "New MCP server"
+msgstr ""
+
+msgid "Edit MCP server"
+msgstr ""
+
+msgid "Connect an MCP server to give the agent extra tools and context."
+msgstr ""
+
+msgid "Built-in server — it can be edited and disabled, but not renamed or deleted."
+msgstr ""
+
+#, python-format
+msgid "Update “%(name)s”."
+msgstr ""
+
+msgid "Stored headers could not be decrypted (encryption key changed?). Saving is disabled until they are reset."
+msgstr ""
+
+msgid "Filter tools…"
+msgstr ""
+
+msgid "not in current tool list"
+msgstr ""
+
+msgid "read-only"
+msgstr ""
+
+msgid "writable"
+msgstr ""
+
+msgid "Details"
+msgstr ""
+
+msgid "Name can’t be changed after creation."
+msgstr ""
+
+msgid "Connection"
+msgstr ""
+
+msgid "Headers"
+msgstr ""
+
+msgid "HTTP headers sent to the MCP server. Choose “env_ref” to read the value from an environment variable at runtime instead of storing it."
+msgstr ""
+
+msgid "Add header"
+msgstr ""
+
+msgid "Test connection"
+msgstr ""
+
+msgid "Testing…"
+msgstr ""
+
+msgid "tools discovered"
+msgstr ""
+
+msgid "Tool filter"
+msgstr ""
+
+msgid "not synced yet"
+msgstr ""
+
+msgid "One tool name per line, or Test the connection above to pick from a list."
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "MCP Servers"
+msgstr ""
+
+msgid "MCP servers provide tools and context to the agent."
+msgstr ""
+
+msgid "New server"
+msgstr ""
+
+msgid "Custom servers"
+msgstr ""
+
+msgid "No custom servers configured."
+msgstr ""
+
+msgid "Built-in servers"
+msgstr ""
+
+msgid "No built-in servers registered."
+msgstr ""
+
+#, python-format
+msgid "MCP server '%(name)s' created."
+msgstr ""
+
+#, python-format
+msgid "'%(name)s' was saved, but its tools couldn't be refreshed: %(error)s"
+msgstr ""
+
+msgid "unknown error"
+msgstr ""
+
+#, python-format
+msgid "Stored headers for '%(name)s' could not be decrypted (encryption key changed?). Saving from here is disabled until you reset them manually."
+msgstr ""
+
+#, python-format
+msgid "Cannot save '%(name)s': existing headers could not be decrypted. Delete the server and re-create it, or rotate the encryption key back."
+msgstr ""
+
+#, python-format
+msgid "MCP server '%(name)s' updated."
+msgstr ""
+
+#, python-format
+msgid "MCP server '%(name)s' deleted."
+msgstr ""
+
+#, python-format
+msgid "Refreshed tools for '%(name)s' (%(count)d found)."
+msgstr ""
+
+#, python-format
+msgid "Could not refresh tools for '%(name)s': %(error)s"
+msgstr ""

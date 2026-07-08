@@ -1,0 +1,288 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+msgid "Notifications"
+msgstr ""
+
+msgid "Email"
+msgstr ""
+
+msgid "Rocket Chat is not configured."
+msgstr ""
+
+msgid "Rocket Chat is temporarily unavailable. Please try again."
+msgstr ""
+
+msgid "Rocket Chat returned an invalid response."
+msgstr ""
+
+msgid "Rocket Chat user not found."
+msgstr ""
+
+msgid "Rocket Chat"
+msgstr ""
+
+msgid "Never"
+msgstr ""
+
+msgid "Always"
+msgstr ""
+
+msgid "On success only"
+msgstr ""
+
+msgid "On failure only"
+msgstr ""
+
+msgid "Pending"
+msgstr ""
+
+msgid "Sent"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Skipped"
+msgstr ""
+
+msgid "Job finished"
+msgstr ""
+
+msgid "Schedule finished"
+msgstr ""
+
+msgid "Job batch finished"
+msgstr ""
+
+msgid "Username is required."
+msgstr ""
+
+msgid "recipient"
+msgstr ""
+
+msgid "event type"
+msgstr ""
+
+msgid "source type"
+msgstr ""
+
+msgid "source id"
+msgstr ""
+
+msgid "subject"
+msgstr ""
+
+msgid "body"
+msgstr ""
+
+msgid "link URL"
+msgstr ""
+
+msgid "context"
+msgstr ""
+
+msgid "read at"
+msgstr ""
+
+msgid "notification"
+msgstr ""
+
+msgid "channel type"
+msgstr ""
+
+msgid "address"
+msgstr ""
+
+msgid "status"
+msgstr ""
+
+msgid "attempts"
+msgstr ""
+
+msgid "last attempted at"
+msgstr ""
+
+msgid "delivered at"
+msgstr ""
+
+msgid "error message"
+msgstr ""
+
+msgid "user"
+msgstr ""
+
+msgid "extra config"
+msgstr ""
+
+msgid "verified"
+msgstr ""
+
+msgid "verified at"
+msgstr ""
+
+#, python-format
+msgid "%(repos)s and %(remaining)d more"
+msgstr ""
+
+#, python-format
+msgid "'%(name)s' succeeded on %(repo)s — %(owner)s"
+msgstr ""
+
+#, python-format
+msgid "Scheduled run '%(name)s' by %(owner)s finished on %(repo)s."
+msgstr ""
+
+#, python-format
+msgid "'%(name)s' failed on %(repo)s — %(owner)s"
+msgstr ""
+
+#, python-format
+msgid "Scheduled run '%(name)s' by %(owner)s failed on %(repo)s."
+msgstr ""
+
+#, python-format
+msgid "Agent run on %(repo)s succeeded"
+msgstr ""
+
+#, python-format
+msgid "Agent run on %(repo)s finished successfully."
+msgstr ""
+
+#, python-format
+msgid "Agent run on %(repo)s failed"
+msgstr ""
+
+#, python-format
+msgid "Agent run on %(repo)s failed."
+msgstr ""
+
+#, python-format
+msgid "'%(name)s' batch succeeded (%(total)d runs) — %(owner)s"
+msgstr ""
+
+#, python-format
+msgid "All %(total)d runs of '%(name)s' by %(owner)s finished successfully."
+msgstr ""
+
+#, python-format
+msgid "'%(name)s' batch failed (%(total)d runs) — %(owner)s"
+msgstr ""
+
+#, python-format
+msgid "All %(total)d runs of '%(name)s' by %(owner)s failed."
+msgstr ""
+
+#, python-format
+msgid "'%(name)s' batch: %(ok)d/%(total)d succeeded — %(owner)s"
+msgstr ""
+
+#, python-format
+msgid "%(ok)d of %(total)d runs of '%(name)s' by %(owner)s succeeded; %(failed)d failed."
+msgstr ""
+
+#, python-format
+msgid "Agent run batch succeeded (%(total)d runs)"
+msgstr ""
+
+#, python-format
+msgid "All %(total)d runs on %(repos)s finished successfully."
+msgstr ""
+
+#, python-format
+msgid "Agent run batch failed (%(total)d runs)"
+msgstr ""
+
+#, python-format
+msgid "All %(total)d runs on %(repos)s failed."
+msgstr ""
+
+#, python-format
+msgid "Agent run batch finished: %(ok)d/%(total)d succeeded"
+msgstr ""
+
+#, python-format
+msgid "%(ok)d of %(total)d runs on %(repos)s succeeded; %(failed)d failed."
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "View all"
+msgstr ""
+
+msgid "No notifications yet."
+msgstr ""
+
+msgid "Notification settings"
+msgstr ""
+
+msgid "ago"
+msgstr ""
+
+msgid "Notification channels"
+msgstr ""
+
+msgid "Configure how DAIV reaches you. More channels will appear here as they are added."
+msgstr ""
+
+msgid "Not configured"
+msgstr ""
+
+msgid "Verified"
+msgstr ""
+
+msgid "Unverified"
+msgstr ""
+
+msgid "Disconnect"
+msgstr ""
+
+msgid "Connect"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Trigger"
+msgstr ""
+
+msgid "Repository"
+msgstr ""
+
+msgid "Duration"
+msgstr ""
+
+msgid "View full result"
+msgstr ""
+
+msgid "Mark all as read"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Unread"
+msgstr ""
+
+msgid "Read"
+msgstr ""

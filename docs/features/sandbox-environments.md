@@ -103,7 +103,7 @@ A repository ID may be claimed by at most one environment **within the same scop
 
 When a run starts in a repository, DAIV picks the per-run environment using this precedence (per repository):
 
-1. **Explicit selection** — an environment chosen for the run (the picker in the dashboard, the `environment` argument to the [Jobs API](jobs-api.md)/[MCP](mcp-endpoint.md), or the chat header). Selecting an environment overrides all binding/default logic.
+1. **Explicit selection** — an environment chosen for the run (the picker in the dashboard, the `environment` argument to the [Jobs API](jobs-api.md)/[MCP](mcp-endpoint.md), or the session header). Selecting an environment overrides all binding/default logic.
 2. **User repository binding** — your **User** environment whose **Repositories** list contains this repository.
 3. **Global repository binding** — a **Global** (non-default) environment whose **Repositories** list contains this repository.
 4. **Global default** — the single **Global** environment marked as default.
@@ -133,11 +133,11 @@ You don't have to bind an environment to a repository — you can pick one expli
 
 ### From the dashboard run composer
 
-When you start a run from **Dashboard > Activity** (or from an [Activity](activity-tracking.md) detail page), the composer includes a **Sandbox environment** picker listing your User environments and all Global ones. Leave it on **(global default)** to use [auto-resolution](#how-an-environment-is-resolved).
+When you start a run from **Dashboard > Sessions** (or from a [Sessions](sessions.md) detail page), the composer includes a **Sandbox environment** picker listing your User environments and all Global ones. Leave it on **(global default)** to use [auto-resolution](#how-an-environment-is-resolved).
 
-### From chat
+### From a chat session
 
-The dashboard [chat](chat.md) workspace remembers the environment chosen when the thread is created (sent as the `X-Sandbox-Env` header, by name or UUID). Omitting it auto-resolves the environment for the thread's repository. The chosen environment is snapshotted on thread creation, so an existing thread keeps the environment it started with.
+The dashboard [chat session](sessions.md#chat-sessions) workspace remembers the environment chosen when the session is created (sent as the `X-Sandbox-Env` header, by name or UUID). Omitting it auto-resolves the environment for the session's repository. The chosen environment is snapshotted at session creation, so an existing session keeps the environment it started with.
 
 ### From a scheduled job
 

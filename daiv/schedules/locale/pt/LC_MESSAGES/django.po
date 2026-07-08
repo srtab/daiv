@@ -1,0 +1,246 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+msgid "Schedules"
+msgstr ""
+
+msgid "Hourly"
+msgstr ""
+
+msgid "Daily"
+msgstr ""
+
+msgid "Weekdays"
+msgstr ""
+
+msgid "Weekly"
+msgstr ""
+
+msgid "Custom"
+msgstr ""
+
+msgid "Once"
+msgstr ""
+
+msgid "A cron expression is required for Custom frequency."
+msgstr ""
+
+msgid "Invalid cron expression. Use five space-separated fields: minute hour day-of-month month day-of-week (e.g. '0 9 * * 1-5')."
+msgstr ""
+
+msgid "Time is required for this frequency."
+msgstr ""
+
+msgid "Date and time is required for a one-off schedule."
+msgstr ""
+
+msgid "The scheduled time must be in the future."
+msgstr ""
+
+msgid "Date and time only applies to one-off schedules."
+msgstr ""
+
+msgid "user"
+msgstr ""
+
+msgid "name"
+msgstr ""
+
+msgid "prompt"
+msgstr ""
+
+msgid "What the agent should do."
+msgstr ""
+
+msgid "repositories"
+msgstr ""
+
+msgid "List of {repo_id, ref} entries. 1-20 entries. Empty ref means the default branch."
+msgstr ""
+
+msgid "frequency"
+msgstr ""
+
+msgid "cron expression"
+msgstr ""
+
+msgid "Required when frequency is Custom. Five-field cron expression."
+msgstr ""
+
+msgid "time"
+msgstr ""
+
+msgid "Time of day (used for Daily, Weekdays, and Weekly frequencies)."
+msgstr ""
+
+msgid "run at"
+msgstr ""
+
+msgid "Specific date and time for one-off schedules."
+msgstr ""
+
+msgid "max mode"
+msgstr ""
+
+msgid "Use the more capable model with thinking set to high."
+msgstr ""
+
+msgid "agent model"
+msgstr ""
+
+msgid "agent thinking level"
+msgstr ""
+
+msgid "enabled"
+msgstr ""
+
+msgid "next run at"
+msgstr ""
+
+msgid "last run at"
+msgstr ""
+
+msgid "last run batch ID"
+msgstr ""
+
+msgid "run count"
+msgstr ""
+
+msgid "notify on"
+msgstr ""
+
+msgid "subscribers"
+msgstr ""
+
+msgid "Other users CC'd on this schedule's finish notifications."
+msgstr ""
+
+msgid "sandbox environment"
+msgstr ""
+
+msgid "source template"
+msgstr ""
+
+msgid "Template this schedule was created from. Cleared if the template is later deleted."
+msgstr ""
+
+msgid "Scheduled Job"
+msgstr ""
+
+msgid "Scheduled Jobs"
+msgstr ""
+
+msgid "description"
+msgstr ""
+
+msgid "default repositories"
+msgstr ""
+
+msgid "List of {repo_id, ref} entries that pre-fill the schedule's repo picker. Leave empty to let users choose."
+msgstr ""
+
+msgid "created by"
+msgstr ""
+
+msgid "Schedule Template"
+msgstr ""
+
+msgid "Schedule Templates"
+msgstr ""
+
+msgid "Every hour"
+msgstr ""
+
+#, python-format
+msgid "Custom: %(cron)s"
+msgstr ""
+
+msgid "Once (pick a date)"
+msgstr ""
+
+#, python-format
+msgid "%(label)s at %(time)s"
+msgstr ""
+
+msgid "Any repo"
+msgstr ""
+
+#, python-format
+msgid "%(label)s +%(extra)d more"
+msgstr ""
+
+msgid "Subscribers"
+msgstr ""
+
+msgid "Add subscriber"
+msgstr ""
+
+msgid "Search users by name, email, or username..."
+msgstr ""
+
+msgid "Could not load users."
+msgstr ""
+
+msgid "Discard your current changes and apply this template?"
+msgstr ""
+
+msgid "Start from template"
+msgstr ""
+
+msgid "Pick a ready-made schedule. Every field stays editable after."
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Search templates…"
+msgstr ""
+
+msgid "Use"
+msgstr ""
+
+msgid "No templates match your search."
+msgstr ""
+
+msgid "Start from a template"
+msgstr ""
+
+msgid "Pick a curated schedule as a starting point. Every field is editable."
+msgstr ""
+
+msgid "Browse templates"
+msgstr ""
+
+msgid "Automate agent runs on repositories with recurring schedules."
+msgstr ""
+
+msgid "From template"
+msgstr ""
+
+msgid "Create schedule"
+msgstr ""
+
+msgid "No scheduled jobs yet. Create one to automate agent runs."
+msgstr ""
+
+msgid "Create blank schedule"
+msgstr ""
+
+msgid "Repositories selected here pre-fill the schedule picker. Leave empty to let users choose."
+msgstr ""

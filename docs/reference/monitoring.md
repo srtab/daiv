@@ -207,7 +207,7 @@ DAIV tracks token usage and estimated cost for every agent execution internally 
 1. Each agent invocation runs inside the `track_usage_metadata()` context manager (in `daiv/automation/agent/usage_tracking.py`), which binds a `CostAwareUsageMetadataCallbackHandler` (a subclass of LangChain's `UsageMetadataCallbackHandler` that prices each LLM call individually) to a module-level `ContextVar` registered with LangChain's `register_configure_hook`. The handler is automatically inherited by every nested `Runnable` — including subagent invocations — without needing to thread callbacks through `RunnableConfig`.
 2. The handler captures `usage_metadata` from every LLM call during graph execution — including fallback model invocations, tool-internal model calls, and subagents spawned via the `task` tool.
 3. After the run, token counts are aggregated per model and cost is calculated using [genai-prices](https://github.com/pydantic/genai-prices) (maintained by Pydantic).
-4. The usage summary is stored in the `AgentResult` and denormalized onto the `Activity` record for long-term retention.
+4. The usage summary is stored in the `AgentResult` and denormalized onto the `Run` record for long-term retention.
 
 ### What's tracked
 
@@ -226,8 +226,8 @@ Token detail buckets (when available from the provider):
 
 ### Where to see it
 
-- **Activity list** — cost or token count shown per row
-- **Activity detail** — full breakdown with per-model details
+- **Sessions list** — cost or token count shown per session row
+- **Session detail run timeline** — full breakdown with per-model details per run
 - **Markdown export** — usage metadata included in YAML frontmatter
 
 ### Known limitations
@@ -235,11 +235,11 @@ Token detail buckets (when available from the provider):
 - **Summarization middleware calls** may not be tracked if the middleware overrides the config.
 - If a model is **not in the genai-prices database**, token usage is still recorded but cost is stored as `null`. A warning is logged.
 - Cost estimates are **approximations** based on published list prices. Actual billing may differ based on your provider agreement.
-- **Chat API flows** do not attach the usage tracker and do not persist usage. Chat uses `ChatThread` records, not `Activity` records.
+- **OpenAI-compatible chat API flows** (the `/api/chat/` endpoint, separate from the dashboard session workspace) do not attach the usage tracker and do not persist usage to Run records.
 
 ### Relationship to LangSmith
 
-LangSmith remains the recommended tool for detailed **trace-level** observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides **run-level** usage summaries that persist on Activity records and do not require a LangSmith account.
+LangSmith remains the recommended tool for detailed **trace-level** observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides **run-level** usage summaries that persist on Run records and do not require a LangSmith account.
 
 ---
 

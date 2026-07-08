@@ -1,0 +1,436 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+msgid "On"
+msgstr ""
+
+msgid "Off"
+msgstr ""
+
+msgid "Only administrators can create global environments."
+msgstr ""
+
+msgid "env_vars must be valid JSON."
+msgstr ""
+
+msgid "env_vars must be a list."
+msgstr ""
+
+#, python-format
+msgid "Too many environment variables (max %d)."
+msgstr ""
+
+#, python-format
+msgid "env_vars entry at index %d must be an object."
+msgstr ""
+
+#, python-format
+msgid "Invalid env var name '%(name)s' at index %(idx)d."
+msgstr ""
+
+#, python-format
+msgid "Duplicate env var name '%s'."
+msgstr ""
+
+msgid "repo_ids must be valid JSON."
+msgstr ""
+
+msgid "repo_ids must be a list."
+msgstr ""
+
+#, python-format
+msgid "repo_ids[%d] must be a string."
+msgstr ""
+
+#, python-format
+msgid "repo_ids[%d] cannot be blank."
+msgstr ""
+
+#, python-format
+msgid "Invalid repo id '%(value)s' at index %(idx)d. Use a slash-separated path like 'owner/repo' or 'group/subgroup/repo'."
+msgstr ""
+
+msgid "Egress policy must be valid JSON."
+msgstr ""
+
+msgid "Egress policy must be an object."
+msgstr ""
+
+msgid "Egress default must be 'deny' or 'allow'."
+msgstr ""
+
+msgid "Egress hosts must be a list."
+msgstr ""
+
+#, python-format
+msgid "Egress host at index %d must be an object."
+msgstr ""
+
+#, python-format
+msgid "Egress host at index %d cannot be blank."
+msgstr ""
+
+#, python-format
+msgid "Invalid credential header name at index %d."
+msgstr ""
+
+#, python-format
+msgid "Credential value at index %d must not contain newlines."
+msgstr ""
+
+msgid "Enter a memory value or switch back to default."
+msgstr ""
+
+msgid "Enter a CPU value or switch back to default."
+msgstr ""
+
+msgid "Network is On but the egress policy permits nothing. Add at least one allowed host, set the default to allow, or switch Network to Off."
+msgstr ""
+
+msgid "Existing egress secrets could not be decrypted. Re-enter all credential values before saving, or restore DAIV_ENCRYPTION_KEY."
+msgstr ""
+
+msgid "Existing environment variables could not be decrypted. Re-enter all secret values before saving, or restore DAIV_ENCRYPTION_KEY."
+msgstr ""
+
+msgid "User"
+msgstr ""
+
+msgid "Global"
+msgstr ""
+
+msgid "name"
+msgstr ""
+
+msgid "description"
+msgstr ""
+
+msgid "base image"
+msgstr ""
+
+msgid "memory (bytes)"
+msgstr ""
+
+msgid "CPUs"
+msgstr ""
+
+msgid "repo ids"
+msgstr ""
+
+msgid "is default"
+msgstr ""
+
+msgid "egress policy"
+msgstr ""
+
+msgid "Set another global environment as default before deleting this one."
+msgstr ""
+
+msgid "Name is required."
+msgstr ""
+
+msgid "Base image is required."
+msgstr ""
+
+msgid "Environment variables exceed 32 KiB encrypted."
+msgstr ""
+
+msgid "Existing environment variables could not be decrypted. Re-enter all secret values, or restore DAIV_ENCRYPTION_KEY."
+msgstr ""
+
+#, python-format
+msgid "Duplicate repo id '%s' in this env."
+msgstr ""
+
+#, python-format
+msgid "Repo id(s) %(repos)s already claimed by environment '%(name)s'."
+msgstr ""
+
+msgid "Egress secrets exceed 32 KiB encrypted."
+msgstr ""
+
+msgid "Existing egress secrets could not be decrypted. Re-enter all secret values, or restore DAIV_ENCRYPTION_KEY."
+msgstr ""
+
+msgid "Egress secrets must be an object."
+msgstr ""
+
+#, python-format
+msgid "Too many egress rules (max %d)."
+msgstr ""
+
+#, python-format
+msgid "Too many egress secrets (max %d)."
+msgstr ""
+
+#, python-format
+msgid "Invalid egress configuration: %s"
+msgstr ""
+
+#, python-format
+msgid "The egress secret name '%s' is reserved for DAIV's git-platform credential."
+msgstr ""
+
+msgid "Sandbox environment no longer exists."
+msgstr ""
+
+msgid "Only GLOBAL environments can be marked as default."
+msgstr ""
+
+#, python-format
+msgid "Delete environment \"%(name)s\"?"
+msgstr ""
+
+msgid "This is the current global default. Promote another global environment as default before deleting."
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "New sandbox environment"
+msgstr ""
+
+msgid "Edit sandbox environment"
+msgstr ""
+
+msgid "Delete sandbox environment"
+msgstr ""
+
+msgid "Create an environment without leaving this page."
+msgstr ""
+
+msgid "Edit without leaving this page."
+msgstr ""
+
+msgid "Confirm deletion of this environment."
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Something went wrong. Check the connection and try again."
+msgstr ""
+
+msgid "Retry"
+msgstr ""
+
+msgid "Import"
+msgstr ""
+
+#, python-brace-format
+msgid "Import {n} vars"
+msgstr ""
+
+msgid "Paste .env contents"
+msgstr ""
+
+msgid "Lines like KEY=value are imported. Comments (#) and blank lines are skipped."
+msgstr ""
+
+msgid "vars parsed"
+msgstr ""
+
+msgid "invalid lines skipped"
+msgstr ""
+
+msgid "Merge — skip names that already exist"
+msgstr ""
+
+msgid "Replace all current variables"
+msgstr ""
+
+msgid "Auto"
+msgstr ""
+
+msgid "Locked for this conversation"
+msgstr ""
+
+msgid "Search environments…"
+msgstr ""
+
+msgid "Resolved at runtime from the selected repo."
+msgstr ""
+
+msgid "Auto resolution order: 1) your env whose repo list matches; 2) a shared env whose repo list matches; 3) the shared default."
+msgstr ""
+
+msgid "How Auto picks an environment"
+msgstr ""
+
+msgid "Resolves to a matching env (else global default)"
+msgstr ""
+
+msgid "No environments match"
+msgstr ""
+
+msgid "New environment"
+msgstr ""
+
+msgid "Name"
+msgstr ""
+
+msgid "Description"
+msgstr ""
+
+msgid "Scope"
+msgstr ""
+
+msgid "Personal"
+msgstr ""
+
+msgid "Shared with everyone"
+msgstr ""
+
+msgid "Base image"
+msgstr ""
+
+msgid "Try:"
+msgstr ""
+
+msgid "Invalid name"
+msgstr ""
+
+msgid "Duplicate name"
+msgstr ""
+
+msgid "Environment variables"
+msgstr ""
+
+msgid "Paste .env"
+msgstr ""
+
+msgid "🔒 keep existing"
+msgstr ""
+
+msgid "value"
+msgstr ""
+
+msgid "Secret"
+msgstr ""
+
+msgid "Plain"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Add variable"
+msgstr ""
+
+msgid "Repositories"
+msgstr ""
+
+msgid "When a run targets one of these repositories and the user has selected Auto, this environment is used."
+msgstr ""
+
+msgid "Add"
+msgstr ""
+
+msgid "Network"
+msgstr ""
+
+msgid "Duplicate host"
+msgstr ""
+
+msgid "Network access"
+msgstr ""
+
+msgid "Restricts which hosts the sandbox can reach. With Default set to deny, only the listed hosts are reachable — plus this environment's own git platform, which DAIV always allows for git operations. Leave the list empty to apply no egress policy; to block all outbound access, set Network to off."
+msgstr ""
+
+msgid "Unlisted hosts"
+msgstr ""
+
+msgid "Deny"
+msgstr ""
+
+msgid "Allow"
+msgstr ""
+
+msgid "All hosts reachable unless a rule restricts them."
+msgstr ""
+
+msgid "Allowed hosts"
+msgstr ""
+
+msgid "All methods"
+msgstr ""
+
+msgid "Read-only"
+msgstr ""
+
+msgid "– credential"
+msgstr ""
+
+msgid "+ credential"
+msgstr ""
+
+msgid "Add host"
+msgstr ""
+
+msgid "Resources"
+msgstr ""
+
+msgid "Inherits memory and CPUs from the global default. Click to override."
+msgstr ""
+
+msgid "Memory"
+msgstr ""
+
+msgid "Unconstrained"
+msgstr ""
+
+msgid "Use default"
+msgstr ""
+
+msgid "Custom"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "default"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+msgid "Make default"
+msgstr ""
+
+msgid "No global environments yet."
+msgstr ""
+
+msgid "No personal environments yet."
+msgstr ""
+
+msgid "Sandbox Environments"
+msgstr ""
+
+msgid "Reusable sandbox configurations for agent runs."
+msgstr ""
+
+msgid "Global environments"
+msgstr ""
+
+msgid "My environments"
+msgstr ""

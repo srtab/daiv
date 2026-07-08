@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-15 23:55+0100\n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -44,6 +44,12 @@ msgstr "nome"
 msgid "role"
 msgstr "papel"
 
+msgid "notify on jobs"
+msgstr ""
+
+msgid "When to receive notifications for agent runs you start (UI/API/MCP)."
+msgstr ""
+
 msgid "prefix"
 msgstr "prefixo"
 
@@ -77,11 +83,14 @@ msgstr "Introduza este código na janela do navegador para concluir a autentica�
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
 
+msgid "New chat"
+msgstr ""
+
 msgid "Dashboard"
 msgstr "Painel"
 
-msgid "Activity"
-msgstr "Atividade"
+msgid "Sessions"
+msgstr ""
 
 #, python-format
 msgid "%(counter)s running"
@@ -91,6 +100,12 @@ msgstr[1] "%(counter)s em execução"
 
 msgid "Schedules"
 msgstr "Agendamentos"
+
+msgid "Sandbox environments"
+msgstr ""
+
+msgid "Memory"
+msgstr ""
 
 msgid "Account"
 msgstr "Conta"
@@ -107,11 +122,25 @@ msgstr "Utilizadores"
 msgid "Configuration"
 msgstr "Configuração"
 
+#, fuzzy
+#| msgid "Schedules"
+msgid "Schedule templates"
+msgstr "Agendamentos"
+
+msgid "Skills"
+msgstr ""
+
+msgid "MCP servers"
+msgstr ""
+
 msgid "API documentation"
 msgstr "Documentação da API"
 
 msgid "Sign out"
 msgstr "Terminar sessão"
+
+msgid "No users found."
+msgstr ""
 
 msgid "Welcome to DAIV"
 msgstr "Bem-vindo ao DAIV"
@@ -177,3 +206,6 @@ msgstr "Autorizar"
 
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
+
+#~ msgid "Activity"
+#~ msgstr "Atividade"
