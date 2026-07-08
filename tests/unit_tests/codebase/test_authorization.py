@@ -10,10 +10,12 @@ from allauth.socialaccount.models import SocialAccount
 from codebase.authorization import (
     RepositoryAccessDenied,
     assert_can_run,
+    can_run,
     can_view,
     get_access_level,
     search_viewable_repositories,
     viewable_repo_ids,
+    viewable_repo_ids_subquery,
 )
 from codebase.base import RepoAccessLevel
 from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
@@ -267,3 +269,41 @@ class TestSearchViewableRepositories:
         result = search_viewable_repositories(admin_user, topics=["python"], limit=3)
 
         assert [r.slug for r in result] == ["a/r0", "a/r1", "a/r2"]
+
+
+class TestViewableRepoIdsSubquery:
+    def test_returns_fresh_read_and_write_repos(self, linked_member, fresh_sync):
+
+        _grant("101", "a/read", RepoAccessLevel.READ)
+        _grant("101", "a/write", RepoAccessLevel.WRITE)
+        assert set(viewable_repo_ids_subquery(linked_member)) == {"a/read", "a/write"}
+
+    def test_excludes_stale_rows(self, linked_member, fresh_sync):
+
+        _grant("101", "a/fresh", RepoAccessLevel.READ)
+        _grant("101", "a/stale", RepoAccessLevel.READ, synced_at=timezone.now() - timedelta(hours=25))
+        assert set(viewable_repo_ids_subquery(linked_member)) == {"a/fresh"}
+
+    def test_unlinked_member_returns_empty(self, member_user, fresh_sync):
+
+        assert list(viewable_repo_ids_subquery(member_user)) == []
+
+
+class TestCanRun:
+    def test_write_row_can_run(self, linked_member, fresh_sync):
+
+        _grant("101", "a/b", RepoAccessLevel.WRITE)
+        assert can_run(linked_member, "a/b") is True
+
+    def test_read_row_cannot_run(self, linked_member, fresh_sync):
+
+        _grant("101", "a/b", RepoAccessLevel.READ)
+        assert can_run(linked_member, "a/b") is False
+
+    def test_no_row_cannot_run(self, linked_member, fresh_sync):
+
+        assert can_run(linked_member, "a/b") is False
+
+    def test_admin_can_run(self, admin_user, db):
+
+        assert can_run(admin_user, "any/repo") is True

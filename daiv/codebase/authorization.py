@@ -159,6 +159,27 @@ def viewable_repo_ids(user: User, repo_ids: Iterable[str]) -> set[str]:
     return set(_fresh_rows(uid).filter(repo_id__in=repo_ids).values_list("repo_id", flat=True))
 
 
+def viewable_repo_ids_subquery(user: User):
+    """A lazy ``repo_id`` values-queryset of the repos the user can read (fresh READ+).
+
+    Intended for ``repo_id__in=<subquery>`` filters over large tables (e.g. ``Activity``)
+    so the id set is never materialized in Python. Returns an empty values-queryset when
+    the user has no linked platform identity.
+
+    Callers MUST handle admins (who are unrestricted) before calling this: an admin with
+    no OAuth link would otherwise resolve to an empty set.
+    """
+    uid = _resolve_uid(user)
+    if uid is None:
+        return RepositoryAccess.objects.none().values_list("repo_id", flat=True)
+    return _fresh_rows(uid).values_list("repo_id", flat=True)
+
+
+def can_run(user: User, repo_id: str) -> bool:
+    """Whether ``user`` holds WRITE access on ``repo_id`` (admins always do)."""
+    return get_access_level(user, repo_id) == RepoAccessLevel.WRITE
+
+
 def search_viewable_repositories(
     user: User, *, search: str | None = None, topics: list[str] | None = None, limit: int
 ) -> list[RepositoryCatalog]:
