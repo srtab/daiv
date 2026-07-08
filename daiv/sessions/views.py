@@ -19,7 +19,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import DetailView, FormView
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
@@ -28,6 +28,7 @@ from accounts.mixins import BreadcrumbMixin
 from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
 from schedules.models import ScheduledJob
 from sessions.filters import SessionFilter
 from sessions.forms import AgentRunCreateForm
@@ -78,12 +79,12 @@ class SessionStreamView(View):
         """
         terminal = RunStatus.terminal()
         # Authorize the requested ids once: run visibility is stable for the life of the
-        # stream, so re-running the (distinct-join) owner filter every tick is wasted work.
+        # stream, so re-running the (distinct-join) visibility filter every tick is wasted work.
         # Restricting ``tracking`` to visible ids also lets the loop finish cleanly instead
-        # of spinning to MAX_DURATION on ids the caller can't see.
-        tracking: set[uuid.UUID] = {
-            rid async for rid in Run.objects.by_owner(user).filter(id__in=run_ids).values_list("id", flat=True)
-        }
+        # of spinning to MAX_DURATION on ids the caller can't see. ``visible_to`` resolves the
+        # caller's platform identity with a sync DB read, so build the queryset off-loop.
+        visible = await sync_to_async(Run.objects.visible_to)(user)
+        tracking: set[uuid.UUID] = {rid async for rid in visible.filter(id__in=run_ids).values_list("id", flat=True)}
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
 
@@ -131,7 +132,9 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # ``latest_run_status`` (annotation) drives the row status; the SSE in-flight
         # ids come from a separate targeted query in ``get_context_data`` — the list
         # template never iterates ``session.runs``, so no prefetch is needed.
-        return Session.objects.by_owner(self.request.user).with_latest_status().select_related("user", "scheduled_job")
+        return (
+            Session.objects.visible_to(self.request.user).with_latest_status().select_related("user", "scheduled_job")
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -181,7 +184,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
     pk_url_kwarg = "thread_id"
 
     def get_queryset(self) -> QuerySet[Session]:
-        return Session.objects.by_owner(self.request.user).select_related(
+        return Session.objects.visible_to(self.request.user).select_related(
             "user", "sandbox_environment", "scheduled_job"
         )
 
@@ -266,7 +269,7 @@ class RunDownloadMarkdownView(LoginRequiredMixin, DetailView):
     def get_queryset(self) -> QuerySet[Run]:
         return (
             Run.objects
-            .by_owner(self.request.user)
+            .visible_to(self.request.user)
             .filter(status=RunStatus.SUCCESSFUL, session_id=self.kwargs["thread_id"])
             .select_related("session")
         )
@@ -326,9 +329,14 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
         if not source_id:
             return None
         try:
-            return Run.objects.by_owner(self.request.user).filter(pk=source_id).first()
+            source = Run.objects.visible_to(self.request.user).filter(pk=source_id).first()
         except (ValueError, ValidationError) as err:
             raise Http404("Invalid run id.") from err
+        # A visible run on a repo the caller can no longer run on must not prefill a
+        # retry form — submission would be rejected downstream anyway. Fall back to blank.
+        if source is not None and not can_run(self.request.user, source.repo_id):
+            return None
+        return source
 
     def get_initial(self) -> dict:
         initial: dict = {"notify_on": self.request.user.notify_on_jobs}
@@ -370,6 +378,11 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             )
         except Http404, PermissionDenied, SuspiciousOperation:
             raise
+        except RepositoryAccessDenied:
+            # Access can be revoked between form.clean() and submit; surface it on the field
+            # rather than as a generic failure.
+            form.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
+            return self.form_invalid(form)
         except Exception:
             logger.exception(
                 "Failed to submit UI run",

@@ -12,6 +12,7 @@ from sessions.locks import SessionLock
 from sessions.models import Session
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 
 from .security import AuthBearer
@@ -65,6 +66,12 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         raise Http404("Repository ID or reference not found")
 
     user = request.auth  # ty: ignore[unresolved-attribute]
+    try:
+        await aassert_can_run(user, [repo_id])
+    except RepositoryAccessDenied as err:
+        # Opaque 404: don't confirm the repo's existence to unauthorized callers.
+        raise Http404(REPO_ACCESS_DENIED_MESSAGE) from err
+
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 

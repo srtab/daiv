@@ -16,6 +16,7 @@ from codebase.conf import settings as codebase_settings
 from codebase.context import set_runtime_ctx
 from codebase.managers.issue_addressor import IssueAddressorManager
 from codebase.managers.review_addressor import CommentsAddressorManager
+from core.utils import locked_task
 
 if TYPE_CHECKING:
     from automation.agent.results import AgentResult
@@ -32,6 +33,168 @@ if codebase_settings.CLIENT == GitPlatform.GITLAB:
         Setup webhooks for all repositories periodically.
         """
         call_command("setup_webhooks", disable_ssl_verification=settings.DEBUG)  # noqa: S106
+
+
+@cron(codebase_settings.REPO_ACCESS_SYNC_CRON)
+@task
+@locked_task(key="repo-access")
+def sync_repository_access_cron_task():
+    """
+    Mirror per-user repository access levels and the repository catalog from the git platform
+    into ``RepositoryAccess`` and ``RepositoryCatalog``.
+
+    The catalog (repo metadata + the admin-visible universe) is upserted from the same universe
+    listing and pruned under the same non-empty guard as the access rows, so repository listings
+    never surface a repo the bot has lost. The catalog is not security-load-bearing, so its writes
+    are isolated: a catalog failure marks the run degraded but never aborts the access sync.
+
+    Repo-centric: one member-list call per bot-visible repository covers all users at once.
+    A per-repo failure keeps that repo's previous rows (serve-stale) and leaves their
+    ``synced_at`` untouched, so authorization expires them per-repo once they age past the
+    hard TTL — a repo whose sync keeps failing eventually denies access to that repo alone,
+    without affecting repos that are still syncing cleanly. Rows aged past the hard TTL are
+    pruned each run: they already grant no access, and clearing them lets a repo that
+    legitimately dropped to zero members stop tripping the empty-member guard once its stale
+    rows expire. ``last_success_at`` advances only on a fully clean run and is used purely for
+    observability, not the access decision (which is per-row) nor the backstop enqueue (keyed
+    on ``last_started_at``).
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
+
+    if codebase_settings.CLIENT == GitPlatform.SWE:
+        return
+
+    provider = codebase_settings.CLIENT.value
+    state, _ = RepositoryAccessSyncState.objects.get_or_create(pk=RepositoryAccessSyncState.SINGLETON_PK)
+    state.last_started_at = timezone.now()
+    state.save(update_fields=["last_started_at"])
+
+    client = RepoClient.create_instance()
+    try:
+        universe = client.list_repositories()
+    except Exception:
+        logger.exception("Repository access sync: failed to list repositories")
+        state.status = RepositoryAccessSyncState.Status.FAILED
+        state.save(update_fields=["status"])
+        return
+
+    # Snapshot which repos currently have rows, once, so the empty-member guard below does not
+    # issue a per-repo EXISTS query across the whole universe every run.
+    repos_with_rows = set(
+        RepositoryAccess.objects.filter(provider=provider).values_list("repo_id", flat=True).distinct()
+    )
+
+    failures = 0
+
+    # Mirror the repository catalog (metadata + admin-visible universe) from the same universe
+    # listing, so repo listings are served from this table instead of live platform fetches. The
+    # catalog is not security-load-bearing, so a failure here is isolated: it marks the run
+    # degraded but must not abort the access sync below. An empty universe yields an empty
+    # bulk_create (no-op); the prune below is guarded on it.
+    catalog_synced_at = timezone.now()
+    try:
+        RepositoryCatalog.objects.bulk_create(
+            [
+                RepositoryCatalog(
+                    provider=provider,
+                    slug=repo.slug,
+                    name=repo.name,
+                    default_branch=repo.default_branch or "",
+                    html_url=repo.html_url,
+                    topics=repo.topics,
+                    synced_at=catalog_synced_at,
+                )
+                for repo in universe
+            ],
+            update_conflicts=True,
+            unique_fields=["provider", "slug"],
+            update_fields=["name", "default_branch", "html_url", "topics", "synced_at"],
+        )
+    except Exception:
+        failures += 1
+        logger.exception("Repository access sync: failed to upsert repository catalog (%d repos)", len(universe))
+
+    for repo in universe:
+        try:
+            members = client.list_repository_members(repo.slug)
+            # An empty member list is almost always a degraded/partial API response (paginated
+            # endpoints can return an empty first page without raising) rather than a genuine
+            # membership wipe. For a repo that previously had rows, treat it as a failure and keep
+            # those rows (serve-stale) instead of silently locking everyone out. A first-ever sync
+            # has no rows to preserve, but an empty result is still suspicious, so log it — a
+            # genuinely degraded first sync must be visible in logs, not indistinguishable from a
+            # legitimately member-less repo silently recorded with zero rows.
+            if not members:
+                if repo.slug in repos_with_rows:
+                    failures += 1
+                    logger.warning(
+                        "Repository access sync: %s returned no members but had prior rows; keeping previous rows",
+                        repo.slug,
+                    )
+                else:
+                    logger.warning("Repository access sync: %s returned no members on first sync", repo.slug)
+                continue
+            synced_at = timezone.now()
+            rows = [
+                RepositoryAccess(
+                    provider=provider,
+                    uid=member.uid,
+                    username=member.username,
+                    repo_id=repo.slug,
+                    access_level=member.access_level,
+                    synced_at=synced_at,
+                )
+                for member in members
+            ]
+            with transaction.atomic():
+                RepositoryAccess.objects.filter(provider=provider, repo_id=repo.slug).delete()
+                RepositoryAccess.objects.bulk_create(rows)
+        except Exception:
+            failures += 1
+            logger.exception("Repository access sync: failed to sync %s (keeping previous rows)", repo.slug)
+            continue
+
+    # Prune access rows for repos no longer in the universe, so a repo the bot lost access to
+    # (or that was deleted/renamed) is revoked promptly rather than only after the hard TTL.
+    # This trusts the listing to be complete: a *fully empty* listing is treated as a degraded
+    # response and the prune is skipped (see below), but a *partially truncated* listing —
+    # non-empty yet missing repos — will still prune the missing repos' rows. That is an
+    # accepted, self-healing fail-CLOSED event (users of dropped repos are denied until the next
+    # complete sync recreates the rows ~1 cycle later); we prefer it to the fail-OPEN
+    # alternative of never pruning, which would let a lost repo keep granting access for a full
+    # hard-TTL window.
+    if universe:
+        universe_slugs = [r.slug for r in universe]
+        RepositoryAccess.objects.filter(provider=provider).exclude(repo_id__in=universe_slugs).delete()
+        # Isolated like the catalog upsert above: a prune failure must not pre-empt the sync-state
+        # write below, which would leave an otherwise-clean access sync recorded as neither OK nor
+        # FAILED. Freshness bounds any rows this fails to prune until the next clean cycle.
+        try:
+            RepositoryCatalog.objects.filter(provider=provider).exclude(slug__in=universe_slugs).delete()
+        except Exception:
+            failures += 1
+            logger.exception("Repository access sync: failed to prune repository catalog")
+    elif repos_with_rows:
+        # Empty listing while rows exist is a degraded response, not a real "no repos" state:
+        # skip the destructive prune and mark the run failed so it does not read as clean.
+        failures += 1
+        logger.warning("Repository access sync: repository universe is empty but rows exist; skipping prune")
+
+    # Drop rows aged past the hard TTL. They already grant no access (the authorization filter
+    # ignores them), so this is access-neutral; it bounds table growth and makes the empty-member
+    # guard self-terminating — once a genuinely member-less repo's stale rows expire and are
+    # cleared, it no longer has "prior rows" and stops being flagged as degraded.
+    RepositoryAccess.objects.filter(provider=provider).stale().delete()
+
+    if failures:
+        state.status = RepositoryAccessSyncState.Status.FAILED
+    else:
+        state.status = RepositoryAccessSyncState.Status.OK
+        state.last_success_at = timezone.now()
+    state.save(update_fields=["status", "last_success_at"])
 
 
 @task(dedup=True)

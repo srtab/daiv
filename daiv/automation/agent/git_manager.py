@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import subprocess  # noqa: S404
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from git import Repo
 
     from automation.agent.middlewares.file_system import SandboxFileBackend
+    from codebase.clients.base import GitAuthEnv
 
 logger = logging.getLogger("daiv.tools")
 
@@ -90,6 +92,7 @@ class GitManager:
         *,
         sandbox_backend: SandboxFileBackend | None = None,
         repo_path: str | None = None,
+        auth_env: GitAuthEnv | None = None,
     ) -> None:
         if (repo is None) == (sandbox_backend is None):
             raise ValueError("GitManager requires exactly one of `repo` (local) or `sandbox_backend` (sandbox).")
@@ -98,15 +101,21 @@ class GitManager:
         self.repo = repo
         self._sandbox_backend = sandbox_backend
         self._repo_path = repo_path
+        self._auth_env = auth_env
 
     @classmethod
-    def for_local(cls, repo: Repo) -> GitManager:
+    def for_local(cls, repo: Repo, *, auth_env: GitAuthEnv | None = None) -> GitManager:
         """Local-mode manager over a GitPython clone (sandbox-disabled / repoless runs).
 
         Preferred over ``GitManager(repo)`` at call sites: it names the mode and makes the
         "exactly one mode" invariant unrepresentable by construction.
+
+        ``auth_env`` (from ``RepoClient.get_git_auth_env``) is overlaid on every git subprocess's
+        environment. Network operations (push/fetch/ls-remote) require it: the clone's
+        ``.git/config`` deliberately holds no credential — the credential is carried per invocation
+        instead — so without it those operations run unauthenticated.
         """
-        return cls(repo=repo)
+        return cls(repo=repo, auth_env=auth_env)
 
     @classmethod
     def for_sandbox(cls, sandbox_backend: SandboxFileBackend, *, repo_path: str | None = None) -> GitManager:
@@ -146,12 +155,23 @@ class GitManager:
         if repo is None:  # pragma: no cover - guaranteed by __init__
             raise RuntimeError("GitManager is not in local mode")
 
+        # Disable every credential prompt path: with no credential in .git/config, an auth-required
+        # remote otherwise makes git prompt (tty, or an inherited SSH_ASKPASS GUI helper) and hang an
+        # unattended publish forever. GIT_TERMINAL_PROMPT=0 kills the tty prompt; empty GIT_ASKPASS
+        # short-circuits the askpass fallback chain. Failing fast yields "could not read Username",
+        # which is_git_auth_error_text classifies as an auth rejection. The credential overlay carries
+        # the same prompt-disabling vars (via as_env), so the no-credential branch sets them itself.
+        # Materialised here, at the innermost boundary, so the plaintext credential never lives as a
+        # named local in an outer frame.
+        overlay = self._auth_env.as_env() if self._auth_env else {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""}
+
         def _run() -> _GitResult:
             proc = subprocess.run(  # noqa: S603
                 ["git", "-C", repo.working_dir, *args],  # noqa: S607
                 capture_output=True,
                 text=True,
                 check=False,
+                env={**os.environ, **overlay},
             )
             return _GitResult(exit_code=proc.returncode, output=proc.stdout + proc.stderr)
 
@@ -271,6 +291,13 @@ class GitManager:
         self._require_ok(batch_a[0], status_res)
         self._require_ok(batch_a[1], diff_res)
         self._require_ok(batch_a[2], untracked_res)
+        # ls-remote is the publish flow's FIRST network op, so in local mode a rejected/absent
+        # credential lands here before the push. Classify it as the same actionable transport error a
+        # push would raise (auth → GitPushPermissionError, unreachable → GitPushNetworkError) instead
+        # of a raw GitCommandError that bypasses the classifier; non-transport failures fall through
+        # to _require_ok unchanged.
+        if lsremote_res.exit_code != 0:
+            _raise_for_transport_failure(list(batch_a[3]), lsremote_res)
         self._require_ok(batch_a[3], lsremote_res)
 
         untracked = self._nonempty_lines(untracked_res.output)
@@ -508,9 +535,10 @@ def _raise_for_transport_failure(args: list[str], result: _GitResult) -> None:
         logger.warning("git transport auth failure: %s", result.output)
         raise GitPushPermissionError(
             "Failed to authenticate to the remote repository (authentication or permission issue). "
-            "The credential embedded in the workspace may be expired (a session resumed a day or more "
-            "after it was created holds an expired clone token — a fresh session re-clones with a new "
-            "one), or branch protection rules may not allow this credential to write to this branch."
+            "The short-lived credential used for this remote operation may be expired (a session "
+            "resumed a day or more after it was created holds an expired clone token — a fresh session "
+            "re-clones with a new one), it may not have been sent to the remote, or branch protection "
+            "rules may not allow this credential to write to this branch."
         )
     if _is_push_network_error_text(result.output):
         logger.warning("git transport network failure: %s", result.output)

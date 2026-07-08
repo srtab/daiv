@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -594,4 +595,22 @@ async def test_stale_pinned_model_wins_over_divergent_client_override(
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
     assert response.status_code == 400
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyncClient, authed):
+    from codebase.authorization import RepositoryAccessDenied
+
+    _, raw, user = authed
+    thread_id = str(uuid.uuid4())
+    body = _run_agent_input(threadId=thread_id)
+
+    with patch("chat.api.views.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+        response = await client.post(
+            "/chat/completions", json=body, headers=_auth_headers(raw, **{"X-Repo-ID": "group/repo", "X-Ref": "main"})
+        )
+
+    assert response.status_code == 404
+    assert not await Session.objects.filter(thread_id=thread_id).aexists()
     await user.adelete()

@@ -13,6 +13,7 @@ from asgiref.sync import async_to_sync
 from jobs.tasks import run_job_task
 
 from automation.titling.tasks import generate_batch_title_task
+from codebase.authorization import aassert_can_run
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.signals import LINK_FAILED_PREFIX, emit_run_finished_if_terminal
 
@@ -250,6 +251,10 @@ async def asubmit_batch_runs(
     failure) lands in ``result.failed`` while siblings continue.
     """
     _validate(repos)
+    if user is not None:
+        # Gate only when a user is attached. All current callers supply one; the None branch
+        # is a defensive allowance for future internal callers with no user context.
+        await aassert_can_run(user, [target.repo_id for target in repos])
     if thread_id is not None:
         if not thread_id:
             raise ValueError("thread_id must be a non-empty UUID string")

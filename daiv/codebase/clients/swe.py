@@ -17,6 +17,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    RepoMember,
     Repository,
     User,
 )
@@ -102,6 +103,10 @@ class SWERepoClient(RepoClient):
             NotImplementedError: This operation is not supported.
         """
         raise NotImplementedError("SWERepoClient does not support listing repositories")
+
+    def list_repository_members(self, repo_id: str) -> list[RepoMember]:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support listing repository members")
 
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """SWE sandbox repos have no remote branch protection."""

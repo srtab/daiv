@@ -117,6 +117,19 @@ class User(BaseModel):
     username: str
 
 
+class RepoAccessLevel(StrEnum):
+    """Effective access tier a platform user holds on a repository, normalized across platforms."""
+
+    READ = "read"
+    WRITE = "write"
+
+
+class RepoMember(BaseModel):
+    uid: str
+    username: str
+    access_level: RepoAccessLevel
+
+
 class NoteableType(StrEnum):
     """
     Gitlab Noteable Type

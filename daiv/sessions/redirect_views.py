@@ -11,7 +11,7 @@ class LegacyActivityDetailRedirectView(LoginRequiredMixin, View):
     Activity) and land on its session, anchored to the run card."""
 
     def get(self, request, pk):
-        run = Run.objects.by_owner(request.user).filter(pk=pk).first()
+        run = Run.objects.visible_to(request.user).filter(pk=pk).first()
         if run is None:
             raise Http404
         url = reverse("session_detail", kwargs={"thread_id": run.session_id}) + f"#run-{run.pk}"

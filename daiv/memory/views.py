@@ -13,6 +13,7 @@ from django.views.generic import TemplateView
 from django_filters.views import FilterView
 
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
+from codebase.authorization import can_view, viewable_repo_ids
 from core.site_settings import site_settings
 from memory.filters import MemoryObservationFilter
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
@@ -33,8 +34,11 @@ class MemoryListView(LoginRequiredMixin, TemplateView):
         }
         mem_rows = {mem.repo_id: mem for mem in RepositoryMemory.objects.all()}
 
+        repo_ids = set(obs_rows) | set(mem_rows)
+        viewable = viewable_repo_ids(self.request.user, repo_ids)
+
         repos = []
-        for repo_id in sorted(set(obs_rows) | set(mem_rows)):
+        for repo_id in sorted(viewable):
             obs = obs_rows.get(repo_id)
             mem = mem_rows.get(repo_id)
             repos.append({
@@ -71,6 +75,8 @@ class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, FilterView):
 
     def get(self, request, *args, **kwargs):
         repo_id = self.kwargs["repo_id"]
+        if not can_view(request.user, repo_id):
+            raise Http404("no memory for repository")
         self.memory = RepositoryMemory.objects.filter(repo_id=repo_id).first()
         # Unfiltered repo total: drives the 404 guard and the "N observations so far" copy,
         # independent of any active status/category filter.

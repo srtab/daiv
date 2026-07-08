@@ -15,6 +15,7 @@ from notifications.choices import NotifyOn
 from sandbox_envs.models import SandboxEnvironment
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run
 from core.models import ThinkingLevelChoices
 from sessions.services import validate_repo_list
 
@@ -73,6 +74,7 @@ class AgentRunFieldsMixin(forms.Form):
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.user = user
         if "sandbox_environment" in self.fields and user is not None:
             self.fields["sandbox_environment"].queryset = SandboxEnvironment.objects.visible_to(user)
 
@@ -90,6 +92,13 @@ class AgentRunFieldsMixin(forms.Form):
             ensure_agent_model_available(cleaned["agent_model"])
         except AgentOverrideError as err:
             self.add_error("agent_model", str(err))
+
+        repos = cleaned.get("repos") or []
+        if self.user is not None and repos:
+            try:
+                assert_can_run(self.user, [entry["repo_id"] for entry in repos])
+            except RepositoryAccessDenied:
+                self.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
         return cleaned
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from django.test import Client
 from django.urls import reverse
@@ -11,18 +11,17 @@ import pytest
 from gitlab.exceptions import GitlabError
 
 from accounts.models import User
-from codebase.base import GitPlatform, Repository
 
 
-def _repo(slug: str, name: str | None = None, default_branch: str = "main") -> Repository:
-    return Repository(
-        pk=hash(slug) % (2**31),
+def _cat(slug: str, name: str | None = None, default_branch: str = "main"):
+    from codebase.models import RepositoryCatalog
+
+    return RepositoryCatalog(
+        provider="gitlab",
         slug=slug,
-        name=name or slug.split("/")[-1],
-        clone_url=f"https://example/{slug}.git",
-        html_url=f"https://example/{slug}",
+        name=name if name is not None else slug.split("/")[-1],
         default_branch=default_branch,
-        git_platform=GitPlatform.GITLAB,
+        html_url=f"https://example/{slug}",
         topics=[],
     )
 
@@ -39,69 +38,48 @@ class TestRepoPickerView:
     def test_requires_login(self, db):
         """Anonymous GET is redirected to the login page."""
         client = Client()
-        url = reverse("codebase:picker-repositories")
-        resp = client.get(url)
+        resp = client.get(reverse("codebase:picker-repositories"))
         assert resp.status_code == 302
 
-    @patch("codebase.views.RepoClient")
-    def test_lists_repositories_without_query(self, mock_repo_client, logged_in_client):
-        """Empty `q` still renders the list (no min-length gate)."""
-        instance = Mock()
-        instance.list_repositories.return_value = [_repo("acme/api"), _repo("acme/web")]
-        mock_repo_client.create_instance.return_value = instance
+    @patch("codebase.views.search_viewable_repositories")
+    def test_lists_repositories_without_query(self, mock_search, logged_in_client):
+        """Empty `q` still renders the list (no min-length gate) and passes search=None."""
+        mock_search.return_value = [_cat("acme/api"), _cat("acme/web")]
 
         resp = logged_in_client.get(reverse("codebase:picker-repositories"))
 
         assert resp.status_code == 200
-        instance.list_repositories.assert_called_once_with(search=None, limit=10)
+        mock_search.assert_called_once_with(ANY, search=None, limit=10)
         assert b"acme/api" in resp.content
         assert b"acme/web" in resp.content
 
-    @patch("codebase.views.RepoClient")
-    def test_passes_q_to_list_repositories(self, mock_repo_client, logged_in_client):
+    @patch("codebase.views.search_viewable_repositories")
+    def test_passes_q_as_search(self, mock_search, logged_in_client):
         """`?q=foo` is forwarded as `search="foo"`."""
-        instance = Mock()
-        instance.list_repositories.return_value = []
-        mock_repo_client.create_instance.return_value = instance
+        mock_search.return_value = []
 
         logged_in_client.get(reverse("codebase:picker-repositories") + "?q=foo")
 
-        instance.list_repositories.assert_called_once_with(search="foo", limit=10)
+        mock_search.assert_called_once_with(ANY, search="foo", limit=10)
 
-    @patch("codebase.views.RepoClient")
-    def test_renders_empty_state_on_client_exception(self, mock_repo_client, logged_in_client):
-        """Client errors render the empty-state template with an error row — and never leak the exception message."""
-        instance = Mock()
-        instance.list_repositories.side_effect = GitlabError("boom")
-        mock_repo_client.create_instance.return_value = instance
-
-        resp = logged_in_client.get(reverse("codebase:picker-repositories"))
-
-        assert resp.status_code == 200
-        assert b"Could not load repositories" in resp.content
-        assert b"boom" not in resp.content
-
-    @patch("codebase.views.RepoClient")
-    def test_non_client_exceptions_propagate(self, mock_repo_client, logged_in_client):
-        """Programmer / config errors (non-platform) aren't swallowed — let them bubble to Django's handler."""
-        instance = Mock()
-        instance.list_repositories.side_effect = RuntimeError("bug")
-        mock_repo_client.create_instance.return_value = instance
-
-        with pytest.raises(RuntimeError, match="bug"):
-            logged_in_client.get(reverse("codebase:picker-repositories"))
-
-    @patch("codebase.views.RepoClient")
-    def test_repos_preserve_client_order(self, mock_repo_client, logged_in_client):
-        """View renders repos in the order the client returned them (e.g. GitLab's last_activity_at desc)."""
-        instance = Mock()
-        instance.list_repositories.return_value = [_repo("acme/Zeta"), _repo("acme/api"), _repo("acme/beta")]
-        mock_repo_client.create_instance.return_value = instance
+    @patch("codebase.views.search_viewable_repositories")
+    def test_renders_rows_in_returned_order(self, mock_search, logged_in_client):
+        """The view renders rows in the order the query returned them (slug-ordered)."""
+        mock_search.return_value = [_cat("acme/api"), _cat("acme/beta"), _cat("acme/zeta")]
 
         resp = logged_in_client.get(reverse("codebase:picker-repositories"))
 
         body = resp.content.decode()
-        assert body.index("acme/Zeta") < body.index("acme/api") < body.index("acme/beta")
+        assert body.index("acme/api") < body.index("acme/beta") < body.index("acme/zeta")
+
+    @patch("codebase.views.search_viewable_repositories")
+    def test_renders_empty_state(self, mock_search, logged_in_client):
+        mock_search.return_value = []
+
+        resp = logged_in_client.get(reverse("codebase:picker-repositories"))
+
+        assert resp.status_code == 200
+        assert b"No repositories found" in resp.content
 
 
 class TestBranchPickerView:
@@ -167,3 +145,11 @@ class TestBranchPickerView:
 
         assert resp.status_code == 200
         instance.list_branches.assert_called_once_with("group/subgroup/repo", search=None, limit=10)
+
+
+class TestPickerAuthorization:
+    @patch("codebase.views.RepoClient")
+    def test_branch_picker_hidden_repo_404(self, mock_repo_client, logged_in_client):
+        with patch("codebase.views.can_view", new=Mock(return_value=False)):
+            resp = logged_in_client.get(reverse("codebase:picker-branches", args=["acme/secret"]))
+        assert resp.status_code == 404

@@ -6,12 +6,14 @@ from uuid import UUID
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django
 
 from ninja import Router
+from ninja.errors import HttpError
 from sandbox_envs.services import aresolve_repo_envs, resolve_env_for_user
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, asubmit_batch_runs
 
 from automation.agent.validators import AgentOverrideError, validate_agent_override
 from chat.api.security import AuthBearer
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 
 from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
@@ -58,6 +60,12 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         agent_model, agent_thinking_level = validate_agent_override(payload.agent_model, payload.agent_thinking_level)
     except AgentOverrideError as err:
         return 400, {"detail": str(err)}
+
+    try:
+        await aassert_can_run(request.auth, [spec.repo_id for spec in payload.repos])
+    except RepositoryAccessDenied as err:
+        # Opaque 404: don't confirm the repo's existence to unauthorized callers.
+        raise HttpError(404, REPO_ACCESS_DENIED_MESSAGE) from err
 
     explicit_env_id = None
     if payload.environment:

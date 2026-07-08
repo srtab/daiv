@@ -165,3 +165,21 @@ async def test_get_current_user_returns_none_when_token_deleted(access_token):
         result = await get_current_user()
 
     assert result is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_verify_token_inactive_user_rejected(verifier, access_token, user):
+    user.is_active = False
+    await user.asave(update_fields=["is_active"])
+
+    assert await verifier.verify_token("test-valid-token") is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_current_user_inactive_user_rejected(access_token, user):
+    user.is_active = False
+    await user.asave(update_fields=["is_active"])
+    mcp_token = MCPAccessToken(token="test-valid-token", client_id="test", scopes=["mcp"])  # noqa: S106
+
+    with patch("mcp_server.auth.get_access_token", return_value=mcp_token):
+        assert await get_current_user() is None

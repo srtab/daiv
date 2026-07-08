@@ -493,3 +493,16 @@ async def test_thread_validation_uses_session_ownership(authenticated_client: Te
     response = await authenticated_client.post("/jobs", json=body)
     assert response.status_code == 400
     assert "thread_id not found" in response.json()["detail"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_denied_repo_returns_opaque_404(authenticated_client: TestAsyncClient):
+    from unittest.mock import AsyncMock, patch
+
+    from codebase.authorization import RepositoryAccessDenied
+
+    with patch("jobs.api.views.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["group/project"]))):
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="p"))
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Repository not found or not accessible."

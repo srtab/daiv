@@ -79,7 +79,7 @@ def running_jobs_count(request, user) -> int:
     from sessions.models import Run, RunStatus  # local import to avoid circulars
 
     try:
-        running = Run.objects.by_owner(user).filter(status=RunStatus.RUNNING).count()
+        running = Run.objects.visible_to(user).filter(status=RunStatus.RUNNING).count()
     except DatabaseError:
         logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
         running = 0

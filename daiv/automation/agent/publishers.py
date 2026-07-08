@@ -23,6 +23,7 @@ from .diff_to_metadata.graph import create_diff_to_metadata_graph
 
 if TYPE_CHECKING:
     from automation.agent.middlewares.file_system import SandboxFileBackend
+    from codebase.clients.base import GitAuthEnv
     from codebase.context import RuntimeCtx
 
 
@@ -81,7 +82,17 @@ class GitChangePublisher(ChangePublisher):
         protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
 
-        async with open_git_manager(sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo) as git_manager:
+        # Local-mode git (sandbox-disabled runs) pushes from the DAIV-container clone, whose
+        # .git/config deliberately holds no credential — overlay the per-run credential on its git
+        # subprocesses. Sandbox runs skip the lookup: in-sandbox git authenticates via the egress
+        # proxy, and (on GitHub) the lookup mints a token via a platform API call.
+        auth_env: GitAuthEnv | None = None
+        if self.sandbox_backend is None:
+            auth_env = await sync_to_async(self.client.get_git_auth_env)(self.ctx.repository)
+
+        async with open_git_manager(
+            sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
+        ) as git_manager:
             snapshot = await git_manager.status_snapshot(
                 base_branch=default_branch,
                 mr_source_branch=merge_request.source_branch if merge_request is not None else None,

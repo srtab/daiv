@@ -8,12 +8,12 @@ from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
 from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
+from gitlab.const import AccessLevel
 from gitlab.exceptions import GitlabError
 
 from codebase.base import (
@@ -28,6 +28,8 @@ from codebase.base import (
     NotePosition,
     NotePositionLineRange,
     NoteType,
+    RepoAccessLevel,
+    RepoMember,
     Repository,
     User,
 )
@@ -199,6 +201,37 @@ class GitLabClient(RepoClient):
                 break
         return repos
 
+    def list_repository_members(self, repo_id: str) -> list[RepoMember]:
+        """
+        List all project members (direct, inherited and shared-group) with their effective
+        access level normalized to :class:`RepoAccessLevel`.
+
+        Non-active accounts (blocked/awaiting) and levels below Reporter are omitted. The
+        ``members/all`` endpoint already reports the effective (share-clamped) level. A user
+        can surface more than once (direct + inherited + shared-group grants); members are
+        deduplicated by uid, keeping the highest level, so the result never violates the
+        ``(provider, uid, repo_id)`` uniqueness the sync task relies on.
+
+        Args:
+            repo_id: The repository ID.
+
+        Returns:
+            The list of members holding at least READ access, one entry per user.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        members: list[RepoMember] = []
+        for member in project.members_all.list(iterator=True):
+            if getattr(member, "state", "active") != "active":
+                continue
+            if member.access_level >= AccessLevel.DEVELOPER:
+                level = RepoAccessLevel.WRITE
+            elif member.access_level >= AccessLevel.REPORTER:
+                level = RepoAccessLevel.READ
+            else:
+                continue
+            members.append(RepoMember(uid=str(member.id), username=member.username, access_level=level))
+        return self._dedupe_members(members)
+
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """
         Resolve protection via ``GET /projects/:id/repository/branches/:branch``; the
@@ -355,6 +388,12 @@ class GitLabClient(RepoClient):
         """
         Clone ``repository`` at ``sha`` into ``clone_dir``, healing a stale cached clone token.
 
+        The credential rides a command-scoped env header (:func:`git_auth_env`) instead of the
+        clone URL, so it never persists in ``.git/config`` — which is seeded into the sandbox —
+        or appears on argv. In-sandbox git authenticates via the egress proxy's injected header;
+        local-mode (sandbox-disabled) git gets the same env per invocation via
+        :meth:`RepoClient.get_git_auth_env`.
+
         A clone token is cached for a day but the project access token behind it can die sooner
         (revoked, project/instance reset). Because the cache is consulted before any API call, a
         dead token would otherwise be served to — and fail — every clone of the project until the
@@ -362,12 +401,16 @@ class GitLabClient(RepoClient):
         drop that token and retry once with a freshly minted one. The PAT fallback is not retried:
         re-minting can't produce a different credential when the ephemeral token was unavailable.
         """
-        parsed = urlparse(repository.clone_url)
+        from codebase.clients.base import GitAuthEnv
 
         def clone_with(token: str) -> Repo:
             clone_dir.mkdir(exist_ok=True)
-            url = f"{parsed.scheme}://oauth2:{token}@{parsed.netloc}{parsed.path}"
-            return Repo.clone_from(url, clone_dir, branch=sha)
+            return Repo.clone_from(
+                repository.clone_url,
+                clone_dir,
+                branch=sha,
+                env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
+            )
 
         token = self._get_clone_token(repository)
         try:
@@ -386,18 +429,18 @@ class GitLabClient(RepoClient):
 
     def _get_clone_token(self, repository: Repository) -> str:
         """
-        Resolve the credential embedded in the clone URL.
+        Resolve the credential that authenticates the clone (via env header, never the URL).
 
-        Prefers a short-lived project-scoped access token so the credential persisted in the
-        clone's .git/config (which travels into the sandbox) cannot reach beyond this project's
+        Prefers a short-lived project-scoped access token so the credential — which also feeds
+        the sandbox egress proxy's injected header — cannot reach beyond this project's
         repository. Falls back to the configured PAT when the token cannot be provisioned
         (e.g. PAT user below Maintainer, GitLab.com Free tier). Commit identity is unaffected:
         _configure_commit_identity resolves the DAIV user through the PAT-authenticated client
         either way.
 
         Logged per clone: the mint-time warning in clone_tokens fires once per negative-cache
-        window on a single worker, while every clone in that window embeds the full-API PAT —
-        each one should say so in its own log stream.
+        window on a single worker, while every clone in that window authenticates with the
+        full-API PAT — each one should say so in its own log stream.
         """
         if token := get_ephemeral_clone_token(self.client, repository.pk):
             logger.debug("Cloning %s with an ephemeral project access token", repository.slug)

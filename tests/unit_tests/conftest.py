@@ -30,6 +30,23 @@ def _clear_model_caches():
         cache.delete(key)
 
 
+@pytest.fixture(autouse=True)
+def _no_repo_access_backstop():
+    """Neutralize the repository-access backstop across the unit suite.
+
+    ``Activity.objects.visible_to`` routes through ``codebase.authorization`` on every
+    read surface. Its backstop probe would enqueue ``sync_repository_access_cron_task``,
+    which the ImmediateBackend runs synchronously against a mocked client. Patch the
+    enqueue helper to a no-op and clear the once-a-minute probe marker for determinism.
+
+    ``test_authorization.py`` re-patches the same target in a more specific autouse
+    fixture it asserts on; nested patches of one target are safe.
+    """
+    cache.delete("repo-access:backstop-probe")
+    with patch("codebase.authorization._enqueue_sync"):
+        yield
+
+
 @pytest.fixture
 def admin_user(db):
     return AccountUser.objects.create_user(
@@ -130,6 +147,7 @@ def mock_repo_client():
             html_url="https://test-repo.com",
         )
         mock_client.list_repositories.return_value = []
+        mock_client.list_repository_members.return_value = []
         mock_client.get_repository_file.return_value = None
         mock_client.get_project_uploaded_file = AsyncMock(return_value=b"image content")
 
@@ -177,3 +195,30 @@ def mock_repo_client():
         mock_create_instance.return_value = mock_client
 
         yield mock_client
+
+
+@pytest.fixture(autouse=True)
+def mock_repo_authorization():
+    """Grant repository access by default.
+
+    The authorization layer has its own tests (tests/unit_tests/codebase/test_authorization.py);
+    every other test gets an allow-all so pre-authorization behavior is preserved. Tests that
+    exercise denial re-patch the same name inside their own ``with`` block (the inner patch wins).
+
+    Note: ``search_viewable_repositories`` / ``asearch_viewable_repositories`` are intentionally
+    NOT patched here — they are catalog-backed DB queries. Tests that hit the search API, repo
+    picker, or MCP ``list_repositories`` must seed ``RepositoryCatalog`` rows or patch the query
+    themselves; otherwise they will see ``[]`` against an empty test catalog.
+    """
+    with (
+        patch("sessions.services.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch("jobs.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch("mcp_server.server.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch("chat.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch("sessions.forms.assert_can_run", new=Mock(return_value=None)),
+        patch("sessions.views.can_run", new=Mock(return_value=True)),
+        patch("codebase.views.can_view", new=Mock(return_value=True)),
+        patch("memory.views.can_view", new=Mock(return_value=True)),
+        patch("memory.views.viewable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),
+    ):
+        yield

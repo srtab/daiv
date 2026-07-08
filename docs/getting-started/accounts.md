@@ -10,11 +10,33 @@ DAIV ships exactly two roles. New users default to **member**.
 
 | Role | Can do |
 |------|--------|
-| **Member** | Start and view their own agent runs; use the dashboard chat workspace; create and manage their own [scheduled jobs](../features/scheduled-jobs.md); create and revoke their own API keys; manage their own notification channels. |
-| **Admin** | Everything a member can, plus: edit **Site Configuration** at `/dashboard/configuration/`; create, edit, and delete users at `/accounts/users/`; manage global (shared) skills and global sandbox environments; view system-wide velocity metrics and the full API-key list on the dashboard. |
+| **Member** | Start and view agent runs, chat, and [scheduled jobs](../features/scheduled-jobs.md) — scoped to the repositories they can access on the connected Git platform (see [Repository access](#repository-access)); create and revoke their own API keys; manage their own notification channels. |
+| **Admin** | Everything a member can, but without the repository restriction — admins see and act on every repository. Plus: edit **Site Configuration** at `/dashboard/configuration/`; create, edit, and delete users at `/accounts/users/`; manage global (shared) skills and global sandbox environments; view system-wide velocity metrics and the full API-key list on the dashboard. |
 
 !!! note "How role checks work"
     Admin-only pages are guarded by `AdminRequiredMixin`, which raises *permission denied* for any signed-in user whose role is not `admin`. In code this is the `user.is_admin` property. There are no other privilege levels — a user is either an admin or a member.
+
+## Repository access
+
+Being a member does not, by itself, grant access to any repository. DAIV mirrors each user's repository membership from the connected Git platform (GitLab or GitHub) and enforces it before letting the user see or act on a repository — there is no separate DAIV-side permission to manage.
+
+Two access tiers are checked, matched to the platform's own roles:
+
+| Tier | Required platform role | Gates |
+|------|------------------------|-------|
+| **Read** | GitLab Reporter or above, GitHub read (or higher) collaborator | Repository/branch pickers, repository search, the memory dashboard, and the MCP `list_repositories` tool. |
+| **Write** | GitLab Developer or above, GitHub write (or higher) collaborator | Starting an agent run or chat, and creating or running a [scheduled job](../features/scheduled-jobs.md) — from the dashboard, the Jobs API, or MCP. |
+
+A repository the user can't read never appears in a listing; one they can read but not write to appears but rejects run/chat/schedule attempts with a friendly "not accessible" message rather than a stack trace.
+
+**Access requires a verified platform identity.** DAIV only knows what a user can access on GitLab/GitHub once that user has signed in via OAuth at least once (see [Git platform login](#git-platform-login-oauth)) — the platform account is matched to the DAIV user by email. A user created by an admin who has only ever used email login-by-code has no repository access until they connect their GitLab/GitHub account by logging in with it once.
+
+**Admins bypass all repository checks** — the pre-existing "admin sees everything" behavior is unchanged.
+
+Access data is refreshed by a periodic background sync (every 15 minutes by default, `CODEBASE_REPO_ACCESS_SYNC_CRON`), so a permission change on the Git platform (added, removed, or role-changed) takes effect on the next sync rather than immediately. Freshness is tracked **per repository**: if a repository's sync stops succeeding, its access data is served from the last known-good data for a grace period, and beyond `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` (24 hours by default) that repository's member access **fails closed** rather than trusting stale grants — repositories that keep syncing cleanly are unaffected. Admin access is never affected by sync health.
+
+!!! note "Deactivation revokes access immediately"
+    Setting a user to inactive (see [Managing users](#managing-users-admin-only)) immediately blocks that user's API keys and MCP tokens, in addition to signing them out of the dashboard — outstanding credentials stop working right away rather than at the next sync.
 
 ## Signing in
 

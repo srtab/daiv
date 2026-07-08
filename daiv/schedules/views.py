@@ -21,6 +21,7 @@ from sessions.services import RepoTarget, submit_batch_runs
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.templatetags.avatar_tags import user_color_index, user_initials
 from automation.agent.picker_context import agent_picker_context
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
 from schedules.models import ScheduledJob, ScheduleTemplate
 
@@ -239,6 +240,9 @@ class ScheduleRunNowView(_ScheduleOwnerMixin, LoginRequiredMixin, View):
                 trigger_type=SessionOrigin.SCHEDULE,
                 scheduled_job=schedule,
             )
+        except RepositoryAccessDenied:
+            messages.error(request, f"Schedule '{schedule.name}' was not triggered: {REPO_ACCESS_DENIED_MESSAGE}")
+            return redirect("schedule_list")
         except Exception:
             logger.exception("Failed to enqueue run-now for schedule pk=%d (%s)", schedule.pk, schedule.name)
             messages.error(request, f"Failed to trigger schedule '{schedule.name}'. Please try again.")

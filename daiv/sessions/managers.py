@@ -10,27 +10,52 @@ if TYPE_CHECKING:
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
-    def by_owner(self, user: User) -> models.QuerySet[Session]:
-        """Return sessions visible to the given user.
+    def _owner_q(self, user: User) -> models.Q:
+        """Ownership predicate shared by ``by_owner``/``visible_to``.
 
-        Admins see all. Regular users see sessions where they own the session row,
-        match its ``external_username``, subscribe to its schedule, or acted in any
-        of its runs (user FK or external_username on the Run). The run-level match
-        preserves per-actor visibility on shared webhook threads.
+        A user owns a session when they own the session row, match its
+        ``external_username``, subscribe to its schedule, or acted in any of its runs
+        (user FK or external_username on the Run). The run-level match preserves
+        per-actor visibility on shared webhook threads.
         """
         from sessions.models import Run
 
-        if user.is_admin:
-            return self.all()
         run_match = Run.objects.filter(session=models.OuterRef("pk")).filter(
             models.Q(user=user) | models.Q(external_username=user.username)
         )
-        return self.filter(
+        return (
             models.Q(user=user)
             | models.Q(external_username=user.username)
             | models.Q(scheduled_job__subscribers=user)
             | models.Exists(run_match)
-        ).distinct()
+        )
+
+    def by_owner(self, user: User) -> models.QuerySet[Session]:
+        """Sessions the user owns (ownership only).
+
+        This is the visibility boundary for thread continuation / API lookups. It builds
+        with no platform-identity DB read, so it is safe to construct inside async query
+        chains (``await ...by_owner(user).aexists()``). Use :meth:`visible_to` for the
+        broader "can view" surface that also includes repo-read access.
+        """
+        if user.is_admin:
+            return self.all()
+        return self.filter(self._owner_q(user)).distinct()
+
+    def visible_to(self, user: User) -> models.QuerySet[Session]:
+        """Sessions the user may view: ownership OR a repository they can currently read.
+
+        Adds sessions that ran on a repo with a fresh ``RepositoryAccess`` row to the
+        ownership set. SYNC ONLY — resolving the caller's platform identity does a DB read
+        at query-build time, so wrap in ``sync_to_async`` when used from an async view.
+        """
+        if user.is_admin:
+            return self.all()
+        # Local import: keep this module from pulling codebase.authorization
+        # (and its codebase.* / allauth graph) in at app-load time.
+        from codebase.authorization import viewable_repo_ids_subquery
+
+        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
 
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).
@@ -43,23 +68,40 @@ class SessionQuerySet(models.QuerySet["Session"]):
         return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
 
 
-# ``by_owner``/``with_latest_status`` live on the QuerySet so they chain
-# (``Session.objects.by_owner(user).with_latest_status()``); the manager re-exports
+# ``by_owner``/``visible_to``/``with_latest_status`` live on the QuerySet so they chain
+# (``Session.objects.visible_to(user).with_latest_status()``); the manager re-exports
 # them for the bare ``Session.objects.by_owner(...)`` call sites.
 class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
     pass
 
 
 class RunManager(models.Manager["Run"]):
-    def by_owner(self, user: User) -> models.QuerySet[Run]:
-        """Mirror of the old ActivityManager.by_owner semantics, run-level."""
-        if user.is_admin:
-            return self.all()
-        return self.filter(
+    def _owner_q(self, user: User) -> models.Q:
+        return (
             models.Q(user=user)
             | models.Q(external_username=user.username)
             | models.Q(session__scheduled_job__subscribers=user)
-        ).distinct()
+        )
+
+    def by_owner(self, user: User) -> models.QuerySet[Run]:
+        """Runs the user owns (ownership only). Async-safe; see :meth:`SessionQuerySet.by_owner`."""
+        if user.is_admin:
+            return self.all()
+        return self.filter(self._owner_q(user)).distinct()
+
+    def visible_to(self, user: User) -> models.QuerySet[Run]:
+        """Runs the user may view: ownership OR a repository they can currently read.
+
+        SYNC ONLY (resolves platform identity via a DB read at build time); wrap in
+        ``sync_to_async`` when used from an async view.
+        """
+        if user.is_admin:
+            return self.all()
+        # Local import: keep this module from pulling codebase.authorization
+        # (and its codebase.* / allauth graph) in at app-load time.
+        from codebase.authorization import viewable_repo_ids_subquery
+
+        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)

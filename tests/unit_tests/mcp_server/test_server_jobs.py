@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -30,6 +31,19 @@ async def _run(session, *, status=RunStatus.QUEUED, **kwargs):
         status=status,
         **kwargs,
     )
+
+
+@pytest.fixture(autouse=True)
+def _default_mcp_user(db):
+    """Make ``get_current_user`` return a real authenticated user by default.
+
+    Mirrors ``tests/unit_tests/mcp_server/test_server.py``'s fixture of the same name:
+    tests that need a specific user (or an unauthenticated caller) patch the same
+    target within their own ``with`` block, overriding this default for that scope.
+    """
+    user = User.objects.create_user(username="mcp_default_jobs", email="mcp_jobs@test.com", password="x")  # noqa: S106
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        yield user
 
 
 @pytest.mark.django_db(transaction=True)
@@ -236,3 +250,25 @@ async def test_list_jobs_auth_exception_returns_error():
     with patch("mcp_server.server.get_current_user", new=AsyncMock(side_effect=RuntimeError("boom"))):
         data = await list_jobs()
     assert "error" in data
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_denied_repo_returns_error():
+    from mcp_server.server import submit_job
+
+    from codebase.authorization import RepositoryAccessDenied
+
+    with patch("mcp_server.server.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
+        result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
+
+    assert json.loads(result)["error"] == "Repository not found or not accessible."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_rate_limited():
+    from mcp_server.server import submit_job
+
+    with patch("mcp_server.server._allow_job_submission", return_value=False):
+        result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x")
+
+    assert "Rate limit" in json.loads(result)["error"]
