@@ -59,7 +59,7 @@ class TestNavContextProcessor:
         # A transient DB failure should log-and-degrade the badge rather than crash rendering.
         failing_qs = mocker.MagicMock()
         failing_qs.filter.return_value.count.side_effect = DatabaseError("connection lost")
-        mocker.patch("activity.models.ActivityManager.by_owner", return_value=failing_qs)
+        mocker.patch("activity.models.ActivityManager.visible_to", return_value=failing_qs)
         request = RequestFactory().get("/dashboard/")
         request.user = user
         assert running_jobs_count(request, user) == 0
@@ -70,9 +70,37 @@ class TestNavContextProcessor:
         request.user = user
         assert running_jobs_count(request, user) == 0
 
-        spy = mocker.patch("activity.models.ActivityManager.by_owner")
+        spy = mocker.patch("activity.models.ActivityManager.visible_to")
         assert running_jobs_count(request, user) == 0
         spy.assert_not_called()
+
+    def test_counts_running_jobs_on_readable_repos(self, user, db):
+        from django.utils import timezone
+
+        from allauth.socialaccount.models import SocialAccount
+
+        from codebase.base import RepoAccessLevel
+        from codebase.models import RepositoryAccess
+
+        SocialAccount.objects.create(user=user, provider="gitlab", uid="alice-1")
+        RepositoryAccess.objects.create(
+            provider="gitlab",
+            uid="alice-1",
+            username=user.username,
+            repo_id="daiv/api",
+            access_level=RepoAccessLevel.READ,
+            synced_at=timezone.now(),
+        )
+        other = User.objects.create_user(username="bob", email="bob@test.com", password="x123456789")  # noqa: S106
+        Activity.objects.create(
+            status=ActivityStatus.RUNNING, trigger_type=TriggerType.MCP_JOB, user=other, repo_id="daiv/api"
+        )
+
+        request = RequestFactory().get("/dashboard/")
+        request.user = user
+        request.resolver_match = None
+        out = nav(request)
+        assert out["nav_running_jobs"] == 1  # bob's running job, on a repo alice can read
 
 
 class TestResolveActiveSection:

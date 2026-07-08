@@ -42,18 +42,23 @@ class TriggerType(models.TextChoices):
 
 
 class ActivityManager(models.Manager["Activity"]):
-    def by_owner(self, user: User) -> models.QuerySet[Activity]:
-        """Return activities visible to the given user.
+    def visible_to(self, user: User) -> models.QuerySet[Activity]:
+        """Return activities the given user may view.
 
-        Admins see all. Regular users see activities where they are:
-        - the owner (``user`` FK), or
-        - matched by ``external_username``, or
-        - a subscriber of the linked ``scheduled_job``.
+        Admins see all. A member sees activities that are theirs (``user`` FK,
+        ``external_username`` match, or a subscribed ``scheduled_job``) OR that ran on
+        a repository they can currently read (a fresh ``RepositoryAccess`` row).
         """
         if user.is_admin:
             return self.all()
+        # Local import: activity → codebase.authorization is a load-time cycle at module level.
+        from codebase.authorization import viewable_repo_ids_subquery
+
         return self.filter(
-            models.Q(user=user) | models.Q(external_username=user.username) | models.Q(scheduled_job__subscribers=user)
+            models.Q(user=user)
+            | models.Q(external_username=user.username)
+            | models.Q(scheduled_job__subscribers=user)
+            | models.Q(repo_id__in=viewable_repo_ids_subquery(user))
         ).distinct()
 
     def by_batch(self, batch_id) -> models.QuerySet[Activity]:

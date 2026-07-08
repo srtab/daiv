@@ -183,7 +183,7 @@ class TestActivityListView:
         assert response.status_code == 200
         activities = list(response.context["activities"])
         assert mine in activities
-        # by_owner must run before the filterset — without it, the repo filter would leak `theirs`.
+        # visible_to must run before the filterset — without it, the repo filter would leak `theirs`.
         assert theirs not in activities
 
     def test_filter_by_status(self, logged_in_client, user):

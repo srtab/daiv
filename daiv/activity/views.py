@@ -51,7 +51,7 @@ class ActivityListView(LoginRequiredMixin, FilterView):
     strict = False
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
+        return Activity.objects.visible_to(self.request.user).select_related("task_result", "scheduled_job", "user")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -96,7 +96,7 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
     context_object_name = "activity"
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return Activity.objects.by_owner(self.request.user).select_related(
+        return Activity.objects.visible_to(self.request.user).select_related(
             "task_result", "scheduled_job", "user", "sandbox_environment"
         )
 
@@ -133,7 +133,7 @@ class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):
     def get_queryset(self) -> QuerySet[Activity]:
         return (
             Activity.objects
-            .by_owner(self.request.user)
+            .visible_to(self.request.user)
             .filter(status=ActivityStatus.SUCCESSFUL)
             .select_related("task_result")
         )
@@ -216,16 +216,12 @@ class ActivityStreamView(View):
         terminal = ActivityStatus.terminal()
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
+        base_qs = Activity.objects.visible_to(user)
 
         while tracking and (time.monotonic() - start) < MAX_DURATION:
             await asyncio.sleep(POLL_INTERVAL)
 
-            activities = (
-                Activity.objects
-                .by_owner(user)
-                .filter(id__in=tracking)
-                .only("id", "status", "started_at", "finished_at")
-            )
+            activities = base_qs.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
 
             async for activity in activities:
                 started_iso = activity.started_at.isoformat() if activity.started_at else None
@@ -271,7 +267,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             self._source_cached = None
             return None
         try:
-            source = Activity.objects.by_owner(self.request.user).filter(pk=source_id).first()
+            source = Activity.objects.visible_to(self.request.user).filter(pk=source_id).first()
         except (ValueError, ValidationError) as err:
             # Malformed UUID on ``?from=`` is user error, not server error.
             raise Http404("Invalid activity id.") from err

@@ -134,7 +134,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return context
 
     def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
-        owned = Activity.objects.by_owner(user)
+        owned = Activity.objects.visible_to(user)
         activities = owned.filter(created_at__date__gte=cutoff_date) if cutoff_date is not None else owned
 
         successful = Q(status=ActivityStatus.SUCCESSFUL)

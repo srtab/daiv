@@ -30,6 +30,23 @@ def _clear_model_caches():
         cache.delete(key)
 
 
+@pytest.fixture(autouse=True)
+def _no_repo_access_backstop():
+    """Neutralize the repository-access backstop across the unit suite.
+
+    ``Activity.objects.visible_to`` routes through ``codebase.authorization`` on every
+    read surface. Its backstop probe would enqueue ``sync_repository_access_cron_task``,
+    which the ImmediateBackend runs synchronously against a mocked client. Patch the
+    enqueue helper to a no-op and clear the once-a-minute probe marker for determinism.
+
+    ``test_authorization.py`` re-patches the same target in a more specific autouse
+    fixture it asserts on; nested patches of one target are safe.
+    """
+    cache.delete("repo-access:backstop-probe")
+    with patch("codebase.authorization._enqueue_sync"):
+        yield
+
+
 @pytest.fixture
 def admin_user(db):
     return AccountUser.objects.create_user(
