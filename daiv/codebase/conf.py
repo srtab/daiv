@@ -20,6 +20,14 @@ class CodebaseSettings(BaseSettings):
         default="*/5 * * * *", description="Cron expression for periodic webhook setup (GitLab only)"
     )
 
+    REPO_ACCESS_SYNC_CRON: str = Field(
+        default="*/15 * * * *", description="Cron expression for the periodic repository access sync"
+    )
+    REPO_ACCESS_HARD_TTL_HOURS: int = Field(
+        default=24,
+        description="Deny non-admin access to a repository when its synced access data is older than this many hours",
+    )
+
     # GitHub
     GITHUB_URL: HttpUrl | None = Field(default=None, description="URL of the GitHub instance")
     GITHUB_APP_ID: int | None = Field(default=None, description="GitHub app ID")

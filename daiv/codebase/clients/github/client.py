@@ -28,6 +28,8 @@ from codebase.base import (
     NotePositionLineRange,
     NotePositionType,
     NoteType,
+    RepoAccessLevel,
+    RepoMember,
     Repository,
     User,
 )
@@ -132,6 +134,35 @@ class GitHubClient(RepoClient):
             if limit is not None:
                 repos = repos[:limit]
         return repos
+
+    def list_repository_members(self, repo_id: str) -> list[RepoMember]:
+        """
+        List repository collaborators (direct, team and org grants combined) with their
+        effective permission normalized to :class:`RepoAccessLevel`.
+
+        Collaborators are deduplicated by uid, keeping the highest level, so a user surfaced
+        through more than one grant never violates the ``(provider, uid, repo_id)`` uniqueness
+        the sync task relies on.
+
+        Args:
+            repo_id: The repository ID.
+
+        Returns:
+            The list of members holding at least READ access, one entry per user.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        members: list[RepoMember] = []
+        for collaborator in repo.get_collaborators():
+            permissions = collaborator.permissions
+            # bool() guards PyGithub returning a non-bool sentinel when a key is absent from the payload.
+            if bool(permissions.admin) or bool(permissions.maintain) or bool(permissions.push):
+                level = RepoAccessLevel.WRITE
+            elif bool(permissions.triage) or bool(permissions.pull):
+                level = RepoAccessLevel.READ
+            else:
+                continue
+            members.append(RepoMember(uid=str(collaborator.id), username=collaborator.login, access_level=level))
+        return self._dedupe_members(members)
 
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:
         """

@@ -23,7 +23,12 @@ from pydantic import BaseModel, Field
 from sandbox_envs.services import alist_visible_environments, aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
-from codebase.clients import RepoClient
+from codebase.authorization import (
+    REPO_ACCESS_DENIED_MESSAGE,
+    RepositoryAccessDenied,
+    aassert_can_run,
+    asearch_viewable_repositories,
+)
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
 from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
@@ -33,7 +38,7 @@ from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 if TYPE_CHECKING:
     from sandbox_envs.models import SandboxEnvironment
 
-    from codebase.base import Repository
+    from codebase.models import RepositoryCatalog
 
 logger = logging.getLogger("daiv.mcp_server")
 
@@ -74,6 +79,20 @@ continue polling with `get_job_status` if the result is not yet available.\
 )
 
 _THREAD_NOT_FOUND = "thread_id not found"
+
+
+def _allow_job_submission(user) -> bool:
+    """Apply the shared per-user jobs budget (same cache bucket as the REST/chat endpoints).
+
+    FastMCP has no ninja throttle layer, so reuse ``JobsRateThrottle`` with a minimal
+    request stand-in — ``AuthRateThrottle`` only reads ``request.auth``.
+    """
+    from types import SimpleNamespace
+
+    from core.api.throttling import JobsRateThrottle
+
+    return JobsRateThrottle().allow_request(SimpleNamespace(auth=user))  # ty: ignore[invalid-argument-type]
+
 
 TERMINAL_STATUSES = {ActivityStatus.SUCCESSFUL, ActivityStatus.FAILED}
 POLL_INTERVAL = 2.0
@@ -197,6 +216,9 @@ async def submit_job(
             )
         })
 
+    if not await asyncio.to_thread(_allow_job_submission, mcp_user):
+        return json.dumps({"error": "Rate limit exceeded for job submissions. Try again later."})
+
     try:
         agent_model, agent_thinking_level = validate_agent_override(agent_model, agent_thinking_level)
         ensure_agent_model_available(agent_model)
@@ -215,6 +237,11 @@ async def submit_job(
         latest = await Activity.objects.filter(thread_id=thread_id_str).order_by("-created_at").afirst()
         if latest is None or latest.user_id != mcp_user.pk:
             return json.dumps({"error": _THREAD_NOT_FOUND})
+
+    try:
+        await aassert_can_run(mcp_user, [spec.repo_id for spec in specs])
+    except RepositoryAccessDenied:
+        return json.dumps({"error": REPO_ACCESS_DENIED_MESSAGE})
 
     explicit_env_id: str | None = None
     if environment:
@@ -563,11 +590,16 @@ async def list_jobs(
 
 
 MAX_REPOSITORIES = 40
+# Served from the local RepositoryCatalog mirror (a DB join), so there is no platform fetch to
+# bound and the overflow warning below is exact: we fetch one extra row and warn iff it exists.
 
 
-def _serialize_repositories(repos: list[Repository]) -> list[dict]:
-    """Convert a list of Repository objects to serializable dicts."""
-    return [repo.model_dump(include={"slug", "name", "html_url", "default_branch", "topics"}) for repo in repos]
+def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
+    """Convert catalog rows to the tool's repository payload."""
+    return [
+        {"slug": r.slug, "name": r.name, "html_url": r.html_url, "default_branch": r.default_branch, "topics": r.topics}
+        for r in repos
+    ]
 
 
 @mcp.tool()
@@ -575,28 +607,34 @@ async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
     topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
 ) -> dict:
-    """List repositories accessible to DAIV, optionally filtered by name or topic.
+    """List repositories the calling user can view, served from the local RepositoryCatalog mirror.
 
-    Returns ``{"repositories": [...], "next_cursor": None}`` for a contract shared with the
-    other listing tools. This tool is backed by the remote Git platform and does NOT support
-    cursor pagination — ``next_cursor`` is always ``None``. When results are capped, a
-    ``warning`` is included; narrow with ``search`` or ``topics`` rather than paging.
+    Members see only repositories for which they have at least read access; admins see the full
+    catalog. Results are returned as ``{"repositories": [...], "next_cursor": None}`` — this tool
+    does NOT support cursor pagination and ``next_cursor`` is always ``None``. To reach repositories
+    not shown, narrow the result set with ``search`` or ``topics``. A ``warning`` key is included
+    when strictly more accessible repositories exist than the cap allows to show — this is an exact
+    signal (one extra row is fetched; the warning fires only when that extra row is present).
     """
-    # Fetch one extra to detect truncation without loading everything
-    fetch_limit = MAX_REPOSITORIES + 1
+    mcp_user, auth_error = await _resolve_mcp_user()
+    if auth_error is not None:
+        return auth_error
+
     try:
-        client = RepoClient.create_instance()
-        repos = await asyncio.to_thread(client.list_repositories, search=search, topics=topics, limit=fetch_limit)
+        repos = await asearch_viewable_repositories(mcp_user, search=search, topics=topics, limit=MAX_REPOSITORIES + 1)
     except Exception:
         logger.exception("Failed to list repositories")
         return {"error": "Failed to list repositories. Please try again later."}
 
-    truncated = len(repos) > MAX_REPOSITORIES
+    # One extra row was requested, so a full+1 result means more accessible repos exist than the
+    # window shows — an exact signal (no fetch-cap heuristic). next_cursor stays None per the tool
+    # contract; narrowing with search/topics is the only way to reach the rest.
+    over_limit = len(repos) > MAX_REPOSITORIES
     result: dict = {"repositories": _serialize_repositories(repos[:MAX_REPOSITORIES]), "next_cursor": None}
-    if truncated:
+    if over_limit:
         result["warning"] = (
-            f"Only the first {MAX_REPOSITORIES} repositories are shown. "
-            "There are more results available. Ask the user to provide a search term or topic to narrow down."
+            "Not all accessible repositories may be shown. "
+            "Ask the user to provide a search term or topic to narrow down the results."
         )
     return result
 
@@ -768,6 +806,11 @@ async def schedule_job(
 
     specs = [spec if isinstance(spec, RepoSubmitSpec) else RepoSubmitSpec(**spec) for spec in repos]
     repo_dicts = [{"repo_id": s.repo_id, "ref": s.ref or ""} for s in specs]
+
+    try:
+        await aassert_can_run(mcp_user, [spec.repo_id for spec in specs])
+    except RepositoryAccessDenied:
+        return {"error": REPO_ACCESS_DENIED_MESSAGE}
 
     parsed_time = None
     if time:

@@ -22,4 +22,7 @@ class AuthBearer(HttpBearer):
         except APIKey.DoesNotExist:
             return None
 
+        if not api_key.user.is_active:
+            return None
+
         return api_key.user

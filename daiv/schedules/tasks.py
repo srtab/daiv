@@ -11,6 +11,27 @@ from schedules.models import ScheduledJob
 logger = logging.getLogger("daiv.schedules")
 
 
+def _advance_or_disable(schedule: ScheduledJob, now: datetime) -> None:
+    """Recover a schedule after a failed dispatch.
+
+    Still advance ``next_run_at`` so the schedule does not busy-retry every minute; if even that
+    fails, disable the schedule so it stops wedging the dispatcher. Shared by every dispatch
+    failure path (access-denied and unexpected errors alike).
+    """
+    try:
+        schedule.refresh_from_db(fields=["run_count", "last_run_at", "last_run_batch_id", "next_run_at"])
+        advance_fields = schedule.advance_after_dispatch(after=now)
+        schedule.save(update_fields=["modified", *advance_fields])
+    except Exception:
+        logger.exception(
+            "Failed to advance next_run_at for scheduled job pk=%d (%s); disabling schedule", schedule.pk, schedule.name
+        )
+        try:
+            ScheduledJob.objects.filter(pk=schedule.pk).update(is_enabled=False)
+        except Exception:
+            logger.exception("Failed to disable stuck scheduled job pk=%d (%s)", schedule.pk, schedule.name)
+
+
 @cron("* * * * *")
 @task
 def dispatch_scheduled_jobs_cron_task():
@@ -24,6 +45,8 @@ def dispatch_scheduled_jobs_cron_task():
     from activity.models import TriggerType
     from activity.services import RepoTarget, submit_batch_runs
     from sandbox_envs.services import resolve_repo_envs
+
+    from codebase.authorization import RepositoryAccessDenied
 
     now = datetime.now(tz=UTC)
     dispatched = 0
@@ -70,23 +93,18 @@ def dispatch_scheduled_jobs_cron_task():
                         len(result.failed),
                         [f.repo_id for f in result.failed],
                     )
+            except RepositoryAccessDenied:
+                logger.warning(
+                    "Scheduled job pk=%d (%s) skipped: owner lacks access to its repositories",
+                    schedule.pk,
+                    schedule.name,
+                )
+                failed += 1
+                _advance_or_disable(schedule, now)
             except Exception:
                 logger.exception("Failed to dispatch scheduled job pk=%d (%s)", schedule.pk, schedule.name)
                 failed += 1
-                try:
-                    schedule.refresh_from_db(fields=["run_count", "last_run_at", "last_run_batch_id", "next_run_at"])
-                    advance_fields = schedule.advance_after_dispatch(after=now)
-                    schedule.save(update_fields=["modified", *advance_fields])
-                except Exception:
-                    logger.exception(
-                        "Failed to advance next_run_at for scheduled job pk=%d (%s); disabling schedule",
-                        schedule.pk,
-                        schedule.name,
-                    )
-                    try:
-                        ScheduledJob.objects.filter(pk=schedule.pk).update(is_enabled=False)
-                    except Exception:
-                        logger.exception("Failed to disable stuck scheduled job pk=%d (%s)", schedule.pk, schedule.name)
+                _advance_or_disable(schedule, now)
 
     if dispatched:
         logger.info("Dispatched %d scheduled job(s)", dispatched)

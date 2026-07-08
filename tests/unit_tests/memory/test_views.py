@@ -255,3 +255,27 @@ def test_consolidate_no_op_when_memory_disabled(client, admin_user):
     assert resp.status_code == 302
     msgs = [str(m) for m in get_messages(resp.wsgi_request)]
     assert any("disabled" in m.lower() for m in msgs)
+
+
+@pytest.mark.django_db
+def test_list_filters_repos_to_viewable(client, member_user):
+    MemoryObservation.objects.create(repo_id="ok/repo", category=ObservationCategory.PITFALL, content="c" * 20)
+    MemoryObservation.objects.create(repo_id="hidden/repo", category=ObservationCategory.PITFALL, content="c" * 20)
+    client.force_login(member_user)
+
+    with patch("memory.views.viewable_repo_ids", new=MagicMock(side_effect=lambda user, ids: {"ok/repo"})):
+        resp = client.get(reverse("memory:list"))
+
+    repo_ids = [row["repo_id"] for row in resp.context["repos"]]
+    assert repo_ids == ["ok/repo"]
+
+
+@pytest.mark.django_db
+def test_detail_hidden_repo_404(client, member_user):
+    MemoryObservation.objects.create(repo_id="hidden/repo", category=ObservationCategory.PITFALL, content="c" * 20)
+    client.force_login(member_user)
+
+    with patch("memory.views.can_view", new=MagicMock(return_value=False)):
+        resp = client.get(reverse("memory:detail", args=["hidden/repo"]))
+
+    assert resp.status_code == 404

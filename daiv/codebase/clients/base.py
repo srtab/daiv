@@ -20,13 +20,15 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    RepoAccessLevel,
+    RepoMember,
     Repository,
     User,
 )
 from codebase.conf import settings
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
     from git import Repo
     from github import Github
@@ -151,6 +153,39 @@ class RepoClient(abc.ABC):
         self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
     ) -> list[Repository]:
         pass
+
+    @abc.abstractmethod
+    def list_repository_members(self, repo_id: str) -> list[RepoMember]:
+        """
+        List members of a repository with their normalized access level.
+
+        Includes inherited/shared-group members (GitLab) and org/team collaborators
+        (GitHub). Members below READ tier are omitted.
+
+        Args:
+            repo_id: The repository ID.
+
+        Returns:
+            The list of members holding at least READ access.
+        """
+        pass
+
+    @staticmethod
+    def _dedupe_members(members: Iterable[RepoMember]) -> list[RepoMember]:
+        """Collapse duplicate uids to one entry each, keeping the highest tier.
+
+        A user can surface more than once in a platform member listing (GitLab: direct +
+        inherited + shared-group grants). The sync task relies on ``(provider, uid, repo_id)``
+        uniqueness, so each client passes its mapped members through this before returning.
+        With only READ/WRITE tiers, "overwrite whenever the new grant is WRITE" keeps the
+        highest regardless of iteration order.
+        """
+        deduped: dict[str, RepoMember] = {}
+        for member in members:
+            existing = deduped.get(member.uid)
+            if existing is None or member.access_level == RepoAccessLevel.WRITE:
+                deduped[member.uid] = member
+        return list(deduped.values())
 
     @abc.abstractmethod
     def is_branch_protected(self, repo_id: str, branch: str) -> bool:

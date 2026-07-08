@@ -2,13 +2,30 @@ import uuid
 
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
+from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.models import DBTaskResult
 
 from accounts.models import User
+from codebase.base import RepoAccessLevel
+from codebase.models import RepositoryAccess
 from schedules.models import Frequency, ScheduledJob
+
+
+def _grant_access(user, repo_id, level):
+    SocialAccount.objects.get_or_create(user=user, provider="gitlab", defaults={"uid": f"uid-{user.pk}"})
+    account = SocialAccount.objects.get(user=user, provider="gitlab")
+    RepositoryAccess.objects.create(
+        provider="gitlab",
+        uid=account.uid,
+        username=user.username,
+        repo_id=repo_id,
+        access_level=level,
+        synced_at=timezone.now(),
+    )
 
 
 @pytest.fixture
@@ -53,9 +70,9 @@ def _create_activity(*, status=ActivityStatus.SUCCESSFUL, task_result=None, **kw
 
 @pytest.mark.django_db
 class TestActivityDownloadMarkdownView:
-    def test_download_with_task_result(self, logged_in_client):
+    def test_download_with_task_result(self, logged_in_client, user):
         tr = _create_task_result(return_value={"response": "# Security Report\n\nAll good.", "code_changes": False})
-        activity = _create_activity(task_result=tr)
+        activity = _create_activity(user=user, task_result=tr)
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -70,8 +87,8 @@ class TestActivityDownloadMarkdownView:
         assert "# Security Report" in body
         assert "All good." in body
 
-    def test_download_with_result_summary_fallback(self, logged_in_client):
-        activity = _create_activity(result_summary="Summary of the result")
+    def test_download_with_result_summary_fallback(self, logged_in_client, user):
+        activity = _create_activity(user=user, result_summary="Summary of the result")
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -79,9 +96,9 @@ class TestActivityDownloadMarkdownView:
         body = response.content.decode()
         assert "Summary of the result" in body
 
-    def test_download_includes_metadata(self, logged_in_client):
+    def test_download_includes_metadata(self, logged_in_client, user):
         activity = _create_activity(
-            result_summary="Result content", ref="feature-branch", issue_iid=42, merge_request_iid=10
+            user=user, result_summary="Result content", ref="feature-branch", issue_iid=42, merge_request_iid=10
         )
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
@@ -92,8 +109,8 @@ class TestActivityDownloadMarkdownView:
         assert "merge_request: '!10'" in body
         assert "trigger: Scheduled Run" in body
 
-    def test_download_filename_format(self, logged_in_client):
-        activity = _create_activity(result_summary="Content")
+    def test_download_filename_format(self, logged_in_client, user):
+        activity = _create_activity(user=user, result_summary="Content")
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -101,9 +118,9 @@ class TestActivityDownloadMarkdownView:
         assert disposition.startswith('attachment; filename="daiv-group-project-')
         assert disposition.endswith('.md"')
 
-    def test_task_result_response_takes_priority_over_result_summary(self, logged_in_client):
+    def test_task_result_response_takes_priority_over_result_summary(self, logged_in_client, user):
         tr = _create_task_result(return_value={"response": "Full response text", "code_changes": False})
-        activity = _create_activity(task_result=tr, result_summary="Truncated summary")
+        activity = _create_activity(user=user, task_result=tr, result_summary="Truncated summary")
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -111,9 +128,9 @@ class TestActivityDownloadMarkdownView:
         assert "Full response text" in body
         assert "Truncated summary" not in body
 
-    def test_legacy_return_value_without_response_falls_back_to_summary(self, logged_in_client):
+    def test_legacy_return_value_without_response_falls_back_to_summary(self, logged_in_client, user):
         tr = _create_task_result(return_value={"code_changes": True})
-        activity = _create_activity(task_result=tr, result_summary="Fallback summary")
+        activity = _create_activity(user=user, task_result=tr, result_summary="Fallback summary")
 
         response = logged_in_client.get(reverse("activity_download_md", kwargs={"pk": activity.pk}))
 
@@ -145,6 +162,24 @@ class TestActivityDownloadMarkdownView:
 
 
 @pytest.mark.django_db
+def test_download_md_other_users_activity_404(member_client, admin_user, create_db_task_result):
+    task_result = create_db_task_result(return_value={"response": "secret result"})
+    activity = Activity.objects.create(
+        trigger_type=TriggerType.UI_JOB,
+        repo_id="a/b",
+        prompt="p",
+        user=admin_user,
+        status=ActivityStatus.SUCCESSFUL,
+        task_result=task_result,
+        thread_id=str(uuid.uuid4()),
+    )
+
+    resp = member_client.get(reverse("activity_download_md", args=[activity.pk]))
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
 class TestActivityListView:
     def test_unauthenticated_redirects_to_login(self):
         response = Client().get(reverse("activity_list"))
@@ -165,7 +200,7 @@ class TestActivityListView:
         assert response.status_code == 200
         activities = list(response.context["activities"])
         assert mine in activities
-        # by_owner must run before the filterset — without it, the repo filter would leak `theirs`.
+        # visible_to must run before the filterset — without it, the repo filter would leak `theirs`.
         assert theirs not in activities
 
     def test_filter_by_status(self, logged_in_client, user):
@@ -227,6 +262,7 @@ class TestActivityDetailView:
         assert "Issue #412" in body
 
     def test_status_strip_shows_retry_when_retryable(self, logged_in_client, user):
+        _grant_access(user, "group/project", RepoAccessLevel.WRITE)
         activity = _create_activity(user=user, status=ActivityStatus.SUCCESSFUL)
         body = self._get(logged_in_client, activity).content.decode()
         assert reverse("runs:agent_run_new") + f"?from={activity.pk}" in body
@@ -584,3 +620,81 @@ class TestActivityDetailSubscriberContext:
         response = client.get(reverse("activity_detail", args=[activity.pk]))
         html = response.content.decode()
         assert reverse("schedule_update", args=[schedule.pk]) in html
+
+
+@pytest.mark.django_db(transaction=True)
+class TestActivityStreamView:
+    async def test_stream_is_async_safe_for_member(self, mocker):
+        from activity.views import ActivityStreamView
+        from asgiref.sync import sync_to_async
+
+        # Keep the SSE poll loop tight so the test doesn't sleep on the real 2s interval.
+        mocker.patch("activity.views.POLL_INTERVAL", 0.01)
+
+        @sync_to_async
+        def _setup():
+            member = User.objects.create_user(username="streamer", email="s@test.com", password="pw")  # noqa: S106
+            _grant_access(member, "team/repo", RepoAccessLevel.READ)
+            other = User.objects.create_user(username="runner", email="r@test.com", password="pw")  # noqa: S106
+            activity = _create_activity(user=other, repo_id="team/repo", status=ActivityStatus.SUCCESSFUL)
+            return member, activity.id
+
+        member, activity_id = await _setup()
+
+        # Pre-fix this raised SynchronousOnlyOperation: visible_to() runs a sync SocialAccount
+        # query at queryset-construction time for members, inside this async coroutine.
+        chunks = [chunk async for chunk in ActivityStreamView()._stream([activity_id], member)]
+        body = "".join(chunks)
+
+        # Member saw another user's run on a READ-able repo via the async stream.
+        assert str(activity_id) in body
+        assert '"done": true' in body
+
+    async def test_stream_logs_and_ends_cleanly_on_query_error(self, mocker):
+        from activity.views import ActivityStreamView
+
+        mocker.patch("activity.views.POLL_INTERVAL", 0.01)
+        mocker.patch("activity.models.ActivityManager.visible_to", side_effect=RuntimeError("db down"))
+        log = mocker.patch("activity.views.logger")
+
+        user = mocker.MagicMock(pk=42)
+        # A query failure must not propagate out of the generator: it logs and ends the stream
+        # WITHOUT the ``done`` sentinel, so the client's onerror closes without a reload loop.
+        chunks = [chunk async for chunk in ActivityStreamView()._stream([uuid.uuid4()], user)]
+
+        assert chunks == []
+        assert log.exception.called
+
+
+@pytest.mark.django_db
+class TestRetryGating:
+    def test_read_only_member_sees_detail_but_no_retry(self, user, logged_in_client):
+        _grant_access(user, "team/repo", RepoAccessLevel.READ)
+        other = User.objects.create_user(username="carol", email="carol@test.com", password="pw")  # noqa: S106
+        activity = _create_activity(user=other, repo_id="team/repo", status=ActivityStatus.SUCCESSFUL)
+
+        response = logged_in_client.get(reverse("activity_detail", kwargs={"pk": activity.pk}))
+
+        assert response.status_code == 200  # visible via READ
+        assert response.context["can_retry"] is False
+
+    def test_read_only_member_cannot_open_retry_form(self, user, logged_in_client):
+        _grant_access(user, "team/repo", RepoAccessLevel.READ)
+        other = User.objects.create_user(username="carol", email="carol@test.com", password="pw")  # noqa: S106
+        activity = _create_activity(user=other, repo_id="team/repo", status=ActivityStatus.SUCCESSFUL)
+
+        response = logged_in_client.get(reverse("runs:agent_run_new"), {"from": str(activity.pk)})
+
+        assert response.status_code == 404
+
+    def test_write_member_can_open_retry_form(self, user, logged_in_client):
+        _grant_access(user, "team/repo", RepoAccessLevel.WRITE)
+        other = User.objects.create_user(username="carol", email="carol@test.com", password="pw")  # noqa: S106
+        activity = _create_activity(user=other, repo_id="team/repo", status=ActivityStatus.SUCCESSFUL)
+
+        detail = logged_in_client.get(reverse("activity_detail", kwargs={"pk": activity.pk}))
+        assert detail.context["can_retry"] is True
+
+        form = logged_in_client.get(reverse("runs:agent_run_new"), {"from": str(activity.pk)})
+        assert form.status_code == 200
+        assert form.context["source_activity"].pk == activity.pk

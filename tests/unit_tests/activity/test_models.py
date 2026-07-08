@@ -3,10 +3,16 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import pytest
 from activity.models import Activity, ActivityStatus, TriggerType
+from allauth.socialaccount.models import SocialAccount
 
 from accounts.models import User
+from codebase.base import RepoAccessLevel
+from codebase.models import RepositoryAccess
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
@@ -35,20 +41,20 @@ def _create_activity(user=None, external_username=""):
     )
 
 
-class TestByOwner:
+class TestVisibleTo:
     def test_admin_sees_all_activities(self, admin_user, member_user):
         a1 = _create_activity(user=admin_user)
         a2 = _create_activity(user=member_user)
         a3 = _create_activity(external_username="someone_else")
 
-        qs = Activity.objects.by_owner(admin_user)
+        qs = Activity.objects.visible_to(admin_user)
         assert set(qs.values_list("pk", flat=True)) == {a1.pk, a2.pk, a3.pk}
 
     def test_member_sees_own_activities(self, member_user):
         own = _create_activity(user=member_user)
         _create_activity(external_username="other")
 
-        qs = Activity.objects.by_owner(member_user)
+        qs = Activity.objects.visible_to(member_user)
         assert list(qs.values_list("pk", flat=True)) == [own.pk]
 
     def test_member_sees_activities_by_external_username(self, member_user):
@@ -56,7 +62,7 @@ class TestByOwner:
         by_ext = _create_activity(external_username="member")
         _create_activity(external_username="someone_else")
 
-        qs = Activity.objects.by_owner(member_user)
+        qs = Activity.objects.visible_to(member_user)
         assert set(qs.values_list("pk", flat=True)) == {by_fk.pk, by_ext.pk}
 
     def test_member_sees_orphaned_activities_before_backfill(self, db):
@@ -70,8 +76,66 @@ class TestByOwner:
             password="testpass",  # noqa: S106
         )
 
-        qs = Activity.objects.by_owner(user)
+        qs = Activity.objects.visible_to(user)
         assert orphan.pk in set(qs.values_list("pk", flat=True))
+
+    def test_member_sees_others_runs_on_readable_repo(self, member_user):
+        SocialAccount.objects.create(user=member_user, provider="gitlab", uid="777")
+        RepositoryAccess.objects.create(
+            provider="gitlab",
+            uid="777",
+            username="u",
+            repo_id="team/repo",
+            access_level=RepoAccessLevel.READ,
+            synced_at=timezone.now(),
+        )
+        other = User.objects.create_user(username="bob", email="bob@test.com", password="pw")  # noqa: S106
+        theirs = Activity.objects.create(trigger_type=TriggerType.SCHEDULE, repo_id="team/repo", user=other)
+        qs = Activity.objects.visible_to(member_user)
+        assert theirs.pk in set(qs.values_list("pk", flat=True))
+
+    def test_member_does_not_see_runs_on_unreadable_repo(self, member_user):
+        SocialAccount.objects.create(user=member_user, provider="gitlab", uid="777")
+        RepositoryAccess.objects.create(
+            provider="gitlab",
+            uid="777",
+            username="u",
+            repo_id="team/readable",
+            access_level=RepoAccessLevel.READ,
+            synced_at=timezone.now(),
+        )
+        other = User.objects.create_user(username="bob", email="bob@test.com", password="pw")  # noqa: S106
+        hidden = Activity.objects.create(trigger_type=TriggerType.SCHEDULE, repo_id="team/secret", user=other)
+        qs = Activity.objects.visible_to(member_user)
+        assert hidden.pk not in set(qs.values_list("pk", flat=True))
+
+    def test_member_still_sees_own_run_on_unreadable_repo(self, member_user):
+        # No access rows for this member: union must still surface their own run (owner FK).
+        own = _create_activity(user=member_user)  # repo_id "group/repo", no access grant
+        qs = Activity.objects.visible_to(member_user)
+        assert own.pk in set(qs.values_list("pk", flat=True))
+
+    def test_deduplicates_run_matching_multiple_branches(self, member_user):
+        # A run the member owns, whose scheduled_job has >1 subscriber, matches the owner-FK
+        # branch on *every* row of the ``scheduled_job__subscribers`` M2M join. Without
+        # ``.distinct()`` the join surfaces the same activity once per subscriber, inflating
+        # list rows and dashboard/nav counts. Assert as a list so a duplicate isn't masked.
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="s",
+            prompt="p",
+            repos=[{"repo_id": "group/repo", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+        )
+        sub1 = User.objects.create_user(username="sub1", email="sub1@test.com", password="pw")  # noqa: S106
+        sub2 = User.objects.create_user(username="sub2", email="sub2@test.com", password="pw")  # noqa: S106
+        schedule.subscribers.add(sub1, sub2)
+        own = Activity.objects.create(
+            trigger_type=TriggerType.SCHEDULE, repo_id="group/repo", user=member_user, scheduled_job=schedule
+        )
+        qs = Activity.objects.visible_to(member_user)
+        assert list(qs.values_list("pk", flat=True)) == [own.pk]
 
 
 @pytest.mark.django_db

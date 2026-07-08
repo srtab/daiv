@@ -18,6 +18,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import DetailView, FormView
 
+from asgiref.sync import sync_to_async
 from django_filters.views import FilterView
 from sandbox_envs.models import Scope
 from sandbox_envs.services import env_picker_context, resolve_repo_envs
@@ -28,6 +29,7 @@ from activity.forms import AgentRunCreateForm
 from activity.models import Activity, ActivityStatus, TriggerType
 from activity.services import RepoTarget, submit_batch_runs
 from automation.agent.picker_context import agent_picker_context
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger("daiv.activity")
@@ -50,7 +52,7 @@ class ActivityListView(LoginRequiredMixin, FilterView):
     strict = False
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return Activity.objects.by_owner(self.request.user).select_related("task_result", "scheduled_job", "user")
+        return Activity.objects.visible_to(self.request.user).select_related("task_result", "scheduled_job", "user")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -95,7 +97,7 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
     context_object_name = "activity"
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return Activity.objects.by_owner(self.request.user).select_related(
+        return Activity.objects.visible_to(self.request.user).select_related(
             "task_result", "scheduled_job", "user", "sandbox_environment"
         )
 
@@ -115,6 +117,7 @@ class ActivityDetailView(BreadcrumbMixin, LoginRequiredMixin, DetailView):
             env
             and ((env.scope == Scope.GLOBAL and user.is_admin) or (env.scope == Scope.USER and env.user_id == user.pk))
         )
+        context["can_retry"] = activity.is_retryable and can_run(user, activity.repo_id)
         return context
 
     def get_breadcrumbs(self):
@@ -130,7 +133,12 @@ class ActivityDownloadMarkdownView(LoginRequiredMixin, DetailView):
     model = Activity
 
     def get_queryset(self) -> QuerySet[Activity]:
-        return super().get_queryset().filter(status=ActivityStatus.SUCCESSFUL).select_related("task_result")
+        return (
+            Activity.objects
+            .visible_to(self.request.user)
+            .filter(status=ActivityStatus.SUCCESSFUL)
+            .select_related("task_result")
+        )
 
     def get(self, request, *args, **kwargs):
         activity = self.get_object()
@@ -211,33 +219,42 @@ class ActivityStreamView(View):
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
 
-        while tracking and (time.monotonic() - start) < MAX_DURATION:
-            await asyncio.sleep(POLL_INTERVAL)
+        try:
+            base_qs = await sync_to_async(Activity.objects.visible_to)(user)
 
-            activities = (
-                Activity.objects
-                .by_owner(user)
-                .filter(id__in=tracking)
-                .only("id", "status", "started_at", "finished_at")
+            while tracking and (time.monotonic() - start) < MAX_DURATION:
+                await asyncio.sleep(POLL_INTERVAL)
+
+                activities = base_qs.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
+
+                async for activity in activities:
+                    started_iso = activity.started_at.isoformat() if activity.started_at else None
+                    finished_iso = activity.finished_at.isoformat() if activity.finished_at else None
+                    current_state = (activity.status, started_iso, finished_iso)
+
+                    if last_emitted.get(activity.id) != current_state:
+                        last_emitted[activity.id] = current_state
+                        data = json.dumps({
+                            "id": str(activity.id),
+                            "status": activity.status,
+                            "started_at": started_iso,
+                            "finished_at": finished_iso,
+                        })
+                        yield f"data: {data}\n\n"
+
+                    if activity.status in terminal:
+                        tracking.discard(activity.id)
+        except Exception:
+            # A query failure here would otherwise drop the connection with no server-side trace.
+            # Log it and end the stream; the client's EventSource.onerror closes cleanly (it does
+            # not reload), so we deliberately skip the ``done`` sentinel to avoid a reload loop on
+            # the detail page under a sustained failure.
+            logger.exception(
+                "Activity status stream failed for user %s (tracking %s)",
+                user.pk,
+                sorted(str(activity_id) for activity_id in tracking),
             )
-
-            async for activity in activities:
-                started_iso = activity.started_at.isoformat() if activity.started_at else None
-                finished_iso = activity.finished_at.isoformat() if activity.finished_at else None
-                current_state = (activity.status, started_iso, finished_iso)
-
-                if last_emitted.get(activity.id) != current_state:
-                    last_emitted[activity.id] = current_state
-                    data = json.dumps({
-                        "id": str(activity.id),
-                        "status": activity.status,
-                        "started_at": started_iso,
-                        "finished_at": finished_iso,
-                    })
-                    yield f"data: {data}\n\n"
-
-                if activity.status in terminal:
-                    tracking.discard(activity.id)
+            return
 
         yield 'data: {"done": true}\n\n'
 
@@ -265,11 +282,13 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             self._source_cached = None
             return None
         try:
-            source = Activity.objects.by_owner(self.request.user).filter(pk=source_id).first()
+            source = Activity.objects.visible_to(self.request.user).filter(pk=source_id).first()
         except (ValueError, ValidationError) as err:
             # Malformed UUID on ``?from=`` is user error, not server error.
             raise Http404("Invalid activity id.") from err
         if source is None or not source.is_retryable:
+            raise Http404("Activity is not retryable.")
+        if not can_run(self.request.user, source.repo_id):
             raise Http404("Activity is not retryable.")
         self._source_cached = source
         return source
@@ -312,6 +331,9 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 notify_on=form.cleaned_data["notify_on"],
                 trigger_type=TriggerType.UI_JOB,
             )
+        except RepositoryAccessDenied:
+            form.add_error("repos", REPO_ACCESS_DENIED_MESSAGE)
+            return self.form_invalid(form)
         except Http404, PermissionDenied, SuspiciousOperation:
             # Let Django middleware render these as 4xx instead of swallowing as "submit failed" 200.
             raise
