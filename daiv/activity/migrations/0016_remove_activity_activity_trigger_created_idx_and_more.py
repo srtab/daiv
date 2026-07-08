@@ -14,14 +14,26 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveIndex(model_name="activity", name="activity_trigger_created_idx"),
-        migrations.RemoveIndex(model_name="activity", name="activity_repo_created_idx"),
-        migrations.RemoveIndex(model_name="activity", name="activity_status_created_idx"),
-        migrations.RemoveIndex(model_name="activity", name="activity_schedule_created_idx"),
-        migrations.RemoveIndex(model_name="activity", name="activity_user_created_idx"),
-        migrations.RemoveIndex(model_name="activity", name="activity_ext_user_created_idx"),
-        migrations.RemoveIndex(model_name="activity", name="activity_thread_status_idx"),
-        migrations.RemoveConstraint(model_name="activity", name="activity_thread_id_nonempty"),
-        migrations.RemoveConstraint(model_name="activity", name="activity_one_active_per_thread"),
-        migrations.DeleteModel(name="Activity"),
+        # The table is dropped wholesale, so let a single DROP TABLE (CASCADE on PostgreSQL)
+        # remove it together with all its indexes and constraints. Dropping each index/constraint
+        # individually first — as the autodetector generates — fails on deployments whose
+        # activity table drifted from migration history (e.g. the ``activity_thread_id_nonempty``
+        # check that was never actually created), where RemoveConstraint raises "constraint does
+        # not exist". SeparateDatabaseAndState keeps Django's state bookkeeping identical while
+        # making the database side tolerant of that drift.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[migrations.DeleteModel(name="Activity")],
+            state_operations=[
+                migrations.RemoveIndex(model_name="activity", name="activity_trigger_created_idx"),
+                migrations.RemoveIndex(model_name="activity", name="activity_repo_created_idx"),
+                migrations.RemoveIndex(model_name="activity", name="activity_status_created_idx"),
+                migrations.RemoveIndex(model_name="activity", name="activity_schedule_created_idx"),
+                migrations.RemoveIndex(model_name="activity", name="activity_user_created_idx"),
+                migrations.RemoveIndex(model_name="activity", name="activity_ext_user_created_idx"),
+                migrations.RemoveIndex(model_name="activity", name="activity_thread_status_idx"),
+                migrations.RemoveConstraint(model_name="activity", name="activity_thread_id_nonempty"),
+                migrations.RemoveConstraint(model_name="activity", name="activity_one_active_per_thread"),
+                migrations.DeleteModel(name="Activity"),
+            ],
+        )
     ]

@@ -12,7 +12,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveIndex(model_name="chatthread", name="chat_chatth_user_id_abfd75_idx"),
-        migrations.RemoveConstraint(model_name="chatthread", name="chat_active_run_id_nonempty"),
-        migrations.DeleteModel(name="ChatThread"),
+        # Drop the table in one shot (CASCADE on PostgreSQL) instead of dropping each
+        # index/constraint first, so the migration tolerates deployments whose chatthread table
+        # drifted from migration history (a missing index/constraint would otherwise fail with
+        # "does not exist"). SeparateDatabaseAndState keeps the state bookkeeping identical.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[migrations.DeleteModel(name="ChatThread")],
+            state_operations=[
+                migrations.RemoveIndex(model_name="chatthread", name="chat_chatth_user_id_abfd75_idx"),
+                migrations.RemoveConstraint(model_name="chatthread", name="chat_active_run_id_nonempty"),
+                migrations.DeleteModel(name="ChatThread"),
+            ],
+        )
     ]
