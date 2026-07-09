@@ -23,7 +23,7 @@ document.addEventListener("alpine:init", () => {
     }
 
     function statusLabelFor(status) {
-        if (status === "SUCCESSFUL") return "Successful";
+        if (status === "SUCCESSFUL") return "Done";
         if (status === "FAILED") return "Failed";
         if (status === "RUNNING") return "Running";
         if (status === "QUEUED") return "Queued";

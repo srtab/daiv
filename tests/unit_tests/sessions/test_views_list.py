@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 
 from django.test import Client
@@ -213,8 +214,15 @@ class TestSessionListView:
     def test_header_has_new_cta(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         html = response.content.decode()
-        assert reverse("session_new") in html
-        assert "New" in html
+        # Anchor to the page's primary CTA button, not a bare `"New" in html` (which
+        # appears in unrelated chrome and can never fail) nor a bare URL check (the
+        # sidebar also links to session_new, so that passes even if the header CTA
+        # regresses). The trailing quote in the href pins it to session_new, not the
+        # session_new_chat route whose path is a superstring.
+        target = f'href="{reverse("session_new")}"'
+        ctas = [a for a in re.findall(r"<a\b[^>]*>.*?</a>", html, re.DOTALL) if target in a and "btn-primary" in a]
+        assert ctas, "no btn-primary CTA pointing at session_new"
+        assert any("New" in a for a in ctas)
 
     def test_filter_bar_has_search_input(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
@@ -231,6 +239,16 @@ class TestSessionListView:
         # menu, so a bare substring check could pass even if row grouping regressed.
         assert "session-group-header" in html
         assert "<span>Today</span>" in html  # day-group header for a just-created session
+
+    def test_row_shows_repository(self, logged_in_client, user):
+        session = _create_session(user=user, repo_id="group/project", title="Do the thing")
+        _create_run(session, status=RunStatus.SUCCESSFUL)
+        response = logged_in_client.get(reverse("session_list"))
+        html = response.content.decode()
+        # Anchor to the row's repo element — repo_id can appear in other markup
+        # (filter chips, data attrs), so a bare substring check could false-pass.
+        assert "session-repo" in html
+        assert "group/project" in html
 
     def test_date_param_is_js_escaped_in_x_data(self, logged_in_client, user):
         """XSS: date params must be JS-escaped in the Alpine x-data attribute.

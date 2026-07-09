@@ -62,8 +62,8 @@ msgstr "Pendente"
 msgid "Running"
 msgstr "A executar"
 
-msgid "Successful"
-msgstr "Com sucesso"
+msgid "Done"
+msgstr "Concluído"
 
 msgid "Failed"
 msgstr "Falhou"

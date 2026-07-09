@@ -23,7 +23,7 @@ class RunStatus(models.TextChoices):
     QUEUED = "QUEUED", _("Queued")
     READY = "READY", _("Pending")
     RUNNING = "RUNNING", _("Running")
-    SUCCESSFUL = "SUCCESSFUL", _("Successful")
+    SUCCESSFUL = "SUCCESSFUL", _("Done")
     FAILED = "FAILED", _("Failed")
 
     @classmethod

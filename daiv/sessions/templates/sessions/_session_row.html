@@ -1,5 +1,5 @@
 {% load humanize i18n icon_tags session_tags %}
-{% with latest=session.runs.all|first run_count=session.runs.all|length %}
+{% with latest=session.runs.all|first %}
 <div class="session-row group{% if latest.status == 'FAILED' %} session-row--failed{% endif %}">
     <a href="{% url 'session_detail' thread_id=session.thread_id %}" class="absolute inset-0"
        aria-label="{% translate 'View session' %}"></a>
@@ -19,6 +19,11 @@
         <span class="truncate text-[14px] font-medium text-white">
             {% if session.title %}{{ session.title }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}
         </span>
+        {% if session.repo_id %}
+        <span class="session-repo shrink-0" title="{{ session.repo_id }}">
+            {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[220px] truncate">{{ session.repo_id }}</span>
+        </span>
+        {% endif %}
         {% if session.ref %}
         <span class="session-branch shrink-0">{% icon "branch" "h-3 w-3" %}{{ session.ref }}</span>
         {% endif %}
@@ -29,9 +34,6 @@
             {% else %}
             <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</span>
             {% endif %}
-        {% endif %}
-        {% if run_count > 1 %}
-        <span class="meta-pill shrink-0">{% blocktranslate count n=run_count %}{{ n }} run{% plural %}{{ n }} runs{% endblocktranslate %}</span>
         {% endif %}
     </div>
 

@@ -1977,6 +1977,7 @@ main:has(.chat-shell) {
       transition-colors hover:bg-white/[0.03];
   }
   .session-row--failed { @apply bg-red-500/[0.03]; }
+  .session-repo { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-gray-400; }
   .session-branch { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-gray-400; }
   .mr-pill {
     @apply inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-900/30
