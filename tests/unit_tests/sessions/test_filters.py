@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
+
+from django.utils import timezone
 
 import pytest
 from sessions.filters import SessionFilter
@@ -97,9 +99,9 @@ class TestSessionFilter:
 
     def test_date_from_filter(self, user):
         old = _create_session()
-        Session.objects.filter(pk=old.pk).update(created_at=datetime(2020, 1, 1, tzinfo=UTC))
+        Session.objects.filter(pk=old.pk).update(last_active_at=datetime(2020, 1, 1, tzinfo=UTC))
         recent = _create_session()
-        Session.objects.filter(pk=recent.pk).update(created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        Session.objects.filter(pk=recent.pk).update(last_active_at=datetime(2026, 1, 1, tzinfo=UTC))
         qs = SessionFilter({"date_from": "2025-06-01"}, queryset=_qs()).qs
         pks = list(qs.values_list("pk", flat=True))
         assert recent.pk in pks
@@ -107,9 +109,9 @@ class TestSessionFilter:
 
     def test_date_to_filter(self, user):
         old = _create_session()
-        Session.objects.filter(pk=old.pk).update(created_at=datetime(2020, 1, 1, tzinfo=UTC))
+        Session.objects.filter(pk=old.pk).update(last_active_at=datetime(2020, 1, 1, tzinfo=UTC))
         recent = _create_session()
-        Session.objects.filter(pk=recent.pk).update(created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        Session.objects.filter(pk=recent.pk).update(last_active_at=datetime(2026, 1, 1, tzinfo=UTC))
         qs = SessionFilter({"date_to": "2025-06-01"}, queryset=_qs()).qs
         pks = list(qs.values_list("pk", flat=True))
         assert old.pk in pks
@@ -117,11 +119,11 @@ class TestSessionFilter:
 
     def test_date_range_combined(self, user):
         before = _create_session()
-        Session.objects.filter(pk=before.pk).update(created_at=datetime(2020, 1, 1, tzinfo=UTC))
+        Session.objects.filter(pk=before.pk).update(last_active_at=datetime(2020, 1, 1, tzinfo=UTC))
         inside = _create_session()
-        Session.objects.filter(pk=inside.pk).update(created_at=datetime(2025, 6, 15, tzinfo=UTC))
+        Session.objects.filter(pk=inside.pk).update(last_active_at=datetime(2025, 6, 15, tzinfo=UTC))
         after = _create_session()
-        Session.objects.filter(pk=after.pk).update(created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        Session.objects.filter(pk=after.pk).update(last_active_at=datetime(2026, 1, 1, tzinfo=UTC))
         qs = SessionFilter({"date_from": "2025-01-01", "date_to": "2025-12-31"}, queryset=_qs()).qs
         pks = list(qs.values_list("pk", flat=True))
         assert inside.pk in pks
@@ -216,5 +218,54 @@ class TestSessionFilter:
     def test_batch_filter_invalid_uuid_is_ignored(self, user):
         a = _create_session()
         f = SessionFilter({"batch": "not-a-uuid"}, queryset=_qs())
+        assert not f.form.is_valid()
+        assert a.pk in list(f.qs.values_list("pk", flat=True))
+
+    def test_q_matches_title(self, user):
+        match = _create_session(title="Fix the crash", repo_id="group/project")
+        other = _create_session(title="Add a feature", repo_id="group/project")
+        qs = SessionFilter({"q": "crash"}, queryset=_qs()).qs
+        pks = list(qs.values_list("pk", flat=True))
+        assert match.pk in pks
+        assert other.pk not in pks
+
+    def test_q_matches_repo_case_insensitive(self, user):
+        match = _create_session(title="", repo_id="Group/Payments")
+        other = _create_session(title="", repo_id="group/other")
+        qs = SessionFilter({"q": "payments"}, queryset=_qs()).qs
+        pks = list(qs.values_list("pk", flat=True))
+        assert match.pk in pks
+        assert other.pk not in pks
+
+    def test_q_empty_is_noop(self, user):
+        a = _create_session()
+        b = _create_session()
+        pks = list(SessionFilter({"q": ""}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert a.pk in pks
+        assert b.pk in pks
+
+    def test_range_7d_includes_recent_excludes_old(self, user):
+        now = timezone.now()
+        recent = _create_session()
+        Session.objects.filter(pk=recent.pk).update(last_active_at=now - timedelta(days=2))
+        old = _create_session()
+        Session.objects.filter(pk=old.pk).update(last_active_at=now - timedelta(days=20))
+        pks = list(SessionFilter({"range": "7d"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert recent.pk in pks
+        assert old.pk not in pks
+
+    def test_range_today_uses_local_midnight(self, user):
+        now = timezone.now()
+        today = _create_session()
+        Session.objects.filter(pk=today.pk).update(last_active_at=now)
+        yesterday = _create_session()
+        Session.objects.filter(pk=yesterday.pk).update(last_active_at=now - timedelta(days=1, hours=1))
+        pks = list(SessionFilter({"range": "today"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert today.pk in pks
+        assert yesterday.pk not in pks
+
+    def test_range_invalid_is_ignored(self, user):
+        a = _create_session()
+        f = SessionFilter({"range": "bogus"}, queryset=_qs())
         assert not f.form.is_valid()
         assert a.pk in list(f.qs.values_list("pk", flat=True))
