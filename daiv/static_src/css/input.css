@@ -1984,4 +1984,7 @@ main:has(.chat-shell) {
       px-2 py-0.5 text-[11px] font-medium text-emerald-300;
   }
   .session-num { @apply font-mono text-[12px] tabular-nums text-gray-400; }
+  .session-results--loading {
+    @apply pointer-events-none opacity-50 transition-opacity duration-150;
+  }
 }
