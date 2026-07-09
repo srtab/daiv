@@ -7,10 +7,22 @@ new ``duration`` / ``status_variant`` filters.
 from __future__ import annotations
 
 import types
+from datetime import datetime, timedelta
 from decimal import Decimal
 
+from django.utils import timezone
+
 import pytest
-from sessions.templatetags.session_tags import duration, format_cost, format_tokens, session_title, status_variant
+from sessions.templatetags.session_tags import (
+    day_bucket,
+    duration,
+    format_cost,
+    format_tokens,
+    origin_icon,
+    session_cost,
+    session_title,
+    status_variant,
+)
 
 
 @pytest.mark.parametrize(
@@ -79,3 +91,62 @@ def test_session_title_prefers_stored_title():
 def test_session_title_falls_back_to_thread_prefix():
     session = types.SimpleNamespace(title="", thread_id="abcdef123456")
     assert session_title(session) == "abcdef12"
+
+
+class _Runs:
+    """Minimal stand-in for session.runs.all() over a fixed list."""
+
+    def __init__(self, runs):
+        self._runs = runs
+
+    def all(self):
+        return self._runs
+
+
+def _session_at(dt):
+    return types.SimpleNamespace(last_active_at=dt)
+
+
+def test_day_bucket_today_and_yesterday():
+    now = timezone.localtime(timezone.now())
+    assert day_bucket(_session_at(now)) == "Today"
+    assert day_bucket(_session_at(now - timedelta(days=1))) == "Yesterday"
+
+
+def test_day_bucket_week_and_month_windows():
+    now = timezone.localtime(timezone.now())
+    assert day_bucket(_session_at(now - timedelta(days=4))) == "Previous 7 days"
+    assert day_bucket(_session_at(now - timedelta(days=15))) == "Previous 30 days"
+
+
+def test_day_bucket_older_returns_month_year():
+    dt = timezone.make_aware(datetime(2024, 3, 9, 12, 0))
+    assert day_bucket(_session_at(dt)) == "March 2024"
+
+
+@pytest.mark.parametrize(
+    ("origin", "expected"),
+    [
+        ("chat", "chat-bubble"),
+        ("api_job", "command-line"),
+        ("mcp_job", "cube"),
+        ("schedule", "clock"),
+        ("ui_job", "bolt"),
+        ("issue_webhook", "exclamation-circle"),
+        ("mr_webhook", "merge-request"),
+        ("unknown", "jobs"),
+    ],
+)
+def test_origin_icon(origin, expected):
+    assert origin_icon(origin) == expected
+
+
+def test_session_cost_sums_runs():
+    runs = [types.SimpleNamespace(cost_usd=Decimal("0.30")), types.SimpleNamespace(cost_usd=Decimal("0.08"))]
+    session = types.SimpleNamespace(runs=_Runs(runs))
+    assert session_cost(session) == "$0.38"
+
+
+def test_session_cost_empty_when_zero():
+    session = types.SimpleNamespace(runs=_Runs([types.SimpleNamespace(cost_usd=None)]))
+    assert session_cost(session) == ""

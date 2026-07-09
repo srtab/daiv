@@ -1,6 +1,8 @@
 from decimal import Decimal
 
 from django import template
+from django.utils import timezone
+from django.utils.translation import gettext
 
 register = template.Library()
 
@@ -72,3 +74,47 @@ _STATUS_VARIANTS = {"SUCCESSFUL": "success", "FAILED": "failed", "RUNNING": "run
 def status_variant(status) -> str:
     """Map RunStatus to the CSS/Alpine variant suffix used by status-badge / status-dot."""
     return _STATUS_VARIANTS.get(status, "pending")
+
+
+_ORIGIN_ICONS = {
+    "chat": "chat-bubble",
+    "api_job": "command-line",
+    "mcp_job": "cube",
+    "schedule": "clock",
+    "ui_job": "bolt",
+    "issue_webhook": "exclamation-circle",
+    "mr_webhook": "merge-request",
+}
+
+
+@register.filter
+def origin_icon(origin) -> str:
+    """Map a SessionOrigin value to an icon name; unknown → generic 'jobs'."""
+    return _ORIGIN_ICONS.get(origin, "jobs")
+
+
+@register.filter
+def day_bucket(session) -> str:
+    """Group label for a session's last_active_at, relative to the local calendar day."""
+    dt = getattr(session, "last_active_at", None)
+    if dt is None:
+        return gettext("Earlier")
+    local = timezone.localtime(dt)
+    today = timezone.localtime(timezone.now()).date()
+    days = (today - local.date()).days
+    if days <= 0:
+        return gettext("Today")
+    if days == 1:
+        return gettext("Yesterday")
+    if days <= 7:
+        return gettext("Previous 7 days")
+    if days <= 30:
+        return gettext("Previous 30 days")
+    return local.strftime("%B %Y")
+
+
+@register.simple_tag
+def session_cost(session) -> str:
+    """Sum cost_usd across a session's runs (uses the prefetch cache), formatted."""
+    total = sum((r.cost_usd for r in session.runs.all() if r.cost_usd is not None), Decimal("0"))
+    return format_cost(total) if total > 0 else ""
