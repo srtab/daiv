@@ -369,3 +369,27 @@ msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
 #, python-format
 msgid "Some repositories failed to submit: %(ids)s"
 msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
+
+msgid "New"
+msgstr "Novo"
+
+msgid "Start something new"
+msgstr "Começar algo novo"
+
+msgid "Two ways to put the agent to work — pick the one that fits."
+msgstr "Duas formas de pôr o agente a trabalhar — escolha a que se adequa."
+
+msgid "Work with the agent"
+msgstr "Trabalhar com o agente"
+
+msgid "Collaborate live and iterate turn by turn, steering as it goes. Best for exploring or shaping a change in a single repository."
+msgstr "Colabore em tempo real e itere turno a turno, guiando à medida que avança. Ideal para explorar ou moldar uma alteração num único repositório."
+
+msgid "Start a chat"
+msgstr "Iniciar conversa"
+
+msgid "Hand off a task"
+msgstr "Delegar uma tarefa"
+
+msgid "Describe a well-specified task and let it run in the background — get notified when it's done. Works across one or many repositories, or on a schedule."
+msgstr "Descreva uma tarefa bem especificada e deixe-a correr em segundo plano — seja notificado quando terminar. Funciona com um ou vários repositórios, ou de acordo com um agendamento."
