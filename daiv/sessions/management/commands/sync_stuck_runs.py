@@ -26,7 +26,8 @@ class Command(BaseCommand):
             .select_related("task_result", "session", "session__scheduled_job")
         )
 
-        synced = skipped = errored = 0
+        synced = skipped = 0
+        errored_ids: list[str] = []
         for run in qs.iterator():
             try:
                 if run.sync_and_save():
@@ -34,15 +35,23 @@ class Command(BaseCommand):
                 else:
                     skipped += 1
             except Exception:
-                errored += 1
+                errored_ids.append(str(run.id))
                 logger.exception("Failed to sync run %s", run.id)
 
         reaped = self._reap_orphaned_chat_runs()
 
-        summary = f"Synced: {synced}, already up to date: {skipped}, errored: {errored}, chat runs reaped: {reaped}"
-        if errored:
+        summary = (
+            f"Synced: {synced}, already up to date: {skipped}, errored: {len(errored_ids)}, chat runs reaped: {reaped}"
+        )
+        if errored_ids:
+            # Fail the command run — and thus the cron task's DBTaskResult when scheduled — so
+            # per-row errors surface to monitoring. Individual failing rows are only counted and
+            # logged (above); they are not transitioned to FAILED here. The failed run ids are
+            # appended so the failed task record is self-contained. The summary is logged too.
+            summary = f"{summary} (failed run ids: {', '.join(errored_ids)})"
+            logger.warning(summary)
             raise CommandError(summary)
-        self.stdout.write(self.style.SUCCESS(summary))
+        logger.info(summary)
 
     def _reap_orphaned_chat_runs(self) -> int:
         """Fail chat runs orphaned by a hard worker crash.

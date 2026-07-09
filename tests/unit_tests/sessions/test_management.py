@@ -19,7 +19,7 @@ def _make_session(*, thread_id: str | None = None) -> Session:
 
 @pytest.mark.django_db(transaction=True)
 class TestSyncStuckRunsCommand:
-    def test_syncs_stuck_running_run(self, create_db_task_result):
+    def test_syncs_stuck_running_run(self, caplog, create_db_task_result):
         finished = datetime(2026, 4, 13, 12, 0, 0, tzinfo=UTC)
         tr = create_db_task_result(
             status="SUCCESSFUL",
@@ -36,16 +36,16 @@ class TestSyncStuckRunsCommand:
             task_result=tr,
         )
 
-        out = StringIO()
-        call_command("sync_stuck_runs", stdout=out)
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
 
         run.refresh_from_db()
         assert run.status == RunStatus.SUCCESSFUL
         assert run.finished_at == finished
         assert run.result_summary == "Done."
-        assert "Synced: 1" in out.getvalue()
+        assert any("Synced: 1" in rec.message and rec.levelname == "INFO" for rec in caplog.records)
 
-    def test_skips_terminal_runs(self, create_db_task_result):
+    def test_skips_terminal_runs(self, caplog, create_db_task_result):
         tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Already done."})
         session = _make_session()
         Run.objects.create(
@@ -57,12 +57,12 @@ class TestSyncStuckRunsCommand:
             result_summary="Already done.",
         )
 
-        out = StringIO()
-        call_command("sync_stuck_runs", stdout=out)
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
 
-        assert "Synced: 0" in out.getvalue()
+        assert any("Synced: 0" in rec.message for rec in caplog.records)
 
-    def test_counts_already_synced_run_as_skipped(self, create_db_task_result):
+    def test_counts_already_synced_run_as_skipped(self, caplog, create_db_task_result):
         """A non-terminal Run already in sync with its DBTaskResult counts toward `skipped`."""
         tr = create_db_task_result(status="READY")
         session = _make_session()
@@ -74,23 +74,23 @@ class TestSyncStuckRunsCommand:
             task_result=tr,
         )
 
-        out = StringIO()
-        call_command("sync_stuck_runs", stdout=out)
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
 
-        assert "Synced: 0, already up to date: 1" in out.getvalue()
+        assert any("Synced: 0, already up to date: 1" in rec.message for rec in caplog.records)
 
-    def test_skips_runs_without_task_result(self):
+    def test_skips_runs_without_task_result(self, caplog):
         session = _make_session()
         Run.objects.create(
             session=session, trigger_type=SessionOrigin.ISSUE_WEBHOOK, repo_id="group/project", status=RunStatus.RUNNING
         )
 
-        out = StringIO()
-        call_command("sync_stuck_runs", stdout=out)
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
 
-        assert "Synced: 0" in out.getvalue()
+        assert any("Synced: 0" in rec.message for rec in caplog.records)
 
-    def test_reaps_orphaned_chat_run_when_session_heartbeat_stale(self):
+    def test_reaps_orphaned_chat_run_when_session_heartbeat_stale(self, caplog):
         """A task-less chat run stuck RUNNING is failed once its session heartbeat goes stale."""
         stale = timezone.now() - timedelta(hours=1)
         session = Session.objects.create(
@@ -100,16 +100,16 @@ class TestSyncStuckRunsCommand:
             session=session, trigger_type=SessionOrigin.CHAT, repo_id="group/project", status=RunStatus.RUNNING
         )
 
-        out = StringIO()
-        call_command("sync_stuck_runs", stdout=out)
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
 
         run.refresh_from_db()
         assert run.status == RunStatus.FAILED
         assert run.finished_at is not None
         assert run.error_message
-        assert "chat runs reaped: 1" in out.getvalue()
+        assert any("chat runs reaped: 1" in rec.message for rec in caplog.records)
 
-    def test_does_not_reap_live_chat_run(self):
+    def test_does_not_reap_live_chat_run(self, caplog):
         """A chat run whose session is still heartbeating (fresh last_active_at) is left alone."""
         session = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project"
@@ -118,14 +118,14 @@ class TestSyncStuckRunsCommand:
             session=session, trigger_type=SessionOrigin.CHAT, repo_id="group/project", status=RunStatus.RUNNING
         )
 
-        out = StringIO()
-        call_command("sync_stuck_runs", stdout=out)
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
 
         run.refresh_from_db()
         assert run.status == RunStatus.RUNNING
-        assert "chat runs reaped: 0" in out.getvalue()
+        assert any("chat runs reaped: 0" in rec.message for rec in caplog.records)
 
-    def test_continues_after_per_row_error(self, create_db_task_result):
+    def test_continues_after_per_row_error(self, caplog, create_db_task_result):
         ok_tr = create_db_task_result(
             status="SUCCESSFUL",
             return_value={"response": "Done."},
@@ -157,9 +157,12 @@ class TestSyncStuckRunsCommand:
                 raise RuntimeError("simulated sync failure")
             return original(self)
 
-        out = StringIO()
-        with patch.object(Run, "sync_and_save", selectively_raise), pytest.raises(CommandError) as exc_info:
-            call_command("sync_stuck_runs", stdout=out)
+        with (
+            patch.object(Run, "sync_and_save", selectively_raise),
+            caplog.at_level("WARNING", logger="daiv.sessions"),
+            pytest.raises(CommandError) as exc_info,
+        ):
+            call_command("sync_stuck_runs")
 
         ok_run.refresh_from_db()
         bad_run.refresh_from_db()
@@ -167,6 +170,10 @@ class TestSyncStuckRunsCommand:
         assert bad_run.status == RunStatus.RUNNING
         assert "Synced: 1" in str(exc_info.value)
         assert "errored: 1" in str(exc_info.value)
+        # The failed run id is included so the failed task record is self-contained.
+        assert str(bad_run.pk) in str(exc_info.value)
+        # The error summary is logged at WARNING (the level is the monitoring contract).
+        assert any("errored: 1" in rec.message and rec.levelname == "WARNING" for rec in caplog.records)
 
 
 @pytest.mark.django_db(transaction=True)
