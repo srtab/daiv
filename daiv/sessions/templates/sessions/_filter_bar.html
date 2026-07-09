@@ -75,8 +75,8 @@
                 {% for value, label in ranges %}
                 <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}&range={{ value }}"
                    class="filter-menu-item {% if current_range == value %}filter-menu-item--active{% endif %}"
-                   data-range-value="{{ value }}" data-label="{{ label }}"
-                   @click.prevent="setRange('{{ value }}', '{{ label }}')"
+                   data-range-value="{{ value }}" data-label="{{ label|escapejs }}"
+                   @click.prevent="setRange('{{ value }}', '{{ label|escapejs }}')"
                    :class="{ 'filter-menu-item--active': range === '{{ value }}' }">{{ label }}</a>
                 {% endfor %}
                 <div class="mt-1 border-t border-white/[0.06] px-2.5 pb-1 pt-2">

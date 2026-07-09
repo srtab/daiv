@@ -13,7 +13,7 @@
 function swapResults(url, { push = true } = {}) {
     const box = document.getElementById("session-results");
     if (box) box.classList.add("session-results--loading");
-    window.htmx
+    htmx
         .ajax("GET", url, { target: "#session-results", swap: "innerHTML" })
         .finally(() => document.getElementById("session-results")?.classList.remove("session-results--loading"));
     if (push) window.history.pushState({}, "", url);
