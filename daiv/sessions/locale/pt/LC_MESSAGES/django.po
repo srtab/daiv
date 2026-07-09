@@ -238,6 +238,13 @@ msgid "Apply"
 msgstr "Aplicar"
 
 #, python-format
+msgid "Repository: %(name)s"
+msgstr "Repositório: %(name)s"
+
+msgid "Clear repository filter"
+msgstr "Limpar filtro de repositório"
+
+#, python-format
 msgid "Schedule: %(name)s"
 msgstr "Agendamento: %(name)s"
 

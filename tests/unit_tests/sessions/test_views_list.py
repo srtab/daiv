@@ -227,7 +227,10 @@ class TestSessionListView:
         html = response.content.decode()
         assert "Do the thing" in html
         assert "feat/x" in html
-        assert "Today" in html  # day-group header for a just-created session
+        # Narrow to the day-group header markup: "Today" also appears in the Time filter
+        # menu, so a bare substring check could pass even if row grouping regressed.
+        assert "session-group-header" in html
+        assert "<span>Today</span>" in html  # day-group header for a just-created session
 
     def test_date_param_is_js_escaped_in_x_data(self, logged_in_client, user):
         """XSS: date params must be JS-escaped in the Alpine x-data attribute.

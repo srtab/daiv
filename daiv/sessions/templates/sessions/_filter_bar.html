@@ -65,14 +65,10 @@
             <div class="filter-menu" x-show="open === 'time'" x-cloak x-transition.opacity>
                 <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}"
                    class="filter-menu-item {% if not current_range and not current_from and not current_to %}filter-menu-item--active{% endif %}">{% translate "All time" %}</a>
-                <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}&range=today"
-                   class="filter-menu-item {% if current_range == 'today' %}filter-menu-item--active{% endif %}">{% translate "Today" %}</a>
-                <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}&range=2d"
-                   class="filter-menu-item {% if current_range == '2d' %}filter-menu-item--active{% endif %}">{% translate "Last 2 days" %}</a>
-                <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}&range=7d"
-                   class="filter-menu-item {% if current_range == '7d' %}filter-menu-item--active{% endif %}">{% translate "Last 7 days" %}</a>
-                <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}&range=30d"
-                   class="filter-menu-item {% if current_range == '30d' %}filter-menu-item--active{% endif %}">{% translate "Last 30 days" %}</a>
+                {% for value, label in ranges %}
+                <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}&range={{ value }}"
+                   class="filter-menu-item {% if current_range == value %}filter-menu-item--active{% endif %}">{{ label }}</a>
+                {% endfor %}
                 <div class="mt-1 border-t border-white/[0.06] px-2.5 pb-1 pt-2">
                     <p class="mb-1.5 text-[11px] uppercase tracking-wider text-gray-500">{% translate "Custom range" %}</p>
                     <div class="flex items-center gap-2" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }">
@@ -90,6 +86,13 @@
     {# Deep-link-only filters (no control) + Clear all #}
     {% if current_schedule or current_batch or has_active_filters %}
     <div class="flex flex-wrap items-center gap-2">
+        {% if current_repo %}
+        <span class="filter-chip">
+            <span>{% blocktranslate with name=current_repo %}Repository: {{ name }}{% endblocktranslate %}</span>
+            <a href="?{% querystring_without 'repo' 'page' %}" class="filter-chip__x"
+               aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
+        </span>
+        {% endif %}
         {% if current_schedule %}
         <span class="filter-chip">
             <span>{% blocktranslate with name=schedule_name %}Schedule: {{ name }}{% endblocktranslate %}</span>

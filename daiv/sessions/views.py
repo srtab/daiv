@@ -138,7 +138,24 @@ class SessionListView(LoginRequiredMixin, FilterView):
             .visible_to(self.request.user)
             .with_latest_status()
             .select_related("user", "scheduled_job")
-            .prefetch_related(Prefetch("runs", queryset=Run.objects.order_by("-created_at", "-id")))
+            # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
+            # prompt/result_summary/error_message/usage_by_model columns. Add a field here if
+            # the row template starts reading it, or it becomes a deferred-field N+1.
+            .prefetch_related(
+                Prefetch(
+                    "runs",
+                    queryset=Run.objects.only(
+                        "id",
+                        "session_id",
+                        "status",
+                        "started_at",
+                        "finished_at",
+                        "merge_request_web_url",
+                        "cost_usd",
+                        "created_at",
+                    ).order_by("-created_at", "-id"),
+                )
+            )
         )
 
     def get_context_data(self, **kwargs):
@@ -172,6 +189,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         ])
         context["origins"] = SessionOrigin.choices
         context["statuses"] = RunStatus.choices
+        context["ranges"] = RANGE_CHOICES
 
         # Resolve schedule name for display.
         if schedule_id := context["current_schedule"]:

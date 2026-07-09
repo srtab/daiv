@@ -269,3 +269,43 @@ class TestSessionFilter:
         f = SessionFilter({"range": "bogus"}, queryset=_qs())
         assert not f.form.is_valid()
         assert a.pk in list(f.qs.values_list("pk", flat=True))
+
+    def test_q_matches_both_title_and_repo_returns_row_once(self, user):
+        # filter_q ORs two columns of the SAME row (no join), so a term hitting both
+        # title and repo_id must not duplicate the row.
+        match = _create_session(title="payments dashboard", repo_id="group/payments")
+        pks = list(SessionFilter({"q": "payments"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert pks.count(match.pk) == 1
+
+    def test_range_2d_and_30d_windows(self, user):
+        now = timezone.now()
+        d1 = _create_session()
+        Session.objects.filter(pk=d1.pk).update(last_active_at=now - timedelta(days=1))
+        d3 = _create_session()
+        Session.objects.filter(pk=d3.pk).update(last_active_at=now - timedelta(days=3))
+        d20 = _create_session()
+        Session.objects.filter(pk=d20.pk).update(last_active_at=now - timedelta(days=20))
+        d40 = _create_session()
+        Session.objects.filter(pk=d40.pk).update(last_active_at=now - timedelta(days=40))
+
+        pks_2d = set(SessionFilter({"range": "2d"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert d1.pk in pks_2d
+        assert d3.pk not in pks_2d
+        assert d20.pk not in pks_2d
+
+        pks_30d = set(SessionFilter({"range": "30d"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert {d1.pk, d3.pk, d20.pk} <= pks_30d
+        assert d40.pk not in pks_30d
+
+    def test_range_boundary_is_inclusive(self, user):
+        # last_active_at__gte makes the window edge inclusive. Use ~1h margins around the
+        # 7-day edge so the assertion can't flake on the sub-second gap between the test's
+        # ``now`` and filter_range's own ``timezone.now()``.
+        now = timezone.now()
+        just_in = _create_session()
+        Session.objects.filter(pk=just_in.pk).update(last_active_at=now - timedelta(days=6, hours=23))
+        just_out = _create_session()
+        Session.objects.filter(pk=just_out.pk).update(last_active_at=now - timedelta(days=7, hours=1))
+        pks = set(SessionFilter({"range": "7d"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert just_in.pk in pks
+        assert just_out.pk not in pks

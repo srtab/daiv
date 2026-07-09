@@ -3,8 +3,7 @@
  *
  * Status pills and Type/Time preset options are plain <a> links (deep-linkable, no-JS
  * safe). This component only handles: dropdown open/close state, the debounced search
- * box, and the custom date-range submit — each rewrites the URL querystring and reloads,
- * mirroring the pattern the old repo combobox used.
+ * box, and the custom date-range submit — each rewrites the URL querystring and reloads.
  */
 document.addEventListener("alpine:init", () => {
     Alpine.data("filterBar", (initialQuery) => ({
@@ -21,14 +20,6 @@ document.addEventListener("alpine:init", () => {
         },
         setParam(key, value) {
             this._go((p) => (value ? p.set(key, value) : p.delete(key)));
-        },
-        setRange(token) {
-            this._go((p) => {
-                p.delete("date_from");
-                p.delete("date_to");
-                if (token) p.set("range", token);
-                else p.delete("range");
-            });
         },
         setCustomRange(from, to) {
             this._go((p) => {
