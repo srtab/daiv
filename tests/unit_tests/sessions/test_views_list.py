@@ -301,6 +301,14 @@ class TestSessionListView:
         assert 'id="session-in-flight"' in html
         assert str(running.pk) in html
 
+    def test_htmx_pagination_links_are_swap_marked(self, logged_in_client, user):
+        """With >paginate_by sessions, fragment pagination links carry data-page-swap."""
+        for _ in range(30):
+            _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        html = response.content.decode()
+        assert "data-page-swap" in html
+
     def test_row_latest_run_matches_status_filter_on_equal_created_at(self, logged_in_client, user):
         """DISPLAY order must match the FILTER tiebreaker (-created_at, -id).
 
@@ -336,3 +344,27 @@ class TestSessionListView:
             f"Prefetch tiebreaker mismatch: display first run pk={display_first.pk} "
             f"but expected pk={run_winner.pk} (higher id, matching managers.py -id tiebreaker)"
         )
+
+
+def test_pagination_partial_without_flag_has_no_swap_marker(rf):
+    """The shared pagination partial stays plain when paginate_swap is not passed."""
+    from django.template.loader import render_to_string
+
+    class _Paginator:
+        num_pages = 3
+
+    class _Page:
+        number = 1
+        paginator = _Paginator()
+        next_page_number = 2
+
+        def has_previous(self):
+            return False
+
+        def has_next(self):
+            return True
+
+    html = render_to_string(
+        "accounts/_pagination.html", {"is_paginated": True, "page_obj": _Page(), "request": rf.get("/x/?foo=bar")}
+    )
+    assert "data-page-swap" not in html
