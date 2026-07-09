@@ -9,8 +9,8 @@ from langchain_core.runnables import RunnableConfig  # noqa: TCH002 — used in 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from sandbox_envs.services import aresolve_repo_envs
-from sessions.models import Session, SessionOrigin
-from sessions.services import MAX_DELEGATED_TARGETS, MAX_SPAWN_DEPTH, RepoTarget, asubmit_batch_runs
+from sessions.models import MAX_SPAWN_DEPTH, Session, SessionOrigin
+from sessions.services import MAX_DELEGATED_TARGETS, RepoTarget, asubmit_batch_runs
 
 from codebase.authorization import RepositoryAccessDenied, aassert_can_run
 
@@ -26,9 +26,10 @@ class DelegateTarget(BaseModel):
     repo_id: str = Field(description="Identifier of the target repository.")
     ref: str | None = Field(default=None, description="Base branch/ref to start from; omit for the default branch.")
     prompt: str = Field(
+        min_length=1,
         description="Tailored instruction for this repository. Include the ticket context this repo needs "
         "(legs cannot see the ticket) and the no-change convention: 'if this repository is unaffected, "
-        "reply saying so and make no changes.'"
+        "reply saying so and make no changes.'",
     )
 
 
@@ -98,15 +99,23 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
     delegated: list[dict] = []
     if allowed:
         repo_targets = [RepoTarget(repo_id=t.repo_id, ref=t.ref or "", prompt=t.prompt) for t in allowed]
-        repo_targets = await aresolve_repo_envs(user=user, repos=repo_targets, explicit_env_id=None)
-        result = await asubmit_batch_runs(
-            user=user,
-            prompt=goal,
-            repos=repo_targets,
-            trigger_type=SessionOrigin.DELEGATED_JOB,
-            parent_thread_id=thread_id,
-            spawn_depth=session.spawn_depth + 1,
-        )
+        # Env resolution and batch submit hit the DB and re-check authorization; a raise here
+        # (OperationalError, a revoked-access RepositoryAccessDenied, a validation ValueError) must
+        # surface as the tool's JSON error contract, not an opaque tool-node crash. asubmit_batch_runs
+        # is best-effort per repo, so a partial result is impossible once it has returned.
+        try:
+            repo_targets = await aresolve_repo_envs(user=user, repos=repo_targets, explicit_env_id=None)
+            result = await asubmit_batch_runs(
+                user=user,
+                prompt=goal,
+                repos=repo_targets,
+                trigger_type=SessionOrigin.DELEGATED_JOB,
+                parent_thread_id=thread_id,
+                spawn_depth=session.spawn_depth + 1,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("delegate_jobs: submission failed for thread=%s", thread_id)
+            return json.dumps({"error": "Delegation submission failed; no sub-jobs were started."})
         batch_id = str(result.batch_id)
         delegated = [
             {

@@ -245,6 +245,11 @@ def render_batch_summary(batch_id: Any, siblings: list) -> str:
         summary = (r.result_summary or r.error_message or "").strip()
         if summary:
             lines.append(f"- Reply: {summary[:500]}")
+        elif r.status == RunStatus.FAILED:
+            # A FAILED leg can reach here with an empty error_message (e.g. the best-effort terminal
+            # save in _mark_failed_and_advance). Make the gap explicit so the coordinator doesn't
+            # read a blank block as a clean no-op.
+            lines.append("- Reply: (failed with no captured error message; check the leg session)")
         lines.append("")
     lines.append("Compose the consolidated outcome and continue your instructions (e.g. report back to the ticket).")
     return "\n".join(lines)
@@ -320,4 +325,13 @@ def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) 
         return
 
     # Free coordinator session: enqueue the READY continuation now, reusing the dispatcher helper.
-    _enqueue_queued_run(continuation)
+    # _enqueue_queued_run marks the row FAILED on failure; unlike the dispatcher there is no QUEUED
+    # sibling to fall through to, so a failure here means the coordinator never auto-resumes. Do not
+    # swallow it — the dispatcher's own log names itself, not this resume path or the batch.
+    if not _enqueue_queued_run(continuation):
+        logger.error(
+            "resume_coordinator: failed to enqueue continuation for batch=%s on parent thread=%s; "
+            "coordinator will NOT auto-resume — the batch rollup notification is the only signal",
+            batch_id,
+            parent_thread_id,
+        )

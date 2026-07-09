@@ -277,3 +277,12 @@ def test_null_continuation_of_batch_not_deduplicated():
     session = _mk_session()
     _mk_run(session, status=RunStatus.QUEUED)
     _mk_run(session, status=RunStatus.QUEUED)  # no IntegrityError
+
+
+def test_spawn_depth_cannot_exceed_cap():
+    """The delegation-depth fuse is enforced at the DB, not only in the delegate_jobs tool."""
+    from sessions.models import MAX_SPAWN_DEPTH
+
+    _mk_session(spawn_depth=MAX_SPAWN_DEPTH)  # at the cap is allowed
+    with pytest.raises(IntegrityError):
+        _mk_session(spawn_depth=MAX_SPAWN_DEPTH + 1)

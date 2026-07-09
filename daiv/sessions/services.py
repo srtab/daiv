@@ -29,7 +29,6 @@ logger = logging.getLogger("daiv.sessions")
 
 MAX_REPOS_PER_BATCH = 20
 MAX_DELEGATED_TARGETS = 10
-MAX_SPAWN_DEPTH = 2
 
 
 @dataclass(frozen=True)

@@ -11,7 +11,7 @@ This is useful when you want to:
 
 ## How it works
 
-When orchestration is enabled, the agent gains access to a `delegate_jobs` tool. The tool accepts a goal and a list of target repositories (each with its own optional prompt) and submits an independent agent run for every target — in parallel, via the same task backend used by the Jobs API and Scheduled Jobs.
+When orchestration is enabled, the agent gains access to a `delegate_jobs` tool. The tool accepts a `goal` and a list of target repositories (each with its own tailored `prompt`) and submits an independent agent run for every target — in parallel, via the same task backend used by the Jobs API and Scheduled Jobs.
 
 Each delegated run executes with the per-repo configuration, skills, and sandbox of its own repository. When all delegated runs finish, the originating agent resumes and receives a rollup summary of the results — what each run produced, whether it succeeded, and any merge requests that were created.
 
@@ -55,24 +55,27 @@ The `delegate_jobs` tool is only bound to the agent when this flag is set. Attem
 | **Depth** — maximum delegation chain | 2 | A delegated run cannot itself delegate beyond this depth. Setting `MAX_SPAWN_DEPTH=2` means: coordinator (depth 0) → delegated leg (depth 1) → leaf leg (depth 2) → no further delegation. |
 
 !!! warning
-    Depth is enforced at submission time. A delegated run that tries to call `delegate_jobs` when it is already at the maximum depth will receive an error and should handle it gracefully in its prompt.
+    Depth is enforced at submission time (and pinned by a database constraint on the session). A delegated run that tries to call `delegate_jobs` when it is already at the maximum depth will receive an error and should handle it gracefully in its prompt. A delegated leg can only delegate *further* if its own repository also sets `orchestration.enabled: true` — the tool is bound per-repository, so a leaf repo that never delegates needs no configuration at all.
 
 ## Per-target prompts
 
-Each entry in the `targets` list accepts an optional `prompt` that overrides the shared goal for that specific repository. Use this when different repositories need different instructions:
+Every `delegate_jobs` target **requires** its own `prompt`. A delegated leg runs in isolation and cannot see the coordinator's ticket or context, so each leg needs explicit, self-contained instructions — include the ticket context that leg needs and the no-change convention ("if this repository is unaffected, reply saying so and make no changes"):
 
 ```json
 {
   "goal": "Apply the CVE-2026-12345 patch from the advisory",
   "targets": [
-    { "repo_id": "mygroup/service-auth", "ref": "main" },
+    { "repo_id": "mygroup/service-auth", "ref": "main", "prompt": "Bump the vulnerable auth library to 3.2.1; if this repo doesn't depend on it, reply saying so and make no changes" },
     { "repo_id": "mygroup/service-api",  "ref": "main", "prompt": "Update the auth dependency to 3.2.1 and run the integration tests" },
-    { "repo_id": "mygroup/service-web",  "ref": "main" }
+    { "repo_id": "mygroup/service-web",  "ref": "main", "prompt": "Rebuild against auth 3.2.1 and refresh the lockfile; reply with no changes if unaffected" }
   ]
 }
 ```
 
-Targets without a `prompt` receive the shared `goal`. Targets with a `prompt` receive only their per-target `prompt` — the shared `goal` is not prepended automatically, so be explicit if you need it. The batch-level `goal` is always used to title the batch in the session view, regardless of whether individual targets override it.
+The batch-level `goal` is a one-line objective used only to **title the batch** in the session view — it is never sent to a leg as a prompt.
+
+!!! note
+    A per-repo prompt that is *optional* and falls back to a shared batch prompt is a feature of the [Jobs API](jobs-api.md) and [MCP `submit_job`](mcp-endpoint.md), where `repos[].prompt` may be omitted. The `delegate_jobs` tool is deliberately stricter: because a leg cannot see the coordinator's context, every target must be told explicitly what to do.
 
 ## Ticket-triage recipe
 

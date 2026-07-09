@@ -61,6 +61,13 @@ class SessionOrigin(models.TextChoices):
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
 
 
+#: Maximum delegation depth (``Session.spawn_depth``). 0 = human/system-triggered; each
+#: ``delegate_jobs`` hop adds 1. Enforced both at the tool boundary (``delegate_jobs``) and by
+#: the ``session_spawn_depth_within_cap`` DB CheckConstraint below so no other ``asubmit_batch_runs``
+#: caller can stamp a leg past the fuse.
+MAX_SPAWN_DEPTH = 2
+
+
 class Session(models.Model):
     """One agent thread. PK == LangGraph checkpoint key (``thread_id``)."""
 
@@ -108,7 +115,7 @@ class Session(models.Model):
         default=None,
         help_text=_(
             "Coordinator thread that delegated this session's first run via delegate_jobs; "
-            "empty for top-level sessions."
+            "unset (NULL) for top-level sessions."
         ),
     )
     spawn_depth = models.PositiveSmallIntegerField(
@@ -152,6 +159,12 @@ class Session(models.Model):
                 condition=models.Q(agent_thinking_level="")
                 | models.Q(agent_thinking_level__in=ThinkingLevelChoices.values),
                 name="session_agent_thinking_level_valid",
+            ),
+            # Delegation-depth fuse: the ``delegate_jobs`` tool caps at ``MAX_SPAWN_DEPTH``, but
+            # ``asubmit_batch_runs(spawn_depth=...)`` is an open int — pin the ceiling at the DB so
+            # no future caller can stamp a leg past the recursion fuse.
+            models.CheckConstraint(
+                condition=models.Q(spawn_depth__lte=MAX_SPAWN_DEPTH), name="session_spawn_depth_within_cap"
             ),
         ]
 

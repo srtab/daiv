@@ -8,6 +8,11 @@ description: Use when you are a coordinator on a coordination repo and must tria
 You run on a **coordination repository**. Your job is to turn one request (often a ticket) into
 tailored work across other repositories, then report the combined outcome.
 
+> **Precondition.** This skill depends on the `delegate_jobs` tool, which is bound only when this
+> repository sets `orchestration.enabled: true` in `.daiv.yml`. If `delegate_jobs` is not in your
+> available tools, orchestration is not enabled here — say so plainly and stop; do not try to
+> emulate delegation by other means.
+
 ## Workflow
 
 1. **Triage.** Read the request/ticket using your attached MCP tools. Consult `AGENTS.md` in this

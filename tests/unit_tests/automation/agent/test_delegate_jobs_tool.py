@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,6 +14,29 @@ CONFIG = {"configurable": {"thread_id": "coord-thread"}}
 
 async def _invoke(goal, targets):
     return json.loads(await delegate_jobs_tool.ainvoke({"goal": goal, "targets": targets}, config=CONFIG))
+
+
+def _fake_result(repo_id="g/a", session_id="leg-1", batch_id="batch-1"):
+    run = type("R", (), {"repo_id": repo_id, "ref": "", "session_id": session_id})()
+    return type("B", (), {"batch_id": batch_id, "runs": [run], "failed": []})()
+
+
+@contextmanager
+def _patched_delegate(submit):
+    """Patch the tool's auth + env-resolution + batch-submit collaborators.
+
+    ``submit`` is the AsyncMock used for ``asubmit_batch_runs`` (a return_value for the happy path or
+    a side_effect to simulate a raise); it is yielded so callers can assert on its call args.
+    """
+    with (
+        patch("automation.agent.middlewares.delegate_jobs.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch(
+            "automation.agent.middlewares.delegate_jobs.aresolve_repo_envs",
+            new=AsyncMock(side_effect=lambda **kw: kw["repos"]),
+        ),
+        patch("automation.agent.middlewares.delegate_jobs.asubmit_batch_runs", new=submit),
+    ):
+        yield submit
 
 
 async def test_refuses_when_session_has_no_user(django_user_model):
@@ -49,19 +73,7 @@ async def test_success_path_submits_allowed_targets(django_user_model):
     user = await django_user_model.objects.acreate(username="u3")
     await Session.objects.acreate(thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", user=user)
 
-    fake_run = type("R", (), {"repo_id": "g/a", "ref": "", "session_id": "leg-1"})()
-    fake_result = type("B", (), {"batch_id": "batch-1", "runs": [fake_run], "failed": []})()
-
-    with (
-        patch("automation.agent.middlewares.delegate_jobs.aassert_can_run", new=AsyncMock(return_value=None)),
-        patch(
-            "automation.agent.middlewares.delegate_jobs.aresolve_repo_envs",
-            new=AsyncMock(side_effect=lambda **kw: kw["repos"]),
-        ),
-        patch(
-            "automation.agent.middlewares.delegate_jobs.asubmit_batch_runs", new=AsyncMock(return_value=fake_result)
-        ) as m_submit,
-    ):
+    with _patched_delegate(AsyncMock(return_value=_fake_result())) as m_submit:
         out = await _invoke("goal", [{"repo_id": "g/a", "prompt": "do X"}])
 
     assert out["batch_id"] == "batch-1"
@@ -72,6 +84,57 @@ async def test_success_path_submits_allowed_targets(django_user_model):
     assert kwargs["parent_thread_id"] == "coord-thread"
     assert kwargs["spawn_depth"] == 1
     assert kwargs["trigger_type"] == SessionOrigin.DELEGATED_JOB
+
+
+async def test_refuses_empty_targets(django_user_model):
+    user = await django_user_model.objects.acreate(username="u-empty")
+    await Session.objects.acreate(thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", user=user)
+    out = await _invoke("goal", [])
+    assert "at least one target" in out["error"].lower()
+
+
+async def test_refuses_more_than_max_targets(django_user_model):
+    from sessions.services import MAX_DELEGATED_TARGETS
+
+    user = await django_user_model.objects.acreate(username="u-many")
+    await Session.objects.acreate(thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", user=user)
+    targets = [{"repo_id": f"g/r{i}", "prompt": "p"} for i in range(MAX_DELEGATED_TARGETS + 1)]
+    out = await _invoke("goal", targets)
+    assert "at most" in out["error"].lower()
+
+
+async def test_refuses_duplicate_target(django_user_model):
+    user = await django_user_model.objects.acreate(username="u-dup")
+    await Session.objects.acreate(thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", user=user)
+    # Same repo, both with the default (omitted) ref → collide on ("g/a", "").
+    out = await _invoke("goal", [{"repo_id": "g/a", "prompt": "p"}, {"repo_id": "g/a", "prompt": "q"}])
+    assert "duplicate target" in out["error"].lower()
+
+
+async def test_allows_just_under_depth_cap(django_user_model):
+    """A coordinator at spawn_depth=1 (one below the cap) delegates, stamping legs at depth 2."""
+    user = await django_user_model.objects.acreate(username="u-boundary")
+    await Session.objects.acreate(
+        thread_id="coord-thread", origin=SessionOrigin.DELEGATED_JOB, repo_id="g/coord", user=user, spawn_depth=1
+    )
+
+    with _patched_delegate(AsyncMock(return_value=_fake_result())) as m_submit:
+        out = await _invoke("goal", [{"repo_id": "g/a", "prompt": "do X"}])
+
+    assert out["batch_id"] == "batch-1"
+    assert m_submit.call_args.kwargs["spawn_depth"] == 2
+
+
+async def test_submission_failure_returns_json_error(django_user_model):
+    """A raise from env resolution / batch submit is reported as a JSON error, not propagated."""
+    user = await django_user_model.objects.acreate(username="u-boom")
+    await Session.objects.acreate(thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", user=user)
+
+    with _patched_delegate(AsyncMock(side_effect=RuntimeError("db exploded"))):
+        out = await _invoke("goal", [{"repo_id": "g/a", "prompt": "do X"}])
+
+    assert "error" in out
+    assert "submission failed" in out["error"].lower()
 
 
 def test_middleware_exposes_the_tool():
