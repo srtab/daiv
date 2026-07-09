@@ -11,7 +11,7 @@ This is useful when you want to:
 
 ## How it works
 
-When orchestration is enabled, the agent gains access to a `delegate_jobs` tool. The tool accepts a goal and a list of target repositories (each with its own optional prompt) and submits an independent agent run for every target — in parallel, via the same task backend used by the [Jobs API](jobs-api.md) and [Scheduled Jobs](scheduled-jobs.md).
+When orchestration is enabled, the agent gains access to a `delegate_jobs` tool. The tool accepts a goal and a list of target repositories (each with its own optional prompt) and submits an independent agent run for every target — in parallel, via the same task backend used by the Jobs API and Scheduled Jobs.
 
 Each delegated run executes with the per-repo configuration, skills, and sandbox of its own repository. When all delegated runs finish, the originating agent resumes and receives a rollup summary of the results — what each run produced, whether it succeeded, and any merge requests that were created.
 
@@ -52,7 +52,7 @@ The `delegate_jobs` tool is only bound to the agent when this flag is set. Attem
 | Limit | Value | Notes |
 |-------|-------|-------|
 | **Width** — targets per `delegate_jobs` call | 10 | The tool rejects a call with more than 10 `targets`. Split larger fan-outs across multiple calls. |
-| **Depth** — maximum delegation chain | 2 | A delegated run cannot itself delegate beyond this depth. Setting `MAX_SPAWN_DEPTH=2` means: coordinator → delegated leg → no further delegation. |
+| **Depth** — maximum delegation chain | 2 | A delegated run cannot itself delegate beyond this depth. Setting `MAX_SPAWN_DEPTH=2` means: coordinator (depth 0) → delegated leg (depth 1) → leaf leg (depth 2) → no further delegation. |
 
 !!! warning
     Depth is enforced at submission time. A delegated run that tries to call `delegate_jobs` when it is already at the maximum depth will receive an error and should handle it gracefully in its prompt.
@@ -72,7 +72,7 @@ Each entry in the `targets` list accepts an optional `prompt` that overrides the
 }
 ```
 
-Targets without a `prompt` receive the shared `goal`. Targets with a `prompt` receive only their per-target `prompt` — the shared `goal` is not prepended automatically, so be explicit if you need it.
+Targets without a `prompt` receive the shared `goal`. Targets with a `prompt` receive only their per-target `prompt` — the shared `goal` is not prepended automatically, so be explicit if you need it. The batch-level `goal` is always used to title the batch in the session view, regardless of whether individual targets override it.
 
 ## Ticket-triage recipe
 

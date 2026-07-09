@@ -24,6 +24,7 @@ def _run(session, **kw):
 def test_render_batch_summary_includes_mr_and_truncates():
     batch = uuid.uuid4()
     s = _session("leg-1", repo_id="g/a", parent_thread_id="coord")
+    long_summary = "x" * 600
     runs = [
         _run(
             s,
@@ -31,7 +32,7 @@ def test_render_batch_summary_includes_mr_and_truncates():
             status=RunStatus.SUCCESSFUL,
             batch_id=batch,
             merge_request_web_url="https://gl/mr/1",
-            result_summary="all good",
+            result_summary=long_summary,
         ),
         _run(
             _session("leg-2", repo_id="g/b", parent_thread_id="coord"),
@@ -44,7 +45,11 @@ def test_render_batch_summary_includes_mr_and_truncates():
     text = render_batch_summary(batch, runs)
     assert "1 succeeded, 1 failed" in text
     assert "https://gl/mr/1" in text
+    assert "g/a (successful)" in text
     assert "g/b (failed)" in text
+    # result_summary is truncated to 500 characters by the renderer
+    assert ("x" * 500) in text
+    assert ("x" * 501) not in text
 
 
 def test_receiver_ignores_broadcast_batch_without_parent():
