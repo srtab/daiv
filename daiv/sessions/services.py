@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 MAX_REPOS_PER_BATCH = 20
+MAX_DELEGATED_TARGETS = 10
+MAX_SPAWN_DEPTH = 2
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,7 @@ class RepoTarget:
     repo_id: str
     ref: str = ""
     sandbox_environment_id: str | None = None
+    prompt: str | None = None  # per-target override; falls back to the batch prompt
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,8 @@ async def aget_or_create_session(
     scheduled_job=None,
     issue_iid: int | None = None,
     merge_request_iid: int | None = None,
+    parent_thread_id: str | None = None,
+    spawn_depth: int = 0,
 ) -> Session:
     """Idempotent session bootstrap keyed on thread_id. First caller sets origin
     and context; later callers just bump last_active_at (a webhook session later
@@ -124,6 +129,8 @@ async def aget_or_create_session(
             "scheduled_job": scheduled_job,
             "issue_iid": issue_iid,
             "merge_request_iid": merge_request_iid,
+            "parent_thread_id": parent_thread_id,
+            "spawn_depth": spawn_depth,
         },
     )
     if not created:
@@ -153,6 +160,9 @@ async def acreate_run(
     title: str = "",
     sandbox_environment_id: str | None = None,
     status: str = RunStatus.READY,
+    parent_thread_id: str | None = None,
+    spawn_depth: int = 0,
+    continuation_of_batch_id: uuid.UUID | None = None,
 ) -> Run:
     """Async: create a Session (idempotent) then a Run linked to it.
 
@@ -179,6 +189,8 @@ async def acreate_run(
         scheduled_job=scheduled_job,
         issue_iid=issue_iid,
         merge_request_iid=merge_request_iid,
+        parent_thread_id=parent_thread_id,
+        spawn_depth=spawn_depth,
     )
     return await Run.objects.acreate(
         session=session,
@@ -198,6 +210,7 @@ async def acreate_run(
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
         mention_comment_id=mention_comment_id,
+        continuation_of_batch_id=continuation_of_batch_id,
     )
 
 
@@ -241,6 +254,8 @@ async def asubmit_batch_runs(
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
     thread_id: str | None = None,
+    parent_thread_id: str | None = None,
+    spawn_depth: int = 0,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
@@ -272,6 +287,7 @@ async def asubmit_batch_runs(
 
     async def _submit_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
         effective_thread_id = thread_id or str(uuid.uuid4())
+        effective_prompt = target.prompt or prompt
 
         run_title = ""
         if trigger_type == SessionOrigin.SCHEDULE and scheduled_job is not None:
@@ -281,7 +297,7 @@ async def asubmit_batch_runs(
             "trigger_type": trigger_type,
             "repo_id": target.repo_id,
             "ref": target.ref,
-            "prompt": prompt,
+            "prompt": effective_prompt,
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
             "scheduled_job": scheduled_job,
@@ -292,6 +308,8 @@ async def asubmit_batch_runs(
             "thread_id": effective_thread_id,
             "title": run_title,
             "sandbox_environment_id": target.sandbox_environment_id,
+            "parent_thread_id": parent_thread_id,
+            "spawn_depth": spawn_depth,
         }
 
         # Claim the session atomically by trying to create a READY row. The partial
@@ -319,7 +337,7 @@ async def asubmit_batch_runs(
         try:
             task = await run_job_task.aenqueue(
                 repo_id=target.repo_id,
-                prompt=prompt,
+                prompt=effective_prompt,
                 ref=target.ref or None,
                 agent_model=agent_model or None,
                 agent_thinking_level=agent_thinking_level or None,
