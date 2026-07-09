@@ -274,6 +274,33 @@ class TestSessionListView:
         # The JS-safe unicode escape must be present inside the x-data attribute (confirms |escapejs fired).
         assert "x-data=\"{ from: '\\u0027" in html
 
+    def test_htmx_request_renders_results_fragment_only(self, logged_in_client, user):
+        """An HX-Request GET renders the results fragment, not the full page chrome."""
+        _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        template_names = [t.name for t in response.templates if t.name]
+        assert "sessions/_session_results.html" in template_names
+        assert "sessions/session_list.html" not in template_names
+        # The <h1> page header lives only in the full page, never in the fragment.
+        assert "Agent sessions" not in response.content.decode()
+
+    def test_normal_request_renders_full_page(self, logged_in_client, user):
+        """A normal GET still renders the full session_list page."""
+        _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"))
+        template_names = [t.name for t in response.templates if t.name]
+        assert "sessions/session_list.html" in template_names
+
+    def test_htmx_fragment_carries_in_flight_ids(self, logged_in_client, user):
+        """The fragment exposes in-flight run ids for the SSE re-arm to read after a swap."""
+        session = _create_session(user=user)
+        running = _create_run(session, status=RunStatus.RUNNING)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        html = response.content.decode()
+        assert 'id="session-in-flight"' in html
+        assert str(running.pk) in html
+
     def test_row_latest_run_matches_status_filter_on_equal_created_at(self, logged_in_client, user):
         """DISPLAY order must match the FILTER tiebreaker (-created_at, -id).
 

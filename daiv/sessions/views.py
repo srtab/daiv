@@ -130,6 +130,13 @@ class SessionListView(LoginRequiredMixin, FilterView):
     # silently drop that filter, not blank the whole list.
     strict = False
 
+    def get_template_names(self) -> list[str]:
+        # HTMX requests get just the results fragment so the filter bar and page
+        # chrome stay put; a normal GET renders the full page (deep-link / no-JS safe).
+        if self.request.headers.get("HX-Request") == "true":
+            return ["sessions/_session_results.html"]
+        return ["sessions/session_list.html"]
+
     def get_queryset(self) -> QuerySet[Session]:
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
         # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
