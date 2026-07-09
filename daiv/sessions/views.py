@@ -34,6 +34,7 @@ from schedules.models import ScheduledJob
 from sessions.filters import RANGE_CHOICES, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
+from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 
@@ -232,7 +233,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
 
     def get_object(self, queryset=None):
         if "thread_id" not in self.kwargs:
-            return None  # empty state (session_new route)
+            return None  # empty state (session_new_chat route)
         return super().get_object(queryset)
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
@@ -272,27 +273,35 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
 
         runs = list(session.runs.order_by("created_at"))
-        is_in_flight = any(r.status not in RunStatus.terminal() for r in runs)
+        non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
+        # A live holder — a chat stream or ``run_job_task`` — bumps the session
+        # heartbeat (``last_active_at``) every ~60s, so the session is only really in
+        # flight while that heartbeat is fresh. A holder stranded past
+        # ``STALE_RUN_MINUTES`` (crashed worker, orphaned queue entry) is dead: falling
+        # through to "not in flight" surfaces the expired banner instead of pinning
+        # the view on a permanent "working" state. This reuses the staleness signal
+        # ``SessionLock`` / ``sync_stuck_runs`` use to decide a holder is dead.
+        is_in_flight = bool(non_terminal) and session.last_active_at >= stale_cutoff()
 
         ctx["turns"] = build_turns(messages_history)
         # ``ahydrate_thread`` reports "no checkpoint" as ``expired`` — but a freshly
         # submitted run has not checkpointed yet. Only treat the session as expired
-        # when nothing is in flight; otherwise the in-flight "working" state and the
-        # transcript poller render the same view a chat session gets.
+        # when nothing is (freshly) in flight; otherwise the in-flight "working" state
+        # and the transcript poller render the same view a chat session gets.
         ctx["expired"] = expired and not is_in_flight
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
-        ctx["in_flight_ids"] = ",".join(str(r.id) for r in runs if r.status not in RunStatus.terminal())
+        ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
         # Engage transcript polling when a background run holds the slot and there is
         # no live chat stream from this tab (chat stream manages its own turns in JS;
         # the poller only kicks in for non-chat background runs).
         ctx["poll_transcript"] = bool(
-            self.object
+            is_in_flight
             and self.object.active_run_id
-            and any(r.trigger_type != SessionOrigin.CHAT and r.status not in RunStatus.terminal() for r in ctx["runs"])
+            and any(r.trigger_type != SessionOrigin.CHAT for r in non_terminal)
         )
 
         return ctx

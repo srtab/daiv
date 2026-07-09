@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
+from sessions.locks import STALE_RUN_MINUTES
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 # ---------------------------------------------------------------------------
@@ -36,13 +39,21 @@ def _null_hydration():
 
 
 # ---------------------------------------------------------------------------
-# session_new (empty state)
+# session_new (chooser) + session_new_chat (empty state)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
 def test_session_new_requires_login(client):
     resp = client.get(reverse("session_new"))
+    assert resp.status_code == 302
+    assert "login" in resp["Location"].lower()
+
+
+@pytest.mark.django_db
+def test_session_new_chat_requires_login(client):
+    # The URL split moved the empty state to its own route; it must stay login-gated too.
+    resp = client.get(reverse("session_new_chat"))
     assert resp.status_code == 302
     assert "login" in resp["Location"].lower()
 
@@ -258,6 +269,31 @@ def test_detail_missing_checkpoint_expired_when_all_runs_terminal(member_client,
 
     assert resp.status_code == 200
     assert resp.context["expired"] is True
+
+
+@pytest.mark.django_db
+def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_user):
+    """A non-terminal run whose holder stopped heartbeating (crashed worker) past
+    STALE_RUN_MINUTES is dead — it must fall through to 'expired', not pin the view
+    on a permanent 'working' spinner. Same setup as the in-flight test above, but a
+    stale ``last_active_at`` flips the outcome."""
+    session = _create_session(
+        user=member_user, ref="", last_active_at=timezone.now() - timedelta(minutes=STALE_RUN_MINUTES + 1)
+    )
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)  # no checkpoint
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    # Stale heartbeat => not in flight => expired banner, no working spinner.
+    assert resp.context["is_in_flight"] is False
+    assert resp.context["expired"] is True
+    assert "Agent is working" not in resp.content.decode()
 
 
 @pytest.mark.django_db

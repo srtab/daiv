@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from sessions.locks import STALE_RUN_MINUTES
+from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, SessionOrigin
 
 logger = logging.getLogger("daiv.sessions")
@@ -57,7 +56,7 @@ class Command(BaseCommand):
         A direct ``.update()`` (no ``run_finished`` emit) mirrors ``finalize_chat_run``: chat
         runs are intentionally excluded from the notification / memory / dispatch receivers.
         """
-        cutoff = timezone.now() - timedelta(minutes=STALE_RUN_MINUTES)
+        cutoff = stale_cutoff()
         reaped = Run.objects.filter(
             trigger_type=SessionOrigin.CHAT,
             task_result__isnull=True,
