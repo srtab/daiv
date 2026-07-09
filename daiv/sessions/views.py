@@ -218,7 +218,7 @@ class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
 
 
 class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
-    """Renders the session transcript page, or the empty state for the ``session_new`` route."""
+    """Renders the session transcript page, or the empty state for the ``session_new_chat`` route."""
 
     model = Session
     template_name = "sessions/session_detail.html"
