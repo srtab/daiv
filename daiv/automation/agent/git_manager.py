@@ -204,12 +204,21 @@ class GitManager:
 
         ``diff --no-index`` exits 1 when it finds differences (expected — keep the output); exit >1 is a
         genuine error and must surface.
+
+        Sections are butted directly together (ensuring a single ``\\n`` boundary), never separated by a
+        blank line — the output must match what one ``git diff`` invocation emits. A blank line between
+        sections is not just cosmetic: when the section it follows is *hunkless* (an empty-file addition,
+        ``diff --git`` + ``new file mode`` + ``index`` with no ``@@``), ``unidiff`` aborts the entire parse
+        with "Unexpected trailing newline character". That silently bypasses ``redact_diff_content``'s
+        omit-pattern redaction, leaking excluded file content to the diff-to-metadata model.
         """
         for fres, f in zip(results, files, strict=True):
             if fres.exit_code > 1:
                 raise GitCommandError(["git", "diff", "--no-index", "/dev/null", f], fres.exit_code, fres.output)
             if fres.output:
-                diff += f"\n{fres.output}"
+                if diff and not diff.endswith("\n"):
+                    diff += "\n"
+                diff += fres.output
         if diff and not diff.endswith("\n"):
             diff += "\n"
         return diff

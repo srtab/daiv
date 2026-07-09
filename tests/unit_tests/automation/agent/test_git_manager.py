@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from git import GitCommandError, Repo
+from unidiff import PatchSet
 
 from automation.agent.git_manager import (
     GitManager,
@@ -12,6 +13,7 @@ from automation.agent.git_manager import (
     GitPushPermissionError,
     GitPushStaleError,
     RepoStatus,
+    _GitResult,
     _is_push_stale_error_text,
     _shell_quote,
 )
@@ -588,6 +590,64 @@ async def test_status_snapshot_second_round_trip_only_for_untracked() -> None:
     assert "new.py" in snap.diff
     assert snap.has_unpushed is False
     assert client.run_commands.await_count == 2
+
+
+# An empty (hunkless) untracked file sorted before a real one — the fold ordering that made the old
+# blank-line join trip ``unidiff``. Built fresh per call so one test can't mutate another's fixture.
+_UNTRACKED_EMPTY_THEN_REAL_FILES = ["a_empty.py", "b_real.py"]
+
+
+def _untracked_empty_then_real() -> list[_GitResult]:
+    return [
+        # empty file: header only, no @@ hunk (the section that trips unidiff when a blank follows)
+        _GitResult(
+            exit_code=1, output="diff --git a/a_empty.py b/a_empty.py\nnew file mode 100644\nindex 0000000..e69de29\n"
+        ),
+        _GitResult(
+            exit_code=1,
+            output=(
+                "diff --git a/b_real.py b/b_real.py\nnew file mode 100644\nindex 0000000..17e3475\n"
+                "--- /dev/null\n+++ b/b_real.py\n@@ -0,0 +1 @@\n+real\n"
+            ),
+        ),
+    ]
+
+
+def test_append_untracked_folds_empty_file_without_breaking_diff_parse() -> None:
+    """An empty untracked file folds in as a *hunkless* ``diff --git`` section.
+
+    The fold must not inject a blank line after it: a blank line following a hunkless section
+    makes ``unidiff`` abort the whole parse with "Unexpected trailing newline character", which
+    silently bypasses ``redact_diff_content``'s omit-pattern redaction (the diff then reaches the
+    metadata model unredacted). The stitched output must match canonical ``git diff`` — file
+    sections butted together with no blank line between them — so it stays parseable.
+    """
+    base = (
+        "diff --git a/tracked.py b/tracked.py\n"
+        "index ce01362..9a7a4b5 100644\n"
+        "--- a/tracked.py\n"
+        "+++ b/tracked.py\n"
+        "@@ -1 +1,2 @@\n"
+        " hello\n"
+        "+changed\n"
+    )
+
+    diff = GitManager._append_untracked(base, _UNTRACKED_EMPTY_THEN_REAL_FILES, _untracked_empty_then_real())
+
+    assert "\n\ndiff --git" not in diff  # no spurious blank line between file sections
+    assert [patched.path for patched in PatchSet.from_string(diff)] == ["tracked.py", "a_empty.py", "b_real.py"]
+
+
+def test_append_untracked_with_empty_base_has_no_leading_blank_line() -> None:
+    """With no tracked changes the base diff is empty, so the first folded section must start the
+    output cleanly — no leading blank line. (The ``if diff and ...`` guard skips the boundary newline
+    on the first iteration; an unconditional ``\\n`` join would instead emit a leading blank line and,
+    after the following hunkless section, break parsing.)
+    """
+    diff = GitManager._append_untracked("", _UNTRACKED_EMPTY_THEN_REAL_FILES, _untracked_empty_then_real())
+
+    assert not diff.startswith("\n")
+    assert [patched.path for patched in PatchSet.from_string(diff)] == ["a_empty.py", "b_real.py"]
 
 
 @pytest.mark.parametrize(
