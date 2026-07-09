@@ -228,3 +228,63 @@ class TestSessionListView:
         assert "Do the thing" in html
         assert "feat/x" in html
         assert "Today" in html  # day-group header for a just-created session
+
+    def test_date_param_is_js_escaped_in_x_data(self, logged_in_client, user):
+        """XSS: date params must be JS-escaped in the Alpine x-data attribute.
+
+        Django's HTML autoescape converts ' → &#x27;, which looks safe in HTML but is
+        NOT safe in a JS-eval context: the browser HTML-decodes the attribute value
+        before Alpine evaluates it as JavaScript, so &#x27; becomes ' and the injected
+        payload runs.
+
+        Without |escapejs the HTML-encoded payload (&#x27;});alert) appears inside the
+        x-data= attribute value; with |escapejs it is rendered as \\u0027 instead.
+
+        Note: &#x27;});alert may still appear in the button label (HTML text context, safe),
+        so this test narrows its check to the x-data attribute value specifically.
+        """
+        payload = "'});alert(1);({'"
+        response = logged_in_client.get(reverse("session_list"), {"date_from": payload})
+        html = response.content.decode()
+        # Without |escapejs, the x-data attribute contains the HTML-encoded form which is
+        # still exploitable (browser decodes &#x27; → ' before Alpine evaluates the JS).
+        # The raw injected form inside x-data= must not be present.
+        assert "x-data=\"{ from: '&#x27;" not in html
+        # The JS-safe unicode escape must be present inside the x-data attribute (confirms |escapejs fired).
+        assert "x-data=\"{ from: '\\u0027" in html
+
+    def test_row_latest_run_matches_status_filter_on_equal_created_at(self, logged_in_client, user):
+        """DISPLAY order must match the FILTER tiebreaker (-created_at, -id).
+
+        When two runs share the same created_at timestamp (e.g. batch runs created in
+        one transaction), managers.py picks the higher-id run for status FILTERING via
+        order_by("-created_at", "-id").  The prefetch in views.py must use the same
+        tiebreaker so the DISPLAY first-run (row.runs.all()[0]) is the SAME run whose
+        status the annotation selected.
+        """
+        import datetime
+
+        from django.utils import timezone
+
+        session = _create_session(user=user)
+        run_a = _create_run(session, status=RunStatus.FAILED)
+        run_b = _create_run(session, status=RunStatus.SUCCESSFUL)
+
+        # Determine which run has the higher UUID (the -id tiebreaker compares UUIDs
+        # lexicographically, not by insertion order — UUIDv4 is random).
+        run_winner = run_a if run_a.pk > run_b.pk else run_b
+
+        # Force both runs to an identical created_at so the only tiebreaker is id.
+        fixed_dt = timezone.make_aware(datetime.datetime(2024, 1, 1, 12, 0, 0))
+        Run.objects.filter(pk__in=[run_a.pk, run_b.pk]).update(created_at=fixed_dt)
+
+        response = logged_in_client.get(reverse("session_list"))
+        assert response.status_code == 200
+
+        row = next(s for s in response.context["sessions"] if s.pk == session.pk)
+        # DISPLAY: first run from the prefetch must be the higher-id run (matching -id tiebreaker).
+        display_first = list(row.runs.all())[0]
+        assert display_first.pk == run_winner.pk, (
+            f"Prefetch tiebreaker mismatch: display first run pk={display_first.pk} "
+            f"but expected pk={run_winner.pk} (higher id, matching managers.py -id tiebreaker)"
+        )

@@ -138,7 +138,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
             .visible_to(self.request.user)
             .with_latest_status()
             .select_related("user", "scheduled_job")
-            .prefetch_related(Prefetch("runs", queryset=Run.objects.order_by("-created_at")))
+            .prefetch_related(Prefetch("runs", queryset=Run.objects.order_by("-created_at", "-id")))
         )
 
     def get_context_data(self, **kwargs):

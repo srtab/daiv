@@ -75,7 +75,7 @@
                    class="filter-menu-item {% if current_range == '30d' %}filter-menu-item--active{% endif %}">{% translate "Last 30 days" %}</a>
                 <div class="mt-1 border-t border-white/[0.06] px-2.5 pb-1 pt-2">
                     <p class="mb-1.5 text-[11px] uppercase tracking-wider text-gray-500">{% translate "Custom range" %}</p>
-                    <div class="flex items-center gap-2" x-data="{ from: '{{ current_from }}', to: '{{ current_to }}' }">
+                    <div class="flex items-center gap-2" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }">
                         <input type="date" x-model="from" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
                         <span class="text-gray-500">–</span>
                         <input type="date" x-model="to" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
