@@ -109,7 +109,7 @@ def test_get_retry_with_unknown_uuid_falls_back_to_blank(member_client):
 
 
 @pytest.mark.django_db
-def test_post_single_run_redirects_to_session_detail(member_client):
+def test_post_single_run_redirects_to_batch_list(member_client):
     result = _fake_result(runs=1, failed=0, session_id="thread-abc")
     with (
         patch("sessions.views.resolve_repo_envs", side_effect=lambda *, user, repos, explicit_env_id: repos),
@@ -117,7 +117,9 @@ def test_post_single_run_redirects_to_session_detail(member_client):
     ):
         resp = member_client.post(NEW_RUN_URL, _post_data())
     assert resp.status_code == 302
-    assert resp["Location"] == reverse("session_detail", kwargs={"thread_id": "thread-abc"})
+    # A single run now lands on the batch-scoped list (not the detail page), to
+    # reinforce the "hand off and walk away" model.
+    assert resp["Location"] == reverse("session_list") + f"?batch={result.batch_id}"
     submit.assert_called_once()
 
 

@@ -426,8 +426,8 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 self.request, _("Some repositories failed to submit: %(ids)s") % {"ids": failed_ids}
             )
 
-        if len(result.runs) == 1 and not result.failed:
-            return redirect("session_detail", thread_id=result.runs[0].session_id)
+        # Always land on the batch-scoped sessions list — the "hand off" model:
+        # fire the run, see it queued/running in the list, walk away.
         return redirect(reverse("session_list") + f"?batch={result.batch_id}")
 
     def get_breadcrumbs(self):
