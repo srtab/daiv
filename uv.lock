@@ -634,7 +634,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.3.0" },
     { name = "langgraph", specifier = "==1.1.10" },
     { name = "langgraph-checkpoint-redis", specifier = "==0.5.0" },
-    { name = "langsmith", extras = ["pytest"], specifier = "==0.10.0" },
+    { name = "langsmith", extras = ["pytest"], specifier = "==0.10.1" },
     { name = "langsmith-fetch", specifier = "==0.3.1" },
     { name = "markdown", specifier = "==3.10.2" },
     { name = "markdownify", specifier = "==1.2.3" },
@@ -1787,7 +1787,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.10.0"
+version = "0.10.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1805,9 +1805,9 @@ dependencies = [
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e8/53/18bc9169517c274681402f3714d1975ff687e8e175a9fea2b8087db99747/langsmith-0.10.0.tar.gz", hash = "sha256:1bc97a28e4b7a0f2e2f5419668592b3bf460ba5d886991ad725fb2778aa2e236", size = 4708392, upload-time = "2026-07-08T13:28:28.081Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/18/f9c960784ffd3a50b46f8fce04dd557a97caf9869ab9435e87c79b5bc37d/langsmith-0.10.1.tar.gz", hash = "sha256:b8b8981b4623bd0fc96609c90ef6afd9241a036922c58a5f1f4591616e2670e0", size = 4709885, upload-time = "2026-07-09T17:14:01.988Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/cf/41d4077d82dce88fb8f6c02938dd5937b5a74cd67bfd7bdb5206277752ca/langsmith-0.10.0-py3-none-any.whl", hash = "sha256:63aec1105b776b8c65a32b002b29ada02469cd26c91beeb2fc2831b247f4da27", size = 652557, upload-time = "2026-07-08T13:28:26.366Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/a5/c0a12ee0455baf2de2411832b456fe226e0667ecc7e39524faa464e27ba1/langsmith-0.10.1-py3-none-any.whl", hash = "sha256:565f6ab9c1e3cea4d0a7da2c0b535b3d8acd291a0df51b39e9e25b7b14c4b56d", size = 653374, upload-time = "2026-07-09T17:14:00.238Z" },
 ]
 
 [package.optional-dependencies]
