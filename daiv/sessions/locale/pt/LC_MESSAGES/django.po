@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"POT-Creation-Date: 2026-07-09 10:54+0100\n"
 "PO-Revision-Date: 2026-07-08 09:00+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -16,6 +16,18 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Today"
+msgstr "Hoje"
+
+msgid "Last 2 days"
+msgstr "Últimos 2 dias"
+
+msgid "Last 7 days"
+msgstr "Últimos 7 dias"
+
+msgid "Last 30 days"
+msgstr "Últimos 30 dias"
 
 msgid "Malformed repository list."
 msgstr "Lista de repositórios inválida."
@@ -194,11 +206,71 @@ msgstr "Repositório já na lista: __LABEL__."
 msgid "Describe what the agent should do in each run..."
 msgstr "Descreva o que o agente deve fazer em cada execução..."
 
+msgid "Search by title or repository"
+msgstr "Pesquisar por título ou repositório"
+
+msgid "All"
+msgstr "Todos"
+
+msgid "Type"
+msgstr "Tipo"
+
+#, python-format
+msgid "Clear type filter"
+msgstr "Limpar filtro de tipo"
+
+msgid "All types"
+msgstr "Todos os tipos"
+
+msgid "Time"
+msgstr "Tempo"
+
+msgid "Clear time filter"
+msgstr "Limpar filtro de tempo"
+
+msgid "All time"
+msgstr "Todo o período"
+
+msgid "Custom range"
+msgstr "Intervalo personalizado"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+#, python-format
+msgid "Schedule: %(name)s"
+msgstr "Agendamento: %(name)s"
+
+msgid "Clear schedule filter"
+msgstr "Limpar filtro de agendamento"
+
+#, python-format
+msgid "Batch %(id)s"
+msgstr "Lote %(id)s"
+
+msgid "Clear batch filter"
+msgstr "Limpar filtro de lote"
+
+msgid "Clear all"
+msgstr "Limpar tudo"
+
 msgid "Markdown"
 msgstr "Markdown"
 
 msgid "No recorded runs — this conversation predates run tracking."
 msgstr "Sem execuções registadas — esta conversa é anterior ao registo de execuções."
+
+msgid "View session"
+msgstr "Ver sessão"
+
+msgid "generating title…"
+msgstr "a gerar título…"
+
+#, python-format
+msgid "%(n)s run"
+msgid_plural "%(n)s runs"
+msgstr[0] "%(n)s execução"
+msgstr[1] "%(n)s execuções"
 
 msgid "Pick a model"
 msgstr "Selecionar um modelo"
@@ -254,15 +326,35 @@ msgstr "Ficheiros alterados"
 msgid "Show all"
 msgstr "Mostrar tudo"
 
-#, python-format
-msgid "Batch %(id)s"
-msgstr "Lote %(id)s"
+msgid "Agent sessions"
+msgstr "Sessões do agente"
 
-msgid "Clear batch filter"
-msgstr "Limpar filtro de lote"
+msgid "Every agent thread across jobs, schedules, webhooks, and chat."
+msgstr "Todos os processos do agente em tarefas, agendamentos, webhooks e chat."
 
-msgid "generating title…"
-msgstr "a gerar título…"
+msgid "Start a run"
+msgstr "Iniciar execução"
+
+msgid "No sessions match these filters."
+msgstr "Nenhuma sessão corresponde a estes filtros."
+
+msgid "Start your first run"
+msgstr "Inicie a sua primeira execução"
+
+msgid "Kick off an agent on one of your repositories and it will show up here."
+msgstr "Inicie um agente num dos seus repositórios e aparecerá aqui."
+
+msgid "Earlier"
+msgstr "Anteriores"
+
+msgid "Yesterday"
+msgstr "Ontem"
+
+msgid "Previous 7 days"
+msgstr "Últimos 7 dias"
+
+msgid "Previous 30 days"
+msgstr "Últimos 30 dias"
 
 msgid "Failed to submit the run. Please try again in a moment."
 msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
