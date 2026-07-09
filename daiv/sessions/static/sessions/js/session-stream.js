@@ -48,6 +48,17 @@ document.addEventListener("alpine:init", () => {
         destroy() {
             if (this._source) this._source.close();
         },
+        reconnect() {
+            // After a results swap the in-flight set changes; the freshly rendered rows
+            // already show the correct status (server-rendered fallback), so this only
+            // restores LIVE updates for the new page. Ids are read from the swapped fragment.
+            const el = document.getElementById("session-in-flight");
+            const ids = el ? el.dataset.ids : "";
+            if (this._source) this._source.close();
+            this._source = null;
+            this._reconnects = 0;
+            if (ids) this._connect(streamUrl + "?ids=" + ids);
+        },
         _connect(url) {
             const source = new EventSource(url);
             this._source = source;

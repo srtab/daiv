@@ -11,7 +11,8 @@
 {% endblock alpine_plugins %}
 
 {% block app_content %}
-<div x-data="sessionStream('{% url "session_stream" %}', '{{ in_flight_ids }}')">
+<div x-data="sessionStream('{% url "session_stream" %}', '{{ in_flight_ids }}')"
+     @htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'session-results') reconnect()">
     <div class="animate-fade-up flex items-start justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold tracking-tight">{% translate "Agent sessions" %}</h1>
