@@ -185,3 +185,27 @@ class TestSessionListView:
         response_p2 = logged_in_client.get(reverse("session_list"), {"page": "2"})
         assert response_p2.status_code == 200
         assert len(response_p2.context["sessions"]) > 0
+
+    def test_context_has_search_and_range(self, logged_in_client, user):
+        _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"), {"q": "hello", "range": "7d"})
+        assert response.status_code == 200
+        assert response.context["current_q"] == "hello"
+        assert response.context["current_range"] == "7d"
+        assert response.context["current_range_label"] == "Last 7 days"
+        assert response.context["has_active_filters"] is True
+
+    def test_has_active_filters_true_when_q_set(self, logged_in_client, user):
+        _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"), {"q": "abc"})
+        assert response.context["has_active_filters"] is True
+
+    def test_runs_are_prefetched_newest_first(self, logged_in_client, user, django_assert_num_queries):
+        session = _create_session(user=user)
+        _create_run(session, status=RunStatus.SUCCESSFUL)
+        newest = _create_run(session, status=RunStatus.RUNNING)
+        response = logged_in_client.get(reverse("session_list"))
+        row = next(s for s in response.context["sessions"] if s.pk == session.pk)
+        with django_assert_num_queries(0):
+            latest = list(row.runs.all())[0]  # served from the prefetch cache — no query
+        assert latest.pk == newest.pk

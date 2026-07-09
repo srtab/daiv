@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
+from django.db.models import Prefetch
 from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -30,7 +31,7 @@ from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
 from schedules.models import ScheduledJob
-from sessions.filters import SessionFilter
+from sessions.filters import RANGE_CHOICES, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -129,11 +130,15 @@ class SessionListView(LoginRequiredMixin, FilterView):
     strict = False
 
     def get_queryset(self) -> QuerySet[Session]:
-        # ``latest_run_status`` (annotation) drives the row status; the SSE in-flight
-        # ids come from a separate targeted query in ``get_context_data`` — the list
-        # template never iterates ``session.runs``, so no prefetch is needed.
+        # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
+        # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
+        # gives the SSE dot the real ``Run.id`` to key live updates on.
         return (
-            Session.objects.visible_to(self.request.user).with_latest_status().select_related("user", "scheduled_job")
+            Session.objects
+            .visible_to(self.request.user)
+            .with_latest_status()
+            .select_related("user", "scheduled_job")
+            .prefetch_related(Prefetch("runs", queryset=Run.objects.order_by("-created_at")))
         )
 
     def get_context_data(self, **kwargs):
@@ -146,16 +151,21 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_schedule"] = cleaned.get("schedule") or ""
         context["current_batch"] = cleaned.get("batch") or ""
         context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
+        context["current_q"] = cleaned.get("q") or ""
+        context["current_range"] = cleaned.get("range") or ""
+        context["current_range_label"] = dict(RANGE_CHOICES).get(context["current_range"], "")
         # Date fields are read raw: cleaned_data yields `date` objects, but the
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
         context["has_active_filters"] = any([
+            context["current_q"],
             context["current_status"],
             context["current_trigger"],
             context["current_repo"],
             context["current_schedule"],
             context["current_batch"],
+            context["current_range"],
             context["current_from"],
             context["current_to"],
         ])
