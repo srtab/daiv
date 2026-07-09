@@ -48,13 +48,23 @@ def test_session_new_requires_login(client):
 
 
 @pytest.mark.django_db
-def test_session_new_renders_empty_state(member_client):
+def test_session_new_chat_renders_empty_state(member_client):
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_new"))
+        resp = member_client.get(reverse("session_new_chat"))
     assert resp.status_code == 200
     assert resp.context["session"] is None
     assert resp.context["expired"] is False
     assert resp.context["turns"] == []
+
+
+@pytest.mark.django_db
+def test_session_new_renders_chooser_with_both_paths(member_client):
+    resp = member_client.get(reverse("session_new"))
+    assert resp.status_code == 200
+    content = resp.content.decode()
+    # The chooser links to both destinations — the guidance lives at the fork.
+    assert reverse("session_new_chat") in content
+    assert reverse("runs:agent_run_new") in content
 
 
 # ---------------------------------------------------------------------------

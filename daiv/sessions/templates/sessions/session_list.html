@@ -19,8 +19,8 @@
                 {% translate "Every agent thread across jobs, schedules, webhooks, and chat." %}
             </p>
         </div>
-        <a href="{% url 'runs:agent_run_new' %}" class="btn-primary inline-flex shrink-0 items-center gap-2">
-            {% icon "plus" "h-4 w-4" %}{% translate "Start a run" %}
+        <a href="{% url 'session_new' %}" class="btn-primary inline-flex shrink-0 items-center gap-2">
+            {% icon "plus" "h-4 w-4" %}{% translate "New" %}
         </a>
     </div>
 
@@ -55,8 +55,8 @@
             <p class="mx-auto mt-1.5 max-w-sm text-[14px] font-light text-gray-400">
                 {% translate "Kick off an agent on one of your repositories and it will show up here." %}
             </p>
-            <a href="{% url 'runs:agent_run_new' %}" class="btn-primary mt-5 inline-flex items-center gap-2">
-                {% icon "plus" "h-4 w-4" %}{% translate "Start a run" %}
+            <a href="{% url 'session_new' %}" class="btn-primary mt-5 inline-flex items-center gap-2">
+                {% icon "plus" "h-4 w-4" %}{% translate "New" %}
             </a>
         </div>
         {% endif %}

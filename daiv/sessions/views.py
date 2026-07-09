@@ -18,7 +18,7 @@ from django.urls import reverse
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.views import View
-from django.views.generic import DetailView, FormView
+from django.views.generic import DetailView, FormView, TemplateView
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
@@ -202,6 +202,19 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))
 
         return context
+
+
+class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
+    """Single front door: choose Chat ('work with the agent') or Run ('hand off a task').
+
+    The chat hero and the run form are unchanged; this page only routes to them and
+    carries the one-line rule of thumb so the choice is legible at the fork.
+    """
+
+    template_name = "sessions/session_new.html"
+
+    def get_breadcrumbs(self):
+        return [{"label": "Sessions", "url": reverse("session_list")}, {"label": "New", "url": None}]
 
 
 class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):

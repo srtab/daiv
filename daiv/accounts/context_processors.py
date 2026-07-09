@@ -13,6 +13,7 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "sessions": {
         "session_list",
         "session_new",
+        "session_new_chat",
         "session_detail",
         "session_stream",
         "session_run_download_md",

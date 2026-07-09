@@ -210,11 +210,11 @@ class TestSessionListView:
             latest = list(row.runs.all())[0]  # served from the prefetch cache — no query
         assert latest.pk == newest.pk
 
-    def test_header_has_start_run_cta(self, logged_in_client, user):
+    def test_header_has_new_cta(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         html = response.content.decode()
-        assert reverse("runs:agent_run_new") in html
-        assert "Start a run" in html
+        assert reverse("session_new") in html
+        assert "New" in html
 
     def test_filter_bar_has_search_input(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))

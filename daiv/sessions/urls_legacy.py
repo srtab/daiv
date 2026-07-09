@@ -10,6 +10,6 @@ legacy_activity_urlpatterns = [
 
 legacy_chat_urlpatterns = [
     path("", RedirectView.as_view(pattern_name="session_list", permanent=True)),
-    path("new/", RedirectView.as_view(pattern_name="session_new", permanent=True)),
+    path("new/", RedirectView.as_view(pattern_name="session_new_chat", permanent=True)),
     path("<slug:thread_id>/", RedirectView.as_view(pattern_name="session_detail", permanent=True)),
 ]
