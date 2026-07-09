@@ -211,6 +211,46 @@ def test_detail_expired_checkpoint_disables_composer(member_client, member_user)
 
 
 @pytest.mark.django_db
+def test_detail_missing_checkpoint_not_expired_while_run_in_flight(member_client, member_user):
+    """A just-submitted background run has no checkpoint yet; that must NOT render as
+    'expired'. Instead the in-flight working state + transcript polling take over."""
+    session = _create_session(user=member_user, ref="")  # ref="" skips the MR-payload lookup
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)  # no checkpoint yet
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is False
+    assert resp.context["is_in_flight"] is True
+    content = resp.content.decode()
+    # In-flight + no checkpoint renders the working state, not the expired banner.
+    assert "Agent is working" in content
+    assert "has expired" not in content
+
+
+@pytest.mark.django_db
+def test_detail_missing_checkpoint_expired_when_all_runs_terminal(member_client, member_user):
+    """No checkpoint AND no in-flight run => genuinely expired; banner still shows."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL)
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is True
+
+
+@pytest.mark.django_db
 def test_detail_visible_to_run_actor(member_client, member_user):
     """A webhook session (user=None) is reachable by the external actor via by_owner."""
     session = _create_session(user=None, external_username=member_user.username, origin=SessionOrigin.ISSUE_WEBHOOK)

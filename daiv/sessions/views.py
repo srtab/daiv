@@ -258,14 +258,19 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
 
+        runs = list(session.runs.order_by("created_at"))
+        is_in_flight = any(r.status not in RunStatus.terminal() for r in runs)
+
         ctx["turns"] = build_turns(messages_history)
-        ctx["expired"] = expired
+        # ``ahydrate_thread`` reports "no checkpoint" as ``expired`` — but a freshly
+        # submitted run has not checkpointed yet. Only treat the session as expired
+        # when nothing is in flight; otherwise the in-flight "working" state and the
+        # transcript poller render the same view a chat session gets.
+        ctx["expired"] = expired and not is_in_flight
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
-
-        runs = list(session.runs.order_by("created_at"))
         ctx["runs"] = runs
-        ctx["is_in_flight"] = any(r.status not in RunStatus.terminal() for r in runs)
+        ctx["is_in_flight"] = is_in_flight
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in runs if r.status not in RunStatus.terminal())
 
         # Engage transcript polling when a background run holds the slot and there is
