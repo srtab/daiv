@@ -209,3 +209,22 @@ class TestSessionListView:
         with django_assert_num_queries(0):
             latest = list(row.runs.all())[0]  # served from the prefetch cache — no query
         assert latest.pk == newest.pk
+
+    def test_header_has_start_run_cta(self, logged_in_client, user):
+        response = logged_in_client.get(reverse("session_list"))
+        html = response.content.decode()
+        assert reverse("runs:agent_run_new") in html
+        assert "Start a run" in html
+
+    def test_filter_bar_has_search_input(self, logged_in_client, user):
+        response = logged_in_client.get(reverse("session_list"))
+        assert 'x-model="q"' in response.content.decode()
+
+    def test_row_shows_branch_and_day_group(self, logged_in_client, user):
+        session = _create_session(user=user, ref="feat/x", title="Do the thing")
+        _create_run(session, status=RunStatus.SUCCESSFUL)
+        response = logged_in_client.get(reverse("session_list"))
+        html = response.content.decode()
+        assert "Do the thing" in html
+        assert "feat/x" in html
+        assert "Today" in html  # day-group header for a just-created session
