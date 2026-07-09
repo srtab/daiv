@@ -61,15 +61,13 @@ Expected: FAIL — current `Location` is `/dashboard/sessions/thread-abc/`, not 
 In `daiv/sessions/views.py`, replace the tail of `form_valid` (the `if len(result.runs) == 1 ...` block, lines ~429-431):
 
 ```python
-        if result.failed:
-            failed_ids = ", ".join(f.repo_id for f in result.failed)
-            messages_module.warning(
-                self.request, _("Some repositories failed to submit: %(ids)s") % {"ids": failed_ids}
-            )
+if result.failed:
+    failed_ids = ", ".join(f.repo_id for f in result.failed)
+    messages_module.warning(self.request, _("Some repositories failed to submit: %(ids)s") % {"ids": failed_ids})
 
-        # Always land on the batch-scoped sessions list — the "hand off" model:
-        # fire the run, see it queued/running in the list, walk away.
-        return redirect(reverse("session_list") + f"?batch={result.batch_id}")
+# Always land on the batch-scoped sessions list — the "hand off" model:
+# fire the run, see it queued/running in the list, walk away.
+return redirect(reverse("session_list") + f"?batch={result.batch_id}")
 ```
 
 - [ ] **Step 4: Run the run-view tests**
