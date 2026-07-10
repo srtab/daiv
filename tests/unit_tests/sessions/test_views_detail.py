@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
+from sessions.locks import STALE_RUN_MINUTES
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 # ---------------------------------------------------------------------------
@@ -36,7 +39,7 @@ def _null_hydration():
 
 
 # ---------------------------------------------------------------------------
-# session_new (empty state)
+# session_new (chooser) + session_new_chat (empty state)
 # ---------------------------------------------------------------------------
 
 
@@ -48,13 +51,31 @@ def test_session_new_requires_login(client):
 
 
 @pytest.mark.django_db
-def test_session_new_renders_empty_state(member_client):
+def test_session_new_chat_requires_login(client):
+    # The URL split moved the empty state to its own route; it must stay login-gated too.
+    resp = client.get(reverse("session_new_chat"))
+    assert resp.status_code == 302
+    assert "login" in resp["Location"].lower()
+
+
+@pytest.mark.django_db
+def test_session_new_chat_renders_empty_state(member_client):
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_new"))
+        resp = member_client.get(reverse("session_new_chat"))
     assert resp.status_code == 200
     assert resp.context["session"] is None
     assert resp.context["expired"] is False
     assert resp.context["turns"] == []
+
+
+@pytest.mark.django_db
+def test_session_new_renders_chooser_with_both_paths(member_client):
+    resp = member_client.get(reverse("session_new"))
+    assert resp.status_code == 200
+    content = resp.content.decode()
+    # The chooser links to both destinations — the guidance lives at the fork.
+    assert reverse("session_new_chat") in content
+    assert reverse("runs:agent_run_new") in content
 
 
 # ---------------------------------------------------------------------------
@@ -129,68 +150,6 @@ def test_detail_with_missing_checkpoint_flags_expired(member_client, member_user
 
 
 @pytest.mark.django_db
-def test_detail_includes_run_timeline(member_client, member_user):
-    """A session with two runs renders both in the timeline rail with status pills."""
-    session = _create_session(user=member_user)
-    run1 = _create_run(session, status=RunStatus.SUCCESSFUL)
-    run2 = _create_run(session, status=RunStatus.FAILED)
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    assert resp.status_code == 200
-    runs = resp.context["runs"]
-    assert len(runs) == 2
-    run_ids = {r.id for r in runs}
-    assert run1.id in run_ids
-    assert run2.id in run_ids
-    # Both status pills should be visible in the rendered HTML
-    content = resp.content.decode()
-    assert f"run-{run1.id}" in content
-    assert f"run-{run2.id}" in content
-
-
-@pytest.mark.django_db
-def test_run_timeline_renders_duration_for_finished_run(member_client, member_user):
-    """A finished run (started_at + finished_at set) renders its formatted duration in the
-    timeline. Regression: the template applied the ``duration`` filter to the ``Run`` object
-    (``run|duration``) instead of the numeric ``run.duration`` property, raising
-    ``TypeError: int() argument must be ... not 'Run'`` for any session with a finished run."""
-    from django.utils import timezone
-
-    session = _create_session(user=member_user)
-    started = timezone.now()
-    finished = started + timezone.timedelta(seconds=95)
-    _create_run(session, status=RunStatus.SUCCESSFUL, started_at=started, finished_at=finished)
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    assert resp.status_code == 200
-    # 95s -> "1m 35s" via the duration filter.
-    assert "1m 35s" in resp.content.decode()
-
-
-@pytest.mark.django_db
-def test_run_timeline_renders_display_labels_not_raw_enums(member_client, member_user):
-    """The timeline (no Alpine pk to relabel client-side) must render the human-readable
-    status label ('Pending', not the raw 'READY') and a non-empty origin badge for API
-    runs ('API Run' via get_trigger_type_display, not an empty indigo pill)."""
-    session = _create_session(user=member_user)
-    _create_run(session, trigger_type=SessionOrigin.API_JOB, status=RunStatus.READY)
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    content = resp.content.decode()
-    # Status pill shows the display label, not the raw enum member.
-    assert "Pending" in content
-    assert ">\n            READY" not in content and ">READY<" not in content
-    # Origin badge for an API run renders its display label, not an empty badge.
-    assert "API Run" in content
-
-
-@pytest.mark.django_db
 def test_detail_expired_checkpoint_disables_composer(member_client, member_user):
     """_ahydrate returning (.., expired=True, ..) => context['expired'] is True
     and the template renders the expired notice."""
@@ -208,6 +167,182 @@ def test_detail_expired_checkpoint_disables_composer(member_client, member_user)
     # Template should contain the expired notice text
     content = resp.content.decode()
     assert "expired" in content.lower() or "state has expired" in content.lower()
+
+
+@pytest.mark.django_db
+def test_detail_missing_checkpoint_not_expired_while_run_in_flight(member_client, member_user):
+    """A just-submitted background run has no checkpoint yet; that must NOT render as
+    'expired'. Instead the in-flight working state + transcript polling take over."""
+    session = _create_session(user=member_user, ref="")  # ref="" skips the MR-payload lookup
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)  # no checkpoint yet
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is False
+    assert resp.context["is_in_flight"] is True
+    content = resp.content.decode()
+    # In-flight + no checkpoint renders the working state, not the expired banner.
+    assert "Agent is working" in content
+    assert "has expired" not in content
+
+
+@pytest.mark.django_db
+def test_detail_missing_checkpoint_expired_when_all_runs_terminal(member_client, member_user):
+    """No checkpoint AND no in-flight run => genuinely expired; banner still shows."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL)
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is True
+
+
+@pytest.mark.django_db
+def test_detail_missing_checkpoint_replays_prompt_turn_when_last_run_failed(member_client, member_user):
+    """A run that failed before checkpointing has no transcript, but its prompt survives on
+    the Run. Replay it as a user turn flagged ``errored`` (drives the icon + red border).
+    The raw traceback is developer-only (logs) and must never reach the page; the turn's
+    icon — not the top banner — is the failure signal when there is a prompt to replay."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(
+        session,
+        trigger_type=SessionOrigin.SCHEDULE,
+        status=RunStatus.FAILED,
+        prompt="Triage this week's Sentry errors and open MRs.",
+        error_message="git.exc.GitCommandError: clone failed",
+    )
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)  # never checkpointed
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["failed_run"] is not None
+    assert resp.context["expired"] is False
+
+    # The prompt is replayed as a user turn flagged errored — a boolean only, never the
+    # raw error string (the turns payload is serialised into the page via json_script).
+    turns = resp.context["turns"]
+    prompt_turn = next((t for t in turns if t["role"] == "user"), None)
+    assert prompt_turn is not None
+    assert prompt_turn["segments"][0]["content"] == "Triage this week's Sentry errors and open MRs."
+    assert prompt_turn["errored"] is True
+    assert "error" not in prompt_turn  # only the boolean flag, not the raw message
+
+    content = resp.content.decode()
+    # The turn carries the failure signal (icon + red border), so the top banner is suppressed.
+    assert "Send a message below to try again" not in content
+    # The raw traceback is developer-only and must never leak into the page.
+    assert "git.exc.GitCommandError" not in content
+    # Composer stays available to retry in place.
+    assert "chat-composer" in content
+
+
+@pytest.mark.django_db
+def test_detail_failed_run_without_prompt_falls_back_to_banner(member_client, member_user):
+    """If the failed run has no prompt to replay (rare — some webhook runs), the friendly
+    banner is the failure signal. The raw error stays out of the UI (logs only)."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(
+        session,
+        trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+        status=RunStatus.FAILED,
+        prompt="",
+        error_message="RuntimeError: boom",
+    )
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["failed_run"] is not None
+    assert resp.context["turns"] == []
+    content = resp.content.decode()
+    assert "Send a message below to try again" in content
+    # The raw error is developer-only and must not reach the page.
+    assert "RuntimeError: boom" not in content
+
+
+@pytest.mark.django_db
+def test_detail_turn_error_is_icon_only_without_raw_tooltip(member_client, member_user):
+    """A failed turn keeps its visual affordance — the error icon + red-border markup is in
+    the template (Alpine <template>, present regardless of turns). But the raw traceback is
+    developer-only (logs): the hover popup is gone and no ``turn.error`` text binding remains."""
+    session = _create_session(user=member_user)
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    content = resp.content.decode()
+    # Visual affordance stays.
+    assert "chat-turn__error" in content
+    assert "chat-turn--errored" in content
+    # The raw-error hover popup / tooltip is gone.
+    assert "chat-turn__error-pop" not in content
+    assert 'x-text="turn.error"' not in content
+
+
+@pytest.mark.django_db
+def test_detail_missing_checkpoint_expired_when_last_run_succeeded(member_client, member_user):
+    """A missing checkpoint whose last run SUCCEEDED is a genuine TTL expiry — the expired
+    banner still shows and ``failed_run`` stays None (guards the failed-run branch)."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL)
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is True
+    assert resp.context["failed_run"] is None
+    assert "has expired" in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_user):
+    """A non-terminal run whose holder stopped heartbeating (crashed worker) past
+    STALE_RUN_MINUTES is dead — it must fall through to 'expired', not pin the view
+    on a permanent 'working' spinner. Same setup as the in-flight test above, but a
+    stale ``last_active_at`` flips the outcome."""
+    session = _create_session(
+        user=member_user, ref="", last_active_at=timezone.now() - timedelta(minutes=STALE_RUN_MINUTES + 1)
+    )
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)  # no checkpoint
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    # Stale heartbeat => not in flight => expired banner, no working spinner.
+    assert resp.context["is_in_flight"] is False
+    assert resp.context["expired"] is True
+    assert "Agent is working" not in resp.content.decode()
 
 
 @pytest.mark.django_db
@@ -235,6 +370,69 @@ def test_detail_in_flight_context(member_client, member_user):
     assert resp.context["is_in_flight"] is True
     assert str(run_live.id) in resp.context["in_flight_ids"]
     assert str(run_done.id) not in resp.context["in_flight_ids"]
+
+
+# --- run timeline rail -----------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_detail_includes_run_timeline(member_client, member_user):
+    """A session with two runs renders both in the timeline rail with status pills."""
+    session = _create_session(user=member_user)
+    run1 = _create_run(session, status=RunStatus.SUCCESSFUL)
+    run2 = _create_run(session, status=RunStatus.FAILED)
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    runs = resp.context["runs"]
+    assert len(runs) == 2
+    run_ids = {r.id for r in runs}
+    assert run1.id in run_ids
+    assert run2.id in run_ids
+    # Both status pills should be visible in the rendered HTML
+    content = resp.content.decode()
+    assert f"run-{run1.id}" in content
+    assert f"run-{run2.id}" in content
+
+
+@pytest.mark.django_db
+def test_run_timeline_renders_duration_for_finished_run(member_client, member_user):
+    """A finished run (started_at + finished_at set) renders its formatted duration in the
+    timeline. Regression: the template applied the ``duration`` filter to the ``Run`` object
+    (``run|duration``) instead of the numeric ``run.duration`` property, raising
+    ``TypeError: int() argument must be ... not 'Run'`` for any session with a finished run."""
+    session = _create_session(user=member_user)
+    started = timezone.now()
+    finished = started + timedelta(seconds=95)
+    _create_run(session, status=RunStatus.SUCCESSFUL, started_at=started, finished_at=finished)
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    # 95s -> "1m 35s" via the duration filter.
+    assert "1m 35s" in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_run_timeline_renders_display_labels_not_raw_enums(member_client, member_user):
+    """The timeline (no Alpine pk to relabel client-side) must render the human-readable
+    status label ('Pending', not the raw 'READY') and a non-empty origin badge for API
+    runs ('API Run' via get_trigger_type_display, not an empty indigo pill)."""
+    session = _create_session(user=member_user)
+    _create_run(session, trigger_type=SessionOrigin.API_JOB, status=RunStatus.READY)
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    content = resp.content.decode()
+    # Status pill shows the display label, not the raw enum member.
+    assert "Pending" in content
+    assert ">\n            READY" not in content and ">READY<" not in content
+    # Origin badge for an API run renders its display label, not an empty badge.
+    assert "API Run" in content
 
 
 @pytest.mark.django_db

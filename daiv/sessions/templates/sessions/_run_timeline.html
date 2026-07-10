@@ -22,9 +22,6 @@
           </a>
         {% endif %}
       </div>
-      {% if run.error_message %}
-        <p class="mt-1 truncate text-xs text-red-400" title="{{ run.error_message }}">{{ run.error_message|truncatechars:120 }}</p>
-      {% endif %}
     </div>
   {% empty %}
     <p class="text-xs text-gray-500">{% translate "No recorded runs — this conversation predates run tracking." %}</p>

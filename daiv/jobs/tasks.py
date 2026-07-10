@@ -5,7 +5,7 @@ import time
 from django_tasks import task
 from langchain_core.messages import HumanMessage
 from sessions.locks import SessionLock
-from sessions.models import Session
+from sessions.models import Run, Session
 
 from automation.agent.graph import create_daiv_agent
 from automation.agent.results import AgentResult, build_agent_result
@@ -43,6 +43,30 @@ async def _acquire_session_lock(thread_id: str, holder_id: str) -> bool | None:
             return True
         await asyncio.sleep(LOCK_POLL_INTERVAL_S)
     raise TimeoutError(f"session lock for thread_id={thread_id} not released within {LOCK_WAIT_TIMEOUT_S}s")
+
+
+async def _persist_resolved_agent(
+    *, run_id: str | None, thread_id: str, agent_model: str, agent_thinking_level: str
+) -> None:
+    """Overwrite the Run + Session ``agent_model`` with the resolved model/thinking.
+
+    ``agent_model`` normally holds the *requested* override, where empty means "use the
+    site default". Once a run has resolved a concrete model we overwrite it with that
+    spec so the session detail view shows what actually ran rather than an empty pill.
+    A run that fails before it reaches this point (e.g. a git-clone error inside
+    ``set_runtime_ctx``) leaves the field empty and the UI falls back to the "Auto"
+    pill label instead. Best-effort: this is a cosmetic denormalization and must never
+    abort the run, so any DB error is logged and swallowed.
+    """
+    if not agent_model:
+        return
+    fields = {"agent_model": agent_model, "agent_thinking_level": agent_thinking_level}
+    try:
+        if run_id:
+            await Run.objects.filter(pk=run_id).aupdate(**fields)
+        await Session.objects.filter(pk=thread_id).aupdate(**fields)
+    except Exception:
+        logger.exception("run_job_task: failed to persist resolved agent model for thread_id=%s", thread_id)
 
 
 async def _heartbeat_loop(thread_id: str, holder_id: str) -> None:
@@ -114,6 +138,15 @@ async def run_job_task(
                     model_config=runtime_ctx.config.models.agent,
                     agent_model=agent_model,
                     agent_thinking_level=agent_thinking_level,
+                )
+                # Record the resolved model now — after resolution, before invoke — so a
+                # failure mid-run still reflects what it ran with. Earlier failures (e.g. the
+                # clone in ``set_runtime_ctx``) never reach here and fall back to the "Auto" pill.
+                await _persist_resolved_agent(
+                    run_id=run_id,
+                    thread_id=thread_id,
+                    agent_model=agent_kwargs["model_names"][0],
+                    agent_thinking_level=agent_kwargs["thinking_level"] or "",
                 )
                 daiv_agent = await create_daiv_agent(ctx=runtime_ctx, checkpointer=checkpointer, **agent_kwargs)
                 config = build_langsmith_config(

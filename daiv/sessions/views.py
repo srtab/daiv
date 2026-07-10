@@ -18,7 +18,7 @@ from django.urls import reverse
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.views import View
-from django.views.generic import DetailView, FormView
+from django.views.generic import DetailView, FormView, TemplateView
 
 from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
@@ -30,10 +30,12 @@ from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
+from core.utils import is_htmx
 from schedules.models import ScheduledJob
 from sessions.filters import RANGE_CHOICES, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
+from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 
@@ -129,6 +131,13 @@ class SessionListView(LoginRequiredMixin, FilterView):
     # silently drop that filter, not blank the whole list.
     strict = False
 
+    def get_template_names(self) -> list[str]:
+        # HTMX requests get just the results fragment so the filter bar and page
+        # chrome stay put; a normal GET renders the full page (deep-link / no-JS safe).
+        if is_htmx(self.request):
+            return ["sessions/_session_results.html"]
+        return ["sessions/session_list.html"]
+
     def get_queryset(self) -> QuerySet[Session]:
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
         # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
@@ -138,7 +147,24 @@ class SessionListView(LoginRequiredMixin, FilterView):
             .visible_to(self.request.user)
             .with_latest_status()
             .select_related("user", "scheduled_job")
-            .prefetch_related(Prefetch("runs", queryset=Run.objects.order_by("-created_at")))
+            # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
+            # prompt/result_summary/error_message/usage_by_model columns. Add a field here if
+            # the row template starts reading it, or it becomes a deferred-field N+1.
+            .prefetch_related(
+                Prefetch(
+                    "runs",
+                    queryset=Run.objects.only(
+                        "id",
+                        "session_id",
+                        "status",
+                        "started_at",
+                        "finished_at",
+                        "merge_request_web_url",
+                        "cost_usd",
+                        "created_at",
+                    ).order_by("-created_at", "-id"),
+                )
+            )
         )
 
     def get_context_data(self, **kwargs):
@@ -172,9 +198,11 @@ class SessionListView(LoginRequiredMixin, FilterView):
         ])
         context["origins"] = SessionOrigin.choices
         context["statuses"] = RunStatus.choices
+        context["ranges"] = RANGE_CHOICES
 
-        # Resolve schedule name for display.
-        if schedule_id := context["current_schedule"]:
+        # Resolve schedule name for the filter-bar chip. Only the full page renders the
+        # filter bar, so skip this extra query on the HTMX results-fragment path.
+        if not is_htmx(self.request) and (schedule_id := context["current_schedule"]):
             schedule = ScheduledJob.objects.filter(pk=schedule_id).values_list("name", flat=True).first()
             context["schedule_name"] = schedule or ""
 
@@ -186,8 +214,21 @@ class SessionListView(LoginRequiredMixin, FilterView):
         return context
 
 
+class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
+    """Single front door: choose Chat ('work with the agent') or Run ('hand off a task').
+
+    The chat hero and the run form are unchanged; this page only routes to them and
+    carries the one-line rule of thumb so the choice is legible at the fork.
+    """
+
+    template_name = "sessions/session_new.html"
+
+    def get_breadcrumbs(self):
+        return [{"label": "Sessions", "url": reverse("session_list")}, {"label": "New", "url": None}]
+
+
 class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
-    """Renders the session transcript page, or the empty state for the ``session_new`` route."""
+    """Renders the session transcript page, or the empty state for the ``session_new_chat`` route."""
 
     model = Session
     template_name = "sessions/session_detail.html"
@@ -201,7 +242,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
 
     def get_object(self, queryset=None):
         if "thread_id" not in self.kwargs:
-            return None  # empty state (session_new route)
+            return None  # empty state (session_new_chat route)
         return super().get_object(queryset)
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
@@ -233,6 +274,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
                 "runs": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
+                "failed_run": None,
             })
             return ctx
 
@@ -240,23 +282,58 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         if merge_request is None and session.repo_id and session.ref:
             merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
 
+        runs = list(session.runs.order_by("created_at"))
+        non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
+        # A live holder — a chat stream or ``run_job_task`` — bumps the session
+        # heartbeat (``last_active_at``) every ~60s, so the session is only really in
+        # flight while that heartbeat is fresh. A holder stranded past
+        # ``STALE_RUN_MINUTES`` (crashed worker, orphaned queue entry) is dead: falling
+        # through to "not in flight" surfaces the expired banner instead of pinning
+        # the view on a permanent "working" state. This reuses the staleness signal
+        # ``SessionLock`` / ``sync_stuck_runs`` use to decide a holder is dead.
+        is_in_flight = bool(non_terminal) and session.last_active_at >= stale_cutoff()
+
+        # A freshly submitted run has not checkpointed yet, so "no checkpoint" only means
+        # the session is really over once nothing is (freshly) in flight; while in flight the
+        # "working" state and transcript poller render the same view a chat session gets.
+        no_state = expired and not is_in_flight
+        # ``ahydrate_thread`` reports "no checkpoint" as ``expired`` for two very different
+        # reasons (see ``HydratedThread``): a checkpoint that lapsed its TTL, and a thread
+        # that never checkpointed. A run that FAILED before it could checkpoint (e.g. a git
+        # clone error seconds in) is the second case — the run failed, the state did not
+        # expire. Surface that run (and its error) instead of a misleading TTL banner.
+        latest_run = runs[-1] if runs else None
+        failed_run = latest_run if no_state and latest_run and latest_run.status == RunStatus.FAILED else None
+
         ctx["turns"] = build_turns(messages_history)
-        ctx["expired"] = expired
+        # A run that failed before checkpointing leaves no transcript, but its prompt
+        # survives on the Run. Replay it as a user turn so the page shows what was asked
+        # rather than an empty view. ``errored`` is a boolean flag only — it drives the
+        # icon + red border on the turn. The raw traceback is developer-only and stays in
+        # the logs; it is deliberately not put on the turn (the payload is serialised into
+        # the page via ``json_script``, so a raw error here would leak into the HTML).
+        if failed_run is not None and failed_run.prompt:
+            ctx["turns"].append({
+                "id": f"run-{failed_run.id}",
+                "role": "user",
+                "segments": [{"type": "text", "content": failed_run.prompt}],
+                "errored": True,
+            })
+        ctx["failed_run"] = failed_run
+        ctx["expired"] = no_state and failed_run is None
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
-
-        runs = list(session.runs.order_by("created_at"))
         ctx["runs"] = runs
-        ctx["is_in_flight"] = any(r.status not in RunStatus.terminal() for r in runs)
-        ctx["in_flight_ids"] = ",".join(str(r.id) for r in runs if r.status not in RunStatus.terminal())
+        ctx["is_in_flight"] = is_in_flight
+        ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
         # Engage transcript polling when a background run holds the slot and there is
         # no live chat stream from this tab (chat stream manages its own turns in JS;
         # the poller only kicks in for non-chat background runs).
         ctx["poll_transcript"] = bool(
-            self.object
+            is_in_flight
             and self.object.active_run_id
-            and any(r.trigger_type != SessionOrigin.CHAT and r.status not in RunStatus.terminal() for r in ctx["runs"])
+            and any(r.trigger_type != SessionOrigin.CHAT for r in non_terminal)
         )
 
         return ctx
@@ -408,8 +485,8 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
                 self.request, _("Some repositories failed to submit: %(ids)s") % {"ids": failed_ids}
             )
 
-        if len(result.runs) == 1 and not result.failed:
-            return redirect("session_detail", thread_id=result.runs[0].session_id)
+        # Always land on the batch-scoped sessions list — the "hand off" model:
+        # fire the run, see it queued/running in the list, walk away.
         return redirect(reverse("session_list") + f"?batch={result.batch_id}")
 
     def get_breadcrumbs(self):

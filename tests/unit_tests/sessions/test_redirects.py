@@ -49,7 +49,7 @@ def test_chat_list_redirects(client):
 def test_chat_new_redirects(client):
     resp = client.get("/dashboard/chat/new/")
     assert resp.status_code == 301
-    assert resp["Location"] == reverse("session_new")
+    assert resp["Location"] == reverse("session_new_chat")
 
 
 def test_chat_detail_redirects(client, session_fixture):

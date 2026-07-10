@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 
 from django.test import Client
@@ -210,11 +211,18 @@ class TestSessionListView:
             latest = list(row.runs.all())[0]  # served from the prefetch cache — no query
         assert latest.pk == newest.pk
 
-    def test_header_has_start_run_cta(self, logged_in_client, user):
+    def test_header_has_new_cta(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         html = response.content.decode()
-        assert reverse("runs:agent_run_new") in html
-        assert "Start a run" in html
+        # Anchor to the page's primary CTA button, not a bare `"New" in html` (which
+        # appears in unrelated chrome and can never fail) nor a bare URL check (the
+        # sidebar also links to session_new, so that passes even if the header CTA
+        # regresses). The trailing quote in the href pins it to session_new, not the
+        # session_new_chat route whose path is a superstring.
+        target = f'href="{reverse("session_new")}"'
+        ctas = [a for a in re.findall(r"<a\b[^>]*>.*?</a>", html, re.DOTALL) if target in a and "btn-primary" in a]
+        assert ctas, "no btn-primary CTA pointing at session_new"
+        assert any("New" in a for a in ctas)
 
     def test_filter_bar_has_search_input(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
@@ -227,4 +235,175 @@ class TestSessionListView:
         html = response.content.decode()
         assert "Do the thing" in html
         assert "feat/x" in html
-        assert "Today" in html  # day-group header for a just-created session
+        # Narrow to the day-group header markup: "Today" also appears in the Time filter
+        # menu, so a bare substring check could pass even if row grouping regressed.
+        assert "session-group-header" in html
+        assert "<span>Today</span>" in html  # day-group header for a just-created session
+
+    def test_row_shows_repository(self, logged_in_client, user):
+        session = _create_session(user=user, repo_id="group/project", title="Do the thing")
+        _create_run(session, status=RunStatus.SUCCESSFUL)
+        response = logged_in_client.get(reverse("session_list"))
+        html = response.content.decode()
+        # Anchor to the row's repo element — repo_id can appear in other markup
+        # (filter chips, data attrs), so a bare substring check could false-pass.
+        assert "session-repo" in html
+        assert "group/project" in html
+
+    def test_date_param_is_js_escaped_in_x_data(self, logged_in_client, user):
+        """XSS: date params must be JS-escaped in the Alpine x-data attribute.
+
+        Django's HTML autoescape converts ' → &#x27;, which looks safe in HTML but is
+        NOT safe in a JS-eval context: the browser HTML-decodes the attribute value
+        before Alpine evaluates it as JavaScript, so &#x27; becomes ' and the injected
+        payload runs.
+
+        Without |escapejs the HTML-encoded payload (&#x27;});alert) appears inside the
+        x-data= attribute value; with |escapejs it is rendered as \\u0027 instead.
+
+        Note: &#x27;});alert may still appear in the button label (HTML text context, safe),
+        so this test narrows its check to the x-data attribute value specifically.
+        """
+        payload = "'});alert(1);({'"
+        response = logged_in_client.get(reverse("session_list"), {"date_from": payload})
+        html = response.content.decode()
+        # Without |escapejs, the x-data attribute contains the HTML-encoded form which is
+        # still exploitable (browser decodes &#x27; → ' before Alpine evaluates the JS).
+        # The raw injected form inside x-data= must not be present.
+        assert "x-data=\"{ from: '&#x27;" not in html
+        # The JS-safe unicode escape must be present inside the x-data attribute (confirms |escapejs fired).
+        assert "x-data=\"{ from: '\\u0027" in html
+
+    def test_htmx_request_renders_results_fragment_only(self, logged_in_client, user):
+        """An HX-Request GET renders the results fragment, not the full page chrome."""
+        _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        template_names = [t.name for t in response.templates if t.name]
+        assert "sessions/_session_results.html" in template_names
+        assert "sessions/session_list.html" not in template_names
+        # The <h1> page header lives only in the full page, never in the fragment.
+        assert "Agent sessions" not in response.content.decode()
+
+    def test_normal_request_renders_full_page(self, logged_in_client, user):
+        """A normal GET renders the full page, which inlines the results fragment on first paint.
+
+        The fragment (with paginate_swap on) must be present before any HTMX swap, so
+        client-side pagination and the SSE re-arm work on first load. This also pins the
+        DOM ids (``session-results``/``session-in-flight``) the JS silently depends on.
+        """
+        for _ in range(30):  # exceed paginate_by so pagination links render
+            _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"))
+        template_names = [t.name for t in response.templates if t.name]
+        assert "sessions/session_list.html" in template_names
+        assert "sessions/_session_results.html" in template_names
+        html = response.content.decode()
+        assert 'id="session-results"' in html
+        assert 'id="session-in-flight"' in html
+        assert "data-page-swap" in html  # swap-marked from first paint, not only after a swap
+
+    def test_htmx_fragment_carries_in_flight_ids(self, logged_in_client, user):
+        """The fragment exposes in-flight run ids for the SSE re-arm to read after a swap."""
+        session = _create_session(user=user)
+        running = _create_run(session, status=RunStatus.RUNNING)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        html = response.content.decode()
+        assert 'id="session-in-flight"' in html
+        assert str(running.pk) in html
+
+    def test_htmx_pagination_links_are_swap_marked(self, logged_in_client, user):
+        """With >paginate_by sessions, the fragment's pagination <a> links carry data-page-swap."""
+        for _ in range(30):
+            _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        html = response.content.decode()
+        # The marker must sit on a pagination anchor next to a page= href, not leak onto
+        # some unrelated element (a bare substring check would miss that regression).
+        assert re.search(r'href="[^"]*page=\d+[^"]*"[^>]*data-page-swap', html)
+
+    def test_htmx_no_match_fragment_uses_filtered_empty_state(self, logged_in_client, user):
+        """An HX-Request whose filters exclude everything renders the no-match state.
+
+        The user has data, just none matching — so the fragment must render the
+        ``has_active_filters`` branch, not fall through to the true-empty CTA. Guards
+        that ``has_active_filters`` stays wired on the HTMX fragment path.
+        """
+        _create_session(user=user)  # exists, but the search term below won't match it
+        response = logged_in_client.get(reverse("session_list"), {"q": "zznomatchzz"}, HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "No sessions match these filters." in html
+        assert "Start your first run" not in html
+
+    def test_htmx_empty_account_fragment_shows_first_run_cta(self, logged_in_client, user):
+        """With no sessions and no filters, the HX-Request fragment shows the true-empty CTA."""
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "Start your first run" in html
+        assert "No sessions match these filters." not in html
+
+    def test_row_latest_run_matches_status_filter_on_equal_created_at(self, logged_in_client, user):
+        """DISPLAY order must match the FILTER tiebreaker (-created_at, -id).
+
+        When two runs share the same created_at timestamp (e.g. batch runs created in
+        one transaction), managers.py picks the higher-id run for status FILTERING via
+        order_by("-created_at", "-id").  The prefetch in views.py must use the same
+        tiebreaker so the DISPLAY first-run (row.runs.all()[0]) is the SAME run whose
+        status the annotation selected.
+        """
+        import datetime
+
+        from django.utils import timezone
+
+        session = _create_session(user=user)
+        run_a = _create_run(session, status=RunStatus.FAILED)
+        run_b = _create_run(session, status=RunStatus.SUCCESSFUL)
+
+        # Determine which run has the higher UUID (the -id tiebreaker compares UUIDs
+        # lexicographically, not by insertion order — UUIDv4 is random).
+        run_winner = run_a if run_a.pk > run_b.pk else run_b
+
+        # Force both runs to an identical created_at so the only tiebreaker is id.
+        fixed_dt = timezone.make_aware(datetime.datetime(2024, 1, 1, 12, 0, 0))
+        Run.objects.filter(pk__in=[run_a.pk, run_b.pk]).update(created_at=fixed_dt)
+
+        response = logged_in_client.get(reverse("session_list"))
+        assert response.status_code == 200
+
+        row = next(s for s in response.context["sessions"] if s.pk == session.pk)
+        # DISPLAY: first run from the prefetch must be the higher-id run (matching -id tiebreaker).
+        display_first = list(row.runs.all())[0]
+        assert display_first.pk == run_winner.pk, (
+            f"Prefetch tiebreaker mismatch: display first run pk={display_first.pk} "
+            f"but expected pk={run_winner.pk} (higher id, matching managers.py -id tiebreaker)"
+        )
+
+
+def test_pagination_partial_swap_marker_is_opt_in(rf):
+    """The shared pagination partial emits data-page-swap only when paginate_swap is passed."""
+    from django.template.loader import render_to_string
+
+    class _Paginator:
+        num_pages = 3
+
+    class _Page:
+        number = 1
+        paginator = _Paginator()
+        next_page_number = 2
+
+        def has_previous(self):
+            return False
+
+        def has_next(self):
+            return True
+
+    def _render(**extra):
+        return render_to_string(
+            "accounts/_pagination.html",
+            {"is_paginated": True, "page_obj": _Page(), "request": rf.get("/x/?foo=bar"), **extra},
+        )
+
+    assert "data-page-swap" not in _render()  # default: plain links
+    assert "data-page-swap" in _render(paginate_swap=True)  # opt-in flag turns it on

@@ -17,13 +17,16 @@ RANGE_CHOICES: list[tuple[str, str]] = [
     ("30d", _("Last 30 days")),
 ]
 
+# Rolling-window size per range token; "today" is special-cased to local calendar midnight.
+_RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta(days=7), "30d": timedelta(days=30)}
+
 
 class SessionFilter(django_filters.FilterSet):
     # Param names match the old activity deep links (?trigger=, ?status=, ...).
     q = django_filters.CharFilter(method="filter_q")
     status = django_filters.ChoiceFilter(choices=RunStatus.choices, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
-    repo = django_filters.CharFilter(field_name="repo_id")  # retained for deep-link back-compat (no UI widget)
+    repo = django_filters.CharFilter(field_name="repo_id")  # deep-link back-compat: clearable chip, no widget to set it
     schedule = django_filters.NumberFilter(field_name="scheduled_job_id")
     batch = django_filters.UUIDFilter(method="filter_batch")
     range = django_filters.ChoiceFilter(choices=RANGE_CHOICES, method="filter_range")
@@ -47,13 +50,14 @@ class SessionFilter(django_filters.FilterSet):
         return queryset.filter(runs__batch_id=value).distinct()
 
     def filter_range(self, queryset, name, value):
-        # Rolling windows; "today" is the local calendar day. Mutually exclusive with
-        # date_from/date_to (the UI never emits both).
+        # Rolling windows; "today" is the local calendar day. The first-party UI never emits
+        # range together with date_from/date_to; a hand-built URL sending both will AND them
+        # (nothing enforces mutual exclusivity server-side).
         now = timezone.now()
         if value == "today":
             start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
-        elif value in {"2d", "7d", "30d"}:
-            start = now - timedelta(days=int(value.rstrip("d")))
+        elif value in _RANGE_WINDOWS:
+            start = now - _RANGE_WINDOWS[value]
         else:
             return queryset
         return queryset.filter(last_active_at__gte=start)

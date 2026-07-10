@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from sessions.locks import STALE_RUN_MINUTES
+from sessions.locks import stale_cutoff
 from sessions.models import Run, RunStatus, SessionOrigin
 
 logger = logging.getLogger("daiv.sessions")
@@ -27,7 +26,8 @@ class Command(BaseCommand):
             .select_related("task_result", "session", "session__scheduled_job")
         )
 
-        synced = skipped = errored = 0
+        synced = skipped = 0
+        errored_ids: list[str] = []
         for run in qs.iterator():
             try:
                 if run.sync_and_save():
@@ -35,15 +35,23 @@ class Command(BaseCommand):
                 else:
                     skipped += 1
             except Exception:
-                errored += 1
+                errored_ids.append(str(run.id))
                 logger.exception("Failed to sync run %s", run.id)
 
         reaped = self._reap_orphaned_chat_runs()
 
-        summary = f"Synced: {synced}, already up to date: {skipped}, errored: {errored}, chat runs reaped: {reaped}"
-        if errored:
+        summary = (
+            f"Synced: {synced}, already up to date: {skipped}, errored: {len(errored_ids)}, chat runs reaped: {reaped}"
+        )
+        if errored_ids:
+            # Fail the command run — and thus the cron task's DBTaskResult when scheduled — so
+            # per-row errors surface to monitoring. Individual failing rows are only counted and
+            # logged (above); they are not transitioned to FAILED here. The failed run ids are
+            # appended so the failed task record is self-contained. The summary is logged too.
+            summary = f"{summary} (failed run ids: {', '.join(errored_ids)})"
+            logger.warning(summary)
             raise CommandError(summary)
-        self.stdout.write(self.style.SUCCESS(summary))
+        logger.info(summary)
 
     def _reap_orphaned_chat_runs(self) -> int:
         """Fail chat runs orphaned by a hard worker crash.
@@ -57,7 +65,7 @@ class Command(BaseCommand):
         A direct ``.update()`` (no ``run_finished`` emit) mirrors ``finalize_chat_run``: chat
         runs are intentionally excluded from the notification / memory / dispatch receivers.
         """
-        cutoff = timezone.now() - timedelta(minutes=STALE_RUN_MINUTES)
+        cutoff = stale_cutoff()
         reaped = Run.objects.filter(
             trigger_type=SessionOrigin.CHAT,
             task_result__isnull=True,

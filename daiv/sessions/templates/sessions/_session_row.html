@@ -19,6 +19,11 @@
         <span class="truncate text-[14px] font-medium text-white">
             {% if session.title %}{{ session.title }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}
         </span>
+        {% if session.repo_id %}
+        <span class="session-repo shrink-0" title="{{ session.repo_id }}">
+            {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[220px] truncate">{{ session.repo_id }}</span>
+        </span>
+        {% endif %}
         {% if session.ref %}
         <span class="session-branch shrink-0">{% icon "branch" "h-3 w-3" %}{{ session.ref }}</span>
         {% endif %}

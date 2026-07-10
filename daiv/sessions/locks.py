@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.utils import timezone
 
@@ -16,6 +16,15 @@ logger = logging.getLogger("daiv.sessions")
 # chat.api.threads.ChatThreadService when the per-thread run slot was unified into
 # SessionLock; it is now the single source of truth.
 STALE_RUN_MINUTES = 30
+
+
+def stale_cutoff(now: datetime | None = None) -> datetime:
+    """Heartbeat threshold: a session whose ``last_active_at`` predates this is treated as
+    orphaned (its holder crashed before releasing). Shared by ``SessionLock`` takeover,
+    ``sync_stuck_runs``, and ``SessionDetailView``'s in-flight gate so the staleness window
+    has a single definition. Pass ``now`` to reuse a caller's already-captured timestamp.
+    """
+    return (now or timezone.now()) - timedelta(minutes=STALE_RUN_MINUTES)
 
 
 class SessionLock:
@@ -54,10 +63,10 @@ class SessionLock:
         # Slow path: the slot is held. Take it over only if the holder's heartbeat
         # is stale. Read the prior holder first so the takeover is observable; the
         # CAS on ``active_run_id`` keeps the claim itself race-safe.
-        stale_cutoff = now - timedelta(minutes=STALE_RUN_MINUTES)
+        cutoff = stale_cutoff(now)
         prior_holder = await (
             Session.objects
-            .filter(thread_id=thread_id, active_run_id__isnull=False, last_active_at__lt=stale_cutoff)
+            .filter(thread_id=thread_id, active_run_id__isnull=False, last_active_at__lt=cutoff)
             .values_list("active_run_id", flat=True)
             .afirst()
         )
@@ -65,7 +74,7 @@ class SessionLock:
             return False  # held by a live holder — nothing to take over
 
         taken = await Session.objects.filter(
-            thread_id=thread_id, active_run_id=prior_holder, last_active_at__lt=stale_cutoff
+            thread_id=thread_id, active_run_id=prior_holder, last_active_at__lt=cutoff
         ).aupdate(active_run_id=holder_id, last_active_at=now)
         if taken:
             logger.warning(

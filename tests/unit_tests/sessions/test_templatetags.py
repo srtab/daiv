@@ -124,6 +124,22 @@ def test_day_bucket_older_returns_month_year():
     assert day_bucket(_session_at(dt)) == "March 2024"
 
 
+def test_day_bucket_none_or_missing_returns_earlier():
+    assert day_bucket(_session_at(None)) == "Earlier"
+    assert day_bucket(types.SimpleNamespace()) == "Earlier"  # attribute absent entirely
+
+
+def test_day_bucket_exact_window_edges(monkeypatch):
+    # Pin the <= 7 / <= 30 cutoffs at their exact edge (interior points are covered above).
+    # Freeze "now" so days lands on exactly 7 / 30 with no midnight-crossing race.
+    from sessions.templatetags import session_tags
+
+    fixed = timezone.make_aware(datetime(2026, 6, 15, 12, 0))
+    monkeypatch.setattr(session_tags.timezone, "now", lambda: fixed)
+    assert day_bucket(_session_at(fixed - timedelta(days=7))) == "Previous 7 days"
+    assert day_bucket(_session_at(fixed - timedelta(days=30))) == "Previous 30 days"
+
+
 @pytest.mark.parametrize(
     ("origin", "expected"),
     [
@@ -150,3 +166,10 @@ def test_session_cost_sums_runs():
 def test_session_cost_empty_when_zero():
     session = types.SimpleNamespace(runs=_Runs([types.SimpleNamespace(cost_usd=None)]))
     assert session_cost(session) == ""
+
+
+def test_session_cost_skips_null_costs():
+    # A run with cost_usd=None must be skipped (the `is not None` guard), not coerce a TypeError.
+    runs = [types.SimpleNamespace(cost_usd=None), types.SimpleNamespace(cost_usd=Decimal("0.30"))]
+    session = types.SimpleNamespace(runs=_Runs(runs))
+    assert session_cost(session) == "$0.30"

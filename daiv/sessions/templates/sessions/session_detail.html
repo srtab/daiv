@@ -41,7 +41,10 @@
 
   {# Translation lookups for the locked-pill fallbacks in chat({…}) below. #}
   {# Tag→variable lets us pipe them through ``|escapejs`` for safe quoting in JS. #}
-  {% translate "Pick a model" as locked_agent_fallback %}
+  {# The agent pill is locked here, so an empty ``agent_model`` means the run used the #}
+  {# site default (auto) — mirror the env pill's "Auto" rather than the hero picker's #}
+  {# "Pick a model" prompt, which only makes sense where the model is actually selectable. #}
+  {% translate "Auto" as locked_agent_fallback %}
   {% translate "Auto" as locked_env_fallback %}
 
   <div x-data='chat({
@@ -72,7 +75,11 @@
 
     <div class="chat-column"
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
-      {% if expired %}
+      {% if failed_run and not failed_run.prompt %}
+        <div class="mb-4 rounded-lg border border-red-500/25 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+          <span>{% translate "The last run for this session failed before it produced any state. Send a message below to try again." %}</span>
+        </div>
+      {% elif expired %}
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
           <span>{% translate "This session's state has expired. Start a new session to continue." %}</span>
           <a href="{% url 'session_new' %}" class="btn-primary">{% translate "New session" %}</a>
@@ -163,8 +170,13 @@
         {# Turns #}
         <template x-for="(turn, ti) in turns" :key="turn.id">
           <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
-          <article class="chat-turn" :class="`chat-turn--${turn.role}`">
+          <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--errored': turn.errored }">
             <div class="chat-turn__body">
+              <template x-if="turn.errored">
+                <span class="chat-turn__error" role="img" aria-label="{% translate 'Run failed' %}">
+                  {% icon "exclamation-triangle" "chat-turn__error-icon" %}
+                </span>
+              </template>
               <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
                 <div class="chat-segment" :class="`chat-segment--${seg.type}`">
                   <template x-if="seg.type === 'text'">
@@ -220,9 +232,6 @@
                 </div>
               </template>
 
-              <template x-if="turn.error">
-                <p class="text-sm text-red-400 mt-2" x-text="turn.error"></p>
-              </template>
               <template x-if="turn.aborted">
                 <p class="text-sm text-gray-500 mt-2">{% translate "You stopped this run." %}</p>
               </template>
@@ -266,7 +275,7 @@
         </template>
         <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
           <button type="button" class="chat-rail__file"
-                  :class="[{ 'chat-rail__file--new': f.isNew }, `chat-rail__file--${f.op || 'modified'}`]"
+                  :class="{ 'chat-rail__file--new': f.isNew, [`chat-rail__file--${f.op || 'modified'}`]: true }"
                   @click="jumpToTool(f.segmentId)"
                   :title="f.fromPath ? `${f.op}: ${f.fromPath} → ${f.path}` : `${f.op || 'modified'}: ${f.path}`">
             <span class="chat-rail__file-op" x-text="fileOpMark(f.op)"></span>

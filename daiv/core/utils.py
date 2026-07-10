@@ -81,6 +81,15 @@ def is_valid_url(url: str) -> bool:
     return all([result.scheme, result.netloc])
 
 
+def is_htmx(request) -> bool:
+    """True when the request was issued by HTMX (carries the ``HX-Request`` header).
+
+    Shared by views that serve a results-only fragment to HTMX and the full page
+    otherwise (e.g. ``SessionListView``, the ``sandbox_envs`` env views).
+    """
+    return request.headers.get("HX-Request") == "true"
+
+
 def build_uri(uri: str, path: str):
     """
     Build a URI by appending a path to the given URI.
