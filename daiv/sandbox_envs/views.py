@@ -13,15 +13,12 @@ from django.views import View
 from django.views.generic import ListView
 
 from accounts.mixins import AdminRequiredMixin
+from core.utils import is_htmx
 from sandbox_envs.forms import SandboxEnvironmentForm
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import build_env_trigger, humanise_global_default
 
 logger = logging.getLogger("daiv.sandbox_envs")
-
-
-def _is_htmx(request) -> bool:
-    return request.headers.get("HX-Request") == "true"
 
 
 def _redirect_with_open(action: str, env_id=None):
@@ -87,7 +84,7 @@ class EnvFormView(LoginRequiredMixin, View):
 
     def get(self, request, **_kw):
         instance = self.get_object()
-        if not _is_htmx(request):
+        if not is_htmx(request):
             action = "edit" if instance else "create"
             return _redirect_with_open(action, env_id=instance.id if instance else None)
         return self._render(self._make_form(instance=instance), instance=instance)
@@ -116,7 +113,7 @@ class EnvDeleteView(LoginRequiredMixin, View):
 
     def get(self, request, **_kw):
         env = self.get_object()
-        if not _is_htmx(request):
+        if not is_htmx(request):
             return _redirect_with_open("delete", env_id=env.id)
         return render(request, "sandbox_envs/_delete_body.html", {"object": env})
 
@@ -146,7 +143,7 @@ class EnvSetDefaultView(AdminRequiredMixin, View):
             # means a concurrent admin deleted or rescoped the row mid-flight.
             logger.warning("set-default conflict for env_id=%s: %s", pk, err)
             return HttpResponse(err.messages[0] if err.messages else "Conflict", status=409)
-        if _is_htmx(request):
+        if is_htmx(request):
             return render(
                 request,
                 "sandbox_envs/_global_envs.html",

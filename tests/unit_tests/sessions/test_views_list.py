@@ -274,6 +274,76 @@ class TestSessionListView:
         # The JS-safe unicode escape must be present inside the x-data attribute (confirms |escapejs fired).
         assert "x-data=\"{ from: '\\u0027" in html
 
+    def test_htmx_request_renders_results_fragment_only(self, logged_in_client, user):
+        """An HX-Request GET renders the results fragment, not the full page chrome."""
+        _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        template_names = [t.name for t in response.templates if t.name]
+        assert "sessions/_session_results.html" in template_names
+        assert "sessions/session_list.html" not in template_names
+        # The <h1> page header lives only in the full page, never in the fragment.
+        assert "Agent sessions" not in response.content.decode()
+
+    def test_normal_request_renders_full_page(self, logged_in_client, user):
+        """A normal GET renders the full page, which inlines the results fragment on first paint.
+
+        The fragment (with paginate_swap on) must be present before any HTMX swap, so
+        client-side pagination and the SSE re-arm work on first load. This also pins the
+        DOM ids (``session-results``/``session-in-flight``) the JS silently depends on.
+        """
+        for _ in range(30):  # exceed paginate_by so pagination links render
+            _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"))
+        template_names = [t.name for t in response.templates if t.name]
+        assert "sessions/session_list.html" in template_names
+        assert "sessions/_session_results.html" in template_names
+        html = response.content.decode()
+        assert 'id="session-results"' in html
+        assert 'id="session-in-flight"' in html
+        assert "data-page-swap" in html  # swap-marked from first paint, not only after a swap
+
+    def test_htmx_fragment_carries_in_flight_ids(self, logged_in_client, user):
+        """The fragment exposes in-flight run ids for the SSE re-arm to read after a swap."""
+        session = _create_session(user=user)
+        running = _create_run(session, status=RunStatus.RUNNING)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        html = response.content.decode()
+        assert 'id="session-in-flight"' in html
+        assert str(running.pk) in html
+
+    def test_htmx_pagination_links_are_swap_marked(self, logged_in_client, user):
+        """With >paginate_by sessions, the fragment's pagination <a> links carry data-page-swap."""
+        for _ in range(30):
+            _create_session(user=user)
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        html = response.content.decode()
+        # The marker must sit on a pagination anchor next to a page= href, not leak onto
+        # some unrelated element (a bare substring check would miss that regression).
+        assert re.search(r'href="[^"]*page=\d+[^"]*"[^>]*data-page-swap', html)
+
+    def test_htmx_no_match_fragment_uses_filtered_empty_state(self, logged_in_client, user):
+        """An HX-Request whose filters exclude everything renders the no-match state.
+
+        The user has data, just none matching — so the fragment must render the
+        ``has_active_filters`` branch, not fall through to the true-empty CTA. Guards
+        that ``has_active_filters`` stays wired on the HTMX fragment path.
+        """
+        _create_session(user=user)  # exists, but the search term below won't match it
+        response = logged_in_client.get(reverse("session_list"), {"q": "zznomatchzz"}, HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "No sessions match these filters." in html
+        assert "Start your first run" not in html
+
+    def test_htmx_empty_account_fragment_shows_first_run_cta(self, logged_in_client, user):
+        """With no sessions and no filters, the HX-Request fragment shows the true-empty CTA."""
+        response = logged_in_client.get(reverse("session_list"), HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "Start your first run" in html
+        assert "No sessions match these filters." not in html
+
     def test_row_latest_run_matches_status_filter_on_equal_created_at(self, logged_in_client, user):
         """DISPLAY order must match the FILTER tiebreaker (-created_at, -id).
 
@@ -309,3 +379,31 @@ class TestSessionListView:
             f"Prefetch tiebreaker mismatch: display first run pk={display_first.pk} "
             f"but expected pk={run_winner.pk} (higher id, matching managers.py -id tiebreaker)"
         )
+
+
+def test_pagination_partial_swap_marker_is_opt_in(rf):
+    """The shared pagination partial emits data-page-swap only when paginate_swap is passed."""
+    from django.template.loader import render_to_string
+
+    class _Paginator:
+        num_pages = 3
+
+    class _Page:
+        number = 1
+        paginator = _Paginator()
+        next_page_number = 2
+
+        def has_previous(self):
+            return False
+
+        def has_next(self):
+            return True
+
+    def _render(**extra):
+        return render_to_string(
+            "accounts/_pagination.html",
+            {"is_paginated": True, "page_obj": _Page(), "request": rf.get("/x/?foo=bar"), **extra},
+        )
+
+    assert "data-page-swap" not in _render()  # default: plain links
+    assert "data-page-swap" in _render(paginate_swap=True)  # opt-in flag turns it on

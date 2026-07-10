@@ -836,6 +836,64 @@ main:has(.chat-shell) {
     overflow-wrap: break-word;
   }
 
+  .chat-turn--errored .chat-segment--text {
+    border-color: rgba(248, 113, 113, 0.5);
+  }
+
+  .chat-turn__error {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    color: #f87171;
+    cursor: help;
+    outline: none;
+  }
+
+  .chat-turn__error-icon {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .chat-turn__error-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 20;
+    display: none;
+    max-width: 360px;
+    max-height: 220px;
+    overflow: auto;
+    padding: 8px 10px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: 8px;
+    background: #1a1414;
+    color: #fca5a5;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .chat-turn__error:hover .chat-turn__error-pop,
+  .chat-turn__error:focus-within .chat-turn__error-pop {
+    display: block;
+  }
+
+  /* User turn is a single right-aligned bubble: sit the icon to its LEFT. */
+  .chat-turn--user.chat-turn--errored .chat-turn__body {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .chat-turn--user .chat-turn__error {
+    order: -1;
+    margin-top: 8px;
+  }
+
   .chat-text :where(p, ul, ol, pre, blockquote, h1, h2, h3, h4, h5, h6, hr, table, dl) {
     margin: 0 0 0.65rem 0;
   }
@@ -1984,4 +2042,7 @@ main:has(.chat-shell) {
       px-2 py-0.5 text-[11px] font-medium text-emerald-300;
   }
   .session-num { @apply font-mono text-[12px] tabular-nums text-gray-400; }
+  .session-results--loading {
+    @apply pointer-events-none opacity-50 transition-opacity duration-150;
+  }
 }
