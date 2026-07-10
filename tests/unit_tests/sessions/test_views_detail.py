@@ -336,6 +336,21 @@ def test_detail_failed_run_without_prompt_falls_back_to_banner(member_client, me
 
 
 @pytest.mark.django_db
+def test_detail_turn_error_renders_as_icon_affordance(member_client, member_user):
+    """The per-turn error is rendered as a hover icon affordance, not the old red text line.
+    The Alpine <template> markup is always present in the server HTML regardless of turns."""
+    session = _create_session(user=member_user)
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    content = resp.content.decode()
+    assert "chat-turn__error" in content
+    assert "chat-turn--errored" in content
+    # The old red-line error rendering is gone.
+    assert 'text-red-400" x-text="turn.error"' not in content
+
+
+@pytest.mark.django_db
 def test_detail_missing_checkpoint_expired_when_last_run_succeeded(member_client, member_user):
     """A missing checkpoint whose last run SUCCEEDED is a genuine TTL expiry — the expired
     banner still shows and ``failed_run`` stays None (guards the failed-run branch)."""

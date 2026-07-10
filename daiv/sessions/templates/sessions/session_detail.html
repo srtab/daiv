@@ -170,8 +170,18 @@
         {# Turns #}
         <template x-for="(turn, ti) in turns" :key="turn.id">
           <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
-          <article class="chat-turn" :class="`chat-turn--${turn.role}`">
+          <article class="chat-turn" :class="[`chat-turn--${turn.role}`, { 'chat-turn--errored': turn.error }]">
             <div class="chat-turn__body">
+              <template x-if="turn.error">
+                <span class="chat-turn__error"
+                      tabindex="0"
+                      role="img"
+                      :aria-label="`Run failed: ${turn.error}`"
+                      :title="turn.error">
+                  {% icon "exclamation-triangle" "chat-turn__error-icon" %}
+                  <span class="chat-turn__error-pop" x-text="turn.error"></span>
+                </span>
+              </template>
               <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
                 <div class="chat-segment" :class="`chat-segment--${seg.type}`">
                   <template x-if="seg.type === 'text'">
@@ -227,9 +237,6 @@
                 </div>
               </template>
 
-              <template x-if="turn.error">
-                <p class="text-sm text-red-400 mt-2" x-text="turn.error"></p>
-              </template>
               <template x-if="turn.aborted">
                 <p class="text-sm text-gray-500 mt-2">{% translate "You stopped this run." %}</p>
               </template>
