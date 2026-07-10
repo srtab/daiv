@@ -23,7 +23,7 @@ async def test_run_to_relay_publishes_each_event_then_sentinel(fake_redis):
 
     await runner.run_to_relay(_stub_streamer(_events))
 
-    entries = fake_redis.streams[relay.run_events_key("t-1", "r-1")]
+    entries = fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key]
     payloads = [fields for _id, fields in entries]
     assert json.loads(payloads[0]["data"])["name"] == "resolved_env"
     # camelCase alias serialization is the wire contract with the JS client
@@ -40,7 +40,7 @@ async def test_run_to_relay_publishes_sentinel_even_when_stream_raises(fake_redi
     # Must not raise: a background task's exception has no consumer.
     await runner.run_to_relay(_stub_streamer(_boom))
 
-    entries = fake_redis.streams[relay.run_events_key("t-1", "r-1")]
+    entries = fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key]
     assert entries[-1][1] == {"end": "1"}
 
 
@@ -71,7 +71,7 @@ async def test_cancel_local_cancels_running_task_and_reports_miss(fake_redis):
     with contextlib.suppress(asyncio.CancelledError):
         await task
     # Sentinel still published by the finally.
-    assert fake_redis.streams[relay.run_events_key("t-1", "r-1")][-1][1] == {"end": "1"}
+    assert fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key][-1][1] == {"end": "1"}
 
 
 async def test_run_to_relay_swallows_publish_end_failure(fake_redis):
@@ -83,12 +83,12 @@ async def test_run_to_relay_swallows_publish_end_failure(fake_redis):
     async def _events():
         yield CustomEvent(type=EventType.CUSTOM, name="only", value=1)
 
-    with patch("chat.api.relay.publish_end", new=AsyncMock(side_effect=RuntimeError("redis down"))):
+    with patch("chat.api.relay.RunRelay.publish_end", new=AsyncMock(side_effect=RuntimeError("redis down"))):
         # Must not raise despite the sentinel publish failing.
         await runner.run_to_relay(_stub_streamer(_events))
 
     # The data event still landed; only the sentinel is missing.
-    entries = fake_redis.streams[relay.run_events_key("t-1", "r-1")]
+    entries = fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key]
     assert json.loads(entries[-1][1]["data"])["value"] == 1
 
 

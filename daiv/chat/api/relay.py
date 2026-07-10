@@ -18,8 +18,12 @@ Contract:
   heartbeat interval elapses (a stalled, event-less run won't observe it until it
   emits again; the local ``asyncio.Task`` cancel is what stops such a run promptly).
 
-This module is pure Redis: no ORM, no view logic. All helpers accept an
-explicit ``client`` for tests; production callers rely on the lazy singleton.
+Organization: a run's relay state (its event stream + cancel flag) is a single
+``RunRelay`` object bound to ``(thread_id, run_id)`` — every operation for one run
+lives there, and the Redis wire format (field names, sentinel convention, ``xread``
+shape) is its private concern. Process-wide connection lifecycle is a separate,
+module-level concern (``get_redis`` / the lazy singleton); ``RunRelay`` accepts an
+explicit ``client`` for tests and otherwise resolves the singleton lazily.
 """
 
 from __future__ import annotations
@@ -32,18 +36,6 @@ import redis.asyncio as aioredis
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
-
-# ~1h of retention after the last publish; MAXLEN caps runaway runs. This assumes
-# a chat turn stays well under RUN_EVENTS_MAXLEN — if that stops holding, MAXLEN
-# trimming would drop the head of a long run and replay-from-zero would start
-# mid-stream (leaving the client unable to render an orphaned tail). No test
-# enforces the margin, so revisit the ceiling if per-turn event volume grows.
-RUN_EVENTS_MAXLEN = 10_000
-RUN_EVENTS_TTL_S = 3600
-CANCEL_TTL_S = 3600
-
-DATA_FIELD = "data"
-END_FIELD = "end"
 
 _client: Redis | None = None
 
@@ -70,39 +62,6 @@ def get_redis() -> Redis:
     return _client
 
 
-def run_events_key(thread_id: str, run_id: str) -> str:
-    return f"daiv:chat:run-events:{thread_id}:{run_id}"
-
-
-def cancel_key(thread_id: str, run_id: str) -> str:
-    return f"daiv:chat:run-cancel:{thread_id}:{run_id}"
-
-
-async def _append(thread_id: str, run_id: str, fields: dict[str, str], *, client: Redis | None = None) -> None:
-    """Append one entry to the run's stream and refresh its retention TTL.
-
-    XADD + EXPIRE are pipelined into a single round-trip: this runs once per
-    published event — on the per-token streaming path — so issuing the EXPIRE as
-    a separate call would double the relay's per-event Redis latency.
-    """
-    r = client or get_redis()
-    key = run_events_key(thread_id, run_id)
-    async with r.pipeline(transaction=False) as pipe:
-        # ty: redis' ``xadd`` stub types ``fields`` as an invariant ``Dict[FieldT, EncodableT]``,
-        # so a ``dict[str, str]`` variable (unlike an inline literal) is rejected — a stub gap, not a real mismatch.
-        pipe.xadd(key, fields, maxlen=RUN_EVENTS_MAXLEN, approximate=True)  # ty: ignore[invalid-argument-type]
-        pipe.expire(key, RUN_EVENTS_TTL_S)
-        await pipe.execute()
-
-
-async def publish_event(thread_id: str, run_id: str, data: str, *, client: Redis | None = None) -> None:
-    await _append(thread_id, run_id, {DATA_FIELD: data}, client=client)
-
-
-async def publish_end(thread_id: str, run_id: str, *, client: Redis | None = None) -> None:
-    await _append(thread_id, run_id, {END_FIELD: "1"}, client=client)
-
-
 class StreamEntry(NamedTuple):
     """One parsed relay entry. ``is_end`` flags the terminal sentinel; ``data``
     is the AG-UI event JSON for normal entries (``None`` for the sentinel)."""
@@ -112,32 +71,88 @@ class StreamEntry(NamedTuple):
     data: str | None
 
 
-async def read_events(
-    thread_id: str, run_id: str, last_id: str, *, block_ms: int, count: int = 100, client: Redis | None = None
-) -> list[StreamEntry]:
-    """Block-read the next batch of entries after ``last_id``, parsed.
+class RunRelay:
+    """Relay operations for a single chat run, bound to ``(thread_id, run_id)``.
 
-    The read counterpart to ``publish_*``: keeps the stream's wire format (field
-    names, sentinel convention, ``xread`` shape) inside this module so SSE readers
-    deal only in ``StreamEntry`` values. An empty list means the blocking read
-    timed out with nothing new.
+    Holds the run's event stream (publish + tail) and its cancel flag behind one
+    object so a caller deals in ``RunRelay(thread_id, run_id).publish_event(...)``
+    rather than threading the id pair through every call. The Redis wire format
+    lives here; consumers of ``read_events`` see only ``StreamEntry`` values.
+
+    ``client`` is injected by tests; production callers omit it and share the
+    lazy process-wide singleton (resolved on each use, so an instance can be
+    built off the web-worker loop and used on it — see ``get_redis``).
     """
-    r = client or get_redis()
-    key = run_events_key(thread_id, run_id)
-    entries = await r.xread({key: last_id}, count=count, block=block_ms)
-    if not entries:
-        return []
-    return [
-        StreamEntry(id=entry_id, is_end=END_FIELD in fields, data=fields.get(DATA_FIELD))
-        for entry_id, fields in entries[0][1]
-    ]
 
+    # ~1h of retention after the last publish; MAXLEN caps runaway runs. This assumes
+    # a chat turn stays well under ``EVENTS_MAXLEN`` — if that stops holding, MAXLEN
+    # trimming would drop the head of a long run and replay-from-zero would start
+    # mid-stream (leaving the client unable to render an orphaned tail). No test
+    # enforces the margin, so revisit the ceiling if per-turn event volume grows.
+    EVENTS_MAXLEN = 10_000
+    EVENTS_TTL_S = 3600
+    CANCEL_TTL_S = 3600
 
-async def request_cancel(thread_id: str, run_id: str, *, client: Redis | None = None) -> None:
-    r = client or get_redis()
-    await r.set(cancel_key(thread_id, run_id), "1", ex=CANCEL_TTL_S)
+    DATA_FIELD = "data"
+    END_FIELD = "end"
 
+    def __init__(self, thread_id: str, run_id: str, *, client: Redis | None = None) -> None:
+        self.thread_id = thread_id
+        self.run_id = run_id
+        self._client = client
 
-async def cancel_requested(thread_id: str, run_id: str, *, client: Redis | None = None) -> bool:
-    r = client or get_redis()
-    return bool(await r.get(cancel_key(thread_id, run_id)))
+    @property
+    def _redis(self) -> Redis:
+        return self._client or get_redis()
+
+    @property
+    def events_key(self) -> str:
+        return f"daiv:chat:run-events:{self.thread_id}:{self.run_id}"
+
+    @property
+    def cancel_key(self) -> str:
+        return f"daiv:chat:run-cancel:{self.thread_id}:{self.run_id}"
+
+    async def _append(self, fields: dict[str, str]) -> None:
+        """Append one entry to the run's stream and refresh its retention TTL.
+
+        XADD + EXPIRE are pipelined into a single round-trip: this runs once per
+        published event — on the per-token streaming path — so issuing the EXPIRE as
+        a separate call would double the relay's per-event Redis latency.
+        """
+        key = self.events_key
+        async with self._redis.pipeline(transaction=False) as pipe:
+            # ty: redis' ``xadd`` stub types ``fields`` as an invariant ``Dict[FieldT, EncodableT]``,
+            # so a ``dict[str, str]`` variable (unlike an inline literal) is rejected — a stub gap, not a real mismatch.
+            pipe.xadd(key, fields, maxlen=self.EVENTS_MAXLEN, approximate=True)  # ty: ignore[invalid-argument-type]
+            pipe.expire(key, self.EVENTS_TTL_S)
+            await pipe.execute()
+
+    async def publish_event(self, data: str) -> None:
+        await self._append({self.DATA_FIELD: data})
+
+    async def publish_end(self) -> None:
+        await self._append({self.END_FIELD: "1"})
+
+    async def read_events(self, last_id: str, *, block_ms: int, count: int = 100) -> list[StreamEntry]:
+        """Block-read the next batch of entries after ``last_id``, parsed.
+
+        The read counterpart to ``publish_*``: keeps the stream's wire format (field
+        names, sentinel convention, ``xread`` shape) inside this class so SSE readers
+        deal only in ``StreamEntry`` values. An empty list means the blocking read
+        timed out with nothing new.
+        """
+        key = self.events_key
+        entries = await self._redis.xread({key: last_id}, count=count, block=block_ms)
+        if not entries:
+            return []
+        return [
+            StreamEntry(id=entry_id, is_end=self.END_FIELD in fields, data=fields.get(self.DATA_FIELD))
+            for entry_id, fields in entries[0][1]
+        ]
+
+    async def request_cancel(self) -> None:
+        await self._redis.set(self.cancel_key, "1", ex=self.CANCEL_TTL_S)
+
+    async def cancel_requested(self) -> bool:
+        return bool(await self._redis.get(self.cancel_key))

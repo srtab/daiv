@@ -169,6 +169,7 @@ class ChatRunStreamer:
         # the finalize decision so an errored turn is recorded FAILED, not SUCCESSFUL.
         run_error_message: str | None = None
         last_heartbeat = time.monotonic()
+        run_relay = relay.RunRelay(self.thread_id, self.run_id)
         # The Run row (a separate object from the AG-UI run_id that holds the lock).
         # Created after the stream context opens; finalized in ``finally``.
         chat_run: Run | None = None
@@ -269,7 +270,7 @@ class ChatRunStreamer:
                                         type=EventType.RUN_ERROR, message=INTERRUPTED_MESSAGE, code="run_interrupted"
                                     )
                                     break
-                                if await relay.cancel_requested(self.thread_id, self.run_id):
+                                if await run_relay.cancel_requested():
                                     run_error_message = CANCELLED_BY_USER_MESSAGE
                                     yield RunErrorEvent(
                                         type=EventType.RUN_ERROR,

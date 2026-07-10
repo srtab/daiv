@@ -9,42 +9,46 @@ not exist. Assert it exactly.
 import pytest
 
 from chat.api import relay
+from chat.api.relay import RunRelay
 
 
-def test_run_events_key_embeds_thread_and_run_id():
-    assert relay.run_events_key("t-1", "r-1") == "daiv:chat:run-events:t-1:r-1"
+def test_events_key_embeds_thread_and_run_id():
+    assert RunRelay("t-1", "r-1").events_key == "daiv:chat:run-events:t-1:r-1"
 
 
 def test_cancel_key_embeds_thread_and_run_id():
-    assert relay.cancel_key("t-1", "r-1") == "daiv:chat:run-cancel:t-1:r-1"
+    assert RunRelay("t-1", "r-1").cancel_key == "daiv:chat:run-cancel:t-1:r-1"
 
 
 async def test_publish_event_appends_data_entry_and_refreshes_ttl(fake_redis):
-    await relay.publish_event("t-1", "r-1", '{"type":"RUN_STARTED"}')
-    await relay.publish_event("t-1", "r-1", '{"type":"RUN_FINISHED"}')
+    run_relay = RunRelay("t-1", "r-1")
+    await run_relay.publish_event('{"type":"RUN_STARTED"}')
+    await run_relay.publish_event('{"type":"RUN_FINISHED"}')
 
-    key = relay.run_events_key("t-1", "r-1")
+    key = run_relay.events_key
     entries = fake_redis.streams[key]
     assert [fields for _id, fields in entries] == [
         {"data": '{"type":"RUN_STARTED"}'},
         {"data": '{"type":"RUN_FINISHED"}'},
     ]
-    assert fake_redis.ttls[key] == relay.RUN_EVENTS_TTL_S
+    assert fake_redis.ttls[key] == RunRelay.EVENTS_TTL_S
 
 
 async def test_publish_end_appends_sentinel_entry(fake_redis):
-    await relay.publish_end("t-1", "r-1")
+    run_relay = RunRelay("t-1", "r-1")
+    await run_relay.publish_end()
 
-    entries = fake_redis.streams[relay.run_events_key("t-1", "r-1")]
+    entries = fake_redis.streams[run_relay.events_key]
     assert entries[-1][1] == {"end": "1"}
 
 
 async def test_cancel_roundtrip(fake_redis):
-    assert await relay.cancel_requested("t-1", "r-1") is False
-    await relay.request_cancel("t-1", "r-1")
-    assert await relay.cancel_requested("t-1", "r-1") is True
+    run_relay = RunRelay("t-1", "r-1")
+    assert await run_relay.cancel_requested() is False
+    await run_relay.request_cancel()
+    assert await run_relay.cancel_requested() is True
     # scoped per (thread, run)
-    assert await relay.cancel_requested("t-1", "r-other") is False
+    assert await RunRelay("t-1", "r-other").cancel_requested() is False
 
 
 def test_build_client_raises_without_configured_url(settings):

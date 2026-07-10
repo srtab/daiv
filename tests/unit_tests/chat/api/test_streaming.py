@@ -413,7 +413,7 @@ async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
         # after the first — the second must never be yielded.
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snap, snap])),
         patch("chat.api.streaming.HEARTBEAT_INTERVAL_S", 0.0),
-        patch("chat.api.relay.cancel_requested", new=AsyncMock(return_value=True)),
+        patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=True)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
         patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
@@ -509,7 +509,7 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
         patch("chat.api.streaming.HEARTBEAT_INTERVAL_S", 0.0),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock(return_value=False)),
         # Cancel flag never set: the stop is driven purely by the lost slot.
-        patch("chat.api.relay.cancel_requested", new=AsyncMock(return_value=False)),
+        patch("chat.api.relay.RunRelay.cancel_requested", new=AsyncMock(return_value=False)),
         patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
         patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),

@@ -63,13 +63,14 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
     falls back to the liveness probe in ``_run_event_frames``.
     """
     thread_id, run_id = streamer.thread_id, streamer.run_id
+    run_relay = relay.RunRelay(thread_id, run_id)
     try:
         async for event in streamer.events():
-            await relay.publish_event(thread_id, run_id, event.model_dump_json(by_alias=True, exclude_none=True))
+            await run_relay.publish_event(event.model_dump_json(by_alias=True, exclude_none=True))
     except Exception:
         logger.exception("chat: run publisher failed for thread_id=%s run_id=%s", thread_id, run_id)
     finally:
         try:
-            await relay.publish_end(thread_id, run_id)
+            await run_relay.publish_end()
         except Exception:
             logger.exception("chat: failed to publish end sentinel for thread_id=%s run_id=%s", thread_id, run_id)

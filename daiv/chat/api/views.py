@@ -75,11 +75,12 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
     yield "retry: 2000\n\n"
     start = time.monotonic()
     released_drain = False
+    run_relay = relay.RunRelay(thread_id, run_id)
 
     try:
         while (time.monotonic() - start) < STREAM_MAX_DURATION_S:
             block_ms = STREAM_DRAIN_BLOCK_MS if released_drain else STREAM_BLOCK_MS
-            entries = await relay.read_events(thread_id, run_id, last_id, block_ms=block_ms)
+            entries = await run_relay.read_events(last_id, block_ms=block_ms)
             if entries:
                 for entry in entries:
                     last_id = entry.id
@@ -311,6 +312,6 @@ async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
     if session.active_run_id != payload.run_id:
         raise HttpError(409, "Run is not in flight for this thread")
 
-    await relay.request_cancel(payload.thread_id, payload.run_id)
+    await relay.RunRelay(payload.thread_id, payload.run_id).request_cancel()
     cancelled_locally = runner.cancel_local(payload.run_id)
     return {"cancelled": True, "local": cancelled_locally}
