@@ -85,14 +85,14 @@ Schedule times are interpreted in the configured timezone. DAIV converts the loc
 From the **Scheduled Jobs** list, each schedule's actions menu lets you:
 
 - **Pause / Resume** a schedule directly from the list — no need to open the edit page (it is also available via the **Enabled** checkbox there)
-- **Run now** to dispatch an immediate batch run without waiting for the next scheduled time. You land on the resulting activity (or the [Activity](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) list filtered to the batch when it spans multiple repositories)
+- **Run now** to dispatch an immediate batch run without waiting for the next scheduled time. You land on the resulting session (or the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list filtered to the batch when it spans multiple repositories)
 - **Duplicate** a schedule to create a new one pre-filled from this one — the only way to re-run a fired one-off schedule
 - **Edit** a schedule to change any field, including the **Enabled** checkbox
 - **Delete** a schedule permanently — any currently running job will complete, but no new runs will be dispatched
 
 Fired one-off (**Once**) schedules only offer **Duplicate** and **Delete**.
 
-Each schedule card shows its name, status (**Active**, **Paused**, or **Fired**), frequency, the target repository (or "*N* repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the [Activity](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md) page filtered to that schedule's runs.
+Each schedule card shows its name, status (**Active**, **Paused**, or **Fired**), frequency, the target repository (or "*N* repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list filtered to that schedule's sessions.
 
 Note
 
@@ -103,7 +103,7 @@ Non-admin users only see their own schedules; admins see everyone's. The owner a
 Schedule owners can CC other DAIV users on the finish notifications for their schedules. Subscribers:
 
 - Receive the same notification as the owner whenever the schedule's `Notify on` condition matches (e.g., "On success only" or "Always").
-- Gain **read-only** access to the activities produced by the schedule — they can click through from the notification and view the activity detail, output, and code changes.
+- Gain **read-only** access to the sessions produced by the schedule — they can click through from the notification and view the session detail, transcript, and run timeline.
 - Do **not** see the schedule itself in their own Scheduled Jobs list, and cannot edit, pause, run, or delete it.
 
 ### Adding subscribers
@@ -114,7 +114,7 @@ Only the owner (or an admin) can change a schedule's subscribers.
 
 ### Self-unsubscribe
 
-When a subscriber opens an activity produced by a schedule they are CC'd on, the activity detail page shows an **Unsubscribe** button next to the schedule name. Clicking it removes the subscriber from that schedule — no owner action needed.
+When a subscriber opens a session produced by a schedule they are CC'd on, the session detail page shows an **Unsubscribe** button next to the schedule name. Clicking it removes the subscriber from that schedule — no owner action needed.
 
 Notification preferences
 

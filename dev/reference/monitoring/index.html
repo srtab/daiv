@@ -572,14 +572,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/chat/" class="md-nav__link">
+      <a href="../../features/sessions/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Chat
+    Sessions
   
 
     
@@ -664,34 +664,6 @@
     
   
     MCP Endpoint
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../features/activity-tracking/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Activity Tracking
   
 
     
@@ -2439,7 +2411,7 @@
 <li>Each agent invocation runs inside the <code>track_usage_metadata()</code> context manager (in <code>daiv/automation/agent/usage_tracking.py</code>), which binds a <code>CostAwareUsageMetadataCallbackHandler</code> (a subclass of LangChain's <code>UsageMetadataCallbackHandler</code> that prices each LLM call individually) to a module-level <code>ContextVar</code> registered with LangChain's <code>register_configure_hook</code>. The handler is automatically inherited by every nested <code>Runnable</code> — including subagent invocations — without needing to thread callbacks through <code>RunnableConfig</code>.</li>
 <li>The handler captures <code>usage_metadata</code> from every LLM call during graph execution — including fallback model invocations, tool-internal model calls, and subagents spawned via the <code>task</code> tool.</li>
 <li>After the run, token counts are aggregated per model and cost is calculated using <a href="https://github.com/pydantic/genai-prices">genai-prices</a> (maintained by Pydantic).</li>
-<li>The usage summary is stored in the <code>AgentResult</code> and denormalized onto the <code>Activity</code> record for long-term retention.</li>
+<li>The usage summary is stored in the <code>AgentResult</code> and denormalized onto the <code>Run</code> record for long-term retention.</li>
 </ol>
 <h3 id="whats-tracked">What's tracked</h3>
 <table>
@@ -2479,8 +2451,8 @@
 </ul>
 <h3 id="where-to-see-it">Where to see it</h3>
 <ul>
-<li><strong>Activity list</strong> — cost or token count shown per row</li>
-<li><strong>Activity detail</strong> — full breakdown with per-model details</li>
+<li><strong>Sessions list</strong> — cost or token count shown per session row</li>
+<li><strong>Session detail run timeline</strong> — full breakdown with per-model details per run</li>
 <li><strong>Markdown export</strong> — usage metadata included in YAML frontmatter</li>
 </ul>
 <h3 id="known-limitations">Known limitations</h3>
@@ -2488,10 +2460,10 @@
 <li><strong>Summarization middleware calls</strong> may not be tracked if the middleware overrides the config.</li>
 <li>If a model is <strong>not in the genai-prices database</strong>, token usage is still recorded but cost is stored as <code>null</code>. A warning is logged.</li>
 <li>Cost estimates are <strong>approximations</strong> based on published list prices. Actual billing may differ based on your provider agreement.</li>
-<li><strong>Chat API flows</strong> do not attach the usage tracker and do not persist usage. Chat uses <code>ChatThread</code> records, not <code>Activity</code> records.</li>
+<li><strong>OpenAI-compatible chat API flows</strong> (the <code>/api/chat/</code> endpoint, separate from the dashboard session workspace) do not attach the usage tracker and do not persist usage to Run records.</li>
 </ul>
 <h3 id="relationship-to-langsmith">Relationship to LangSmith</h3>
-<p>LangSmith remains the recommended tool for detailed <strong>trace-level</strong> observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides <strong>run-level</strong> usage summaries that persist on Activity records and do not require a LangSmith account.</p>
+<p>LangSmith remains the recommended tool for detailed <strong>trace-level</strong> observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides <strong>run-level</strong> usage summaries that persist on Run records and do not require a LangSmith account.</p>
 <hr />
 <h2 id="bash-command-policy-logs">Bash command policy logs</h2>
 <p>DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the <code>daiv.tools</code> logger.</p>
@@ -2575,7 +2547,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 8, 2026 22:04:47 UTC">July 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 10, 2026 16:47:27 UTC">July 10, 2026</span>
   </span>
 
     
@@ -2585,7 +2557,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 8, 2026 22:04:47 UTC">July 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 10, 2026 16:47:27 UTC">July 10, 2026</span>
   </span>
 
     

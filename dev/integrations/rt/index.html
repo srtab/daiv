@@ -572,14 +572,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/chat/" class="md-nav__link">
+      <a href="../../features/sessions/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Chat
+    Sessions
   
 
     
@@ -664,34 +664,6 @@
     
   
     MCP Endpoint
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../features/activity-tracking/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Activity Tracking
   
 
     
@@ -1778,8 +1750,8 @@
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>daiv-triage: submitted job &lt;uuid&gt; (batch &lt;uuid&gt;) for ticket &lt;id&gt; (queue=... repo=...)
 </code></pre></div></td></tr></table></div>
 <ol>
-<li>Open the DAIV <strong>Activity</strong> page and confirm a new <code>API_JOB</code> run exists for the target repo.</li>
-<li>Within a minute or two, an internal comment with the triage report should appear on the ticket. If it doesn't, check the Activity detail page — the agent may have errored mid-run or failed to post via the RT MCP.</li>
+<li>Open the DAIV <strong>Sessions</strong> page and confirm a new <code>API Run</code> session exists for the target repo.</li>
+<li>Within a minute or two, an internal comment with the triage report should appear on the ticket. If it doesn't, check the session detail page — the agent may have errored mid-run or failed to post via the RT MCP.</li>
 </ol>
 <h2 id="troubleshooting">Troubleshooting</h2>
 <table>
@@ -1819,7 +1791,7 @@
 <tr>
 <td><code>failed to submit job … &lt;non-2xx, non-429&gt;</code></td>
 <td>DAIV returned 4xx/5xx other than rate-limit</td>
-<td>Check the DAIV activity log and access log; the status line + body are captured</td>
+<td>Check the DAIV sessions list and access log; the status line + body are captured</td>
 </tr>
 <tr>
 <td><code>exception in triage scrip: daiv-triage timeout</code></td>
@@ -1834,7 +1806,7 @@
 <tr>
 <td>Job completes in DAIV but no comment on the ticket</td>
 <td>RT MCP auth user lacks comment rights on the queue, or MCP call errored</td>
-<td>Grant the MCP's RT user the <code>CommentOnTicket</code> right on the queue; inspect the run's tool calls in Activity</td>
+<td>Grant the MCP's RT user the <code>CommentOnTicket</code> right on the queue; inspect the run's tool calls in the session detail</td>
 </tr>
 </tbody>
 </table>
@@ -1870,7 +1842,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 8, 2026 22:04:47 UTC">July 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 10, 2026 16:47:27 UTC">July 10, 2026</span>
   </span>
 
     
@@ -1880,7 +1852,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 8, 2026 22:04:47 UTC">July 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 10, 2026 16:47:27 UTC">July 10, 2026</span>
   </span>
 
     

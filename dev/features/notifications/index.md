@@ -6,7 +6,7 @@ Notifications are per-user: each recipient gets their own copy, with delivery re
 
 ## What produces a notification
 
-DAIV emits a notification when an activity finishes. There are three event types:
+DAIV emits a notification when a run finishes. There are three event types:
 
 | Event                                         | When it fires                                                                                               | Recipients                                                                                                                         |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -120,9 +120,9 @@ When a run finishes, DAIV records the notification and one delivery row per exte
 
   Submit runs programmatically with a per-run `notify_on`.
 
-- **[Activity Tracking](https://srtab.github.io/daiv/dev/features/activity-tracking/index.md)**
+- **[Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md)**
 
-  Every notification links to the run or batch in the activity log.
+  Every notification links to the session or batch in the sessions list.
 
 - **[MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)**
 
