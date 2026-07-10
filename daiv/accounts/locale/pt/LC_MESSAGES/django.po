@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-15 23:55+0100\n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -23,11 +23,16 @@ msgstr "Contas"
 msgid "You cannot deactivate your own account."
 msgstr "Não pode desativar a sua própria conta."
 
-msgid "You are the last admin. Promote another user before changing your role."
-msgstr "É o último administrador. Promova outro utilizador antes de alterar o seu papel."
+msgid ""
+"You are the last admin. Promote another user before changing your role."
+msgstr ""
+"É o último administrador. Promova outro utilizador antes de alterar o seu "
+"papel."
 
 msgid "This is the last admin. Promote another user before demoting this one."
-msgstr "Este é o último administrador. Promova outro utilizador antes de despromover este."
+msgstr ""
+"Este é o último administrador. Promova outro utilizador antes de despromover"
+" este."
 
 msgid "Admin"
 msgstr "Administrador"
@@ -43,6 +48,14 @@ msgstr "nome"
 
 msgid "role"
 msgstr "papel"
+
+msgid "notify on jobs"
+msgstr "notificar em tarefas"
+
+msgid "When to receive notifications for agent runs you start (UI/API/MCP)."
+msgstr ""
+"Quando receber notificações para execuções do agente que iniciar "
+"(interface/API/MCP)."
 
 msgid "prefix"
 msgstr "prefixo"
@@ -63,16 +76,23 @@ msgid "Sign-In Code"
 msgstr "Código de Autenticação"
 
 msgid "Enter the code below in your open browser window to complete sign-in."
-msgstr "Introduza o código abaixo na janela do navegador para concluir a autenticação."
+msgstr ""
+"Introduza o código abaixo na janela do navegador para concluir a "
+"autenticação."
 
-msgid "This code expires in 5 minutes. If you did not request this, you can safely ignore this email."
-msgstr "Este código expira em 5 minutos. Se não solicitou este código, pode ignorar este email."
+msgid ""
+"This code expires in 5 minutes. If you did not request this, you can safely "
+"ignore this email."
+msgstr ""
+"Este código expira em 5 minutos. Se não solicitou este código, pode ignorar "
+"este email."
 
 msgid "Your sign-in code for DAIV is:"
 msgstr "O seu código de autenticação DAIV é:"
 
 msgid "Enter this code in your open browser window to complete sign-in."
-msgstr "Introduza este código na janela do navegador para concluir a autenticação."
+msgstr ""
+"Introduza este código na janela do navegador para concluir a autenticação."
 
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
@@ -80,8 +100,8 @@ msgstr "O Seu Código de Autenticação DAIV"
 msgid "Dashboard"
 msgstr "Painel"
 
-msgid "Activity"
-msgstr "Atividade"
+msgid "Sessions"
+msgstr "Sessões"
 
 #, python-format
 msgid "%(counter)s running"
@@ -91,6 +111,12 @@ msgstr[1] "%(counter)s em execução"
 
 msgid "Schedules"
 msgstr "Agendamentos"
+
+msgid "Sandbox environments"
+msgstr "Ambientes sandbox"
+
+msgid "Memory"
+msgstr "Memória"
 
 msgid "Account"
 msgstr "Conta"
@@ -107,11 +133,24 @@ msgstr "Utilizadores"
 msgid "Configuration"
 msgstr "Configuração"
 
+#| msgid "Schedules"
+msgid "Schedule templates"
+msgstr "Modelos de agendamento"
+
+msgid "Skills"
+msgstr "Competências"
+
+msgid "MCP servers"
+msgstr "Servidores MCP"
+
 msgid "API documentation"
 msgstr "Documentação da API"
 
 msgid "Sign out"
 msgstr "Terminar sessão"
+
+msgid "No users found."
+msgstr "Nenhum utilizador encontrado."
 
 msgid "Welcome to DAIV"
 msgstr "Bem-vindo ao DAIV"
@@ -127,8 +166,12 @@ msgstr "Olá, foi convidado por um administrador."
 msgid "<strong style=\"color: #111827;\">%(email)s</strong>"
 msgstr "<strong style=\"color: #111827;\">%(email)s</strong>"
 
-msgid "Sign in with a one-time code sent to your email, or use your GitHub or GitLab account if it's linked to the same email."
-msgstr "Autentique-se com um código único enviado para o seu email, ou use a sua conta GitHub ou GitLab se estiver associada ao mesmo email."
+msgid ""
+"Sign in with a one-time code sent to your email, or use your GitHub or "
+"GitLab account if it's linked to the same email."
+msgstr ""
+"Autentique-se com um código único enviado para o seu email, ou use a sua "
+"conta GitHub ou GitLab se estiver associada ao mesmo email."
 
 msgid "Sign in to DAIV"
 msgstr "Autenticar no DAIV"
@@ -151,8 +194,12 @@ msgstr "Foi convidado para o DAIV por um administrador."
 msgid "Sign in at %(url)s using your email (%(email)s)."
 msgstr "Autentique-se em %(url)s usando o seu email (%(email)s)."
 
-msgid "You can authenticate with a one-time code sent to your email, or use your GitHub or GitLab account if it's linked to the same email address."
-msgstr "Pode autenticar-se com um código único enviado para o seu email, ou usar a sua conta GitHub ou GitLab se estiver associada ao mesmo endereço de email."
+msgid ""
+"You can authenticate with a one-time code sent to your email, or use your "
+"GitHub or GitLab account if it's linked to the same email address."
+msgstr ""
+"Pode autenticar-se com um código único enviado para o seu email, ou usar a "
+"sua conta GitHub ou GitLab se estiver associada ao mesmo endereço de email."
 
 msgid "Open navigation"
 msgstr "Abrir navegação"
@@ -177,3 +224,6 @@ msgstr "Autorizar"
 
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
+
+#~ msgid "Activity"
+#~ msgstr "Atividade"

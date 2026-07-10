@@ -42,9 +42,9 @@ def dispatch_scheduled_jobs_cron_task():
     Each schedule is processed in its own savepoint so that one failure
     does not roll back updates for other schedules.
     """
-    from activity.models import TriggerType
-    from activity.services import RepoTarget, submit_batch_runs
     from sandbox_envs.services import resolve_repo_envs
+    from sessions.models import SessionOrigin
+    from sessions.services import RepoTarget, submit_batch_runs
 
     from codebase.authorization import RepositoryAccessDenied
 
@@ -75,7 +75,7 @@ def dispatch_scheduled_jobs_cron_task():
                         agent_model=schedule.agent_model,
                         agent_thinking_level=schedule.agent_thinking_level,
                         notify_on=None,
-                        trigger_type=TriggerType.SCHEDULE,
+                        trigger_type=SessionOrigin.SCHEDULE,
                         scheduled_job=schedule,
                     )
                     schedule.last_run_at = now

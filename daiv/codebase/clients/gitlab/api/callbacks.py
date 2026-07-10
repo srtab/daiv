@@ -2,10 +2,10 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
-from activity.models import TriggerType
-from activity.services import acreate_activity
 from gitlab.exceptions import GitlabError
 from sandbox_envs.services import resolve_env_for_run
+from sessions.models import SessionOrigin
+from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
@@ -128,8 +128,8 @@ class IssueCallback(BaseCallback):
         )
         daiv_user = await resolve_user("gitlab", self.user.id, username=self.user.username, email=self.user.email)
         try:
-            await acreate_activity(
-                trigger_type=TriggerType.ISSUE_WEBHOOK,
+            await acreate_run(
+                trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                 task_result_id=result.id,
                 repo_id=self.project.path_with_namespace,
                 issue_iid=self.object_attributes.iid,
@@ -142,9 +142,7 @@ class IssueCallback(BaseCallback):
             )
         except Exception:
             logger.exception(
-                "Failed to create activity for issue %s#%s",
-                self.project.path_with_namespace,
-                self.object_attributes.iid,
+                "Failed to create run for issue %s#%s", self.project.path_with_namespace, self.object_attributes.iid
             )
 
 
@@ -214,8 +212,8 @@ class NoteCallback(BaseCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
             try:
-                await acreate_activity(
-                    trigger_type=TriggerType.ISSUE_WEBHOOK,
+                await acreate_run(
+                    trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.project.path_with_namespace,
                     issue_iid=self.issue.iid,
@@ -229,9 +227,7 @@ class NoteCallback(BaseCallback):
                 )
             except Exception:
                 logger.exception(
-                    "Failed to create activity for issue comment %s#%s",
-                    self.project.path_with_namespace,
-                    self.issue.iid,
+                    "Failed to create run for issue comment %s#%s", self.project.path_with_namespace, self.issue.iid
                 )
 
         elif self.merge_request and self._is_merge_request_comment:
@@ -254,8 +250,8 @@ class NoteCallback(BaseCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
             try:
-                await acreate_activity(
-                    trigger_type=TriggerType.MR_WEBHOOK,
+                await acreate_run(
+                    trigger_type=SessionOrigin.MR_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.project.path_with_namespace,
                     ref=self.merge_request.source_branch,
@@ -270,7 +266,7 @@ class NoteCallback(BaseCallback):
                 )
             except Exception:
                 logger.exception(
-                    "Failed to create activity for MR comment %s#%s",
+                    "Failed to create run for MR comment %s#%s",
                     self.project.path_with_namespace,
                     self.merge_request.iid,
                 )

@@ -69,7 +69,7 @@ class MemoryDetailView(BreadcrumbMixin, LoginRequiredMixin, FilterView):
         return (
             MemoryObservation.objects
             .filter(repo_id=self.kwargs["repo_id"])
-            .select_related("activity")
+            .select_related("run")
             .order_by("-created_at")
         )
 

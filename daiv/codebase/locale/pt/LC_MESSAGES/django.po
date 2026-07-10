@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-04 22:34+0100\n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -79,3 +79,35 @@ msgstr "Métrica de Merge"
 
 msgid "Merge Metrics"
 msgstr "Métricas de Merge"
+
+msgid "Could not load branches."
+msgstr "Não foi possível carregar os ramos."
+
+msgid "No branches found."
+msgstr "Nenhum ramo encontrado."
+
+#| msgid "repository ID"
+msgid "Choose repository"
+msgstr "Escolher repositório"
+
+msgid "Search repositories..."
+msgstr "Pesquisar repositórios..."
+
+msgid "Search branches..."
+msgstr "Pesquisar ramos..."
+
+msgid "default"
+msgstr "predefinição"
+
+msgid "Repository already in the list: __LABEL__."
+msgstr "Repositório já na lista: __LABEL__."
+
+#| msgid "repository ID"
+msgid "Add repository"
+msgstr "Adicionar repositório"
+
+msgid "Could not load repositories."
+msgstr "Não foi possível carregar os repositórios."
+
+msgid "No repositories found."
+msgstr "Nenhum repositório encontrado."

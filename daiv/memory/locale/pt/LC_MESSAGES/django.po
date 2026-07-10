@@ -1,0 +1,170 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Memory"
+msgstr "Memória"
+
+msgid "Build & test"
+msgstr "Compilação e testes"
+
+msgid "Codebase fact"
+msgstr "Facto da base de código"
+
+msgid "Pitfall"
+msgstr "Armadilha"
+
+msgid "Reviewer preference"
+msgstr "Preferência do revisor"
+
+msgid "Workflow"
+msgstr "Fluxo de trabalho"
+
+msgid "Pending"
+msgstr "Pendente"
+
+msgid "Consolidated"
+msgstr "Consolidada"
+
+msgid "Discarded"
+msgstr "Descartada"
+
+msgid "repository"
+msgstr "repositório"
+
+msgid "run"
+msgstr "execução"
+
+msgid "category"
+msgstr "categoria"
+
+msgid "content"
+msgstr "conteúdo"
+
+msgid "status"
+msgstr "estado"
+
+msgid "created at"
+msgstr "criado em"
+
+msgid "Memory observation"
+msgstr "Observação de memória"
+
+msgid "Memory observations"
+msgstr "Observações de memória"
+
+msgid "last consolidated at"
+msgstr "última consolidação em"
+
+msgid "updated at"
+msgstr "atualizado em"
+
+msgid "Repository memory"
+msgstr "Memória do repositório"
+
+msgid "Repository memories"
+msgstr "Memórias do repositório"
+
+msgid "All"
+msgstr "Todas"
+
+msgid "Last consolidated"
+msgstr "Última consolidação"
+
+msgid "lines"
+msgstr "linhas"
+
+msgid "Never consolidated"
+msgstr "Nunca consolidada"
+
+msgid "Consolidate now"
+msgstr "Consolidar agora"
+
+msgid "Consolidated document"
+msgstr "Documento consolidado"
+
+#, python-format
+msgid "No consolidated document yet — %(n)s observation so far."
+msgid_plural "No consolidated document yet — %(n)s observations so far."
+msgstr[0] "Ainda sem documento consolidado — %(n)s observação até agora."
+msgstr[1] "Ainda sem documento consolidado — %(n)s observações até agora."
+
+msgid "Observations"
+msgstr "Observações"
+
+msgid "Status"
+msgstr "Estado"
+
+msgid "Category"
+msgstr "Categoria"
+
+msgid "View source run"
+msgstr "Ver execução de origem"
+
+msgid "No observations match the current filters."
+msgstr "Nenhuma observação corresponde aos filtros atuais."
+
+msgid "Learned memory captured from finished agent runs, per repository."
+msgstr ""
+"Memória aprendida capturada a partir de execuções concluídas do agente, por "
+"repositório."
+
+msgid ""
+"Memory capture is currently disabled site-wide. Existing data is shown "
+"below."
+msgstr ""
+"A captura de memória está atualmente desativada em todo o site. Os dados "
+"existentes são apresentados abaixo."
+
+msgid "Document"
+msgstr "Documento"
+
+msgid "No document"
+msgstr "Sem documento"
+
+#, python-format
+msgid "%(n)s pending"
+msgstr "%(n)s pendente(s)"
+
+#, python-format
+msgid "%(n)s observation"
+msgid_plural "%(n)s observations"
+msgstr[0] "%(n)s observação"
+msgstr[1] "%(n)s observações"
+
+msgid ""
+"No repository memory yet. Memory is captured automatically as agent runs "
+"finish."
+msgstr ""
+"Ainda sem memória do repositório. A memória é capturada automaticamente à "
+"medida que as execuções do agente terminam."
+
+msgid "Memory capture is disabled site-wide; consolidation was not queued."
+msgstr ""
+"A captura de memória está desativada em todo o site; a consolidação não foi "
+"colocada em fila."
+
+#, python-format
+msgid "Nothing to consolidate for %(repo)s — no pending observations."
+msgstr "Nada para consolidar em %(repo)s — sem observações pendentes."
+
+#, python-format
+msgid "Consolidation queued for %(repo)s (%(count)d pending observation(s))."
+msgstr ""
+"Consolidação em fila para %(repo)s (%(count)d observação(ões) pendente(s))."

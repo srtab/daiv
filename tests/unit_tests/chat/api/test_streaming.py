@@ -4,6 +4,10 @@ Covers the streaming-specific behavior the HTTP-level tests in test_views.py
 don't reach — most importantly the STATE_SNAPSHOT-driven ``last_mr`` capture
 that keeps the composer MR pill alive across reloads, and the run-slot
 lifecycle invariants.
+
+The Run-row lifecycle (``start_chat_run`` / ``finalize_chat_run``) is patched out
+here so these tests stay focused on the MR-capture + lock-release invariants; the
+Run helpers are covered directly in ``tests/unit_tests/sessions/test_chat_runs.py``.
 """
 
 from types import SimpleNamespace
@@ -14,6 +18,26 @@ from ag_ui.core.events import EventType, StateSnapshotEvent
 from ag_ui.encoder import EventEncoder
 
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
+
+
+@pytest.fixture(autouse=True)
+def _patch_run_lifecycle():
+    """Stub the Run-row helpers so streaming tests don't need a Session row in the DB."""
+
+    async def _fake_start(**_kwargs):
+        return SimpleNamespace(pk="run-pk")
+
+    async def _fake_finalize(*_args, **_kwargs):
+        return None
+
+    with (
+        patch("chat.api.streaming.start_chat_run", side_effect=_fake_start),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_fake_finalize),
+        # ``track_usage_metadata`` is a real contextmanager; keep it but with a no-op handler
+        # so ``build_usage_summary`` isn't exercised against a live callback here.
+        patch("chat.api.streaming.build_usage_summary", return_value=MagicMock(to_dict=lambda: None)),
+    ):
+        yield
 
 
 def _mock_ctx(*_args, **_kwargs):
@@ -78,9 +102,9 @@ async def test_events_captures_merge_request_from_state_snapshot_and_persists_re
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snapshot])),
-        patch("chat.api.streaming.ChatThreadService.persist_ref", side_effect=_capture_persist),
-        patch("chat.api.streaming.ChatThreadService.release_run", side_effect=_capture_release),
-        patch("chat.api.streaming.ChatThreadService.heartbeat", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
         streamer = _streamer()
         async for _ in streamer.events():
@@ -118,9 +142,9 @@ async def test_events_captures_latest_merge_request_when_multiple_snapshots():
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snap_first, snap_last])),
-        patch("chat.api.streaming.ChatThreadService.persist_ref", side_effect=_capture_persist),
-        patch("chat.api.streaming.ChatThreadService.release_run", new=AsyncMock()),
-        patch("chat.api.streaming.ChatThreadService.heartbeat", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
         async for _ in _streamer().events():
             pass
@@ -148,9 +172,9 @@ async def test_events_persists_none_when_no_state_snapshot_carries_merge_request
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snapshot_no_mr])),
-        patch("chat.api.streaming.ChatThreadService.persist_ref", side_effect=_capture_persist),
-        patch("chat.api.streaming.ChatThreadService.release_run", new=AsyncMock()),
-        patch("chat.api.streaming.ChatThreadService.heartbeat", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
         async for _ in _streamer().events():
             pass
@@ -191,9 +215,9 @@ async def test_events_skips_persist_ref_when_run_errored():
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
-        patch("chat.api.streaming.ChatThreadService.persist_ref", side_effect=_capture_persist),
-        patch("chat.api.streaming.ChatThreadService.release_run", side_effect=_capture_release),
-        patch("chat.api.streaming.ChatThreadService.heartbeat", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
         async for _ in _streamer().events():
             pass
@@ -220,14 +244,90 @@ async def test_events_releases_run_even_when_persist_ref_raises():
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
         patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
         patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-        patch("chat.api.streaming.ChatThreadService.persist_ref", side_effect=_persist_boom),
-        patch("chat.api.streaming.ChatThreadService.release_run", side_effect=_capture_release),
-        patch("chat.api.streaming.ChatThreadService.heartbeat", new=AsyncMock()),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_persist_boom),
+        patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
         async for _ in _streamer().events():
             pass
 
     assert release_calls == [("t-stream", "r-1")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_finalizes_failed_when_run_error_event_emitted():
+    """ag_ui surfaces an agent failure as a streamed RUN_ERROR event and returns
+    normally (no raise) — so the ``async for`` loop completes. The turn must still be
+    finalized FAILED with the error captured, not silently recorded SUCCESSFUL, and a
+    failed run must not pin the session ref.
+    """
+    from ag_ui.core.events import RunErrorEvent
+
+    err = RunErrorEvent(type=EventType.RUN_ERROR, message="boom in agent", code="run_failed")
+
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+        finalize_calls.append({"success": success, "error_message": error_message})
+
+    persist_calls: list = []
+
+    async def _capture_persist(*args):
+        persist_calls.append(args)
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([err])),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert len(finalize_calls) == 1
+    assert finalize_calls[0]["success"] is False
+    assert "boom in agent" in finalize_calls[0]["error_message"]
+    assert persist_calls == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_finalizes_failed_with_message_when_agent_raises():
+    """A raised agent error finalizes the Run FAILED *and* records an error_message
+    so the timeline shows a reason instead of a blank FAILED pill.
+    """
+
+    async def _events_then_boom():
+        raise RuntimeError("kaboom")
+        yield  # pragma: no cover - unreachable, makes this an async generator
+
+    runner = MagicMock()
+    runner.run = lambda _input: _events_then_boom()
+
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+        finalize_calls.append({"success": success, "error_message": error_message})
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert len(finalize_calls) == 1
+    assert finalize_calls[0]["success"] is False
+    assert finalize_calls[0]["error_message"]  # non-empty reason persisted
 
 
 class _FakeGraph:

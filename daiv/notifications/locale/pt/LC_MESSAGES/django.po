@@ -1,0 +1,301 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Notifications"
+msgstr "Notificações"
+
+msgid "Email"
+msgstr "Email"
+
+msgid "Rocket Chat is not configured."
+msgstr "O Rocket Chat não está configurado."
+
+msgid "Rocket Chat is temporarily unavailable. Please try again."
+msgstr "O Rocket Chat está temporariamente indisponível. Tente novamente."
+
+msgid "Rocket Chat returned an invalid response."
+msgstr "O Rocket Chat devolveu uma resposta inválida."
+
+msgid "Rocket Chat user not found."
+msgstr "Utilizador do Rocket Chat não encontrado."
+
+msgid "Rocket Chat"
+msgstr "Rocket Chat"
+
+msgid "Never"
+msgstr "Nunca"
+
+msgid "Always"
+msgstr "Sempre"
+
+msgid "On success only"
+msgstr "Apenas em caso de sucesso"
+
+msgid "On failure only"
+msgstr "Apenas em caso de falha"
+
+msgid "Pending"
+msgstr "Pendente"
+
+msgid "Sent"
+msgstr "Enviada"
+
+msgid "Failed"
+msgstr "Falhou"
+
+msgid "Skipped"
+msgstr "Ignorada"
+
+msgid "Job finished"
+msgstr "Tarefa terminada"
+
+msgid "Schedule finished"
+msgstr "Agendamento terminado"
+
+msgid "Job batch finished"
+msgstr "Lote de tarefas terminado"
+
+msgid "Username is required."
+msgstr "O nome de utilizador é obrigatório."
+
+msgid "recipient"
+msgstr "destinatário"
+
+msgid "event type"
+msgstr "tipo de evento"
+
+msgid "source type"
+msgstr "tipo de origem"
+
+msgid "source id"
+msgstr "id de origem"
+
+msgid "subject"
+msgstr "assunto"
+
+msgid "body"
+msgstr "corpo"
+
+msgid "link URL"
+msgstr "URL da ligação"
+
+msgid "context"
+msgstr "contexto"
+
+msgid "read at"
+msgstr "lida em"
+
+msgid "notification"
+msgstr "notificação"
+
+msgid "channel type"
+msgstr "tipo de canal"
+
+msgid "address"
+msgstr "endereço"
+
+msgid "status"
+msgstr "estado"
+
+msgid "attempts"
+msgstr "tentativas"
+
+msgid "last attempted at"
+msgstr "última tentativa em"
+
+msgid "delivered at"
+msgstr "entregue em"
+
+msgid "error message"
+msgstr "mensagem de erro"
+
+msgid "user"
+msgstr "utilizador"
+
+msgid "extra config"
+msgstr "configuração adicional"
+
+msgid "verified"
+msgstr "verificado"
+
+msgid "verified at"
+msgstr "verificado em"
+
+#, python-format
+msgid "%(repos)s and %(remaining)d more"
+msgstr "%(repos)s e mais %(remaining)d"
+
+#, python-format
+msgid "'%(name)s' succeeded on %(repo)s — %(owner)s"
+msgstr "'%(name)s' teve sucesso em %(repo)s — %(owner)s"
+
+#, python-format
+msgid "Scheduled run '%(name)s' by %(owner)s finished on %(repo)s."
+msgstr "A execução agendada '%(name)s' de %(owner)s terminou em %(repo)s."
+
+#, python-format
+msgid "'%(name)s' failed on %(repo)s — %(owner)s"
+msgstr "'%(name)s' falhou em %(repo)s — %(owner)s"
+
+#, python-format
+msgid "Scheduled run '%(name)s' by %(owner)s failed on %(repo)s."
+msgstr "A execução agendada '%(name)s' de %(owner)s falhou em %(repo)s."
+
+#, python-format
+msgid "Agent run on %(repo)s succeeded"
+msgstr "A execução do agente em %(repo)s teve sucesso"
+
+#, python-format
+msgid "Agent run on %(repo)s finished successfully."
+msgstr "A execução do agente em %(repo)s terminou com sucesso."
+
+#, python-format
+msgid "Agent run on %(repo)s failed"
+msgstr "A execução do agente em %(repo)s falhou"
+
+#, python-format
+msgid "Agent run on %(repo)s failed."
+msgstr "A execução do agente em %(repo)s falhou."
+
+#, python-format
+msgid "'%(name)s' batch succeeded (%(total)d runs) — %(owner)s"
+msgstr "O lote '%(name)s' teve sucesso (%(total)d execuções) — %(owner)s"
+
+#, python-format
+msgid "All %(total)d runs of '%(name)s' by %(owner)s finished successfully."
+msgstr ""
+"Todas as %(total)d execuções de '%(name)s' de %(owner)s terminaram com "
+"sucesso."
+
+#, python-format
+msgid "'%(name)s' batch failed (%(total)d runs) — %(owner)s"
+msgstr "O lote '%(name)s' falhou (%(total)d execuções) — %(owner)s"
+
+#, python-format
+msgid "All %(total)d runs of '%(name)s' by %(owner)s failed."
+msgstr "Todas as %(total)d execuções de '%(name)s' de %(owner)s falharam."
+
+#, python-format
+msgid "'%(name)s' batch: %(ok)d/%(total)d succeeded — %(owner)s"
+msgstr "Lote '%(name)s': %(ok)d/%(total)d com sucesso — %(owner)s"
+
+#, python-format
+msgid ""
+"%(ok)d of %(total)d runs of '%(name)s' by %(owner)s succeeded; %(failed)d "
+"failed."
+msgstr ""
+"%(ok)d de %(total)d execuções de '%(name)s' de %(owner)s tiveram sucesso; "
+"%(failed)d falharam."
+
+#, python-format
+msgid "Agent run batch succeeded (%(total)d runs)"
+msgstr "O lote de execuções do agente teve sucesso (%(total)d execuções)"
+
+#, python-format
+msgid "All %(total)d runs on %(repos)s finished successfully."
+msgstr "Todas as %(total)d execuções em %(repos)s terminaram com sucesso."
+
+#, python-format
+msgid "Agent run batch failed (%(total)d runs)"
+msgstr "O lote de execuções do agente falhou (%(total)d execuções)"
+
+#, python-format
+msgid "All %(total)d runs on %(repos)s failed."
+msgstr "Todas as %(total)d execuções em %(repos)s falharam."
+
+#, python-format
+msgid "Agent run batch finished: %(ok)d/%(total)d succeeded"
+msgstr "Lote de execuções do agente terminado: %(ok)d/%(total)d com sucesso"
+
+#, python-format
+msgid "%(ok)d of %(total)d runs on %(repos)s succeeded; %(failed)d failed."
+msgstr ""
+"%(ok)d de %(total)d execuções em %(repos)s tiveram sucesso; %(failed)d "
+"falharam."
+
+msgid "Loading…"
+msgstr "A carregar…"
+
+msgid "View all"
+msgstr "Ver tudo"
+
+msgid "No notifications yet."
+msgstr "Ainda não há notificações."
+
+msgid "Notification settings"
+msgstr "Definições de notificações"
+
+msgid "ago"
+msgstr "atrás"
+
+msgid "Notification channels"
+msgstr "Canais de notificação"
+
+msgid ""
+"Configure how DAIV reaches you. More channels will appear here as they are "
+"added."
+msgstr ""
+"Configure como o DAIV o contacta. Mais canais aparecerão aqui à medida que "
+"forem adicionados."
+
+msgid "Not configured"
+msgstr "Não configurado"
+
+msgid "Verified"
+msgstr "Verificado"
+
+msgid "Unverified"
+msgstr "Não verificado"
+
+msgid "Disconnect"
+msgstr "Desligar"
+
+msgid "Connect"
+msgstr "Ligar"
+
+msgid "Status"
+msgstr "Estado"
+
+msgid "Trigger"
+msgstr "Acionador"
+
+msgid "Repository"
+msgstr "Repositório"
+
+msgid "Duration"
+msgstr "Duração"
+
+msgid "View full result"
+msgstr "Ver resultado completo"
+
+msgid "Mark all as read"
+msgstr "Marcar tudo como lido"
+
+msgid "Settings"
+msgstr "Definições"
+
+msgid "All"
+msgstr "Tudo"
+
+msgid "Unread"
+msgstr "Não lidas"
+
+msgid "Read"
+msgstr "Lidas"

@@ -2,8 +2,8 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from activity.models import Activity
 from django_tasks_db.models import DBTaskResult, get_date_max
+from sessions.models import Run, Session
 
 from codebase.clients.github.api.callbacks import IssueCallback, IssueCommentCallback
 from codebase.clients.github.api.models import Comment, Issue, Label, PullRequest, Ref, Repository, User
@@ -55,7 +55,7 @@ def test_pull_request_has_max_label_false_when_absent():
 
 
 # ---------------------------------------------------------------------------
-# End-to-end: ``process_callback`` persists ``use_max`` on the Activity row.
+# End-to-end: ``process_callback`` persists model-pair on the Run row.
 # ---------------------------------------------------------------------------
 
 
@@ -99,9 +99,11 @@ def _stub_github(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "labels, expected", [([Label(id=1, name="daiv-max")], True), ([Label(id=1, name="daiv")], False)]
+    "labels, expect_max_model", [([Label(id=1, name="daiv-max")], True), ([Label(id=1, name="daiv")], False)]
 )
-async def test_issue_callback_persists_use_max(_stub_github, labels, expected):
+async def test_issue_callback_persists_agent_model(_stub_github, labels, expect_max_model):
+    from core.site_settings import site_settings
+
     task_id = await _make_db_task_result()
     callback = IssueCallback(
         action="opened",
@@ -113,16 +115,23 @@ async def test_issue_callback_persists_use_max(_stub_github, labels, expected):
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
         await callback.process_callback()
 
-    activity = await Activity.objects.aget(task_result_id=task_id)
-    assert activity.use_max is expected
+    run = await Run.objects.aget(task_result_id=task_id)
+    if expect_max_model:
+        assert run.agent_model == site_settings.agent_max_model_name
+        assert run.agent_thinking_level == site_settings.agent_max_thinking_level
+    else:
+        assert run.agent_model == ""
+        assert run.agent_thinking_level == ""
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "labels, expected", [([Label(id=1, name="daiv-max")], True), ([Label(id=1, name="daiv")], False)]
+    "labels, expect_max_model", [([Label(id=1, name="daiv-max")], True), ([Label(id=1, name="daiv")], False)]
 )
-async def test_issue_comment_callback_persists_use_max(_stub_github, labels, expected):
+async def test_issue_comment_callback_persists_agent_model(_stub_github, labels, expect_max_model):
+    from core.site_settings import site_settings
+
     task_id = await _make_db_task_result()
     callback = IssueCommentCallback(
         action="created",
@@ -137,16 +146,21 @@ async def test_issue_comment_callback_persists_use_max(_stub_github, labels, exp
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
         await callback.process_callback()
 
-    activity = await Activity.objects.aget(task_result_id=task_id)
-    assert activity.use_max is expected
+    run = await Run.objects.aget(task_result_id=task_id)
+    if expect_max_model:
+        assert run.agent_model == site_settings.agent_max_model_name
+    else:
+        assert run.agent_model == ""
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "labels, expected", [([Label(id=1, name="daiv-max")], True), ([Label(id=1, name="daiv")], False)]
+    "labels, expect_max_model", [([Label(id=1, name="daiv-max")], True), ([Label(id=1, name="daiv")], False)]
 )
-async def test_pr_comment_callback_persists_use_max(_stub_github, labels, expected):
+async def test_pr_comment_callback_persists_agent_model(_stub_github, labels, expect_max_model):
+    from core.site_settings import site_settings
+
     task_id = await _make_db_task_result()
     # GitHub webhooks treat PR comments as Issue comments, so ``issue`` here carries the PR-stub dict.
     pr_stub_issue = _issue(labels, pull_request={"url": "https://example/pr/1"})
@@ -163,5 +177,38 @@ async def test_pr_comment_callback_persists_use_max(_stub_github, labels, expect
         mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
         await callback.process_callback()
 
-    activity = await Activity.objects.aget(task_result_id=task_id)
-    assert activity.use_max is expected
+    run = await Run.objects.aget(task_result_id=task_id)
+    if expect_max_model:
+        assert run.agent_model == site_settings.agent_max_model_name
+    else:
+        assert run.agent_model == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_two_issue_events_share_one_session(_stub_github):
+    """Two callbacks for the same issue produce ONE Session and TWO Runs."""
+    from codebase.base import Scope
+    from codebase.utils import compute_thread_id
+
+    issue_number = 77
+    repo = "acme/two-event-repo"
+    thread_id = compute_thread_id(repo_slug=repo, scope=Scope.ISSUE, entity_iid=issue_number)
+
+    for _n in range(2):
+        task_id = await _make_db_task_result()
+        callback = IssueCallback(
+            action="opened",
+            repository=Repository(id=1, full_name=repo, default_branch="main"),
+            issue=_issue([Label(id=1, name="daiv")]),
+            sender=User(id=2, login="reviewer"),
+        )
+        callback.issue = _issue([Label(id=1, name="daiv")])
+        with patch("codebase.clients.github.api.callbacks.address_issue_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task_id))
+            # Patch compute_thread_id to use our specific repo/issue
+            with patch("codebase.clients.github.api.callbacks.compute_thread_id", return_value=thread_id):
+                await callback.process_callback()
+
+    assert await Session.objects.filter(thread_id=thread_id).acount() == 1
+    assert await Run.objects.filter(session_id=thread_id).acount() == 2

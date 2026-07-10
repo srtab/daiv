@@ -27,10 +27,10 @@ def test_dispatch_stamps_explicit_env_on_targets(member_user):
 
     fake_result = MagicMock()
     fake_result.batch_id = uuid.uuid4()
-    fake_result.activities = []
+    fake_result.runs = []
     fake_result.failed = []
 
-    with patch("activity.services.submit_batch_runs", return_value=fake_result) as submit:
+    with patch("sessions.services.submit_batch_runs", return_value=fake_result) as submit:
         dispatch_scheduled_jobs_cron_task.func()
 
     assert submit.call_count == 1
@@ -60,10 +60,10 @@ def test_dispatch_auto_resolves_to_global_default(member_user):
 
     fake_result = MagicMock()
     fake_result.batch_id = uuid.uuid4()
-    fake_result.activities = []
+    fake_result.runs = []
     fake_result.failed = []
 
-    with patch("activity.services.submit_batch_runs", return_value=fake_result) as submit:
+    with patch("sessions.services.submit_batch_runs", return_value=fake_result) as submit:
         dispatch_scheduled_jobs_cron_task.func()
 
     targets = submit.call_args.kwargs["repos"]
@@ -93,10 +93,10 @@ def test_dispatch_auto_resolves_user_env_for_schedule_owner(member_user):
 
     fake_result = MagicMock()
     fake_result.batch_id = uuid.uuid4()
-    fake_result.activities = []
+    fake_result.runs = []
     fake_result.failed = []
 
-    with patch("activity.services.submit_batch_runs", return_value=fake_result) as submit:
+    with patch("sessions.services.submit_batch_runs", return_value=fake_result) as submit:
         dispatch_scheduled_jobs_cron_task.func()
 
     targets = submit.call_args.kwargs["repos"]
@@ -120,10 +120,10 @@ def test_dispatch_auto_with_no_envs_stays_none(member_user):
 
     fake_result = MagicMock()
     fake_result.batch_id = uuid.uuid4()
-    fake_result.activities = []
+    fake_result.runs = []
     fake_result.failed = []
 
-    with patch("activity.services.submit_batch_runs", return_value=fake_result) as submit:
+    with patch("sessions.services.submit_batch_runs", return_value=fake_result) as submit:
         dispatch_scheduled_jobs_cron_task.func()
 
     targets = submit.call_args.kwargs["repos"]

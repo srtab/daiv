@@ -537,7 +537,7 @@ class TestProcessCallbackThreadId:
 
         with (
             patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task,
-            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run") as mock_activity,
             patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
@@ -560,7 +560,7 @@ class TestProcessCallbackThreadId:
 
         with (
             patch("codebase.clients.gitlab.api.callbacks.address_mr_comments_task") as mock_task,
-            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run") as mock_activity,
             patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
@@ -607,7 +607,7 @@ class TestProcessCallbackThreadId:
 
         with (
             patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task,
-            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run") as mock_activity,
             patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
@@ -630,7 +630,7 @@ class TestProcessCallbackSandboxEnvironment:
 
         with (
             patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task,
-            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run") as mock_activity,
             patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
@@ -649,7 +649,7 @@ class TestProcessCallbackSandboxEnvironment:
 
         with (
             patch("codebase.clients.gitlab.api.callbacks.address_mr_comments_task") as mock_task,
-            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run") as mock_activity,
             patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):
@@ -667,7 +667,7 @@ class TestProcessCallbackSandboxEnvironment:
 
         with (
             patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task,
-            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run") as mock_activity,
             patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=None)),
         ):
@@ -710,7 +710,7 @@ class TestProcessCallbackSandboxEnvironment:
 
         with (
             patch("codebase.clients.gitlab.api.callbacks.address_issue_task") as mock_task,
-            patch("codebase.clients.gitlab.api.callbacks.acreate_activity") as mock_activity,
+            patch("codebase.clients.gitlab.api.callbacks.acreate_run") as mock_activity,
             patch("codebase.clients.gitlab.api.callbacks.resolve_user", new=AsyncMock(return_value=None)),
             patch("codebase.clients.gitlab.api.callbacks.resolve_env_for_run", new=AsyncMock(return_value=env_row)),
         ):

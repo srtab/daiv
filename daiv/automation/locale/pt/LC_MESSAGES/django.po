@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-04 22:34+0100\n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -19,3 +19,42 @@ msgstr ""
 
 msgid "Automation"
 msgstr "Automação"
+
+msgid ""
+"This model is no longer available — start a new thread to pick another."
+msgstr ""
+"Este modelo já não está disponível — inicie um novo tópico para escolher "
+"outro."
+
+msgid "Locked for this conversation"
+msgstr "Bloqueado para esta conversa"
+
+msgid "Pick a model"
+msgstr "Selecionar um modelo"
+
+msgid "This model is no longer available — pick another."
+msgstr "Este modelo já não está disponível — escolha outro."
+
+msgid "Provider"
+msgstr "Fornecedor"
+
+msgid "No enabled providers — configure one in the Providers section."
+msgstr "Nenhum fornecedor ativado — configure um na secção Fornecedores."
+
+msgid "Model name…"
+msgstr "Nome do modelo…"
+
+msgid "Loading models…"
+msgstr "A carregar modelos…"
+
+msgid "No models match"
+msgstr "Nenhum modelo corresponde"
+
+msgid "Use exact name:"
+msgstr "Usar o nome exato:"
+
+msgid "Effort"
+msgstr "Esforço"
+
+msgid "Use default"
+msgstr "Usar predefinição"

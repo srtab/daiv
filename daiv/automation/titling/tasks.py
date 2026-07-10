@@ -85,22 +85,22 @@ def _invoke_titler(structured_llm, *, prompt: str, repo_id: str = "", ref: str =
 
 @task()
 def generate_title_task(
-    entity_type: Literal["chat_thread", "activity"], pk: str, prompt: str, repo_id: str, ref: str = ""
+    entity_type: Literal["session", "run"], pk: str, prompt: str, repo_id: str, ref: str = ""
 ) -> None:
-    """Overwrite a ChatThread/Activity title with an LLM-generated one.
+    """Overwrite a Session/Run title with an LLM-generated one.
 
     Failures propagate to django-tasks (which logs + marks the task failed); the
-    title set synchronously remains (heuristic for chat threads, possibly empty
-    for prompt-driven activities).
+    title set synchronously remains (heuristic for chat sessions, possibly empty
+    for prompt-driven runs).
     """
-    if entity_type == "chat_thread":
-        from chat.models import ChatThread
+    if entity_type == "session":
+        from sessions.models import Session
 
-        model_cls = ChatThread
+        model_cls = Session
     else:
-        from activity.models import Activity
+        from sessions.models import Run
 
-        model_cls = Activity
+        model_cls = Run
 
     try:
         entity = model_cls.objects.get(pk=pk)
@@ -132,13 +132,14 @@ def generate_title_task(
 
 @task()
 def generate_batch_title_task(batch_id: str, prompt: str) -> None:
-    """Generate a single LLM title for an Activity batch and apply it to every untitled member.
+    """Generate a single LLM title for a Run batch and apply it to every untitled member.
 
-    One LLM call per batch instead of one per activity. Repo/ref context is omitted because batch
+    One LLM call per batch instead of one per run. Repo/ref context is omitted because batch
     members typically span repos. Only rows with an empty ``title`` are updated, so synchronous
-    titles (e.g. scheduled-run templates) are preserved.
+    titles (e.g. scheduled-run templates) are preserved. The same title is stamped on each
+    affected run's Session when the session title is still empty.
     """
-    from activity.models import Activity
+    from sessions.models import Run, Session
 
     try:
         structured_llm = _build_structured_llm()
@@ -150,13 +151,16 @@ def generate_batch_title_task(batch_id: str, prompt: str) -> None:
         return
 
     title = _invoke_titler(
-        structured_llm, prompt=prompt, run_metadata={"entity_type": "activity_batch", "batch_id": batch_id}
+        structured_llm, prompt=prompt, run_metadata={"entity_type": "run_batch", "batch_id": batch_id}
     )
 
-    updated = Activity.objects.by_batch(batch_id).filter(title="").update(title=title)
+    updated = Run.objects.filter(batch_id=batch_id, title="").update(title=title)
+    # Backfill the parent session title too — a fresh batch creates one session per run,
+    # each with an empty title until this titler lands.
+    Session.objects.filter(runs__batch_id=batch_id, title="").update(title=title)
     if updated == 0:
         logger.warning(
             "generate_batch_title_task: no rows updated for batch_id=%s (stale batch or all already titled)", batch_id
         )
     else:
-        logger.info("generate_batch_title_task: updated %d activities for batch_id=%s", updated, batch_id)
+        logger.info("generate_batch_title_task: updated %d runs for batch_id=%s", updated, batch_id)

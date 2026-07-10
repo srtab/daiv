@@ -10,8 +10,17 @@ logger = logging.getLogger("daiv.accounts")
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
-    "activity": {"activity_list", "activity_detail", "activity_stream", "activity_download_md", "agent_run_new"},
-    "chat": {"chat_list", "chat_new", "chat_detail"},
+    "sessions": {
+        "session_list",
+        "session_new",
+        "session_new_chat",
+        "session_detail",
+        "session_stream",
+        "session_run_download_md",
+        # ``runs`` namespace (include(..., namespace="runs")) — match.view_name is prefixed,
+        # so the bare name would never highlight the sidebar on the "Start a run" page.
+        "runs:agent_run_new",
+    },
     "schedules": {
         "schedule_list",
         "schedule_create",
@@ -68,10 +77,10 @@ def running_jobs_count(request, user) -> int:
     if cached is not None:
         return cached
 
-    from activity.models import Activity, ActivityStatus  # local import to avoid circulars
+    from sessions.models import Run, RunStatus  # local import to avoid circulars
 
     try:
-        running = Activity.objects.visible_to(user).filter(status=ActivityStatus.RUNNING).count()
+        running = Run.objects.visible_to(user).filter(status=RunStatus.RUNNING).count()
     except DatabaseError:
         logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
         running = 0

@@ -329,6 +329,32 @@ class TestRedactDiffContent:
         redacted = redact_diff_content(diff, ("*.lock",))
         assert "x = 2" in redacted
 
+    def test_redacts_omitted_file_alongside_hunkless_empty_file_section(self):
+        """A hunkless empty-file-add section (``diff --git`` + ``new file mode`` + ``index``, no ``@@``)
+        co-present with an omitted file must not derail redaction — this is the security property the
+        ``_append_untracked`` canonical-diff fix guarantees. Before that fix the empty-file section was
+        followed by an injected blank line, which made ``unidiff`` abort the whole parse; redaction was
+        then skipped and the ``*.lock`` content leaked unredacted to the diff-to-metadata model.
+        """
+        diff = (
+            # hunkless empty-file addition, butted directly against the next section (canonical output)
+            "diff --git a/__init__.py b/__init__.py\n"
+            "new file mode 100644\n"
+            "index 0000000..e69de29\n"
+            "diff --git a/secrets.lock b/secrets.lock\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/secrets.lock\n"
+            "+++ b/secrets.lock\n"
+            "@@ -1 +1 @@\n"
+            "-old secret\n"
+            "+new secret\n"
+        )
+        redacted = redact_diff_content(diff, ("*.lock",))
+        assert "old secret" not in redacted
+        assert "new secret" not in redacted
+        assert "intentionally excluded" in redacted
+        assert "__init__.py" in redacted  # the empty-file section survives untouched
+
     def test_tolerates_truncated_diff(self, caplog):
         """A diff cut mid-hunk (truncated upstream, then folded onto a later file section) must not raise.
 

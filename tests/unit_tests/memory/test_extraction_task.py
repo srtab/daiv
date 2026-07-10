@@ -2,11 +2,11 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from activity.models import Activity, ActivityStatus, TriggerType
 from langchain_core.messages import AIMessage, HumanMessage
 from memory.models import MemoryObservation, ObservationStatus
 from memory.schemas import ExtractedObservation, ExtractedObservations
 from memory.tasks import extract_observations_task
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 
 def _enabled_config(enabled=True):
@@ -53,15 +53,15 @@ def _structured_llm_returning(observations=None, *, error=None):
     return llm
 
 
-async def _create_activity(**kwargs):
-    defaults = {
-        "trigger_type": TriggerType.API_JOB,
-        "repo_id": "group/project",
-        "status": ActivityStatus.SUCCESSFUL,
-        "thread_id": "thread-1",
-    }
+async def _create_run(**kwargs):
+    session = await Session.objects.acreate(
+        thread_id=kwargs.pop("thread_id", "thread-1"),
+        origin=SessionOrigin.API_JOB,
+        repo_id=kwargs.get("repo_id", "group/project"),
+    )
+    defaults = {"trigger_type": SessionOrigin.API_JOB, "repo_id": "group/project", "status": RunStatus.SUCCESSFUL}
     defaults.update(kwargs)
-    return await Activity.objects.acreate(**defaults)
+    return await Run.objects.acreate(session=session, **defaults)
 
 
 TRANSCRIPT = [HumanMessage(content="fix the bug"), AIMessage(content="done, ran make test")]
@@ -69,7 +69,7 @@ TRANSCRIPT = [HumanMessage(content="fix the bug"), AIMessage(content="done, ran 
 
 @pytest.mark.django_db(transaction=True)
 async def test_extraction_creates_observation_rows():
-    activity = await _create_activity()
+    run = await _create_run()
     extracted = [
         ExtractedObservation(category="build_test", content="`make test` needs LANGCHAIN_TRACING_V2=false set"),
         ExtractedObservation(category="pitfall", content="editing pyproject.toml directly breaks uv lock sync"),
@@ -81,18 +81,18 @@ async def test_extraction_creates_observation_rows():
         patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning(extracted)),
     ):
         cfg.get_config.return_value = _enabled_config()
-        await extract_observations_task.func(str(activity.pk))
+        await extract_observations_task.func(str(run.pk))
 
     rows = [obs async for obs in MemoryObservation.objects.filter(repo_id="group/project")]
     assert len(rows) == 2
     assert all(row.status == ObservationStatus.PENDING for row in rows)
-    assert all(row.activity_id == activity.pk for row in rows)
+    assert all(row.run_id == run.pk for row in rows)
     assert {row.category for row in rows} == {"build_test", "pitfall"}
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_extraction_skips_when_checkpoint_expired():
-    activity = await _create_activity()
+    run = await _create_run()
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
@@ -100,7 +100,7 @@ async def test_extraction_skips_when_checkpoint_expired():
         patch("memory.tasks._build_structured_llm") as build,
     ):
         cfg.get_config.return_value = _enabled_config()
-        await extract_observations_task.func(str(activity.pk))  # must not raise
+        await extract_observations_task.func(str(run.pk))  # must not raise
 
     build.assert_not_called()
     assert await MemoryObservation.objects.acount() == 0
@@ -110,7 +110,7 @@ async def test_extraction_skips_when_checkpoint_expired():
 async def test_extraction_warns_when_checkpoint_has_no_messages(caplog):
     # A present checkpoint with an empty message list is a defect signature, distinct from
     # a missing/expired checkpoint: it skips like the expired case but logs at WARNING.
-    activity = await _create_activity()
+    run = await _create_run()
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
@@ -119,7 +119,7 @@ async def test_extraction_warns_when_checkpoint_has_no_messages(caplog):
         caplog.at_level("WARNING", logger="daiv.memory"),
     ):
         cfg.get_config.return_value = _enabled_config()
-        await extract_observations_task.func(str(activity.pk))  # must not raise
+        await extract_observations_task.func(str(run.pk))  # must not raise
 
     build.assert_not_called()
     assert await MemoryObservation.objects.acount() == 0
@@ -128,7 +128,7 @@ async def test_extraction_warns_when_checkpoint_has_no_messages(caplog):
 
 @pytest.mark.django_db(transaction=True)
 async def test_extraction_respects_daiv_yml_flag():
-    activity = await _create_activity()
+    run = await _create_run()
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
@@ -136,7 +136,7 @@ async def test_extraction_respects_daiv_yml_flag():
         patch("memory.tasks._build_structured_llm") as build,
     ):
         cfg.get_config.return_value = _enabled_config(enabled=False)
-        await extract_observations_task.func(str(activity.pk))
+        await extract_observations_task.func(str(run.pk))
 
     build.assert_not_called()
     assert await MemoryObservation.objects.acount() == 0
@@ -154,7 +154,7 @@ async def test_extraction_respects_daiv_yml_flag():
     ids=["with_fallback", "drops_empty_fallback"],
 )
 async def test_extraction_uses_configured_models(fallback_model, expected_models):
-    activity = await _create_activity()
+    run = await _create_run()
     extracted = [ExtractedObservation(category="build_test", content="`make test` needs the DB up first")]
 
     with (
@@ -169,7 +169,7 @@ async def test_extraction_uses_configured_models(fallback_model, expected_models
         ),
     ):
         cfg.get_config.return_value = _enabled_config()
-        await extract_observations_task.func(str(activity.pk))
+        await extract_observations_task.func(str(run.pk))
 
     _schema, models = build.call_args.args
     assert tuple(models) == expected_models
@@ -179,7 +179,7 @@ async def test_extraction_uses_configured_models(fallback_model, expected_models
 async def test_extraction_noop_when_no_model_configured():
     # Both model and fallback empty (only reachable via an empty-string env override) → clean skip,
     # not an IndexError crash in _build_structured_llm.
-    activity = await _create_activity()
+    run = await _create_run()
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
@@ -191,7 +191,7 @@ async def test_extraction_noop_when_no_model_configured():
         ),
     ):
         cfg.get_config.return_value = _enabled_config()
-        await extract_observations_task.func(str(activity.pk))  # must not raise
+        await extract_observations_task.func(str(run.pk))  # must not raise
 
     build.assert_not_called()
     assert await MemoryObservation.objects.acount() == 0
@@ -200,7 +200,7 @@ async def test_extraction_noop_when_no_model_configured():
 @pytest.mark.django_db(transaction=True)
 async def test_extraction_noop_when_site_disabled():
     # Repo flag is on, but the instance-wide master switch is off → must not run.
-    activity = await _create_activity()
+    run = await _create_run()
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
@@ -209,29 +209,37 @@ async def test_extraction_noop_when_site_disabled():
         patch("memory.tasks.site_settings", _site_settings(memory_enabled=False)),
     ):
         cfg.get_config.return_value = _enabled_config(enabled=True)
-        await extract_observations_task.func(str(activity.pk))
+        await extract_observations_task.func(str(run.pk))
 
     build.assert_not_called()
     assert await MemoryObservation.objects.acount() == 0
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_extraction_handles_missing_activity():
+async def test_extraction_handles_missing_run():
     with patch("memory.tasks.RepositoryConfig") as cfg:
         await extract_observations_task.func("00000000-0000-0000-0000-000000000000")  # must not raise
         cfg.get_config.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_extraction_skips_activity_without_thread_id():
-    activity = await _create_activity(thread_id=None)
+async def test_extraction_skips_run_without_session_id():
+    run = await _create_run()
+    # Patch the queryset to return a run with no session_id.
+    # Run is imported locally inside extract_observations_task, so patch via sessions.models.
+    run.session_id = None
 
-    with patch("memory.tasks.RepositoryConfig") as cfg, patch("memory.tasks._build_structured_llm") as build:
-        await extract_observations_task.func(str(activity.pk))  # must not raise
+    with patch("sessions.models.Run") as mock_run:
+        mock_qs = MagicMock()
+        mock_qs.afirst = AsyncMock(return_value=run)
+        mock_run.objects.filter.return_value = mock_qs
 
-    cfg.get_config.assert_not_called()  # bails before loading config
-    build.assert_not_called()
-    assert await MemoryObservation.objects.acount() == 0
+        with patch("memory.tasks.RepositoryConfig") as cfg, patch("memory.tasks._build_structured_llm") as build:
+            await extract_observations_task.func(str(run.pk))  # must not raise
+
+        cfg.get_config.assert_not_called()  # bails before loading config
+        build.assert_not_called()
+        assert await MemoryObservation.objects.acount() == 0
 
 
 @pytest.mark.django_db(transaction=True)
@@ -239,7 +247,7 @@ async def test_extraction_noop_when_model_spec_invalid():
     # A bad/unparseable extraction model spec raises ValueError; it must be swallowed (clean skip),
     # not crash the task. The hardcoded extraction models raise this in a deployment without the
     # OpenAI/Anthropic provider rows configured (regression guard for C1).
-    activity = await _create_activity()
+    run = await _create_run()
 
     with (
         patch("memory.tasks.RepositoryConfig") as cfg,
@@ -247,7 +255,7 @@ async def test_extraction_noop_when_model_spec_invalid():
         patch("memory.tasks._build_structured_llm", side_effect=ValueError("Unknown/Unsupported provider for model")),
     ):
         cfg.get_config.return_value = _enabled_config()
-        await extract_observations_task.func(str(activity.pk))  # must not raise
+        await extract_observations_task.func(str(run.pk))  # must not raise
 
     assert await MemoryObservation.objects.acount() == 0
 
@@ -257,7 +265,7 @@ async def test_extraction_propagates_llm_failure_without_partial_writes():
     # The extraction ainvoke is deliberately unguarded: a transient/validation failure must propagate
     # (task FAILED, no retry — that run's signal is lost) and write nothing partial. Distinct from the
     # model-misconfig precondition, which IS skipped silently.
-    activity = await _create_activity()
+    run = await _create_run()
     failing_llm = _structured_llm_returning(error=RuntimeError("upstream 500"))
 
     with (
@@ -267,6 +275,6 @@ async def test_extraction_propagates_llm_failure_without_partial_writes():
         pytest.raises(RuntimeError),
     ):
         cfg.get_config.return_value = _enabled_config()
-        await extract_observations_task.func(str(activity.pk))
+        await extract_observations_task.func(str(run.pk))
 
     assert await MemoryObservation.objects.acount() == 0

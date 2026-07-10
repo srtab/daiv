@@ -1,6 +1,7 @@
 import uuid
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -27,7 +28,10 @@ class Notification(TimeStampedModel):
     subject = models.CharField(_("subject"), max_length=255)
     body = models.TextField(_("body"))
     link_url = models.CharField(_("link URL"), max_length=500, blank=True, default="")
-    context = models.JSONField(_("context"), default=dict, blank=True)
+    # DjangoJSONEncoder (not the stock encoder) so payload builders can put
+    # gettext_lazy proxies, datetimes, Decimals, and UUIDs in the context without each
+    # call site remembering to coerce — the alternative was a silent save failure.
+    context = models.JSONField(_("context"), default=dict, blank=True, encoder=DjangoJSONEncoder)
     read_at = models.DateTimeField(_("read at"), null=True, blank=True)
 
     class Meta:

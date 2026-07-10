@@ -1,0 +1,495 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "On"
+msgstr "Ligado"
+
+msgid "Off"
+msgstr "Desligado"
+
+msgid "Only administrators can create global environments."
+msgstr "Apenas os administradores podem criar ambientes globais."
+
+msgid "env_vars must be valid JSON."
+msgstr "env_vars tem de ser JSON válido."
+
+msgid "env_vars must be a list."
+msgstr "env_vars tem de ser uma lista."
+
+#, python-format
+msgid "Too many environment variables (max %d)."
+msgstr "Demasiadas variáveis de ambiente (máx. %d)."
+
+#, python-format
+msgid "env_vars entry at index %d must be an object."
+msgstr "A entrada env_vars no índice %d tem de ser um objeto."
+
+#, python-format
+msgid "Invalid env var name '%(name)s' at index %(idx)d."
+msgstr "Nome de variável de ambiente inválido '%(name)s' no índice %(idx)d."
+
+#, python-format
+msgid "Duplicate env var name '%s'."
+msgstr "Nome de variável de ambiente duplicado '%s'."
+
+msgid "repo_ids must be valid JSON."
+msgstr "repo_ids tem de ser JSON válido."
+
+msgid "repo_ids must be a list."
+msgstr "repo_ids tem de ser uma lista."
+
+#, python-format
+msgid "repo_ids[%d] must be a string."
+msgstr "repo_ids[%d] tem de ser uma string."
+
+#, python-format
+msgid "repo_ids[%d] cannot be blank."
+msgstr "repo_ids[%d] não pode estar em branco."
+
+#, python-format
+msgid ""
+"Invalid repo id '%(value)s' at index %(idx)d. Use a slash-separated path "
+"like 'owner/repo' or 'group/subgroup/repo'."
+msgstr ""
+"ID de repositório inválido '%(value)s' no índice %(idx)d. Use um caminho "
+"separado por barras, como 'owner/repo' ou 'group/subgroup/repo'."
+
+msgid "Egress policy must be valid JSON."
+msgstr "A política de egress tem de ser JSON válido."
+
+msgid "Egress policy must be an object."
+msgstr "A política de egress tem de ser um objeto."
+
+msgid "Egress default must be 'deny' or 'allow'."
+msgstr "A predefinição de egress tem de ser 'deny' ou 'allow'."
+
+msgid "Egress hosts must be a list."
+msgstr "Os hosts de egress têm de ser uma lista."
+
+#, python-format
+msgid "Egress host at index %d must be an object."
+msgstr "O host de egress no índice %d tem de ser um objeto."
+
+#, python-format
+msgid "Egress host at index %d cannot be blank."
+msgstr "O host de egress no índice %d não pode estar em branco."
+
+#, python-format
+msgid "Invalid credential header name at index %d."
+msgstr "Nome de cabeçalho de credencial inválido no índice %d."
+
+#, python-format
+msgid "Credential value at index %d must not contain newlines."
+msgstr "O valor da credencial no índice %d não pode conter quebras de linha."
+
+msgid "Enter a memory value or switch back to default."
+msgstr "Introduza um valor de memória ou volte à predefinição."
+
+msgid "Enter a CPU value or switch back to default."
+msgstr "Introduza um valor de CPU ou volte à predefinição."
+
+msgid ""
+"Network is On but the egress policy permits nothing. Add at least one "
+"allowed host, set the default to allow, or switch Network to Off."
+msgstr ""
+"A rede está Ligada mas a política de egress não permite nada. Adicione pelo "
+"menos um host permitido, defina a predefinição como allow ou desligue a "
+"rede."
+
+msgid ""
+"Existing egress secrets could not be decrypted. Re-enter all credential "
+"values before saving, or restore DAIV_ENCRYPTION_KEY."
+msgstr ""
+"Não foi possível desencriptar os segredos de egress existentes. Volte a "
+"introduzir todos os valores de credencial antes de guardar, ou restaure a "
+"DAIV_ENCRYPTION_KEY."
+
+msgid ""
+"Existing environment variables could not be decrypted. Re-enter all secret "
+"values before saving, or restore DAIV_ENCRYPTION_KEY."
+msgstr ""
+"Não foi possível desencriptar as variáveis de ambiente existentes. Volte a "
+"introduzir todos os valores secretos antes de guardar, ou restaure a "
+"DAIV_ENCRYPTION_KEY."
+
+msgid "User"
+msgstr "Utilizador"
+
+msgid "Global"
+msgstr "Global"
+
+msgid "name"
+msgstr "nome"
+
+msgid "description"
+msgstr "descrição"
+
+msgid "base image"
+msgstr "imagem base"
+
+msgid "memory (bytes)"
+msgstr "memória (bytes)"
+
+msgid "CPUs"
+msgstr "CPUs"
+
+msgid "repo ids"
+msgstr "repo ids"
+
+msgid "is default"
+msgstr "é predefinição"
+
+msgid "egress policy"
+msgstr "política de egress"
+
+msgid "Set another global environment as default before deleting this one."
+msgstr ""
+"Defina outro ambiente global como predefinição antes de eliminar este."
+
+msgid "Name is required."
+msgstr "O nome é obrigatório."
+
+msgid "Base image is required."
+msgstr "A imagem base é obrigatória."
+
+msgid "Environment variables exceed 32 KiB encrypted."
+msgstr "As variáveis de ambiente excedem 32 KiB encriptadas."
+
+msgid ""
+"Existing environment variables could not be decrypted. Re-enter all secret "
+"values, or restore DAIV_ENCRYPTION_KEY."
+msgstr ""
+"Não foi possível desencriptar as variáveis de ambiente existentes. Volte a "
+"introduzir todos os valores secretos, ou restaure a DAIV_ENCRYPTION_KEY."
+
+#, python-format
+msgid "Duplicate repo id '%s' in this env."
+msgstr "ID de repositório duplicado '%s' neste ambiente."
+
+#, python-format
+msgid "Repo id(s) %(repos)s already claimed by environment '%(name)s'."
+msgstr ""
+"ID(s) de repositório %(repos)s já reclamado(s) pelo ambiente '%(name)s'."
+
+msgid "Egress secrets exceed 32 KiB encrypted."
+msgstr "Os segredos de egress excedem 32 KiB encriptados."
+
+msgid ""
+"Existing egress secrets could not be decrypted. Re-enter all secret values, "
+"or restore DAIV_ENCRYPTION_KEY."
+msgstr ""
+"Não foi possível desencriptar os segredos de egress existentes. Volte a "
+"introduzir todos os valores secretos, ou restaure a DAIV_ENCRYPTION_KEY."
+
+msgid "Egress secrets must be an object."
+msgstr "Os segredos de egress têm de ser um objeto."
+
+#, python-format
+msgid "Too many egress rules (max %d)."
+msgstr "Demasiadas regras de egress (máx. %d)."
+
+#, python-format
+msgid "Too many egress secrets (max %d)."
+msgstr "Demasiados segredos de egress (máx. %d)."
+
+#, python-format
+msgid "Invalid egress configuration: %s"
+msgstr "Configuração de egress inválida: %s"
+
+#, python-format
+msgid ""
+"The egress secret name '%s' is reserved for DAIV's git-platform credential."
+msgstr ""
+"O nome de segredo de egress '%s' está reservado para a credencial da "
+"plataforma git do DAIV."
+
+msgid "Sandbox environment no longer exists."
+msgstr "O ambiente sandbox já não existe."
+
+msgid "Only GLOBAL environments can be marked as default."
+msgstr "Apenas os ambientes GLOBAL podem ser marcados como predefinição."
+
+#, python-format
+msgid "Delete environment \"%(name)s\"?"
+msgstr "Eliminar o ambiente \"%(name)s\"?"
+
+msgid ""
+"This is the current global default. Promote another global environment as "
+"default before deleting."
+msgstr ""
+"Esta é a predefinição global atual. Promova outro ambiente global a "
+"predefinição antes de eliminar."
+
+msgid "Delete"
+msgstr "Eliminar"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "New sandbox environment"
+msgstr "Novo ambiente sandbox"
+
+msgid "Edit sandbox environment"
+msgstr "Editar ambiente sandbox"
+
+msgid "Delete sandbox environment"
+msgstr "Eliminar ambiente sandbox"
+
+msgid "Create an environment without leaving this page."
+msgstr "Crie um ambiente sem sair desta página."
+
+msgid "Edit without leaving this page."
+msgstr "Edite sem sair desta página."
+
+msgid "Confirm deletion of this environment."
+msgstr "Confirme a eliminação deste ambiente."
+
+msgid "Close"
+msgstr "Fechar"
+
+msgid "Something went wrong. Check the connection and try again."
+msgstr "Algo correu mal. Verifique a ligação e tente novamente."
+
+msgid "Retry"
+msgstr "Tentar novamente"
+
+msgid "Import"
+msgstr "Importar"
+
+#, python-brace-format
+msgid "Import {n} vars"
+msgstr "Importar {n} variáveis"
+
+msgid "Paste .env contents"
+msgstr "Cole o conteúdo do .env"
+
+msgid ""
+"Lines like KEY=value are imported. Comments (#) and blank lines are skipped."
+msgstr ""
+"Linhas como KEY=value são importadas. Comentários (#) e linhas em branco são"
+" ignorados."
+
+msgid "vars parsed"
+msgstr "variáveis analisadas"
+
+msgid "invalid lines skipped"
+msgstr "linhas inválidas ignoradas"
+
+msgid "Merge — skip names that already exist"
+msgstr "Combinar — ignorar nomes que já existem"
+
+msgid "Replace all current variables"
+msgstr "Substituir todas as variáveis atuais"
+
+msgid "Auto"
+msgstr "Automático"
+
+msgid "Locked for this conversation"
+msgstr "Bloqueado para esta conversa"
+
+msgid "Search environments…"
+msgstr "Procurar ambientes…"
+
+msgid "Resolved at runtime from the selected repo."
+msgstr "Resolvido em tempo de execução a partir do repositório selecionado."
+
+msgid ""
+"Auto resolution order: 1) your env whose repo list matches; 2) a shared env "
+"whose repo list matches; 3) the shared default."
+msgstr ""
+"Ordem de resolução automática: 1) o seu ambiente cuja lista de repositórios "
+"corresponde; 2) um ambiente partilhado cuja lista de repositórios "
+"corresponde; 3) a predefinição partilhada."
+
+msgid "How Auto picks an environment"
+msgstr "Como o modo Automático escolhe um ambiente"
+
+msgid "Resolves to a matching env (else global default)"
+msgstr "Resolve para um ambiente correspondente (senão a predefinição global)"
+
+msgid "No environments match"
+msgstr "Nenhum ambiente corresponde"
+
+msgid "New environment"
+msgstr "Novo ambiente"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Description"
+msgstr "Descrição"
+
+msgid "Scope"
+msgstr "Âmbito"
+
+msgid "Personal"
+msgstr "Pessoal"
+
+msgid "Shared with everyone"
+msgstr "Partilhado com todos"
+
+msgid "Base image"
+msgstr "Imagem base"
+
+msgid "Try:"
+msgstr "Experimente:"
+
+msgid "Invalid name"
+msgstr "Nome inválido"
+
+msgid "Duplicate name"
+msgstr "Nome duplicado"
+
+msgid "Environment variables"
+msgstr "Variáveis de ambiente"
+
+msgid "Paste .env"
+msgstr "Colar .env"
+
+msgid "🔒 keep existing"
+msgstr "🔒 manter existente"
+
+msgid "value"
+msgstr "valor"
+
+msgid "Secret"
+msgstr "Secreto"
+
+msgid "Plain"
+msgstr "Simples"
+
+msgid "Remove"
+msgstr "Remover"
+
+msgid "Add variable"
+msgstr "Adicionar variável"
+
+msgid "Repositories"
+msgstr "Repositórios"
+
+msgid ""
+"When a run targets one of these repositories and the user has selected Auto,"
+" this environment is used."
+msgstr ""
+"Quando uma execução tem como alvo um destes repositórios e o utilizador "
+"selecionou Automático, este ambiente é utilizado."
+
+msgid "Add"
+msgstr "Adicionar"
+
+msgid "Network"
+msgstr "Rede"
+
+msgid "Duplicate host"
+msgstr "Host duplicado"
+
+msgid "Network access"
+msgstr "Acesso à rede"
+
+msgid ""
+"Restricts which hosts the sandbox can reach. With Default set to deny, only "
+"the listed hosts are reachable — plus this environment's own git platform, "
+"which DAIV always allows for git operations. Leave the list empty to apply "
+"no egress policy; to block all outbound access, set Network to off."
+msgstr ""
+"Restringe quais os hosts que o sandbox pode alcançar. Com a predefinição "
+"definida como deny, apenas os hosts listados são alcançáveis — além da "
+"própria plataforma git deste ambiente, que o DAIV permite sempre para "
+"operações git. Deixe a lista vazia para não aplicar nenhuma política de "
+"egress; para bloquear todo o acesso de saída, desligue a rede."
+
+msgid "Unlisted hosts"
+msgstr "Hosts não listados"
+
+msgid "Deny"
+msgstr "Negar"
+
+msgid "Allow"
+msgstr "Permitir"
+
+msgid "All hosts reachable unless a rule restricts them."
+msgstr "Todos os hosts são alcançáveis a menos que uma regra os restrinja."
+
+msgid "Allowed hosts"
+msgstr "Hosts permitidos"
+
+msgid "All methods"
+msgstr "Todos os métodos"
+
+msgid "Read-only"
+msgstr "Apenas leitura"
+
+msgid "– credential"
+msgstr "– credencial"
+
+msgid "+ credential"
+msgstr "+ credencial"
+
+msgid "Add host"
+msgstr "Adicionar host"
+
+msgid "Resources"
+msgstr "Recursos"
+
+msgid "Inherits memory and CPUs from the global default. Click to override."
+msgstr ""
+"Herda a memória e os CPUs da predefinição global. Clique para substituir."
+
+msgid "Memory"
+msgstr "Memória"
+
+msgid "Unconstrained"
+msgstr "Sem limite"
+
+msgid "Use default"
+msgstr "Usar predefinição"
+
+msgid "Custom"
+msgstr "Personalizado"
+
+msgid "Save"
+msgstr "Guardar"
+
+msgid "default"
+msgstr "predefinição"
+
+msgid "Edit"
+msgstr "Editar"
+
+msgid "Make default"
+msgstr "Definir como predefinição"
+
+msgid "No global environments yet."
+msgstr "Ainda não há ambientes globais."
+
+msgid "No personal environments yet."
+msgstr "Ainda não há ambientes pessoais."
+
+msgid "Sandbox Environments"
+msgstr "Ambientes Sandbox"
+
+msgid "Reusable sandbox configurations for agent runs."
+msgstr "Configurações de sandbox reutilizáveis para execuções do agente."
+
+msgid "Global environments"
+msgstr "Ambientes globais"
+
+msgid "My environments"
+msgstr "Os meus ambientes"

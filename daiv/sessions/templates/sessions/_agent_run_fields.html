@@ -1,0 +1,45 @@
+{% load i18n %}
+{% translate "Repository already in the list: __LABEL__." as conflict_message_template %}
+
+<div x-data='promptBox({
+        initialRepos: {{ form.repos.value|default:"[]" }},
+        maxRepos: 20,
+        repoPickerUrl: "{% url 'codebase:picker-repositories' %}",
+        branchPickerTemplate: "{% url 'codebase:picker-branches' slug='__SLUG__' %}",
+        conflictMessageTemplate: "{{ conflict_message_template|escapejs }}"
+     })'
+     class="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] transition-colors focus-within:border-white/[0.18]">
+
+    <label for="id_prompt" class="sr-only">{% translate "Prompt" %}</label>
+
+    <textarea name="prompt" id="id_prompt" rows="2" required
+              x-ref="prompt"
+              @input="autosize($el)"
+              x-init="$nextTick(() => autosize($refs.prompt))"
+              @keydown.meta.enter.prevent="$el.form?.requestSubmit()"
+              @keydown.ctrl.enter.prevent="$el.form?.requestSubmit()"
+              placeholder="{% translate 'Describe what the agent should do in each run...' %}"
+              class="block w-full resize-none !border-0 !bg-transparent !px-5 !pt-4 !pb-3 !text-[15px] !text-white placeholder-gray-500 focus:!ring-0">{{ form.prompt.value|default:'' }}</textarea>
+
+    <div class="border-t border-white/[0.05]"></div>
+
+    <div class="flex items-center justify-between gap-3 px-3 py-2">
+
+        <div class="flex flex-wrap items-center gap-1.5">
+            {% if with_env_picker %}
+                {% include "sandbox_envs/_env_picker.html" with envs=env_picker_envs selected_id=env_picker_selected_id field_name="sandbox_environment" %}
+            {% endif %}
+            {% include "automation/_agent_picker.html" with providers=agent_picker_providers initial_agent_model=agent_picker_initial_model initial_model_display=agent_picker_initial_model_display initial_thinking_level=agent_picker_initial_thinking stale=agent_picker_stale_model default_model=agent_picker_default_model default_thinking=agent_picker_default_thinking %}
+            {% include "codebase/_repo_picker.html" with with_x_data=False initial_repos=form.repos.value|default:"[]" max_repos=20 show_conflict_message=False required=repos_required %}
+        </div>
+    </div>
+
+    <ul {% if not form.prompt.errors and not form.repos.errors and not form.agent_model.errors and not form.agent_thinking_level.errors %}x-show="conflictMessage" x-cloak{% endif %}
+        class="border-t border-white/[0.05] px-4 py-2.5 text-sm text-red-400">
+        {% for err in form.prompt.errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in form.repos.errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in form.agent_model.errors %}<li>{{ err }}</li>{% endfor %}
+        {% for err in form.agent_thinking_level.errors %}<li>{{ err }}</li>{% endfor %}
+        <li x-show="conflictMessage" x-cloak x-text="conflictMessage"></li>
+    </ul>
+</div>

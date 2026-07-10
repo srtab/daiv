@@ -7,13 +7,13 @@
     </span>
     <div class="flex items-center gap-2">
         {% if page_obj.has_previous %}
-        <a href="?{{ qs }}page={{ page_obj.previous_page_number }}"
+        <a href="?{{ qs }}page={{ page_obj.previous_page_number }}"{% if paginate_swap %} data-page-swap{% endif %}
            class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
             &larr; Previous
         </a>
         {% endif %}
         {% if page_obj.has_next %}
-        <a href="?{{ qs }}page={{ page_obj.next_page_number }}"
+        <a href="?{{ qs }}page={{ page_obj.next_page_number }}"{% if paginate_swap %} data-page-swap{% endif %}
            class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-sm font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
             Next &rarr;
         </a>

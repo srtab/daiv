@@ -1,4 +1,4 @@
-{% load i18n activity_tags %}{{ notification.subject }}
+{% load i18n session_tags %}{{ notification.subject }}
 {% spaceless %}={% for _ in notification.subject %}={% endfor %}{% endspaceless %}
 
 {{ notification.body }}

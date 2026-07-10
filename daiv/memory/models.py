@@ -25,13 +25,13 @@ class MemoryObservation(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo_id = models.CharField(_("repository"), max_length=255, db_index=True)
-    activity = models.ForeignKey(
-        "activity.Activity",
+    run = models.ForeignKey(
+        "agent_sessions.Run",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="memory_observations",
-        verbose_name=_("activity"),
+        verbose_name=_("run"),
     )
     category = models.CharField(_("category"), max_length=32, choices=ObservationCategory.choices)
     content = models.TextField(_("content"))

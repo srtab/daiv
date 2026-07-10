@@ -112,14 +112,11 @@ def mock_generate_title_task():
     Patching the module-level binding at each import site (rather than the frozen
     ``Task`` instance) avoids ``patch.object`` teardown issues on slotted dataclasses.
     """
-    with (
-        patch("activity.services.generate_batch_title_task") as m1,
-        patch("chat.models.generate_title_task") as m2,
-        patch("chat.api.threads.generate_title_task") as m3,
-    ):
-        for m in (m1, m2, m3):
-            m.aenqueue = AsyncMock(return_value=None)
-        yield m1
+    with patch("chat.api.threads.generate_title_task") as m3:
+        m3.aenqueue = AsyncMock(return_value=None)
+        with patch("sessions.services.generate_batch_title_task") as m1:
+            m1.aenqueue = AsyncMock(return_value=None)
+            yield m1
 
 
 @pytest.fixture(autouse=True)
@@ -214,11 +211,12 @@ def mock_repo_authorization():
     themselves; otherwise they will see ``[]`` against an empty test catalog.
     """
     with (
-        patch("activity.services.aassert_can_run", new=AsyncMock(return_value=None)),
+        patch("sessions.services.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("jobs.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("mcp_server.server.aassert_can_run", new=AsyncMock(return_value=None)),
         patch("chat.api.views.aassert_can_run", new=AsyncMock(return_value=None)),
-        patch("activity.forms.assert_can_run", new=Mock(return_value=None)),
+        patch("sessions.forms.assert_can_run", new=Mock(return_value=None)),
+        patch("sessions.views.can_run", new=Mock(return_value=True)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.viewable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),

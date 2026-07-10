@@ -10,10 +10,10 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from activity.services import validate_repo_list
 from croniter import croniter
 from django_extensions.db.models import TimeStampedModel
 from notifications.choices import NotifyOn
+from sessions.services import validate_repo_list
 
 from automation.agent.display import MODEL_NAME_MAX_LEN, display_model_name, display_thinking_level
 from core.models import ThinkingLevelChoices

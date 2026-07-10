@@ -1,0 +1,53 @@
+{% extends "base_app.html" %}
+{% load i18n icon_tags %}
+
+{% block title %}New — DAIV{% endblock %}
+
+{% block container_width %}max-w-3xl{% endblock %}
+
+{% block breadcrumb %}{% include "accounts/_breadcrumb.html" %}{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up">
+  <h1 class="text-2xl font-bold tracking-tight">{% translate "Start something new" %}</h1>
+  <p class="mt-1.5 text-[15px] font-light text-gray-400">
+    {% translate "Two ways to put the agent to work — pick the one that fits." %}
+  </p>
+
+  <div class="mt-6 grid gap-4 sm:grid-cols-2">
+    {# Chat — work with the agent #}
+    <a href="{% url 'session_new_chat' %}"
+       data-testid="new-chat-card"
+       class="group flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-colors hover:border-white/[0.14] hover:bg-white/[0.04]">
+      <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-500/10 text-teal-300 ring-1 ring-inset ring-teal-500/20">
+        {% icon "chat-bubble" "h-5 w-5" %}
+      </span>
+      <h2 class="mt-4 text-[16px] font-semibold text-white">{% translate "Chat" %}</h2>
+      <p class="mt-0.5 text-sm font-medium text-teal-300/90">{% translate "Work with the agent" %}</p>
+      <p class="mt-2 text-[14px] font-light leading-relaxed text-gray-400">
+        {% translate "Collaborate live and iterate turn by turn, steering as it goes. Best for exploring or shaping a change in a single repository." %}
+      </p>
+      <span class="mt-4 inline-flex items-center gap-1 text-sm font-medium text-gray-300 transition-transform group-hover:translate-x-0.5">
+        {% translate "Start a chat" %} <span aria-hidden="true">&rarr;</span>
+      </span>
+    </a>
+
+    {# Run — hand off a task #}
+    <a href="{% url 'runs:agent_run_new' %}"
+       data-testid="new-run-card"
+       class="group flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 transition-colors hover:border-white/[0.14] hover:bg-white/[0.04]">
+      <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-300 ring-1 ring-inset ring-indigo-500/20">
+        {% icon "bolt" "h-5 w-5" %}
+      </span>
+      <h2 class="mt-4 text-[16px] font-semibold text-white">{% translate "Run" %}</h2>
+      <p class="mt-0.5 text-sm font-medium text-indigo-300/90">{% translate "Hand off a task" %}</p>
+      <p class="mt-2 text-[14px] font-light leading-relaxed text-gray-400">
+        {% translate "Describe a well-specified task and let it run in the background — get notified when it's done. Works across one or many repositories, or on a schedule." %}
+      </p>
+      <span class="mt-4 inline-flex items-center gap-1 text-sm font-medium text-gray-300 transition-transform group-hover:translate-x-0.5">
+        {% translate "Start a run" %} <span aria-hidden="true">&rarr;</span>
+      </span>
+    </a>
+  </div>
+</div>
+{% endblock app_content %}

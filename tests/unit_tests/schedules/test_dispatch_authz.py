@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from activity.models import Activity
+from sessions.models import Run
 
 from codebase.authorization import RepositoryAccessDenied
 from schedules.models import Frequency, ScheduledJob
@@ -32,14 +32,14 @@ def due_schedule(member_user):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_dispatch_denied_owner_advances_without_activities(due_schedule, caplog):
+def test_dispatch_denied_owner_advances_without_runs(due_schedule, caplog):
     # ``daiv.schedules`` is the logger name used by daiv/schedules/tasks.py.
     caplog.set_level(logging.WARNING, logger="daiv.schedules")
-    with patch("activity.services.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
+    with patch("sessions.services.aassert_can_run", new=AsyncMock(side_effect=RepositoryAccessDenied(["a/b"]))):
         dispatch_scheduled_jobs_cron_task.func()
 
     due_schedule.refresh_from_db()
-    assert Activity.objects.count() == 0
+    assert Run.objects.count() == 0
     assert due_schedule.next_run_at > datetime.now(tz=UTC)  # advanced, not hot-looping
     assert due_schedule.is_enabled  # not disabled — access may come back
 

@@ -2,11 +2,11 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
-from activity.models import TriggerType
-from activity.services import acreate_activity
 from asgiref.sync import sync_to_async
 from github.GithubException import GithubException
 from sandbox_envs.services import resolve_env_for_run
+from sessions.models import SessionOrigin
+from sessions.services import acreate_run
 
 from accounts.utils import resolve_user
 from codebase.api.callbacks import BaseCallback
@@ -113,8 +113,8 @@ class IssueCallback(GitHubCallback):
         )
         daiv_user = await resolve_user("github", self.sender.id, username=self.sender.username)
         try:
-            await acreate_activity(
-                trigger_type=TriggerType.ISSUE_WEBHOOK,
+            await acreate_run(
+                trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                 task_result_id=result.id,
                 repo_id=self.repository.full_name,
                 issue_iid=self.issue.number,
@@ -126,7 +126,7 @@ class IssueCallback(GitHubCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
         except Exception:
-            logger.exception("Failed to create activity for issue %s#%s", self.repository.full_name, self.issue.number)
+            logger.exception("Failed to create run for issue %s#%s", self.repository.full_name, self.issue.number)
 
 
 class IssueCommentCallback(GitHubCallback):
@@ -191,8 +191,8 @@ class IssueCommentCallback(GitHubCallback):
                 sandbox_environment_id=sandbox_environment_id,
             )
             try:
-                await acreate_activity(
-                    trigger_type=TriggerType.ISSUE_WEBHOOK,
+                await acreate_run(
+                    trigger_type=SessionOrigin.ISSUE_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.repository.full_name,
                     issue_iid=self.issue.number,
@@ -206,7 +206,7 @@ class IssueCommentCallback(GitHubCallback):
                 )
             except Exception:
                 logger.exception(
-                    "Failed to create activity for issue comment %s#%s", self.repository.full_name, self.issue.number
+                    "Failed to create run for issue comment %s#%s", self.repository.full_name, self.issue.number
                 )
 
         elif self._is_merge_request_review:
@@ -239,8 +239,8 @@ class IssueCommentCallback(GitHubCallback):
                     "Failed to resolve source branch for PR comment %s#%s", self.repository.full_name, self.issue.number
                 )
             try:
-                await acreate_activity(
-                    trigger_type=TriggerType.MR_WEBHOOK,
+                await acreate_run(
+                    trigger_type=SessionOrigin.MR_WEBHOOK,
                     task_result_id=result.id,
                     repo_id=self.repository.full_name,
                     ref=source_branch,
@@ -255,7 +255,7 @@ class IssueCommentCallback(GitHubCallback):
                 )
             except Exception:
                 logger.exception(
-                    "Failed to create activity for PR comment %s#%s", self.repository.full_name, self.issue.number
+                    "Failed to create run for PR comment %s#%s", self.repository.full_name, self.issue.number
                 )
 
     @property

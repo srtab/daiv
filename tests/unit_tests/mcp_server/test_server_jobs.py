@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
@@ -6,13 +7,30 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
-from activity.models import Activity, ActivityStatus, TriggerType
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
 
 
 async def _user(username):
     return await User.objects.acreate_user(username=username, email=f"{username}@e.com", password="x")  # noqa: S106
+
+
+async def _session(user, *, repo_id="a/b", thread_id=None):
+    return await Session.objects.acreate(
+        thread_id=thread_id or str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, user=user, repo_id=repo_id
+    )
+
+
+async def _run(session, *, status=RunStatus.QUEUED, **kwargs):
+    return await Run.objects.acreate(
+        session=session,
+        user=session.user,
+        repo_id=session.repo_id,
+        trigger_type=SessionOrigin.MCP_JOB,
+        status=status,
+        **kwargs,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -33,13 +51,8 @@ async def test_list_jobs_returns_user_jobs_and_excludes_result_summary():
     from mcp_server.server import list_jobs
 
     user = await _user("lj1")
-    await Activity.objects.acreate(
-        user=user,
-        repo_id="a/b",
-        status=ActivityStatus.SUCCESSFUL,
-        trigger_type=TriggerType.MCP_JOB,
-        result_summary="secret detail",
-    )
+    sess = await _session(user)
+    await _run(sess, status=RunStatus.SUCCESSFUL, result_summary="secret detail")
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs()
     assert data["next_cursor"] is None
@@ -55,10 +68,9 @@ async def test_list_jobs_truncates_and_caps():
     from mcp_server.server import list_jobs
 
     user = await _user("lj2")
+    sess = await _session(user)
     for _ in range(3):
-        await Activity.objects.acreate(
-            user=user, repo_id="a/b", status=ActivityStatus.READY, trigger_type=TriggerType.MCP_JOB
-        )
+        await _run(sess)
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(limit=2)
     assert len(data["jobs"]) == 2
@@ -72,18 +84,15 @@ async def test_list_jobs_cursor_paginates_without_overlap():
 
     user = await _user("lj_pg")
     now = timezone.now()
+    sess = await _session(user)
     created = []
     for _ in range(5):
-        created.append(
-            await Activity.objects.acreate(
-                user=user, repo_id="a/b", status=ActivityStatus.READY, trigger_type=TriggerType.MCP_JOB
-            )
-        )
+        created.append(await _run(sess))
     # Give each a distinct created_at so ordering is deterministic. created[0] gets the
     # latest timestamp (now - 0min), so created is already in newest-first order.
-    for offset, act in enumerate(created):
-        await Activity.objects.filter(pk=act.pk).aupdate(created_at=now - timedelta(minutes=offset))
-    expected = [str(a.id) for a in created]  # newest first
+    for offset, run in enumerate(created):
+        await Run.objects.filter(pk=run.pk).aupdate(created_at=now - timedelta(minutes=offset))
+    expected = [str(r.id) for r in created]  # newest first
 
     seen: list[str] = []
     cursor = None
@@ -106,15 +115,12 @@ async def test_list_jobs_cursor_tie_break_on_same_created_at():
 
     user = await _user("lj_tie")
     same = timezone.now()
+    sess = await _session(user)
     created = []
     for _ in range(4):
-        created.append(
-            await Activity.objects.acreate(
-                user=user, repo_id="a/b", status=ActivityStatus.READY, trigger_type=TriggerType.MCP_JOB
-            )
-        )
-    for act in created:
-        await Activity.objects.filter(pk=act.pk).aupdate(created_at=same)
+        created.append(await _run(sess))
+    for run in created:
+        await Run.objects.filter(pk=run.pk).aupdate(created_at=same)
 
     seen: list[str] = []
     cursor = None
@@ -126,7 +132,7 @@ async def test_list_jobs_cursor_tie_break_on_same_created_at():
             if cursor is None:
                 break
 
-    assert sorted(seen) == sorted(str(a.id) for a in created)
+    assert sorted(seen) == sorted(str(r.id) for r in created)
     assert len(seen) == len(set(seen))  # each row exactly once
 
 
@@ -143,7 +149,7 @@ async def test_list_jobs_invalid_cursor_returns_error():
 
 @pytest.mark.django_db(transaction=True)
 async def test_list_jobs_wrong_tool_or_bad_id_cursor_returns_invalid():
-    """A decodable cursor whose id can't coerce to Activity's UUID PK (e.g. a schedules
+    """A decodable cursor whose id can't coerce to Run's UUID PK (e.g. a schedules
     cursor with an integer id, or plain junk) must be reported as "Invalid cursor." at decode
     time — not deferred to the ORM where the generic handler mislabels it as transient."""
     from mcp_server.server import _encode_cursor, list_jobs
@@ -169,16 +175,13 @@ async def test_list_jobs_orders_newest_first():
     from mcp_server.server import list_jobs
 
     user = await _user("lj3")
-    older = await Activity.objects.acreate(
-        user=user, repo_id="a/b", status=ActivityStatus.READY, trigger_type=TriggerType.MCP_JOB
-    )
-    newer = await Activity.objects.acreate(
-        user=user, repo_id="a/b", status=ActivityStatus.READY, trigger_type=TriggerType.MCP_JOB
-    )
+    sess = await _session(user)
+    older = await _run(sess)
+    newer = await _run(sess)
     # created_at is auto_now_add, so nudge it explicitly to make ordering observable.
     now = timezone.now()
-    await Activity.objects.filter(pk=older.pk).aupdate(created_at=now - timedelta(hours=1))
-    await Activity.objects.filter(pk=newer.pk).aupdate(created_at=now)
+    await Run.objects.filter(pk=older.pk).aupdate(created_at=now - timedelta(hours=1))
+    await Run.objects.filter(pk=newer.pk).aupdate(created_at=now)
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs()
     assert [j["job_id"] for j in data["jobs"]] == [str(newer.id), str(older.id)]
@@ -189,10 +192,9 @@ async def test_list_jobs_not_truncated_at_exact_limit():
     from mcp_server.server import list_jobs
 
     user = await _user("lj4")
+    sess = await _session(user)
     for _ in range(2):
-        await Activity.objects.acreate(
-            user=user, repo_id="a/b", status=ActivityStatus.READY, trigger_type=TriggerType.MCP_JOB
-        )
+        await _run(sess)
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs(limit=2)
     assert len(data["jobs"]) == 2
@@ -204,14 +206,8 @@ async def test_list_jobs_serializes_cost_and_tokens():
     from mcp_server.server import list_jobs
 
     user = await _user("lj5")
-    await Activity.objects.acreate(
-        user=user,
-        repo_id="a/b",
-        status=ActivityStatus.SUCCESSFUL,
-        trigger_type=TriggerType.MCP_JOB,
-        cost_usd=Decimal("1.234567"),
-        total_tokens=4242,
-    )
+    sess = await _session(user)
+    await _run(sess, status=RunStatus.SUCCESSFUL, cost_usd=Decimal("1.234567"), total_tokens=4242)
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
         data = await list_jobs()
     job = data["jobs"][0]
@@ -225,14 +221,11 @@ async def test_list_jobs_status_filter():
     from mcp_server.server import list_jobs
 
     user = await _user("lj6")
-    await Activity.objects.acreate(
-        user=user, repo_id="a/b", status=ActivityStatus.RUNNING, trigger_type=TriggerType.MCP_JOB
-    )
-    await Activity.objects.acreate(
-        user=user, repo_id="a/b", status=ActivityStatus.SUCCESSFUL, trigger_type=TriggerType.MCP_JOB
-    )
+    sess = await _session(user)
+    await _run(sess, status=RunStatus.RUNNING)
+    await _run(sess, status=RunStatus.SUCCESSFUL)
     with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
-        data = await list_jobs(status=ActivityStatus.RUNNING)
+        data = await list_jobs(status=RunStatus.RUNNING)
     assert {j["status"] for j in data["jobs"]} == {"RUNNING"}
 
 
@@ -243,7 +236,7 @@ async def test_list_jobs_db_error_returns_friendly_error():
     user = await _user("lj7")
     with (
         patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_server.server.alist_user_activities", new=AsyncMock(side_effect=RuntimeError("db down"))),
+        patch("mcp_server.server.alist_user_runs", new=AsyncMock(side_effect=RuntimeError("db down"))),
     ):
         data = await list_jobs()
     assert "error" in data

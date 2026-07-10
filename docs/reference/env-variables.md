@@ -365,7 +365,7 @@ Generates pull request titles, descriptions, and commit messages from diffs.
 
 ### Titling
 
-Generates short titles for chat threads and activities from the user's initial prompt.
+Generates short titles for sessions and runs from the user's initial prompt.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|

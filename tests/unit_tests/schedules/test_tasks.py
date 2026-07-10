@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from activity.models import Activity, TriggerType
 from django_tasks_db.models import DBTaskResult, get_date_max
+from sessions.models import Run, SessionOrigin
 
 from schedules.models import Frequency, ScheduledJob
 from schedules.tasks import dispatch_scheduled_jobs_cron_task
@@ -57,7 +57,7 @@ def test_dispatch_single_repo_propagates_agent_override(member_user):
         next_run_at=past,
     )
 
-    with patch("activity.services.run_job_task") as mock_task:
+    with patch("sessions.services.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -65,11 +65,11 @@ def test_dispatch_single_repo_propagates_agent_override(member_user):
         mock_task.aenqueue.side_effect = _aenqueue
         dispatch_scheduled_jobs_cron_task.func()
 
-    activity = Activity.objects.get(scheduled_job=schedule)
-    assert activity.trigger_type == TriggerType.SCHEDULE
-    assert activity.agent_model == "openrouter:anthropic/claude-opus-4.6"
-    assert activity.agent_thinking_level == "high"
-    assert activity.batch_id is not None
+    run = Run.objects.get(session__scheduled_job=schedule)
+    assert run.trigger_type == SessionOrigin.SCHEDULE
+    assert run.agent_model == "openrouter:anthropic/claude-opus-4.6"
+    assert run.agent_thinking_level == "high"
+    assert run.batch_id is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -86,7 +86,7 @@ def test_dispatch_single_repo_auto_override(member_user):
         next_run_at=past,
     )
 
-    with patch("activity.services.run_job_task") as mock_task:
+    with patch("sessions.services.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -94,9 +94,9 @@ def test_dispatch_single_repo_auto_override(member_user):
         mock_task.aenqueue.side_effect = _aenqueue
         dispatch_scheduled_jobs_cron_task.func()
 
-    activity = Activity.objects.get(scheduled_job=schedule)
-    assert activity.agent_model == ""
-    assert activity.agent_thinking_level == ""
+    run = Run.objects.get(session__scheduled_job=schedule)
+    assert run.agent_model == ""
+    assert run.agent_thinking_level == ""
 
 
 @pytest.mark.django_db(transaction=True)
@@ -113,7 +113,7 @@ def test_dispatch_three_repos_creates_three_activities_sharing_batch(member_user
         next_run_at=past,
     )
 
-    with patch("activity.services.run_job_task") as mock_task:
+    with patch("sessions.services.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -121,9 +121,9 @@ def test_dispatch_three_repos_creates_three_activities_sharing_batch(member_user
         mock_task.aenqueue.side_effect = _aenqueue
         dispatch_scheduled_jobs_cron_task.func()
 
-    activities = list(Activity.objects.filter(scheduled_job=schedule))
-    assert len(activities) == 3
-    batches = {a.batch_id for a in activities}
+    runs = list(Run.objects.filter(session__scheduled_job=schedule))
+    assert len(runs) == 3
+    batches = {r.batch_id for r in runs}
     assert len(batches) == 1
     schedule.refresh_from_db()
     assert schedule.last_run_batch_id == next(iter(batches))
@@ -143,7 +143,7 @@ def test_dispatch_advances_next_run_on_success(member_user):
         next_run_at=past,
     )
 
-    with patch("activity.services.run_job_task") as mock_task:
+    with patch("sessions.services.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -170,7 +170,7 @@ def test_dispatch_once_schedule_auto_disables_on_success(member_user):
         next_run_at=past,
     )
 
-    with patch("activity.services.run_job_task") as mock_task:
+    with patch("sessions.services.run_job_task") as mock_task:
 
         async def _aenqueue(**kwargs):
             return await _amake_task_result()
@@ -199,7 +199,7 @@ def test_dispatch_once_schedule_auto_disables_on_failure(member_user):
         next_run_at=past,
     )
 
-    with patch("activity.services.submit_batch_runs", side_effect=RuntimeError("boom")):
+    with patch("sessions.services.submit_batch_runs", side_effect=RuntimeError("boom")):
         dispatch_scheduled_jobs_cron_task.func()
 
     schedule.refresh_from_db()

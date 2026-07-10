@@ -1,0 +1,35 @@
+{% load i18n icon_tags session_tags %}
+<div id="session-in-flight" data-ids="{{ in_flight_ids }}" hidden></div>
+{% if sessions %}
+<div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+    {% for session in sessions %}
+        {% ifchanged session|day_bucket %}
+        <div class="session-group-header">
+            <span>{{ session|day_bucket }}</span>
+        </div>
+        {% endifchanged %}
+        {% include "sessions/_session_row.html" with session=session %}
+    {% endfor %}
+</div>
+{% include "accounts/_pagination.html" with paginate_swap=True %}
+{% elif has_active_filters %}
+<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-10 text-center">
+    <p class="text-[15px] text-gray-400">{% translate "No sessions match these filters." %}</p>
+    <a href="{% url 'session_list' %}" class="mt-3 inline-block text-sm text-gray-400 hover:text-white">
+        {% translate "Clear all" %}
+    </a>
+</div>
+{% else %}
+<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center">
+    <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+        {% icon "bolt" "h-6 w-6 text-gray-400" %}
+    </div>
+    <h2 class="text-[16px] font-semibold text-white">{% translate "Start your first run" %}</h2>
+    <p class="mx-auto mt-1.5 max-w-sm text-[14px] font-light text-gray-400">
+        {% translate "Kick off an agent on one of your repositories and it will show up here." %}
+    </p>
+    <a href="{% url 'session_new' %}" class="btn-primary mt-5 inline-flex items-center gap-2">
+        {% icon "plus" "h-4 w-4" %}{% translate "New" %}
+    </a>
+</div>
+{% endif %}

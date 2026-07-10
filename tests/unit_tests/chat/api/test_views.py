@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ninja.testing import TestAsyncClient
+from sessions.models import Session, SessionOrigin
 
 from accounts.models import APIKey, User
-from chat.models import ChatThread
 from daiv.api import api
 
 
@@ -109,7 +109,7 @@ async def test_cross_user_thread_id_is_rejected(client: TestAsyncClient, authed)
         email="owner@example.com",
         password="x",  # noqa: S106
     )
-    await ChatThread.objects.acreate(thread_id="t-owned", user=other, repo_id="a/b", ref="main")
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-owned", user=other, repo_id="a/b", ref="main")
 
     response = await client.post(
         "/chat/completions",
@@ -146,7 +146,7 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
         )
 
     assert response.status_code == 200
-    created = await ChatThread.objects.filter(thread_id="t-new").afirst()
+    created = await Session.objects.filter(thread_id="t-new").afirst()
     assert created is not None
     assert created.user_id == user.id
     assert created.repo_id == "a/b"
@@ -192,7 +192,7 @@ async def test_first_message_auto_resolves_user_env_onto_thread(client: TestAsyn
             headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
         )
     assert response.status_code == 200
-    created = await ChatThread.objects.aget(thread_id="t-auto")
+    created = await Session.objects.aget(thread_id="t-auto")
     assert created.sandbox_environment_id == user_env.id
     await user.adelete()
 
@@ -211,8 +211,13 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
         scope=Scope.GLOBAL, name="Original", base_image="python:3.14", is_default=True
     )
     # Pre-create the thread with the original env, simulating a prior first-message run.
-    await ChatThread.objects.acreate(
-        thread_id="t-keep", user=user, repo_id="a/b", ref="main", sandbox_environment=original
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
+        thread_id="t-keep",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        sandbox_environment=original,
     )
     # Now add a USER env that would win at Auto resolution; the existing thread must
     # ignore it because get_or_create_for_user only applies on create.
@@ -241,7 +246,7 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
             headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
         )
     assert response.status_code == 200
-    thread = await ChatThread.objects.aget(thread_id="t-keep")
+    thread = await Session.objects.aget(thread_id="t-keep")
     assert thread.sandbox_environment_id == original.id
     await user.adelete()
 
@@ -286,8 +291,13 @@ async def test_existing_thread_auto_submit_does_not_emit_resolved_env(
     original = await SandboxEnvironment.objects.acreate(
         scope=Scope.GLOBAL, name="Original", base_image="python:3.14", is_default=True
     )
-    await ChatThread.objects.acreate(
-        thread_id="t-existing-auto", user=user, repo_id="a/b", ref="main", sandbox_environment=original
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
+        thread_id="t-existing-auto",
+        user=user,
+        repo_id="a/b",
+        ref="main",
+        sandbox_environment=original,
     )
 
     response = await client.post(
@@ -325,7 +335,7 @@ async def test_explicit_env_header_does_not_emit_resolved_env(client: TestAsyncC
 @pytest.mark.django_db(transaction=True)
 async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(client: TestAsyncClient, authed):
     _, raw, user = authed
-    await ChatThread.objects.acreate(thread_id="t-boom", user=user, repo_id="a/b", ref="main")
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-boom", user=user, repo_id="a/b", ref="main")
 
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_stream),
@@ -358,7 +368,7 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(clie
     # in a stack trace.
     assert "kaboom" not in body
     assert "RuntimeError" not in body
-    refreshed = await ChatThread.objects.aget(thread_id="t-boom")
+    refreshed = await Session.objects.aget(thread_id="t-boom")
     assert refreshed.active_run_id is None
     await user.adelete()
 
@@ -366,8 +376,12 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(clie
 @pytest.mark.django_db(transaction=True)
 async def test_thread_status_reports_active_run(client: TestAsyncClient, authed):
     _, raw, user = authed
-    await ChatThread.objects.acreate(thread_id="t-live", user=user, repo_id="a/b", ref="main", active_run_id="r-1")
-    await ChatThread.objects.acreate(thread_id="t-idle", user=user, repo_id="a/b", ref="main", active_run_id=None)
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-live", user=user, repo_id="a/b", ref="main", active_run_id="r-1"
+    )
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-idle", user=user, repo_id="a/b", ref="main", active_run_id=None
+    )
 
     live = await client.get("/chat/threads/t-live/status", headers=_auth_headers(raw))
     idle = await client.get("/chat/threads/t-idle/status", headers=_auth_headers(raw))
@@ -387,7 +401,9 @@ async def test_thread_status_rejects_cross_user_access(client: TestAsyncClient, 
         email="i@example.com",
         password="x",  # noqa: S106
     )
-    await ChatThread.objects.acreate(thread_id="t-foreign", user=other, repo_id="a/b", ref="main", active_run_id="r-9")
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-foreign", user=other, repo_id="a/b", ref="main", active_run_id="r-9"
+    )
 
     response = await client.get("/chat/threads/t-foreign/status", headers=_auth_headers(raw))
     assert response.status_code == 404
@@ -398,8 +414,8 @@ async def test_thread_status_rejects_cross_user_access(client: TestAsyncClient, 
 @pytest.mark.django_db(transaction=True)
 async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
     _, raw, user = authed
-    await ChatThread.objects.acreate(
-        thread_id="t-busy", user=user, repo_id="a/b", ref="main", active_run_id="r-existing"
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-busy", user=user, repo_id="a/b", ref="main", active_run_id="r-existing"
     )
     response = await client.post(
         "/chat/completions",
@@ -424,7 +440,7 @@ def openrouter_provider(db):
 async def test_first_turn_rejects_invalid_agent_override_and_does_not_persist(
     client: TestAsyncClient, authed, openrouter_provider
 ):
-    """A malformed forwarded override must return 400 before any ChatThread row is created.
+    """A malformed forwarded override must return 400 before any Session row is created.
     Without this guard the picker validator could be bypassed and we'd persist an invalid
     spec that later fails opaquely during the stream."""
     _, raw, user = authed
@@ -436,7 +452,7 @@ async def test_first_turn_rejects_invalid_agent_override_and_does_not_persist(
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
     assert response.status_code == 400
-    assert await ChatThread.objects.filter(thread_id="t-bad-override").aexists() is False
+    assert await Session.objects.filter(thread_id="t-bad-override").aexists() is False
     await user.adelete()
 
 
@@ -446,7 +462,8 @@ async def test_divergent_override_on_existing_thread_returns_409(client: TestAsy
     rather than silently running the persisted value — surfaces a bot bypassing the
     locked composer pill instead of letting the user think they switched models."""
     _, raw, user = authed
-    await ChatThread.objects.acreate(
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
         thread_id="t-pinned",
         user=user,
         repo_id="a/b",
@@ -486,7 +503,8 @@ async def test_existing_thread_with_stale_persisted_override_returns_400(
     surface a typed 400 before the stream starts, rather than blowing up deep in
     the agent with an opaque ``ValueError``."""
     _, raw, user = authed
-    await ChatThread.objects.acreate(
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
         thread_id="t-stale-pin",
         user=user,
         repo_id="a/b",
@@ -527,7 +545,8 @@ async def test_existing_thread_with_disabled_provider_returns_400(
     """``is_enabled=False`` rows must also fail at the 400 boundary, not deep in
     ``BaseAgent.get_model_kwargs`` mid-run."""
     _, raw, user = authed
-    await ChatThread.objects.acreate(
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
         thread_id="t-disabled-pin",
         user=user,
         repo_id="a/b",
@@ -558,7 +577,8 @@ async def test_stale_pinned_model_wins_over_divergent_client_override(
     from the level mismatch with the persisted ``low``.
     """
     _, raw, user = authed
-    await ChatThread.objects.acreate(
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT,
         thread_id="t-stale-and-divergent",
         user=user,
         repo_id="a/b",
@@ -592,5 +612,5 @@ async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyn
         )
 
     assert response.status_code == 404
-    assert not await ChatThread.objects.filter(thread_id=thread_id).aexists()
+    assert not await Session.objects.filter(thread_id=thread_id).aexists()
     await user.adelete()

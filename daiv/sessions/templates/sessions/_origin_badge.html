@@ -1,0 +1,16 @@
+{% load icon_tags %}
+{% if origin == "chat" %}
+<span class="inline-flex items-center gap-1 rounded-full bg-teal-900/40 px-2.5 py-0.5 text-xs font-medium text-teal-300">
+    {% icon "chat-bubble" "h-3 w-3" %}Chat
+</span>
+{% elif origin == "api_job" or origin == "mcp_job" %}
+<span class="rounded-full bg-indigo-900/40 px-2.5 py-0.5 text-xs font-medium text-indigo-300">{{ origin_display }}</span>
+{% elif origin == "schedule" %}
+<span class="rounded-full bg-violet-900/40 px-2.5 py-0.5 text-xs font-medium text-violet-300">Schedule</span>
+{% elif origin == "issue_webhook" %}
+<span class="rounded-full bg-amber-900/40 px-2.5 py-0.5 text-xs font-medium text-amber-300">Issue</span>
+{% elif origin == "mr_webhook" %}
+<span class="rounded-full bg-cyan-900/40 px-2.5 py-0.5 text-xs font-medium text-cyan-300">MR/PR</span>
+{% elif origin == "ui_job" %}
+<span class="rounded-full bg-emerald-900/40 px-2.5 py-0.5 text-xs font-medium text-emerald-300">UI Run</span>
+{% endif %}

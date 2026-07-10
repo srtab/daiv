@@ -67,6 +67,7 @@ async def test_run_job_task_threads_env_id_to_set_runtime_ctx():
     # We're not setting up enough scaffolding to complete the agent invoke;
     # the assertion below is what matters.
     with (
+        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
         patch("jobs.tasks.set_runtime_ctx", _fake_set_runtime_ctx),
         patch("jobs.tasks.open_checkpointer"),
         patch("jobs.tasks.create_daiv_agent", AsyncMock()),
@@ -125,3 +126,85 @@ async def test_run_job_task_forwards_overrides():
     assert captured_kwargs["agent_model"] == "openrouter:anthropic/claude-haiku-4.5"
     assert captured_kwargs["agent_thinking_level"] == "low"
     assert "use_max" not in captured_kwargs
+
+
+@pytest.mark.django_db
+async def test_run_job_task_persists_resolved_model():
+    """The resolved model/thinking are written back onto the Run + Session so the
+    session detail view reflects what the run actually executed with, not the empty
+    "no override" placeholder. This is the case where the schedule pinned no model.
+    """
+    from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+    session = await Session.objects.acreate(thread_id="t-persist", origin=SessionOrigin.SCHEDULE, repo_id="owner/repo")
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.SCHEDULE, status=RunStatus.RUNNING, repo_id="owner/repo"
+    )
+    assert session.agent_model == ""
+    assert run.agent_model == ""
+
+    last_message = MagicMock()
+    last_message.content = "ok"
+    agent = AsyncMock()
+    agent.ainvoke = AsyncMock(return_value={"messages": [last_message]})
+    runtime_ctx = MagicMock()
+    runtime_ctx.config.models.agent = MagicMock()
+
+    with (
+        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("jobs.tasks.open_checkpointer") as cp_ctx,
+        patch("jobs.tasks.set_runtime_ctx") as rc_ctx,
+        patch("jobs.tasks.create_daiv_agent", new=AsyncMock(return_value=agent)),
+        patch(
+            "jobs.tasks.get_daiv_agent_kwargs",
+            return_value={"model_names": ["openrouter:z-ai/glm-5.2", "fallback"], "thinking_level": "xhigh"},
+        ),
+        patch("jobs.tasks.build_langsmith_config", return_value={}),
+        patch("jobs.tasks.build_agent_result", new=AsyncMock(return_value={"response": "ok"})),
+        patch("jobs.tasks.build_usage_summary", return_value=MagicMock(to_dict=lambda: {})),
+        patch("jobs.tasks.track_usage_metadata"),
+    ):
+        cp_ctx.return_value.__aenter__.return_value = object()
+        rc_ctx.return_value.__aenter__.return_value = runtime_ctx
+
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-persist", run_id=str(run.pk))
+
+    await session.arefresh_from_db()
+    await run.arefresh_from_db()
+    assert session.agent_model == "openrouter:z-ai/glm-5.2"
+    assert session.agent_thinking_level == "xhigh"
+    assert run.agent_model == "openrouter:z-ai/glm-5.2"
+    assert run.agent_thinking_level == "xhigh"
+
+
+@pytest.mark.django_db
+async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolution():
+    """A run that dies before the model is resolved (e.g. the git clone inside
+    ``set_runtime_ctx``) leaves ``agent_model`` empty — the UI falls back to the
+    "Auto" pill label rather than a persisted value.
+    """
+    from sessions.models import Run, RunStatus, Session, SessionOrigin
+
+    session = await Session.objects.acreate(thread_id="t-fail", origin=SessionOrigin.SCHEDULE, repo_id="owner/repo")
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.SCHEDULE, status=RunStatus.RUNNING, repo_id="owner/repo"
+    )
+
+    @asynccontextmanager
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("git clone failed")
+        yield  # pragma: no cover — generator body never reached past the raise
+
+    with (
+        patch("jobs.tasks._acquire_session_lock", new=AsyncMock(return_value=None)),
+        patch("jobs.tasks.open_checkpointer"),
+        patch("jobs.tasks.set_runtime_ctx", _boom),
+        patch("jobs.tasks.get_daiv_agent_kwargs", return_value={"model_names": ["m"], "thinking_level": "high"}),
+        pytest.raises(RuntimeError, match="git clone failed"),
+    ):
+        await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id="t-fail", run_id=str(run.pk))
+
+    await session.arefresh_from_db()
+    await run.arefresh_from_db()
+    assert session.agent_model == ""
+    assert run.agent_model == ""

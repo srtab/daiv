@@ -1,9 +1,29 @@
 from django.utils import timezone
 
 import pytest
-from notifications.choices import ChannelType
+from notifications.choices import ChannelType, NotifyOn
 from notifications.models import Notification, NotificationDelivery, UserChannelBinding
 from pydantic import SecretStr
+
+from schedules.models import Frequency, ScheduledJob
+
+
+@pytest.fixture
+def run_schedule(member_user, email_binding):
+    """A daily schedule owned by ``member_user`` with notifications always on.
+
+    Shared by the run-signal notification suites (``test_signals.py`` and
+    ``test_run_signals.py``).
+    """
+    return ScheduledJob.objects.create(
+        user=member_user,
+        name="run-schedule",
+        prompt="p",
+        repos=[{"repo_id": "x/y", "ref": ""}],
+        frequency=Frequency.DAILY,
+        time="12:00",
+        notify_on=NotifyOn.ALWAYS,
+    )
 
 
 @pytest.fixture

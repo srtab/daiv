@@ -1,0 +1,280 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Schedules"
+msgstr "Agendamentos"
+
+msgid "Hourly"
+msgstr "De hora a hora"
+
+msgid "Daily"
+msgstr "Diariamente"
+
+msgid "Weekdays"
+msgstr "Dias úteis"
+
+msgid "Weekly"
+msgstr "Semanalmente"
+
+msgid "Custom"
+msgstr "Personalizado"
+
+msgid "Once"
+msgstr "Uma vez"
+
+msgid "A cron expression is required for Custom frequency."
+msgstr "É necessária uma expressão cron para a frequência Personalizado."
+
+msgid ""
+"Invalid cron expression. Use five space-separated fields: minute hour day-"
+"of-month month day-of-week (e.g. '0 9 * * 1-5')."
+msgstr ""
+"Expressão cron inválida. Use cinco campos separados por espaços: minuto hora"
+" dia-do-mês mês dia-da-semana (por exemplo '0 9 * * 1-5')."
+
+msgid "Time is required for this frequency."
+msgstr "A hora é obrigatória para esta frequência."
+
+msgid "Date and time is required for a one-off schedule."
+msgstr "A data e hora são obrigatórias para um agendamento único."
+
+msgid "The scheduled time must be in the future."
+msgstr "A hora agendada tem de estar no futuro."
+
+msgid "Date and time only applies to one-off schedules."
+msgstr "A data e hora só se aplicam a agendamentos únicos."
+
+msgid "user"
+msgstr "utilizador"
+
+msgid "name"
+msgstr "nome"
+
+msgid "prompt"
+msgstr "prompt"
+
+msgid "What the agent should do."
+msgstr "O que o agente deve fazer."
+
+msgid "repositories"
+msgstr "repositórios"
+
+msgid ""
+"List of {repo_id, ref} entries. 1-20 entries. Empty ref means the default "
+"branch."
+msgstr ""
+"Lista de entradas {repo_id, ref}. 1-20 entradas. Um ref vazio significa o "
+"ramo predefinido."
+
+msgid "frequency"
+msgstr "frequência"
+
+msgid "cron expression"
+msgstr "expressão cron"
+
+msgid "Required when frequency is Custom. Five-field cron expression."
+msgstr ""
+"Obrigatório quando a frequência é Personalizado. Expressão cron de cinco "
+"campos."
+
+msgid "time"
+msgstr "hora"
+
+msgid "Time of day (used for Daily, Weekdays, and Weekly frequencies)."
+msgstr ""
+"Hora do dia (usada para as frequências Diariamente, Dias úteis e "
+"Semanalmente)."
+
+msgid "run at"
+msgstr "executar em"
+
+msgid "Specific date and time for one-off schedules."
+msgstr "Data e hora específicas para agendamentos únicos."
+
+msgid "max mode"
+msgstr "modo máximo"
+
+msgid "Use the more capable model with thinking set to high."
+msgstr "Usar o modelo mais capaz com o raciocínio definido como elevado."
+
+msgid "agent model"
+msgstr "modelo do agente"
+
+msgid "agent thinking level"
+msgstr "nível de raciocínio do agente"
+
+msgid "enabled"
+msgstr "ativado"
+
+msgid "next run at"
+msgstr "próxima execução em"
+
+msgid "last run at"
+msgstr "última execução em"
+
+msgid "last run batch ID"
+msgstr "ID do lote da última execução"
+
+msgid "run count"
+msgstr "contagem de execuções"
+
+msgid "notify on"
+msgstr "notificar em"
+
+msgid "subscribers"
+msgstr "subscritores"
+
+msgid "Other users CC'd on this schedule's finish notifications."
+msgstr ""
+"Outros utilizadores em CC nas notificações de conclusão deste agendamento."
+
+msgid "sandbox environment"
+msgstr "ambiente sandbox"
+
+msgid "source template"
+msgstr "modelo de origem"
+
+msgid ""
+"Template this schedule was created from. Cleared if the template is later "
+"deleted."
+msgstr ""
+"Modelo a partir do qual este agendamento foi criado. Limpo se o modelo for "
+"posteriormente eliminado."
+
+msgid "Scheduled Job"
+msgstr "Tarefa Agendada"
+
+msgid "Scheduled Jobs"
+msgstr "Tarefas Agendadas"
+
+msgid "description"
+msgstr "descrição"
+
+msgid "default repositories"
+msgstr "repositórios predefinidos"
+
+msgid ""
+"List of {repo_id, ref} entries that pre-fill the schedule's repo picker. "
+"Leave empty to let users choose."
+msgstr ""
+"Lista de entradas {repo_id, ref} que preenchem previamente o seletor de "
+"repositórios do agendamento. Deixe vazio para permitir que os utilizadores "
+"escolham."
+
+msgid "created by"
+msgstr "criado por"
+
+msgid "Schedule Template"
+msgstr "Modelo de Agendamento"
+
+msgid "Schedule Templates"
+msgstr "Modelos de Agendamento"
+
+msgid "Every hour"
+msgstr "A cada hora"
+
+#, python-format
+msgid "Custom: %(cron)s"
+msgstr "Personalizado: %(cron)s"
+
+msgid "Once (pick a date)"
+msgstr "Uma vez (selecione uma data)"
+
+#, python-format
+msgid "%(label)s at %(time)s"
+msgstr "%(label)s às %(time)s"
+
+msgid "Any repo"
+msgstr "Qualquer repositório"
+
+#, python-format
+msgid "%(label)s +%(extra)d more"
+msgstr "%(label)s +%(extra)d mais"
+
+msgid "Subscribers"
+msgstr "Subscritores"
+
+msgid "Add subscriber"
+msgstr "Adicionar subscritor"
+
+msgid "Search users by name, email, or username..."
+msgstr "Pesquisar utilizadores por nome, email ou nome de utilizador..."
+
+msgid "Could not load users."
+msgstr "Não foi possível carregar os utilizadores."
+
+msgid "Discard your current changes and apply this template?"
+msgstr "Descartar as suas alterações atuais e aplicar este modelo?"
+
+msgid "Start from template"
+msgstr "Começar a partir de um modelo"
+
+msgid "Pick a ready-made schedule. Every field stays editable after."
+msgstr ""
+"Selecione um agendamento pré-definido. Todos os campos permanecem editáveis "
+"depois."
+
+msgid "Close"
+msgstr "Fechar"
+
+msgid "Search templates…"
+msgstr "Pesquisar modelos…"
+
+msgid "Use"
+msgstr "Usar"
+
+msgid "No templates match your search."
+msgstr "Nenhum modelo corresponde à sua pesquisa."
+
+msgid "Start from a template"
+msgstr "Começar a partir de um modelo"
+
+msgid "Pick a curated schedule as a starting point. Every field is editable."
+msgstr ""
+"Selecione um agendamento curado como ponto de partida. Todos os campos são "
+"editáveis."
+
+msgid "Browse templates"
+msgstr "Explorar modelos"
+
+msgid "Automate agent runs on repositories with recurring schedules."
+msgstr ""
+"Automatize execuções do agente em repositórios com agendamentos recorrentes."
+
+msgid "From template"
+msgstr "A partir de modelo"
+
+msgid "Create schedule"
+msgstr "Criar agendamento"
+
+msgid "No scheduled jobs yet. Create one to automate agent runs."
+msgstr ""
+"Ainda não há tarefas agendadas. Crie uma para automatizar execuções do "
+"agente."
+
+msgid "Create blank schedule"
+msgstr "Criar agendamento em branco"
+
+msgid ""
+"Repositories selected here pre-fill the schedule picker. Leave empty to let "
+"users choose."
+msgstr ""
+"Os repositórios selecionados aqui preenchem previamente o seletor do "
+"agendamento. Deixe vazio para permitir que os utilizadores escolham."

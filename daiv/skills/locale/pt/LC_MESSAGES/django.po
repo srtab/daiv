@@ -1,0 +1,230 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-08 03:45-0500\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Skill zip"
+msgstr "Zip da competência"
+
+msgid "Replace existing"
+msgstr "Substituir existente"
+
+#, python-format
+msgid "Zip exceeds maximum size of %(max)d bytes."
+msgstr "O zip excede o tamanho máximo de %(max)d bytes."
+
+msgid "name"
+msgstr "nome"
+
+msgid "description"
+msgstr "descrição"
+
+msgid "size (bytes)"
+msgstr "tamanho (bytes)"
+
+msgid "file count"
+msgstr "número de ficheiros"
+
+msgid "checksum"
+msgstr "checksum"
+
+msgid "Built-in"
+msgstr "Incorporada"
+
+msgid "Custom global"
+msgstr "Personalizada global"
+
+msgid "Per-repo"
+msgstr "Por repositório"
+
+msgid "source"
+msgstr "origem"
+
+msgid "repository"
+msgstr "repositório"
+
+msgid "thread id"
+msgstr "id da thread"
+
+msgid "Lifetime invocations"
+msgstr "Invocações totais"
+
+#, python-format
+msgid "%(counter)s invocation"
+msgid_plural "%(counter)s invocations"
+msgstr[0] "%(counter)s invocação"
+msgstr[1] "%(counter)s invocações"
+
+msgid "No built-in skills shipped."
+msgstr "Nenhuma competência incorporada disponibilizada."
+
+#, python-format
+msgid "Open %(name)s"
+msgstr "Abrir %(name)s"
+
+msgid "Skill actions"
+msgstr "Ações da competência"
+
+msgid "Download zip"
+msgstr "Transferir zip"
+
+msgid "Delete"
+msgstr "Eliminar"
+
+msgid "Overrides built-in"
+msgstr "Substitui a incorporada"
+
+msgid "Uploaded by"
+msgstr "Carregada por"
+
+msgid "Uploaded by (unknown)"
+msgstr "Carregada por (desconhecido)"
+
+#, python-format
+msgid ""
+"\n"
+"                Uploaded %(when)s ago · %(size)s · %(counter)s file\n"
+"                "
+msgid_plural ""
+"\n"
+"                Uploaded %(when)s ago · %(size)s · %(counter)s files\n"
+"                "
+msgstr[0] ""
+"\n"
+"                Carregada há %(when)s · %(size)s · %(counter)s ficheiro\n"
+"                "
+msgstr[1] ""
+"\n"
+"                Carregada há %(when)s · %(size)s · %(counter)s ficheiros\n"
+"                "
+
+msgid "No custom skills uploaded yet."
+msgstr "Ainda não foram carregadas competências personalizadas."
+
+msgid "Usage"
+msgstr "Utilização"
+
+msgid "Total invocations"
+msgstr "Invocações totais"
+
+msgid "Last 30 days"
+msgstr "Últimos 30 dias"
+
+msgid "No usage in the last 30 days."
+msgstr "Sem utilização nos últimos 30 dias."
+
+msgid "Recent activity"
+msgstr "Atividade recente"
+
+msgid "Skills"
+msgstr "Competências"
+
+msgid "Delete skill"
+msgstr "Eliminar competência"
+
+msgid "(unknown)"
+msgstr "(desconhecido)"
+
+msgid "SKILL.md body"
+msgstr "Corpo do SKILL.md"
+
+msgid "Show more"
+msgstr "Mostrar mais"
+
+msgid "Show less"
+msgstr "Mostrar menos"
+
+msgid "Files"
+msgstr "Ficheiros"
+
+msgid "Skills uploaded as zip archives are available to every agent run."
+msgstr ""
+"As competências carregadas como arquivos zip estão disponíveis para todas as"
+" execuções do agente."
+
+msgid "Upload skill"
+msgstr "Carregar competência"
+
+msgid "Custom skills"
+msgstr "Competências personalizadas"
+
+msgid "Built-in skills"
+msgstr "Competências incorporadas"
+
+msgid ""
+"The skill is moved to a recycle bin for 24 hours before being permanently "
+"removed."
+msgstr ""
+"A competência é movida para a reciclagem durante 24 horas antes de ser "
+"removida permanentemente."
+
+#, python-format
+msgid "Are you sure you want to delete <strong>%(name)s</strong>?"
+msgstr "Tem a certeza de que pretende eliminar <strong>%(name)s</strong>?"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Replace existing skill"
+msgstr "Substituir competência existente"
+
+msgid ""
+"Upload a zip archive containing a single skill directory with a SKILL.md at "
+"its root."
+msgstr ""
+"Carregue um arquivo zip que contenha um único diretório de competência com "
+"um SKILL.md na sua raiz."
+
+#, python-format
+msgid "A skill named \"%(name)s\" already exists."
+msgstr "Já existe uma competência com o nome \"%(name)s\"."
+
+#, python-format
+msgid ""
+"\n"
+"        Uploaded by %(by)s on %(at)s."
+msgstr ""
+"\n"
+"        Carregada por %(by)s em %(at)s."
+
+msgid ""
+"Choose the zip again to replace the existing version. The previous version "
+"is kept in a recycle bin for 24 hours."
+msgstr ""
+"Escolha novamente o zip para substituir a versão existente. A versão "
+"anterior é mantida na reciclagem durante 24 horas."
+
+msgid "Replace"
+msgstr "Substituir"
+
+msgid "Upload"
+msgstr "Carregar"
+
+msgid "Could not save the skill. Please try again."
+msgstr "Não foi possível guardar a competência. Tente novamente."
+
+#, python-format
+msgid "Skill '%(name)s' uploaded."
+msgstr "Competência '%(name)s' carregada."
+
+msgid "Could not delete the skill."
+msgstr "Não foi possível eliminar a competência."
+
+#, python-format
+msgid "Skill '%(name)s' deleted."
+msgstr "Competência '%(name)s' eliminada."

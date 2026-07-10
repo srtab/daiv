@@ -10,7 +10,7 @@
         integrity="sha384-USgPxo+ohBkt/xxOPsfCDC5BYAwgFHCatL+RFkcPCWWkvKSp5KzH52tUZZ7taB/c"
         crossorigin="anonymous"></script>
 <script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
-<script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+<script defer src="{% static 'sessions/js/prompt-box.js' %}"></script>
 <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
 <script defer src="{% static 'schedules/js/subscriber-picker.js' %}"></script>
 <script defer src="{% static 'schedules/js/template-gallery.js' %}"></script>
@@ -18,7 +18,7 @@
 {% endblock alpine_plugins %}
 
 {% block breadcrumb %}
-{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% include "accounts/_breadcrumb.html" %}
 {% endblock breadcrumb %}
 
 {% block app_content %}

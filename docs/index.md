@@ -34,8 +34,7 @@ DAIV integrates directly with **GitLab** and **GitHub** through webhooks — no 
 
 ### From the dashboard
 
-- **[Chat](features/chat.md)** — a live workspace: prompt the agent and watch it read, edit, and run commands in real time, on a thread you can leave and return to.
-- **[Activity & run composer](features/activity-tracking.md)** — start runs from the UI and see every execution — webhook, API, MCP, scheduled, or manual — in one log, with retries.
+- **[Sessions](features/sessions.md)** — a unified workspace and history: chat with the agent live, start background runs, and see every execution — webhook, API, MCP, scheduled, or manual — in one list, with retries.
 - **[Scheduled Jobs](features/scheduled-jobs.md)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
 - **[Sandbox Environments](features/sandbox-environments.md)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
 - **Per-run model & effort** — pick the LLM and thinking effort for each run.

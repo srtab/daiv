@@ -6,7 +6,7 @@ Notifications are per-user: each recipient gets their own copy, with delivery re
 
 ## What produces a notification
 
-DAIV emits a notification when an activity finishes. There are three event types:
+DAIV emits a notification when a run finishes. There are three event types:
 
 | Event | When it fires | Recipients |
 |-------|---------------|------------|
@@ -122,9 +122,9 @@ When a run finishes, DAIV records the notification and one delivery row per exte
 
     Submit runs programmatically with a per-run `notify_on`.
 
--   :octicons-pulse-24: __[Activity Tracking](activity-tracking.md)__
+-   :octicons-pulse-24: __[Sessions](sessions.md)__
 
-    Every notification links to the run or batch in the activity log.
+    Every notification links to the session or batch in the sessions list.
 
 -   :octicons-plug-24: __[MCP Endpoint](mcp-endpoint.md)__
 

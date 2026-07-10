@@ -1,0 +1,54 @@
+{% load humanize i18n icon_tags session_tags %}
+{% with latest=session.runs.all|first %}
+<div class="session-row group{% if latest.status == 'FAILED' %} session-row--failed{% endif %}">
+    <a href="{% url 'session_detail' thread_id=session.thread_id %}" class="absolute inset-0"
+       aria-label="{% translate 'View session' %}"></a>
+
+    <span class="status-dot status-dot-{{ latest.status|status_variant }}"
+          {% if latest %}:class="dotClass('{{ latest.id }}', '{{ latest.status }}')"{% endif %}></span>
+    <span class="sr-only"
+          {% if latest %}x-text="statusLabel('{{ latest.id }}', '{{ latest.get_status_display }}')"{% endif %}>
+        {{ latest.get_status_display }}
+    </span>
+
+    <span class="shrink-0 text-gray-500" title="{{ session.get_origin_display }}">
+        {% icon session.origin|origin_icon "h-4 w-4" %}
+    </span>
+
+    <div class="flex min-w-0 flex-1 items-center gap-2.5">
+        <span class="truncate text-[14px] font-medium text-white">
+            {% if session.title %}{{ session.title }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}
+        </span>
+        {% if session.repo_id %}
+        <span class="session-repo shrink-0" title="{{ session.repo_id }}">
+            {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[220px] truncate">{{ session.repo_id }}</span>
+        </span>
+        {% endif %}
+        {% if session.ref %}
+        <span class="session-branch shrink-0">{% icon "branch" "h-3 w-3" %}{{ session.ref }}</span>
+        {% endif %}
+        {% if session.merge_request_iid %}
+            {% if latest.merge_request_web_url %}
+            <a href="{{ latest.merge_request_web_url }}" target="_blank" rel="noopener"
+               class="mr-pill relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</a>
+            {% else %}
+            <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ session.merge_request_iid }}</span>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    <div class="flex shrink-0 items-center gap-3">
+        {% if session.agent_model %}<span class="meta-pill hidden lg:inline-flex">{{ session.agent_model }}</span>{% endif %}
+        {% if latest.duration %}<span class="session-num hidden md:inline">{{ latest.duration|duration }}</span>{% endif %}
+        {% session_cost session as cost %}
+        {% if cost %}<span class="session-num hidden lg:inline">{{ cost }}</span>{% endif %}
+        {% if session.user %}
+        <span class="hidden sm:inline">{% include "accounts/_avatar.html" with user=session.user label="Owner" %}</span>
+        {% elif session.external_username %}
+        <span class="hidden text-[12px] text-gray-500 sm:inline">{{ session.external_username }}</span>
+        {% endif %}
+        <span class="w-[76px] text-right text-[12.5px] tabular-nums text-gray-500">{{ session.last_active_at|naturaltime }}</span>
+        {% icon "chevron-right" "h-3.5 w-3.5 text-gray-700 transition-colors group-hover:text-gray-400" %}
+    </div>
+</div>
+{% endwith %}

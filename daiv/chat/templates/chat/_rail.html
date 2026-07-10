@@ -22,7 +22,7 @@
     </template>
     <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
       <button type="button" class="chat-rail__file"
-              :class="[{ 'chat-rail__file--new': f.isNew }, `chat-rail__file--${f.op || 'modified'}`]"
+              :class="{ 'chat-rail__file--new': f.isNew, [`chat-rail__file--${f.op || 'modified'}`]: true }"
               @click="jumpToTool(f.segmentId)"
               :title="f.fromPath ? `${f.op}: ${f.fromPath} → ${f.path}` : `${f.op || 'modified'}: ${f.path}`">
         <span class="chat-rail__file-op" x-text="fileOpMark(f.op)"></span>

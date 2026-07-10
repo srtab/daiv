@@ -7,12 +7,12 @@
 
 {% block alpine_plugins %}
 <script defer src="{% static 'codebase/js/repo-search.js' %}"></script>
-<script defer src="{% static 'activity/js/prompt-box.js' %}"></script>
+<script defer src="{% static 'sessions/js/prompt-box.js' %}"></script>
 <script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
 {% endblock alpine_plugins %}
 
 {% block breadcrumb %}
-{% include "accounts/_breadcrumb.html" with crumbs=breadcrumbs %}
+{% include "accounts/_breadcrumb.html" %}
 {% endblock breadcrumb %}
 
 {% block app_content %}

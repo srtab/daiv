@@ -23,9 +23,9 @@ def auth_pair(db):
 def test_jobs_endpoint_accepts_environment_name(auth_pair):
     user, key = auth_pair
     env = SandboxEnvironment.objects.create(scope=Scope.USER, user=user, name="dev", base_image="alpine:latest")
-    fake_activity = type("A", (), {"id": uuid.uuid4(), "thread_id": uuid.uuid4(), "status": "READY"})()
+    fake_run = type("R", (), {"id": uuid.uuid4(), "session_id": str(uuid.uuid4()), "status": "READY"})()
     with patch("jobs.api.views.asubmit_batch_runs", AsyncMock()) as submit:
-        submit.return_value = type("R", (), {"batch_id": uuid.uuid4(), "activities": [fake_activity], "failed": []})()
+        submit.return_value = type("BR", (), {"batch_id": uuid.uuid4(), "runs": [fake_run], "failed": []})()
         c = Client()
         resp = c.post(
             "/api/jobs",

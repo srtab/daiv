@@ -12,8 +12,8 @@ from django.utils.timezone import localdate
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
-from activity.models import Activity, ActivityStatus, TriggerType
 from django_filters.views import FilterView
+from sessions.models import Run, RunStatus, SessionOrigin
 
 from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
@@ -134,16 +134,17 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return context
 
     def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
-        visible = Activity.objects.visible_to(user)
+        visible = Run.objects.visible_to(user)
         activities = visible.filter(created_at__date__gte=cutoff_date) if cutoff_date is not None else visible
 
-        successful = Q(status=ActivityStatus.SUCCESSFUL)
-        failed = Q(status=ActivityStatus.FAILED)
-        issue_trigger = Q(trigger_type=TriggerType.ISSUE_WEBHOOK)
-        mr_trigger = Q(trigger_type=TriggerType.MR_WEBHOOK)
-        mcp_trigger = Q(trigger_type=TriggerType.MCP_JOB)
-        schedule_trigger = Q(trigger_type=TriggerType.SCHEDULE)
-        api_trigger = Q(trigger_type=TriggerType.API_JOB)
+        successful = Q(status=RunStatus.SUCCESSFUL)
+        failed = Q(status=RunStatus.FAILED)
+        issue_trigger = Q(trigger_type=SessionOrigin.ISSUE_WEBHOOK)
+        mr_trigger = Q(trigger_type=SessionOrigin.MR_WEBHOOK)
+        mcp_trigger = Q(trigger_type=SessionOrigin.MCP_JOB)
+        schedule_trigger = Q(trigger_type=SessionOrigin.SCHEDULE)
+        api_trigger = Q(trigger_type=SessionOrigin.API_JOB)
+        chat_trigger = Q(trigger_type=SessionOrigin.CHAT)
         duration_expr = ExpressionWrapper(F("finished_at") - F("started_at"), output_field=DurationField())
 
         stats = activities.aggregate(
@@ -155,6 +156,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             mcp_jobs=Count("id", filter=mcp_trigger & ~failed),
             scheduled=Count("id", filter=schedule_trigger & ~failed),
             api_jobs=Count("id", filter=api_trigger & ~failed),
+            chat_jobs=Count("id", filter=chat_trigger & ~failed),
             code_changes=Count("id", filter=successful & Q(code_changes=True)),
             avg_duration=Avg(duration_expr, filter=successful),
         )
@@ -172,22 +174,32 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         mcp_jobs_count = stats["mcp_jobs"]
         scheduled_count = stats["scheduled"]
         api_jobs_count = stats["api_jobs"]
-        activity_url = reverse("activity_list")
+        chat_jobs_count = stats["chat_jobs"]
+        sessions_url = reverse("session_list")
 
         # Non-overlapping segments for the breakdown bar.
         # Trigger types are mutually exclusive, so the trigger-keyed segments never overlap.
         # Each segment excludes failed; "Other" absorbs the remainder (e.g. UI jobs).
         other_count = max(
-            0, total - issues_count - mrs_count - mcp_jobs_count - scheduled_count - api_jobs_count - failed_count
+            0,
+            total
+            - issues_count
+            - mrs_count
+            - mcp_jobs_count
+            - scheduled_count
+            - api_jobs_count
+            - chat_jobs_count
+            - failed_count,
         )
         raw_segments = [
-            ("Issues", issues_count, "bg-amber-500/50", f"{activity_url}?trigger={TriggerType.ISSUE_WEBHOOK}"),
-            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{activity_url}?trigger={TriggerType.MR_WEBHOOK}"),
-            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{activity_url}?trigger={TriggerType.MCP_JOB}"),
-            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{activity_url}?trigger={TriggerType.SCHEDULE}"),
-            ("API", api_jobs_count, "bg-emerald-500/50", f"{activity_url}?trigger={TriggerType.API_JOB}"),
+            ("Issues", issues_count, "bg-amber-500/50", f"{sessions_url}?trigger={SessionOrigin.ISSUE_WEBHOOK}"),
+            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{sessions_url}?trigger={SessionOrigin.MR_WEBHOOK}"),
+            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{sessions_url}?trigger={SessionOrigin.MCP_JOB}"),
+            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{sessions_url}?trigger={SessionOrigin.SCHEDULE}"),
+            ("API", api_jobs_count, "bg-emerald-500/50", f"{sessions_url}?trigger={SessionOrigin.API_JOB}"),
+            ("Chat", chat_jobs_count, "bg-sky-500/40", f"{sessions_url}?trigger={SessionOrigin.CHAT}"),
             ("Other", other_count, "bg-gray-500/30", None),
-            ("Failed", failed_count, "bg-red-500/40", f"{activity_url}?status={ActivityStatus.FAILED}"),
+            ("Failed", failed_count, "bg-red-500/40", f"{sessions_url}?status={RunStatus.FAILED}"),
         ]
         segments = []
         for label, value, css, url in raw_segments:
@@ -212,7 +224,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "code_changes": code_changes_count,
             "code_changes_pct": _format_pct(code_changes_count, successful_count),
             "avg_duration": _format_duration(stats["avg_duration"]),
-            "activity_url": activity_url,
+            "activity_url": sessions_url,
             "segments": segments,
         }
 
