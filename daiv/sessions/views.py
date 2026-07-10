@@ -274,6 +274,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
                 "runs": [],
                 "is_in_flight": False,
                 "in_flight_ids": "",
+                "failed_run": None,
             })
             return ctx
 
@@ -292,12 +293,31 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         # ``SessionLock`` / ``sync_stuck_runs`` use to decide a holder is dead.
         is_in_flight = bool(non_terminal) and session.last_active_at >= stale_cutoff()
 
+        # A freshly submitted run has not checkpointed yet, so "no checkpoint" only means
+        # the session is really over once nothing is (freshly) in flight; while in flight the
+        # "working" state and transcript poller render the same view a chat session gets.
+        no_state = expired and not is_in_flight
+        # ``ahydrate_thread`` reports "no checkpoint" as ``expired`` for two very different
+        # reasons (see ``HydratedThread``): a checkpoint that lapsed its TTL, and a thread
+        # that never checkpointed. A run that FAILED before it could checkpoint (e.g. a git
+        # clone error seconds in) is the second case — the run failed, the state did not
+        # expire. Surface that run (and its error) instead of a misleading TTL banner.
+        latest_run = runs[-1] if runs else None
+        failed_run = latest_run if no_state and latest_run and latest_run.status == RunStatus.FAILED else None
+
         ctx["turns"] = build_turns(messages_history)
-        # ``ahydrate_thread`` reports "no checkpoint" as ``expired`` — but a freshly
-        # submitted run has not checkpointed yet. Only treat the session as expired
-        # when nothing is (freshly) in flight; otherwise the in-flight "working" state
-        # and the transcript poller render the same view a chat session gets.
-        ctx["expired"] = expired and not is_in_flight
+        # A run that failed before checkpointing leaves no transcript, but its prompt
+        # survives on the Run. Replay it as a user turn carrying the error so the page
+        # shows what was asked (and what broke) rather than an empty view + top banner.
+        if failed_run is not None and failed_run.prompt:
+            ctx["turns"].append({
+                "id": f"run-{failed_run.id}",
+                "role": "user",
+                "segments": [{"type": "text", "content": failed_run.prompt}],
+                "error": failed_run.error_message or str(_("The run failed before it produced any state.")),
+            })
+        ctx["failed_run"] = failed_run
+        ctx["expired"] = no_state and failed_run is None
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = merge_request
         ctx["runs"] = runs

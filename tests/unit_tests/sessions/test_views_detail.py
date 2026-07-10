@@ -272,6 +272,90 @@ def test_detail_missing_checkpoint_expired_when_all_runs_terminal(member_client,
 
 
 @pytest.mark.django_db
+def test_detail_missing_checkpoint_replays_prompt_turn_when_last_run_failed(member_client, member_user):
+    """A run that failed before checkpointing has no transcript, but its prompt survives on
+    the Run. Replay it as a user turn carrying the error, instead of an empty view + banner."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(
+        session,
+        trigger_type=SessionOrigin.SCHEDULE,
+        status=RunStatus.FAILED,
+        prompt="Triage this week's Sentry errors and open MRs.",
+        error_message="git.exc.GitCommandError: clone failed",
+    )
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)  # never checkpointed
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["failed_run"] is not None
+    assert resp.context["expired"] is False
+
+    # The prompt is replayed as a user turn carrying the run's error.
+    turns = resp.context["turns"]
+    prompt_turn = next((t for t in turns if t["role"] == "user"), None)
+    assert prompt_turn is not None
+    assert prompt_turn["segments"][0]["content"] == "Triage this week's Sentry errors and open MRs."
+    assert prompt_turn["error"] == "git.exc.GitCommandError: clone failed"
+
+    content = resp.content.decode()
+    # The top red banner is replaced by the inline turn; its copy must be gone.
+    assert "Send a message below to try again" not in content
+    # Composer stays available to retry in place.
+    assert "chat-composer" in content
+
+
+@pytest.mark.django_db
+def test_detail_failed_run_without_prompt_falls_back_to_banner(member_client, member_user):
+    """If the failed run has no prompt to replay (rare — some webhook runs), keep the red
+    banner so the error is never silently dropped."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(
+        session,
+        trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+        status=RunStatus.FAILED,
+        prompt="",
+        error_message="RuntimeError: boom",
+    )
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["failed_run"] is not None
+    assert resp.context["turns"] == []
+    assert "Send a message below to try again" in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_detail_missing_checkpoint_expired_when_last_run_succeeded(member_client, member_user):
+    """A missing checkpoint whose last run SUCCEEDED is a genuine TTL expiry — the expired
+    banner still shows and ``failed_run`` stays None (guards the failed-run branch)."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL)
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is True
+    assert resp.context["failed_run"] is None
+    assert "has expired" in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_detail_missing_checkpoint_expired_when_run_stale(member_client, member_user):
     """A non-terminal run whose holder stopped heartbeating (crashed worker) past
     STALE_RUN_MINUTES is dead — it must fall through to 'expired', not pin the view
