@@ -1,4 +1,6 @@
+import json
 import logging
+import time
 
 from django.http import Http404, HttpRequest, StreamingHttpResponse
 
@@ -8,13 +10,14 @@ from ninja import Router
 from ninja.errors import HttpError
 from ninja.security import django_auth
 from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
-from sessions.locks import SessionLock
+from sessions.locks import SessionLock, stale_cutoff
 from sessions.models import Session
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 
+from . import relay
 from .security import AuthBearer
 from .streaming import ChatRunStreamer
 from .threads import ChatSessionService, _extract_first_user_message
@@ -26,6 +29,83 @@ HEADER_REF = "X-Ref"
 HEADER_SANDBOX_ENV = "X-Sandbox-Env"
 
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
+
+# SSE reader tuning. The 300s duration cap closes the response *without* an end
+# frame — EventSource then auto-reconnects with Last-Event-ID, which keeps
+# long runs streaming while bounding per-connection worker occupancy.
+STREAM_BLOCK_MS = 15_000
+STREAM_DRAIN_BLOCK_MS = 500
+STREAM_MAX_DURATION_S = 300.0
+
+
+def _end_frame(reason: str) -> str:
+    return f"event: end\ndata: {json.dumps({'reason': reason})}\n\n"
+
+
+async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
+    """Replay + live-tail a run's relay stream as SSE frames.
+
+    Every data frame carries the Redis entry id as the SSE ``id:`` so browsers
+    resume via ``Last-Event-ID``. Terminal ``event: end`` frames tell the client
+    to stop reconnecting; hitting the duration cap closes silently on purpose
+    (the browser reconnects and resumes).
+
+    Liveness: when the stream goes quiet we probe the session slot. Holder
+    released → drain the tail briefly (the sentinel may still be in flight,
+    since ``events()`` releases the lock before the runner publishes it), then
+    finish. Holder present but heartbeat-stale → the writer is dead; tell the
+    client instead of hanging forever.
+    """
+    r = relay.get_redis()
+    key = relay.run_events_key(thread_id, run_id)
+    yield "retry: 2000\n\n"
+    start = time.monotonic()
+    released_drain = False
+
+    while (time.monotonic() - start) < STREAM_MAX_DURATION_S:
+        block_ms = STREAM_DRAIN_BLOCK_MS if released_drain else STREAM_BLOCK_MS
+        entries = await r.xread({key: last_id}, count=100, block=block_ms)
+        if entries:
+            for entry_id, fields in entries[0][1]:
+                last_id = entry_id
+                if relay.END_FIELD in fields:
+                    yield _end_frame("finished")
+                    return
+                yield f"id: {entry_id}\ndata: {fields[relay.DATA_FIELD]}\n\n"
+            continue
+
+        if released_drain:
+            yield _end_frame("finished")
+            return
+
+        session = await Session.objects.filter(thread_id=thread_id).values("active_run_id", "last_active_at").afirst()
+        if session is None or session["active_run_id"] != run_id:
+            released_drain = True
+            continue
+        if session["last_active_at"] < stale_cutoff():
+            yield _end_frame("stale")
+            return
+        yield ": keep-alive\n\n"
+
+
+@chat_router.get("/stream", url_name="chat_run_stream")
+async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
+    """Resumable SSE stream of a chat run's AG-UI events.
+
+    Replays from the start (or from the ``Last-Event-ID`` header on browser
+    reconnect) and tails live until the run's terminal sentinel. Authorization
+    is thread visibility: the relay key embeds the thread id, so a run id from
+    another thread reads an empty stream even if guessed.
+    """
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
+        raise HttpError(404, "Thread not found")
+    last_id = request.headers.get("Last-Event-ID") or "0-0"
+    return StreamingHttpResponse(
+        _run_event_frames(thread_id, run_id, last_id),
+        content_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @chat_router.get("/threads/{thread_id}/status", response=dict, url_name="thread_status")

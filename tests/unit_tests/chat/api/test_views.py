@@ -614,3 +614,107 @@ async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyn
     assert response.status_code == 404
     assert not await Session.objects.filter(thread_id=thread_id).aexists()
     await user.adelete()
+
+
+# ---------------------------------------------------------------------------
+# GET /chat/stream — SSE replay + tail of a run's relay stream
+# ---------------------------------------------------------------------------
+
+
+async def _seed_run_events(fake_redis, thread_id, run_id, payloads, *, end=True):
+    from chat.api import relay
+
+    for p in payloads:
+        await relay.publish_event(thread_id, run_id, p)
+    if end:
+        await relay.publish_end(thread_id, run_id)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_replays_all_events_and_ends(client: TestAsyncClient, authed, fake_redis):
+    _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-s1", user=user, repo_id="a/b", ref="main")
+    await _seed_run_events(fake_redis, "t-s1", "r-1", ['{"type":"RUN_STARTED"}', '{"type":"RUN_FINISHED"}'])
+
+    response = await client.get("/chat/stream?thread_id=t-s1&run_id=r-1", headers=_auth_headers(raw))
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "text/event-stream"
+    body = response.content.decode()
+    assert body.startswith("retry: 2000\n\n")
+    assert 'data: {"type":"RUN_STARTED"}' in body
+    assert 'data: {"type":"RUN_FINISHED"}' in body
+    # every data frame carries a resumable id
+    assert "id: 1-0" in body
+    assert 'event: end\ndata: {"reason": "finished"}' in body
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_resumes_after_last_event_id(client: TestAsyncClient, authed, fake_redis):
+    _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-s2", user=user, repo_id="a/b", ref="main")
+    await _seed_run_events(fake_redis, "t-s2", "r-1", ['{"n":1}', '{"n":2}', '{"n":3}'])
+
+    response = await client.get(
+        "/chat/stream?thread_id=t-s2&run_id=r-1", headers=_auth_headers(raw, **{"Last-Event-ID": "2-0"})
+    )
+
+    body = response.content.decode()
+    assert '{"n":1}' not in body
+    assert '{"n":2}' not in body
+    assert '{"n":3}' in body
+    assert 'event: end\ndata: {"reason": "finished"}' in body
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_drains_tail_and_ends_when_slot_released_without_sentinel(
+    client: TestAsyncClient, authed, fake_redis
+):
+    """Writer died after releasing the lock but before the sentinel (or the
+    sentinel expired): replay what exists, then synthesize a finished end."""
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-s3", user=user, repo_id="a/b", ref="main", active_run_id=None
+    )
+    await _seed_run_events(fake_redis, "t-s3", "r-1", ['{"n":1}'], end=False)
+
+    response = await client.get("/chat/stream?thread_id=t-s3&run_id=r-1", headers=_auth_headers(raw))
+
+    body = response.content.decode()
+    assert '{"n":1}' in body
+    assert 'event: end\ndata: {"reason": "finished"}' in body
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_reports_stale_when_holder_heartbeat_is_dead(client: TestAsyncClient, authed, fake_redis):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-s4", user=user, repo_id="a/b", ref="main", active_run_id="r-1"
+    )
+    await Session.objects.filter(thread_id="t-s4").aupdate(last_active_at=timezone.now() - timedelta(minutes=31))
+
+    response = await client.get("/chat/stream?thread_id=t-s4&run_id=r-1", headers=_auth_headers(raw))
+
+    body = response.content.decode()
+    assert 'event: end\ndata: {"reason": "stale"}' in body
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_rejects_thread_not_owned(client: TestAsyncClient, authed, fake_redis):
+    _, raw, user = authed
+    other = await User.objects.acreate_user(username="sowner", email="s@example.com", password="x")  # noqa: S106
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-s5", user=other, repo_id="a/b", ref="main")
+
+    response = await client.get("/chat/stream?thread_id=t-s5&run_id=r-1", headers=_auth_headers(raw))
+
+    assert response.status_code == 404
+    await user.adelete()
+    await other.adelete()
