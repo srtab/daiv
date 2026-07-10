@@ -308,14 +308,17 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
 
         ctx["turns"] = build_turns(messages_history)
         # A run that failed before checkpointing leaves no transcript, but its prompt
-        # survives on the Run. Replay it as a user turn carrying the error so the page
-        # shows what was asked (and what broke) rather than an empty view + top banner.
+        # survives on the Run. Replay it as a user turn so the page shows what was asked
+        # rather than an empty view. ``errored`` is a boolean flag only — it drives the
+        # icon + red border on the turn. The raw traceback is developer-only and stays in
+        # the logs; it is deliberately not put on the turn (the payload is serialised into
+        # the page via ``json_script``, so a raw error here would leak into the HTML).
         if failed_run is not None and failed_run.prompt:
             ctx["turns"].append({
                 "id": f"run-{failed_run.id}",
                 "role": "user",
                 "segments": [{"type": "text", "content": failed_run.prompt}],
-                "error": failed_run.error_message or str(_("The run failed before it produced any state.")),
+                "errored": True,
             })
         ctx["failed_run"] = failed_run
         ctx["expired"] = no_state and failed_run is None

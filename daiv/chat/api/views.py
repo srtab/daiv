@@ -156,6 +156,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     webhook-origin session with ``user=None`` is continuable by anyone with visibility).
     ``SessionLock.try_claim`` atomically claims the per-session run slot — parallel tabs
     resolve to a single winner, the loser gets 409.
+
     Runs execute detached (see ``chat.api.runner``); the response is a run handle (JSON) or an
     inline relay tail (``Accept: text/event-stream``).
     """

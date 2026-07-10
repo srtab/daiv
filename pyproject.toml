@@ -44,7 +44,7 @@ dependencies = [
   "langchain-mcp-adapters==0.3.0",
   "langgraph==1.1.10",
   "langgraph-checkpoint-redis==0.5.0",
-  "langsmith[pytest]==0.9.8",
+  "langsmith[pytest]==0.10.1",
   "langsmith-fetch==0.3.1",
   "markdown==3.10.2",
   "markdownify==1.2.3",
@@ -63,7 +63,7 @@ dependencies = [
   "redis==7.4.0",
   "sentry-sdk==2.64.0",
   "unidiff==0.7.5",
-  "uvicorn[standard]==0.50.2",
+  "uvicorn[standard]==0.51.0",
   "whitenoise==6.12.0",
 ]
 urls.changelog = "https://github.com/srtab/daiv/blob/main/CHANGELOG.md"
@@ -77,7 +77,7 @@ dev = [
   "djade==1.9.0",
   "openevals==0.2.0",
   "prek==0.4.8",
-  "pyproject-fmt==2.25.1",
+  "pyproject-fmt==2.25.2",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
@@ -87,8 +87,8 @@ dev = [
   "pytest-mock==3.15.1",
   "pytest-xdist==3.8.0",
   "python-dotenv==1.2.2",
-  "ruff==0.15.20",
-  "ty==0.0.56",
+  "ruff==0.15.21",
+  "ty==0.0.57",
   "types-pyyaml==6.0.12.20260518",
   "watchdog==6.0.0",
 ]

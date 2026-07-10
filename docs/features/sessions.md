@@ -76,7 +76,6 @@ Click any session to see its full detail page, which includes:
 
 - **Origin and status badges**
 - **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link), the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
-- **Run timeline** — every Run in this session, newest first, each showing its trigger type, status, timing, token usage, cost, and (for successful runs) a link to download the result as Markdown.
 - **Transcript** — for chat-origin sessions, the full conversation transcript streams live during active runs and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
 
 For in-flight sessions the detail page updates in real time until the run completes.
