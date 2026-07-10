@@ -279,7 +279,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     )
     # The run is detached from this request: it executes as a background task
     # and publishes to the relay, so a client disconnect no longer kills it.
-    runner.spawn_run(streamer)
+    runner.supervisor.spawn(streamer)
 
     if "text/event-stream" in (request.headers.get("accept") or ""):
         # AG-UI protocol compatibility: SSE callers get the same relay-backed
@@ -313,5 +313,5 @@ async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
         raise HttpError(409, "Run is not in flight for this thread")
 
     await relay.RunRelay(payload.thread_id, payload.run_id).request_cancel()
-    cancelled_locally = runner.cancel_local(payload.run_id)
+    cancelled_locally = runner.supervisor.cancel_local(payload.run_id)
     return {"cancelled": True, "local": cancelled_locally}

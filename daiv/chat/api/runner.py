@@ -1,10 +1,16 @@
 """Background execution of chat runs.
 
-``spawn_run`` detaches a chat run from the HTTP request that started it: the
-run executes as an ``asyncio.Task`` in the web process and publishes its AG-UI
-events to the Redis relay, so client disconnects never cancel the run. The
-task registry enables immediate local cancellation ("Stop" in the UI); the
-Redis cancel flag (see ``chat.api.relay``) covers the cross-process case.
+``RunSupervisor.spawn`` detaches a chat run from the HTTP request that started
+it: the run executes as an ``asyncio.Task`` in the web process and publishes its
+AG-UI events to the Redis relay, so client disconnects never cancel the run. The
+supervisor's task registry enables immediate local cancellation ("Stop" in the
+UI); the Redis cancel flag (see ``chat.api.relay``) covers the cross-process
+case.
+
+Organization: the stateless execution recipe (drive the streamer, publish to the
+relay) is the module-level ``run_to_relay`` coroutine; the stateful, process-wide
+task registry (spawn / dedup / prune / local-cancel) is ``RunSupervisor``, of
+which there is one shared ``supervisor`` instance per web process.
 
 Process restarts still kill in-flight tasks — the streamer's ``finally`` runs
 on cancellation (finalize FAILED + lock release), and the existing heartbeat /
@@ -23,33 +29,6 @@ if TYPE_CHECKING:
     from .streaming import ChatRunStreamer
 
 logger = logging.getLogger("daiv.chat")
-
-# Strong references so tasks aren't garbage-collected mid-run; pruned on completion.
-_TASKS: dict[str, asyncio.Task] = {}
-
-
-def spawn_run(streamer: ChatRunStreamer) -> asyncio.Task:
-    # One live task per run_id: uniqueness is guaranteed upstream by the atomic
-    # ``SessionLock.try_claim`` (run_id == holder id), but self-guard here so a
-    # regression can't silently overwrite the registry entry — which would orphan
-    # the first task's strong ref and let the wrong done-callback prune the slot.
-    existing = _TASKS.get(streamer.run_id)
-    if existing is not None and not existing.done():
-        raise RuntimeError(f"chat: a run task is already live for run_id={streamer.run_id}")
-    task = asyncio.get_running_loop().create_task(run_to_relay(streamer), name=f"chat-run-{streamer.run_id}")
-    _TASKS[streamer.run_id] = task
-    task.add_done_callback(lambda _t, run_id=streamer.run_id: _TASKS.pop(run_id, None))
-    return task
-
-
-def cancel_local(run_id: str) -> bool:
-    """Hard-cancel the run if it executes in this process. Returns False when it
-    doesn't — the caller must have set the Redis cancel flag for that case."""
-    task = _TASKS.get(run_id)
-    if task is not None and not task.done():
-        task.cancel()
-        return True
-    return False
 
 
 async def run_to_relay(streamer: ChatRunStreamer) -> None:
@@ -74,3 +53,52 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
             await run_relay.publish_end()
         except Exception:
             logger.exception("chat: failed to publish end sentinel for thread_id=%s run_id=%s", thread_id, run_id)
+
+
+class RunSupervisor:
+    """Registry of in-flight chat run tasks for this web process.
+
+    Holds a strong reference to each live task (so it isn't garbage-collected
+    mid-run) keyed by ``run_id``, and enables immediate in-process cancellation.
+    Use the shared ``supervisor`` singleton; the class is instantiable mainly to
+    keep the registry state explicit and testable.
+    """
+
+    def __init__(self) -> None:
+        # Strong references so tasks aren't garbage-collected mid-run; pruned on completion.
+        self._tasks: dict[str, asyncio.Task] = {}
+
+    def spawn(self, streamer: ChatRunStreamer) -> asyncio.Task:
+        """Create, register, and return the detached run task.
+
+        Must be called from the web-worker event loop: the task is bound to the
+        running loop via ``asyncio.get_running_loop()`` and ``cancel_local``
+        later cancels it on that same loop. Driving this singleton from a second
+        loop would interleave independent registry state on one shared object
+        (and cross-loop ``task.cancel()`` is unsafe) — same single-loop
+        assumption ``get_redis`` documents for the relay client.
+        """
+        # One live task per run_id: uniqueness is guaranteed upstream by the atomic
+        # ``SessionLock.try_claim`` (run_id == holder id), but self-guard here so a
+        # regression can't silently overwrite the registry entry — which would orphan
+        # the first task's strong ref and let the wrong done-callback prune the slot.
+        existing = self._tasks.get(streamer.run_id)
+        if existing is not None and not existing.done():
+            raise RuntimeError(f"chat: a run task is already live for run_id={streamer.run_id}")
+        task = asyncio.get_running_loop().create_task(run_to_relay(streamer), name=f"chat-run-{streamer.run_id}")
+        self._tasks[streamer.run_id] = task
+        task.add_done_callback(lambda _t, run_id=streamer.run_id: self._tasks.pop(run_id, None))
+        return task
+
+    def cancel_local(self, run_id: str) -> bool:
+        """Hard-cancel the run if it executes in this process. Returns False when it
+        doesn't — the caller must have set the Redis cancel flag for that case."""
+        task = self._tasks.get(run_id)
+        if task is not None and not task.done():
+            task.cancel()
+            return True
+        return False
+
+
+# One registry per web process; the web workers run a single event loop.
+supervisor = RunSupervisor()

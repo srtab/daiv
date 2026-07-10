@@ -48,11 +48,11 @@ async def test_spawn_run_registers_and_prunes_task(fake_redis):
     async def _events():
         yield CustomEvent(type=EventType.CUSTOM, name="only", value=1)
 
-    task = runner.spawn_run(_stub_streamer(_events))
-    assert runner._TASKS.get("r-1") is task
+    task = runner.supervisor.spawn(_stub_streamer(_events))
+    assert runner.supervisor._tasks.get("r-1") is task
     await task
     await asyncio.sleep(0)  # let the done-callback prune
-    assert "r-1" not in runner._TASKS
+    assert "r-1" not in runner.supervisor._tasks
 
 
 async def test_cancel_local_cancels_running_task_and_reports_miss(fake_redis):
@@ -63,11 +63,11 @@ async def test_cancel_local_cancels_running_task_and_reports_miss(fake_redis):
         await asyncio.Event().wait()
         yield  # pragma: no cover
 
-    task = runner.spawn_run(_stub_streamer(_hang))
+    task = runner.supervisor.spawn(_stub_streamer(_hang))
     await started.wait()
 
-    assert runner.cancel_local("r-unknown") is False
-    assert runner.cancel_local("r-1") is True
+    assert runner.supervisor.cancel_local("r-unknown") is False
+    assert runner.supervisor.cancel_local("r-1") is True
     with contextlib.suppress(asyncio.CancelledError):
         await task
     # Sentinel still published by the finally.
@@ -103,15 +103,15 @@ async def test_spawn_run_rejects_duplicate_live_run_id(fake_redis):
         await asyncio.Event().wait()
         yield  # pragma: no cover
 
-    task = runner.spawn_run(_stub_streamer(_hang))
+    task = runner.supervisor.spawn(_stub_streamer(_hang))
     await started.wait()
 
     with pytest.raises(RuntimeError, match="already live for run_id=r-1"):
-        runner.spawn_run(_stub_streamer(_hang))
+        runner.supervisor.spawn(_stub_streamer(_hang))
 
     # A fresh spawn is allowed once the prior task has completed/pruned.
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
     await asyncio.sleep(0)  # let the done-callback prune
-    assert "r-1" not in runner._TASKS
+    assert "r-1" not in runner.supervisor._tasks
