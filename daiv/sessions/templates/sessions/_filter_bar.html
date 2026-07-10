@@ -31,7 +31,7 @@
             <button type="button" class="filter-control {% if current_trigger %}filter-control--active{% endif %}"
                     :class="{ 'filter-control--active': !!trigger }" @click="toggle('type')">
                 {% icon "bars-3" "h-4 w-4" %}
-                <span x-text="triggerLabel || '{% translate "Type" %}'">{% if current_trigger %}{{ current_trigger_label }}{% else %}{% translate "Type" %}{% endif %}</span>
+                <span x-text="triggerLabel || $el.dataset.defaultLabel" data-default-label="{% translate 'Type' %}">{% if current_trigger %}{{ current_trigger_label }}{% else %}{% translate "Type" %}{% endif %}</span>
                 <a href="?{% querystring_without 'trigger' 'page' %}" @click.stop.prevent="clearTrigger()"
                    x-show="!!trigger" style="{% if not current_trigger %}display:none{% endif %}"
                    class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear type filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
@@ -44,8 +44,8 @@
                 {% for value, label in origins %}
                 <a href="?{% querystring_without 'trigger' 'page' %}&trigger={{ value }}"
                    class="filter-menu-item {% if current_trigger == value %}filter-menu-item--active{% endif %}"
-                   data-trigger-value="{{ value }}" data-label="{{ label|escapejs }}"
-                   @click.prevent="setTrigger('{{ value }}', '{{ label|escapejs }}')"
+                   data-trigger-value="{{ value }}" data-label="{{ label }}"
+                   @click.prevent="setTrigger('{{ value }}')"
                    :class="{ 'filter-menu-item--active': trigger === '{{ value }}' }">
                     {% icon value|origin_icon "h-4 w-4 text-gray-500" %}{{ label }}
                 </a>
@@ -58,7 +58,7 @@
             <button type="button" class="filter-control {% if current_range or current_from or current_to %}filter-control--active{% endif %}"
                     :class="{ 'filter-control--active': timeActive }" @click="toggle('time')">
                 {% icon "calendar" "h-4 w-4" %}
-                <span x-text="timeLabel || '{% translate "Time" %}'">
+                <span x-text="timeLabel || $el.dataset.defaultLabel" data-default-label="{% translate 'Time' %}">
                     {% if current_range_label %}{{ current_range_label }}
                     {% elif current_from or current_to %}{{ current_from|default:"…" }} – {{ current_to|default:"…" }}
                     {% else %}{% translate "Time" %}{% endif %}
@@ -75,13 +75,14 @@
                 {% for value, label in ranges %}
                 <a href="?{% querystring_without 'range' 'date_from' 'date_to' 'page' %}&range={{ value }}"
                    class="filter-menu-item {% if current_range == value %}filter-menu-item--active{% endif %}"
-                   data-range-value="{{ value }}" data-label="{{ label|escapejs }}"
-                   @click.prevent="setRange('{{ value }}', '{{ label|escapejs }}')"
+                   data-range-value="{{ value }}" data-label="{{ label }}"
+                   @click.prevent="setRange('{{ value }}')"
                    :class="{ 'filter-menu-item--active': range === '{{ value }}' }">{{ label }}</a>
                 {% endfor %}
                 <div class="mt-1 border-t border-white/[0.06] px-2.5 pb-1 pt-2">
                     <p class="mb-1.5 text-[11px] uppercase tracking-wider text-gray-500">{% translate "Custom range" %}</p>
-                    <div class="flex items-center gap-2" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }">
+                    <div class="flex items-center gap-2" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }"
+                         @sessions:url-changed.window="const p = new URLSearchParams(location.search); from = p.get('date_from') || ''; to = p.get('date_to') || ''">
                         <input type="date" x-model="from" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
                         <span class="text-gray-500">–</span>
                         <input type="date" x-model="to" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">

@@ -30,6 +30,7 @@ from automation.agent.picker_context import agent_picker_context
 from chat.repo_state import aget_existing_mr_payload
 from chat.turns import build_turns
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
+from core.utils import is_htmx
 from schedules.models import ScheduledJob
 from sessions.filters import RANGE_CHOICES, SessionFilter
 from sessions.forms import AgentRunCreateForm
@@ -133,7 +134,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
     def get_template_names(self) -> list[str]:
         # HTMX requests get just the results fragment so the filter bar and page
         # chrome stay put; a normal GET renders the full page (deep-link / no-JS safe).
-        if self.request.headers.get("HX-Request") == "true":
+        if is_htmx(self.request):
             return ["sessions/_session_results.html"]
         return ["sessions/session_list.html"]
 
@@ -199,8 +200,9 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["statuses"] = RunStatus.choices
         context["ranges"] = RANGE_CHOICES
 
-        # Resolve schedule name for display.
-        if schedule_id := context["current_schedule"]:
+        # Resolve schedule name for the filter-bar chip. Only the full page renders the
+        # filter bar, so skip this extra query on the HTMX results-fragment path.
+        if not is_htmx(self.request) and (schedule_id := context["current_schedule"]):
             schedule = ScheduledJob.objects.filter(pk=schedule_id).values_list("name", flat=True).first()
             context["schedule_name"] = schedule or ""
 

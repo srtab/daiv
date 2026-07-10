@@ -53,10 +53,20 @@ document.addEventListener("alpine:init", () => {
             // already show the correct status (server-rendered fallback), so this only
             // restores LIVE updates for the new page. Ids are read from the swapped fragment.
             const el = document.getElementById("session-in-flight");
-            const ids = el ? el.dataset.ids : "";
             if (this._source) this._source.close();
             this._source = null;
+            // Reset the reconnect budget: `_maxReconnects` caps stream-timeout retries WITHIN
+            // one page, not across page swaps, so each swapped page starts with a fresh budget.
             this._reconnects = 0;
+            if (!el) {
+                // The fragment always renders this marker; its absence means the swap landed
+                // something other than the results fragment (error page / redirect / template
+                // drift). Warn instead of silently dropping live updates so it's debuggable.
+                console.warn("sessionStream: #session-in-flight missing after swap; live updates not re-armed");
+                return;
+            }
+            // Empty data-ids is correct silence: no non-terminal runs on this page to track.
+            const ids = el.dataset.ids;
             if (ids) this._connect(streamUrl + "?ids=" + ids);
         },
         _connect(url) {
