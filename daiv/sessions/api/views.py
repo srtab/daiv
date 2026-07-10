@@ -27,13 +27,6 @@ async def _get_visible_session(user, thread_id: str) -> Session:
     return session
 
 
-@sessions_router.get("/{thread_id}/status", response=dict, url_name="session_status")
-async def session_status(request: HttpRequest, thread_id: str):
-    """Cheap probe so a reloaded page can detect when the in-flight run released the slot."""
-    session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
-    return {"active": bool(session.active_run_id)}
-
-
 @sessions_router.get("/{thread_id}/turns", response=dict, url_name="session_turns")
 async def session_turns(request: HttpRequest, thread_id: str):
     """Re-hydrated transcript for live background runs (the detail page polls this

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ninja.testing import TestAsyncClient
-from sessions.models import Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
@@ -392,45 +392,15 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
     # User-facing message must not leak the raw exception class/message.
     assert "kaboom" not in published
     assert "RuntimeError" not in published
+
+    # ...and neither may the *stored* reason on the Run row (which the timeline renders
+    # verbatim). The real finalize_chat_run runs here (not patched), so this asserts the
+    # DB→timeline surface stays sanitized end-to-end, not just the SSE stream.
+    failed_run = await Run.objects.aget(session_id="t-boom", status=RunStatus.FAILED)
+    assert failed_run.error_message == "Run failed. Check server logs for details."
+    assert "kaboom" not in failed_run.error_message
+    assert "RuntimeError" not in failed_run.error_message
     await user.adelete()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_thread_status_reports_active_run(client: TestAsyncClient, authed):
-    _, raw, user = authed
-    await Session.objects.acreate(
-        origin=SessionOrigin.CHAT, thread_id="t-live", user=user, repo_id="a/b", ref="main", active_run_id="r-1"
-    )
-    await Session.objects.acreate(
-        origin=SessionOrigin.CHAT, thread_id="t-idle", user=user, repo_id="a/b", ref="main", active_run_id=None
-    )
-
-    live = await client.get("/chat/threads/t-live/status", headers=_auth_headers(raw))
-    idle = await client.get("/chat/threads/t-idle/status", headers=_auth_headers(raw))
-
-    assert live.status_code == 200
-    assert live.json() == {"active": True}
-    assert idle.status_code == 200
-    assert idle.json() == {"active": False}
-    await user.adelete()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_thread_status_rejects_cross_user_access(client: TestAsyncClient, authed):
-    _, raw, user = authed
-    other = await User.objects.acreate_user(
-        username="intruder",
-        email="i@example.com",
-        password="x",  # noqa: S106
-    )
-    await Session.objects.acreate(
-        origin=SessionOrigin.CHAT, thread_id="t-foreign", user=other, repo_id="a/b", ref="main", active_run_id="r-9"
-    )
-
-    response = await client.get("/chat/threads/t-foreign/status", headers=_auth_headers(raw))
-    assert response.status_code == 404
-    await user.adelete()
-    await other.adelete()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -742,6 +712,128 @@ async def test_stream_rejects_thread_not_owned(client: TestAsyncClient, authed, 
     await other.adelete()
 
 
+class _ScriptedRedis:
+    """Minimal stream client that honors Last-Event-ID and reveals appended
+    entries across successive ``xread`` calls, so a test can drive the live-tail
+    loop through multiple blocking iterations deterministically. ``reveal`` maps
+    an xread call index → entries to make visible *before* serving that call; an
+    absent index serves nothing new (the stand-in for a block timeout).
+
+    This is what the shared ``FakeAsyncRedis`` (which returns everything at once)
+    cannot do: exercise the loop re-entering with an advanced ``last_id`` while a
+    writer is still producing.
+    """
+
+    def __init__(self, key: str, reveal: dict[int, list[tuple[str, dict]]]):
+        self._key = key
+        self._reveal = reveal
+        self._visible: list[tuple[str, dict]] = []
+        self._calls = 0
+
+    async def xread(self, streams, count=None, block=None):
+        await asyncio.sleep(0)
+        self._visible.extend(self._reveal.get(self._calls, []))
+        self._calls += 1
+        last_id = streams[self._key]
+        newer = [e for e in self._visible if self._after(e[0], last_id)]
+        if count:
+            newer = newer[:count]
+        return [(self._key, newer)] if newer else []
+
+    @staticmethod
+    def _after(entry_id: str, last_id: str) -> bool:
+        def parse(i: str) -> tuple[int, int]:
+            a, _, b = i.partition("-")
+            return (int(a), int(b or 0))
+
+        return parse(entry_id) > parse(last_id)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_emits_error_frame_when_relay_read_fails(client: TestAsyncClient, authed):
+    """A relay/backend error mid-tail must emit an explicit ``error`` end frame
+    rather than aborting the response unframed — an unframed abort is
+    indistinguishable from a transient drop, so EventSource would reconnect
+    forever against a still-broken backend.
+    """
+    _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-err", user=user, repo_id="a/b", ref="main")
+    broken = MagicMock()
+    broken.xread = AsyncMock(side_effect=RuntimeError("redis down"))
+
+    with patch("chat.api.relay.get_redis", return_value=broken):
+        response = await client.get("/chat/stream?thread_id=t-err&run_id=r-1", headers=_auth_headers(raw))
+
+    body = response.content.decode()
+    assert 'event: end\ndata: {"reason": "error"}' in body
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_emits_keepalive_and_resumes_tail_across_reads(client: TestAsyncClient, authed):
+    """Drive the live-tail loop across multiple reads: a data read, a quiet read
+    (holder live + fresh → keep-alive), then a final read with new data + the
+    sentinel. Proves Last-Event-ID advances (an already-sent event is not
+    re-sent) and the keep-alive branch fires — neither is reachable via the
+    all-at-once ``FakeAsyncRedis``.
+    """
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-live", user=user, repo_id="a/b", ref="main", active_run_id="r-1"
+    )
+    from chat.api import relay
+
+    key = relay.run_events_key("t-live", "r-1")
+    scripted = _ScriptedRedis(
+        key, {0: [("1-0", {"data": '{"n":1}'})], 2: [("2-0", {"data": '{"n":2}'}), ("3-0", {"end": "1"})]}
+    )
+
+    with patch("chat.api.relay.get_redis", return_value=scripted):
+        response = await client.get("/chat/stream?thread_id=t-live&run_id=r-1", headers=_auth_headers(raw))
+
+    body = response.content.decode()
+    assert body.count('{"n":1}') == 1  # not re-sent after last_id advanced past it
+    assert body.count('{"n":2}') == 1
+    assert ": keep-alive" in body
+    assert 'event: end\ndata: {"reason": "finished"}' in body
+    await user.adelete()
+
+
+class _QuietSlowRedis:
+    """``xread`` always times out empty after a short real delay, so the live-tail
+    loop iterates (emitting keep-alives) until the duration cap trips against real
+    monotonic time — no global clock patching (which would corrupt asyncio's own
+    ``loop.time()``).
+    """
+
+    async def xread(self, streams, count=None, block=None):
+        await asyncio.sleep(0.02)
+        return []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_closes_without_end_frame_at_duration_cap(client: TestAsyncClient, authed):
+    """Hitting the duration cap closes the response WITHOUT an end frame (the
+    browser reconnects with Last-Event-ID). Assert no terminal frame is emitted
+    even though the holder is still live and fresh.
+    """
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-cap", user=user, repo_id="a/b", ref="main", active_run_id="r-1"
+    )
+
+    with (
+        patch("chat.api.relay.get_redis", return_value=_QuietSlowRedis()),
+        patch("chat.api.views.STREAM_MAX_DURATION_S", 0.05),
+    ):
+        response = await client.get("/chat/stream?thread_id=t-cap&run_id=r-1", headers=_auth_headers(raw))
+
+    body = response.content.decode()
+    assert ": keep-alive" in body  # at least one quiet iteration ran before the cap
+    assert "event: end" not in body  # cap close is silent on purpose
+    await user.adelete()
+
+
 # ---------------------------------------------------------------------------
 # POST /chat/completions — spawn semantics
 # ---------------------------------------------------------------------------
@@ -787,6 +879,52 @@ async def test_completions_streams_inline_for_event_stream_accept(
     body = response.content.decode()
     assert 'event: end\ndata: {"reason": "finished"}' in body
     await asyncio.gather(*captured_runs)
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completion_invalid_env_header_returns_400_and_no_thread(client: TestAsyncClient, authed):
+    """An ``X-Sandbox-Env`` naming an env the user can't use raises ``LookupError``
+    from env resolution → 400, before any Session is created or run spawned."""
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    # The per-user job throttle keys on the (constant) test username, so completion
+    # POSTs share one bucket across the file — reset it so this test isn't throttled.
+    await cache.aclear()
+    with patch("chat.api.views.resolve_env_for_user", new=AsyncMock(side_effect=LookupError("unknown env"))):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-badenv"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main", "X-Sandbox-Env": "nope"}),
+        )
+
+    assert response.status_code == 400
+    assert not await Session.objects.filter(thread_id="t-badenv").aexists()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completion_no_resolvable_model_returns_400(client: TestAsyncClient, authed, fake_redis):
+    """The submit-time model gate: when no agent model can be resolved (client sent
+    no override and no system default exists), ``ensure_agent_model_available``
+    raises → 400 rather than exploding mid-stream."""
+    from django.core.cache import cache
+
+    from automation.agent.validators import AgentOverrideError
+
+    _, raw, user = authed
+    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    with patch(
+        "chat.api.views.ensure_agent_model_available", side_effect=AgentOverrideError("no agent model configured")
+    ):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-nomodel"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 400
     await user.adelete()
 
 

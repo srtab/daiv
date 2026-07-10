@@ -367,11 +367,17 @@
           s.endedAt = Date.now();
         }
       });
-      if (reason === "stale" && !turn.error && !turn.aborted) {
-        turn.error = "The run stopped responding — refresh to check its final state.";
-      }
-      if (reason === "connection_lost" && !turn.error && !turn.aborted) {
-        turn.error = "Lost connection to the server — refresh to continue.";
+      // Terminal reasons that leave the turn in an error state ("finished" is
+      // clean and absent here). "error" = the server hit a relay/backend fault
+      // tailing the stream and sent an explicit error end frame rather than
+      // dropping silently. Never clobber an in-band error/abort already set.
+      const REASON_ERRORS = {
+        stale: "The run stopped responding — refresh to check its final state.",
+        connection_lost: "Lost connection to the server — refresh to continue.",
+        error: "The live stream failed — refresh to check the run's state.",
+      };
+      if (REASON_ERRORS[reason] && !turn.error && !turn.aborted) {
+        turn.error = REASON_ERRORS[reason];
       }
       this.streaming = false;
       this._activeRun = null;
@@ -655,7 +661,7 @@
       // end frame settle the turn state.
       if (!this._activeRun || !this.cancelEndpoint) return;
       try {
-        await fetch(this.cancelEndpoint, {
+        const resp = await fetch(this.cancelEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-CSRFToken": this.csrfToken },
           body: JSON.stringify({
@@ -664,6 +670,13 @@
           }),
           credentials: "include",
         });
+        // 409 = the run already left the in-flight slot (finishing/finished);
+        // the still-open stream will settle the turn, so that's benign. Any
+        // other non-OK status means the stop didn't take — warn rather than let
+        // the button silently appear to do nothing.
+        if (!resp.ok && resp.status !== 409) {
+          console.warn("chat: cancel rejected with status", resp.status);
+        }
       } catch (err) {
         console.warn("chat: cancel request failed", err);
       }

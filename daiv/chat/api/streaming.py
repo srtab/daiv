@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from dataclasses import dataclass, fields, is_dataclass
@@ -83,6 +84,11 @@ HEARTBEAT_INTERVAL_S = 5.0
 # the neutral wording.
 CANCELLED_BY_USER_MESSAGE = "Stopped by user."
 INTERRUPTED_MESSAGE = "Run was interrupted before completing."
+# Generic reason recorded (and streamed) when an uncaught exception ends the run. The raw
+# exception is logged server-side via ``logger.exception``, but must never reach the user:
+# ``Run.error_message`` is rendered verbatim in the run timeline, so a raw ``repr`` there
+# would leak exception class names, internal messages, and filesystem paths.
+RUN_FAILED_MESSAGE = "Run failed. Check server logs for details."
 
 
 class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
@@ -241,9 +247,28 @@ class ChatRunStreamer:
                             if now - last_heartbeat >= HEARTBEAT_INTERVAL_S:
                                 last_heartbeat = now
                                 try:
-                                    await SessionLock.heartbeat(self.thread_id, self.run_id)
+                                    still_ours = await SessionLock.heartbeat(self.thread_id, self.run_id)
                                 except Exception:
+                                    # A transient bump failure (DB hiccup) must not abandon a live
+                                    # run; only a definitive "not ours" below stops it.
                                     logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
+                                    still_ours = True
+                                if not still_ours:
+                                    # The slot was reassigned out from under us (stale takeover): a
+                                    # new holder now owns this thread's checkpoint. Stop writing to
+                                    # a checkpoint we no longer own — there is no fencing token, so
+                                    # continuing would interleave two writers on one stream.
+                                    logger.warning(
+                                        "chat: lost run slot mid-stream (stale takeover) for "
+                                        "thread_id=%s run_id=%s; stopping",
+                                        self.thread_id,
+                                        self.run_id,
+                                    )
+                                    run_error_message = run_error_message or INTERRUPTED_MESSAGE
+                                    yield RunErrorEvent(
+                                        type=EventType.RUN_ERROR, message=INTERRUPTED_MESSAGE, code="run_interrupted"
+                                    )
+                                    break
                                 if await relay.cancel_requested(self.thread_id, self.run_id):
                                     run_error_message = CANCELLED_BY_USER_MESSAGE
                                     yield RunErrorEvent(
@@ -255,7 +280,12 @@ class ChatRunStreamer:
                     finally:
                         # No-op when exhausted; on a cancel ``break`` this closes the
                         # in-flight graph invocation (the actual work cancellation).
-                        await stream.aclose()
+                        # Suppress cleanup errors so a failure closing the generator can't
+                        # mask the real termination reason (e.g. relabel a "Stopped by user"
+                        # cancel as a generic failure). ``CancelledError`` is a BaseException
+                        # and still propagates, preserving task-cancel semantics.
+                        with contextlib.suppress(Exception):
+                            await stream.aclose()
                 clean_run = True
         except asyncio.CancelledError:
             # Local hard-cancel (stop endpoint hit this process) or shutdown.
@@ -263,12 +293,13 @@ class ChatRunStreamer:
             # publisher's finally still emits the stream sentinel.
             run_error_message = run_error_message or INTERRUPTED_MESSAGE
             raise
-        except Exception as exc:
+        except Exception:
+            # Log the raw exception server-side only. The reason recorded on the Run and
+            # emitted to the stream is the generic message — the exception repr can carry
+            # internal class names, messages, and paths that must not reach the user.
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
-            run_error_message = f"{type(exc).__name__}: {exc}"
-            yield RunErrorEvent(
-                type=EventType.RUN_ERROR, message="Run failed. Check server logs for details.", code="run_failed"
-            )
+            run_error_message = RUN_FAILED_MESSAGE
+            yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
         finally:
             # A run is a success only if the loop finished cleanly AND the agent did not
             # surface a RUN_ERROR event mid-stream (ag_ui reports stream errors as events,

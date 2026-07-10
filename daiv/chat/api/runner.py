@@ -29,6 +29,13 @@ _TASKS: dict[str, asyncio.Task] = {}
 
 
 def spawn_run(streamer: ChatRunStreamer) -> asyncio.Task:
+    # One live task per run_id: uniqueness is guaranteed upstream by the atomic
+    # ``SessionLock.try_claim`` (run_id == holder id), but self-guard here so a
+    # regression can't silently overwrite the registry entry — which would orphan
+    # the first task's strong ref and let the wrong done-callback prune the slot.
+    existing = _TASKS.get(streamer.run_id)
+    if existing is not None and not existing.done():
+        raise RuntimeError(f"chat: a run task is already live for run_id={streamer.run_id}")
     task = asyncio.get_running_loop().create_task(run_to_relay(streamer), name=f"chat-run-{streamer.run_id}")
     _TASKS[streamer.run_id] = task
     task.add_done_callback(lambda _t, run_id=streamer.run_id: _TASKS.pop(run_id, None))
@@ -51,8 +58,9 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
     Never raises ``Exception`` (nothing consumes a background task's result;
     ``events()`` already reports agent failures as RUN_ERROR events — anything
     reaching here is relay/redis trouble). ``CancelledError`` propagates so
-    task cancellation keeps its semantics. The end sentinel is published in
-    ``finally`` no matter what, so readers always see a terminal marker.
+    task cancellation keeps its semantics. The end sentinel is published on a
+    best-effort basis in ``finally``; if even that fails (Redis down) the reader
+    falls back to the liveness probe in ``_run_event_frames``.
     """
     thread_id, run_id = streamer.thread_id, streamer.run_id
     try:

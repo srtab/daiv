@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from ag_ui.core.events import EventType, StateSnapshotEvent
+from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
 
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 
@@ -287,13 +287,14 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_events_finalizes_failed_with_message_when_agent_raises():
-    """A raised agent error finalizes the Run FAILED *and* records an error_message
-    so the timeline shows a reason instead of a blank FAILED pill.
+async def test_events_finalizes_failed_with_generic_message_when_agent_raises():
+    """A raised agent error finalizes the Run FAILED and records a *generic*, user-facing
+    reason — never the raw exception class/text (which is logged server-side only). The
+    timeline shows a reason instead of a blank FAILED pill, but internal detail can't leak.
     """
 
     async def _events_then_boom():
-        raise RuntimeError("kaboom")
+        raise RuntimeError("kaboom-secret-internal-detail")
         yield  # pragma: no cover - unreachable, makes this an async generator
 
     runner = MagicMock()
@@ -319,7 +320,11 @@ async def test_events_finalizes_failed_with_message_when_agent_raises():
 
     assert len(finalize_calls) == 1
     assert finalize_calls[0]["success"] is False
-    assert finalize_calls[0]["error_message"]  # non-empty reason persisted
+    # The persisted reason must be the generic user-facing message, not the raw
+    # exception class/text — that detail belongs in the server logs only.
+    assert finalize_calls[0]["error_message"] == "Run failed. Check server logs for details."
+    assert "RuntimeError" not in finalize_calls[0]["error_message"]
+    assert "kaboom-secret-internal-detail" not in finalize_calls[0]["error_message"]
 
 
 class _FakeGraph:
@@ -473,3 +478,83 @@ async def test_events_finalizes_interrupted_on_task_cancellation():
             await task
 
     assert finalize_calls == [{"success": False, "error_message": "Run was interrupted before completing."}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_stops_when_slot_lost_to_stale_takeover():
+    """A stale takeover reassigns the run slot while we're still streaming.
+    ``SessionLock.heartbeat`` then returns False; the streamer must stop writing
+    to a checkpoint it no longer owns — surface a RUN_ERROR(code=run_interrupted),
+    finalize the Run FAILED with the interrupted message, and not yield further
+    agent events.
+    """
+    snap = StateSnapshotEvent(
+        type=EventType.STATE_SNAPSHOT,
+        raw_event={"metadata": {"langgraph_checkpoint_ns": ""}},
+        snapshot={"messages": []},
+    )
+
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+        finalize_calls.append({"success": success, "error_message": error_message})
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        # Two events queued; the heartbeat check (interval patched to 0) fires after
+        # the first and reports the slot lost — the second must never be yielded.
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snap, snap])),
+        patch("chat.api.streaming.HEARTBEAT_INTERVAL_S", 0.0),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock(return_value=False)),
+        # Cancel flag never set: the stop is driven purely by the lost slot.
+        patch("chat.api.relay.cancel_requested", new=AsyncMock(return_value=False)),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+    ):
+        seen = [e async for e in _streamer().events()]
+
+    assert seen[0].type == EventType.STATE_SNAPSHOT
+    assert seen[-1].type == EventType.RUN_ERROR
+    assert seen[-1].code == "run_interrupted"
+    assert len(seen) == 2  # second snapshot suppressed by the break
+    assert finalize_calls == [{"success": False, "error_message": "Run was interrupted before completing."}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_buffers_text_deltas_into_result_summary():
+    """Assistant text deltas are buffered (capped at 2000 chars) and handed to
+    ``finalize_chat_run`` as ``response_text`` — this feeds the persisted,
+    user-visible run result summary.
+    """
+
+    def _text(delta: str) -> TextMessageContentEvent:
+        return TextMessageContentEvent(type=EventType.TEXT_MESSAGE_CONTENT, message_id="m1", delta=delta)
+
+    # First a small delta, then one that overflows the 2000-char cap.
+    events = [_text("Hello "), _text("x" * 2500)]
+
+    captured: dict = {}
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+        captured["response_text"] = response_text
+        captured["success"] = success
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent(events)),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer().events():
+            pass
+
+    assert captured["success"] is True
+    assert captured["response_text"].startswith("Hello ")
+    assert len(captured["response_text"]) == 2000  # truncated at the cap

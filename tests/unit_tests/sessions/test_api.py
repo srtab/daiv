@@ -1,4 +1,4 @@
-"""Tests for sessions.api.views — session_status and session_turns endpoints."""
+"""Tests for sessions.api.views — the session_turns endpoint."""
 
 from __future__ import annotations
 
@@ -59,72 +59,18 @@ def _create_run(session: Session, **kwargs) -> Run:
 
 
 @pytest.mark.django_db
-def test_endpoints_reject_anonymous_and_bad_token(db):
-    """Both endpoints sit behind AuthBearer/django_auth — anonymous or bad-token callers
-    get 401 and never reach the session lookup (no state/transcript leak). Exercised
-    through the real Django client so the SessionMiddleware ``django_auth`` needs is present
-    (the ninja TestAsyncClient's mock request has no session)."""
+def test_session_turns_rejects_anonymous_and_bad_token(db):
+    """``session_turns`` sits behind AuthBearer/django_auth — anonymous or bad-token callers
+    get 401 and never reach the session lookup (no transcript leak). Exercised through the
+    real Django client so the SessionMiddleware ``django_auth`` needs is present (the ninja
+    TestAsyncClient's mock request has no session)."""
     from django.test import Client
     from django.urls import reverse
 
     anon = Client()
-    thread_id = str(uuid.uuid4())
-    for name in ("api:session_status", "api:session_turns"):
-        url = reverse(name, kwargs={"thread_id": thread_id})
-        assert anon.get(url).status_code == 401, f"{name}: anonymous should be 401"
-        assert anon.get(url, HTTP_AUTHORIZATION="Bearer not-a-real-key").status_code == 401, (
-            f"{name}: bad token should be 401"
-        )
-
-
-# ---------------------------------------------------------------------------
-# session_status
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_session_status_active_flag(client, authed):
-    """Session with active_run_id -> {"active": true}; without -> false; other user's -> 404."""
-    _key_obj, raw, user = authed
-
-    # Session with active_run_id set -> active: true
-    session_active = await Session.objects.acreate(
-        thread_id=str(uuid.uuid4()),
-        origin=SessionOrigin.CHAT,
-        repo_id="group/project",
-        ref="main",
-        user=user,
-        active_run_id="run-abc-123",
-    )
-
-    resp = await client.get(f"/sessions/{session_active.thread_id}/status", headers=_auth_headers(raw))
-    assert resp.status_code == 200
-    assert resp.json() == {"active": True}
-
-    # Session without active_run_id -> active: false
-    session_idle = await Session.objects.acreate(
-        thread_id=str(uuid.uuid4()),
-        origin=SessionOrigin.CHAT,
-        repo_id="group/project",
-        ref="main",
-        user=user,
-        active_run_id=None,
-    )
-    resp = await client.get(f"/sessions/{session_idle.thread_id}/status", headers=_auth_headers(raw))
-    assert resp.status_code == 200
-    assert resp.json() == {"active": False}
-
-    # Other user's session -> 404
-    other = await User.objects.acreate_user(
-        username="other-sess",
-        email="other-sess@example.com",
-        password="x",  # noqa: S106
-    )
-    session_other = await Session.objects.acreate(
-        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main", user=other
-    )
-    resp = await client.get(f"/sessions/{session_other.thread_id}/status", headers=_auth_headers(raw))
-    assert resp.status_code == 404
+    url = reverse("api:session_turns", kwargs={"thread_id": str(uuid.uuid4())})
+    assert anon.get(url).status_code == 401, "anonymous should be 401"
+    assert anon.get(url, HTTP_AUTHORIZATION="Bearer not-a-real-key").status_code == 401, "bad token should be 401"
 
 
 # ---------------------------------------------------------------------------

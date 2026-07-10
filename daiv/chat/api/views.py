@@ -41,6 +41,18 @@ def _end_frame(reason: str) -> str:
     return f"event: end\ndata: {json.dumps({'reason': reason})}\n\n"
 
 
+def _sse_response(frames) -> StreamingHttpResponse:
+    """Wrap a relay-tail generator in the response every SSE endpoint shares.
+
+    ``X-Accel-Buffering: no`` + ``Cache-Control: no-cache`` are the load-bearing
+    headers that stop nginx from buffering the stream — keep them in one place so
+    the two callers can't drift.
+    """
+    return StreamingHttpResponse(
+        frames, content_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
+
+
 async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
     """Replay + live-tail a run's relay stream as SSE frames.
 
@@ -54,37 +66,46 @@ async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
     since ``events()`` releases the lock before the runner publishes it), then
     finish. Holder present but heartbeat-stale → the writer is dead; tell the
     client instead of hanging forever.
+
+    A relay/DB error mid-tail emits an ``event: end`` with ``reason: "error"``
+    rather than letting the generator raise: an unframed abort is indistinguishable
+    from a transient drop to the browser's EventSource, which would then reconnect
+    forever against a still-broken backend. The explicit terminal frame stops it.
     """
-    r = relay.get_redis()
-    key = relay.run_events_key(thread_id, run_id)
     yield "retry: 2000\n\n"
     start = time.monotonic()
     released_drain = False
 
-    while (time.monotonic() - start) < STREAM_MAX_DURATION_S:
-        block_ms = STREAM_DRAIN_BLOCK_MS if released_drain else STREAM_BLOCK_MS
-        entries = await r.xread({key: last_id}, count=100, block=block_ms)
-        if entries:
-            for entry_id, fields in entries[0][1]:
-                last_id = entry_id
-                if relay.END_FIELD in fields:
-                    yield _end_frame("finished")
-                    return
-                yield f"id: {entry_id}\ndata: {fields[relay.DATA_FIELD]}\n\n"
-            continue
+    try:
+        while (time.monotonic() - start) < STREAM_MAX_DURATION_S:
+            block_ms = STREAM_DRAIN_BLOCK_MS if released_drain else STREAM_BLOCK_MS
+            entries = await relay.read_events(thread_id, run_id, last_id, block_ms=block_ms)
+            if entries:
+                for entry in entries:
+                    last_id = entry.id
+                    if entry.is_end:
+                        yield _end_frame("finished")
+                        return
+                    yield f"id: {entry.id}\ndata: {entry.data}\n\n"
+                continue
 
-        if released_drain:
-            yield _end_frame("finished")
-            return
+            if released_drain:
+                yield _end_frame("finished")
+                return
 
-        session = await Session.objects.filter(thread_id=thread_id).values("active_run_id", "last_active_at").afirst()
-        if session is None or session["active_run_id"] != run_id:
-            released_drain = True
-            continue
-        if session["last_active_at"] < stale_cutoff():
-            yield _end_frame("stale")
-            return
-        yield ": keep-alive\n\n"
+            session = (
+                await Session.objects.filter(thread_id=thread_id).values("active_run_id", "last_active_at").afirst()
+            )
+            if session is None or session["active_run_id"] != run_id:
+                released_drain = True
+                continue
+            if session["last_active_at"] < stale_cutoff():
+                yield _end_frame("stale")
+                return
+            yield ": keep-alive\n\n"
+    except Exception:
+        logger.exception("chat: relay tail failed for thread_id=%s run_id=%s", thread_id, run_id)
+        yield _end_frame("error")
 
 
 @chat_router.get("/stream", url_name="chat_run_stream")
@@ -100,28 +121,24 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
         raise HttpError(404, "Thread not found")
     last_id = request.headers.get("Last-Event-ID") or "0-0"
-    return StreamingHttpResponse(
-        _run_event_frames(thread_id, run_id, last_id),
-        content_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return _sse_response(_run_event_frames(thread_id, run_id, last_id))
 
 
-@chat_router.get("/threads/{thread_id}/status", response=dict, url_name="thread_status")
-async def thread_status(request: HttpRequest, thread_id: str):
-    """Cheap probe so a reloaded page can detect when its in-flight run has released
-    the per-thread slot and trigger a rehydration from the checkpointer.
+class RunHandle(Schema):
+    """The default ``POST /completions`` response: a pointer to the detached run.
+
+    Every subsequent ``GET /stream`` / ``POST /cancel`` call is built from this
+    pair, so it's a durable client contract (unlike the trivial probe dicts other
+    endpoints return) and gets a schema of its own — mirroring ``CancelIn``.
     """
-    user = request.auth  # ty: ignore[unresolved-attribute]
-    session = await Session.objects.by_owner(user).filter(thread_id=thread_id).afirst()
-    if session is None:
-        raise HttpError(404, "Thread not found")
-    return {"active": bool(session.active_run_id)}
+
+    run_id: str
+    thread_id: str
 
 
 @chat_router.post(
     "/completions",
-    response=dict,
+    response=RunHandle,
     throttle=[JobsRateThrottle()],
     url_name="completions",
     openapi_extra={
@@ -265,12 +282,12 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     if "text/event-stream" in (request.headers.get("accept") or ""):
         # AG-UI protocol compatibility: SSE callers get the same relay-backed
-        # frames inline. Dropping this response only drops the tail.
-        return StreamingHttpResponse(
-            _run_event_frames(thread_id, run_id, "0-0"),
-            content_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        # frames inline. Dropping this response only drops the tail (the detached
+        # run keeps going). Note the 300s duration cap closes without an end frame:
+        # a browser EventSource auto-reconnects with Last-Event-ID, but a raw AG-UI
+        # client that doesn't must reconnect via ``GET /stream`` with a
+        # ``Last-Event-ID`` header to resume a run longer than the cap.
+        return _sse_response(_run_event_frames(thread_id, run_id, "0-0"))
     return {"run_id": run_id, "thread_id": thread_id}
 
 

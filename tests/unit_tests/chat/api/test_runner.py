@@ -4,7 +4,9 @@ import asyncio
 import contextlib
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
+import pytest
 from ag_ui.core.events import CustomEvent, EventType
 
 from chat.api import relay, runner
@@ -70,3 +72,46 @@ async def test_cancel_local_cancels_running_task_and_reports_miss(fake_redis):
         await task
     # Sentinel still published by the finally.
     assert fake_redis.streams[relay.run_events_key("t-1", "r-1")][-1][1] == {"end": "1"}
+
+
+async def test_run_to_relay_swallows_publish_end_failure(fake_redis):
+    """If even the terminal sentinel can't be published (Redis down in the finally),
+    ``run_to_relay`` still must not raise — a background task's exception has no
+    consumer, and the reader falls back to the liveness probe.
+    """
+
+    async def _events():
+        yield CustomEvent(type=EventType.CUSTOM, name="only", value=1)
+
+    with patch("chat.api.relay.publish_end", new=AsyncMock(side_effect=RuntimeError("redis down"))):
+        # Must not raise despite the sentinel publish failing.
+        await runner.run_to_relay(_stub_streamer(_events))
+
+    # The data event still landed; only the sentinel is missing.
+    entries = fake_redis.streams[relay.run_events_key("t-1", "r-1")]
+    assert json.loads(entries[-1][1]["data"])["value"] == 1
+
+
+async def test_spawn_run_rejects_duplicate_live_run_id(fake_redis):
+    """One live task per run_id: a second spawn for a still-running run_id must
+    raise rather than silently overwrite the registry entry (which would orphan
+    the first task's strong ref and mis-prune the slot)."""
+    started = asyncio.Event()
+
+    async def _hang():
+        started.set()
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+    task = runner.spawn_run(_stub_streamer(_hang))
+    await started.wait()
+
+    with pytest.raises(RuntimeError, match="already live for run_id=r-1"):
+        runner.spawn_run(_stub_streamer(_hang))
+
+    # A fresh spawn is allowed once the prior task has completed/pruned.
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0)  # let the done-callback prune
+    assert "r-1" not in runner._TASKS

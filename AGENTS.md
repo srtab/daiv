@@ -60,7 +60,7 @@ In unit tests that call tools directly, check `isinstance(result, Command)` and 
 
 **Repository config** — `.daiv.yml` per repo cached 1 hour (`codebase/repo_config.py`). Invalidate via `RepositoryConfig.invalidate_cache(repo_id)`.
 
-**Chat run streaming** — chat runs execute detached from the HTTP request (`chat/api/runner.py` spawns an asyncio task) and publish AG-UI events to the Redis stream `daiv:chat:run-events:<thread_id>:<run_id>` (`chat/api/relay.py`). SSE readers replay via `Last-Event-ID`; the terminal sentinel entry is `{"end": "1"}`. Client disconnects never stop a run — stopping is the explicit `POST /api/chat/cancel` (Redis flag polled at heartbeat cadence + local task cancel). Never revert to running the agent inside a `StreamingHttpResponse` generator.
+**Chat run streaming** — chat runs execute detached from the HTTP request (`chat/api/runner.py` spawns an asyncio task) and publish AG-UI events to the Redis stream `daiv:chat:run-events:<thread_id>:<run_id>` (`chat/api/relay.py`). SSE readers replay via `Last-Event-ID`; the terminal sentinel entry is `{"end": "1"}`. Client disconnects never stop a run — stopping is the explicit `POST /api/chat/cancel` (Redis flag checked at the next event boundary once the heartbeat interval elapses, plus an immediate local `asyncio.Task` cancel for the in-process run). Never revert to running the agent inside a `StreamingHttpResponse` generator.
 
 **Bot labels** — `daiv` triggers agent, `daiv-max` uses max model, `daiv-auto` enables auto-addressing. Constants live in `daiv/core/constants.py`; do not hardcode the strings.
 

@@ -60,6 +60,37 @@ class FakeAsyncRedis:
     async def get(self, key):
         return self.kv.get(key)
 
+    def pipeline(self, transaction=True):
+        return _FakePipeline(self)
+
+
+class _FakePipeline:
+    """Minimal async-pipeline stand-in: buffers commands and replays them against
+    the parent fake on ``execute`` (matches how ``relay._append`` batches XADD +
+    EXPIRE into one round-trip). Command methods return ``self`` for chaining and
+    are not awaited, mirroring redis.asyncio's buffered pipeline."""
+
+    def __init__(self, redis: FakeAsyncRedis):
+        self._redis = redis
+        self._ops: list[tuple[str, tuple, dict]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def xadd(self, *args, **kwargs):
+        self._ops.append(("xadd", args, kwargs))
+        return self
+
+    def expire(self, *args, **kwargs):
+        self._ops.append(("expire", args, kwargs))
+        return self
+
+    async def execute(self):
+        return [await getattr(self._redis, name)(*args, **kwargs) for name, args, kwargs in self._ops]
+
 
 @pytest.fixture
 def fake_redis():
