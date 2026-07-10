@@ -80,13 +80,11 @@ class RunRelay:
     lives here; consumers of ``read_events`` see only ``StreamEntry`` values.
 
     ``client`` is injected by tests; production callers omit it and share the
-    lazy process-wide singleton. The client is resolved on each use (via the
-    ``_redis`` property), never in ``__init__``, so an instance can be
-    constructed outside a running event loop and only binds to the loop where it
-    is first used — see ``get_redis``. Keep ``__init__`` side-effect-free for
-    this reason: callers construct instances just outside ``try`` blocks
-    (``runner.run_to_relay``, ``views._run_event_frames``) and rely on no Redis
-    work happening until a method is awaited inside the guarded region.
+    lazy process-wide singleton. The client is resolved per use via the
+    ``_redis`` property, never in ``__init__``, so an instance can be constructed
+    outside a running event loop and binds only when a method is first awaited —
+    keep ``__init__`` side-effect-free for this reason. See ``get_redis`` for the
+    loop-binding contract.
     """
 
     # ~1h of retention after the last publish; MAXLEN caps runaway runs. This assumes
