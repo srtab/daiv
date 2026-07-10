@@ -836,49 +836,21 @@ main:has(.chat-shell) {
     overflow-wrap: break-word;
   }
 
+  /* Failed turn: a red border on the bubble plus a small icon marker. The raw error is
+     developer-only (logs), so this is a visual signal only — no hover tooltip. */
   .chat-turn--errored .chat-segment--text {
     border-color: rgba(248, 113, 113, 0.5);
   }
 
   .chat-turn__error {
-    position: relative;
     display: inline-flex;
     align-items: center;
     color: #f87171;
-    cursor: help;
-    outline: none;
   }
 
   .chat-turn__error-icon {
     width: 1rem;
     height: 1rem;
-  }
-
-  .chat-turn__error-pop {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 20;
-    display: none;
-    max-width: 360px;
-    max-height: 220px;
-    overflow: auto;
-    padding: 8px 10px;
-    border: 1px solid rgba(248, 113, 113, 0.35);
-    border-radius: 8px;
-    background: #1a1414;
-    color: #fca5a5;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  }
-
-  .chat-turn__error:hover .chat-turn__error-pop,
-  .chat-turn__error:focus-within .chat-turn__error-pop {
-    display: block;
   }
 
   /* User turn is a single right-aligned bubble: sit the icon to its LEFT. */
