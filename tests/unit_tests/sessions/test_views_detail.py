@@ -364,6 +364,46 @@ def test_poll_transcript_only_for_background_runs(member_client, member_user):
     assert resp.context["poll_transcript"] is False, "All-terminal runs should not activate the transcript poller"
 
 
+@pytest.mark.django_db
+def test_chat_active_run_id_only_for_chat_holders(member_client, member_user):
+    """The chat page rejoins the event relay only for chat-origin holders; a
+    background (API_JOB) holder must yield an empty chat_active_run_id so the JS
+    leaves live updates to the transcript poller instead of tailing a relay
+    stream that nothing publishes to."""
+    # Case 1: in-flight CHAT run — the AG-UI holder id must be exposed for resume.
+    session_chat = _create_session(user=member_user)
+    _create_run(session_chat, trigger_type=SessionOrigin.CHAT, status=RunStatus.RUNNING)
+    session_chat.active_run_id = "agui-run-1"
+    session_chat.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_chat.thread_id}))
+
+    assert resp.context["chat_active_run_id"] == "agui-run-1"
+
+    # Case 2: in-flight background run — must be empty.
+    session_bg = _create_session(user=member_user)
+    bg_run = _create_run(session_bg, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING)
+    session_bg.active_run_id = bg_run.id
+    session_bg.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_bg.thread_id}))
+
+    assert resp.context["chat_active_run_id"] == ""
+
+    # Case 3: all runs terminal — must be empty (nothing to resume).
+    session_done = _create_session(user=member_user)
+    done_run = _create_run(session_done, trigger_type=SessionOrigin.CHAT, status=RunStatus.SUCCESSFUL)
+    session_done.active_run_id = done_run.id
+    session_done.save(update_fields=["active_run_id"])
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_done.thread_id}))
+
+    assert resp.context["chat_active_run_id"] == ""
+
+
 # ---------------------------------------------------------------------------
 # session_run_download_md
 # ---------------------------------------------------------------------------

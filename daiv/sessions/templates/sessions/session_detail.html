@@ -46,8 +46,9 @@
 
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
-         statusEndpoint: {% if session %}"{% url 'api:session_status' session.thread_id %}"{% else %}""{% endif %},
-         activeRunId: "{{ active_run_id|default:''|escapejs }}",
+         streamEndpoint: "{% url 'api:chat_run_stream' %}",
+         cancelEndpoint: "{% url 'api:chat_run_cancel' %}",
+         activeRunId: "{{ chat_active_run_id|default:''|escapejs }}",
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
            thread_id: "{{ session.thread_id|escapejs }}",

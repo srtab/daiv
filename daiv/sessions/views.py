@@ -261,6 +261,7 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
                 "turns": [],
                 "expired": False,
                 "active_run_id": "",
+                "chat_active_run_id": "",
                 "merge_request": None,
                 "runs": [],
                 "is_in_flight": False,
@@ -293,6 +294,16 @@ class SessionDetailView(LoginRequiredMixin, BreadcrumbMixin, DetailView):
         ctx["merge_request"] = merge_request
         ctx["runs"] = runs
         ctx["is_in_flight"] = is_in_flight
+        # The chat page rejoins the event relay only when the in-flight holder is a
+        # chat run (holder id == AG-UI run id). Background holders don't publish to
+        # the relay — for those the transcript poller (below) owns live updates.
+        ctx["chat_active_run_id"] = (
+            session.active_run_id
+            if is_in_flight
+            and session.active_run_id
+            and all(r.trigger_type == SessionOrigin.CHAT for r in non_terminal)
+            else ""
+        )
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
         # Engage transcript polling when a background run holds the slot and there is
