@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ag_ui.core.events import EventType, StateSnapshotEvent
-from ag_ui.encoder import EventEncoder
 
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
 
@@ -53,14 +52,7 @@ def _mock_ctx(*_args, **_kwargs):
 def _streamer(input_data=None) -> ChatRunStreamer:
     if input_data is None:
         input_data = SimpleNamespace(thread_id="t-stream", run_id="r-1")
-    return ChatRunStreamer(
-        repo_id="a/b",
-        ref="main",
-        thread_id="t-stream",
-        run_id="r-1",
-        input_data=input_data,
-        encoder=EventEncoder(accept="text/event-stream"),
-    )
+    return ChatRunStreamer(repo_id="a/b", ref="main", thread_id="t-stream", run_id="r-1", input_data=input_data)
 
 
 def _mock_agent(events):
@@ -371,7 +363,6 @@ def test_streamer_post_init_rejects_thread_id_mismatch():
             thread_id="t-foo",
             run_id="r-1",
             input_data=SimpleNamespace(thread_id="t-bar", run_id="r-1"),
-            encoder=EventEncoder(accept="text/event-stream"),
         )
 
 
@@ -383,5 +374,102 @@ def test_streamer_post_init_rejects_run_id_mismatch():
             thread_id="t",
             run_id="r-1",
             input_data=SimpleNamespace(thread_id="t", run_id="r-2"),
-            encoder=EventEncoder(accept="text/event-stream"),
         )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_stops_with_run_cancelled_when_cancel_flag_set():
+    """The cancel endpoint sets a Redis flag; the streamer polls it at heartbeat
+    cadence and must stop the run, surface a RUN_ERROR(code=run_cancelled) so
+    stream observers see why, and finalize the Run FAILED with the user-facing
+    stop message.
+    """
+    snap = StateSnapshotEvent(
+        type=EventType.STATE_SNAPSHOT,
+        raw_event={"metadata": {"langgraph_checkpoint_ns": ""}},
+        snapshot={"messages": []},
+    )
+
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+        finalize_calls.append({"success": success, "error_message": error_message})
+
+    release_calls: list = []
+
+    async def _capture_release(*args):
+        release_calls.append(args)
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        # Two events queued, but the cancel check (interval patched to 0) fires
+        # after the first — the second must never be yielded.
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([snap, snap])),
+        patch("chat.api.streaming.HEARTBEAT_INTERVAL_S", 0.0),
+        patch("chat.api.relay.cancel_requested", new=AsyncMock(return_value=True)),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", side_effect=_capture_release),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        seen = [e async for e in _streamer().events()]
+
+    assert seen[0].type == EventType.STATE_SNAPSHOT
+    assert seen[-1].type == EventType.RUN_ERROR
+    assert seen[-1].code == "run_cancelled"
+    assert len(seen) == 2  # second snapshot suppressed by the break
+    assert finalize_calls == [{"success": False, "error_message": "Stopped by user."}]
+    assert release_calls == [("t-stream", "r-1")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_events_finalizes_interrupted_on_task_cancellation():
+    """A hard task cancel (local stop, or process shutdown) must finalize the Run
+    FAILED with the interrupted message rather than a blank one, then re-raise.
+    """
+    import asyncio
+
+    started = asyncio.Event()
+
+    async def _hang(_input):
+        yield StateSnapshotEvent(
+            type=EventType.STATE_SNAPSHOT,
+            raw_event={"metadata": {"langgraph_checkpoint_ns": ""}},
+            snapshot={"messages": []},
+        )
+        started.set()
+        await asyncio.Event().wait()  # hang until cancelled
+
+    runner_mock = MagicMock()
+    runner_mock.run = _hang
+
+    finalize_calls: list = []
+
+    async def _capture_finalize(run_pk, *, success, usage, response_text, error_message=""):
+        finalize_calls.append({"success": success, "error_message": error_message})
+
+    with (
+        patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+        patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
+        patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=runner_mock),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+
+        async def _drain():
+            async for _ in _streamer().events():
+                pass
+
+        task = asyncio.create_task(_drain())
+        await started.wait()
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert finalize_calls == [{"success": False, "error_message": "Run was interrupted before completing."}]

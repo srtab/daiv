@@ -172,7 +172,6 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         thread_id=thread_id,
         run_id=run_id,
         input_data=input_data,
-        encoder=encoder,
         user_id=user.pk,
         prompt=_extract_first_user_message(input_data),
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
@@ -180,4 +179,6 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         agent_thinking_level=session.agent_thinking_level or None,
         auto_resolved_env=auto_resolved_env,
     )
-    return StreamingHttpResponse(streamer.events(), content_type=encoder.get_content_type())
+    return StreamingHttpResponse(
+        (encoder.encode(event) async for event in streamer.events()), content_type=encoder.get_content_type()
+    )
