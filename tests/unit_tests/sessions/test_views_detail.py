@@ -372,69 +372,6 @@ def test_detail_in_flight_context(member_client, member_user):
     assert str(run_done.id) not in resp.context["in_flight_ids"]
 
 
-# --- run timeline rail -----------------------------------------------------
-
-
-@pytest.mark.django_db
-def test_detail_includes_run_timeline(member_client, member_user):
-    """A session with two runs renders both in the timeline rail with status pills."""
-    session = _create_session(user=member_user)
-    run1 = _create_run(session, status=RunStatus.SUCCESSFUL)
-    run2 = _create_run(session, status=RunStatus.FAILED)
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    assert resp.status_code == 200
-    runs = resp.context["runs"]
-    assert len(runs) == 2
-    run_ids = {r.id for r in runs}
-    assert run1.id in run_ids
-    assert run2.id in run_ids
-    # Both status pills should be visible in the rendered HTML
-    content = resp.content.decode()
-    assert f"run-{run1.id}" in content
-    assert f"run-{run2.id}" in content
-
-
-@pytest.mark.django_db
-def test_run_timeline_renders_duration_for_finished_run(member_client, member_user):
-    """A finished run (started_at + finished_at set) renders its formatted duration in the
-    timeline. Regression: the template applied the ``duration`` filter to the ``Run`` object
-    (``run|duration``) instead of the numeric ``run.duration`` property, raising
-    ``TypeError: int() argument must be ... not 'Run'`` for any session with a finished run."""
-    session = _create_session(user=member_user)
-    started = timezone.now()
-    finished = started + timedelta(seconds=95)
-    _create_run(session, status=RunStatus.SUCCESSFUL, started_at=started, finished_at=finished)
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    assert resp.status_code == 200
-    # 95s -> "1m 35s" via the duration filter.
-    assert "1m 35s" in resp.content.decode()
-
-
-@pytest.mark.django_db
-def test_run_timeline_renders_display_labels_not_raw_enums(member_client, member_user):
-    """The timeline (no Alpine pk to relabel client-side) must render the human-readable
-    status label ('Pending', not the raw 'READY') and a non-empty origin badge for API
-    runs ('API Run' via get_trigger_type_display, not an empty indigo pill)."""
-    session = _create_session(user=member_user)
-    _create_run(session, trigger_type=SessionOrigin.API_JOB, status=RunStatus.READY)
-
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-    content = resp.content.decode()
-    # Status pill shows the display label, not the raw enum member.
-    assert "Pending" in content
-    assert ">\n            READY" not in content and ">READY<" not in content
-    # Origin badge for an API run renders its display label, not an empty badge.
-    assert "API Run" in content
-
-
 @pytest.mark.django_db
 def test_poll_transcript_only_for_background_runs(member_client, member_user):
     """poll_transcript is True only for non-chat in-flight runs; chat runs manage themselves via AG-UI stream."""

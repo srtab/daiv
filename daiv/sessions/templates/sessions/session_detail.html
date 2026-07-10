@@ -251,7 +251,7 @@
       {% endif %}
     </div>
 
-    {# Session rail: todos + files from chat, plus the run timeline below. #}
+    {# Session rail: todos + files from chat. #}
     <aside class="chat-rail" aria-label="{% translate 'Session context' %}">
       <div class="chat-rail__block">
         <div class="chat-rail__label">
@@ -289,13 +289,6 @@
           {% translate "Show all" %} (<span x-text="filesTouched.length"></span>)
         </button>
       </div>
-
-      {# Run timeline — shows all runs for this session. #}
-      {% if runs or session %}
-        <div class="chat-rail__block">
-          {% include "sessions/_run_timeline.html" %}
-        </div>
-      {% endif %}
     </aside>
   </div>
 
