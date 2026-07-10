@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -122,7 +123,7 @@ async def test_cross_user_thread_id_is_rejected(client: TestAsyncClient, authed)
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient, authed):
+async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient, authed, fake_redis, captured_runs):
     _, raw, user = authed
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_stream),
@@ -144,8 +145,9 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
             json=_run_agent_input(threadId="t-new"),
             headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
         )
+        assert response.status_code == 200
+        await asyncio.gather(*captured_runs)
 
-    assert response.status_code == 200
     created = await Session.objects.filter(thread_id="t-new").afirst()
     assert created is not None
     assert created.user_id == user.id
@@ -157,7 +159,9 @@ async def test_unknown_thread_id_implicit_creates_thread(client: TestAsyncClient
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_first_message_auto_resolves_user_env_onto_thread(client: TestAsyncClient, authed):
+async def test_first_message_auto_resolves_user_env_onto_thread(
+    client: TestAsyncClient, authed, fake_redis, captured_runs
+):
     """When the first chat message omits the env header (Auto), the view resolves the env
     for the calling user + repo and stamps it on the freshly-created thread."""
     from sandbox_envs.models import SandboxEnvironment, Scope
@@ -191,7 +195,9 @@ async def test_first_message_auto_resolves_user_env_onto_thread(client: TestAsyn
             json=_run_agent_input(threadId="t-auto"),
             headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
         )
-    assert response.status_code == 200
+        assert response.status_code == 200
+        await asyncio.gather(*captured_runs)
+
     created = await Session.objects.aget(thread_id="t-auto")
     assert created.sandbox_environment_id == user_env.id
     await user.adelete()
@@ -199,7 +205,7 @@ async def test_first_message_auto_resolves_user_env_onto_thread(client: TestAsyn
 
 @pytest.mark.django_db(transaction=True)
 async def test_existing_thread_keeps_original_env_even_when_resolution_would_pick_another(
-    client: TestAsyncClient, authed
+    client: TestAsyncClient, authed, fake_redis, captured_runs
 ):
     """``get_or_create_for_user`` only applies ``sandbox_environment`` on create. A second
     request whose Auto-resolution would pick a different env must NOT overwrite the thread."""
@@ -245,14 +251,18 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
             json=_run_agent_input(threadId="t-keep"),
             headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
         )
-    assert response.status_code == 200
+        assert response.status_code == 200
+        await asyncio.gather(*captured_runs)
+
     thread = await Session.objects.aget(thread_id="t-keep")
     assert thread.sandbox_environment_id == original.id
     await user.adelete()
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_auto_resolved_env_passed_to_streamer_on_first_turn(client: TestAsyncClient, authed, patched_streamer):
+async def test_auto_resolved_env_passed_to_streamer_on_first_turn(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
     """First-turn Auto with a successful resolution → ``auto_resolved_env`` carries the
     {id, name, scope} of the resolved env so the streamer can swap the locked pill."""
     from sandbox_envs.models import SandboxEnvironment, Scope
@@ -269,6 +279,7 @@ async def test_auto_resolved_env_passed_to_streamer_on_first_turn(client: TestAs
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
     assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
     assert patched_streamer.call_args.kwargs["auto_resolved_env"] == {
         "id": str(user_env.id),
         "name": "mine",
@@ -279,7 +290,7 @@ async def test_auto_resolved_env_passed_to_streamer_on_first_turn(client: TestAs
 
 @pytest.mark.django_db(transaction=True)
 async def test_existing_thread_auto_submit_does_not_emit_resolved_env(
-    client: TestAsyncClient, authed, patched_streamer
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):
     """Existing-thread Auto submit must NOT emit ``auto_resolved_env``: the freshly
     resolved env is discarded in favour of the thread's stored env, and emitting would
@@ -306,12 +317,15 @@ async def test_existing_thread_auto_submit_does_not_emit_resolved_env(
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
     assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
     assert patched_streamer.call_args.kwargs["auto_resolved_env"] is None
     await user.adelete()
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_explicit_env_header_does_not_emit_resolved_env(client: TestAsyncClient, authed, patched_streamer):
+async def test_explicit_env_header_does_not_emit_resolved_env(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
     """Explicit ``X-Sandbox-Env`` pick → no auto-resolution happened, so no emit. The
     locked pill already shows the picked env name client-side."""
     from sandbox_envs.models import SandboxEnvironment, Scope
@@ -328,12 +342,15 @@ async def test_explicit_env_header_does_not_emit_resolved_env(client: TestAsyncC
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main", "X-Sandbox-Env": str(picked.id)}),
     )
     assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
     assert patched_streamer.call_args.kwargs["auto_resolved_env"] is None
     await user.adelete()
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(client: TestAsyncClient, authed):
+async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
+    client: TestAsyncClient, authed, fake_redis, captured_runs
+):
     _, raw, user = authed
     await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-boom", user=user, repo_id="a/b", ref="main")
 
@@ -358,18 +375,23 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(clie
             json=_run_agent_input(threadId="t-boom"),
             headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
         )
+        assert response.status_code == 200
+        assert response.json()["run_id"] == "r-1"
+        await asyncio.gather(*captured_runs)
 
-    assert response.status_code == 200
-    body = response.content.decode()
-    assert "RUN_ERROR" in body
-    assert "run_failed" in body
-    # User-facing message must not leak the raw exception class/message — that
-    # could expose internal paths, SQL fragments, secrets that happen to land
-    # in a stack trace.
-    assert "kaboom" not in body
-    assert "RuntimeError" not in body
     refreshed = await Session.objects.aget(thread_id="t-boom")
     assert refreshed.active_run_id is None
+
+    from chat.api import relay as relay_mod
+
+    published = "".join(
+        fields.get("data", "") for _id, fields in fake_redis.streams[relay_mod.run_events_key("t-boom", "r-1")]
+    )
+    assert "RUN_ERROR" in published
+    assert "run_failed" in published
+    # User-facing message must not leak the raw exception class/message.
+    assert "kaboom" not in published
+    assert "RuntimeError" not in published
     await user.adelete()
 
 
@@ -714,6 +736,110 @@ async def test_stream_rejects_thread_not_owned(client: TestAsyncClient, authed, 
     await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-s5", user=other, repo_id="a/b", ref="main")
 
     response = await client.get("/chat/stream?thread_id=t-s5&run_id=r-1", headers=_auth_headers(raw))
+
+    assert response.status_code == 404
+    await user.adelete()
+    await other.adelete()
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/completions — spawn semantics
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completions_returns_run_handle_json_by_default(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-json"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"run_id": "r-1", "thread_id": "t-json"}
+    await asyncio.gather(*captured_runs)
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completions_streams_inline_for_event_stream_accept(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    """AG-UI protocol compatibility: an Accept: text/event-stream caller still
+    gets SSE from the POST itself — but the run executes in the spawned task,
+    so this response is just a relay tail."""
+    _, raw, user = authed
+    # Configure the mock streamer instance so run_to_relay publishes to the
+    # same relay key that _run_event_frames reads from.
+    patched_streamer.return_value.thread_id = "t-sse"
+    patched_streamer.return_value.run_id = "r-1"
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-sse"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main", "Accept": "text/event-stream"}),
+    )
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "text/event-stream"
+    body = response.content.decode()
+    assert 'event: end\ndata: {"reason": "finished"}' in body
+    await asyncio.gather(*captured_runs)
+    await user.adelete()
+
+
+# ---------------------------------------------------------------------------
+# POST /chat/cancel
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_cancel_sets_flag_and_reports_local_miss(client: TestAsyncClient, authed, fake_redis):
+    from chat.api import relay as relay_mod
+
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-c1", user=user, repo_id="a/b", ref="main", active_run_id="r-9"
+    )
+
+    response = await client.post(
+        "/chat/cancel", json={"thread_id": "t-c1", "run_id": "r-9"}, headers=_auth_headers(raw)
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"cancelled": True, "local": False}
+    assert await relay_mod.cancel_requested("t-c1", "r-9") is True
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_cancel_rejects_run_not_in_flight(client: TestAsyncClient, authed, fake_redis):
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-c2", user=user, repo_id="a/b", ref="main", active_run_id="r-current"
+    )
+
+    response = await client.post(
+        "/chat/cancel", json={"thread_id": "t-c2", "run_id": "r-stale"}, headers=_auth_headers(raw)
+    )
+
+    assert response.status_code == 409
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_cancel_rejects_foreign_thread(client: TestAsyncClient, authed, fake_redis):
+    _, raw, user = authed
+    other = await User.objects.acreate_user(username="cowner", email="c@example.com", password="x")  # noqa: S106
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-c3", user=other, repo_id="a/b", ref="main", active_run_id="r-1"
+    )
+
+    response = await client.post(
+        "/chat/cancel", json={"thread_id": "t-c3", "run_id": "r-1"}, headers=_auth_headers(raw)
+    )
 
     assert response.status_code == 404
     await user.adelete()

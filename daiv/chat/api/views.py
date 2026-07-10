@@ -5,8 +5,7 @@ import time
 from django.http import Http404, HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
-from ag_ui.encoder import EventEncoder
-from ninja import Router
+from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
 from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
@@ -17,7 +16,7 @@ from automation.agent.validators import AgentOverrideError, ensure_agent_model_a
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 
-from . import relay
+from . import relay, runner
 from .security import AuthBearer
 from .streaming import ChatRunStreamer
 from .threads import ChatSessionService, _extract_first_user_message
@@ -139,6 +138,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     webhook-origin session with ``user=None`` is continuable by anyone with visibility).
     ``SessionLock.try_claim`` atomically claims the per-session run slot — parallel tabs
     resolve to a single winner, the loser gets 409.
+    Runs execute detached (see ``chat.api.runner``); the response is a run handle (JSON) or an
+    inline relay tail (``Accept: text/event-stream``).
     """
     repo_id = request.headers.get(HEADER_REPO_ID)
     ref = request.headers.get(HEADER_REF)
@@ -245,7 +246,6 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if auto_resolved and created and env_obj is not None:
         auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
 
-    encoder = EventEncoder(accept=request.headers.get("accept"))
     streamer = ChatRunStreamer(
         repo_id=repo_id,
         ref=ref,
@@ -259,6 +259,41 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         agent_thinking_level=session.agent_thinking_level or None,
         auto_resolved_env=auto_resolved_env,
     )
-    return StreamingHttpResponse(
-        (encoder.encode(event) async for event in streamer.events()), content_type=encoder.get_content_type()
-    )
+    # The run is detached from this request: it executes as a background task
+    # and publishes to the relay, so a client disconnect no longer kills it.
+    runner.spawn_run(streamer)
+
+    if "text/event-stream" in (request.headers.get("accept") or ""):
+        # AG-UI protocol compatibility: SSE callers get the same relay-backed
+        # frames inline. Dropping this response only drops the tail.
+        return StreamingHttpResponse(
+            _run_event_frames(thread_id, run_id, "0-0"),
+            content_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    return {"run_id": run_id, "thread_id": thread_id}
+
+
+class CancelIn(Schema):
+    thread_id: str
+    run_id: str
+
+
+@chat_router.post("/cancel", response=dict, url_name="chat_run_cancel")
+async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
+    """Explicitly stop an in-flight chat run.
+
+    Required because disconnects no longer cancel runs: the Redis flag stops
+    the run at its next event boundary wherever it executes; the local task
+    cancel is immediate when the run lives in this process.
+    """
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    session = await Session.objects.by_owner(user).filter(thread_id=payload.thread_id).afirst()
+    if session is None:
+        raise HttpError(404, "Thread not found")
+    if session.active_run_id != payload.run_id:
+        raise HttpError(409, "Run is not in flight for this thread")
+
+    await relay.request_cancel(payload.thread_id, payload.run_id)
+    cancelled_locally = runner.cancel_local(payload.run_id)
+    return {"cancelled": True, "local": cancelled_locally}
