@@ -171,7 +171,7 @@
         {# Turns #}
         <template x-for="(turn, ti) in turns" :key="turn.id">
           <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
-          <article class="chat-turn" :class="[`chat-turn--${turn.role}`, { 'chat-turn--errored': turn.error || turn.errored }]">
+          <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--errored': turn.error || turn.errored }">
             <div class="chat-turn__body">
               {# Failed turn: a red border on the bubble plus an icon marker — no message text. #}
               {# The raw error is developer-only (logs); a server-replayed failed turn carries a #}
@@ -280,7 +280,7 @@
         </template>
         <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
           <button type="button" class="chat-rail__file"
-                  :class="[{ 'chat-rail__file--new': f.isNew }, `chat-rail__file--${f.op || 'modified'}`]"
+                  :class="{ 'chat-rail__file--new': f.isNew, [`chat-rail__file--${f.op || 'modified'}`]: true }"
                   @click="jumpToTool(f.segmentId)"
                   :title="f.fromPath ? `${f.op}: ${f.fromPath} → ${f.path}` : `${f.op || 'modified'}: ${f.path}`">
             <span class="chat-rail__file-op" x-text="fileOpMark(f.op)"></span>
