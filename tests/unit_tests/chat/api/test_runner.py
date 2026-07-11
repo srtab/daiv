@@ -92,6 +92,61 @@ async def test_run_to_relay_swallows_publish_end_failure(fake_redis):
     assert json.loads(entries[-1][1]["data"])["value"] == 1
 
 
+async def test_spawned_run_ignores_broken_request_thread_executor(fake_redis):
+    """Regression: a detached run must not inherit the spawning request's asgiref
+    thread-sensitive executor.
+
+    In production a sync-only middleware (WhiteNoise) makes Django route the async
+    view through an ``async_to_sync`` bridge, which leaks a request-scoped
+    ``CurrentThreadExecutor`` into the view context via ``AsyncToSync.executors``.
+    ``create_task`` copies that context, so the detached run inherited the binding;
+    once the request unwound, asgiref marked that executor broken, and the run's next
+    ORM ``a*`` call raised ``CurrentThreadExecutor already quit or is broken``. The
+    run must be spawned in a fresh context so its thread-sensitive work resolves to a
+    live, run-owned executor instead.
+    """
+    from asgiref.current_thread_executor import CurrentThreadExecutor
+    from asgiref.sync import AsyncToSync, sync_to_async
+
+    # Stand in for the request's leaked-then-torn-down executor.
+    broken = CurrentThreadExecutor(None)
+    broken._broken = True
+    AsyncToSync.executors.current = broken
+    try:
+        results: list[str] = []
+
+        async def _events():
+            # The same path every Django ORM a* method takes; this raised on the
+            # inherited broken executor before the fix.
+            results.append(await sync_to_async(lambda: "db-ok", thread_sensitive=True)())
+            yield CustomEvent(type=EventType.CUSTOM, name="ok", value=results[-1])
+
+        await runner.supervisor.spawn(_stub_streamer(_events))
+        # The ORM-style call completed instead of being swallowed as a failure.
+        assert results == ["db-ok"]
+        entries = fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key]
+        assert json.loads(entries[0][1]["data"])["value"] == "db-ok"
+    finally:
+        del AsyncToSync.executors.current
+
+
+async def test_run_to_relay_establishes_own_thread_sensitive_context(fake_redis):
+    """The run body executes inside its own ``ThreadSensitiveContext`` so its
+    thread-sensitive ORM gets a run-owned executor (cleanly torn down at run end)
+    rather than sharing the process-global single-thread executor with every other
+    detached run."""
+    from asgiref.sync import SyncToAsync
+
+    seen: list[object] = []
+
+    async def _events():
+        seen.append(SyncToAsync.thread_sensitive_context.get(None))
+        yield CustomEvent(type=EventType.CUSTOM, name="ok", value=1)
+
+    await runner.run_to_relay(_stub_streamer(_events))
+    assert seen and seen[0] is not None
+
+
 async def test_spawn_run_rejects_duplicate_live_run_id(fake_redis):
     """One live task per run_id: a second spawn for a still-running run_id must
     raise rather than silently overwrite the registry entry (which would orphan
