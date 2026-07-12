@@ -167,77 +167,76 @@
         {# Turns #}
         <template x-for="(turn, ti) in turns" :key="turn.id">
           <template x-if="isTurnVisible(turn, ti === turns.length - 1)">
-          <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true, 'chat-turn--errored': turn.error || turn.errored }">
-            <div class="chat-turn__body">
-              {# Failed turn: a red border on the bubble plus an icon marker — no message text. #}
-              {# The raw error is developer-only (logs); a server-replayed failed turn carries a #}
-              {# boolean ``errored`` flag (never the message) so nothing leaks into the json_script #}
-              {# turns payload, and live turns keep their reason in ``error`` for status only. #}
-              <template x-if="turn.error || turn.errored">
-                <span class="chat-turn__error" role="img" aria-label="{% translate 'Run failed' %}">
-                  {% icon "exclamation-triangle" "chat-turn__error-icon" %}
-                </span>
-              </template>
-              <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
-                <div class="chat-segment" :class="`chat-segment--${seg.type}`">
-                  <template x-if="seg.type === 'text'">
-                    <template x-if="turn.role === 'assistant'">
-                      <div class="chat-text" x-html="renderMarkdown(seg.content)"></div>
-                    </template>
-                  </template>
-                  <template x-if="seg.type === 'text' && turn.role === 'user'">
-                    <span class="chat-text" x-text="seg.content"></span>
-                  </template>
-
-                  <template x-if="seg.type === 'thinking'">
-                    <details class="chat-thinking-seg">
-                      <summary class="chat-thinking-seg__summary">
-                        <span x-show="seg.status === 'running'" class="chat-thinking-seg__dot"></span>
-                        <span x-text="thinkingLabel(seg)"></span>
-                      </summary>
-                      <div class="chat-thinking-seg__body chat-text" x-html="renderMarkdown(seg.content)"></div>
-                    </details>
-                  </template>
-
-                  <template x-if="seg.type === 'publish_phase'">
-                    <div class="chat-phase" :class="`chat-phase--${seg.status}`" :data-status="seg.status">
-                      <span class="chat-phase__icon" aria-hidden="true">
-                        <template x-if="seg.status === 'running'"><span class="chat-phase__spinner"></span></template>
-                        <template x-if="seg.status === 'done'"><span>✓</span></template>
-                      </span>
-                      <span class="chat-phase__label" x-text="seg.label"></span>
-                      <span class="chat-phase__suffix" x-show="seg.status === 'running'">…</span>
-                    </div>
-                  </template>
-
-                  <template x-if="seg.type === 'tool_call'">
-                    <details class="chat-tool" :id="`tool-${seg.id}`"
-                             :class="`chat-tool--${seg.status}`"
-                             :data-status="seg.status">
-                      <summary class="chat-tool__summary">
-                        <span class="chat-tool__icon">
-                          <template x-if="seg.status === 'running'"><span class="chat-tool__spinner"></span></template>
-                          <template x-if="seg.status === 'done'"><span>✓</span></template>
-                          <template x-if="seg.status === 'error'"><span>×</span></template>
-                        </span>
-                        <span class="chat-tool__name" x-text="toolSignature(seg).label"></span>
-                        <span class="chat-tool__path" x-text="toolSignature(seg).path"></span>
-                        <template x-for="b in toolSignature(seg).badges" :key="b.text">
-                          <span class="chat-tool__badge" :class="`chat-tool__badge--${b.tone}`" x-text="b.text"></span>
-                        </template>
-                        {% icon "chevron-down" "chat-tool__chev h-3.5 w-3.5" %}
-                      </summary>
-                      <div class="chat-tool__body" x-html="toolBodyHTML(seg)"></div>
-                    </details>
-                  </template>
+            <div class="chat-turn-wrap">
+              <template x-if="turn.role === 'run_status'">
+                <div class="chat-run-status" :class="`chat-run-status--${turn.status}`" role="status" aria-live="polite">
+                  <span class="chat-run-status__icon" aria-hidden="true">
+                    {% icon "exclamation-triangle" "h-4 w-4" %}
+                  </span>
+                  <span class="chat-run-status__text" x-text="turn.message"></span>
                 </div>
               </template>
+              <template x-if="turn.role !== 'run_status'">
+                <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true }">
+                  <div class="chat-turn__body">
+                    <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
+                      <div class="chat-segment" :class="`chat-segment--${seg.type}`">
+                        <template x-if="seg.type === 'text'">
+                          <template x-if="turn.role === 'assistant'">
+                            <div class="chat-text" x-html="renderMarkdown(seg.content)"></div>
+                          </template>
+                        </template>
+                        <template x-if="seg.type === 'text' && turn.role === 'user'">
+                          <span class="chat-text" x-text="seg.content"></span>
+                        </template>
 
-              <template x-if="turn.aborted">
-                <p class="text-sm text-gray-500 mt-2">{% translate "You stopped this run." %}</p>
+                        <template x-if="seg.type === 'thinking'">
+                          <details class="chat-thinking-seg">
+                            <summary class="chat-thinking-seg__summary">
+                              <span x-show="seg.status === 'running'" class="chat-thinking-seg__dot"></span>
+                              <span x-text="thinkingLabel(seg)"></span>
+                            </summary>
+                            <div class="chat-thinking-seg__body chat-text" x-html="renderMarkdown(seg.content)"></div>
+                          </details>
+                        </template>
+
+                        <template x-if="seg.type === 'publish_phase'">
+                          <div class="chat-phase" :class="`chat-phase--${seg.status}`" :data-status="seg.status">
+                            <span class="chat-phase__icon" aria-hidden="true">
+                              <template x-if="seg.status === 'running'"><span class="chat-phase__spinner"></span></template>
+                              <template x-if="seg.status === 'done'"><span>✓</span></template>
+                            </span>
+                            <span class="chat-phase__label" x-text="seg.label"></span>
+                            <span class="chat-phase__suffix" x-show="seg.status === 'running'">…</span>
+                          </div>
+                        </template>
+
+                        <template x-if="seg.type === 'tool_call'">
+                          <details class="chat-tool" :id="`tool-${seg.id}`"
+                                   :class="`chat-tool--${seg.status}`"
+                                   :data-status="seg.status">
+                            <summary class="chat-tool__summary">
+                              <span class="chat-tool__icon">
+                                <template x-if="seg.status === 'running'"><span class="chat-tool__spinner"></span></template>
+                                <template x-if="seg.status === 'done'"><span>✓</span></template>
+                                <template x-if="seg.status === 'error'"><span>×</span></template>
+                              </span>
+                              <span class="chat-tool__name" x-text="toolSignature(seg).label"></span>
+                              <span class="chat-tool__path" x-text="toolSignature(seg).path"></span>
+                              <template x-for="b in toolSignature(seg).badges" :key="b.text">
+                                <span class="chat-tool__badge" :class="`chat-tool__badge--${b.tone}`" x-text="b.text"></span>
+                              </template>
+                              {% icon "chevron-down" "chat-tool__chev h-3.5 w-3.5" %}
+                            </summary>
+                            <div class="chat-tool__body" x-html="toolBodyHTML(seg)"></div>
+                          </details>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </article>
               </template>
             </div>
-          </article>
           </template>
         </template>
 

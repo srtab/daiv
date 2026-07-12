@@ -290,21 +290,18 @@ def test_detail_failed_run_without_prompt_shows_marker(member_client, member_use
 
 
 @pytest.mark.django_db
-def test_detail_turn_error_is_icon_only_without_raw_tooltip(member_client, member_user):
-    """A failed turn keeps its visual affordance — the error icon + red-border markup is in
-    the template (Alpine <template>, present regardless of turns). But the raw traceback is
-    developer-only (logs): the hover popup is gone and no ``turn.error`` text binding remains."""
+def test_detail_uses_run_status_chip_not_per_turn_error_markup(member_client, member_user):
+    """Failures now render as a standalone run-status chip, not per-turn error markup.
+    The chip <template> is present regardless of data; the old per-turn error markup is gone."""
     session = _create_session(user=member_user)
     with patch("sessions.views.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     content = resp.content.decode()
-    # Visual affordance stays.
-    assert "chat-turn__error" in content
-    assert "chat-turn--errored" in content
-    # The raw-error hover popup / tooltip is gone.
-    assert "chat-turn__error-pop" not in content
-    assert 'x-text="turn.error"' not in content
+    assert "chat-run-status" in content  # chip template present (Alpine <template>)
+    assert "chat-turn__error" not in content  # old per-turn error markup removed
+    assert "chat-turn--errored" not in content
+    assert 'x-text="turn.error"' not in content  # no raw-error binding
 
 
 @pytest.mark.django_db
