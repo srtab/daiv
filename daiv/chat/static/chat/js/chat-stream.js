@@ -420,6 +420,7 @@
       // so stale "all complete" lists from a finished run don't linger.
       for (let i = this.turns.length - 1; i >= 0; i--) {
         const turn = this.turns[i];
+        if (turn.role === "run_status") continue;
         if (turn.role === "user") return [];
         for (let j = turn.segments.length - 1; j >= 0; j--) {
           const s = turn.segments[j];
@@ -457,6 +458,7 @@
         });
       };
       for (const t of this.turns) {
+        if (t.role === "run_status") continue;
         for (const seg of t.segments) {
           if (seg.type !== "tool_call") continue;
           if (PATH_TOOLS.has(seg.name)) {
@@ -862,6 +864,7 @@
       // (likely a missed TOOL_CALL_END for a fast-finishing structured tool).
       if (value.merge_request) {
         for (const t of this.turns) {
+          if (t.role === "run_status") continue;
           for (const s of t.segments) {
             if (s.type === "publish_phase" && s.status === "running") s.status = "done";
           }
