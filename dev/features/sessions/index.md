@@ -78,8 +78,7 @@ Click any session to see its full detail page, which includes:
 
 - **Origin and status badges**
 - **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link), the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
-- **Run timeline** — every Run in this session, newest first, each showing its trigger type, status, timing, token usage, cost, and (for successful runs) a link to download the result as Markdown.
-- **Transcript** — for chat-origin sessions, the full conversation transcript streams live during active runs and is replayed on return visits.
+- **Transcript** — for chat-origin sessions, the full conversation transcript streams live during active runs and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
 
 For in-flight sessions the detail page updates in real time until the run completes.
 
@@ -107,7 +106,7 @@ As the agent works, the workspace streams updates live:
 - **Todos** — when the agent plans with a todo list, the side rail shows the list with a `done/total` count.
 - **Files changed** — files the agent reads or edits are collected in the rail; click one to jump to the tool call that touched it.
 
-While a run is streaming you can press **Stop** to abort it. Only one run can be in flight per session at a time.
+While a run is streaming you can press **Stop** to cancel it server-side. Refreshing the page or losing the connection does not stop the run — reopening the session rejoins the live stream. Only one run can be in flight per session at a time.
 
 ### Model and sandbox environment
 

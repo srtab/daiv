@@ -1902,8 +1902,7 @@
 <ul>
 <li><strong>Origin and status badges</strong></li>
 <li><strong>Context</strong> — repository, branch/ref, linked schedule or issue/MR (as a clickable link), the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.</li>
-<li><strong>Run timeline</strong> — every Run in this session, newest first, each showing its trigger type, status, timing, token usage, cost, and (for successful runs) a link to download the result as Markdown.</li>
-<li><strong>Transcript</strong> — for chat-origin sessions, the full conversation transcript streams live during active runs and is replayed on return visits.</li>
+<li><strong>Transcript</strong> — for chat-origin sessions, the full conversation transcript streams live during active runs and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).</li>
 </ul>
 <p>For in-flight sessions the detail page updates in real time until the run completes.</p>
 <hr />
@@ -1926,7 +1925,7 @@
 <li><strong>Todos</strong> — when the agent plans with a todo list, the side rail shows the list with a <code>done/total</code> count.</li>
 <li><strong>Files changed</strong> — files the agent reads or edits are collected in the rail; click one to jump to the tool call that touched it.</li>
 </ul>
-<p>While a run is streaming you can press <strong>Stop</strong> to abort it. Only one run can be in flight per session at a time.</p>
+<p>While a run is streaming you can press <strong>Stop</strong> to cancel it server-side. Refreshing the page or losing the connection does not stop the run — reopening the session rejoins the live stream. Only one run can be in flight per session at a time.</p>
 <h3 id="model-and-sandbox-environment">Model and sandbox environment</h3>
 <p>Each session pins three choices, set in the hero before your first message and then locked for the rest of the session:</p>
 <table>
@@ -2052,7 +2051,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 10, 2026 16:47:27 UTC">July 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 23:18:41 UTC">July 12, 2026</span>
   </span>
 
     
@@ -2062,7 +2061,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 10, 2026 16:47:27 UTC">July 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 12, 2026 23:18:41 UTC">July 12, 2026</span>
   </span>
 
     
