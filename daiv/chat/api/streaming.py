@@ -234,9 +234,13 @@ class ChatRunStreamer:
                                 if delta and len(response_buffer) < 2000:
                                     response_buffer = (response_buffer + delta)[:2000]
                             elif event.type == EventType.RUN_ERROR:
-                                # Agent failure surfaced as an event (no raise) — capture the reason
-                                # so the finally block finalizes FAILED and records it.
-                                run_error_message = getattr(event, "message", None) or "Run failed."
+                                # Agent failure surfaced as an event (no raise). The upstream event
+                                # message can carry raw exception text; it is fine to stream live
+                                # (yielded below) but must never be persisted to Run.error_message,
+                                # which sessions.transcript renders verbatim in the transcript on
+                                # reload. Record the sanitized generic reason (parity with the raised-
+                                # exception path). See §F error-text safety.
+                                run_error_message = RUN_FAILED_MESSAGE
                             yield event
 
                             now = time.monotonic()

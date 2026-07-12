@@ -250,10 +250,18 @@ async def test_events_releases_run_even_when_persist_ref_raises():
 async def test_events_finalizes_failed_when_run_error_event_emitted():
     """ag_ui surfaces an agent failure as a streamed RUN_ERROR event and returns
     normally (no raise) — so the ``async for`` loop completes. The turn must still be
-    finalized FAILED with the error captured, not silently recorded SUCCESSFUL, and a
-    failed run must not pin the session ref.
+    finalized FAILED, and a failed run must not pin the session ref.
+
+    §F safety guarantee: the upstream RUN_ERROR event's ``.message`` can carry raw
+    exception text; it is fine to stream live (yielded to the client) but must never
+    be persisted to Run.error_message, which sessions.transcript renders verbatim in
+    the transcript on reload. The persisted reason is the same sanitized generic
+    constant used by the raised-exception path (parity with
+    ``test_events_finalizes_failed_with_generic_message_when_agent_raises``).
     """
     from ag_ui.core.events import RunErrorEvent
+
+    from core.constants import RUN_FAILED_MESSAGE
 
     err = RunErrorEvent(type=EventType.RUN_ERROR, message="boom in agent", code="run_failed")
 
@@ -267,6 +275,8 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     async def _capture_persist(*args):
         persist_calls.append(args)
 
+    streamed_events: list = []
+
     with (
         patch("chat.api.streaming.open_checkpointer", _mock_ctx),
         patch("chat.api.streaming.set_runtime_ctx", _mock_ctx),
@@ -277,12 +287,17 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
-        async for _ in _streamer().events():
-            pass
+        async for event in _streamer().events():
+            streamed_events.append(event)
 
     assert len(finalize_calls) == 1
     assert finalize_calls[0]["success"] is False
-    assert "boom in agent" in finalize_calls[0]["error_message"]
+    # §F: raw event message must NOT be persisted to Run.error_message.
+    assert finalize_calls[0]["error_message"] == RUN_FAILED_MESSAGE
+    assert "boom in agent" not in finalize_calls[0]["error_message"]
+    # The live client still receives the original upstream message.
+    run_error_events = [e for e in streamed_events if getattr(e, "type", None) == EventType.RUN_ERROR]
+    assert any(getattr(e, "message", "") == "boom in agent" for e in run_error_events)
     assert persist_calls == []
 
 
