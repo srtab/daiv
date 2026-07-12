@@ -812,8 +812,13 @@
             s.status = "error";
           }
         });
+        // Cancel and interrupt (stale takeover / shutdown) are neutral, non-failure
+        // terminations → the grey "aborted" marker. Messages mirror the server constants
+        // (core.constants) so the live marker matches what reload renders.
         if (evt.code === "run_cancelled") {
-          this._pushRunStatus("aborted", "You stopped this run.");
+          this._pushRunStatus("aborted", "Stopped by user.");
+        } else if (evt.code === "run_interrupted") {
+          this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");
         } else {
           this._pushRunStatus("failed", evt.message || "Run failed.");
         }

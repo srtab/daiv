@@ -20,11 +20,15 @@ stale-takeover / ``sync_stuck_runs`` machinery reconciles hard kills.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import logging
 from typing import TYPE_CHECKING
 
+from ag_ui.core.events import EventType, RunErrorEvent
 from asgiref.sync import ThreadSensitiveContext
+
+from core.constants import CANCELLED_BY_USER_MESSAGE
 
 from . import relay
 
@@ -39,10 +43,14 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
 
     Never raises ``Exception`` (nothing consumes a background task's result;
     ``events()`` already reports agent failures as RUN_ERROR events — anything
-    reaching here is relay/redis trouble). ``CancelledError`` propagates so
-    task cancellation keeps its semantics. The end sentinel is published on a
-    best-effort basis in ``finally``; if even that fails (Redis down) the reader
-    falls back to the liveness probe in ``_run_event_frames``.
+    reaching here is relay/redis trouble). On ``CancelledError`` — a local Stop
+    cancels this task, so the streamer unwinds via cancellation and cannot yield
+    its own RUN_ERROR(run_cancelled) — we publish that event here (only when the
+    cancel flag confirms a user Stop, not a process shutdown) so the live client
+    settles the turn as "stopped" rather than a clean finish; then the error
+    propagates so task cancellation keeps its semantics. The end sentinel is
+    published on a best-effort basis in ``finally``; if even that fails (Redis
+    down) the reader falls back to the liveness probe in ``_run_event_frames``.
 
     The whole body runs inside its own ``ThreadSensitiveContext`` so every Django
     ORM ``a*`` call the run makes (``events()`` alone hits ``set_runtime_ctx``,
@@ -60,6 +68,19 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
         async with ThreadSensitiveContext():
             async for event in streamer.events():
                 await run_relay.publish_event(event.model_dump_json(by_alias=True, exclude_none=True))
+    except asyncio.CancelledError:
+        # The cancelled streamer can't yield its own RUN_ERROR(run_cancelled); publish it
+        # here so the live client marks the turn stopped. Gate on the cancel flag so a
+        # process shutdown (which also cancels this task) doesn't masquerade as a user Stop.
+        # Best-effort: a teardown-time Redis failure must not mask the cancellation.
+        with contextlib.suppress(Exception):
+            if await run_relay.cancel_requested():
+                await run_relay.publish_event(
+                    RunErrorEvent(
+                        type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code="run_cancelled"
+                    ).model_dump_json(by_alias=True, exclude_none=True)
+                )
+        raise
     except Exception:
         logger.exception("chat: run publisher failed for thread_id=%s run_id=%s", thread_id, run_id)
     finally:

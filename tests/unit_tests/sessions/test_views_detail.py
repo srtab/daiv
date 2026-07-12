@@ -307,8 +307,8 @@ def test_detail_uses_run_status_chip_not_per_turn_error_markup(member_client, me
 
 @pytest.mark.django_db
 def test_detail_missing_checkpoint_expired_when_last_run_succeeded(member_client, member_user):
-    """A missing checkpoint whose last run SUCCEEDED is a genuine TTL expiry — the expired
-    banner still shows and ``failed_run`` stays None (guards the failed-run branch)."""
+    """A missing checkpoint whose runs all SUCCEEDED is a genuine TTL expiry — annotate_transcript
+    recovers no turns (only FAILED runs synthesize a marker), so the expired banner shows."""
     session = _create_session(user=member_user, ref="")
     _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL)
 
@@ -483,6 +483,41 @@ def test_failed_middle_run_gets_marker_after_its_turn(member_client, member_user
     marker_idx = roles.index("run_status")
     assert turns[marker_idx - 1]["id"] == "a1"  # marker follows the failed run's assistant turn
     assert turns[marker_idx + 1]["id"] == "h2"
+
+
+@pytest.mark.django_db
+def test_detail_expired_checkpoint_recovers_every_failed_run(member_client, member_user):
+    """A lapsed checkpoint (no messages) with several past FAILED runs recovers each run's
+    prompt + marker instead of showing a bare expired banner — the banner is suppressed
+    precisely because annotate_transcript produced turns to render."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(
+        session,
+        trigger_type=SessionOrigin.CHAT,
+        status=RunStatus.FAILED,
+        error_message="Run failed. Check server logs for details.",
+        prompt="first ask",
+    )
+    _create_run(
+        session,
+        trigger_type=SessionOrigin.CHAT,
+        status=RunStatus.FAILED,
+        error_message="Run failed. Check server logs for details.",
+        prompt="second ask",
+    )
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is False  # turns recovered → not a bare expiry
+    roles = [t["role"] for t in resp.context["turns"]]
+    assert roles.count("run_status") == 2
+    assert "has expired" not in resp.content.decode()
 
 
 # ---------------------------------------------------------------------------

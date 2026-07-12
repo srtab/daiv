@@ -19,7 +19,7 @@ from core.api.throttling import JobsRateThrottle
 from . import relay, runner
 from .security import AuthBearer
 from .streaming import ChatRunStreamer
-from .threads import ChatSessionService, _extract_first_user_message, _extract_last_user_message_id
+from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 
 logger = logging.getLogger("daiv.chat")
 
@@ -272,7 +272,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         run_id=run_id,
         input_data=input_data,
         user_id=user.pk,
-        prompt=_extract_first_user_message(input_data),
+        prompt=_extract_last_user_message(input_data),
         message_id=_extract_last_user_message_id(input_data),
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
@@ -281,7 +281,15 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     )
     # The run is detached from this request: it executes as a background task
     # and publishes to the relay, so a client disconnect no longer kills it.
-    runner.supervisor.spawn(streamer)
+    try:
+        runner.supervisor.spawn(streamer)
+    except RuntimeError as err:
+        # ``spawn`` rejects a run_id already live in this process's registry. A client can
+        # reuse a run_id across threads, which ``try_claim``'s per-thread slot doesn't catch —
+        # so release the slot we just claimed above, or the collision wedges the session until
+        # stale takeover (STALE_RUN_MINUTES).
+        await SessionLock.release(thread_id, run_id)
+        raise HttpError(409, "A run with this run_id is already in progress.") from err
 
     if "text/event-stream" in (request.headers.get("accept") or ""):
         # AG-UI protocol compatibility: SSE callers get the same relay-backed

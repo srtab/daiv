@@ -171,7 +171,8 @@
               <template x-if="turn.role === 'run_status'">
                 <div class="chat-run-status" :class="`chat-run-status--${turn.status}`" role="status" aria-live="polite">
                   <span class="chat-run-status__icon" aria-hidden="true">
-                    {% icon "exclamation-triangle" "h-4 w-4" %}
+                    <template x-if="turn.status === 'aborted'">{% icon "x-mark" "h-4 w-4" %}</template>
+                    <template x-if="turn.status !== 'aborted'">{% icon "exclamation-triangle" "h-4 w-4" %}</template>
                   </span>
                   <span class="chat-run-status__text" x-text="turn.message"></span>
                 </div>

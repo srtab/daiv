@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 from sessions.models import RunStatus, SessionOrigin
 from sessions.transcript import annotate_transcript
 
-from core.constants import CANCELLED_BY_USER_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 
 
 def _run(
@@ -143,3 +144,77 @@ def test_synthetic_turns_marker_only_when_no_prompt():
     result = annotate_transcript([], runs)
     assert len(result) == 1
     assert result[0] == {"id": "run-status-r1", "role": "run_status", "status": "failed", "message": RUN_FAILED_MESSAGE}
+
+
+def test_interrupted_run_renders_aborted_marker():
+    # A stale-takeover / process shutdown records INTERRUPTED_MESSAGE. It is a neutral,
+    # non-failure termination and must render as the grey "aborted" marker (not the red
+    # failure chip), same class as an explicit user cancel.
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE)]
+    result = annotate_transcript(turns, runs)
+    assert result[-1] == {
+        "id": "run-status-r1",
+        "role": "run_status",
+        "status": "aborted",
+        "message": INTERRUPTED_MESSAGE,
+    }
+
+
+def test_message_id_match_flushes_intervening_unowned_segment():
+    # A run whose message_id matches a segment *past* the cursor forces the intervening,
+    # run-less segment to flush first so ordering is preserved. Covers the
+    # ``while cursor < matched`` skip-flush branch (only one run, matching the 2nd turn).
+    turns = [_user("h1"), _assistant("a1"), _user("h2"), _assistant("a2")]
+    runs = [_run("r2", message_id="h2", status=RunStatus.FAILED, error_message=RUN_FAILED_MESSAGE)]
+    result = annotate_transcript(turns, runs)
+    assert [t["id"] for t in result] == ["h1", "a1", "h2", "a2", "run-status-r2"]
+
+
+def test_trailing_segments_without_runs_are_flushed():
+    # Fewer runs than user turns (e.g. a pruned/legacy run row): the turns no run owns must
+    # still render. Covers the final ``while cursor < len(segments)`` trailing flush.
+    turns = [_user("h1"), _assistant("a1"), _user("h2"), _assistant("a2")]
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, error_message="e1")]
+    result = annotate_transcript(turns, runs)
+    assert [t["id"] for t in result] == ["h1", "a1", "run-status-r1", "h2", "a2"]
+
+
+def test_leading_non_user_turn_buckets_into_head_segment():
+    # A transcript starting with a non-user turn (rare) buckets into an anonymous head
+    # segment (user_id=None) that no message_id can match; it is flushed positionally so it
+    # is never dropped, and a later run still matches its own user turn.
+    turns = [_assistant("a0"), _user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, error_message="e1")]
+    result = annotate_transcript(turns, runs)
+    assert [t["id"] for t in result] == ["a0", "h1", "a1", "run-status-r1"]
+
+
+def test_empty_transcript_recovers_every_failed_run():
+    # Expired/lapsed checkpoint (no turns): each FAILED run is recovered as prompt + marker,
+    # so the view renders the history instead of a bare expired banner.
+    runs = [
+        _run("r1", message_id="h1", status=RunStatus.FAILED, error_message="e1", prompt="first ask"),
+        _run("r2", message_id="h2", status=RunStatus.FAILED, error_message="e2", prompt="second ask"),
+    ]
+    result = annotate_transcript([], runs)
+    assert [t["id"] for t in result] == ["run-r1", "run-status-r1", "run-r2", "run-status-r2"]
+    assert result[0]["segments"][0]["content"] == "first ask"
+    assert result[2]["segments"][0]["content"] == "second ask"
+
+
+def test_unmatched_message_id_logs_only_for_non_failed_runs(caplog):
+    # A FAILED run reaching synthetic recovery is the designed path (pre-checkpoint failure)
+    # → silent, no log noise. A non-failed run whose message_id matches nothing is anomalous
+    # (a successful run should own a checkpointed turn) → warn so a correlation bug is visible.
+    turns = [_user("h1"), _assistant("a1")]
+    failed = _run("rf", message_id="gone", status=RunStatus.FAILED, error_message="e", prompt="p")
+    with caplog.at_level(logging.WARNING, logger="daiv.sessions"):
+        annotate_transcript(turns, [failed])
+    assert not caplog.records
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="daiv.sessions"):
+        result = annotate_transcript(turns, [_run("rs", message_id="gone", status=RunStatus.SUCCESSFUL)])
+    assert [t["id"] for t in result] == ["h1", "a1"]  # non-failed run contributes nothing
+    assert any("no matching" in r.message and "gone" in r.getMessage() for r in caplog.records)

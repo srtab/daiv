@@ -175,3 +175,58 @@ def test_extract_last_user_message_id_empty_when_no_user_message():
 
     input_data = SimpleNamespace(messages=[SimpleNamespace(role="assistant", content="x", id="a1")])
     assert _extract_last_user_message_id(input_data) == ""
+
+
+def test_extract_last_user_message_returns_last_human_content():
+    from chat.api.threads import _extract_last_user_message
+
+    input_data = SimpleNamespace(
+        messages=[
+            SimpleNamespace(role="user", content="first ask", id="h1"),
+            SimpleNamespace(role="assistant", content="reply", id="a1"),
+            SimpleNamespace(role="user", content="second ask", id="h2"),
+        ]
+    )
+    # The run's prompt is *this* turn (the last human message), not the thread opener —
+    # this is what sessions.transcript recovers for a pre-checkpoint failure.
+    assert _extract_last_user_message(input_data) == "second ask"
+
+
+def test_extract_last_user_message_and_id_resolve_the_same_message_via_type_attr():
+    from chat.api.threads import _extract_last_user_message, _extract_last_user_message_id
+
+    # LangChain-style checkpoint messages carry ``type`` ("human"), not ``role``. Both
+    # extractors must agree on the same (last) message so prompt and message_id correlate.
+    input_data = SimpleNamespace(
+        messages=[
+            SimpleNamespace(type="human", content="older", id="h1"),
+            SimpleNamespace(type="ai", content="reply", id="a1"),
+            SimpleNamespace(type="human", content="latest", id="h2"),
+        ]
+    )
+    assert _extract_last_user_message(input_data) == "latest"
+    assert _extract_last_user_message_id(input_data) == "h2"
+
+
+def test_extract_last_user_message_empty_when_no_user_message():
+    from chat.api.threads import _extract_last_user_message
+
+    input_data = SimpleNamespace(messages=[SimpleNamespace(role="assistant", content="x", id="a1")])
+    assert _extract_last_user_message(input_data) == ""
+
+
+def test_extract_last_user_message_non_string_content_falls_back_to_empty():
+    from chat.api.threads import _extract_last_user_message
+
+    # Multimodal (list-of-blocks) content isn't a usable prompt string → "".
+    msg = SimpleNamespace(role="user", content=[{"type": "text", "text": "hi"}], id="h1")
+    input_data = SimpleNamespace(messages=[msg])
+    assert _extract_last_user_message(input_data) == ""
+
+
+def test_extract_last_user_message_id_missing_id_coerced_to_empty():
+    from chat.api.threads import _extract_last_user_message_id
+
+    # A human message without an id (client didn't set one) → "" not the string "None".
+    input_data = SimpleNamespace(messages=[SimpleNamespace(role="user", content="hi")])
+    assert _extract_last_user_message_id(input_data) == ""

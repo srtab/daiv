@@ -983,3 +983,30 @@ async def test_cancel_rejects_foreign_thread(client: TestAsyncClient, authed, fa
     assert response.status_code == 404
     await user.adelete()
     await other.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_completion_releases_slot_when_spawn_rejects_run_id(
+    client: TestAsyncClient, authed, fake_redis, patched_streamer
+):
+    """A client-reused run_id already live in this process's registry makes ``spawn``
+    raise RuntimeError. ``try_claim`` (keyed per-thread) has already claimed this thread's
+    slot, so the view must release it and return 409 — otherwise the collision wedges the
+    session until stale takeover."""
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()  # isolate from the shared per-username job-throttle bucket
+    with patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-spawnfail"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 409
+    # The slot claimed by try_claim must be released, not left dangling.
+    session = await Session.objects.filter(thread_id="t-spawnfail").afirst()
+    assert session is not None
+    assert session.active_run_id is None
+    await user.adelete()

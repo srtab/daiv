@@ -81,8 +81,6 @@ STREAMED_STATE_KEYS = ("merge_request",)
 # Bump ``last_active_at`` at most this often while the stream is alive.
 HEARTBEAT_INTERVAL_S = 5.0
 
-# User-facing terminal messages imported from core.constants
-
 
 class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
     """Inject the daiv RuntimeCtx dataclass into upstream's stream kwargs.
@@ -239,7 +237,7 @@ class ChatRunStreamer:
                                 # (yielded below) but must never be persisted to Run.error_message,
                                 # which sessions.transcript renders verbatim in the transcript on
                                 # reload. Record the sanitized generic reason (parity with the raised-
-                                # exception path). See §F error-text safety.
+                                # exception path).
                                 run_error_message = RUN_FAILED_MESSAGE
                             yield event
 
@@ -288,10 +286,15 @@ class ChatRunStreamer:
                             await stream.aclose()
                 clean_run = True
         except asyncio.CancelledError:
-            # Local hard-cancel (stop endpoint hit this process) or shutdown.
-            # Record the reason for the finally block, then propagate — the
-            # publisher's finally still emits the stream sentinel.
-            run_error_message = run_error_message or INTERRUPTED_MESSAGE
+            # Local hard-cancel (Stop endpoint hit this process) or a shutdown/takeover.
+            # Only a user Stop sets the cancel flag, so consult it to record the accurate
+            # reason ("Stopped by user" vs. the neutral interrupted message); then propagate
+            # so the publisher's finally still emits the stream sentinel.
+            if run_error_message is None:
+                run_error_message = INTERRUPTED_MESSAGE
+                with contextlib.suppress(Exception):
+                    if await run_relay.cancel_requested():
+                        run_error_message = CANCELLED_BY_USER_MESSAGE
             raise
         except Exception:
             # Log the raw exception server-side only. The reason recorded on the Run and

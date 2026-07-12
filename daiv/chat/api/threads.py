@@ -18,16 +18,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.chat")
 
 
+def _is_user_message(m) -> bool:
+    """Whether ``m`` is a human/user message. ag_ui messages carry ``role`` ("user");
+    LangChain checkpoint messages carry ``type`` ("human") — accept either."""
+    return (getattr(m, "role", None) or getattr(m, "type", "") or "").lower() in ("user", "human")
+
+
 def _extract_first_user_message(input_data: RunAgentInput) -> str:
     """Return the first non-empty content from a human/user role message."""
     for m in input_data.messages:
-        role = (getattr(m, "role", None) or getattr(m, "type", "") or "").lower()
-        if role not in ("user", "human"):
-            continue
         content = getattr(m, "content", "")
-        if isinstance(content, str) and content.strip():
+        if _is_user_message(m) and isinstance(content, str) and content.strip():
             return content
     return ""
+
+
+def _last_user_message(input_data: RunAgentInput):
+    """Return the most recent human/user message object — the turn this run starts — or None."""
+    for m in reversed(input_data.messages):
+        if _is_user_message(m):
+            return m
+    return None
 
 
 def _extract_last_user_message_id(input_data: RunAgentInput) -> str:
@@ -36,11 +47,22 @@ def _extract_last_user_message_id(input_data: RunAgentInput) -> str:
     Preserved through ag_ui into the checkpoint HumanMessage.id, so it correlates a
     Run with its transcript turn (see ``sessions.transcript.annotate_transcript``).
     """
-    for m in reversed(input_data.messages):
-        role = (getattr(m, "role", None) or getattr(m, "type", "") or "").lower()
-        if role in ("user", "human"):
-            return str(getattr(m, "id", "") or "")
-    return ""
+    m = _last_user_message(input_data)
+    return str(getattr(m, "id", "") or "") if m is not None else ""
+
+
+def _extract_last_user_message(input_data: RunAgentInput) -> str:
+    """Return the content of the most recent human/user message — the prompt that started
+    *this* run.
+
+    Distinct from ``_extract_first_user_message`` (the thread opener, used for the session
+    title): on a follow-up turn the two differ, and ``Run.prompt`` must be this run's own
+    message so ``sessions.transcript`` recovers the right text for a pre-checkpoint failure.
+    Pairs with ``_extract_last_user_message_id`` — both resolve the same message.
+    """
+    m = _last_user_message(input_data)
+    content = getattr(m, "content", "") if m is not None else ""
+    return content if isinstance(content, str) else ""
 
 
 class ChatSessionService:

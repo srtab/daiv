@@ -147,6 +147,53 @@ async def test_run_to_relay_establishes_own_thread_sensitive_context(fake_redis)
     assert seen and seen[0] is not None
 
 
+async def test_run_to_relay_publishes_run_cancelled_on_user_stop(fake_redis):
+    """A user Stop cancels the run task. The cancelled streamer can't yield its own
+    RUN_ERROR(run_cancelled), so ``run_to_relay`` synthesizes it (gated on the cancel
+    flag) before the end sentinel — otherwise the live client renders the stopped turn
+    as a clean finish."""
+    started = asyncio.Event()
+
+    async def _hang():
+        started.set()
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+    run_relay = relay.RunRelay("t-1", "r-1")
+    await run_relay.request_cancel()  # the cancel endpoint set the flag
+
+    task = asyncio.get_running_loop().create_task(runner.run_to_relay(_stub_streamer(_hang)))
+    await started.wait()
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    payloads = [fields for _id, fields in fake_redis.streams[run_relay.events_key]]
+    assert json.loads(payloads[0]["data"])["code"] == "run_cancelled"
+    assert payloads[-1] == {"end": "1"}
+
+
+async def test_run_to_relay_omits_run_cancelled_on_shutdown(fake_redis):
+    """A process shutdown also cancels the task, but without a user Stop the cancel flag
+    is unset — so no ``run_cancelled`` is synthesized. Only the neutral sentinel is
+    published, keeping shutdown from masquerading as a user Stop."""
+    started = asyncio.Event()
+
+    async def _hang():
+        started.set()
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+    task = asyncio.get_running_loop().create_task(runner.run_to_relay(_stub_streamer(_hang)))
+    await started.wait()
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    payloads = [fields for _id, fields in fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key]]
+    assert payloads == [{"end": "1"}]
+
+
 async def test_spawn_run_rejects_duplicate_live_run_id(fake_redis):
     """One live task per run_id: a second spawn for a still-running run_id must
     raise rather than silently overwrite the registry entry (which would orphan

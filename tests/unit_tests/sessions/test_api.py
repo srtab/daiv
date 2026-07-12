@@ -111,6 +111,43 @@ async def test_session_turns_returns_built_turns(client, authed):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_session_turns_includes_run_status_marker_for_failed_run(client, authed):
+    """The JSON poller endpoint runs annotate_transcript, not bare build_turns: a FAILED chat
+    run whose message_id matches a hydrated human turn yields a run_status marker in the payload."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    _key_obj, raw, user = authed
+
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.CHAT,
+        repo_id="group/project",
+        ref="main",
+        user=user,
+        active_run_id=None,
+    )
+    await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.CHAT,
+        repo_id="group/project",
+        status=RunStatus.FAILED,
+        message_id="m-1",
+        error_message="Run failed. Check server logs for details.",
+    )
+
+    fake_messages = [HumanMessage(content="hello", id="m-1"), AIMessage(content="world", id="m-2")]
+
+    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=(fake_messages, False, None))):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    markers = [t for t in resp.json()["turns"] if t["role"] == "run_status"]
+    assert len(markers) == 1
+    assert markers[0]["status"] == "failed"
+    assert markers[0]["message"] == "Run failed. Check server logs for details."
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_session_turns_expired(client, authed):
     """ahydrate_thread returns (.., True, ..) -> {"turns": [], "expired": true, "active": false}."""
     _key_obj, raw, user = authed

@@ -8,13 +8,27 @@ and messages, then zip them here.
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import TYPE_CHECKING, Any, Literal
 
-from core.constants import CANCELLED_BY_USER_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 from sessions.models import RunStatus, SessionOrigin
 
+if TYPE_CHECKING:
+    from sessions.models import Run
 
-def _marker(run: Any) -> dict[str, Any] | None:
+logger = logging.getLogger("daiv.sessions")
+
+# Closed value set for a run-status marker's ``status`` key: ``failed`` renders the red
+# error chip, ``aborted`` the neutral "stopped" one. Mirrored client-side in
+# ``chat-stream.js`` (``_pushRunStatus``) — keep the two in sync. (Markers stay plain
+# ``dict[str, Any]`` to interleave with ``chat.turns.build_turns`` output and serialise
+# straight into the Alpine-rendered turns payload; the shape is ``id``/``role``/``status``/
+# ``message``.)
+RunStatusValue = Literal["failed", "aborted"]
+
+
+def _marker(run: Run) -> dict[str, Any] | None:
     """Return a run-status pseudo-turn for a FAILED run, else None."""
     if run.status != RunStatus.FAILED:
         return None
@@ -24,21 +38,19 @@ def _marker(run: Any) -> dict[str, Any] | None:
     # rendered verbatim. Fall those back to the generic sanitized message.
     if run.trigger_type == SessionOrigin.CHAT:
         message = run.error_message or RUN_FAILED_MESSAGE
-        # Single, deliberate string-coupling point: nothing persisted distinguishes an
-        # explicit user cancel from a failure except this shared message.
-        aborted = run.error_message == CANCELLED_BY_USER_MESSAGE
+        # A user cancel and an interrupt (stale takeover / process shutdown) are neutral,
+        # non-failure terminations — render them as the grey "aborted" marker, not the red
+        # failure chip. This is the single, deliberate string-coupling point: nothing
+        # persisted distinguishes them from a genuine failure except these shared messages.
+        aborted = run.error_message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
     else:
         message = RUN_FAILED_MESSAGE
         aborted = False
-    return {
-        "id": f"run-status-{run.id}",
-        "role": "run_status",
-        "status": "aborted" if aborted else "failed",
-        "message": message,
-    }
+    status: RunStatusValue = "aborted" if aborted else "failed"
+    return {"id": f"run-status-{run.id}", "role": "run_status", "status": status, "message": message}
 
 
-def _synthetic_turns(run: Any) -> list[dict[str, Any]]:
+def _synthetic_turns(run: Run) -> list[dict[str, Any]]:
     """A run that produced no visible user turn. Recover a FAILED run's prompt as a
     user turn plus its marker; a non-failed run with no turn contributes nothing."""
     marker = _marker(run)
@@ -51,7 +63,7 @@ def _synthetic_turns(run: Any) -> list[dict[str, Any]]:
     return out
 
 
-def annotate_transcript(turns: list[dict[str, Any]], runs: list[Any]) -> list[dict[str, Any]]:
+def annotate_transcript(turns: list[dict[str, Any]], runs: list[Run]) -> list[dict[str, Any]]:
     """Splice run-status markers into ``turns`` at run boundaries.
 
     ``runs`` must be chronologically ordered. Runs are serial per session
@@ -72,7 +84,7 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Any]) -> list[di
     result: list[dict[str, Any]] = []
     cursor = 0  # index of the next unconsumed segment (ordinal fallback + skip-flushing)
     for run in runs:
-        mid = getattr(run, "message_id", "") or ""
+        mid = run.message_id or ""
         matched = None
         if mid:
             for j in range(cursor, len(segments)):
@@ -84,6 +96,18 @@ def annotate_transcript(turns: list[dict[str, Any]], runs: list[Any]) -> list[di
 
         if matched is None:
             # No owning segment: pre-checkpoint failure (unmatched mid) or ran out of segments.
+            # A FAILED run reaching here is the designed recovery path (its turn never
+            # checkpointed); a non-failed run with a set message_id that matches nothing is
+            # anomalous (a successful run should own a checkpointed turn) — log it so a
+            # correlation regression is observable rather than a silently dropped turn.
+            if mid and run.status != RunStatus.FAILED:
+                logger.warning(
+                    "annotate_transcript: run %s (status=%s) has message_id=%r but no matching "
+                    "transcript segment; contributing no marker",
+                    run.id,
+                    run.status,
+                    mid,
+                )
             result.extend(_synthetic_turns(run))
             continue
 
