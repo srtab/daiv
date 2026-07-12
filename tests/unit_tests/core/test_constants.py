@@ -11,3 +11,5 @@ def test_streaming_reexports_the_same_constant_objects():
     from core import constants
 
     assert streaming.CANCELLED_BY_USER_MESSAGE is constants.CANCELLED_BY_USER_MESSAGE
+    assert streaming.INTERRUPTED_MESSAGE is constants.INTERRUPTED_MESSAGE
+    assert streaming.RUN_FAILED_MESSAGE is constants.RUN_FAILED_MESSAGE

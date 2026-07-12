@@ -276,6 +276,7 @@ def test_detail_failed_run_without_prompt_shows_marker(member_client, member_use
 
     assert resp.status_code == 200
     assert resp.context["expired"] is False
+    assert "failed_run" not in resp.context
 
     turns = resp.context["turns"]
     # No prompt → no user turn; only the run_status marker.
@@ -463,8 +464,8 @@ def test_failed_middle_run_gets_marker_after_its_turn(member_client, member_user
     from langchain_core.messages import AIMessage, HumanMessage
 
     session = _create_session(user=member_user, ref="")
-    _create_run(session, status=RunStatus.FAILED, message_id="h1")
-    _create_run(session, status=RunStatus.SUCCESSFUL, message_id="h2")
+    _create_run(session, trigger_type=SessionOrigin.CHAT, status=RunStatus.FAILED, message_id="h1")
+    _create_run(session, trigger_type=SessionOrigin.CHAT, status=RunStatus.SUCCESSFUL, message_id="h2")
 
     messages = [
         HumanMessage(content="one", id="h1"),
