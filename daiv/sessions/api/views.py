@@ -11,6 +11,7 @@ from chat.api.security import AuthBearer
 from chat.turns import build_turns
 from sessions.hydration import ahydrate_thread
 from sessions.models import Session
+from sessions.transcript import annotate_transcript
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -33,8 +34,9 @@ async def session_turns(request: HttpRequest, thread_id: str):
     while a non-chat run holds the session slot)."""
     session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     messages, expired, _mr = await ahydrate_thread(thread_id)
+    runs = [r async for r in session.runs.order_by("created_at")]
     return {
-        "turns": [] if expired else build_turns(messages),
+        "turns": [] if expired else annotate_transcript(build_turns(messages), runs),
         "active": bool(session.active_run_id),
         "expired": expired,
     }
