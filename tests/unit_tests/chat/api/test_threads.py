@@ -151,3 +151,27 @@ async def test_override_ignored_on_existing_session(openrouter_provider):
     assert session.agent_model == "openrouter:anthropic/claude-haiku-4.5"
     assert session.agent_thinking_level == "low"
     await user.adelete()
+
+
+def test_extract_last_user_message_id_returns_last_human_id():
+    from types import SimpleNamespace
+
+    from chat.api.threads import _extract_last_user_message_id
+
+    input_data = SimpleNamespace(
+        messages=[
+            SimpleNamespace(role="user", content="first", id="h1"),
+            SimpleNamespace(role="assistant", content="reply", id="a1"),
+            SimpleNamespace(role="user", content="second", id="h2"),
+        ]
+    )
+    assert _extract_last_user_message_id(input_data) == "h2"
+
+
+def test_extract_last_user_message_id_empty_when_no_user_message():
+    from types import SimpleNamespace
+
+    from chat.api.threads import _extract_last_user_message_id
+
+    input_data = SimpleNamespace(messages=[SimpleNamespace(role="assistant", content="x", id="a1")])
+    assert _extract_last_user_message_id(input_data) == ""

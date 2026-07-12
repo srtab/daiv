@@ -523,6 +523,39 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
     assert finalize_calls == [{"success": False, "error_message": "Run was interrupted before completing."}]
 
 
+class TestStartChatRunPersistence:
+    """Isolated class so the module-level autouse ``_patch_run_lifecycle`` can be
+    overridden here — the real ``start_chat_run`` must run against the DB.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _patch_run_lifecycle(self):
+        """Override the module-level autouse: do NOT stub start_chat_run so the real
+        DB-backed implementation runs for the persistence assertion.
+        """
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_start_chat_run_persists_message_id(self):
+        import uuid
+
+        from sessions.models import Session, SessionOrigin
+
+        from chat.api.streaming import start_chat_run
+
+        session = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main"
+        )
+        run = await start_chat_run(
+            session_id=session.thread_id,
+            user_id=None,
+            prompt="hello",
+            repo_id="group/project",
+            ref="main",
+            message_id="h-99",
+        )
+        assert run.message_id == "h-99"
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_events_buffers_text_deltas_into_result_summary():
     """Assistant text deltas are buffered (capped at 2000 chars) and handed to

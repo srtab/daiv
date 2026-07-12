@@ -30,6 +30,19 @@ def _extract_first_user_message(input_data: RunAgentInput) -> str:
     return ""
 
 
+def _extract_last_user_message_id(input_data: RunAgentInput) -> str:
+    """Return the id of the most recent human/user message — the turn this run starts.
+
+    Preserved through ag_ui into the checkpoint HumanMessage.id, so it correlates a
+    Run with its transcript turn (see ``sessions.transcript.annotate_transcript``).
+    """
+    for m in reversed(input_data.messages):
+        role = (getattr(m, "role", None) or getattr(m, "type", "") or "").lower()
+        if role in ("user", "human"):
+            return str(getattr(m, "id", "") or "")
+    return ""
+
+
 class ChatSessionService:
     @staticmethod
     async def get_or_create_for_user(

@@ -19,7 +19,7 @@ from core.api.throttling import JobsRateThrottle
 from . import relay, runner
 from .security import AuthBearer
 from .streaming import ChatRunStreamer
-from .threads import ChatSessionService, _extract_first_user_message
+from .threads import ChatSessionService, _extract_first_user_message, _extract_last_user_message_id
 
 logger = logging.getLogger("daiv.chat")
 
@@ -273,6 +273,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         input_data=input_data,
         user_id=user.pk,
         prompt=_extract_first_user_message(input_data),
+        message_id=_extract_last_user_message_id(input_data),
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,

@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.chat")
 
 
-async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str, ref: str) -> Run:
+async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str, ref: str, message_id: str = "") -> Run:
     """Record the chat turn as a RUNNING Run. Chat runs execute inline: no
     task_result, no QUEUED/READY phase.
     """
@@ -49,6 +49,7 @@ async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str,
         status=RunStatus.RUNNING,
         user_id=user_id,
         prompt=prompt[:2000],
+        message_id=message_id,
         repo_id=repo_id,
         ref=ref,
         started_at=timezone.now(),
@@ -135,6 +136,7 @@ class ChatRunStreamer:
     input_data: RunAgentInput
     user_id: int | None = None
     prompt: str = ""
+    message_id: str = ""
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
@@ -188,6 +190,7 @@ class ChatRunStreamer:
                     prompt=self.prompt,
                     repo_id=self.repo_id,
                     ref=self.ref,
+                    message_id=self.message_id,
                 )
                 agent_kwargs = get_daiv_agent_kwargs(
                     model_config=runtime_ctx.config.models.agent,
