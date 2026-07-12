@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
 from dataclasses import dataclass, fields, is_dataclass
@@ -19,7 +21,9 @@ from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
+from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 
+from . import relay
 from .event_filter import SubagentEventFilter
 from .threads import ChatSessionService
 
@@ -27,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from ag_ui.core import RunAgentInput
-    from ag_ui.encoder import EventEncoder
+    from ag_ui.core.events import BaseEvent
 
     from codebase.base import MergeRequest
     from codebase.context import RuntimeCtx
@@ -35,7 +39,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.chat")
 
 
-async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str, ref: str) -> Run:
+async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str, ref: str, message_id: str = "") -> Run:
     """Record the chat turn as a RUNNING Run. Chat runs execute inline: no
     task_result, no QUEUED/READY phase.
     """
@@ -45,6 +49,7 @@ async def start_chat_run(*, session_id: str, user_id, prompt: str, repo_id: str,
         status=RunStatus.RUNNING,
         user_id=user_id,
         prompt=prompt[:2000],
+        message_id=message_id,
         repo_id=repo_id,
         ref=ref,
         started_at=timezone.now(),
@@ -127,9 +132,9 @@ class ChatRunStreamer:
     thread_id: str
     run_id: str
     input_data: RunAgentInput
-    encoder: EventEncoder
     user_id: int | None = None
     prompt: str = ""
+    message_id: str = ""
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
@@ -147,7 +152,7 @@ class ChatRunStreamer:
         if self.run_id != self.input_data.run_id:
             raise ValueError(f"run_id mismatch: {self.run_id!r} vs input_data {self.input_data.run_id!r}")
 
-    async def events(self) -> AsyncIterator[str]:
+    async def events(self) -> AsyncIterator[BaseEvent]:
         last_mr: MergeRequest | None = None
         clean_run = False
         # Set when the agent surfaces a failure. ``ag_ui_langgraph`` reports a LangGraph
@@ -156,6 +161,7 @@ class ChatRunStreamer:
         # the finalize decision so an errored turn is recorded FAILED, not SUCCESSFUL.
         run_error_message: str | None = None
         last_heartbeat = time.monotonic()
+        run_relay = relay.RunRelay(self.thread_id, self.run_id)
         # The Run row (a separate object from the AG-UI run_id that holds the lock).
         # Created after the stream context opens; finalized in ``finally``.
         chat_run: Run | None = None
@@ -168,9 +174,7 @@ class ChatRunStreamer:
             # in ``finally``; the emit precedes ``set_runtime_ctx`` so the user still sees
             # what would have run even if agent setup fails.
             if self.auto_resolved_env is not None:
-                yield self.encoder.encode(
-                    CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
-                )
+                yield CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
             async with (
                 open_checkpointer() as checkpointer,
                 set_runtime_ctx(
@@ -184,6 +188,7 @@ class ChatRunStreamer:
                     prompt=self.prompt,
                     repo_id=self.repo_id,
                     ref=self.ref,
+                    message_id=self.message_id,
                 )
                 agent_kwargs = get_daiv_agent_kwargs(
                     model_config=runtime_ctx.config.models.agent,
@@ -213,39 +218,91 @@ class ChatRunStreamer:
                 # same mechanism ``run_job_task`` relies on. The whole generator body runs
                 # in one task, so the ContextVar scope holds across ``yield``.
                 with track_usage_metadata() as usage_handler:
-                    async for event in SubagentEventFilter().apply(langgraph_agent.run(self.input_data)):
-                        if event.type == EventType.STATE_SNAPSHOT:
-                            snap = getattr(event, "snapshot", None) or {}
-                            if isinstance(snap, dict) and "merge_request" in snap:
-                                last_mr = snap["merge_request"]
-                        elif event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
-                            # Buffer the assistant text deltas for ``result_summary``. Capped at
-                            # 2000 chars — the same bound ``finalize_chat_run`` re-applies.
-                            delta = getattr(event, "delta", None)
-                            if delta and len(response_buffer) < 2000:
-                                response_buffer = (response_buffer + delta)[:2000]
-                        elif event.type == EventType.RUN_ERROR:
-                            # Agent failure surfaced as an event (no raise) — capture the reason
-                            # so the finally block finalizes FAILED and records it.
-                            run_error_message = getattr(event, "message", None) or "Run failed."
-                        yield self.encoder.encode(event)
+                    stream = SubagentEventFilter().apply(langgraph_agent.run(self.input_data))
+                    try:
+                        async for event in stream:
+                            if event.type == EventType.STATE_SNAPSHOT:
+                                snap = getattr(event, "snapshot", None) or {}
+                                if isinstance(snap, dict) and "merge_request" in snap:
+                                    last_mr = snap["merge_request"]
+                            elif event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
+                                # Buffer the assistant text deltas for ``result_summary``. Capped at
+                                # 2000 chars — the same bound ``finalize_chat_run`` re-applies.
+                                delta = getattr(event, "delta", None)
+                                if delta and len(response_buffer) < 2000:
+                                    response_buffer = (response_buffer + delta)[:2000]
+                            elif event.type == EventType.RUN_ERROR:
+                                # Agent failure surfaced as an event (no raise). The upstream event
+                                # message can carry raw exception text; it is fine to stream live
+                                # (yielded below) but must never be persisted to Run.error_message,
+                                # which sessions.transcript renders verbatim in the transcript on
+                                # reload. Record the sanitized generic reason (parity with the raised-
+                                # exception path).
+                                run_error_message = RUN_FAILED_MESSAGE
+                            yield event
 
-                        now = time.monotonic()
-                        if now - last_heartbeat >= HEARTBEAT_INTERVAL_S:
-                            last_heartbeat = now
-                            try:
-                                await SessionLock.heartbeat(self.thread_id, self.run_id)
-                            except Exception:
-                                logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
+                            now = time.monotonic()
+                            if now - last_heartbeat >= HEARTBEAT_INTERVAL_S:
+                                last_heartbeat = now
+                                try:
+                                    still_ours = await SessionLock.heartbeat(self.thread_id, self.run_id)
+                                except Exception:
+                                    # A transient bump failure (DB hiccup) must not abandon a live
+                                    # run; only a definitive "not ours" below stops it.
+                                    logger.exception("chat: heartbeat failed for thread_id=%s", self.thread_id)
+                                    still_ours = True
+                                if not still_ours:
+                                    # The slot was reassigned out from under us (stale takeover): a
+                                    # new holder now owns this thread's checkpoint. Stop writing to
+                                    # a checkpoint we no longer own — there is no fencing token, so
+                                    # continuing would interleave two writers on one stream.
+                                    logger.warning(
+                                        "chat: lost run slot mid-stream (stale takeover) for "
+                                        "thread_id=%s run_id=%s; stopping",
+                                        self.thread_id,
+                                        self.run_id,
+                                    )
+                                    run_error_message = run_error_message or INTERRUPTED_MESSAGE
+                                    yield RunErrorEvent(
+                                        type=EventType.RUN_ERROR, message=INTERRUPTED_MESSAGE, code="run_interrupted"
+                                    )
+                                    break
+                                if await run_relay.cancel_requested():
+                                    run_error_message = CANCELLED_BY_USER_MESSAGE
+                                    yield RunErrorEvent(
+                                        type=EventType.RUN_ERROR,
+                                        message=CANCELLED_BY_USER_MESSAGE,
+                                        code="run_cancelled",
+                                    )
+                                    break
+                    finally:
+                        # No-op when exhausted; on a cancel ``break`` this closes the
+                        # in-flight graph invocation (the actual work cancellation).
+                        # Suppress cleanup errors so a failure closing the generator can't
+                        # mask the real termination reason (e.g. relabel a "Stopped by user"
+                        # cancel as a generic failure). ``CancelledError`` is a BaseException
+                        # and still propagates, preserving task-cancel semantics.
+                        with contextlib.suppress(Exception):
+                            await stream.aclose()
                 clean_run = True
-        except Exception as exc:
+        except asyncio.CancelledError:
+            # Local hard-cancel (Stop endpoint hit this process) or a shutdown/takeover.
+            # Only a user Stop sets the cancel flag, so consult it to record the accurate
+            # reason ("Stopped by user" vs. the neutral interrupted message); then propagate
+            # so the publisher's finally still emits the stream sentinel.
+            if run_error_message is None:
+                run_error_message = INTERRUPTED_MESSAGE
+                with contextlib.suppress(Exception):
+                    if await run_relay.cancel_requested():
+                        run_error_message = CANCELLED_BY_USER_MESSAGE
+            raise
+        except Exception:
+            # Log the raw exception server-side only. The reason recorded on the Run and
+            # emitted to the stream is the generic message — the exception repr can carry
+            # internal class names, messages, and paths that must not reach the user.
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
-            run_error_message = f"{type(exc).__name__}: {exc}"
-            yield self.encoder.encode(
-                RunErrorEvent(
-                    type=EventType.RUN_ERROR, message="Run failed. Check server logs for details.", code="run_failed"
-                )
-            )
+            run_error_message = RUN_FAILED_MESSAGE
+            yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
         finally:
             # A run is a success only if the loop finished cleanly AND the agent did not
             # surface a RUN_ERROR event mid-stream (ag_ui reports stream errors as events,

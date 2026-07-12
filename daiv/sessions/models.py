@@ -199,6 +199,10 @@ class Run(models.Model):
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
+    # AG-UI id of the human message that started this run; round-trips into the checkpoint
+    # HumanMessage.id so sessions.transcript.annotate_transcript can join runs to turns.
+    # Empty for background/legacy runs (they fall back to chronological ordinal matching).
+    message_id = models.CharField(_("message ID"), max_length=255, blank=True, default="")
     agent_model = models.CharField(_("agent model"), max_length=255, blank=True, default="")
     agent_thinking_level = models.CharField(
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
