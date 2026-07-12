@@ -214,6 +214,7 @@
       // Seed _filesSeen with any paths already present in hydrated history so
       // the "new row pulse" animation does not fire on initial load.
       for (const t of this.turns) {
+        if (t.role === "run_status") continue;
         for (const seg of t.segments) {
           if (seg.type !== "tool_call") continue;
           if (PATH_TOOLS.has(seg.name)) {
@@ -288,6 +289,7 @@
       const messages = new Set();
       const tools = new Set();
       for (const t of this.turns) {
+        if (t.role === "run_status") continue;
         if (t.id) messages.add(t.id);
         for (const s of t.segments) {
           if (s.type === "tool_call" && s.id) tools.add(s.id);
@@ -370,14 +372,14 @@
       // Terminal reasons that leave the turn in an error state ("finished" is
       // clean and absent here). "error" = the server hit a relay/backend fault
       // tailing the stream and sent an explicit error end frame rather than
-      // dropping silently. Never clobber an in-band error/abort already set.
+      // dropping silently. Never clobber an in-band run_status already pushed.
       const REASON_ERRORS = {
         stale: "The run stopped responding — refresh to check its final state.",
         connection_lost: "Lost connection to the server — refresh to continue.",
         error: "The live stream failed — refresh to check the run's state.",
       };
-      if (REASON_ERRORS[reason] && !turn.error && !turn.aborted) {
-        turn.error = REASON_ERRORS[reason];
+      if (REASON_ERRORS[reason] && !this._hasRunStatusMarker()) {
+        this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;
       this._activeRun = null;
@@ -389,7 +391,11 @@
 
     get runStatus() {
       const last = this.turns[this.turns.length - 1];
-      if (last?.error) return { tone: "error", label: "error" };
+      if (last?.role === "run_status") {
+        return last.status === "aborted"
+          ? { tone: "idle", label: "stopped" }
+          : { tone: "error", label: "error" };
+      }
       if (this.resuming && !this.streaming) {
         return { tone: "thinking", label: "catching up on the running session…" };
       }
@@ -490,10 +496,10 @@
     },
 
     isTurnVisible(turn, isLast) {
+      if (turn.role === "run_status") return true;
       if (this.visibleSegments(turn).length) return true;
-      // Keep empty assistant turns around while they're still streaming (the
-      // thinking indicator renders) or when they carry terminal status text.
-      return turn.role === "assistant" && isLast && (turn.streaming || turn.error || turn.aborted);
+      // Keep an empty assistant turn only while it is streaming (thinking indicator).
+      return turn.role === "assistant" && isLast && turn.streaming;
     },
 
     toolSignature(seg) {
@@ -640,7 +646,7 @@
         });
 
         if (!resp.ok) {
-          assistantTurn.error = await formatHttpError(resp);
+          this._pushRunStatus("failed", await formatHttpError(resp));
           return;
         }
 
@@ -649,7 +655,7 @@
         reason = await this._streamRun(this._activeRun, assistantTurn);
       } catch (err) {
         console.error("chat: failed to start run", err);
-        assistantTurn.error = "Connection lost — please retry.";
+        this._pushRunStatus("failed", "Connection lost — please retry.");
       } finally {
         this._finishTurn(assistantTurn, reason);
       }
@@ -799,16 +805,16 @@
           seg.status = "done";
         }
       } else if (type === AGUI.RUN_ERROR) {
-        if (evt.code === "run_cancelled") {
-          turn.aborted = true;
-        } else {
-          turn.error = evt.message || "Run failed";
-        }
         turn.segments.forEach((s) => {
           if ((s.type === "tool_call" || s.type === "publish_phase") && s.status === "running") {
             s.status = "error";
           }
         });
+        if (evt.code === "run_cancelled") {
+          this._pushRunStatus("aborted", "You stopped this run.");
+        } else {
+          this._pushRunStatus("failed", evt.message || "Run failed.");
+        }
       } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
         // Server resolved Auto → real env for this run. Swap the locked pill text in
         // place when the user is still on Auto client-side; an explicit mid-flight
@@ -861,6 +867,24 @@
           }
         }
       }
+    },
+
+    _pushRunStatus(status, message) {
+      const runId = this._activeRun ? this._activeRun.runId : uuid();
+      const id = `run-status-${runId}`;
+      const existing = this.turns.find((t) => t.id === id);
+      if (existing) {
+        existing.status = status;
+        existing.message = message;
+      } else {
+        this.turns.push({ id, role: "run_status", status, message });
+      }
+      this.scrollToBottom();
+    },
+
+    _hasRunStatusMarker() {
+      const runId = this._activeRun ? this._activeRun.runId : null;
+      return runId != null && this.turns.some((t) => t.id === `run-status-${runId}`);
     },
 
     _appendTextSegment(turn, content) {
