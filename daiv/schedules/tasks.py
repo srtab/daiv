@@ -46,6 +46,7 @@ def dispatch_scheduled_jobs_cron_task():
     from sessions.models import SessionOrigin
     from sessions.services import RepoTarget, submit_batch_runs
 
+    from accounts.models import User
     from codebase.authorization import RepositoryAccessDenied
 
     now = datetime.now(tz=UTC)
@@ -54,7 +55,16 @@ def dispatch_scheduled_jobs_cron_task():
 
     with transaction.atomic():
         due_schedules = list(
-            ScheduledJob.objects.select_for_update(skip_locked=True).filter(is_enabled=True, next_run_at__lte=now)
+            ScheduledJob.objects.select_for_update(skip_locked=True).filter(
+                is_enabled=True,
+                next_run_at__lte=now,
+                # Skip schedules owned by inactivated users. Expressed as a subquery rather
+                # than a ``user__is_active`` join so FOR UPDATE SKIP LOCKED locks only the
+                # ScheduledJob table. A join would pull the user table into the lock set, so a
+                # lock held on an owner's user row would make SKIP LOCKED drop that owner's due
+                # schedules even though the schedule rows themselves are free.
+                user_id__in=User.objects.filter(is_active=True).values("pk"),
+            )
         )
 
         for schedule in due_schedules:
