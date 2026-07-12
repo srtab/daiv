@@ -21,6 +21,7 @@ from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
+from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 
 from . import relay
 from .event_filter import SubagentEventFilter
@@ -79,16 +80,7 @@ STREAMED_STATE_KEYS = ("merge_request",)
 # Bump ``last_active_at`` at most this often while the stream is alive.
 HEARTBEAT_INTERVAL_S = 5.0
 
-# User-facing terminal messages for stopped runs. The flag-based path is always
-# user-initiated; a hard task cancel can also be a process shutdown, so it gets
-# the neutral wording.
-CANCELLED_BY_USER_MESSAGE = "Stopped by user."
-INTERRUPTED_MESSAGE = "Run was interrupted before completing."
-# Generic reason recorded (and streamed) when an uncaught exception ends the run. The raw
-# exception is logged server-side via ``logger.exception``, but must never reach the user:
-# ``Run.error_message`` is rendered verbatim in the run timeline, so a raw ``repr`` there
-# would leak exception class names, internal messages, and filesystem paths.
-RUN_FAILED_MESSAGE = "Run failed. Check server logs for details."
+# User-facing terminal messages imported from core.constants
 
 
 class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
