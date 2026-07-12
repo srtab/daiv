@@ -10,18 +10,26 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.constants import CANCELLED_BY_USER_MESSAGE
-from sessions.models import RunStatus
+from core.constants import CANCELLED_BY_USER_MESSAGE, RUN_FAILED_MESSAGE
+from sessions.models import RunStatus, SessionOrigin
 
 
 def _marker(run: Any) -> dict[str, Any] | None:
     """Return a run-status pseudo-turn for a FAILED run, else None."""
     if run.status != RunStatus.FAILED:
         return None
-    message = run.error_message or "Run failed."
-    # Single, deliberate string-coupling point: nothing persisted distinguishes an
-    # explicit user cancel from a failure except this shared message.
-    aborted = run.error_message == CANCELLED_BY_USER_MESSAGE
+    # error_message is only user-safe for chat runs: the chat streamer writes fixed
+    # constants (see chat.api.streaming). Background/non-chat runs store raw exception
+    # text and tracebacks in error_message via Run.mark_failed, which must never be
+    # rendered verbatim. Fall those back to the generic sanitized message.
+    if run.trigger_type == SessionOrigin.CHAT:
+        message = run.error_message or RUN_FAILED_MESSAGE
+        # Single, deliberate string-coupling point: nothing persisted distinguishes an
+        # explicit user cancel from a failure except this shared message.
+        aborted = run.error_message == CANCELLED_BY_USER_MESSAGE
+    else:
+        message = RUN_FAILED_MESSAGE
+        aborted = False
     return {
         "id": f"run-status-{run.id}",
         "role": "run_status",

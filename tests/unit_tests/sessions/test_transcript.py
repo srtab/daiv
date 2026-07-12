@@ -2,14 +2,23 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from sessions.models import RunStatus
+from sessions.models import RunStatus, SessionOrigin
 from sessions.transcript import annotate_transcript
 
 from core.constants import CANCELLED_BY_USER_MESSAGE
 
 
-def _run(rid, *, status=RunStatus.SUCCESSFUL, message_id="", error_message="", prompt=""):
-    return SimpleNamespace(id=rid, status=status, message_id=message_id, error_message=error_message, prompt=prompt)
+def _run(
+    rid, *, status=RunStatus.SUCCESSFUL, message_id="", error_message="", prompt="", trigger_type=SessionOrigin.CHAT
+):
+    return SimpleNamespace(
+        id=rid,
+        status=status,
+        message_id=message_id,
+        error_message=error_message,
+        prompt=prompt,
+        trigger_type=trigger_type,
+    )
 
 
 def _user(tid, text="hi"):
@@ -90,3 +99,28 @@ def test_multiple_failed_middle_runs_each_get_a_marker():
 def test_expired_session_with_only_successful_runs_yields_no_turns():
     # No checkpoint (turns empty), old successful runs -> nothing to render (expired banner handles it).
     assert annotate_transcript([], [_run("r1", message_id="h1")]) == []
+
+
+def test_non_chat_failed_run_shows_generic_message_not_raw_error():
+    from core.constants import RUN_FAILED_MESSAGE
+
+    turns = [_user("h1"), _assistant("a1")]
+    raw = "dispatch_failed: GitCommandError: clone failed\nTraceback (most recent call last): ..."
+    runs = [_run("r1", trigger_type=SessionOrigin.SCHEDULE, status=RunStatus.FAILED, error_message=raw)]
+    result = annotate_transcript(turns, runs)
+    marker = result[-1]
+    assert marker["role"] == "run_status"
+    assert marker["status"] == "failed"
+    assert marker["message"] == RUN_FAILED_MESSAGE
+    assert "GitCommandError" not in marker["message"]
+    assert "Traceback" not in marker["message"]
+
+
+def test_chat_failed_run_renders_error_message_verbatim():
+    # Chat runs use the streamer's fixed, user-safe constants — render verbatim.
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", trigger_type=SessionOrigin.CHAT, status=RunStatus.FAILED, error_message="some chat message")]
+    result = annotate_transcript(turns, runs)
+    marker = result[-1]
+    assert marker["role"] == "run_status"
+    assert marker["message"] == "some chat message"
