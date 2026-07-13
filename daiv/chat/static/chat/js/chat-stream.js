@@ -190,6 +190,27 @@
       this.lockedAgentEffortDots = detail?.effort_dots || 0;
     },
 
+    applyPolledTurns(turns) {
+      // Background (non-chat) runs — schedules, webhooks, UI jobs — execute
+      // detached and never publish to the chat relay, so there is no live stream
+      // to join. The detail page polls the turns endpoint instead and re-emits
+      // the WHOLE transcript here every few seconds. Reassigning ``turns`` re-runs
+      // every x-html/x-text binding (re-rendered markdown, re-highlighted code,
+      // repaint) even when nothing changed — the visible every-poll flicker. Skip
+      // the swap when the transcript is byte-identical to what we already show, so
+      // steady-state polls during a long-running tool are free; only a genuine
+      // change repaints. Both sides come from the same server serializer
+      // (annotate_transcript(build_turns(...))), so key order is stable and the
+      // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
+      // on reassignment, so open tool <details> survive a real change too.
+      if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
+      this.turns = turns;
+      // Mirror the live-stream path (dispatch() scrolls after every event): follow
+      // the tail once the new turns render. The no-force scrollToBottom() no-ops
+      // when the user has scrolled up to read, so it only auto-follows at bottom.
+      this.$nextTick(() => this.scrollToBottom());
+    },
+
     applySandboxEnvSelection(detail) {
       this.selectedSandboxEnvId = detail?.id || "";
       // ``daiv:env-changed`` payload is {id, name, scope}; empty id = Auto pick. An id
