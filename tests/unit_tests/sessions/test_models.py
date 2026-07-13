@@ -286,3 +286,21 @@ def test_spawn_depth_cannot_exceed_cap():
     _mk_session(spawn_depth=MAX_SPAWN_DEPTH)  # at the cap is allowed
     with pytest.raises(IntegrityError):
         _mk_session(spawn_depth=MAX_SPAWN_DEPTH + 1)
+
+
+# --- message_id ------------------------------------------------------------
+
+
+def test_run_message_id_defaults_blank_and_persists(session_fixture):
+    run = Run.objects.create(
+        session=session_fixture,
+        trigger_type=SessionOrigin.CHAT,
+        repo_id=session_fixture.repo_id,
+        status=RunStatus.SUCCESSFUL,
+    )
+    assert run.message_id == ""
+
+    run.message_id = "h-42"
+    run.save(update_fields=["message_id"])
+    run.refresh_from_db()
+    assert run.message_id == "h-42"

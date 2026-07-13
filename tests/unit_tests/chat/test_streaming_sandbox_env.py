@@ -18,7 +18,6 @@ def test_chat_run_streamer_dataclass_accepts_sandbox_env_id():
         thread_id="t",
         run_id="r",
         input_data=MagicMock(thread_id="t", run_id="r"),
-        encoder=MagicMock(),
         sandbox_environment_id="env-uuid",
     )
     assert streamer.sandbox_environment_id == "env-uuid"
@@ -27,9 +26,9 @@ def test_chat_run_streamer_dataclass_accepts_sandbox_env_id():
 @pytest.mark.asyncio
 async def test_streamer_emits_resolved_env_custom_event_when_auto_resolved():
     """When the view auto-resolved an env and supplied ``auto_resolved_env``, the
-    first yielded SSE frame must be a CUSTOM ``resolved_env`` event so the chat
+    first yielded event must be a CUSTOM ``resolved_env`` event so the chat
     client can swap "Auto" → real env name without waiting for a refresh."""
-    encoded = []
+    emitted = []
 
     @asynccontextmanager
     async def _fake_set_runtime_ctx(repo_id, **kwargs):
@@ -45,7 +44,6 @@ async def test_streamer_emits_resolved_env_custom_event_when_auto_resolved():
         thread_id="t",
         run_id="r",
         input_data=MagicMock(thread_id="t", run_id="r"),
-        encoder=MagicMock(encode=lambda e: encoded.append(e) or "x"),
         auto_resolved_env={"id": "env-uuid", "name": "Default", "scope": "global"},
     )
     with (
@@ -57,11 +55,12 @@ async def test_streamer_emits_resolved_env_custom_event_when_auto_resolved():
         patch("chat.api.streaming.build_langsmith_config", return_value={}),
         suppress(Exception),
     ):
-        async for _ in streamer.events():
+        async for event in streamer.events():
+            emitted.append(event)
             break
 
-    assert encoded, "streamer yielded nothing"
-    first = encoded[0]
+    assert emitted, "streamer yielded nothing"
+    first = emitted[0]
     assert first.type.value == "CUSTOM"
     assert first.name == "resolved_env"
     assert first.value == {"id": "env-uuid", "name": "Default", "scope": "global"}
@@ -71,7 +70,7 @@ async def test_streamer_emits_resolved_env_custom_event_when_auto_resolved():
 async def test_streamer_skips_resolved_env_emit_when_not_auto_resolved():
     """No ``auto_resolved_env`` means an explicit pick or existing-thread submit —
     the locked pill already shows the right name client-side, no emit needed."""
-    encoded = []
+    emitted = []
 
     @asynccontextmanager
     async def _fake_set_runtime_ctx(repo_id, **kwargs):
@@ -87,7 +86,6 @@ async def test_streamer_skips_resolved_env_emit_when_not_auto_resolved():
         thread_id="t",
         run_id="r",
         input_data=MagicMock(thread_id="t", run_id="r"),
-        encoder=MagicMock(encode=lambda e: encoded.append(e) or "x"),
         auto_resolved_env=None,
     )
     with (
@@ -99,13 +97,13 @@ async def test_streamer_skips_resolved_env_emit_when_not_auto_resolved():
         patch("chat.api.streaming.build_langsmith_config", return_value={}),
         suppress(Exception),
     ):
-        async for _ in streamer.events():
-            break
+        async for event in streamer.events():
+            emitted.append(event)
 
-    # No CUSTOM "resolved_env" emit should appear (any other emits are unrelated mocks).
+    # No CUSTOM "resolved_env" event should appear (any other events are unrelated mocks).
     assert not any(
         getattr(e, "type", None) and e.type.value == "CUSTOM" and getattr(e, "name", "") == "resolved_env"
-        for e in encoded
+        for e in emitted
     )
 
 
@@ -128,7 +126,6 @@ async def test_streamer_passes_env_id_into_set_runtime_ctx():
         thread_id="t",
         run_id="r",
         input_data=MagicMock(thread_id="t", run_id="r"),
-        encoder=MagicMock(encode=lambda e: "x"),
         sandbox_environment_id="env-uuid",
     )
     with (

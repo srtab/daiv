@@ -25,7 +25,7 @@ from core.conf import settings
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.command_parser import CommandParseError, parse_command
 from core.sandbox.command_policy import CommandPolicy, DenialReason, evaluate_command_policy, parse_rule
-from core.sandbox.schemas import RunCommandsResponse, StartSessionRequest
+from core.sandbox.schemas import EgressConfigRequest, RunCommandsResponse, StartSessionRequest
 from core.site_settings import site_settings
 
 if TYPE_CHECKING:
@@ -510,6 +510,35 @@ class SandboxMiddleware(AgentMiddleware):
             )
             return False
 
+    async def _arefresh_egress(
+        self, client: DAIVSandboxClient, session_id: str, egress: EgressConfigRequest | None
+    ) -> bool:
+        """Push this run's freshly-resolved egress credential onto a warm session before reuse.
+
+        A resumed session's proxy still injects the token embedded when the container was created,
+        which expires after a day-plus — so ``git ls-remote``/push at publish time would be rejected.
+        ``set_runtime_ctx`` has already resolved a fresh, cache-valid token into ``egress``; this
+        delivers it to the live proxy (which hot-reloads on the next request).
+
+        Returns ``True`` when the session is safe to reuse — refreshed, or nothing to refresh for a
+        token-less / network-off run (``egress is None``). Returns ``False`` when the refresh could not
+        be applied (route absent on an older sandbox → 404, session lost the egress triad → 409, or
+        a transport error); the caller then recreates the session, whose fresh ``start_session`` carries
+        a valid token. Only ``httpx`` errors degrade to recreate — a programming bug propagates.
+        """
+        if egress is None:
+            return True
+        try:
+            await client.update_egress(session_id, egress)
+        except httpx.HTTPError:
+            logger.warning(
+                "Egress refresh failed for warm sandbox session %s; recreating the session instead",
+                session_id,
+                exc_info=True,
+            )
+            return False
+        return True
+
     async def abefore_agent(self, state: StateT, runtime: Runtime[RuntimeCtx]) -> dict[str, str] | None:
         """
         Bind a sandbox session — reusing the prior turn's warm session when possible.
@@ -518,7 +547,10 @@ class SandboxMiddleware(AgentMiddleware):
         manages the *session*. Warm reuse reads ``state["session_id"]`` — the checkpointer persists it
         per thread_id, so a prior turn's session is reachable directly from state (no separate store).
         We confirm it still exists on the sandbox (``session_exists`` also restarts a stopped
-        container); a reaped/missing session falls through to a fresh create + seed.
+        container); a reaped/missing session falls through to a fresh create + seed. A confirmed-alive
+        session additionally has this run's fresh egress credential pushed onto it before binding; if
+        that refresh fails (older sandbox or transport error) the session is stopped and recreated
+        instead.
         """
         client = self._client
         if client is None:
@@ -532,9 +564,26 @@ class SandboxMiddleware(AgentMiddleware):
 
         prior_session_id = state.get("session_id")
         if prior_session_id and await self._session_exists(client, prior_session_id):
-            self._bind_session(prior_session_id)
-            logger.info("Reusing warm sandbox session %s", prior_session_id)
-            return {"session_id": prior_session_id}
+            # The warm container's egress proxy still injects the token embedded when it was created
+            # (expired after a day-plus). Push this run's fresh credential before binding; if that
+            # can't be applied (older sandbox / transport error), recreate the session instead so the
+            # run never reaches publish with a stale token.
+            if await self._arefresh_egress(client, prior_session_id, runtime.context.sandbox.egress):
+                self._bind_session(prior_session_id)
+                logger.info("Reusing warm sandbox session %s", prior_session_id)
+                return {"session_id": prior_session_id}
+            # Egress refresh failed (cause already logged with a stack trace by _arefresh_egress). Stop the
+            # stale container now rather than leaving it for the reaper, then fall through to a fresh
+            # create + seed below (whose start_session carries a valid credential).
+            try:
+                await client.close_session(prior_session_id, force=True)
+            except httpx.HTTPError:
+                logger.warning(
+                    "Failed to stop stale sandbox session %s after egress refresh failure",
+                    prior_session_id,
+                    exc_info=True,
+                )
+            # fall through to fresh create + seed below
 
         sb = runtime.context.sandbox
         try:

@@ -117,7 +117,8 @@
 
   const chat = (config) => ({
     endpoint: config.endpoint,
-    statusEndpoint: config.statusEndpoint || "",
+    streamEndpoint: config.streamEndpoint || "",
+    cancelEndpoint: config.cancelEndpoint || "",
     csrfToken: config.csrfToken || "",
     // Hydrate the MR pill from the server-rendered checkpoint. We rebuild the
     // thread object so Alpine tracks `merge_request` as a reactive property
@@ -153,7 +154,9 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
-    abortCtl: null,
+    _source: null,
+    _activeRun: null,
+    _replayDedup: null,
     _toolIndex: new Map(),
     _reasoningIndex: new Map(),
     _filesSeen: new Set(),
@@ -161,7 +164,6 @@
     _autoFollow: true,
     _thinkingTimer: null,
     _scrollListener: null,
-    _resumePoll: null,
     _thinkingPhrase: THINKING_LABELS[0],
     filesTouchedLimit: 20,
 
@@ -188,6 +190,27 @@
       this.lockedAgentEffortDots = detail?.effort_dots || 0;
     },
 
+    applyPolledTurns(turns) {
+      // Background (non-chat) runs — schedules, webhooks, UI jobs — execute
+      // detached and never publish to the chat relay, so there is no live stream
+      // to join. The detail page polls the turns endpoint instead and re-emits
+      // the WHOLE transcript here every few seconds. Reassigning ``turns`` re-runs
+      // every x-html/x-text binding (re-rendered markdown, re-highlighted code,
+      // repaint) even when nothing changed — the visible every-poll flicker. Skip
+      // the swap when the transcript is byte-identical to what we already show, so
+      // steady-state polls during a long-running tool are free; only a genuine
+      // change repaints. Both sides come from the same server serializer
+      // (annotate_transcript(build_turns(...))), so key order is stable and the
+      // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
+      // on reassignment, so open tool <details> survive a real change too.
+      if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
+      this.turns = turns;
+      // Mirror the live-stream path (dispatch() scrolls after every event): follow
+      // the tail once the new turns render. The no-force scrollToBottom() no-ops
+      // when the user has scrolled up to read, so it only auto-follows at bottom.
+      this.$nextTick(() => this.scrollToBottom());
+    },
+
     applySandboxEnvSelection(detail) {
       this.selectedSandboxEnvId = detail?.id || "";
       // ``daiv:env-changed`` payload is {id, name, scope}; empty id = Auto pick. An id
@@ -212,6 +235,7 @@
       // Seed _filesSeen with any paths already present in hydrated history so
       // the "new row pulse" animation does not fire on initial load.
       for (const t of this.turns) {
+        if (t.role === "run_status") continue;
         for (const seg of t.segments) {
           if (seg.type !== "tool_call") continue;
           if (PATH_TOOLS.has(seg.name)) {
@@ -253,11 +277,13 @@
         }
       });
 
-      if (this.resuming) {
-        // Page was loaded while a run is still executing server-side. The AGUI
-        // stream cannot be re-attached to mid-flight, so poll the thread status
-        // endpoint and reload once the server-side run releases its slot.
-        this._startResumePoll();
+      if (this.resuming && this.thread && config.activeRunId) {
+        // Page loaded while a run is executing server-side: rejoin its event
+        // stream with a full replay, deduping anything already rendered from
+        // the checkpoint hydration.
+        this._resumeRun(config.activeRunId);
+      } else {
+        this.resuming = false;
       }
 
       // Park the viewport at the latest turn on page load. $nextTick waits for
@@ -272,62 +298,125 @@
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
       if (this._thinkingTimer) clearInterval(this._thinkingTimer);
-      if (this._resumePoll) clearTimeout(this._resumePoll);
+      if (this._source) this._source.close();
     },
 
-    _startResumePoll() {
-      if (!this.statusEndpoint) return;
-      // Hard cap so a stuck server-side slot or a network failure does not poll
-      // forever — about 3 minutes at a 3 s cadence, after which we surface a
-      // "lost connection" banner and stop. The server-side stale-takeover
-      // window is longer, so a refresh after the banner will recover.
-      const MAX_FAILURES = 60;
-      let failures = 0;
-      const fail = (label) => {
-        this.resuming = false;
-        const last = this.turns[this.turns.length - 1];
-        if (last && last.role === "assistant") last.error = label;
-        if (this._resumePoll) {
-          clearTimeout(this._resumePoll);
-          this._resumePoll = null;
+    // ---------- Run stream (EventSource against the relay) -------------
+
+    async _resumeRun(runId) {
+      // LangChain message ids (turn.id) and tool_call ids from the hydrated
+      // checkpoint are the same ids the AG-UI events carry — anything already
+      // rendered server-side gets skipped during replay.
+      const messages = new Set();
+      const tools = new Set();
+      for (const t of this.turns) {
+        if (t.role === "run_status") continue;
+        if (t.id) messages.add(t.id);
+        for (const s of t.segments) {
+          if (s.type === "tool_call" && s.id) tools.add(s.id);
         }
-      };
-      const tick = async () => {
-        try {
-          const resp = await fetch(this.statusEndpoint, { credentials: "include" });
-          if (resp.ok) {
-            failures = 0;
-            const data = await resp.json();
-            if (!data?.active) {
-              window.location.reload();
-              return;
-            }
-          } else if (resp.status === 401 || resp.status === 403) {
-            fail("Session expired — please refresh and sign in.");
+      }
+      this._replayDedup = { messages, tools };
+
+      this.turns.push({ id: uuid(), role: "assistant", segments: [], streaming: true });
+      const turn = this.turns[this.turns.length - 1];
+      this._toolIndex.clear();
+      this._reasoningIndex.clear();
+      this._activeRun = { threadId: this.thread.thread_id, runId };
+      this.resuming = false;
+      this.streaming = true;
+      this.$nextTick(() => this.scrollToBottom({ force: true }));
+
+      const reason = await this._streamRun(this._activeRun, turn);
+      this._finishTurn(turn, reason);
+    },
+
+    _streamRun(run, turn) {
+      const url =
+        this.streamEndpoint +
+        "?thread_id=" + encodeURIComponent(run.threadId) +
+        "&run_id=" + encodeURIComponent(run.runId);
+      return new Promise((resolve) => {
+        const source = new EventSource(url);
+        this._source = source;
+        const finish = (reason) => {
+          source.close();
+          this._source = null;
+          resolve(reason);
+        };
+        source.onmessage = (event) => {
+          let evt;
+          try {
+            evt = JSON.parse(event.data);
+          } catch (err) {
+            console.error("chat: malformed SSE frame, skipping", err);
             return;
-          } else if (resp.status === 404) {
-            fail("This conversation is no longer available.");
-            return;
-          } else {
-            failures += 1;
           }
-        } catch {
-          failures += 1;
+          if (this._isReplayDuplicate(evt)) return;
+          this.dispatch(evt, turn);
+        };
+        source.addEventListener("end", (event) => {
+          let reason = "finished";
+          try {
+            reason = JSON.parse(event.data || "{}").reason || reason;
+          } catch {
+            /* keep default */
+          }
+          finish(reason);
+        });
+        source.onerror = () => {
+          // EventSource auto-reconnects (re-sending Last-Event-ID) on transient
+          // drops and on the server's duration-cap close; only a permanently
+          // CLOSED source is fatal.
+          if (source.readyState === EventSource.CLOSED) finish("connection_lost");
+        };
+      });
+    },
+
+    _isReplayDuplicate(evt) {
+      const d = this._replayDedup;
+      if (!d) return false;
+      if (evt.messageId && d.messages.has(evt.messageId)) return true;
+      if (evt.toolCallId && d.tools.has(evt.toolCallId)) return true;
+      return false;
+    },
+
+    _finishTurn(turn, reason) {
+      turn.streaming = false;
+      turn.segments.forEach((s) => {
+        if (s.type === "tool_call" && s.status === "running") s.status = "done";
+        if (s.type === "thinking" && s.status === "running") {
+          s.status = "done";
+          s.endedAt = Date.now();
         }
-        if (failures >= MAX_FAILURES) {
-          fail("Lost connection to the server — refresh to continue.");
-          return;
-        }
-        this._resumePoll = setTimeout(tick, 3000);
+      });
+      // Terminal reasons that leave the turn in an error state ("finished" is
+      // clean and absent here). "error" = the server hit a relay/backend fault
+      // tailing the stream and sent an explicit error end frame rather than
+      // dropping silently. Never clobber an in-band run_status already pushed.
+      const REASON_ERRORS = {
+        stale: "The run stopped responding — refresh to check its final state.",
+        connection_lost: "Lost connection to the server — refresh to continue.",
+        error: "The live stream failed — refresh to check the run's state.",
       };
-      this._resumePoll = setTimeout(tick, 1500);
+      if (REASON_ERRORS[reason] && !this._hasRunStatusMarker()) {
+        this._pushRunStatus("failed", REASON_ERRORS[reason]);
+      }
+      this.streaming = false;
+      this._activeRun = null;
+      this._replayDedup = null;
+      this.scrollToBottom();
     },
 
     // ---------- Derived getters (right rail) ---------------------------
 
     get runStatus() {
       const last = this.turns[this.turns.length - 1];
-      if (last?.error) return { tone: "error", label: "error" };
+      if (last?.role === "run_status") {
+        return last.status === "aborted"
+          ? { tone: "idle", label: "stopped" }
+          : { tone: "error", label: "error" };
+      }
       if (this.resuming && !this.streaming) {
         return { tone: "thinking", label: "catching up on the running session…" };
       }
@@ -352,6 +441,7 @@
       // so stale "all complete" lists from a finished run don't linger.
       for (let i = this.turns.length - 1; i >= 0; i--) {
         const turn = this.turns[i];
+        if (turn.role === "run_status") continue;
         if (turn.role === "user") return [];
         for (let j = turn.segments.length - 1; j >= 0; j--) {
           const s = turn.segments[j];
@@ -389,6 +479,7 @@
         });
       };
       for (const t of this.turns) {
+        if (t.role === "run_status") continue;
         for (const seg of t.segments) {
           if (seg.type !== "tool_call") continue;
           if (PATH_TOOLS.has(seg.name)) {
@@ -428,10 +519,10 @@
     },
 
     isTurnVisible(turn, isLast) {
+      if (turn.role === "run_status") return true;
       if (this.visibleSegments(turn).length) return true;
-      // Keep empty assistant turns around while they're still streaming (the
-      // thinking indicator renders) or when they carry terminal status text.
-      return turn.role === "assistant" && isLast && (turn.streaming || turn.error || turn.aborted);
+      // Keep an empty assistant turn only while it is streaming (thinking indicator).
+      return turn.role === "assistant" && isLast && turn.streaming;
     },
 
     toolSignature(seg) {
@@ -555,17 +646,19 @@
       this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
-      this.abortCtl = new AbortController();
+      this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
 
       // Forward the picker's selection so the API resolves the requested env per-request;
       // missing or empty falls through to the GLOBAL default on the server.
       const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
 
+      let reason = "finished";
       try {
         const resp = await fetch(this.endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Accept": "application/json",
             "X-Repo-ID": this.thread.repo_id,
             "X-Ref": this.thread.ref,
             "X-CSRFToken": this.csrfToken,
@@ -573,39 +666,49 @@
           },
           body: JSON.stringify(body),
           credentials: "include",
-          signal: this.abortCtl.signal,
         });
 
         if (!resp.ok) {
-          assistantTurn.error = await formatHttpError(resp);
+          this._pushRunStatus("failed", await formatHttpError(resp));
           return;
         }
 
-        await this.consume(resp.body, assistantTurn);
+        // The run now executes server-side detached from any connection; all
+        // event consumption goes through the resumable relay stream.
+        reason = await this._streamRun(this._activeRun, assistantTurn);
       } catch (err) {
-        if (err.name !== "AbortError") {
-          console.error("chat: stream failed", err);
-          assistantTurn.error = "Connection lost — please retry.";
-        } else {
-          assistantTurn.aborted = true;
-        }
+        console.error("chat: failed to start run", err);
+        this._pushRunStatus("failed", "Connection lost — please retry.");
       } finally {
-        assistantTurn.streaming = false;
-        assistantTurn.segments.forEach((s) => {
-          if (s.type === "tool_call" && s.status === "running") s.status = "done";
-          if (s.type === "thinking" && s.status === "running") {
-            s.status = "done";
-            s.endedAt = Date.now();
-          }
-        });
-        this.streaming = false;
-        this.abortCtl = null;
-        this.scrollToBottom();
+        this._finishTurn(assistantTurn, reason);
       }
     },
 
-    stop() {
-      this.abortCtl?.abort();
+    async stop() {
+      // Disconnects no longer stop the run — cancellation is explicit. The
+      // stream stays open so the server's RUN_ERROR(run_cancelled) event and
+      // end frame settle the turn state.
+      if (!this._activeRun || !this.cancelEndpoint) return;
+      try {
+        const resp = await fetch(this.cancelEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRFToken": this.csrfToken },
+          body: JSON.stringify({
+            thread_id: this._activeRun.threadId,
+            run_id: this._activeRun.runId,
+          }),
+          credentials: "include",
+        });
+        // 409 = the run already left the in-flight slot (finishing/finished);
+        // the still-open stream will settle the turn, so that's benign. Any
+        // other non-OK status means the stop didn't take — warn rather than let
+        // the button silently appear to do nothing.
+        if (!resp.ok && resp.status !== 409) {
+          console.warn("chat: cancel rejected with status", resp.status);
+        }
+      } catch (err) {
+        console.warn("chat: cancel request failed", err);
+      }
     },
 
     jumpToTool(segmentId) {
@@ -616,31 +719,6 @@
       el.classList.remove("chat-tool__highlight");
       void el.offsetWidth; // restart animation
       el.classList.add("chat-tool__highlight");
-    },
-
-    async consume(stream, turn) {
-      const reader = stream.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() || "";
-        for (const frame of frames) {
-          const line = frame.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          let evt;
-          try {
-            evt = JSON.parse(line.slice(5).trim());
-          } catch (err) {
-            console.error("chat: malformed SSE frame, skipping", line, err);
-            continue;
-          }
-          this.dispatch(evt, turn);
-        }
-      }
     },
 
     dispatch(evt, turn) {
@@ -750,12 +828,21 @@
           seg.status = "done";
         }
       } else if (type === AGUI.RUN_ERROR) {
-        turn.error = evt.message || "Run failed";
         turn.segments.forEach((s) => {
           if ((s.type === "tool_call" || s.type === "publish_phase") && s.status === "running") {
             s.status = "error";
           }
         });
+        // Cancel and interrupt (stale takeover / shutdown) are neutral, non-failure
+        // terminations → the grey "aborted" marker. Messages mirror the server constants
+        // (core.constants) so the live marker matches what reload renders.
+        if (evt.code === "run_cancelled") {
+          this._pushRunStatus("aborted", "Stopped by user.");
+        } else if (evt.code === "run_interrupted") {
+          this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");
+        } else {
+          this._pushRunStatus("failed", evt.message || "Run failed.");
+        }
       } else if (type === AGUI.CUSTOM && evt.name === "resolved_env") {
         // Server resolved Auto → real env for this run. Swap the locked pill text in
         // place when the user is still on Auto client-side; an explicit mid-flight
@@ -803,11 +890,30 @@
       // (likely a missed TOOL_CALL_END for a fast-finishing structured tool).
       if (value.merge_request) {
         for (const t of this.turns) {
+          if (t.role === "run_status") continue;
           for (const s of t.segments) {
             if (s.type === "publish_phase" && s.status === "running") s.status = "done";
           }
         }
       }
+    },
+
+    _pushRunStatus(status, message) {
+      const runId = this._activeRun ? this._activeRun.runId : uuid();
+      const id = `run-status-${runId}`;
+      const existing = this.turns.find((t) => t.id === id);
+      if (existing) {
+        existing.status = status;
+        existing.message = message;
+      } else {
+        this.turns.push({ id, role: "run_status", status, message });
+      }
+      this.scrollToBottom();
+    },
+
+    _hasRunStatusMarker() {
+      const runId = this._activeRun ? this._activeRun.runId : null;
+      return runId != null && this.turns.some((t) => t.id === `run-status-${runId}`);
     },
 
     _appendTextSegment(turn, content) {

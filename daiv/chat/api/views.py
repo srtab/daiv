@@ -1,23 +1,25 @@
+import json
 import logging
+import time
 
 from django.http import Http404, HttpRequest, StreamingHttpResponse
 
 from ag_ui.core import RunAgentInput  # noqa: TC002
-from ag_ui.encoder import EventEncoder
-from ninja import Router
+from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
 from sandbox_envs.services import resolve_env_for_run, resolve_env_for_user
-from sessions.locks import SessionLock
+from sessions.locks import SessionLock, stale_cutoff
 from sessions.models import Session
 
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, aassert_can_run
 from core.api.throttling import JobsRateThrottle
 
+from . import relay, runner
 from .security import AuthBearer
 from .streaming import ChatRunStreamer
-from .threads import ChatSessionService, _extract_first_user_message
+from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 
 logger = logging.getLogger("daiv.chat")
 
@@ -27,22 +29,117 @@ HEADER_SANDBOX_ENV = "X-Sandbox-Env"
 
 chat_router = Router(tags=["chat"], auth=[AuthBearer(), django_auth])
 
+# SSE reader tuning. The 300s duration cap closes the response *without* an end
+# frame — EventSource then auto-reconnects with Last-Event-ID, which keeps
+# long runs streaming while bounding per-connection worker occupancy.
+STREAM_BLOCK_MS = 15_000
+STREAM_DRAIN_BLOCK_MS = 500
+STREAM_MAX_DURATION_S = 300.0
 
-@chat_router.get("/threads/{thread_id}/status", response=dict, url_name="thread_status")
-async def thread_status(request: HttpRequest, thread_id: str):
-    """Cheap probe so a reloaded page can detect when its in-flight run has released
-    the per-thread slot and trigger a rehydration from the checkpointer.
+
+def _end_frame(reason: str) -> str:
+    return f"event: end\ndata: {json.dumps({'reason': reason})}\n\n"
+
+
+def _sse_response(frames) -> StreamingHttpResponse:
+    """Wrap a relay-tail generator in the response every SSE endpoint shares.
+
+    ``X-Accel-Buffering: no`` + ``Cache-Control: no-cache`` are the load-bearing
+    headers that stop nginx from buffering the stream — keep them in one place so
+    the two callers can't drift.
+    """
+    return StreamingHttpResponse(
+        frames, content_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
+
+
+async def _run_event_frames(thread_id: str, run_id: str, last_id: str):
+    """Replay + live-tail a run's relay stream as SSE frames.
+
+    Every data frame carries the Redis entry id as the SSE ``id:`` so browsers
+    resume via ``Last-Event-ID``. Terminal ``event: end`` frames tell the client
+    to stop reconnecting; hitting the duration cap closes silently on purpose
+    (the browser reconnects and resumes).
+
+    Liveness: when the stream goes quiet we probe the session slot. Holder
+    released → drain the tail briefly (the sentinel may still be in flight,
+    since ``events()`` releases the lock before the runner publishes it), then
+    finish. Holder present but heartbeat-stale → the writer is dead; tell the
+    client instead of hanging forever.
+
+    A relay/DB error mid-tail emits an ``event: end`` with ``reason: "error"``
+    rather than letting the generator raise: an unframed abort is indistinguishable
+    from a transient drop to the browser's EventSource, which would then reconnect
+    forever against a still-broken backend. The explicit terminal frame stops it.
+    """
+    yield "retry: 2000\n\n"
+    start = time.monotonic()
+    released_drain = False
+    run_relay = relay.RunRelay(thread_id, run_id)
+
+    try:
+        while (time.monotonic() - start) < STREAM_MAX_DURATION_S:
+            block_ms = STREAM_DRAIN_BLOCK_MS if released_drain else STREAM_BLOCK_MS
+            entries = await run_relay.read_events(last_id, block_ms=block_ms)
+            if entries:
+                for entry in entries:
+                    last_id = entry.id
+                    if entry.is_end:
+                        yield _end_frame("finished")
+                        return
+                    yield f"id: {entry.id}\ndata: {entry.data}\n\n"
+                continue
+
+            if released_drain:
+                yield _end_frame("finished")
+                return
+
+            session = (
+                await Session.objects.filter(thread_id=thread_id).values("active_run_id", "last_active_at").afirst()
+            )
+            if session is None or session["active_run_id"] != run_id:
+                released_drain = True
+                continue
+            if session["last_active_at"] < stale_cutoff():
+                yield _end_frame("stale")
+                return
+            yield ": keep-alive\n\n"
+    except Exception:
+        logger.exception("chat: relay tail failed for thread_id=%s run_id=%s", thread_id, run_id)
+        yield _end_frame("error")
+
+
+@chat_router.get("/stream", url_name="chat_run_stream")
+async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
+    """Resumable SSE stream of a chat run's AG-UI events.
+
+    Replays from the start (or from the ``Last-Event-ID`` header on browser
+    reconnect) and tails live until the run's terminal sentinel. Authorization
+    is thread visibility: the relay key embeds the thread id, so a run id from
+    another thread reads an empty stream even if guessed.
     """
     user = request.auth  # ty: ignore[unresolved-attribute]
-    session = await Session.objects.by_owner(user).filter(thread_id=thread_id).afirst()
-    if session is None:
+    if not await Session.objects.by_owner(user).filter(thread_id=thread_id).aexists():
         raise HttpError(404, "Thread not found")
-    return {"active": bool(session.active_run_id)}
+    last_id = request.headers.get("Last-Event-ID") or "0-0"
+    return _sse_response(_run_event_frames(thread_id, run_id, last_id))
+
+
+class RunHandle(Schema):
+    """The default ``POST /completions`` response: a pointer to the detached run.
+
+    Every subsequent ``GET /stream`` / ``POST /cancel`` call is built from this
+    pair, so it's a durable client contract (unlike the trivial probe dicts other
+    endpoints return) and gets a schema of its own — mirroring ``CancelIn``.
+    """
+
+    run_id: str
+    thread_id: str
 
 
 @chat_router.post(
     "/completions",
-    response=dict,
+    response=RunHandle,
     throttle=[JobsRateThrottle()],
     url_name="completions",
     openapi_extra={
@@ -59,6 +156,9 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     webhook-origin session with ``user=None`` is continuable by anyone with visibility).
     ``SessionLock.try_claim`` atomically claims the per-session run slot — parallel tabs
     resolve to a single winner, the loser gets 409.
+
+    Runs execute detached (see ``chat.api.runner``); the response is a run handle (JSON) or an
+    inline relay tail (``Accept: text/event-stream``).
     """
     repo_id = request.headers.get(HEADER_REPO_ID)
     ref = request.headers.get(HEADER_REF)
@@ -165,19 +265,63 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if auto_resolved and created and env_obj is not None:
         auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
 
-    encoder = EventEncoder(accept=request.headers.get("accept"))
     streamer = ChatRunStreamer(
         repo_id=repo_id,
         ref=ref,
         thread_id=thread_id,
         run_id=run_id,
         input_data=input_data,
-        encoder=encoder,
         user_id=user.pk,
-        prompt=_extract_first_user_message(input_data),
+        prompt=_extract_last_user_message(input_data),
+        message_id=_extract_last_user_message_id(input_data),
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
         auto_resolved_env=auto_resolved_env,
     )
-    return StreamingHttpResponse(streamer.events(), content_type=encoder.get_content_type())
+    # The run is detached from this request: it executes as a background task
+    # and publishes to the relay, so a client disconnect no longer kills it.
+    try:
+        runner.supervisor.spawn(streamer)
+    except RuntimeError as err:
+        # ``spawn`` rejects a run_id already live in this process's registry. A client can
+        # reuse a run_id across threads, which ``try_claim``'s per-thread slot doesn't catch —
+        # so release the slot we just claimed above, or the collision wedges the session until
+        # stale takeover (STALE_RUN_MINUTES).
+        await SessionLock.release(thread_id, run_id)
+        raise HttpError(409, "A run with this run_id is already in progress.") from err
+
+    if "text/event-stream" in (request.headers.get("accept") or ""):
+        # AG-UI protocol compatibility: SSE callers get the same relay-backed
+        # frames inline. Dropping this response only drops the tail (the detached
+        # run keeps going). Note the 300s duration cap closes without an end frame:
+        # a browser EventSource auto-reconnects with Last-Event-ID, but a raw AG-UI
+        # client that doesn't must reconnect via ``GET /stream`` with a
+        # ``Last-Event-ID`` header to resume a run longer than the cap.
+        return _sse_response(_run_event_frames(thread_id, run_id, "0-0"))
+    return {"run_id": run_id, "thread_id": thread_id}
+
+
+class CancelIn(Schema):
+    thread_id: str
+    run_id: str
+
+
+@chat_router.post("/cancel", response=dict, url_name="chat_run_cancel")
+async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
+    """Explicitly stop an in-flight chat run.
+
+    Required because disconnects no longer cancel runs: the Redis flag stops
+    the run at its next event boundary wherever it executes; the local task
+    cancel is immediate when the run lives in this process.
+    """
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    session = await Session.objects.by_owner(user).filter(thread_id=payload.thread_id).afirst()
+    if session is None:
+        raise HttpError(404, "Thread not found")
+    if session.active_run_id != payload.run_id:
+        raise HttpError(409, "Run is not in flight for this thread")
+
+    await relay.RunRelay(payload.thread_id, payload.run_id).request_cancel()
+    cancelled_locally = runner.supervisor.cancel_local(payload.run_id)
+    return {"cancelled": True, "local": cancelled_locally}
