@@ -39,6 +39,20 @@ def mock_post(monkeypatch):
     return state
 
 
+@pytest.fixture
+def mock_put(monkeypatch):
+    """Capture httpx.AsyncClient.put; default reply is 204 No Content. Set ``status`` to customise."""
+    state: dict = {"status": 204}
+
+    async def fake_put(self, url, **kwargs):
+        state["url"] = url
+        state["kwargs"] = kwargs
+        return httpx.Response(state["status"], request=httpx.Request("PUT", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "put", fake_put)
+    return state
+
+
 async def test_seed_session_posts_repo_archive(fake_settings, mock_post):
     from core.sandbox.client import DAIVSandboxClient
 
@@ -428,3 +442,52 @@ async def test_start_session_sends_policy_only_egress_with_empty_secrets(fake_se
     assert egress["secrets"] == {}
     assert egress["policy"]["default"] == "allow"
     assert egress["policy"]["rules"] == []
+
+
+async def test_update_egress_puts_wire_egress(fake_settings, mock_put):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule
+
+    egress = EgressConfigRequest(
+        policy=EgressPolicy(default="deny", rules=[EgressRule(host="github.com", methods=["*"])])
+    )
+    async with DAIVSandboxClient() as client:
+        await client.update_egress("sid", egress)
+
+    assert mock_put["url"] == "session/sid/egress/"
+    assert mock_put["kwargs"]["json"] == egress.to_wire()
+
+
+async def test_update_egress_sends_plaintext_secret(fake_settings, httpx_mock):
+    import json
+
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import EgressConfigRequest
+
+    # Inspect the raw wire bytes (like test_start_session_sends_egress_with_plaintext_secret) so this
+    # guards the actual serialisation, not just to_wire()'s return value.
+    httpx_mock.add_response(status_code=204)
+    egress = EgressConfigRequest.from_stored(
+        {"default": "deny", "rules": [{"host": "gitlab.com", "inject": "tok"}]},
+        {"tok": {"header": "PRIVATE-TOKEN", "value": "supersecret"}},
+    )
+    async with DAIVSandboxClient() as client:
+        await client.update_egress("sid", egress)
+
+    body = httpx_mock.get_requests()[0].read().decode()
+    assert "supersecret" in body  # plaintext reached the wire
+    assert "**********" not in body  # not the SecretStr mask (guards a model_dump regression)
+    wire = json.loads(body)
+    assert wire["secrets"]["tok"] == {"header": "PRIVATE-TOKEN", "value": "supersecret"}
+    assert wire["policy"]["default"] == "deny"
+
+
+async def test_update_egress_raises_on_error(fake_settings, mock_put):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy
+
+    mock_put["status"] = 404
+    egress = EgressConfigRequest(policy=EgressPolicy(default="allow"))
+    async with DAIVSandboxClient() as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.update_egress("sid", egress)
