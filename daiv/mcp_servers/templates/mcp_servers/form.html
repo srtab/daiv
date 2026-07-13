@@ -181,13 +181,13 @@
         <button type="submit" class="btn-primary" {% if headers_locked %}disabled{% endif %}>{% translate "Save" %}</button>
         <a href="{% url 'mcp_servers:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
         {% if mode == "edit" and not builtin %}
-        <a href="{% url 'mcp_servers:delete' object.name %}" class="btn-danger-outline ml-auto">{% translate "Delete" %}</a>
+        <a href="{% url 'mcp_servers:delete' object.pk %}" class="btn-danger-outline ml-auto">{% translate "Delete" %}</a>
         {% endif %}
     </div>
 </form>
 
 {% if mode == "edit" %}
-<form id="refresh-tools-form" method="post" action="{% url 'mcp_servers:refresh_tools' object.name %}" class="hidden">
+<form id="refresh-tools-form" method="post" action="{% url 'mcp_servers:refresh_tools' object.pk %}" class="hidden">
     {% csrf_token %}
     <input type="hidden" name="next" value="edit">
 </form>

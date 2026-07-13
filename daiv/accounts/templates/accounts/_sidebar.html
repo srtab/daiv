@@ -56,6 +56,13 @@
       <span>{% translate "Sandbox environments" %}</span>
     </a>
 
+    <a href="{% url 'mcp_servers:list' %}"
+       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'mcp_servers' %}">
+      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'mcp_servers' %}opacity-0{% endif %}"></span>
+      {% icon "puzzle-piece" "h-4 w-4" %}
+      <span>{% translate "MCP servers" %}</span>
+    </a>
+
     <a href="{% url 'memory:list' %}"
        class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'memory' %}">
       <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'memory' %}opacity-0{% endif %}"></span>
@@ -116,12 +123,6 @@
       <span>{% translate "Skills" %}</span>
     </a>
 
-    <a href="{% url 'mcp_servers:list' %}"
-       class="group relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:text-gray-200 {% nav_active 'mcp_servers' %}">
-      <span class="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-violet-500 {% if nav_active_section != 'mcp_servers' %}opacity-0{% endif %}"></span>
-      {% icon "puzzle-piece" "h-4 w-4" %}
-      <span>{% translate "MCP servers" %}</span>
-    </a>
     {% endif %}
 
     {# Footer — API docs pinned to the bottom #}

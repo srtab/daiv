@@ -789,3 +789,31 @@ def test_list_shows_not_synced_when_never_synced(client, admin_user):
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:list"))
     assert b"not synced yet" in resp.content.lower()
+
+
+@pytest.mark.django_db
+def test_list_shows_your_servers_section_to_member(member_client, member_user):
+    _user_server(member_user, name="mine")
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"mine" in resp.content
+
+
+@pytest.mark.django_db
+def test_member_list_hides_global_health_reason(member_client):
+    g = _global()
+    g.enabled = True
+    # Force a degraded health with a reason that names an env var.
+    g.headers = [{"name": "A", "mode": "env_ref", "value": "SECRET_HOST_VAR"}]
+    g.save()
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"SECRET_HOST_VAR" not in resp.content  # reason string hidden from members
+
+
+@pytest.mark.django_db
+def test_member_list_has_no_edit_control_for_globals(member_client):
+    _global(name="glob")
+    resp = member_client.get(reverse("mcp_servers:list"))
+    # The member read-only global card links no edit route for globals.
+    assert reverse("mcp_servers:edit", args=[MCPServer.objects.get(name="glob").pk]).encode() not in resp.content
