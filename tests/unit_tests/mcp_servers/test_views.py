@@ -817,3 +817,114 @@ def test_member_list_has_no_edit_control_for_globals(member_client):
     resp = member_client.get(reverse("mcp_servers:list"))
     # The member read-only global card links no edit route for globals.
     assert reverse("mcp_servers:edit", args=[MCPServer.objects.get(name="glob").pk]).encode() not in resp.content
+
+
+# --- Test endpoint member-scoping tests (Fix 1) ---
+
+
+@pytest.mark.django_db
+def test_test_endpoint_member_env_ref_rejected(member_client, monkeypatch):
+    """A member POSTing a header with mode=env_ref must get 400 and NOT trigger test_connection.
+
+    The formset is built with literal_only=True for non-admins, so env_ref is not a
+    valid mode choice — the formset fails validation before the connection is attempted."""
+    called = {}
+
+    async def fake_test_connection(payload):
+        called["invoked"] = True
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = member_client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "transport": "http",
+            "url": "http://demo.test",
+            "headers-TOTAL_FORMS": "1",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+            "headers-0-name": "Authorization",
+            "headers-0-mode": "env_ref",
+            "headers-0-value": "MY_SECRET_ENV",
+        },
+    )
+    assert resp.status_code == 400
+    assert "invoked" not in called, "test_connection must NOT be called when formset is invalid"
+
+
+@pytest.mark.django_db
+def test_test_endpoint_member_cannot_borrow_global_secret(member_client, member_user, monkeypatch):
+    """A member POSTing name=<global server> must NOT receive the global's stored secret.
+
+    _resolve_borrowable for a non-admin resolves only scope=user rows owned by the
+    requesting user — a global row named 'shared' is invisible to a member."""
+    MCPServer.objects.create(
+        name="shared",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://shared.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = member_client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "name": "shared",
+            "transport": "http",
+            "url": "http://shared.test/mcp",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 200
+    # The global server's stored secret must not appear in the probe headers.
+    header_values = [h.get("value") for h in captured["payload"]["headers"]]
+    assert "global-secret" not in header_values
+
+
+@pytest.mark.django_db
+def test_test_endpoint_member_can_borrow_own_user_server_secret(member_client, member_user, monkeypatch):
+    """A member can borrow their own user-scoped server's stored secret by name."""
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://mine.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "member-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = member_client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "name": "mine",
+            "transport": "http",
+            "url": "http://mine.test/mcp",
+            "headers-TOTAL_FORMS": "1",
+            "headers-INITIAL_FORMS": "1",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+            "headers-0-name": "Authorization",
+            "headers-0-mode": "literal",
+            "headers-0-value": "",  # blank → preserve stored
+        },
+    )
+    assert resp.status_code == 200
+    # The member's own stored secret must be reused in the probe.
+    header_values = [h.get("value") for h in captured["payload"]["headers"]]
+    assert "member-secret" in header_values

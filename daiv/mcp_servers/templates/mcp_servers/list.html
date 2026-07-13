@@ -35,7 +35,7 @@
     {% else %}
         {% translate "No global servers configured." as g_empty %}
         {% include "mcp_servers/_global_server_list.html" with servers=global_custom_servers empty_message=g_empty %}
-        {% include "mcp_servers/_global_server_list.html" with servers=global_builtin_servers empty_message="" %}
+        {% if global_builtin_servers %}{% include "mcp_servers/_global_server_list.html" with servers=global_builtin_servers empty_message="" %}{% endif %}
     {% endif %}
 </section>
 

@@ -495,3 +495,58 @@ def test_user_create_rejects_name_of_existing_global(member_user):
     form = MCPServerForm(data=_data(name="taken"), user=member_user, is_admin=False)
     assert not form.is_valid()
     assert "name" in form.errors
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: MCPServerHeaderForm literal_only and scope immutability
+# ---------------------------------------------------------------------------
+
+
+def test_header_form_literal_only_excludes_env_ref():
+    """MCPServerHeaderForm(literal_only=True) must restrict mode to LITERAL only."""
+    from mcp_servers.forms import MCPServerHeaderForm
+    from mcp_servers.models import MCPServer
+
+    form = MCPServerHeaderForm(literal_only=True)
+    choice_values = [v for v, _label in form.fields["mode"].choices]
+    assert MCPServer.HeaderMode.ENV_REF.value not in choice_values
+    assert MCPServer.HeaderMode.LITERAL.value in choice_values
+
+
+def test_header_form_literal_only_rejects_env_ref_submission():
+    """A bound literal_only form submitting mode=env_ref must be invalid."""
+    from mcp_servers.forms import MCPServerHeaderForm
+
+    form = MCPServerHeaderForm(data={"name": "Authorization", "mode": "env_ref", "value": "MY_VAR"}, literal_only=True)
+    assert not form.is_valid()
+    assert "mode" in form.errors
+
+
+@pytest.mark.django_db
+def test_edit_scope_field_is_disabled_and_immutable(member_user):
+    """On edit, scope is disabled so a POSTed different scope is ignored and the
+    instance's scope is preserved — Django substitutes the instance value for
+    disabled fields rather than reading from POST."""
+    from mcp_servers.models import MCPServer
+
+    obj = MCPServer.objects.create(
+        name="scoped", scope=MCPServer.Scope.USER, user=member_user, transport="http", url="https://x.test/mcp"
+    )
+    # Attempt to change scope to global via POST (a disabled field is ignored by Django).
+    form = MCPServerForm(
+        instance=obj,
+        is_admin=True,
+        data={
+            "name": "scoped",
+            "transport": "http",
+            "url": "https://x.test/mcp",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "scope": "global",  # attacker-controlled value — must be ignored
+        },
+    )
+    assert form.fields["scope"].disabled is True, "scope field must be disabled on edit"
+    assert form.is_valid(), form.errors
+    # Django substitutes the instance's value for disabled fields; cleaned scope must
+    # equal the instance's scope regardless of what was POSTed.
+    assert form.cleaned_data["scope"] == MCPServer.Scope.USER

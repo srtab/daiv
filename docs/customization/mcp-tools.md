@@ -132,7 +132,7 @@ configuration.
 **Name collisions.** Server names must be unique within each scope, but a personal server can share
 a name with a global server. When the two scopes are merged at runtime, **the global server wins**:
 any personal server whose name matches a global server is silently skipped for that run. Rename the
-personal server to a different slug to avoid the collision.
+personal server to a different name to avoid the collision.
 
 **Admin oversight.** Admins can see all personal servers in the "User servers" section of the MCP
 Servers page, and can disable or delete any of them. Admins cannot edit a personal server or view

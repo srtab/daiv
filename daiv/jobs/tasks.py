@@ -106,6 +106,8 @@ async def run_job_task(
     A silent UUID fallback here would break that contract on the resume path.
 
     ``sandbox_environment_id``, when provided, is forwarded to ``set_runtime_ctx``.
+    ``user_id``: DAIV user id that triggered the run; forwarded as ``acting_user_id``
+    to select the user's personal MCP servers.
     Webhook callers (issue/review addressors) bypass this task and call
     ``create_daiv_agent`` directly; ``use_max`` is therefore not accepted here.
     """
