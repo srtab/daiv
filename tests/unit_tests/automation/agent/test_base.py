@@ -5,7 +5,7 @@ import pytest
 from langchain.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
-from automation.agent.base import BaseAgent, ResolvedProvider, parse_model_spec
+from automation.agent.base import BaseAgent, ResolvedProvider, _resolve_request_timeout, parse_model_spec
 from core.models import Provider, ProviderType, ThinkingLevelChoices
 
 if TYPE_CHECKING:
@@ -342,3 +342,99 @@ class TestGetModelKwargs:
         assert kw["max_tokens"] == 64_000
         assert kw["thinking"]["type"] == "enabled"
         assert kw["thinking"]["budget_tokens"] == 64_000 - 16_384
+
+    @pytest.mark.parametrize(
+        ("slug", "api_key", "model_spec", "expects_httpx_timeout"),
+        [
+            # OpenAI-family accepts an httpx.Timeout (connect fuse); Anthropic/Google a bare float.
+            ("openai", "sk-o", "openai:gpt-5.4", True),
+            ("openrouter", "sk-or", "openrouter:z-ai/glm-5", True),
+            ("anthropic", "sk-a", "anthropic:claude-sonnet-4-6", False),
+            ("google_genai", "sk-g", "google_genai:gemini-2.5-pro", False),
+        ],
+    )
+    def test_timeout_and_retries_applied_per_provider(self, slug, api_key, model_spec, expects_httpx_timeout):
+        """Every provider gets the bounded default (120s / 1 retry) in the timeout shape its
+        langchain integration accepts. The per-shape edge cases (connect fuse, scalar-vs-Timeout)
+        are covered directly in ``TestResolveRequestTimeout``."""
+        import httpx
+
+        self._enable_seed(slug, api_key)
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(model_spec))
+        assert kw["max_retries"] == 1
+        if expects_httpx_timeout:
+            assert isinstance(kw["timeout"], httpx.Timeout)
+            assert kw["timeout"].read == 120.0
+            assert kw["timeout"].connect == 10.0
+        else:
+            assert kw["timeout"] == 120.0
+            assert not isinstance(kw["timeout"], httpx.Timeout)
+
+    def test_caller_timeout_and_retries_take_precedence(self):
+        """An explicit per-call budget (e.g. the tighter web_fetch timeout) is never
+        overridden by the global defaults, and stays verbatim rather than being wrapped."""
+        import httpx
+
+        self._enable_seed("openai", "sk-o")
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("openai:gpt-5.4"), timeout=45, max_retries=5)
+        assert kw["timeout"] == 45
+        assert kw["max_retries"] == 5
+        # A caller override is passed through raw — even for OpenAI, it is not re-wrapped in
+        # httpx.Timeout (this is the web_fetch path, get_model(..., timeout=60)).
+        assert not isinstance(kw["timeout"], httpx.Timeout)
+
+    def test_insecure_http_clients_inherit_resolved_timeout(self):
+        """The custom verify=False clients must carry the resolved timeout instead of httpx's
+        5s default, which would otherwise throttle real generations."""
+        import httpx
+
+        Provider.objects.create(
+            slug="insec_timeout",
+            display_name="Insecure",
+            provider_type=ProviderType.OPENAI,
+            api_key="sk-x",
+            base_url="https://internal.example.test/v1",
+            verify_ssl=False,
+        )
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("insec_timeout:gpt-5.4"))
+        assert isinstance(kw["timeout"], httpx.Timeout)
+        assert kw["http_client"].timeout.read == 120.0
+        assert kw["http_async_client"].timeout.read == 120.0
+
+    def test_explicit_none_override_does_not_unbind(self):
+        """A caller passing ``timeout=None`` / ``max_retries=None`` must NOT be able to silently
+        restore the unbounded default — an explicit None is treated as unset."""
+        import httpx
+
+        self._enable_seed("openai", "sk-o")
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec("openai:gpt-5.4"), timeout=None, max_retries=None)
+        assert isinstance(kw["timeout"], httpx.Timeout)
+        assert kw["timeout"].read == 120.0
+        assert kw["max_retries"] == 1
+
+
+class TestResolveRequestTimeout:
+    """Direct tests for the per-provider timeout shaping — exercises the ``connect`` fuse on the
+    sub-10s branch, which the default-driven get_model_kwargs tests never reach."""
+
+    def test_openai_short_timeout_caps_connect_to_total(self):
+        """When the total budget is below 10s, connect must not exceed it (the reason ``min`` exists)."""
+        import httpx
+
+        t = _resolve_request_timeout(ProviderType.OPENAI, 5)
+        assert isinstance(t, httpx.Timeout)
+        assert t.read == 5.0
+        assert t.connect == 5.0
+
+    def test_openai_long_timeout_uses_10s_connect_fuse(self):
+        import httpx
+
+        t = _resolve_request_timeout(ProviderType.OPENROUTER, 120)
+        assert isinstance(t, httpx.Timeout)
+        assert t.read == 120.0
+        assert t.connect == 10.0
+
+    def test_anthropic_and_google_return_bare_float(self):
+        """Neither langchain integration accepts an httpx.Timeout — the value stays a scalar."""
+        assert _resolve_request_timeout(ProviderType.ANTHROPIC, 120) == 120.0
+        assert _resolve_request_timeout(ProviderType.GOOGLE_GENAI, 5) == 5.0
