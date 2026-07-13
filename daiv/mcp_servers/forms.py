@@ -115,17 +115,23 @@ class MCPServerForm(forms.ModelForm):
 
     class Meta:
         model = MCPServer
-        fields = ("name", "description", "transport", "url", "enabled", "tool_filter_mode")
+        fields = ("name", "description", "transport", "url", "enabled", "tool_filter_mode", "scope")
         widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, is_admin=False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.user = user
+        self.is_admin = is_admin
+        if not is_admin:
+            # Restrict choices (not disable) so a submitted GLOBAL is rejected by
+            # choice validation / clean_scope rather than silently coerced.
+            self.fields["scope"].choices = [(MCPServer.Scope.USER.value, MCPServer.Scope.USER.label)]
+            self.fields["scope"].initial = MCPServer.Scope.USER
         if self.instance.pk is not None:
             self.fields["tool_filter_items"].initial = list(self.instance.tool_filter_items or [])
-            # Name is immutable after creation (enforced by clean_name). Make the
-            # field visibly inert; readonly (not disabled) keeps it in the POST so
-            # clean_name still rejects a crafted rename.
+            # Name and scope are immutable after creation.
             self.fields["name"].widget.attrs["readonly"] = True
+            self.fields["scope"].disabled = True
 
     def clean_name(self):
         name = self.cleaned_data["name"]
@@ -135,7 +141,28 @@ class MCPServerForm(forms.ModelForm):
             )
         if name in RESERVED_MCP_NAMES:
             raise forms.ValidationError(_("'%(name)s' is a reserved name and cannot be used.") % {"name": name})
+        # A user-scoped create must not reuse a global server's name (global wins at
+        # runtime; block it up front to avoid a silently-shadowed row).
+        scope = self.data.get("scope") or self.fields["scope"].initial
+        if (
+            self.instance.pk is None
+            and scope == MCPServer.Scope.USER
+            and MCPServer.objects.global_servers().filter(name=name).exists()
+        ):
+            raise forms.ValidationError(
+                _("'%(name)s' is already used by a global MCP server. Choose a different name.") % {"name": name}
+            )
         return name
+
+    def clean_scope(self):
+        scope = self.cleaned_data["scope"]
+        if scope == MCPServer.Scope.GLOBAL and not self.is_admin:
+            raise forms.ValidationError(_("Only administrators can create global MCP servers."))
+        # Scope is immutable on edit; the field is disabled so Django ignores the
+        # POST value and returns the instance's — assert that invariant.
+        if self.instance.pk is not None and scope != self.instance.scope:
+            raise forms.ValidationError(_("Changing the scope of an existing MCP server is not supported."))
+        return scope
 
     def clean(self):
         cleaned = super().clean()
@@ -151,6 +178,8 @@ class MCPServerForm(forms.ModelForm):
 
     def save(self, commit: bool = True) -> MCPServer:
         self.instance.tool_filter_items = self.cleaned_data.get("tool_filter_items", [])
+        if self.instance.scope == MCPServer.Scope.USER and self.user is not None:
+            self.instance.user = self.user
         return super().save(commit=commit)
 
 
@@ -161,8 +190,11 @@ class MCPServerHeaderForm(forms.Form):
     # to save it (applies to every rendered row and the client-added template).
     value = forms.CharField(required=False, max_length=4096, widget=forms.TextInput(attrs={"autocomplete": "off"}))
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, literal_only=False, **kwargs):
         super().__init__(*args, **kwargs)
+        if literal_only:
+            self.fields["mode"].choices = [(MCPServer.HeaderMode.LITERAL.value, MCPServer.HeaderMode.LITERAL.label)]
+            self.fields["mode"].initial = MCPServer.HeaderMode.LITERAL
         # A stored literal value is blanked on edit (see _existing_headers_for_formset),
         # so an empty box would read as "unset". The per-row ``value_stored`` initial flag
         # advertises that a value is kept — leave blank to preserve it.

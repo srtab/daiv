@@ -18,7 +18,9 @@ def test_valid_minimal_form_creates_row():
             "enabled": "on",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
-        }
+            "scope": "global",
+        },
+        is_admin=True,
     )
     assert form.is_valid(), form.errors
     obj = form.save()
@@ -69,7 +71,9 @@ def test_tool_filter_items_parsed_from_newline_separated_text():
             "enabled": "on",
             "tool_filter_mode": "allow",
             "tool_filter_items": "search_events\nfind_organizations\n",
-        }
+            "scope": "global",
+        },
+        is_admin=True,
     )
     assert form.is_valid(), form.errors
     obj = form.save()
@@ -286,6 +290,7 @@ def test_form_with_checkboxes_saves_selected_items():
     obj = MCPServer.objects.create(name="demo", transport="http", url="http://demo.test")
     form = MCPServerForm(
         instance=obj,
+        is_admin=True,
         data={
             "name": "demo",
             "transport": "http",
@@ -333,6 +338,7 @@ def _base_form_data(**overrides):
         "url": "http://multi.test/mcp",
         "enabled": "on",
         "tool_filter_mode": "allow",
+        "scope": "global",
     }
     data.update(overrides)
     return data
@@ -343,7 +349,7 @@ def test_tool_filter_items_accepts_repeated_checkbox_values():
     qd = QueryDict(mutable=True)
     qd.update(_base_form_data())
     qd.setlist("tool_filter_items", ["tool_a", "tool_b"])
-    form = MCPServerForm(qd)
+    form = MCPServerForm(qd, is_admin=True)
     assert form.is_valid(), form.errors
     assert form.cleaned_data["tool_filter_items"] == ["tool_a", "tool_b"]
 
@@ -352,7 +358,7 @@ def test_tool_filter_items_accepts_repeated_checkbox_values():
 def test_tool_filter_items_accepts_newline_joined_textarea():
     qd = QueryDict(mutable=True)
     qd.update(_base_form_data(tool_filter_items="tool_a\n tool_b \n\n"))
-    form = MCPServerForm(qd)
+    form = MCPServerForm(qd, is_admin=True)
     assert form.is_valid(), form.errors
     assert form.cleaned_data["tool_filter_items"] == ["tool_a", "tool_b"]
 
@@ -361,7 +367,7 @@ def test_tool_filter_items_accepts_newline_joined_textarea():
 def test_tool_filter_items_empty_with_mode_still_errors():
     qd = QueryDict(mutable=True)
     qd.update(_base_form_data(tool_filter_items=""))
-    form = MCPServerForm(qd)
+    form = MCPServerForm(qd, is_admin=True)
     assert not form.is_valid()
     assert "tool_filter_items" in form.errors
 
@@ -428,3 +434,64 @@ def test_build_tool_choices_skips_empty_and_deduplicates():
     )
     names = [r["name"] for r in rows]
     assert names == ["a", "extra"]  # blank dropped, "a" deduped, extra appended once
+
+
+# ---------------------------------------------------------------------------
+# Task 4: scope-aware form tests
+# ---------------------------------------------------------------------------
+
+
+def _data(**over):
+    d = {
+        "name": "srv",
+        "description": "",
+        "transport": "http",
+        "url": "https://x.test/mcp",
+        "enabled": "on",
+        "tool_filter_mode": "none",
+        "scope": "user",
+    }
+    d.update(over)
+    return d
+
+
+@pytest.mark.django_db
+def test_member_is_pinned_to_user_scope(member_user):
+    form = MCPServerForm(user=member_user, is_admin=False)
+    assert [c[0] for c in form.fields["scope"].choices] == ["user"]
+
+
+@pytest.mark.django_db
+def test_admin_gets_both_scopes(admin_user):
+    form = MCPServerForm(user=admin_user, is_admin=True)
+    assert {c[0] for c in form.fields["scope"].choices} == {"user", "global"}
+
+
+@pytest.mark.django_db
+def test_member_cannot_submit_global_scope(member_user):
+    form = MCPServerForm(data=_data(scope="global"), user=member_user, is_admin=False)
+    assert not form.is_valid()
+    assert "scope" in form.errors
+
+
+@pytest.mark.django_db
+def test_user_server_save_sets_owner(member_user):
+    from mcp_servers.models import MCPServer
+
+    form = MCPServerForm(data=_data(), user=member_user, is_admin=False)
+    assert form.is_valid(), form.errors
+    obj = form.save()
+    assert obj.scope == MCPServer.Scope.USER
+    assert obj.user_id == member_user.id
+
+
+@pytest.mark.django_db
+def test_user_create_rejects_name_of_existing_global(member_user):
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(
+        name="taken", scope=MCPServer.Scope.GLOBAL, transport=MCPServer.Transport.HTTP, url="https://g.test/mcp"
+    )
+    form = MCPServerForm(data=_data(name="taken"), user=member_user, is_admin=False)
+    assert not form.is_valid()
+    assert "name" in form.errors
