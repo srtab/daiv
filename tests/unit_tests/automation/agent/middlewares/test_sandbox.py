@@ -496,6 +496,70 @@ class TestSandboxMiddleware:
         client.close_session.assert_not_awaited()
         client.close.assert_not_awaited()
 
+    async def test_abefore_agent_refreshes_egress_on_warm_reuse(self):
+        """A reused warm session gets this run's fresh egress pushed onto it before binding."""
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=True)
+        client.update_egress = AsyncMock()
+        client.start_session = AsyncMock()
+        sandbox_backend = SandboxFileBackend(client=client)
+        mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
+
+        runtime = _make_runtime()
+        runtime.context.sandbox.egress = MagicMock()  # run has an egress config (network-on)
+
+        result = await mw.abefore_agent({"session_id": "sess-prev"}, runtime)
+
+        assert result == {"session_id": "sess-prev"}
+        client.update_egress.assert_awaited_once_with("sess-prev", runtime.context.sandbox.egress)
+        client.start_session.assert_not_awaited()  # warm reuse — no recreate
+        assert sandbox_backend._session_id == "sess-prev"
+
+    async def test_abefore_agent_recreates_when_egress_refresh_fails(self):
+        """If the refresh fails (e.g. sandbox too old → 404), recreate the session instead."""
+        import httpx
+
+        from core.sandbox.schemas import EgressConfigRequest
+
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=True)
+        client.update_egress = AsyncMock(
+            side_effect=httpx.HTTPStatusError("nope", request=httpx.Request("PUT", "x"), response=httpx.Response(404))
+        )
+        client.start_session = AsyncMock(return_value="sess-new")
+        client.seed_session = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+
+        runtime = _make_runtime()
+        runtime.context.sandbox.egress = EgressConfigRequest()  # non-None so refresh is attempted
+
+        with (
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
+        ):
+            result = await mw.abefore_agent({"session_id": "sess-stale"}, runtime)
+
+        assert result == {"session_id": "sess-new"}
+        client.start_session.assert_awaited_once()  # recreated
+
+    async def test_abefore_agent_skips_refresh_when_no_egress(self):
+        """A token-less / network-off run (egress is None) reuses the warm session without refreshing."""
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=True)
+        client.update_egress = AsyncMock()
+        client.start_session = AsyncMock()
+        sandbox_backend = SandboxFileBackend(client=client)
+        mw = SandboxMiddleware(agent_root="/workspace/repo", client=client, sandbox_backend=sandbox_backend)
+
+        # _make_runtime() sets sandbox.egress = None by default.
+        result = await mw.abefore_agent({"session_id": "sess-prev"}, _make_runtime())
+
+        assert result == {"session_id": "sess-prev"}
+        client.update_egress.assert_not_awaited()
+        client.start_session.assert_not_awaited()
+
     async def test_abefore_agent_passes_skills_archive_when_skills_dir_populated(self, tmp_path: Path):
         repo_dir = tmp_path / "repoX"
         repo_dir.mkdir(parents=True)
@@ -800,16 +864,18 @@ class TestSandboxEgress:
         client.configure_egress.assert_not_awaited()
 
     async def test_no_configure_egress_on_warm_reuse(self):
-        """Warm reuse no longer re-provisions egress; configure_egress is never called."""
+        """Warm reuse calls update_egress (not configure_egress) to refresh the credential."""
         client = MagicMock()
         client.session_exists = AsyncMock(return_value=True)
         client.start_session = AsyncMock()
         client.configure_egress = AsyncMock()
+        client.update_egress = AsyncMock()
         runtime, _ = self._runtime_with_egress()
         result = await self._mw(client).abefore_agent({"session_id": "sess-warm"}, runtime)
         assert result == {"session_id": "sess-warm"}
         client.start_session.assert_not_awaited()
         client.configure_egress.assert_not_awaited()
+        client.update_egress.assert_awaited_once()
 
     async def test_skips_egress_when_none(self):
         client = MagicMock()
