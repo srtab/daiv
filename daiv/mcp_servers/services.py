@@ -49,6 +49,10 @@ def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcp
     A row whose ``headers`` cannot be decrypted, or that can't be converted, is
     skipped (logged); healthy peers still load. USER-row ``env_ref`` headers are
     dropped defensively (the form forbids them; a raw DB write could still add one).
+
+    A failure of the DB query itself propagates to the caller: ``MCPToolkit.get_tools``
+    does not guard it, so a DB outage surfaces as a failed agent-graph build rather
+    than as silently-empty tools.
     """
     global_rows = list(MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.GLOBAL).order_by("name"))
     user_rows: list[MCPServer] = []
@@ -60,7 +64,7 @@ def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcp
     global_names = {row.name for row in global_rows}
     out: list[tuple[str, UserMcpServer]] = []
     for row in [*global_rows, *user_rows]:
-        if row.scope == MCPServer.Scope.USER and row.name in global_names:
+        if row.is_shadowed_by(global_names):
             logger.warning(
                 "MCP server '%s' (pk=%s, user_id=%s) shadows a global server of the same name; skipping the "
                 "user-scoped row",
@@ -82,6 +86,10 @@ def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcp
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
         except Exception:  # noqa: BLE001
+            # A single malformed row — e.g. a transport/mode outside the DTO's allowed literals,
+            # or a header column of the wrong JSON shape (reachable via a raw DB write, since the
+            # form and model choices otherwise constrain these) — must not blank tools from healthy
+            # peers. Skip it loudly, consistent with the per-server isolation in MCPToolkit.get_tools.
             logger.exception(
                 "MCP server '%s' (pk=%s) could not be converted to a runtime DTO; skipping", row.name, row.pk
             )

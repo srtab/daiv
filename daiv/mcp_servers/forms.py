@@ -99,12 +99,14 @@ def build_tool_choices(discovered_tools, selected):
 
 
 class MCPServerForm(forms.ModelForm):
-    """Create/edit a custom MCP server.
+    """Create/edit an MCP server (global or user-scoped).
 
     Tool-filter items always use a getlist-aware textarea widget for data
     handling; the discovered-tool checkbox list is rendered by the template
     from ``build_tool_choices`` context, not by swapping this field's widget.
-    On edit, ``name`` is immutable (read-only + ``clean_name`` guard).
+    On edit, ``name`` and ``scope`` are immutable (read-only/disabled +
+    ``clean_name``/``clean_scope`` guards). Members are restricted to
+    ``scope=user`` (see ``__init__`` / ``clean_scope``).
     """
 
     tool_filter_items = ToolFilterItemsField(
@@ -141,31 +143,34 @@ class MCPServerForm(forms.ModelForm):
             )
         if name in RESERVED_MCP_NAMES:
             raise forms.ValidationError(_("'%(name)s' is a reserved name and cannot be used.") % {"name": name})
-        # A user-scoped create must not reuse a global server's name (global wins at
-        # runtime; block it up front to avoid a silently-shadowed row).
-        scope = self.data.get("scope") or self.fields["scope"].initial
-        if (
-            self.instance.pk is None
-            and scope == MCPServer.Scope.USER
-            and MCPServer.objects.global_servers().filter(name=name).exists()
-        ):
-            raise forms.ValidationError(
-                _("'%(name)s' is already used by a global MCP server. Choose a different name.") % {"name": name}
-            )
         return name
 
     def clean_scope(self):
+        # On edit the field is disabled (see __init__), so Django ignores the POSTed
+        # value and cleaned_data["scope"] is always the instance's — scope immutability
+        # needs no separate guard here. This only gates the create-time GLOBAL choice.
         scope = self.cleaned_data["scope"]
         if scope == MCPServer.Scope.GLOBAL and not self.is_admin:
             raise forms.ValidationError(_("Only administrators can create global MCP servers."))
-        # Scope is immutable on edit; the field is disabled so Django ignores the
-        # POST value and returns the instance's — assert that invariant.
-        if self.instance.pk is not None and scope != self.instance.scope:
-            raise forms.ValidationError(_("Changing the scope of an existing MCP server is not supported."))
         return scope
 
     def clean(self):
         cleaned = super().clean()
+        # A user-scoped create must not reuse a global server's name (global wins at
+        # runtime; block it up front to avoid a silently-shadowed row). Done here, not
+        # in clean_name, so it reads the *validated* scope from cleaned_data rather than
+        # re-parsing raw POST — the two fields must agree on the same source of truth.
+        name = cleaned.get("name")
+        if (
+            self.instance.pk is None
+            and name
+            and cleaned.get("scope") == MCPServer.Scope.USER
+            and MCPServer.objects.global_servers().filter(name=name).exists()
+        ):
+            self.add_error(
+                "name",
+                _("'%(name)s' is already used by a global MCP server. Choose a different name.") % {"name": name},
+            )
         if (
             cleaned.get("tool_filter_mode")
             and cleaned["tool_filter_mode"] != MCPServer.FilterMode.NONE

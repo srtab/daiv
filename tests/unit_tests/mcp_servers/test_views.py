@@ -936,3 +936,168 @@ def test_test_endpoint_member_can_borrow_own_user_server_secret(member_client, m
     # The member's own stored secret must be reused in the probe.
     header_values = [h.get("value") for h in captured["payload"]["headers"]]
     assert "member-secret" in header_values
+
+
+def _probe_data(name, *, value=""):
+    """POST body for the "Test connection" endpoint borrowing ``name``'s stored
+    header (blank literal value → triggers the preserve-stored/borrow path)."""
+    return {
+        "name": name,
+        "transport": "http",
+        "url": "http://probe.test/mcp",
+        "headers-TOTAL_FORMS": "1",
+        "headers-INITIAL_FORMS": "1",
+        "headers-MIN_NUM_FORMS": "0",
+        "headers-MAX_NUM_FORMS": "50",
+        "headers-0-name": "Authorization",
+        "headers-0-mode": "literal",
+        "headers-0-value": value,
+    }
+
+
+@pytest.mark.django_db
+def test_test_endpoint_admin_borrows_global_secret(admin_client, monkeypatch):
+    """An admin borrows a global server's stored secret by name — the common case."""
+    MCPServer.objects.create(
+        name="shared",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://shared.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = admin_client.post(reverse("mcp_servers:test"), data=_probe_data("shared"))
+    assert resp.status_code == 200
+    assert "global-secret" in [h.get("value") for h in captured["payload"]["headers"]]
+
+
+@pytest.mark.django_db
+def test_test_endpoint_admin_global_wins_ambiguity(admin_client, member_user, monkeypatch):
+    """When a global AND a member's user server share a name, an admin borrows the
+    GLOBAL row's secret — the documented tie-break. Guards the ``GLOBAL.first() or
+    …`` ordering in ``_resolve_borrowable`` against a "simplify to one filter" regression."""
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://global.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
+    )
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://user.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "member-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = admin_client.post(reverse("mcp_servers:test"), data=_probe_data("dup"))
+    assert resp.status_code == 200
+    values = [h.get("value") for h in captured["payload"]["headers"]]
+    assert "global-secret" in values
+    assert "member-secret" not in values  # the member's secret must never be borrowed
+
+
+@pytest.mark.django_db
+def test_test_endpoint_admin_cannot_borrow_other_members_secret(admin_client, member_user, monkeypatch):
+    """An admin must NOT borrow another member's personal-server secret, even absent a
+    global of the same name. Personal secrets stay private to their owner, matching the
+    per-user isolation the runtime enforces (an admin's own run never loads member rows)."""
+    MCPServer.objects.create(
+        name="theirs",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://theirs.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "member-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = admin_client.post(reverse("mcp_servers:test"), data=_probe_data("theirs"))
+    assert resp.status_code == 200
+    # No global "theirs" and the admin does not own it → nothing to borrow.
+    assert "member-secret" not in [h.get("value") for h in captured["payload"]["headers"]]
+
+
+@pytest.mark.django_db
+def test_test_endpoint_undecryptable_borrow_returns_400(member_client, member_user, monkeypatch):
+    """If the row whose secret would be borrowed has undecryptable headers, the probe is
+    refused with a 400 rather than silently proceeding without the secret (which would
+    misattribute the failure to the remote server)."""
+    s = MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://mine.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "member-secret"}],
+    )
+    MCPServer.objects.filter(pk=s.pk).update(_headers_encrypted="not-a-fernet-token")
+    called = {}
+
+    async def fake_test_connection(payload):
+        called["invoked"] = True
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = member_client.post(reverse("mcp_servers:test"), data=_probe_data("mine"))
+    assert resp.status_code == 400
+    assert "invoked" not in called  # never probed without the secret
+
+
+# --- Manage-action authorization (toggle / delete / refresh via manageable_get) ---
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("route", ["toggle", "delete", "refresh_tools"])
+def test_member_cannot_manage_global(member_client, route):
+    """A member cannot toggle/delete/refresh a global server (admin-only) → 403."""
+    g = _global(name="glob")
+    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[g.pk]))
+    assert resp.status_code == 403
+    g.refresh_from_db()
+    assert g.enabled is True  # toggle had no effect
+    assert MCPServer.objects.filter(pk=g.pk).exists()  # delete had no effect
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("route", ["toggle", "delete", "refresh_tools"])
+def test_member_cannot_manage_other_users_server(member_client, admin_user, route):
+    """A member cannot toggle/delete/refresh another user's personal server → 404."""
+    other = _user_server(admin_user, name="theirs")
+    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[other.pk]))
+    assert resp.status_code == 404
+    assert MCPServer.objects.filter(pk=other.pk).exists()  # delete had no effect
+
+
+@pytest.mark.django_db
+def test_list_flags_shadowed_personal_server(member_client, member_user):
+    """A member's personal server whose name collides with a global one is flagged
+    'Shadowed' on the list (it does not load at runtime — global wins); a personal
+    server with a unique name is not."""
+    _global(name="dup")
+    _user_server(member_user, name="dup")
+    _user_server(member_user, name="solo")
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"Shadowed" in resp.content
+    # The unique-named server must not be flagged: exactly one Shadowed badge overall.
+    assert resp.content.count(b"Shadowed") == 1

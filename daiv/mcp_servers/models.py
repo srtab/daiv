@@ -19,10 +19,16 @@ _UNSET = object()
 class MCPServerQuerySet(models.QuerySet):
     """Scoping helpers shared by views and runtime. GLOBAL rows are admin-managed
     and visible to everyone; USER rows are owned by one user and load only in that
-    user's runs."""
+    user's runs.
+
+    Authorization failures deliberately signal differently by scope: a forbidden
+    GLOBAL row raises ``PermissionDenied`` (its existence is not secret), while a
+    non-owned USER row raises ``Http404`` (so one member cannot probe for the
+    existence of another's personal servers)."""
 
     def global_servers(self):
-        return self.filter(source__in=[MCPServer.Source.CUSTOM, MCPServer.Source.BUILTIN], scope=MCPServer.Scope.GLOBAL)
+        # Scope alone is authoritative — a global server may have any ``Source``.
+        return self.filter(scope=MCPServer.Scope.GLOBAL)
 
     def user_servers(self, user):
         return self.filter(scope=MCPServer.Scope.USER, user=user).order_by("name")
@@ -171,9 +177,12 @@ class MCPServer(TimeStampedModel):
         return self.source == self.Source.BUILTIN
 
     @property
-    def is_global(self) -> bool:
-        return self.scope == self.Scope.GLOBAL
-
-    @property
     def is_user_scoped(self) -> bool:
         return self.scope == self.Scope.USER
+
+    def is_shadowed_by(self, global_names) -> bool:
+        """Whether this personal server is superseded at runtime by a global server
+        of the same name. ``build_runtime_servers`` skips such rows (global wins) and
+        the list page flags them 'Shadowed'. ``global_names`` is the set of existing
+        global-server names."""
+        return self.is_user_scoped and self.name in global_names

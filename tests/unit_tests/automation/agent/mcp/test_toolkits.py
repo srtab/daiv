@@ -94,7 +94,7 @@ class TestApplyToolFilters:
 
 class TestMCPToolkitGetTools:
     async def test_returns_empty_when_no_connections(self, monkeypatch):
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda user_id=None: [])
         monkeypatch.setattr(
             "automation.agent.mcp.toolkits.build_connections_and_filters", lambda user_servers: ({}, {})
         )
@@ -112,7 +112,7 @@ class TestMCPToolkitGetTools:
 
         bad_conn = {"transport": "streamable_http", "url": "http://bad/mcp"}
         good_conn = {"transport": "streamable_http", "url": "http://good/mcp"}
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda user_id=None: [])
         monkeypatch.setattr(
             "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"bad": bad_conn, "good": good_conn}, {}),
@@ -139,7 +139,7 @@ class TestMCPToolkitGetTools:
         good_tool.tags = []
         good_tool.metadata = {}
 
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda user_id=None: [])
         monkeypatch.setattr(
             "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"slow": {"url": "http://slow/mcp"}, "good": {"url": "http://good/mcp"}}, {}),
@@ -171,7 +171,7 @@ class TestMCPToolkitGetTools:
         only exists because the client is built with tool_name_prefix=True. Pin the flag: a regression
         would silently turn every allow-list into a no-op (fail-open), exposing filtered-out tools."""
         captured = {}
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda user_id=None: [])
         monkeypatch.setattr(
             "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"sentry": {"url": "http://example.com/mcp"}}, {}),
@@ -196,7 +196,7 @@ class TestMCPToolkitGetTools:
         unprefixed.name = "search_issues"  # no "sentry_" prefix → prefix scheme broke
         unprefixed.tags = []
         unprefixed.metadata = {}
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda user_id=None: [])
         monkeypatch.setattr(
             "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: (
@@ -222,7 +222,7 @@ class TestMCPToolkitGetTools:
     async def test_down_filtered_server_does_not_log_prefix_regression(self, monkeypatch, caplog):
         """A filtered server that returns NO tools (down / timed out / empty) must NOT trip the
         prefix-regression error — that would cry wolf on routine outages."""
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda user_id=None: [])
         monkeypatch.setattr(
             "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: (
@@ -248,7 +248,7 @@ class TestMCPToolkitGetTools:
     async def test_passes_servers_to_connection_builder(self, monkeypatch):
         captured = {}
 
-        def fake_build():
+        def fake_build(user_id=None):
             return [("my-server", MagicMock())]
 
         def fake_get_connections(user_servers):
@@ -270,7 +270,7 @@ class TestMCPToolkitGetTools:
         mock_tool.metadata = {}
 
         fake_connection = {"type": "streamable_http", "url": "http://example.com/mcp"}
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda user_id=None: [])
         monkeypatch.setattr(
             "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"sentry": fake_connection}, {}),
@@ -290,7 +290,7 @@ class TestMCPToolkitGetTools:
 
     async def test_returns_empty_on_client_error(self, monkeypatch):
         fake_connection = {"type": "streamable_http", "url": "http://example.com/mcp"}
-        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda: [])
+        monkeypatch.setattr("mcp_servers.services.build_runtime_servers", lambda user_id=None: [])
         monkeypatch.setattr(
             "automation.agent.mcp.toolkits.build_connections_and_filters",
             lambda user_servers: ({"sentry": fake_connection}, {}),

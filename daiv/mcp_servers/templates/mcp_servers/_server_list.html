@@ -26,6 +26,12 @@
                     {% translate "Broken" %}: {{ s.health.reason }}
                 </span>
                 {% endif %}
+                {% if s.shadowed %}
+                <span class="status-badge status-badge-queued"
+                      title="{% translate 'A global server of the same name takes precedence; this personal server does not load.' %}">
+                    {% translate "Shadowed" %}
+                </span>
+                {% endif %}
             </div>
             <div class="mt-1 truncate text-sm text-gray-400">{{ s.url }}</div>
             <div class="mt-2">
