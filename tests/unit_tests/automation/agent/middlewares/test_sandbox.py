@@ -515,46 +515,22 @@ class TestSandboxMiddleware:
         client.start_session.assert_not_awaited()  # warm reuse — no recreate
         assert sandbox_backend._session_id == "sess-prev"
 
-    async def test_abefore_agent_recreates_when_egress_refresh_fails(self):
-        """If the refresh fails (e.g. sandbox too old → 404), recreate the session instead."""
+    @pytest.mark.parametrize("refresh_error", ["http_status", "transport"])
+    async def test_abefore_agent_recreates_when_egress_refresh_fails(self, refresh_error):
+        """A failed egress refresh — an HTTP status error (e.g. 404 on an old sandbox) or a transport
+        error (httpx.RequestError) — closes the stale session and recreates it instead of reusing it."""
         import httpx
 
         from core.sandbox.schemas import EgressConfigRequest
 
+        error = (
+            httpx.HTTPStatusError("nope", request=httpx.Request("PUT", "x"), response=httpx.Response(404))
+            if refresh_error == "http_status"
+            else httpx.ConnectError("refused")
+        )
         client = MagicMock()
         client.session_exists = AsyncMock(return_value=True)
-        client.update_egress = AsyncMock(
-            side_effect=httpx.HTTPStatusError("nope", request=httpx.Request("PUT", "x"), response=httpx.Response(404))
-        )
-        client.start_session = AsyncMock(return_value="sess-new")
-        client.seed_session = AsyncMock()
-        client.close_session = AsyncMock()
-        mw = SandboxMiddleware(
-            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
-        )
-
-        runtime = _make_runtime()
-        runtime.context.sandbox.egress = EgressConfigRequest()  # non-None so refresh is attempted
-
-        with (
-            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
-            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
-        ):
-            result = await mw.abefore_agent({"session_id": "sess-stale"}, runtime)
-
-        assert result == {"session_id": "sess-new"}
-        client.start_session.assert_awaited_once()  # recreated
-        client.close_session.assert_awaited_once_with("sess-stale", force=True)
-
-    async def test_abefore_agent_recreates_when_egress_refresh_transport_error(self):
-        """A transport error (httpx.RequestError) on update_egress also triggers a recreate."""
-        import httpx
-
-        from core.sandbox.schemas import EgressConfigRequest
-
-        client = MagicMock()
-        client.session_exists = AsyncMock(return_value=True)
-        client.update_egress = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        client.update_egress = AsyncMock(side_effect=error)
         client.start_session = AsyncMock(return_value="sess-new")
         client.seed_session = AsyncMock()
         client.close_session = AsyncMock()

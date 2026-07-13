@@ -458,12 +458,15 @@ async def test_update_egress_puts_wire_egress(fake_settings, mock_put):
     assert mock_put["kwargs"]["json"] == egress.to_wire()
 
 
-async def test_update_egress_sends_plaintext_secret(fake_settings, mock_put):
+async def test_update_egress_sends_plaintext_secret(fake_settings, httpx_mock):
     import json
 
     from core.sandbox.client import DAIVSandboxClient
     from core.sandbox.schemas import EgressConfigRequest
 
+    # Inspect the raw wire bytes (like test_start_session_sends_egress_with_plaintext_secret) so this
+    # guards the actual serialisation, not just to_wire()'s return value.
+    httpx_mock.add_response(status_code=204)
     egress = EgressConfigRequest.from_stored(
         {"default": "deny", "rules": [{"host": "gitlab.com", "inject": "tok"}]},
         {"tok": {"header": "PRIVATE-TOKEN", "value": "supersecret"}},
@@ -471,10 +474,12 @@ async def test_update_egress_sends_plaintext_secret(fake_settings, mock_put):
     async with DAIVSandboxClient() as client:
         await client.update_egress("sid", egress)
 
-    body = mock_put["kwargs"]["json"]
-    assert body["secrets"]["tok"] == {"header": "PRIVATE-TOKEN", "value": "supersecret"}  # plaintext, unmasked
-    assert body["policy"]["default"] == "deny"
-    assert "**********" not in json.dumps(body)  # not the SecretStr mask (guards a model_dump regression)
+    body = httpx_mock.get_requests()[0].read().decode()
+    assert "supersecret" in body  # plaintext reached the wire
+    assert "**********" not in body  # not the SecretStr mask (guards a model_dump regression)
+    wire = json.loads(body)
+    assert wire["secrets"]["tok"] == {"header": "PRIVATE-TOKEN", "value": "supersecret"}
+    assert wire["policy"]["default"] == "deny"
 
 
 async def test_update_egress_raises_on_error(fake_settings, mock_put):
