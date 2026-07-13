@@ -48,11 +48,11 @@ async def _load_server_tools(server_name: str, connection, timeout: float) -> li
 
 class MCPToolkit(BaseToolkit):
     @classmethod
-    async def get_tools(cls) -> list[BaseTool]:
+    async def get_tools(cls, user_id: int | None = None) -> list[BaseTool]:
         from asgiref.sync import sync_to_async
         from mcp_servers.services import build_runtime_servers
 
-        servers = await sync_to_async(build_runtime_servers)()
+        servers = await sync_to_async(build_runtime_servers)(user_id)
         connections, tool_filters = build_connections_and_filters(servers)
 
         if not connections:

@@ -326,6 +326,7 @@ async def asubmit_batch_runs(
                 thread_id=effective_thread_id,
                 sandbox_environment_id=target.sandbox_environment_id,
                 run_id=str(run.pk),
+                user_id=user.id if user is not None else None,
             )
         except Exception as err:  # noqa: BLE001
             logger.exception("submit_batch_runs: enqueue failed for repo_id=%s batch_id=%s", target.repo_id, batch_id)

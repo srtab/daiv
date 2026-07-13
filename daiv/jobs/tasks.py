@@ -96,6 +96,7 @@ async def run_job_task(
     agent_thinking_level: str | None = None,
     sandbox_environment_id: str | None = None,
     run_id: str | None = None,
+    user_id: int | None = None,
 ) -> AgentResult:
     """Run the DAIV agent for a submitted job and return a standardized result.
 
@@ -130,7 +131,11 @@ async def run_job_task(
         try:
             async with (
                 set_runtime_ctx(
-                    repo_id=repo_id, scope=Scope.GLOBAL, ref=ref, sandbox_env_id=sandbox_environment_id
+                    repo_id=repo_id,
+                    scope=Scope.GLOBAL,
+                    ref=ref,
+                    sandbox_env_id=sandbox_environment_id,
+                    acting_user_id=user_id,
                 ) as runtime_ctx,
                 open_checkpointer() as checkpointer,
             ):

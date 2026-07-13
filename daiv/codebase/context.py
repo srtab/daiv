@@ -81,6 +81,10 @@ class RuntimeCtx:
     scope: Scope | None = None
     issue: Issue | None = None
     merge_request: MergeRequest | None = None
+    acting_user_id: int | None = None
+    """The DAIV user who triggered this run, when known. Selects that user's
+    personal MCP servers. ``None`` for webhook-triggered runs (issue/MR labels),
+    which load global servers only."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.repos, tuple):
@@ -124,6 +128,7 @@ async def set_runtime_ctx(
     merge_request: MergeRequest | None = None,
     offline: bool = False,
     sandbox_env_id: str | None = None,
+    acting_user_id: int | None = None,
     **kwargs: Any,
 ) -> AsyncIterator[RuntimeCtx]:
     """Set the runtime context and load repository files to a temporary directory.
@@ -140,6 +145,7 @@ async def set_runtime_ctx(
             When not provided, Auto-resolution selects an env via
             :func:`sandbox_envs.services.resolve_env_for_run` using ``repo_id``; falls back
             to the GLOBAL default env if nothing matches.
+        acting_user_id: DAIV user id that triggered the run; selects their personal MCP servers.
         **kwargs: Additional keyword arguments to pass to the repository client.
 
     Yields:
@@ -204,6 +210,7 @@ async def set_runtime_ctx(
                 scope=scope,
                 issue=issue,
                 merge_request=merge_request,
+                acting_user_id=acting_user_id,
             )
             token = runtime_ctx.set(ctx)
             try:
