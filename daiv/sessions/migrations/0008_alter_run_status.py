@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0006_session_spawn_depth_cap")]
+    dependencies = [("agent_sessions", "0007_session_spawn_depth_cap")]
 
     operations = [
         migrations.AlterField(

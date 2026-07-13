@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("agent_sessions", "0005_delegate_jobs_fields"),
+        ("agent_sessions", "0006_delegate_jobs_fields"),
         ("sandbox_envs", "0006_drop_network_enabled"),
         ("schedules", "0016_alter_scheduledjob_agent_thinking_level_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

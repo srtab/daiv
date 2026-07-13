@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("agent_sessions", "0003_enum_check_constraints"),
+        ("agent_sessions", "0004_enum_check_constraints"),
         ("django_tasks_database", "0019_rename_django_task_new_ordering_idx_tasks_db_new_ordering_idx_and_more"),
         ("sandbox_envs", "0006_drop_network_enabled"),
         ("schedules", "0016_alter_scheduledjob_agent_thinking_level_and_more"),
