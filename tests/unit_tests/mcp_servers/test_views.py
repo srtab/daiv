@@ -879,14 +879,22 @@ def test_test_endpoint_member_cannot_borrow_global_secret(member_client, member_
             "name": "shared",
             "transport": "http",
             "url": "http://shared.test/mcp",
-            "headers-TOTAL_FORMS": "0",
-            "headers-INITIAL_FORMS": "0",
+            "headers-TOTAL_FORMS": "1",
+            "headers-INITIAL_FORMS": "1",
             "headers-MIN_NUM_FORMS": "0",
             "headers-MAX_NUM_FORMS": "50",
+            "headers-0-name": "Authorization",
+            "headers-0-mode": "literal",
+            "headers-0-value": "",  # blank → triggers the preserve-stored merge/borrow path
         },
     )
     assert resp.status_code == 200
     # The global server's stored secret must not appear in the probe headers.
+    # With INITIAL_FORMS=1 and a blank literal value the view invokes _resolve_borrowable;
+    # since "shared" is GLOBAL, a member gets no borrow → the blank literal is dropped or
+    # stays empty, so "global-secret" must be absent.  If _resolve_borrowable were broken
+    # and resolved the global for a member, the blank row would be filled with "global-secret"
+    # and this assertion would fail — making it a load-bearing security check.
     header_values = [h.get("value") for h in captured["payload"]["headers"]]
     assert "global-secret" not in header_values
 
