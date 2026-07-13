@@ -3,6 +3,19 @@ from __future__ import annotations
 from django.urls import reverse
 
 import pytest
+from mcp_servers.models import MCPServer
+
+
+def _global(name="g1"):
+    return MCPServer.objects.create(
+        name=name, scope=MCPServer.Scope.GLOBAL, transport=MCPServer.Transport.HTTP, url="https://g.test/mcp"
+    )
+
+
+def _user_server(user, name="u1"):
+    return MCPServer.objects.create(
+        name=name, scope=MCPServer.Scope.USER, user=user, transport=MCPServer.Transport.HTTP, url="https://u.test/mcp"
+    )
 
 
 @pytest.mark.django_db
@@ -13,17 +26,74 @@ def test_list_requires_login(client):
 
 
 @pytest.mark.django_db
-def test_list_denies_member(client, member_user):
-    client.force_login(member_user)
-    resp = client.get(reverse("mcp_servers:list"))
-    assert resp.status_code == 403
-
-
-@pytest.mark.django_db
 def test_list_admin_gets_200(client, admin_user):
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:list"))
     assert resp.status_code == 200
+
+
+# --- Permission matrix tests ---
+
+
+@pytest.mark.django_db
+def test_member_sees_list_now(member_client):
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200  # was 403 before this feature
+
+
+@pytest.mark.django_db
+def test_member_can_create_personal_server(member_client, member_user):
+    resp = member_client.post(
+        reverse("mcp_servers:create"),
+        data={
+            "name": "mine",
+            "description": "",
+            "transport": "http",
+            "url": "https://u.test/mcp",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "scope": "user",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+    obj = MCPServer.objects.get(name="mine")
+    assert obj.scope == MCPServer.Scope.USER and obj.user_id == member_user.id
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_global(member_client):
+    g = _global()
+    resp = member_client.get(reverse("mcp_servers:edit", args=[g.pk]))
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_other_users_server(member_client, admin_user):
+    other = _user_server(admin_user, name="theirs")
+    resp = member_client.get(reverse("mcp_servers:edit", args=[other.pk]))
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_admin_can_delete_member_server(admin_client, member_user):
+    s = _user_server(member_user)
+    resp = admin_client.post(reverse("mcp_servers:delete", args=[s.pk]))
+    assert resp.status_code == 302
+    assert not MCPServer.objects.filter(pk=s.pk).exists()
+
+
+@pytest.mark.django_db
+def test_admin_cannot_edit_member_server(admin_client, member_user):
+    s = _user_server(member_user)
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[s.pk]))
+    assert resp.status_code == 404  # oversight = manage only, not edit
+
+
+# --- Create view tests ---
 
 
 @pytest.mark.django_db
@@ -44,8 +114,6 @@ def test_create_get_transport_control_has_no_blank_pill(client, admin_user):
     still visible and clickable. Assert the transport radio group renders
     exactly the two real ``MCPServer.Transport`` choices, never a blank one.
     """
-    from mcp_servers.models import MCPServer
-
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:create"))
     assert resp.status_code == 200
@@ -82,6 +150,7 @@ def test_create_post_creates_server(client, admin_user):
         reverse("mcp_servers:create"),
         data={
             "name": "from-ui",
+            "scope": "global",
             "transport": "http",
             "url": "http://from-ui.test/mcp",
             "enabled": "on",
@@ -94,26 +163,15 @@ def test_create_post_creates_server(client, admin_user):
         },
     )
     assert resp.status_code == 302
-    from mcp_servers.models import MCPServer
-
     assert MCPServer.objects.filter(name="from-ui").exists()
 
 
 @pytest.mark.django_db
-def test_create_post_member_denied(client, member_user):
-    client.force_login(member_user)
-    resp = client.post(reverse("mcp_servers:create"), data={})
-    assert resp.status_code == 403
-
-
-@pytest.mark.django_db
 def test_edit_custom_updates_fields(client, admin_user):
-    from mcp_servers.models import MCPServer
-
     obj = MCPServer.objects.create(name="ed", transport="http", url="http://old.test")
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=[obj.name]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "ed",
             "transport": "http",
@@ -143,9 +201,7 @@ def test_edit_get_renders_existing_headers_blanked_and_marked(client, admin_user
     """
     import re
 
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="hdrs",
         transport="http",
         url="http://x.test",
@@ -155,7 +211,7 @@ def test_edit_get_renders_existing_headers_blanked_and_marked(client, admin_user
         ],
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:edit", args=["hdrs"]))
+    resp = client.get(reverse("mcp_servers:edit", args=[obj.pk]))
     body = resp.content.decode()
     assert resp.status_code == 200
     assert "data-initial" in body  # server-rendered row marker the JS remove() relies on
@@ -179,8 +235,6 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
     (encrypted) value, a DELETE'd row is dropped, and a new row is added — all in
     one POST with INITIAL_FORMS>0. This is the primary user story of the change.
     """
-    from mcp_servers.models import MCPServer
-
     obj = MCPServer.objects.create(
         name="rt",
         transport="http",
@@ -192,7 +246,7 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
     )
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["rt"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "rt",
             "transport": "http",
@@ -229,14 +283,12 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_builtin_full_form_persists(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
     )
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["bi"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "bi",
             "description": "repointed at on-prem bridge",
@@ -260,14 +312,12 @@ def test_edit_builtin_full_form_persists(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_builtin_rename_rejected(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
     )
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["bi"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "renamed",
             "transport": "http",
@@ -286,48 +336,40 @@ def test_edit_builtin_rename_rejected(client, admin_user):
 
 @pytest.mark.django_db
 def test_delete_get_renders_confirm(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="delc", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="delc", transport="http", url="http://x.test")
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:delete", args=["delc"]))
+    resp = client.get(reverse("mcp_servers:delete", args=[obj.pk]))
     assert resp.status_code == 200
     assert b"delc" in resp.content
 
 
 @pytest.mark.django_db
 def test_delete_custom_succeeds(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="del", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="del", transport="http", url="http://x.test")
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:delete", args=["del"]))
+    resp = client.post(reverse("mcp_servers:delete", args=[obj.pk]))
     assert resp.status_code == 302
     assert not MCPServer.objects.filter(name="del").exists()
 
 
 @pytest.mark.django_db
-def test_delete_builtin_returns_404(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi")
+def test_delete_builtin_redirects_with_error(client, admin_user):
+    obj = MCPServer.objects.create(name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi")
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:delete", args=["bi"]))
-    assert resp.status_code == 404
+    resp = client.post(reverse("mcp_servers:delete", args=[obj.pk]))
+    assert resp.status_code == 302
     assert MCPServer.objects.filter(name="bi").exists()
 
 
 @pytest.mark.django_db
 def test_toggle_flips_enabled(client, admin_user):
-    from mcp_servers.models import MCPServer
-
     obj = MCPServer.objects.create(name="t", transport="http", url="http://x.test", enabled=True)
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:toggle", args=["t"]))
+    resp = client.post(reverse("mcp_servers:toggle", args=[obj.pk]))
     assert resp.status_code == 302
     obj.refresh_from_db()
     assert obj.enabled is False
-    client.post(reverse("mcp_servers:toggle", args=["t"]))
+    client.post(reverse("mcp_servers:toggle", args=[obj.pk]))
     obj.refresh_from_db()
     assert obj.enabled is True
 
@@ -366,37 +408,8 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "method,url_name,kwargs",
-    [
-        ("get", "list", {}),
-        ("get", "create", {}),
-        ("post", "create", {}),
-        ("get", "edit", {"name": "demo"}),
-        ("post", "edit", {"name": "demo"}),
-        ("get", "delete", {"name": "demo"}),
-        ("post", "delete", {"name": "demo"}),
-        ("post", "toggle", {"name": "demo"}),
-        ("post", "test", {}),
-        ("post", "refresh_tools", {"name": "demo"}),
-    ],
-)
-def test_member_forbidden_across_all_endpoints(client, member_user, method, url_name, kwargs):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="demo", transport="http", url="http://x.test")
-    client.force_login(member_user)
-    url = reverse(f"mcp_servers:{url_name}", kwargs=kwargs)
-    fn = getattr(client, method)
-    resp = fn(url)
-    assert resp.status_code == 403, f"{method.upper()} {url} should be forbidden for members"
-
-
-@pytest.mark.django_db
 def test_edit_get_passes_discovered_tools_into_form(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="dt3",
         transport="http",
         url="http://x.test",
@@ -408,7 +421,7 @@ def test_edit_get_passes_discovered_tools_into_form(client, admin_user):
         ],
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:edit", args=["dt3"]))
+    resp = client.get(reverse("mcp_servers:edit", args=[obj.pk]))
     assert resp.status_code == 200
     assert b'type="checkbox"' in resp.content
     assert b"alpha" in resp.content
@@ -418,9 +431,7 @@ def test_edit_get_passes_discovered_tools_into_form(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_get_renders_read_only_pills(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="pills",
         transport="http",
         url="http://p.test",
@@ -433,7 +444,7 @@ def test_edit_get_renders_read_only_pills(client, admin_user):
         ],
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:edit", args=["pills"]))
+    resp = client.get(reverse("mcp_servers:edit", args=[obj.pk]))
     assert resp.status_code == 200
     assert b"mcp-tool-row__pill--ro" in resp.content
     assert b"mcp-tool-row__pill--rw" in resp.content
@@ -442,9 +453,7 @@ def test_edit_get_renders_read_only_pills(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="multi",
         transport="http",
         url="http://multi.test",
@@ -458,7 +467,7 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
     )
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["multi"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "multi",
             "transport": "http",
@@ -479,9 +488,7 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="synced", transport="http", url="http://old.test")
+    obj = MCPServer.objects.create(name="synced", transport="http", url="http://old.test")
     called = {}
 
     def fake_sync(server):
@@ -491,7 +498,7 @@ def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["synced"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "synced",
             "transport": "http",
@@ -511,8 +518,6 @@ def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
 
 @pytest.mark.django_db
 def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
-    from mcp_servers.models import MCPServer
-
     called = {}
 
     def fake_sync(server):
@@ -525,6 +530,7 @@ def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
         reverse("mcp_servers:create"),
         data={
             "name": "synced-create",
+            "scope": "global",
             "transport": "http",
             "url": "http://from-ui.test/mcp",
             "enabled": "on",
@@ -546,13 +552,11 @@ def test_edit_post_warns_when_sync_fails(client, admin_user, monkeypatch):
     """A failed on-save probe adds a soft warning flash but the save still succeeds."""
     from django.contrib.messages import get_messages
 
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="warned", transport="http", url="http://old.test")
+    obj = MCPServer.objects.create(name="warned", transport="http", url="http://old.test")
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": False, "error": "boom"})
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["warned"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "warned",
             "transport": "http",
@@ -576,8 +580,6 @@ def test_edit_post_warns_when_sync_fails(client, admin_user, monkeypatch):
 @pytest.mark.django_db
 def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
     """POST on a row whose ciphertext can't be decoded must not overwrite it with an empty list."""
-    from mcp_servers.models import MCPServer
-
     obj = MCPServer.objects.create(
         name="locked",
         transport="http",
@@ -587,7 +589,7 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
     MCPServer.objects.filter(pk=obj.pk).update(_headers_encrypted="not-a-fernet-token")
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["locked"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "locked",
             "transport": "http",
@@ -603,7 +605,7 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
         follow=False,
     )
     assert resp.status_code == 302
-    assert reverse("mcp_servers:edit", args=["locked"]) in resp["Location"]
+    assert reverse("mcp_servers:edit", args=[obj.pk]) in resp["Location"]
     obj.refresh_from_db()
     assert obj.url == "http://locked.test"
     assert obj._headers_encrypted == "not-a-fernet-token"
@@ -612,8 +614,6 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
 @pytest.mark.django_db
 def test_create_rejects_reserved_name(client, admin_user):
     """Names that collide with non-slug URL segments (e.g. 'new', 'test') are rejected."""
-    from mcp_servers.models import MCPServer
-
     client.force_login(admin_user)
     resp = client.post(
         reverse("mcp_servers:create"),
@@ -637,8 +637,6 @@ def test_create_rejects_reserved_name(client, admin_user):
 @pytest.mark.django_db
 def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeypatch):
     """Enabled row with a missing env-ref must render a 'Broken' badge."""
-    from mcp_servers.models import MCPServer
-
     monkeypatch.delenv("DEFINITELY_NOT_SET", raising=False)
     MCPServer.objects.create(
         name="broken",
@@ -657,8 +655,6 @@ def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeyp
 @pytest.mark.django_db
 def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
     """Disabled rows are intentionally idle — no broken badge."""
-    from mcp_servers.models import MCPServer
-
     monkeypatch.delenv("ALSO_NOT_SET", raising=False)
     MCPServer.objects.create(
         name="sleeping",
@@ -678,8 +674,6 @@ def test_test_endpoint_reuses_stored_headers_for_existing_server(client, admin_u
     """Re-testing a saved server must not drop a preserved (blanked) literal secret header —
     the edit form always blanks literal values on render, so a straight passthrough of the
     formset would probe without the real header and report a false failure."""
-    from mcp_servers.models import MCPServer
-
     MCPServer.objects.create(
         name="rt-test",
         transport="http",
@@ -723,9 +717,7 @@ def test_create_form_renders_test_connection_button(client, admin_user):
 
 @pytest.mark.django_db
 def test_refresh_tools_triggers_sync_and_redirects(client, admin_user, monkeypatch):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="rf-ok", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="rf-ok", transport="http", url="http://x.test")
     called = {}
 
     def fake_sync(server):
@@ -734,7 +726,7 @@ def test_refresh_tools_triggers_sync_and_redirects(client, admin_user, monkeypat
 
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-ok"]))
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=[obj.pk]))
     assert resp.status_code == 302
     assert resp.url == reverse("mcp_servers:list")
     assert called["name"] == "rf-ok"
@@ -742,14 +734,12 @@ def test_refresh_tools_triggers_sync_and_redirects(client, admin_user, monkeypat
 
 @pytest.mark.django_db
 def test_refresh_tools_next_edit_redirects_to_edit(client, admin_user, monkeypatch):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="rf-edit", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="rf-edit", transport="http", url="http://x.test")
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": True, "count": 0})
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-edit"]), data={"next": "edit"})
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=[obj.pk]), data={"next": "edit"})
     assert resp.status_code == 302
-    assert resp.url == reverse("mcp_servers:edit", args=["rf-edit"])
+    assert resp.url == reverse("mcp_servers:edit", args=[obj.pk])
 
 
 @pytest.mark.django_db
@@ -758,12 +748,10 @@ def test_refresh_tools_reports_sync_failure(client, admin_user, monkeypatch):
     without crashing — exercises the view's ``messages.error`` branch."""
     from django.contrib.messages import get_messages
 
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="rf-bad", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="rf-bad", transport="http", url="http://x.test")
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": False, "error": "boom"})
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-bad"]))
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=[obj.pk]))
     assert resp.status_code == 302
     assert resp.url == reverse("mcp_servers:list")
     stored = list(get_messages(resp.wsgi_request))
@@ -773,8 +761,6 @@ def test_refresh_tools_reports_sync_failure(client, admin_user, monkeypatch):
 @pytest.mark.django_db
 def test_list_renders_exposed_tool_pills(client, admin_user):
     from django.utils import timezone
-
-    from mcp_servers.models import MCPServer
 
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
@@ -798,8 +784,6 @@ def test_list_renders_exposed_tool_pills(client, admin_user):
 
 @pytest.mark.django_db
 def test_list_shows_not_synced_when_never_synced(client, admin_user):
-    from mcp_servers.models import MCPServer
-
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(name="nosync", transport="http", url="http://x.test", enabled=True)
     client.force_login(admin_user)
