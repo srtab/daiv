@@ -270,8 +270,9 @@ class DAIVSandboxClient:
         recreating the container. The sidecar hot-reloads its config on the next request.
 
         Serialised via ``egress.to_wire()`` — the same plaintext-secret wire shape ``start_session``
-        uses — because ``model_dump`` masks ``SecretStr``. Raises ``httpx.HTTPStatusError`` on a non-2xx
-        (e.g. 404 on a sandbox too old to expose the route, or 409 for a session with no egress proxy);
+        uses — because ``model_dump`` masks ``SecretStr``. Raises ``httpx.HTTPError`` on failure —
+        ``httpx.HTTPStatusError`` for a non-2xx (e.g. 404 on a sandbox too old to expose the route, or
+        409 for a session with no egress proxy) and ``httpx.RequestError`` for a transport failure;
         callers decide whether to recreate the session on failure.
         """
         response = await self._client.put(f"session/{session_id}/egress/", json=egress.to_wire())

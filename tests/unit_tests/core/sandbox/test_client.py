@@ -458,6 +458,25 @@ async def test_update_egress_puts_wire_egress(fake_settings, mock_put):
     assert mock_put["kwargs"]["json"] == egress.to_wire()
 
 
+async def test_update_egress_sends_plaintext_secret(fake_settings, mock_put):
+    import json
+
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import EgressConfigRequest
+
+    egress = EgressConfigRequest.from_stored(
+        {"default": "deny", "rules": [{"host": "gitlab.com", "inject": "tok"}]},
+        {"tok": {"header": "PRIVATE-TOKEN", "value": "supersecret"}},
+    )
+    async with DAIVSandboxClient() as client:
+        await client.update_egress("sid", egress)
+
+    body = mock_put["kwargs"]["json"]
+    assert body["secrets"]["tok"] == {"header": "PRIVATE-TOKEN", "value": "supersecret"}  # plaintext, unmasked
+    assert body["policy"]["default"] == "deny"
+    assert "**********" not in json.dumps(body)  # not the SecretStr mask (guards a model_dump regression)
+
+
 async def test_update_egress_raises_on_error(fake_settings, mock_put):
     from core.sandbox.client import DAIVSandboxClient
     from core.sandbox.schemas import EgressConfigRequest, EgressPolicy

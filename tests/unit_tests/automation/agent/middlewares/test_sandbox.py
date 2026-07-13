@@ -528,6 +528,7 @@ class TestSandboxMiddleware:
         )
         client.start_session = AsyncMock(return_value="sess-new")
         client.seed_session = AsyncMock()
+        client.close_session = AsyncMock()
         mw = SandboxMiddleware(
             agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
         )
@@ -543,6 +544,36 @@ class TestSandboxMiddleware:
 
         assert result == {"session_id": "sess-new"}
         client.start_session.assert_awaited_once()  # recreated
+        client.close_session.assert_awaited_once_with("sess-stale", force=True)
+
+    async def test_abefore_agent_recreates_when_egress_refresh_transport_error(self):
+        """A transport error (httpx.RequestError) on update_egress also triggers a recreate."""
+        import httpx
+
+        from core.sandbox.schemas import EgressConfigRequest
+
+        client = MagicMock()
+        client.session_exists = AsyncMock(return_value=True)
+        client.update_egress = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        client.start_session = AsyncMock(return_value="sess-new")
+        client.seed_session = AsyncMock()
+        client.close_session = AsyncMock()
+        mw = SandboxMiddleware(
+            agent_root="/workspace/repo", client=client, sandbox_backend=SandboxFileBackend(client=client)
+        )
+
+        runtime = _make_runtime()
+        runtime.context.sandbox.egress = EgressConfigRequest()  # non-None so refresh is attempted
+
+        with (
+            patch("automation.agent.middlewares.sandbox._make_repo_archive", return_value=b""),
+            patch("automation.agent.middlewares.sandbox._make_global_skills_archive", return_value=None),
+        ):
+            result = await mw.abefore_agent({"session_id": "sess-stale"}, runtime)
+
+        assert result == {"session_id": "sess-new"}
+        client.start_session.assert_awaited_once()  # recreated
+        client.close_session.assert_awaited_once_with("sess-stale", force=True)
 
     async def test_abefore_agent_skips_refresh_when_no_egress(self):
         """A token-less / network-off run (egress is None) reuses the warm session without refreshing."""
