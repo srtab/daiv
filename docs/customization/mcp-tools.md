@@ -112,6 +112,32 @@ DAIV connects over HTTP/SSE only. To use a stdio-based MCP server, wrap it with 
 bridge in its own container (see the on-premise Sentry example above) and add the bridge URL as a
 custom server. Run one bridge container per MCP server for isolation.
 
+## Personal servers
+
+Member users can add their own MCP servers from the same **MCP Servers** page. Personal servers
+work exactly like custom servers (same fields, same transport options, same tool-filter
+capabilities) with a few important differences.
+
+**Where they load.** A personal server is loaded only in runs where DAIV knows who triggered the
+run: chat sessions, dashboard-initiated runs, and jobs submitted via the API or MCP interface.
+Webhook- and label-triggered runs (for example, issue or merge-request label automation) have no
+acting user and therefore load **global servers only** — personal servers are never loaded in those
+contexts.
+
+**Header values are always literal.** Unlike global servers, personal server headers cannot
+reference host environment variables (`env_ref`). Every header value is a literal string, encrypted
+at rest. This prevents a member from probing the server environment through their own
+configuration.
+
+**Name collisions.** Server names must be unique within each scope, but a personal server can share
+a name with a global server. When the two scopes are merged at runtime, **the global server wins**:
+any personal server whose name matches a global server is silently skipped for that run. Rename the
+personal server to a different slug to avoid the collision.
+
+**Admin oversight.** Admins can see all personal servers in the "User servers" section of the MCP
+Servers page, and can disable or delete any of them. Admins cannot edit a personal server or view
+its header values — those are private to the owning member.
+
 ## Security considerations
 
 - **Secrets in headers** are encrypted at rest and never rendered back into the form; `env_ref`
