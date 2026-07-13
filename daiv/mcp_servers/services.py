@@ -37,21 +37,43 @@ class HeaderEntry(TypedDict, total=False):
     value: str
 
 
-def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
-    """Read all enabled ``MCPServer`` rows from the DB (built-in and custom
-    alike) and convert each to the ``UserMcpServer`` DTO the toolkit consumes.
-    Returns a list of ``(name, dto)`` tuples preserving DB ordering.
+def build_runtime_servers(user_id: int | None = None) -> list[tuple[str, UserMcpServer]]:
+    """Read enabled ``MCPServer`` rows and convert each to the ``UserMcpServer``
+    DTO the toolkit consumes. Returns ``(name, dto)`` tuples.
 
-    A row whose ``headers`` cannot be decrypted is skipped with an error log;
-    other rows still load. A failure of the DB query itself propagates to the
-    caller: ``MCPToolkit.get_tools`` does not guard it, so a DB outage surfaces
-    as a failed agent-graph build rather than as silently-empty tools.
+    Loads all enabled GLOBAL rows (built-in + custom). When ``user_id`` is given,
+    also loads that user's enabled USER rows. On a name collision the GLOBAL row
+    wins and the USER row is skipped — a member must never redirect traffic for a
+    name an admin controls.
+
+    A row whose ``headers`` cannot be decrypted, or that can't be converted, is
+    skipped (logged); healthy peers still load. USER-row ``env_ref`` headers are
+    dropped defensively (the form forbids them; a raw DB write could still add one).
     """
-    rows = MCPServer.objects.filter(enabled=True).order_by("name")
+    global_rows = list(MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.GLOBAL).order_by("name"))
+    user_rows: list[MCPServer] = []
+    if user_id is not None:
+        user_rows = list(
+            MCPServer.objects.filter(enabled=True, scope=MCPServer.Scope.USER, user_id=user_id).order_by("name")
+        )
+
+    global_names = {row.name for row in global_rows}
     out: list[tuple[str, UserMcpServer]] = []
-    for row in rows:
+    for row in [*global_rows, *user_rows]:
+        if row.scope == MCPServer.Scope.USER and row.name in global_names:
+            logger.warning(
+                "MCP server '%s' (pk=%s, user_id=%s) shadows a global server of the same name; skipping the "
+                "user-scoped row",
+                row.name,
+                row.pk,
+                row.user_id,
+            )
+            continue
         try:
-            headers = _resolve_header_entries(row.headers or [], server_name=row.name)
+            raw_headers = row.headers or []
+            if row.scope == MCPServer.Scope.USER:
+                raw_headers = _drop_env_refs(raw_headers, server_name=row.name)
+            headers = _resolve_header_entries(raw_headers, server_name=row.name)
             tool_filter = None
             if row.tool_filter_mode != MCPServer.FilterMode.NONE and row.tool_filter_items:
                 tool_filter = ToolFilter(mode=row.tool_filter_mode, items=list(row.tool_filter_items))
@@ -60,16 +82,32 @@ def build_runtime_servers() -> list[tuple[str, UserMcpServer]]:
             logger.exception("MCP server '%s' (pk=%s) header decryption failed; skipping", row.name, row.pk)
             continue
         except Exception:  # noqa: BLE001
-            # A single malformed row — e.g. a transport/mode outside the DTO's allowed literals,
-            # or a header column of the wrong JSON shape (reachable via a raw DB write, since the
-            # form and model choices otherwise constrain these) — must not blank tools from healthy
-            # peers. Skip it loudly, consistent with the per-server isolation in MCPToolkit.get_tools.
             logger.exception(
                 "MCP server '%s' (pk=%s) could not be converted to a runtime DTO; skipping", row.name, row.pk
             )
             continue
         out.append((row.name, dto))
     return out
+
+
+def _drop_env_refs(entries: list[dict], *, server_name: str) -> list[dict]:
+    """Remove ``mode="env_ref"`` headers from a user-scoped server's header list.
+
+    ``env_ref`` resolves against the DAIV host's process environment; permitting
+    it on a member-owned server would let a member exfiltrate host env vars to a
+    URL they control. The form already blocks it — this is defense in depth for a
+    row inserted via a raw DB write."""
+    kept: list[dict] = []
+    for entry in entries:
+        if entry.get("mode") == MCPServer.HeaderMode.ENV_REF:
+            logger.warning(
+                "MCP server '%s' is user-scoped; dropping disallowed env_ref header '%s'",
+                server_name,
+                entry.get("name"),
+            )
+            continue
+        kept.append(entry)
+    return kept
 
 
 def _resolve_header_entries(entries: list[HeaderEntry] | None, *, server_name: str) -> dict[str, str]:

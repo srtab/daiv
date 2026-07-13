@@ -485,6 +485,83 @@ def test_sync_discovered_tools_ok_empty_clears_prior_snapshot(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_build_runtime_servers_merges_user_and_global(member_user):
+    from mcp_servers import services
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="glob",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="https://g.test/mcp",
+        enabled=True,
+    )
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://u.test/mcp",
+        enabled=True,
+    )
+
+    names_anon = [n for n, _ in services.build_runtime_servers()]
+    assert names_anon == ["glob"]  # no user → globals only
+
+    names_user = [n for n, _ in services.build_runtime_servers(user_id=member_user.id)]
+    assert set(names_user) == {"glob", "mine"}
+
+
+@pytest.mark.django_db
+def test_build_runtime_servers_global_wins_on_name_collision(member_user):
+    from mcp_servers import services
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="https://global.test/mcp",
+        enabled=True,
+    )
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://user.test/mcp",
+        enabled=True,
+    )
+
+    result = dict(services.build_runtime_servers(user_id=member_user.id))
+    assert list(result) == ["dup"]
+    assert result["dup"].url == "https://global.test/mcp"  # global row wins
+
+
+@pytest.mark.django_db
+def test_build_runtime_servers_strips_env_ref_on_user_rows(member_user):
+    from mcp_servers import services
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://u.test/mcp",
+        enabled=True,
+        headers=[
+            {"name": "X-Lit", "mode": "literal", "value": "ok"},
+            {"name": "X-Env", "mode": "env_ref", "value": "SOME_HOST_VAR"},
+        ],
+    )
+    result = dict(services.build_runtime_servers(user_id=member_user.id))
+    assert result["mine"].headers == {"X-Lit": "ok"}  # env_ref dropped
+
+
+@pytest.mark.django_db
 def test_sync_discovered_tools_decryption_error_preserves_snapshot(monkeypatch):
     """If a server's headers can't be decrypted (e.g. key rotation), sync must return an
     error without probing the network or touching the known-good snapshot — never a 500."""
