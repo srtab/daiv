@@ -11,7 +11,7 @@ This is useful when you want to:
 
 ## How it works
 
-When orchestration is enabled, the agent gains access to a `delegate_jobs` tool. The tool accepts a `goal` and a list of target repositories (each with its own tailored `prompt`) and submits an independent agent run for every target — in parallel, via the same task backend used by the Jobs API and Scheduled Jobs.
+The agent has access to a `delegate_jobs` tool, enabled by default on every repository. The tool accepts a `goal` and a list of target repositories (each with its own tailored `prompt`) and submits an independent agent run for every target — in parallel, via the same task backend used by the Jobs API and Scheduled Jobs.
 
 Each delegated run executes with the per-repo configuration, skills, and sandbox of its own repository. When all delegated runs finish, the originating agent resumes and receives a rollup summary of the results — what each run produced, whether it succeeded, and any merge requests that were created.
 
@@ -33,19 +33,19 @@ sequenceDiagram
     Tool-->>Coord: rollup (results, MR URLs)
 ```
 
-## Enabling orchestration
+## Enabling and disabling orchestration
 
-Orchestration is opt-in per repository. Add the following to the repository's `.daiv.yml`:
+Orchestration is **enabled by default** — the `delegate_jobs` tool is bound to the agent on every repository. To turn it off for a repository, set the following in its `.daiv.yml`:
 
 ```yaml
 orchestration:
-  enabled: true
+  enabled: false
 ```
 
-The `delegate_jobs` tool is only bound to the agent when this flag is set. Attempting to call it from a repository where orchestration is disabled results in an error.
+When disabled, the `delegate_jobs` tool is not bound to the agent, and any attempt to delegate results in an error.
 
 !!! note
-    Only the **coordinator** repository needs `orchestration.enabled: true`. Target repositories do not require any special configuration — they just run normal agent jobs.
+    A target repository needs no configuration to *receive* delegated work — it just runs a normal agent job. Disabling orchestration on a repository only stops that repository's own agent from *initiating* delegation.
 
 ## Limits
 
@@ -55,7 +55,7 @@ The `delegate_jobs` tool is only bound to the agent when this flag is set. Attem
 | **Depth** — maximum delegation chain | 2 | A delegated run cannot itself delegate beyond this depth. Setting `MAX_SPAWN_DEPTH=2` means: coordinator (depth 0) → delegated leg (depth 1) → leaf leg (depth 2) → no further delegation. |
 
 !!! warning
-    Depth is enforced at submission time (and pinned by a database constraint on the session). A delegated run that tries to call `delegate_jobs` when it is already at the maximum depth will receive an error and should handle it gracefully in its prompt. A delegated leg can only delegate *further* if its own repository also sets `orchestration.enabled: true` — the tool is bound per-repository, so a leaf repo that never delegates needs no configuration at all.
+    Depth is enforced at submission time (and pinned by a database constraint on the session). A delegated run that tries to call `delegate_jobs` when it is already at the maximum depth will receive an error and should handle it gracefully in its prompt. Because orchestration is on by default, a delegated leg may itself delegate *further* (up to the depth cap) unless its repository sets `orchestration.enabled: false`.
 
 ## Per-target prompts
 

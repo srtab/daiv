@@ -60,11 +60,11 @@ def test_memory_section_can_be_disabled():
     assert config.memory.enabled is False
 
 
-def test_orchestration_defaults_off():
+def test_orchestration_defaults_on():
     from codebase.repo_config import RepositoryConfig
 
     cfg = RepositoryConfig()
-    assert cfg.orchestration.enabled is False
+    assert cfg.orchestration.enabled is True
 
 
 def test_orchestration_can_be_enabled_via_yaml():

@@ -111,6 +111,43 @@ async def test_refuses_duplicate_target(django_user_model):
     assert "duplicate target" in out["error"].lower()
 
 
+async def test_refuses_self_delegation(django_user_model):
+    """Delegating to the coordinator's own repo+ref is refused and steered to subagents (`task`)."""
+    user = await django_user_model.objects.acreate(username="u-self")
+    await Session.objects.acreate(
+        thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", ref="main", user=user
+    )
+    out = await _invoke("goal", [{"repo_id": "g/coord", "ref": "main", "prompt": "p"}])
+    assert "g/coord" in out["error"]
+    assert "task" in out["error"].lower()
+
+
+async def test_self_delegation_fails_whole_call_without_submitting(django_user_model):
+    """A self-target (same repo+ref) mixed with valid targets fails the entire call — nothing submitted."""
+    user = await django_user_model.objects.acreate(username="u-self-mix")
+    await Session.objects.acreate(
+        thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", ref="main", user=user
+    )
+    with _patched_delegate(AsyncMock(return_value=_fake_result())) as m_submit:
+        out = await _invoke(
+            "goal", [{"repo_id": "g/other", "prompt": "p"}, {"repo_id": "g/coord", "ref": "main", "prompt": "q"}]
+        )
+    assert "task" in out["error"].lower()
+    m_submit.assert_not_called()
+
+
+async def test_allows_same_repo_different_ref(django_user_model):
+    """Same repo on a *different* ref is a distinct checkout, not self-delegation — it delegates."""
+    user = await django_user_model.objects.acreate(username="u-diff-ref")
+    await Session.objects.acreate(
+        thread_id="coord-thread", origin=SessionOrigin.MCP_JOB, repo_id="g/coord", ref="main", user=user
+    )
+    with _patched_delegate(AsyncMock(return_value=_fake_result())) as m_submit:
+        out = await _invoke("goal", [{"repo_id": "g/coord", "ref": "feature-x", "prompt": "p"}])
+    assert out["batch_id"] == "batch-1"
+    m_submit.assert_called_once()
+
+
 async def test_allows_just_under_depth_cap(django_user_model):
     """A coordinator at spawn_depth=1 (one below the cap) delegates, stamping legs at depth 2."""
     user = await django_user_model.objects.acreate(username="u-boundary")

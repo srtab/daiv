@@ -251,7 +251,10 @@ def render_batch_summary(batch_id: Any, siblings: list) -> str:
             # read a blank block as a clean no-op.
             lines.append("- Reply: (failed with no captured error message; check the leg session)")
         lines.append("")
-    lines.append("Compose the consolidated outcome and continue your instructions (e.g. report back to the ticket).")
+    lines.append(
+        "Compose the consolidated outcome and continue your instructions "
+        "(e.g. report back where the request came from)."
+    )
     return "\n".join(lines)
 
 

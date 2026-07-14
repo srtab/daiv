@@ -27,9 +27,10 @@ class DelegateTarget(BaseModel):
     ref: str | None = Field(default=None, description="Base branch/ref to start from; omit for the default branch.")
     prompt: str = Field(
         min_length=1,
-        description="Tailored instruction for this repository. Include the ticket context this repo needs "
-        "(legs cannot see the ticket) and the no-change convention: 'if this repository is unaffected, "
-        "reply saying so and make no changes.'",
+        description="Self-contained instruction for this repository. The leg runs in an isolated session "
+        "and sees only this text — not your conversation, the originating request, or anything else you "
+        "can see here — so include all the context it needs. End with the no-change convention: "
+        "'if this repository is unaffected, reply saying so and make no changes.'",
     )
 
 
@@ -49,10 +50,14 @@ Returns JSON:
 DELEGATE_JOBS_SYSTEM_PROMPT = f"""\
 ## Delegation tool `{DELEGATE_JOBS_NAME}`
 
-You are running on a coordination repository. Use `{DELEGATE_JOBS_NAME}` to fan out tailored work to
-other repositories. After you call it, state your plan and end your turn — do NOT poll or wait.
-You will be resumed with the consolidated results when every delegated leg finishes.
-Give each target the ticket context it needs and the no-change convention.
+When a task spans other repositories, use `{DELEGATE_JOBS_NAME}` to fan tailored work out to them —
+each target runs as an independent job. This is only for work in *other* repositories; for parallel
+work inside this one, use the `task` tool (subagents) instead. If the task is contained to this
+repository, ignore this tool.
+After you call it, state your plan and end your turn — do NOT poll or wait. You will be resumed with
+the consolidated results when every delegated leg finishes.
+Each leg runs in isolation and sees only the prompt you give it, so make every target's prompt
+self-contained — include the context it needs and the no-change convention.
 """
 
 
@@ -75,6 +80,20 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
         return json.dumps({"error": f"At most {MAX_DELEGATED_TARGETS} targets per delegate_jobs call."})
     if session.spawn_depth + 1 > MAX_SPAWN_DEPTH:
         return json.dumps({"error": f"Delegation depth limit reached (MAX_SPAWN_DEPTH={MAX_SPAWN_DEPTH})."})
+    coordinator_checkout = (session.repo_id, session.ref or "")
+    if any((t.repo_id, t.ref or "") == coordinator_checkout for t in targets):
+        # delegate_jobs fans out to independent jobs on *other* checkouts; delegating to the
+        # coordinator's own repo+ref would spawn a redundant run on this very checkout. In-repo
+        # parallelism belongs to subagents. A different ref on the same repo is a distinct checkout,
+        # so it is allowed to delegate normally.
+        return json.dumps({
+            "error": (
+                f"Cannot delegate to the coordinator's own checkout ({session.repo_id!r} on "
+                f"{session.ref or 'default branch'!r}). delegate_jobs fans work out to other "
+                "checkouts as independent jobs; for parallel work on this one, use the `task` "
+                "tool (subagents) instead."
+            )
+        })
 
     seen: set[tuple[str, str]] = set()
     for t in targets:
@@ -132,8 +151,9 @@ async def delegate_jobs_tool(goal: str, targets: list[DelegateTarget], config: R
 
 
 class DelegateJobsMiddleware(AgentMiddleware):
-    """Bind the delegate_jobs tool and inject its usage note. Added to the agent only
-    when the coordination repo opts in (``orchestration.enabled``)."""
+    """Bind the delegate_jobs tool and inject its usage note. Added to the agent when
+    ``orchestration.enabled`` is set — on by default; a repo opts out with
+    ``orchestration.enabled: false``."""
 
     def __init__(self) -> None:
         self.tools = [delegate_jobs_tool]

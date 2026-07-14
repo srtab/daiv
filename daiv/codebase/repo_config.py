@@ -88,7 +88,7 @@ class Orchestration(BaseModel):
     Orchestration configuration.
     """
 
-    enabled: bool = Field(default=False, description="Bind the delegate_jobs tool for agent runs on this repository.")
+    enabled: bool = Field(default=True, description="Bind the delegate_jobs tool for agent runs on this repository.")
 
 
 class AgentModelConfig(BaseModel):
