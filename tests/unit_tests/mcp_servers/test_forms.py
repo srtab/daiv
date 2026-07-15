@@ -28,6 +28,25 @@ def test_valid_minimal_form_creates_row():
 
 
 @pytest.mark.django_db
+def test_url_validator_wired_to_form():
+    """The relaxed validator is actually attached to the form's ``url`` field: an
+    internal hostname is accepted and a malformed URL surfaces as a ``url`` error.
+    Exhaustive URL accept/reject cases live in ``test_validators.py``."""
+    base = {
+        "name": "demo",
+        "description": "",
+        "transport": "http",
+        "enabled": "on",
+        "tool_filter_mode": "none",
+        "tool_filter_items": "",
+    }
+    assert MCPServerForm(data={**base, "url": "http://mcp_rt:8000/mcp"}).is_valid()
+    bad = MCPServerForm(data={**base, "url": "not-a-url"})
+    assert not bad.is_valid()
+    assert "url" in bad.errors
+
+
+@pytest.mark.django_db
 def test_invalid_name_pattern_rejected():
     form = MCPServerForm(
         data={
