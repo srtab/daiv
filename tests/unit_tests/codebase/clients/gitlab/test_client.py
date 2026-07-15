@@ -23,6 +23,18 @@ def _expected_clone_env(token: str) -> dict[str, str]:
     return GitAuthEnv.for_token(_CLONE_URL, token).as_env()
 
 
+def _gl_project(slug: str) -> Mock:
+    """A mock GitLab project shaped like what ``projects.list`` yields."""
+    project = Mock()
+    project.get_id.return_value = 1
+    project.path_with_namespace = slug
+    project.name = slug.split("/")[-1]
+    project.web_url = f"https://gitlab.com/{slug}"
+    project.default_branch = "main"
+    project.topics = []
+    return project
+
+
 def test_git_egress_credential_for_token_builds_basic_oauth2_header():
     import base64
 
@@ -649,6 +661,21 @@ class TestGitLabClient:
         _, kwargs = gitlab_client.client.projects.list.call_args
         assert kwargs["order_by"] == "last_activity_at"
         assert kwargs["sort"] == "desc"
+
+    @pytest.mark.parametrize(
+        ("slugs", "limit", "expected"),
+        [
+            # A listing ordered by a mutable key (last_activity_at) can surface the same project on
+            # two pages, so `list_repositories` returns one entry per slug.
+            pytest.param(["g/a", "g/b", "g/a"], None, ["g/a", "g/b"], id="dedupes-repeated-slugs"),
+            # `limit` bounds unique repos, not raw rows: a duplicate must not consume a slot.
+            pytest.param(["g/a", "g/a", "g/b"], 2, ["g/a", "g/b"], id="limit-counts-unique-slugs"),
+        ],
+    )
+    def test_list_repositories_dedupes_by_slug(self, gitlab_client, slugs, limit, expected):
+        gitlab_client.client.projects.list.return_value = iter([_gl_project(s) for s in slugs])
+
+        assert [r.slug for r in gitlab_client.list_repositories(limit=limit)] == expected
 
     def test_list_branches_passes_search_and_per_page(self, gitlab_client):
         """`list_branches` forwards `search` and caps `per_page` at `limit`."""
