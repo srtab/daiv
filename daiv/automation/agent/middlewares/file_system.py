@@ -5,12 +5,14 @@ import base64
 import logging
 import re
 import stat
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 import httpx
+import wcmatch.glob as wcglob
 from deepagents.backends.composite import CompositeBackend
-from deepagents.backends.filesystem import FilesystemBackend
+from deepagents.backends.filesystem import DEFAULT_GREP_TIMEOUT, FilesystemBackend
 from deepagents.backends.protocol import (
     FILE_NOT_FOUND,
     BackendProtocol,
@@ -292,10 +294,9 @@ class DAIVFilesystemBackend(FilesystemBackend):
 
         Validates the pattern with Python ``re`` up front so an invalid regex is a clean,
         model-fixable error rather than a silent zero-match (the inherited backend greps literally
-        via ``rg -F``/``re.escape``; ripgrep also exits 2 quietly on a bad regex). Reuses the
-        parent's ``_python_search`` with the *raw* (unescaped) pattern, which compiles it as a
-        regex — trading ripgrep's speed for correct semantics on local/disk runs (the deployed
-        path is the sandbox backend).
+        via ``rg -F``/``re.escape``; ripgrep also exits 2 quietly on a bad regex). Walks the tree
+        with a compiled regex — trading ripgrep's speed for correct semantics on local/disk runs
+        (the deployed path is the sandbox backend).
         """
         try:
             re.compile(pattern)
@@ -315,13 +316,95 @@ class DAIVFilesystemBackend(FilesystemBackend):
                 return GrepResult(matches=[])
         except OSError as exc:
             return GrepResult(error=f"Error searching path '{path or '.'}': {exc}", matches=[])
-        results = self._python_search(pattern, base_full, glob)
+
+        regex = re.compile(pattern)
+        glob_matcher = wcglob.compile(glob, flags=wcglob.BRACE | wcglob.GLOBSTAR) if glob else None
+        deadline = time.monotonic() + DEFAULT_GREP_TIMEOUT
+        root = base_full if base_full.is_dir() else base_full.parent
+        results: dict[str, list[tuple[int, str]]] = {}
+        file_errors: list[str] = []
+
+        try:
+            for fp in root.rglob("*"):
+                if time.monotonic() > deadline:
+                    return GrepResult(
+                        error=(
+                            f"Grep of '{path or '.'}' timed out after {DEFAULT_GREP_TIMEOUT}s "
+                            f"with {len(results)} matching file(s); try a more "
+                            f"specific pattern or a narrower path."
+                        ),
+                        matches=[
+                            GrepMatch(path=fpath, line=int(line_num), text=line_text)
+                            for fpath, items in results.items()
+                            for (line_num, line_text) in items
+                        ],
+                    )
+                try:
+                    if not fp.is_file():
+                        continue
+                except PermissionError, OSError, RuntimeError:
+                    continue
+                try:
+                    if fp.stat().st_size > self.max_file_size_bytes:
+                        continue
+                except OSError, RuntimeError:
+                    continue
+                if glob_matcher is not None:
+                    rel_path = str(fp.relative_to(root))
+                    if not glob_matcher.match(rel_path):
+                        continue
+                try:
+                    if self.virtual_mode:
+                        try:
+                            virt_path = self._to_virtual_path(fp)
+                        except ValueError:
+                            continue
+                        except OSError, RuntimeError:
+                            continue
+                    else:
+                        virt_path = str(fp)
+                    with fp.open(encoding="utf-8", errors="strict") as handle:
+                        for line_num, raw_line in enumerate(handle, 1):
+                            if line_num % 2048 == 0 and time.monotonic() > deadline:
+                                return GrepResult(
+                                    error=(
+                                        f"Grep of '{path or '.'}' timed out after {DEFAULT_GREP_TIMEOUT}s "
+                                        f"with {len(results)} matching file(s); try a more "
+                                        f"specific pattern or a narrower path."
+                                    ),
+                                    matches=[
+                                        GrepMatch(path=fpath, line=int(line_num), text=line_text)
+                                        for fpath, items in results.items()
+                                        for (line_num, line_text) in items
+                                    ],
+                                )
+                            if not regex.search(raw_line):
+                                continue
+                            results.setdefault(virt_path, []).append((line_num, raw_line.rstrip("\n")))
+                except UnicodeDecodeError:
+                    continue
+                except (OSError, RuntimeError) as exc:
+                    file_errors.append(f"- {virt_path}: {exc}")
+                    continue
+        except (OSError, RuntimeError) as exc:
+            return GrepResult(
+                error=f"Error searching path '{path or '.'}': {exc}",
+                matches=[
+                    GrepMatch(path=fpath, line=int(line_num), text=line_text)
+                    for fpath, items in results.items()
+                    for (line_num, line_text) in items
+                ],
+            )
+
         matches = [
             GrepMatch(path=fpath, line=int(line_num), text=line_text)
             for fpath, items in results.items()
             for (line_num, line_text) in items
         ]
-        return GrepResult(matches=matches)
+        partial_error = (
+            "One or more files could not be fully searched:\n" + "\n".join(file_errors) if file_errors else None
+        )
+        return GrepResult(error=partial_error, matches=matches)
 
 
 @runtime_checkable

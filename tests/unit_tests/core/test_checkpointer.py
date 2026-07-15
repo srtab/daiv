@@ -120,17 +120,22 @@ def test_objects_with_to_json_are_not_intercepted():
 
 
 def test_stock_redis_serializer_loses_sets_on_round_trip():
-    """Regression guard: reproduce the production set→None corruption with the stock serializer.
+    """Regression guard: the stock serializer used to corrupt sets to ``None``.
 
-    The adapter encodes a set via ``kwargs["__set_items__"]``, but the base reviver routes
-    ``builtins.set`` through ``_revive_lc2`` (``set(**kwargs)`` → ``TypeError``), which
-    ``langgraph-checkpoint>=4.1.1`` swallows by returning ``None`` -- silently nulling the set.
+    The adapter encodes a set via ``kwargs["__set_items__"]``, but the base reviver
+    routed ``builtins.set`` through ``_revive_lc2`` (``set(**kwargs)`` → ``TypeError``),
+    which ``langgraph-checkpoint>=4.1.1`` swallowed by returning ``None`` -- silently
+    nulling the set.  This was fixed upstream in ``langgraph-checkpoint-redis`` 0.5.1
+    (nested-set deserialization fix), so the stock serializer now round-trips sets
+    correctly.  The guard is kept (asserting the fixed behaviour) so a regression in
+    the upstream fix would be caught here rather than silently corrupting production
+    checkpoints.
     """
     stock = JsonPlusRedisSerializer(allowed_json_modules=[("codebase.base", "MergeRequest")])
 
     restored = stock.loads_typed(stock.dumps_typed({"loaded_tool_names": {"Read", "Edit"}}))
 
-    assert restored == {"loaded_tool_names": None}  # corrupted
+    assert restored == {"loaded_tool_names": {"Read", "Edit"}}
 
 
 def test_set_round_trips_through_serde_contract():
