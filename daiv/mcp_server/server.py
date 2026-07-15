@@ -32,7 +32,7 @@ from codebase.authorization import (
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for FastMCP
 from mcp_server.auth import DjangoOAuthTokenVerifier, get_current_user
-from schedules.models import Frequency, ScheduledJob  # noqa: TC001 - runtime literal for FastMCP
+from schedules.models import Frequency, Intent, ScheduledJob  # noqa: TC001 - runtime literal for FastMCP
 from schedules.services import acreate_scheduled_job, alist_scheduled_jobs
 
 if TYPE_CHECKING:
@@ -789,10 +789,13 @@ async def schedule_job(
         str | None, Field(description="Sandbox environment name or UUID. Omit to auto-resolve per repo at run time.")
     ] = None,
     notify_on: Annotated[NotifyOn | None, Field(description="When to notify for this schedule's runs.")] = None,
+    intent: Annotated[
+        Intent | None, Field(description="watch-find | do-change | report. Omit for the default (watch-find).")
+    ] = None,
 ) -> dict:
     """Create a recurring (or one-off) scheduled agent run owned by the caller.
 
-    Returns ``{id, name, frequency, next_run_at, is_enabled, repos}`` or ``{"error": ...}``.
+    Returns ``{id, name, frequency, next_run_at, is_enabled, repos, intent}`` or ``{"error": ...}``.
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
@@ -849,6 +852,7 @@ async def schedule_job(
             agent_thinking_level=str(agent_thinking_level) if agent_thinking_level else "",
             sandbox_environment=env_row,
             notify_on=notify_on or NotifyOn.NEVER,
+            intent=intent or Intent.WATCH_FIND,
         )
     except ValidationError as err:
         return {"error": "; ".join(err.messages)}
@@ -863,6 +867,7 @@ async def schedule_job(
         "next_run_at": schedule.next_run_at.isoformat() if schedule.next_run_at else None,
         "is_enabled": schedule.is_enabled,
         "repos": schedule.repos,
+        "intent": str(schedule.intent),
     }
 
 
@@ -881,6 +886,7 @@ def _serialize_scheduled_job(schedule: ScheduledJob) -> dict:
         "run_count": schedule.run_count,
         "is_enabled": schedule.is_enabled,
         "notify_on": str(schedule.notify_on),
+        "intent": str(schedule.intent),
         "agent_model": schedule.agent_model or None,
         "agent_thinking_level": schedule.agent_thinking_level or None,
     }

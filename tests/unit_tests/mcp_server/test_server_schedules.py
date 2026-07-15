@@ -6,7 +6,7 @@ from django.utils import timezone
 import pytest
 
 from accounts.models import User
-from schedules.models import Frequency, ScheduledJob
+from schedules.models import Frequency, Intent, ScheduledJob
 
 
 async def _user(username):
@@ -30,6 +30,60 @@ async def test_schedule_job_creates_daily_schedule():
     assert data["name"] == "Nightly"
     assert data["next_run_at"] is not None
     assert await ScheduledJob.objects.filter(user=user, name="Nightly").aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_accepts_and_persists_intent():
+    from mcp_server.server import schedule_job
+
+    user = await _user("sj_intent")
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await schedule_job(
+            name="Fixer",
+            prompt="p",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+            intent=Intent.DO_CHANGE,
+        )
+    assert "error" not in data
+    assert data["intent"] == "do-change"
+    job = await ScheduledJob.objects.aget(user=user, name="Fixer")
+    assert job.intent == Intent.DO_CHANGE
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_schedule_job_defaults_intent_to_watch_find():
+    from mcp_server.server import schedule_job
+
+    user = await _user("sj_intent_default")
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        data = await schedule_job(
+            name="Watcher", prompt="p", repos=[{"repo_id": "a/b", "ref": ""}], frequency=Frequency.DAILY, time="09:00"
+        )
+    assert "error" not in data
+    assert data["intent"] == "watch-find"
+    job = await ScheduledJob.objects.aget(user=user, name="Watcher")
+    assert job.intent == Intent.WATCH_FIND
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_list_scheduled_jobs_echoes_intent():
+    from mcp_server.server import list_scheduled_jobs, schedule_job
+
+    user = await _user("ls_intent")
+    with patch("mcp_server.server.get_current_user", new=AsyncMock(return_value=user)):
+        await schedule_job(
+            name="Reporter",
+            prompt="p",
+            repos=[{"repo_id": "a/b", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="09:00",
+            intent=Intent.REPORT,
+        )
+        listed = await list_scheduled_jobs()
+
+    assert listed["scheduled_jobs"][0]["intent"] == "report"
 
 
 @pytest.mark.django_db(transaction=True)

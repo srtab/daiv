@@ -24,6 +24,7 @@ def _valid_data(**overrides):
         "cron_expression": "",
         "time": "12:00",
         "notify_on": NotifyOn.NEVER,
+        "intent": "watch-find",
     }
     data.update(overrides)
     return data

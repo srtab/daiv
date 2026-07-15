@@ -1,12 +1,13 @@
 from datetime import datetime, timedelta
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.utils import timezone
 
 import pytest
 from notifications.choices import NotifyOn
 
-from schedules.models import Frequency, ScheduledJob
+from schedules.models import Frequency, Intent, ScheduledJob, ScheduleTemplate
 
 
 @pytest.mark.django_db
@@ -238,6 +239,7 @@ class TestScheduledJobToScheduleKwargs:
             "agent_model": "openrouter:anthropic/claude-opus-4.6",
             "agent_thinking_level": "high",
             "notify_on": NotifyOn.ALWAYS,
+            "intent": Intent.WATCH_FIND,
         }
 
 
@@ -277,3 +279,51 @@ class TestScheduledJobIsFiredOneOff:
             run_count=42,
         )
         assert job.is_fired_one_off is False
+
+
+class TestIntentEnum:
+    def test_values(self):
+        assert set(Intent.values) == {"watch-find", "do-change", "report"}
+
+    def test_finding_bearing_excludes_report(self):
+        assert Intent.finding_bearing() == frozenset({Intent.WATCH_FIND, Intent.DO_CHANGE})
+
+
+@pytest.mark.django_db
+class TestScheduledJobIntent:
+    def _make(self, user, **overrides):
+        defaults = {
+            "user": user,
+            "name": "s",
+            "prompt": "p",
+            "frequency": Frequency.DAILY,
+            "time": "12:00",
+            "repos": [{"repo_id": "x/y", "ref": ""}],
+        }
+        defaults.update(overrides)
+        return ScheduledJob.objects.create(**defaults)
+
+    def test_defaults_to_watch_find(self, member_user):
+        job = self._make(member_user)
+        job.refresh_from_db()
+        assert job.intent == Intent.WATCH_FIND
+
+    def test_accepts_do_change(self, member_user):
+        job = self._make(member_user, intent=Intent.DO_CHANGE)
+        job.refresh_from_db()
+        assert job.intent == Intent.DO_CHANGE
+
+    def test_check_constraint_rejects_unknown_value(self, member_user):
+        # ``create()`` bypasses ``full_clean``/``choices=`` validation, so the DB
+        # CheckConstraint is the guarantee against an out-of-enum write.
+        with pytest.raises(IntegrityError):
+            self._make(member_user, intent="bogus")
+
+
+def test_intent_constraint_literals_match_enum():
+    """The CheckConstraint literals are serialized into the migration; guard against the
+    enum drifting away from ``sched_intent_valid`` / ``tpl_intent_valid``."""
+    for model, name in ((ScheduledJob, "sched_intent_valid"), (ScheduleTemplate, "tpl_intent_valid")):
+        constraint = next(c for c in model._meta.constraints if c.name == name)
+        conditions = dict(constraint.condition.children)
+        assert set(conditions["intent__in"]) == set(Intent.values)
