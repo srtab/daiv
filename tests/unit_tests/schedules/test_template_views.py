@@ -56,6 +56,7 @@ class TestTemplateAdminGating:
                 "cron_expression": "",
                 "time": "09:00",
                 "notify_on": NotifyOn.NEVER,
+                "intent": "watch-find",
             },
         )
         assert response.status_code == 302
@@ -73,6 +74,7 @@ class TestTemplateAdminGating:
                 "cron_expression": "",
                 "time": "09:00",
                 "notify_on": NotifyOn.NEVER,
+                "intent": "watch-find",
             },
         )
         tpl = ScheduleTemplate.objects.get(name="T")
@@ -164,6 +166,7 @@ class TestScheduleCreatePrefill:
                 "cron_expression": "",
                 "time": "10:00",
                 "notify_on": NotifyOn.NEVER,
+                "intent": "watch-find",
             },
         )
         assert response.status_code == 302
@@ -191,6 +194,7 @@ class TestScheduleTemplateFormConditionalClean:
                 "cron_expression": "0 */6 * * *",
                 "time": "09:00",
                 "notify_on": NotifyOn.NEVER,
+                "intent": "watch-find",
             },
         )
         assert response.status_code == 302
@@ -209,6 +213,7 @@ class TestScheduleTemplateFormConditionalClean:
                 "cron_expression": "",
                 "time": "09:00",
                 "notify_on": NotifyOn.NEVER,
+                "intent": "watch-find",
             },
         )
         assert response.status_code == 302
