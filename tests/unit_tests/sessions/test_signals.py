@@ -427,3 +427,69 @@ class TestSyncReleasesQueuedSibling:
         assert stuck.status == RunStatus.SUCCESSFUL
         assert queued.status == RunStatus.READY
         assert queued.task_result_id == fake_task.id
+
+
+@pytest.mark.django_db
+class TestClassifyOnRunFinished:
+    """The gated ``classify_on_run_finished`` receiver (Story 1.3, AC1)."""
+
+    def _schedule_run(self, *, status=RunStatus.SUCCESSFUL, **kwargs):
+        session = _make_session()
+        return _create_run(session=session, trigger_type=SessionOrigin.SCHEDULE, status=status, **kwargs)
+
+    def test_enqueues_for_scheduled_terminal_run(self):
+        from sessions.signals import classify_on_run_finished
+
+        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_enqueues_for_failed_scheduled_run(self):
+        from sessions.signals import classify_on_run_finished
+
+        run = self._schedule_run(status=RunStatus.FAILED)
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
+
+    def test_skips_non_schedule_trigger(self):
+        from sessions.signals import classify_on_run_finished
+
+        session = _make_session()
+        run = _create_run(session=session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL)
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_not_called()
+
+    def test_skips_non_terminal_status(self):
+        from sessions.signals import classify_on_run_finished
+
+        run = self._schedule_run(status=RunStatus.RUNNING)
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run)
+        task_mock.enqueue.assert_not_called()
+
+    def test_skips_dispatch_failure_reemits(self):
+        """``skip_dispatch=True`` is checked first: re-emitted runs never executed."""
+        from sessions.signals import classify_on_run_finished
+
+        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            classify_on_run_finished(sender=Run, run=run, skip_dispatch=True)
+        task_mock.enqueue.assert_not_called()
+
+    def test_never_raises_on_enqueue_failure(self):
+        from sessions.signals import classify_on_run_finished
+
+        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            task_mock.enqueue.side_effect = RuntimeError("broker down")
+            classify_on_run_finished(sender=Run, run=run)  # must not raise
+
+    def test_wired_to_run_finished_signal(self):
+        """apps.ready() must register the receiver on the run_finished signal."""
+        run = self._schedule_run(status=RunStatus.SUCCESSFUL)
+        with patch("sessions.signals.classify_run_task") as task_mock:
+            run_finished.send(sender=Run, run=run)
+        task_mock.enqueue.assert_called_once_with(str(run.pk))

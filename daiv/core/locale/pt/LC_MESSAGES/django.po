@@ -685,3 +685,18 @@ msgstr "Armazenado:"
 
 msgid "(new)"
 msgstr "(novo)"
+
+msgid "classifier model"
+msgstr "modelo do classificador"
+
+msgid "Model that classifies each finished scheduled run's report into an envelope."
+msgstr "Modelo que classifica o relatório de cada execução agendada concluída num envelope."
+
+msgid "classifier fallback model"
+msgstr "modelo de recurso do classificador"
+
+msgid "Fallback model when the classifier model fails."
+msgstr "Modelo de recurso quando o modelo do classificador falha."
+
+msgid "Run classifier"
+msgstr "Classificador de execuções"
