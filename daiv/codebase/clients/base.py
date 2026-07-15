@@ -152,7 +152,13 @@ class RepoClient(abc.ABC):
     def list_repositories(
         self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
     ) -> list[Repository]:
-        pass
+        """List repositories the bot can access, at most one entry per slug.
+
+        Callers treat the result as a set keyed on ``slug`` — the access-sync task upserts it in a
+        single ``ON CONFLICT`` statement (which rejects a duplicate conflict target) and other
+        callers act once per repo. A listing that can surface the same repo twice (e.g. GitLab's
+        iterator ordered by the mutable ``last_activity_at``) must dedupe before returning.
+        """
 
     @abc.abstractmethod
     def list_repository_members(self, repo_id: str) -> list[RepoMember]:
