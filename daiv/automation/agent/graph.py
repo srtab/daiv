@@ -298,12 +298,17 @@ async def create_daiv_agent(
     )
     subagents.extend(custom_subagents)
 
+    # Deferred to avoid a circular import:
+    # delegate_jobs → sessions.services → jobs.tasks → automation.agent.graph
+    from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware  # noqa: PLC0415
+
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         # DAIVTodoListMiddleware (a subclass), not the bare TodoListMiddleware: the harness profile
         # excludes the base by exact type, so a bare instance here would be dropped alongside the one
         # create_deep_agent auto-adds, leaving the main agent with no write_todos. See todos.py.
         DAIVTodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
+        *([DelegateJobsMiddleware()] if ctx.config.orchestration.enabled else []),
         *(
             [SandboxMiddleware(agent_root=agent_root, client=run_client, sandbox_backend=sandbox_backend)]
             if _sandbox_enabled

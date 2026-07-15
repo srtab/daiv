@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
@@ -244,6 +245,19 @@ class SiteConfiguration(models.Model):
     )
     agent_recursion_limit = models.PositiveIntegerField(
         _("recursion limit"), blank=True, null=True, help_text=_("Maximum recursion depth for agent loops.")
+    )
+    model_request_timeout_seconds = models.PositiveIntegerField(
+        _("model request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_("Per-request timeout for LLM API calls, in seconds. Applies to every provider."),
+    )
+    model_max_retries = models.PositiveIntegerField(
+        _("model max retries"),
+        blank=True,
+        null=True,
+        help_text=_("Retries for a failed LLM API call before the error propagates. Applies to every provider."),
     )
 
     # -- Commit & PR Writer --
@@ -500,7 +514,7 @@ class SiteConfiguration(models.Model):
         FieldGroup(
             key="agent",
             title=_("Agent"),
-            match=("agent_*", "suggest_context_file_enabled"),
+            match=("agent_*", "suggest_context_file_enabled", "model_request_timeout_seconds", "model_max_retries"),
             icon="agent",
             category="AI tasks",
         ),

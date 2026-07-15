@@ -75,6 +75,7 @@ plugins:
         - features/sessions.md: Unified sessions — chat workspace, run history, and live updates
         - features/jobs-api.md: REST API for programmatic agent triggering
         - features/scheduled-jobs.md: Recurring agent runs on a cron schedule
+        - features/orchestration.md: Fan-out agent runs across multiple repositories from a single coordinator
         - features/mcp-endpoint.md: MCP server endpoint for AI coding assistants
         - features/notifications.md: Job, batch, and schedule completion notifications
         - features/merge-metrics.md: Code merge analytics and DAIV contribution tracking
@@ -137,6 +138,7 @@ nav:
     - Sessions: features/sessions.md
     - Jobs API: features/jobs-api.md
     - Scheduled Jobs: features/scheduled-jobs.md
+    - Orchestration: features/orchestration.md
     - MCP Endpoint: features/mcp-endpoint.md
     - Notifications: features/notifications.md
     - Merge Metrics: features/merge-metrics.md

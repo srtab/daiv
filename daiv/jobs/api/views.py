@@ -75,7 +75,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             return 400, {"detail": str(err)}
         explicit_env_id = str(env.id) if env else None
 
-    targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "") for spec in payload.repos]
+    targets = [RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt) for spec in payload.repos]
     targets = await aresolve_repo_envs(user=request.auth, repos=targets, explicit_env_id=explicit_env_id)
     result = await asubmit_batch_runs(
         user=request.auth,

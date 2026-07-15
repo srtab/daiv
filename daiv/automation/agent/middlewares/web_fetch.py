@@ -27,6 +27,11 @@ logger = logging.getLogger("daiv.tools")
 
 WEB_FETCH_NAME = "web_fetch"
 
+# The summariser runs a small/fast model over already-bounded page content
+# (``web_fetch_max_content_chars``), and the tool degrades to returning the raw
+# content on failure — so keep its budget tighter than the global model timeout.
+WEB_FETCH_MODEL_TIMEOUT_SECONDS = 60
+
 WEB_FETCH_TOOL_DESCRIPTION = """\
 Fetch content from a specified URL and process it using an AI model.
 
@@ -232,17 +237,33 @@ async def web_fetch_tool(
     if not prompt.strip() or site_settings.web_fetch_model_name is None:
         return f"Contents of {url}:\n{content}"
 
+    # Building the model is pure construction (no network): any failure here — disabled
+    # provider, missing API key, invalid model spec — is a permanent misconfiguration that
+    # breaks every call, so log it loudly (ERROR -> Sentry) for operators. We still hand the
+    # agent the raw content it can reason over itself (withholding it helps nobody, since the
+    # agent can't fix provider config), but flag it clearly so it isn't mistaken for a summary.
     try:
-        model = BaseAgent.get_model(model=site_settings.web_fetch_model_name)
-        messages = [
-            SystemMessage(
-                content=(
-                    "You process web pages for users. Use the page content to answer the user's prompt.\n"
-                    "Be concise. If the content doesn't contain the answer, say so."
-                )
-            ),
-            HumanMessage(content=f"URL: {url}\n\n<PageContent>\n{content}\n</PageContent>\n\nPrompt:\n{prompt}"),
-        ]
+        model = BaseAgent.get_model(model=site_settings.web_fetch_model_name, timeout=WEB_FETCH_MODEL_TIMEOUT_SECONDS)
+    except Exception as e:
+        logger.exception(
+            "web_fetch summariser model %r could not be built; check the provider configuration.",
+            site_settings.web_fetch_model_name,
+        )
+        return f"web_fetch summariser unavailable ({e}); returning raw content instead.\nContents of {url}:\n{content}"
+
+    messages = [
+        SystemMessage(
+            content=(
+                "You process web pages for users. Use the page content to answer the user's prompt.\n"
+                "Be concise. If the content doesn't contain the answer, say so."
+            )
+        ),
+        HumanMessage(content=f"URL: {url}\n\n<PageContent>\n{content}\n</PageContent>\n\nPrompt:\n{prompt}"),
+    ]
+
+    # Invocation failures are transient (timeout, network, provider error) — degrade gracefully
+    # to the raw page content so a blip doesn't abort the agent's turn.
+    try:
         response = await model.ainvoke(messages)
         response_text = str(getattr(response, "content", response))
         _set_cached_response(url=url, prompt=prompt, response=response_text)

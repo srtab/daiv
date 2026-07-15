@@ -228,3 +228,113 @@ def _enqueue_queued_run(run: Any) -> bool:
         emit_run_finished_if_terminal(run, previous_status=RunStatus.READY, skip_dispatch=True)
         return False
     return True
+
+
+def render_batch_summary(batch_id: Any, siblings: list) -> str:
+    """Build the coordinator continuation prompt from denormalized Run fields."""
+    from sessions.models import RunStatus
+
+    n_ok = sum(1 for r in siblings if r.status == RunStatus.SUCCESSFUL)
+    n_failed = sum(1 for r in siblings if r.status == RunStatus.FAILED)
+    lines = [f"The delegated batch {batch_id} has finished ({n_ok} succeeded, {n_failed} failed).", ""]
+    for r in siblings:
+        state = "successful" if r.status == RunStatus.SUCCESSFUL else "failed"
+        lines.append(f"## {r.repo_id} ({state})")
+        if r.merge_request_web_url:
+            lines.append(f"- Merge request: {r.merge_request_web_url}")
+        summary = (r.result_summary or r.error_message or "").strip()
+        if summary:
+            lines.append(f"- Reply: {summary[:500]}")
+        elif r.status == RunStatus.FAILED:
+            # A FAILED leg can reach here with an empty error_message (e.g. the best-effort terminal
+            # save in _mark_failed_and_advance). Make the gap explicit so the coordinator doesn't
+            # read a blank block as a clean no-op.
+            lines.append("- Reply: (failed with no captured error message; check the leg session)")
+        lines.append("")
+    lines.append(
+        "Compose the consolidated outcome and continue your instructions "
+        "(e.g. report back where the request came from)."
+    )
+    return "\n".join(lines)
+
+
+@receiver(run_finished)
+def resume_coordinator_on_batch_complete(sender: type, run: Any, **kwargs: Any) -> None:
+    """When every leg of a *delegated* batch is terminal, enqueue one coordinator
+    continuation run on the parent thread.
+
+    Deliberately ignores ``skip_dispatch`` (unlike ``dispatch_next_in_session``): a last
+    leg that turns terminal via the dispatch-failure re-emit must still resume the
+    coordinator. Winner election is the ``run_one_continuation_per_batch`` unique
+    constraint; a busy coordinator session (``run_one_active_per_session``) makes the
+    continuation land QUEUED, released FIFO by ``dispatch_next_in_session``.
+    """
+    from django.db import IntegrityError
+
+    from asgiref.sync import async_to_sync
+
+    from sessions.models import Run, RunStatus, Session, SessionOrigin
+    from sessions.services import acreate_run
+
+    batch_id = getattr(run, "batch_id", None)
+    if not batch_id:
+        return
+
+    leg_session = Session.objects.filter(pk=run.session_id).only("parent_thread_id").first()
+    if leg_session is None or not leg_session.parent_thread_id:
+        return  # not a delegated leg (broadcast batch, or session gone)
+    parent_thread_id = leg_session.parent_thread_id
+
+    siblings = list(Run.objects.by_batch(batch_id))
+    if any(r.status not in RunStatus.terminal() for r in siblings):
+        return  # legs still pending
+
+    if Run.objects.filter(continuation_of_batch_id=batch_id).exists():
+        return  # already resumed (winner election)
+
+    coordinator = Session.objects.filter(thread_id=parent_thread_id).first()
+    if coordinator is None:
+        logger.warning(
+            "resume_coordinator: parent thread %s not found for batch %s; rollup notification is the fallback signal",
+            parent_thread_id,
+            batch_id,
+        )
+        return
+
+    prompt = render_batch_summary(batch_id, siblings)
+    env_id = str(coordinator.sandbox_environment_id) if coordinator.sandbox_environment_id else None
+    create_kwargs = {
+        "trigger_type": SessionOrigin.DELEGATED_JOB,
+        "task_result_id": None,
+        "repo_id": coordinator.repo_id,
+        "ref": coordinator.ref,
+        "user": coordinator.user,
+        "prompt": prompt,
+        "thread_id": parent_thread_id,
+        "sandbox_environment_id": env_id,
+        "continuation_of_batch_id": batch_id,
+    }
+
+    try:
+        continuation = async_to_sync(acreate_run)(status=RunStatus.READY, **create_kwargs)
+    except IntegrityError:
+        if Run.objects.filter(continuation_of_batch_id=batch_id).exists():
+            return  # another worker won the election
+        # Coordinator session busy: land QUEUED; dispatch_next_in_session releases it FIFO.
+        try:
+            async_to_sync(acreate_run)(status=RunStatus.QUEUED, **create_kwargs)
+        except IntegrityError:
+            return  # another worker won in the meantime
+        return
+
+    # Free coordinator session: enqueue the READY continuation now, reusing the dispatcher helper.
+    # _enqueue_queued_run marks the row FAILED on failure; unlike the dispatcher there is no QUEUED
+    # sibling to fall through to, so a failure here means the coordinator never auto-resumes. Do not
+    # swallow it — the dispatcher's own log names itself, not this resume path or the batch.
+    if not _enqueue_queued_run(continuation):
+        logger.error(
+            "resume_coordinator: failed to enqueue continuation for batch=%s on parent thread=%s; "
+            "coordinator will NOT auto-resume — the batch rollup notification is the only signal",
+            batch_id,
+            parent_thread_id,
+        )
