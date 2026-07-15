@@ -342,17 +342,17 @@ class DAIVFilesystemBackend(FilesystemBackend):
                 try:
                     if not fp.is_file():
                         continue
-                except PermissionError, OSError, RuntimeError:
-                    continue
-                try:
-                    if fp.stat().st_size > self.max_file_size_bytes:
-                        continue
                 except OSError, RuntimeError:
                     continue
                 if glob_matcher is not None:
                     rel_path = str(fp.relative_to(root))
                     if not glob_matcher.match(rel_path):
                         continue
+                try:
+                    if fp.stat().st_size > self.max_file_size_bytes:
+                        continue
+                except OSError, RuntimeError:
+                    continue
                 try:
                     if self.virtual_mode:
                         try:
