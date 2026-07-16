@@ -160,6 +160,8 @@ class MCPServerEditView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         obj = MCPServer.objects.scoped_get(request.user, pk)
+        if obj.scope == MCPServer.Scope.GLOBAL:
+            request.nav_section_override = "mcp_servers_global"
         initial, headers_locked = _existing_headers_for_formset(obj)
         if headers_locked:
             messages.error(
@@ -176,6 +178,8 @@ class MCPServerEditView(LoginRequiredMixin, View):
 
     def post(self, request, pk):
         obj = MCPServer.objects.scoped_get(request.user, pk)
+        if obj.scope == MCPServer.Scope.GLOBAL:
+            request.nav_section_override = "mcp_servers_global"
         try:
             existing_headers = obj.headers or []
         except DecryptionError:
@@ -207,7 +211,7 @@ class MCPServerEditView(LoginRequiredMixin, View):
                 _("'%(name)s' was saved, but its tools couldn't be refreshed: %(error)s")
                 % {"name": obj.name, "error": result.get("error") or _("unknown error")},
             )
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(_list_url_for(saved))
 
     def _render(self, request, obj, form, formset, *, selected, headers_locked=False, status=200):
         # Choices come from the persisted snapshot — no network on render.
@@ -236,13 +240,15 @@ class MCPServerDeleteView(LoginRequiredMixin, View):
         flash + redirect instead. Returns a response to short-circuit, else None."""
         if obj.is_builtin():
             messages.error(request, _("Built-in MCP servers cannot be deleted."))
-            return redirect(reverse("mcp_servers:list"))
+            return redirect(reverse("mcp_servers:global_list"))
         return None
 
     def get(self, request, pk):
         obj = MCPServer.objects.manageable_get(request.user, pk)
         if reject := self._reject_builtin(request, obj):
             return reject
+        if obj.scope == MCPServer.Scope.GLOBAL:
+            request.nav_section_override = "mcp_servers_global"
         return render(request, "mcp_servers/confirm_delete.html", {"object": obj})
 
     def post(self, request, pk):
@@ -250,9 +256,10 @@ class MCPServerDeleteView(LoginRequiredMixin, View):
         if reject := self._reject_builtin(request, obj):
             return reject
         name = obj.name
+        url = _list_url_for(obj)
         obj.delete()
         messages.success(request, _("MCP server '%(name)s' deleted.") % {"name": name})
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(url)
 
 
 class MCPServerToggleView(LoginRequiredMixin, View):
@@ -262,7 +269,7 @@ class MCPServerToggleView(LoginRequiredMixin, View):
         obj = MCPServer.objects.manageable_get(request.user, pk)
         obj.enabled = not obj.enabled
         obj.save(update_fields=["enabled", "modified"])
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(_list_url_for(obj))
 
 
 class MCPServerRefreshToolsView(LoginRequiredMixin, View):
@@ -284,7 +291,7 @@ class MCPServerRefreshToolsView(LoginRequiredMixin, View):
             )
         if request.POST.get("next") == "edit":
             return redirect(reverse("mcp_servers:edit", args=[obj.pk]))
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(_list_url_for(obj))
 
 
 class MCPServerTestView(LoginRequiredMixin, View):

@@ -727,7 +727,8 @@ def test_refresh_tools_triggers_sync_and_redirects(client, admin_user, monkeypat
     client.force_login(admin_user)
     resp = client.post(reverse("mcp_servers:refresh_tools", args=[obj.pk]))
     assert resp.status_code == 302
-    assert resp.url == reverse("mcp_servers:list")
+    # obj defaults to GLOBAL scope, so the fallback redirect matches its scope.
+    assert resp.url == reverse("mcp_servers:global_list")
     assert called["name"] == "rf-ok"
 
 
@@ -752,7 +753,8 @@ def test_refresh_tools_reports_sync_failure(client, admin_user, monkeypatch):
     client.force_login(admin_user)
     resp = client.post(reverse("mcp_servers:refresh_tools", args=[obj.pk]))
     assert resp.status_code == 302
-    assert resp.url == reverse("mcp_servers:list")
+    # obj defaults to GLOBAL scope, so the fallback redirect matches its scope.
+    assert resp.url == reverse("mcp_servers:global_list")
     stored = list(get_messages(resp.wsgi_request))
     assert any(m.level_tag == "error" for m in stored)
 
@@ -1260,3 +1262,50 @@ def test_global_section_is_read_only_on_personal_page_even_for_admin(admin_clien
     body = resp.content.decode()
     assert "glob-ro" in body
     assert reverse("mcp_servers:edit", args=[g.pk]) not in body
+
+
+# --- Scope-aware redirects ---
+
+
+@pytest.mark.django_db
+def test_toggle_global_redirects_to_global_list(admin_client):
+    g = _global(name="tgl")
+    resp = admin_client.post(reverse("mcp_servers:toggle", args=[g.pk]))
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")
+
+
+@pytest.mark.django_db
+def test_toggle_personal_redirects_to_list(member_client, member_user):
+    s = _user_server(member_user)
+    resp = member_client.post(reverse("mcp_servers:toggle", args=[s.pk]))
+    assert resp.url == reverse("mcp_servers:list")
+
+
+@pytest.mark.django_db
+def test_delete_global_redirects_to_global_list(admin_client):
+    g = _global(name="delg")
+    resp = admin_client.post(reverse("mcp_servers:delete", args=[g.pk]))
+    assert resp.url == reverse("mcp_servers:global_list")
+
+
+@pytest.mark.django_db
+def test_edit_global_save_redirects_to_global_list(admin_client):
+    g = _global(name="edg")
+    resp = admin_client.post(
+        reverse("mcp_servers:edit", args=[g.pk]),
+        data={
+            "name": "edg",
+            "transport": "http",
+            "url": "http://edg.test",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")

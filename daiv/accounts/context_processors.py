@@ -52,10 +52,16 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     # return JSON (``test``) or redirect (``toggle``, ``refresh_tools``) never render a sidebar, so
     # they are omitted; ``delete`` stays because its GET renders a confirmation page.
     "mcp_servers": {"mcp_servers:list", "mcp_servers:create", "mcp_servers:edit", "mcp_servers:delete"},
+    "mcp_servers_global": {"mcp_servers:global_list", "mcp_servers:global_create"},
 }
 
 
 def _resolve_active_section(request) -> str:
+    # A view may pin the section explicitly — needed where one URL serves rows of
+    # several sections (e.g. mcp_servers:edit renders global AND personal rows).
+    override = getattr(request, "nav_section_override", None)
+    if override:
+        return override
     match = getattr(request, "resolver_match", None)
     if match is None:
         return ""

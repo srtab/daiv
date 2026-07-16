@@ -155,3 +155,10 @@ class TestResolveActiveSection:
         request = RequestFactory().get("/")
         request.resolver_match = type("Match", (), {"view_name": "runs:agent_run_new"})()
         assert _resolve_active_section(request) == "sessions"
+
+    def test_nav_section_override_wins(self):
+        # A view may pin the section explicitly — needed where one URL serves rows of
+        # several sections (e.g. mcp_servers:edit renders global AND personal rows).
+        request = RequestFactory().get("/dashboard/mcp-servers/1/edit/")
+        request.nav_section_override = "mcp_servers_global"
+        assert _resolve_active_section(request) == "mcp_servers_global"
