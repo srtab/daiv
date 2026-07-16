@@ -808,10 +808,14 @@ main:has(.chat-shell) {
   /* Text segments breathe: more above than below, same whether alone in a
      turn or followed by tool-call segments. */
   .chat-segment--text {
+    /* Single source of truth for the text line-height: the collapsible clamp
+       (.chat-text--clamped) multiplies it by the line budget, and
+       chat-stream.js reads it back via computed style. */
+    --chat-text-line-height: 1.7;
     margin-top: 0.5rem;
     margin-bottom: 0.25rem;
     font-size: 15.5px;
-    line-height: 1.7;
+    line-height: var(--chat-text-line-height);
   }
 
   /* User turn: no thread line, bubble hugs the right edge */
@@ -837,11 +841,12 @@ main:has(.chat-shell) {
   }
 
   /* Collapsible tall user messages: clamp to a line budget with a bottom fade
-     and a Show more/less toggle. --chat-user-clamp-lines is the single source of
-     truth for the budget; chat-stream.js reads it back so JS and CSS never drift.
-     1.7em matches the line-height set on .chat-segment--text, so the budget maps
-     to rendered text lines. The fade uses a mask (not a colour overlay) so it is
-     independent of the semi-transparent bubble background. */
+     and a Show more/less toggle. The clamp height is derived from two custom
+     properties so JS and CSS never drift: --chat-user-clamp-lines (the budget,
+     read back by chat-stream.js) and --chat-text-line-height (set on
+     .chat-segment--text, the source of truth for the rendered line height). The
+     fade uses a mask (not a colour overlay) so it is independent of the
+     semi-transparent bubble background. */
   .chat-user-msg {
     --chat-user-clamp-lines: 7;
     display: flex;
@@ -850,9 +855,9 @@ main:has(.chat-shell) {
     gap: 4px;
   }
 
-  .chat-text.chat-user-msg--clamped {
+  .chat-text--clamped {
     display: block;
-    max-height: calc(var(--chat-user-clamp-lines) * 1.7em);
+    max-height: calc(var(--chat-user-clamp-lines) * var(--chat-text-line-height) * 1em);
     overflow: hidden;
     -webkit-mask-image: linear-gradient(to bottom, #000 68%, transparent);
             mask-image: linear-gradient(to bottom, #000 68%, transparent);

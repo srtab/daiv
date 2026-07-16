@@ -193,12 +193,14 @@
                           </template>
                         </template>
                         <template x-if="seg.type === 'text' && turn.role === 'user'">
-                          <div class="chat-user-msg" x-data="userClamp()" x-init="measure()">
+                          <div class="chat-user-msg" x-data="userClamp(`chat-user-text-${turn.id}-${si}`)">
                             <span class="chat-text"
-                                  :class="{ 'chat-user-msg--clamped': collapsed }"
+                                  :id="id"
+                                  :class="{ 'chat-text--clamped': collapsed }"
                                   x-text="seg.content"></span>
                             <button type="button" class="chat-user-msg__toggle" x-cloak
                                     x-show="overflowing"
+                                    :aria-controls="id"
                                     :aria-expanded="(!collapsed).toString()"
                                     @click="collapsed = !collapsed"
                                     x-text="collapsed ? '{{ show_more_label|escapejs }}' : '{{ show_less_label|escapejs }}'"></button>
