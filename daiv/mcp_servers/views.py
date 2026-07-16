@@ -13,6 +13,7 @@ from django.views.generic import TemplateView
 
 from asgiref.sync import async_to_sync
 
+from accounts.mixins import AdminRequiredMixin
 from core.encryption import DecryptionError
 from mcp_servers import services
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset, build_tool_choices
@@ -38,12 +39,12 @@ def _decorate(servers, *, global_names=frozenset()):
     return servers
 
 
-class _MCPFormKwargsMixin:
-    """Shared form kwargs for the create/edit views: the acting user and their
-    admin flag drive the form's scope choices and owner binding."""
-
-    def _form_kwargs(self):
-        return {"user": self.request.user, "is_admin": self.request.user.is_admin}
+def _list_url_for(obj: MCPServer) -> str:
+    """List page matching the row's scope, so success/error flashes land on the
+    page the user acted from."""
+    if obj.scope == MCPServer.Scope.GLOBAL:
+        return reverse("mcp_servers:global_list")
+    return reverse("mcp_servers:list")
 
 
 class MCPServerListView(LoginRequiredMixin, TemplateView):
@@ -74,13 +75,36 @@ class MCPServerListView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class MCPServerCreateView(_MCPFormKwargsMixin, LoginRequiredMixin, View):
+class MCPServerGlobalListView(AdminRequiredMixin, TemplateView):
+    """Admin-only management page for GLOBAL rows. A TemplateView, not a
+    FilterView: the page is a union of two sections (custom + built-in), not a
+    single filterable queryset."""
+
+    template_name = "mcp_servers/global_list.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        global_rows = list(MCPServer.objects.global_servers())
+        ctx["global_custom_servers"] = _decorate([s for s in global_rows if not s.is_builtin()])
+        ctx["global_builtin_servers"] = _decorate([s for s in global_rows if s.is_builtin()])
+        return ctx
+
+
+class MCPServerCreateView(LoginRequiredMixin, View):
     http_method_names = ["get", "post"]
     template_name = "mcp_servers/form.html"
+    # Which scope this entry point creates. The personal route uses the default;
+    # the global route is the AdminRequiredMixin subclass below.
+    scope = MCPServer.Scope.USER
+
+    def _form_kwargs(self):
+        return {"user": self.request.user, "scope": self.scope}
 
     def _formset_kwargs(self):
-        # Members' new servers accept literal headers only.
-        return {"form_kwargs": {"literal_only": not self.request.user.is_admin}}
+        # Personal servers accept literal headers only (the runtime never
+        # resolves env_ref for user-scoped rows) — keyed on scope, not on the
+        # acting user's role, so admin personal servers behave like members'.
+        return {"form_kwargs": {"literal_only": self.scope == MCPServer.Scope.USER}}
 
     def get(self, request):
         return self._render(
@@ -107,7 +131,7 @@ class MCPServerCreateView(_MCPFormKwargsMixin, LoginRequiredMixin, View):
                 _("'%(name)s' was saved, but its tools couldn't be refreshed: %(error)s")
                 % {"name": obj.name, "error": result.get("error") or _("unknown error")},
             )
-        return redirect(reverse("mcp_servers:list"))
+        return redirect(_list_url_for(obj))
 
     def _render(self, request, form, formset, *, status=200):
         # Create never has a saved server to discover against, so there are no
@@ -115,12 +139,16 @@ class MCPServerCreateView(_MCPFormKwargsMixin, LoginRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            {"form": form, "formset": formset, "mode": "create", "tool_choices": []},
+            {"form": form, "formset": formset, "mode": "create", "scope": self.scope, "tool_choices": []},
             status=status,
         )
 
 
-class MCPServerEditView(_MCPFormKwargsMixin, LoginRequiredMixin, View):
+class MCPServerGlobalCreateView(AdminRequiredMixin, MCPServerCreateView):
+    scope = MCPServer.Scope.GLOBAL
+
+
+class MCPServerEditView(LoginRequiredMixin, View):
     http_method_names = ["get", "post"]
     template_name = "mcp_servers/form.html"
 
@@ -139,7 +167,7 @@ class MCPServerEditView(_MCPFormKwargsMixin, LoginRequiredMixin, View):
                 )
                 % {"name": obj.name},
             )
-        form = MCPServerForm(instance=obj, **self._form_kwargs())
+        form = MCPServerForm(instance=obj, user=request.user)
         formset = MCPServerHeaderFormSet(initial=initial, prefix="headers", **self._formset_kwargs(obj))
         return self._render(request, obj, form, formset, selected=obj.tool_filter_items, headers_locked=headers_locked)
 
@@ -159,7 +187,7 @@ class MCPServerEditView(_MCPFormKwargsMixin, LoginRequiredMixin, View):
             )
             return redirect(reverse("mcp_servers:edit", args=[obj.pk]))
 
-        form = MCPServerForm(request.POST, instance=obj, **self._form_kwargs())
+        form = MCPServerForm(request.POST, instance=obj, user=request.user)
         formset = MCPServerHeaderFormSet(request.POST, prefix="headers", **self._formset_kwargs(obj))
         if not (form.is_valid() and formset.is_valid()):
             return self._render(

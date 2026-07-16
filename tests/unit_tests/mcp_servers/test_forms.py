@@ -5,6 +5,7 @@ from django.http import QueryDict
 
 import pytest
 from mcp_servers.forms import MCPServerForm, ToolFilterItemsField
+from mcp_servers.models import MCPServer
 
 
 @pytest.mark.django_db
@@ -18,9 +19,8 @@ def test_valid_minimal_form_creates_row():
             "enabled": "on",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
-            "scope": "global",
         },
-        is_admin=True,
+        scope=MCPServer.Scope.GLOBAL,
     )
     assert form.is_valid(), form.errors
     obj = form.save()
@@ -42,8 +42,8 @@ def test_url_validator_wired_to_form():
         "tool_filter_mode": "none",
         "tool_filter_items": "",
     }
-    assert MCPServerForm(data={**base, "url": "http://mcp_rt:8000/mcp"}).is_valid()
-    bad = MCPServerForm(data={**base, "url": "not-a-url"})
+    assert MCPServerForm(data={**base, "url": "http://mcp_rt:8000/mcp"}, scope=MCPServer.Scope.USER).is_valid()
+    bad = MCPServerForm(data={**base, "url": "not-a-url"}, scope=MCPServer.Scope.USER)
     assert not bad.is_valid()
     assert "url" in bad.errors
 
@@ -58,7 +58,8 @@ def test_invalid_name_pattern_rejected():
             "enabled": "on",
             "tool_filter_mode": "none",
             "tool_filter_items": "",
-        }
+        },
+        scope=MCPServer.Scope.USER,
     )
     assert not form.is_valid()
     assert "name" in form.errors
@@ -74,7 +75,8 @@ def test_tool_filter_items_required_when_mode_not_none():
             "enabled": "on",
             "tool_filter_mode": "allow",
             "tool_filter_items": "",
-        }
+        },
+        scope=MCPServer.Scope.USER,
     )
     assert not form.is_valid()
     assert "tool_filter_items" in form.errors
@@ -90,9 +92,8 @@ def test_tool_filter_items_parsed_from_newline_separated_text():
             "enabled": "on",
             "tool_filter_mode": "allow",
             "tool_filter_items": "search_events\nfind_organizations\n",
-            "scope": "global",
         },
-        is_admin=True,
+        scope=MCPServer.Scope.GLOBAL,
     )
     assert form.is_valid(), form.errors
     obj = form.save()
@@ -242,7 +243,8 @@ def test_header_formset_value_without_name_is_rejected():
 def test_reserved_name_rejected():
     """Names that collide with non-slug URL segments are rejected at the form layer."""
     form = MCPServerForm(
-        data={"name": "test", "transport": "http", "url": "http://x.test", "enabled": "on", "tool_filter_mode": "none"}
+        data={"name": "test", "transport": "http", "url": "http://x.test", "enabled": "on", "tool_filter_mode": "none"},
+        scope=MCPServer.Scope.USER,
     )
     assert not form.is_valid()
     assert "name" in form.errors
@@ -270,9 +272,7 @@ def test_name_cannot_change_on_edit():
 
 @pytest.mark.django_db
 def test_name_widget_readonly_on_edit_not_on_create():
-    from mcp_servers.models import MCPServer
-
-    create_form = MCPServerForm()
+    create_form = MCPServerForm(scope=MCPServer.Scope.USER)
     assert "readonly" not in create_form.fields["name"].widget.attrs
 
     obj = MCPServer.objects.create(name="fixed", transport="http", url="http://x.test")
@@ -309,7 +309,6 @@ def test_form_with_checkboxes_saves_selected_items():
     obj = MCPServer.objects.create(name="demo", transport="http", url="http://demo.test")
     form = MCPServerForm(
         instance=obj,
-        is_admin=True,
         data={
             "name": "demo",
             "transport": "http",
@@ -357,7 +356,6 @@ def _base_form_data(**overrides):
         "url": "http://multi.test/mcp",
         "enabled": "on",
         "tool_filter_mode": "allow",
-        "scope": "global",
     }
     data.update(overrides)
     return data
@@ -368,7 +366,7 @@ def test_tool_filter_items_accepts_repeated_checkbox_values():
     qd = QueryDict(mutable=True)
     qd.update(_base_form_data())
     qd.setlist("tool_filter_items", ["tool_a", "tool_b"])
-    form = MCPServerForm(qd, is_admin=True)
+    form = MCPServerForm(qd, scope=MCPServer.Scope.GLOBAL)
     assert form.is_valid(), form.errors
     assert form.cleaned_data["tool_filter_items"] == ["tool_a", "tool_b"]
 
@@ -377,7 +375,7 @@ def test_tool_filter_items_accepts_repeated_checkbox_values():
 def test_tool_filter_items_accepts_newline_joined_textarea():
     qd = QueryDict(mutable=True)
     qd.update(_base_form_data(tool_filter_items="tool_a\n tool_b \n\n"))
-    form = MCPServerForm(qd, is_admin=True)
+    form = MCPServerForm(qd, scope=MCPServer.Scope.GLOBAL)
     assert form.is_valid(), form.errors
     assert form.cleaned_data["tool_filter_items"] == ["tool_a", "tool_b"]
 
@@ -386,7 +384,7 @@ def test_tool_filter_items_accepts_newline_joined_textarea():
 def test_tool_filter_items_empty_with_mode_still_errors():
     qd = QueryDict(mutable=True)
     qd.update(_base_form_data(tool_filter_items=""))
-    form = MCPServerForm(qd, is_admin=True)
+    form = MCPServerForm(qd, scope=MCPServer.Scope.GLOBAL)
     assert not form.is_valid()
     assert "tool_filter_items" in form.errors
 
@@ -456,7 +454,11 @@ def test_build_tool_choices_skips_empty_and_deduplicates():
 
 
 # ---------------------------------------------------------------------------
-# Task 4: scope-aware form tests
+# Scope is not a form field: it comes from the create view's URL entry point
+# (``scope=`` kwarg) or, on edit, from the instance. The old member-scope-choice
+# restriction and "Only administrators can create global MCP servers" clean_scope
+# validation are gone — that guard is now the view-level 403 on global_create
+# (see test_views.py::test_global_create_forbidden_for_member).
 # ---------------------------------------------------------------------------
 
 
@@ -468,36 +470,14 @@ def _data(**over):
         "url": "https://x.test/mcp",
         "enabled": "on",
         "tool_filter_mode": "none",
-        "scope": "user",
     }
     d.update(over)
     return d
 
 
 @pytest.mark.django_db
-def test_member_is_pinned_to_user_scope(member_user):
-    form = MCPServerForm(user=member_user, is_admin=False)
-    assert [c[0] for c in form.fields["scope"].choices] == ["user"]
-
-
-@pytest.mark.django_db
-def test_admin_gets_both_scopes(admin_user):
-    form = MCPServerForm(user=admin_user, is_admin=True)
-    assert {c[0] for c in form.fields["scope"].choices} == {"user", "global"}
-
-
-@pytest.mark.django_db
-def test_member_cannot_submit_global_scope(member_user):
-    form = MCPServerForm(data=_data(scope="global"), user=member_user, is_admin=False)
-    assert not form.is_valid()
-    assert "scope" in form.errors
-
-
-@pytest.mark.django_db
 def test_user_server_save_sets_owner(member_user):
-    from mcp_servers.models import MCPServer
-
-    form = MCPServerForm(data=_data(), user=member_user, is_admin=False)
+    form = MCPServerForm(data=_data(), user=member_user, scope=MCPServer.Scope.USER)
     assert form.is_valid(), form.errors
     obj = form.save()
     assert obj.scope == MCPServer.Scope.USER
@@ -506,18 +486,16 @@ def test_user_server_save_sets_owner(member_user):
 
 @pytest.mark.django_db
 def test_user_create_rejects_name_of_existing_global(member_user):
-    from mcp_servers.models import MCPServer
-
     MCPServer.objects.create(
         name="taken", scope=MCPServer.Scope.GLOBAL, transport=MCPServer.Transport.HTTP, url="https://g.test/mcp"
     )
-    form = MCPServerForm(data=_data(name="taken"), user=member_user, is_admin=False)
+    form = MCPServerForm(data=_data(name="taken"), user=member_user, scope=MCPServer.Scope.USER)
     assert not form.is_valid()
     assert "name" in form.errors
 
 
 # ---------------------------------------------------------------------------
-# Fix 2: MCPServerHeaderForm literal_only and scope immutability
+# Fix 2: MCPServerHeaderForm literal_only
 # ---------------------------------------------------------------------------
 
 
@@ -542,30 +520,27 @@ def test_header_form_literal_only_rejects_env_ref_submission():
 
 
 @pytest.mark.django_db
-def test_edit_scope_field_is_disabled_and_immutable(member_user):
-    """On edit, scope is disabled so a POSTed different scope is ignored and the
-    instance's scope is preserved — Django substitutes the instance value for
-    disabled fields rather than reading from POST."""
-    from mcp_servers.models import MCPServer
-
+def test_edit_ignores_smuggled_scope_in_post_data(member_user):
+    """Scope is not a form field on edit: a POSTed 'scope' key (e.g. a tampered
+    request) has nothing to bind to and is silently ignored. ``save()`` only
+    assigns ``self.scope`` to the instance for NEW rows (``instance.pk is None``),
+    so an edit's instance.scope is never touched by the form at all."""
     obj = MCPServer.objects.create(
         name="scoped", scope=MCPServer.Scope.USER, user=member_user, transport="http", url="https://x.test/mcp"
     )
-    # Attempt to change scope to global via POST (a disabled field is ignored by Django).
     form = MCPServerForm(
         instance=obj,
-        is_admin=True,
+        user=member_user,
         data={
             "name": "scoped",
             "transport": "http",
             "url": "https://x.test/mcp",
             "enabled": "on",
             "tool_filter_mode": "none",
-            "scope": "global",  # attacker-controlled value — must be ignored
+            "scope": "global",  # attacker-controlled value — must be ignored; not a form field
         },
     )
-    assert form.fields["scope"].disabled is True, "scope field must be disabled on edit"
+    assert "scope" not in form.fields
     assert form.is_valid(), form.errors
-    # Django substitutes the instance's value for disabled fields; cleaned scope must
-    # equal the instance's scope regardless of what was POSTed.
-    assert form.cleaned_data["scope"] == MCPServer.Scope.USER
+    saved = form.save()
+    assert saved.scope == MCPServer.Scope.USER

@@ -101,12 +101,13 @@ def build_tool_choices(discovered_tools, selected):
 class MCPServerForm(forms.ModelForm):
     """Create/edit an MCP server (global or user-scoped).
 
-    Tool-filter items always use a getlist-aware textarea widget for data
-    handling; the discovered-tool checkbox list is rendered by the template
-    from ``build_tool_choices`` context, not by swapping this field's widget.
-    On edit, ``name`` and ``scope`` are immutable (read-only/disabled +
-    ``clean_name``/``clean_scope`` guards). Members are restricted to
-    ``scope=user`` (see ``__init__`` / ``clean_scope``).
+    ``scope`` is not a form field: it is fixed by the entry point — the create
+    view's URL route supplies it as a kwarg, and on edit it is derived from the
+    immutable instance value. Tool-filter items always use a getlist-aware
+    textarea widget for data handling; the discovered-tool checkbox list is
+    rendered by the template from ``build_tool_choices`` context, not by
+    swapping this field's widget. On edit, ``name`` is immutable
+    (read-only + ``clean_name`` guard).
     """
 
     tool_filter_items = ToolFilterItemsField(
@@ -117,23 +118,21 @@ class MCPServerForm(forms.ModelForm):
 
     class Meta:
         model = MCPServer
-        fields = ("name", "description", "transport", "url", "enabled", "tool_filter_mode", "scope")
+        fields = ("name", "description", "transport", "url", "enabled", "tool_filter_mode")
         widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
-    def __init__(self, *args, user=None, is_admin=False, **kwargs):
+    def __init__(self, *args, user=None, scope=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        self.is_admin = is_admin
-        if not is_admin:
-            # Restrict choices (not disable) so a submitted GLOBAL is rejected by
-            # choice validation / clean_scope rather than silently coerced.
-            self.fields["scope"].choices = [(MCPServer.Scope.USER.value, MCPServer.Scope.USER.label)]
-            self.fields["scope"].initial = MCPServer.Scope.USER
         if self.instance.pk is not None:
+            self.scope = self.instance.scope
             self.fields["tool_filter_items"].initial = list(self.instance.tool_filter_items or [])
-            # Name and scope are immutable after creation.
+            # Name is immutable after creation.
             self.fields["name"].widget.attrs["readonly"] = True
-            self.fields["scope"].disabled = True
+        else:
+            if scope not in (MCPServer.Scope.USER, MCPServer.Scope.GLOBAL):
+                raise ValueError("MCPServerForm requires an explicit scope for creates.")
+            self.scope = scope
 
     def clean_name(self):
         name = self.cleaned_data["name"]
@@ -145,26 +144,15 @@ class MCPServerForm(forms.ModelForm):
             raise forms.ValidationError(_("'%(name)s' is a reserved name and cannot be used.") % {"name": name})
         return name
 
-    def clean_scope(self):
-        # On edit the field is disabled (see __init__), so Django ignores the POSTed
-        # value and cleaned_data["scope"] is always the instance's — scope immutability
-        # needs no separate guard here. This only gates the create-time GLOBAL choice.
-        scope = self.cleaned_data["scope"]
-        if scope == MCPServer.Scope.GLOBAL and not self.is_admin:
-            raise forms.ValidationError(_("Only administrators can create global MCP servers."))
-        return scope
-
     def clean(self):
         cleaned = super().clean()
         # A user-scoped create must not reuse a global server's name (global wins at
-        # runtime; block it up front to avoid a silently-shadowed row). Done here, not
-        # in clean_name, so it reads the *validated* scope from cleaned_data rather than
-        # re-parsing raw POST — the two fields must agree on the same source of truth.
+        # runtime; block it up front to avoid a silently-shadowed row).
         name = cleaned.get("name")
         if (
             self.instance.pk is None
             and name
-            and cleaned.get("scope") == MCPServer.Scope.USER
+            and self.scope == MCPServer.Scope.USER
             and MCPServer.objects.global_servers().filter(name=name).exists()
         ):
             self.add_error(
@@ -183,7 +171,9 @@ class MCPServerForm(forms.ModelForm):
 
     def save(self, commit: bool = True) -> MCPServer:
         self.instance.tool_filter_items = self.cleaned_data.get("tool_filter_items", [])
-        if self.instance.scope == MCPServer.Scope.USER and self.user is not None:
+        if self.instance.pk is None:
+            self.instance.scope = self.scope
+        if self.scope == MCPServer.Scope.USER and self.user is not None:
             self.instance.user = self.user
         return super().save(commit=commit)
 

@@ -4,6 +4,8 @@ from mcp_servers.views import (
     MCPServerCreateView,
     MCPServerDeleteView,
     MCPServerEditView,
+    MCPServerGlobalCreateView,
+    MCPServerGlobalListView,
     MCPServerListView,
     MCPServerRefreshToolsView,
     MCPServerTestView,
@@ -15,6 +17,8 @@ app_name = "mcp_servers"
 urlpatterns = [
     path("", MCPServerListView.as_view(), name="list"),
     path("new/", MCPServerCreateView.as_view(), name="create"),
+    path("global/", MCPServerGlobalListView.as_view(), name="global_list"),
+    path("global/new/", MCPServerGlobalCreateView.as_view(), name="global_create"),
     path("test/", MCPServerTestView.as_view(), name="test"),
     path("<int:pk>/edit/", MCPServerEditView.as_view(), name="edit"),
     path("<int:pk>/delete/", MCPServerDeleteView.as_view(), name="delete"),

@@ -52,7 +52,6 @@ def test_member_can_create_personal_server(member_client, member_user):
             "url": "https://u.test/mcp",
             "enabled": "on",
             "tool_filter_mode": "none",
-            "scope": "user",
             "headers-TOTAL_FORMS": "0",
             "headers-INITIAL_FORMS": "0",
             "headers-MIN_NUM_FORMS": "0",
@@ -147,10 +146,9 @@ def test_create_get_exposes_add_header_affordance(client, admin_user):
 def test_create_post_creates_server(client, admin_user):
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:create"),
+        reverse("mcp_servers:global_create"),
         data={
             "name": "from-ui",
-            "scope": "global",
             "transport": "http",
             "url": "http://from-ui.test/mcp",
             "enabled": "on",
@@ -163,6 +161,7 @@ def test_create_post_creates_server(client, admin_user):
         },
     )
     assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")
     assert MCPServer.objects.filter(name="from-ui").exists()
 
 
@@ -527,10 +526,9 @@ def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:create"),
+        reverse("mcp_servers:global_create"),
         data={
             "name": "synced-create",
-            "scope": "global",
             "transport": "http",
             "url": "http://from-ui.test/mcp",
             "enabled": "on",
@@ -543,6 +541,7 @@ def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
         },
     )
     assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")
     assert MCPServer.objects.filter(name="synced-create").exists()
     assert called["name"] == "synced-create"
 
@@ -1101,3 +1100,111 @@ def test_list_flags_shadowed_personal_server(member_client, member_user):
     assert b"Shadowed" in resp.content
     # The unique-named server must not be flagged: exactly one Shadowed badge overall.
     assert resp.content.count(b"Shadowed") == 1
+
+
+# --- Split views: global page + scope-from-entry-point ---
+
+
+def _create_post_data(name="srv", url="https://srv.test/mcp"):
+    """Minimal valid create POST. Deliberately has NO 'scope' key: scope is
+    derived from the URL route, never from POST data."""
+    return {
+        "name": name,
+        "description": "",
+        "transport": "http",
+        "url": url,
+        "enabled": "on",
+        "tool_filter_mode": "none",
+        "tool_filter_items": "",
+        "headers-TOTAL_FORMS": "0",
+        "headers-INITIAL_FORMS": "0",
+        "headers-MIN_NUM_FORMS": "0",
+        "headers-MAX_NUM_FORMS": "50",
+    }
+
+
+@pytest.mark.django_db
+def test_global_list_forbidden_for_member(member_client):
+    resp = member_client.get(reverse("mcp_servers:global_list"))
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_global_list_shows_custom_and_builtin_sections(admin_client):
+    _global(name="custom-one")
+    resp = admin_client.get(reverse("mcp_servers:global_list"))
+    assert resp.status_code == 200
+    assert b"custom-one" in resp.content
+    assert b"Built-in" in resp.content
+
+
+@pytest.mark.django_db
+def test_global_create_forbidden_for_member(member_client):
+    assert member_client.get(reverse("mcp_servers:global_create")).status_code == 403
+    resp = member_client.post(reverse("mcp_servers:global_create"), data=_create_post_data())
+    assert resp.status_code == 403
+    assert not MCPServer.objects.filter(name="srv").exists()
+
+
+@pytest.mark.django_db
+def test_global_create_makes_global_row_and_redirects_to_global_list(admin_client):
+    resp = admin_client.post(reverse("mcp_servers:global_create"), data=_create_post_data(name="gnew"))
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")
+    obj = MCPServer.objects.get(name="gnew")
+    assert obj.scope == MCPServer.Scope.GLOBAL and obj.user_id is None
+
+
+@pytest.mark.django_db
+def test_personal_create_is_user_scoped_even_for_admin(admin_client, admin_user):
+    resp = admin_client.post(reverse("mcp_servers:create"), data=_create_post_data(name="padmin"))
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:list")
+    obj = MCPServer.objects.get(name="padmin")
+    assert obj.scope == MCPServer.Scope.USER and obj.user_id == admin_user.id
+
+
+@pytest.mark.django_db
+def test_personal_create_ignores_smuggled_scope_param(member_client, member_user):
+    data = _create_post_data(name="smuggle") | {"scope": "global"}
+    resp = member_client.post(reverse("mcp_servers:create"), data=data)
+    assert resp.status_code == 302
+    obj = MCPServer.objects.get(name="smuggle")
+    assert obj.scope == MCPServer.Scope.USER and obj.user_id == member_user.id
+
+
+@pytest.mark.django_db
+def test_personal_create_rejects_env_ref_headers_even_for_admin(admin_client):
+    """Create-time literal_only is keyed on scope now, not on is_admin: a
+    personal server may never carry env_ref headers, admin or not."""
+    data = _create_post_data(name="envref") | {
+        "headers-TOTAL_FORMS": "1",
+        "headers-0-name": "Authorization",
+        "headers-0-mode": "env_ref",
+        "headers-0-value": "HOST_SECRET",
+    }
+    resp = admin_client.post(reverse("mcp_servers:create"), data=data)
+    assert resp.status_code == 400
+    assert not MCPServer.objects.filter(name="envref").exists()
+
+
+@pytest.mark.django_db
+def test_global_create_still_accepts_env_ref_headers(admin_client):
+    data = _create_post_data(name="genvref") | {
+        "headers-TOTAL_FORMS": "1",
+        "headers-0-name": "Authorization",
+        "headers-0-mode": "env_ref",
+        "headers-0-value": "HOST_SECRET",
+    }
+    resp = admin_client.post(reverse("mcp_servers:global_create"), data=data)
+    assert resp.status_code == 302
+    obj = MCPServer.objects.get(name="genvref")
+    assert obj.headers == [{"name": "Authorization", "mode": "env_ref", "value": "HOST_SECRET"}]
+
+
+@pytest.mark.django_db
+def test_create_subtitles_state_the_scope(admin_client):
+    personal = admin_client.get(reverse("mcp_servers:create"))
+    glob = admin_client.get(reverse("mcp_servers:global_create"))
+    assert "Personal server" in personal.content.decode()
+    assert "Global server" in glob.content.decode()

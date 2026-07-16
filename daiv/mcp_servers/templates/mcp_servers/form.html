@@ -16,7 +16,9 @@
         {% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}
     </h1>
     <p class="mt-1.5 text-[15px] font-light text-gray-400">
-        {% if mode == "create" %}{% translate "Connect an MCP server to give the agent extra tools and context." %}
+        {% if mode == "create" %}
+            {% if scope == "global" %}{% translate "Global server — loads in every run." %}
+            {% else %}{% translate "Personal server — loads only in runs you trigger." %}{% endif %}
         {% elif builtin %}{% translate "Built-in server — it can be edited and disabled, but not renamed or deleted." %}
         {% else %}{% blocktranslate with name=object.name %}Update “{{ name }}”.{% endblocktranslate %}{% endif %}
     </p>
