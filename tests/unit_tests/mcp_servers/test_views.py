@@ -1309,3 +1309,17 @@ def test_edit_global_save_redirects_to_global_list(admin_client):
     )
     assert resp.status_code == 302
     assert resp.url == reverse("mcp_servers:global_list")
+
+
+# --- Form layout ---
+
+
+@pytest.mark.django_db
+def test_create_form_header_hosts_enabled_toggle(admin_client):
+    resp = admin_client.get(reverse("mcp_servers:create"))
+    body = resp.content.decode()
+    assert 'id="mcp-server-form"' in body
+    # The toggle lives outside <form> and binds via the form attribute, checked by default.
+    assert 'form="mcp-server-form"' in body
+    toggle = next(seg for seg in body.split("<input") if 'form="mcp-server-form"' in seg)
+    assert "checked" in toggle

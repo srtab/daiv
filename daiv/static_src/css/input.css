@@ -98,6 +98,12 @@ main:has(.chat-shell) {
            hover:border-red-800/50 hover:bg-red-950/40 hover:text-red-300;
   }
 
+  .btn-ghost-dashed {
+    @apply inline-flex items-center gap-1.5 rounded-xl border border-dashed border-white/[0.12]
+           bg-transparent px-4 py-2 font-medium text-gray-500 transition-all duration-200
+           hover:border-white/[0.25] hover:text-gray-300;
+  }
+
   .mcp-tool-list__scroll {
     @apply max-h-72 space-y-0.5 overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02] p-1;
   }

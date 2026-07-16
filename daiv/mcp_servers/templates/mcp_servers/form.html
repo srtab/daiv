@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load i18n static %}
+{% load i18n icon_tags static %}
 
 {% block title %}{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %} — DAIV{% endblock %}
 
@@ -11,17 +11,28 @@
 {% endblock alpine_plugins %}
 
 {% block app_content %}
-<div class="animate-fade-up">
-    <h1 class="text-2xl font-bold tracking-tight">
-        {% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}
-    </h1>
-    <p class="mt-1.5 text-[15px] font-light text-gray-400">
-        {% if mode == "create" %}
-            {% if scope == "global" %}{% translate "Global server — loads in every run." %}
-            {% else %}{% translate "Personal server — loads only in runs you trigger." %}{% endif %}
-        {% elif builtin %}{% translate "Built-in server — it can be edited and disabled, but not renamed or deleted." %}
-        {% else %}{% blocktranslate with name=object.name %}Update “{{ name }}”.{% endblocktranslate %}{% endif %}
-    </p>
+<div class="animate-fade-up flex items-start justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">
+            {% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}
+        </h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% if mode == "create" %}
+                {% if scope == "global" %}{% translate "Global server — loads in every run." %}
+                {% else %}{% translate "Personal server — loads only in runs you trigger." %}{% endif %}
+            {% elif builtin %}{% translate "Built-in server — it can be edited and disabled, but not renamed or deleted." %}
+            {% else %}{% blocktranslate with name=object.name %}Update “{{ name }}”.{% endblocktranslate %}{% endif %}
+        </p>
+    </div>
+    <div class="flex shrink-0 items-center gap-3 pt-1.5">
+        <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
+        <label class="toggle-switch">
+            <input type="checkbox" name="{{ form.enabled.html_name }}" form="mcp-server-form"
+                   class="toggle-switch__input" {% if form.enabled.value %}checked{% endif %}>
+            <span class="toggle-switch__track"></span>
+        </label>
+        {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
+    </div>
 </div>
 
 {% if form.non_field_errors %}
@@ -38,7 +49,7 @@
 </div>
 {% endif %}
 
-<form method="post"
+<form id="mcp-server-form" method="post"
       class="animate-fade-up mt-8 space-y-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6"
       style="animation-delay: 50ms"
       x-data="mcpTestConnection({
@@ -70,29 +81,21 @@
             <div class="mt-1.5">{{ form.description }}</div>
             {% for e in form.description.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
         </div>
-
-        <div class="flex items-center gap-3">
-            <label class="toggle-switch">
-                <input type="checkbox" name="{{ form.enabled.html_name }}" class="toggle-switch__input" {% if form.enabled.value %}checked{% endif %}>
-                <span class="toggle-switch__track"></span>
-            </label>
-            <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
-            {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
-        </div>
     </fieldset>
 
     {# ── Connection ────────────────────────────────────────────── #}
     <fieldset class="space-y-5 border-t border-white/[0.06] pt-6">
         <legend class="text-[15px] font-semibold text-gray-200">{% translate "Connection" %}</legend>
 
-        {% include "mcp_servers/_segmented_control.html" with field=form.transport model="transport" %}
-
-        <div>
-            <label for="{{ form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-                {{ form.url.label }} <span class="text-red-400">*</span>
-            </label>
-            <div class="mt-1.5">{{ form.url }}</div>
-            {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        <div class="grid gap-5 sm:grid-cols-[auto_1fr]">
+            {% include "mcp_servers/_segmented_control.html" with field=form.transport model="transport" %}
+            <div>
+                <label for="{{ form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+                    {{ form.url.label }} <span class="text-red-400">*</span>
+                </label>
+                <div class="mt-1.5">{{ form.url }}</div>
+                {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+            </div>
         </div>
 
         <fieldset {% if headers_locked %}disabled{% endif %}>
@@ -111,21 +114,22 @@
                 <template x-ref="rowTemplate">
                     {% include "mcp_servers/_header_row.html" with header_form=formset.empty_form %}
                 </template>
-                <button type="button" @click="addRow()" class="btn-secondary mt-3 text-sm">
-                    + {% translate "Add header" %}
+                <button type="button" @click="addRow()" class="btn-ghost-dashed mt-3 text-sm">
+                    {% icon "plus" "h-4 w-4" %} {% translate "Add header" %}
                 </button>
             </div>
         </fieldset>
 
-        <div class="flex items-center gap-3">
-            <button type="button" @click="test()" :disabled="state === 'testing'" class="btn-secondary text-sm">
-                <span x-show="state !== 'testing'">{% translate "Test connection" %}</span>
-                <span x-show="state === 'testing'" x-cloak>{% translate "Testing…" %}</span>
-            </button>
+        <div class="flex items-center justify-end gap-3">
             <span x-show="state === 'ok'" x-cloak class="text-sm text-emerald-300">
                 <span x-text="toolCount"></span> {% translate "tools discovered" %}
             </span>
             <span x-show="state === 'error'" x-cloak class="text-sm text-red-300" x-text="error"></span>
+            <button type="button" @click="test()" :disabled="state === 'testing'" class="btn-secondary gap-1.5 text-sm">
+                {% icon "bolt" "h-4 w-4" %}
+                <span x-show="state !== 'testing'">{% translate "Test connection" %}</span>
+                <span x-show="state === 'testing'" x-cloak>{% translate "Testing…" %}</span>
+            </button>
         </div>
     </fieldset>
 
