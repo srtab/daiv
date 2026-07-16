@@ -871,6 +871,12 @@ main:has(.chat-shell) {
     text-decoration: underline;
   }
 
+  .chat-user-msg__toggle:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.5);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
   .chat-turn-wrap { display: contents; }
 
   .chat-run-status {
