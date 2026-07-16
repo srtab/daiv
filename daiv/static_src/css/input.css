@@ -836,6 +836,41 @@ main:has(.chat-shell) {
     overflow-wrap: break-word;
   }
 
+  /* Collapsible tall user messages: clamp to a line budget with a bottom fade
+     and a Show more/less toggle. --chat-user-clamp-lines is the single source of
+     truth for the budget; chat-stream.js reads it back so JS and CSS never drift.
+     1.7em matches the line-height set on .chat-segment--text, so the budget maps
+     to rendered text lines. The fade uses a mask (not a colour overlay) so it is
+     independent of the semi-transparent bubble background. */
+  .chat-user-msg {
+    --chat-user-clamp-lines: 7;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .chat-text.chat-user-msg--clamped {
+    display: block;
+    max-height: calc(var(--chat-user-clamp-lines) * 1.7em);
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 68%, transparent);
+            mask-image: linear-gradient(to bottom, #000 68%, transparent);
+  }
+
+  .chat-user-msg__toggle {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 12px;
+    color: #93c5fd;
+    cursor: pointer;
+  }
+
+  .chat-user-msg__toggle:hover {
+    text-decoration: underline;
+  }
+
   .chat-turn-wrap { display: contents; }
 
   .chat-run-status {

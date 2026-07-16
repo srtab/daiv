@@ -938,7 +938,34 @@
     },
   });
 
+  // Collapse tall user-message bubbles. Measures the rendered height once on
+  // init: user text is immutable after creation, and Alpine's keyed x-for reuses
+  // the DOM node across the wholesale `turns` reassignment that polling performs,
+  // so a single measurement is stable. The line budget is read back from the
+  // --chat-user-clamp-lines CSS custom property so JS and CSS share one value.
+  const userClamp = () => ({
+    collapsed: false,
+    overflowing: false,
+    measure() {
+      this.$nextTick(() => {
+        const el = this.$el.querySelector(".chat-text");
+        if (!el) return;
+        const styles = getComputedStyle(el);
+        const maxLines =
+          parseInt(styles.getPropertyValue("--chat-user-clamp-lines"), 10) || 7;
+        const lineHeight = parseFloat(styles.lineHeight) || 26;
+        // +1 absorbs sub-pixel rounding so a bubble exactly maxLines tall is
+        // left alone rather than clamped.
+        if (el.scrollHeight > lineHeight * maxLines + 1) {
+          this.overflowing = true;
+          this.collapsed = true;
+        }
+      });
+    },
+  });
+
   document.addEventListener("alpine:init", () => {
     window.Alpine.data("chat", chat);
+    window.Alpine.data("userClamp", userClamp);
   });
 })();

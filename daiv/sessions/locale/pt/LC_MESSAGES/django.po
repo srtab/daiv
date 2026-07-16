@@ -434,3 +434,9 @@ msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
 
 #~ msgid "You stopped this run."
 #~ msgstr "Parou esta execução."
+
+msgid "Show more"
+msgstr "Mostrar mais"
+
+msgid "Show less"
+msgstr "Mostrar menos"
