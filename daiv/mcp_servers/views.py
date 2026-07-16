@@ -12,10 +12,12 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from asgiref.sync import async_to_sync
+from django_filters.views import FilterView
 
 from accounts.mixins import AdminRequiredMixin
 from core.encryption import DecryptionError
 from mcp_servers import services
+from mcp_servers.filters import MCPServerFilter
 from mcp_servers.forms import MCPServerForm, MCPServerHeaderFormSet, build_headers_from_formset, build_tool_choices
 from mcp_servers.models import MCPServer
 
@@ -47,31 +49,32 @@ def _list_url_for(obj: MCPServer) -> str:
     return reverse("mcp_servers:list")
 
 
-class MCPServerListView(LoginRequiredMixin, TemplateView):
+class MCPServerListView(LoginRequiredMixin, FilterView):
+    """Personal servers page: the requesting user's rows (admins may pick
+    another member via the owner dropdown) plus a read-only view of the
+    global rows so everyone can see what already loads in every run."""
+
+    filterset_class = MCPServerFilter
     template_name = "mcp_servers/list.html"
+    context_object_name = "your_servers"
+    paginate_by = 20
+    # Invalid URL params (e.g. ?owner=bogus) drop silently instead of blanking the list.
+    strict = False
+
+    def get_queryset(self):
+        return MCPServer.objects.filter(scope=MCPServer.Scope.USER).select_related("user").order_by("name")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        user = self.request.user
-        ctx["is_admin"] = user.is_admin
-        # Fetch every global row once; derive the name set (for shadow detection) and
-        # the custom/builtin split in Python instead of issuing a query for each.
+        ctx["is_admin"] = self.request.user.is_admin
+        # Fetch every global row once; the read-only section shows them all and
+        # the name set drives shadow detection on the personal rows.
         global_rows = list(MCPServer.objects.global_servers())
-        global_names = {s.name for s in global_rows}
-        ctx["your_servers"] = _decorate(list(MCPServer.objects.user_servers(user)), global_names=global_names)
-        ctx["global_custom_servers"] = _decorate([s for s in global_rows if not s.is_builtin()])
-        ctx["global_builtin_servers"] = _decorate([s for s in global_rows if s.is_builtin()])
-        if user.is_admin:
-            # Other members' personal servers — the admin's own are already in "Your servers".
-            ctx["all_user_servers"] = _decorate(
-                list(
-                    MCPServer.objects
-                    .filter(scope=MCPServer.Scope.USER)
-                    .exclude(user=user)
-                    .order_by("user__username", "name")
-                ),
-                global_names=global_names,
-            )
+        _decorate(ctx["your_servers"], global_names={s.name for s in global_rows})
+        ctx["global_servers"] = _decorate(global_rows)
+        form = ctx["filter"].form
+        cleaned = form.cleaned_data if form.is_valid() else {}
+        ctx["selected_owner"] = cleaned.get("owner")
         return ctx
 
 

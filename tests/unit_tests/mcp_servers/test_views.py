@@ -645,7 +645,7 @@ def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeyp
         enabled=True,
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:list"))
+    resp = client.get(reverse("mcp_servers:global_list"))
     assert resp.status_code == 200
     assert b"Broken" in resp.content
     assert b"DEFINITELY_NOT_SET" in resp.content
@@ -663,7 +663,7 @@ def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
         enabled=False,
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:list"))
+    resp = client.get(reverse("mcp_servers:global_list"))
     assert resp.status_code == 200
     assert b"Broken" not in resp.content
 
@@ -774,7 +774,7 @@ def test_list_renders_exposed_tool_pills(client, admin_user):
         tools_synced_at=timezone.now(),
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:list"))
+    resp = client.get(reverse("mcp_servers:global_list"))
     assert resp.status_code == 200
     assert b"create_pr" in resp.content
     assert b"get_file" in resp.content
@@ -786,7 +786,7 @@ def test_list_shows_not_synced_when_never_synced(client, admin_user):
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(name="nosync", transport="http", url="http://x.test", enabled=True)
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:list"))
+    resp = client.get(reverse("mcp_servers:global_list"))
     assert b"not synced yet" in resp.content.lower()
 
 
@@ -1208,3 +1208,55 @@ def test_create_subtitles_state_the_scope(admin_client):
     glob = admin_client.get(reverse("mcp_servers:global_create"))
     assert "Personal server" in personal.content.decode()
     assert "Global server" in glob.content.decode()
+
+
+# --- Personal page: FilterView + read-only global section ---
+
+
+@pytest.mark.django_db
+def test_member_list_shows_own_and_global_but_not_others(member_client, member_user, admin_user):
+    _user_server(member_user, name="mine")
+    _user_server(admin_user, name="admins-own")
+    _global(name="shared-global")
+    resp = member_client.get(reverse("mcp_servers:list"))
+    body = resp.content.decode()
+    assert "mine" in body
+    assert "shared-global" in body  # read-only global section, flat list
+    assert "admins-own" not in body
+
+
+@pytest.mark.django_db
+def test_admin_list_defaults_to_own_servers_with_owner_dropdown(admin_client, admin_user, member_user):
+    _user_server(admin_user, name="admins-own")
+    _user_server(member_user, name="members-own")
+    resp = admin_client.get(reverse("mcp_servers:list"))
+    body = resp.content.decode()
+    assert "admins-own" in body
+    assert "members-own" not in body
+    assert 'name="owner"' in body  # the dropdown renders for admins
+
+
+@pytest.mark.django_db
+def test_member_list_has_no_owner_dropdown(member_client, member_user):
+    _user_server(member_user)
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert 'name="owner"' not in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_admin_owner_param_shows_that_users_servers_without_edit_link(admin_client, member_user):
+    theirs = _user_server(member_user, name="members-own")
+    resp = admin_client.get(reverse("mcp_servers:list"), {"owner": str(member_user.pk)})
+    body = resp.content.decode()
+    assert "members-own" in body
+    assert reverse("mcp_servers:edit", args=[theirs.pk]) not in body  # manage-only, no edit
+    assert reverse("mcp_servers:delete", args=[theirs.pk]) in body
+
+
+@pytest.mark.django_db
+def test_global_section_is_read_only_on_personal_page_even_for_admin(admin_client):
+    g = _global(name="glob-ro")
+    resp = admin_client.get(reverse("mcp_servers:list"))
+    body = resp.content.decode()
+    assert "glob-ro" in body
+    assert reverse("mcp_servers:edit", args=[g.pk]) not in body

@@ -15,6 +15,9 @@
                 {% else %}
                 <span class="text-[15px] font-medium text-white">{{ s.name }}</span>
                 {% endif %}
+                {% if s.is_user_scoped and s.user_id != request.user.id %}
+                <span class="status-badge status-badge-pending" title="{% translate 'Owner' %}">{{ s.user }}</span>
+                {% endif %}
                 <span class="status-badge status-badge-pending">{{ s.get_transport_display }}</span>
                 {% if s.enabled %}
                 <span class="status-badge status-badge-success">{% translate "Enabled" %}</span>

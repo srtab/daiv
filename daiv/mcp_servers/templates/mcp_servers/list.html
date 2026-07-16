@@ -17,34 +17,30 @@
 </div>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 100ms">
-    <h2 class="text-lg font-semibold">{% translate "Your servers" %}</h2>
-    <p class="mt-1 text-sm text-gray-500">{% translate "Personal MCP servers that load only in runs you trigger." %}</p>
-    {% translate "You have no personal MCP servers yet." as your_empty %}
+    <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+            <h2 class="text-lg font-semibold">
+                {% if selected_owner %}
+                {% blocktranslate with owner=selected_owner %}{{ owner }}’s servers{% endblocktranslate %}
+                {% else %}{% translate "Your servers" %}{% endif %}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500">{% translate "Personal MCP servers that load only in runs the owner triggers." %}</p>
+        </div>
+        {% if is_admin %}
+        <form method="get" x-data @change="$el.submit()">
+            {{ filter.form.owner }}
+        </form>
+        {% endif %}
+    </div>
+    {% translate "No personal MCP servers yet." as your_empty %}
     {% include "mcp_servers/_server_list.html" with servers=your_servers empty_message=your_empty %}
+    {% include "accounts/_pagination.html" %}
 </section>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 150ms">
     <h2 class="text-lg font-semibold">{% translate "Global servers" %}</h2>
     <p class="mt-1 text-sm text-gray-500">{% translate "Admin-managed servers that load in every run." %}</p>
-    {% if is_admin %}
-        {% translate "No custom global servers configured." as gc_empty %}
-        {% include "mcp_servers/_server_list.html" with servers=global_custom_servers empty_message=gc_empty %}
-        <h3 class="mt-6 text-base font-medium text-gray-300">{% translate "Built-in" %}</h3>
-        {% translate "No built-in servers registered." as gb_empty %}
-        {% include "mcp_servers/_server_list.html" with servers=global_builtin_servers empty_message=gb_empty %}
-    {% else %}
-        {% translate "No global servers configured." as g_empty %}
-        {% include "mcp_servers/_global_server_list.html" with servers=global_custom_servers empty_message=g_empty %}
-        {% if global_builtin_servers %}{% include "mcp_servers/_global_server_list.html" with servers=global_builtin_servers empty_message="" %}{% endif %}
-    {% endif %}
+    {% translate "No global servers configured." as g_empty %}
+    {% include "mcp_servers/_global_server_list.html" with servers=global_servers empty_message=g_empty %}
 </section>
-
-{% if is_admin %}
-<section class="animate-fade-up mt-8" style="animation-delay: 200ms">
-    <h2 class="text-lg font-semibold">{% translate "User servers" %}</h2>
-    <p class="mt-1 text-sm text-gray-500">{% translate "Personal servers owned by members. You can disable or delete but not edit them." %}</p>
-    {% translate "No user servers." as u_empty %}
-    {% include "mcp_servers/_server_list.html" with servers=all_user_servers empty_message=u_empty %}
-</section>
-{% endif %}
 {% endblock app_content %}
