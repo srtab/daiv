@@ -175,6 +175,35 @@ def _build_client(payload: dict[str, Any]) -> MultiServerMCPClient:
     return MultiServerMCPClient({"__probe__": connection})
 
 
+def _flatten_exception(err: BaseException) -> list[BaseException]:
+    """Recursively expand ``ExceptionGroup``s into their leaf exceptions.
+
+    The MCP streamable-http client runs its request inside an anyio task group,
+    so a real failure (e.g. an httpx 401) surfaces wrapped in an
+    ``ExceptionGroup`` whose ``str()`` is the useless "unhandled errors in a
+    TaskGroup (N sub-exceptions)". Flattening lets ``_format_error`` report the
+    underlying cause instead of the wrapper. Groups can nest, so recurse."""
+    if isinstance(err, BaseExceptionGroup):
+        return [leaf for sub in err.exceptions for leaf in _flatten_exception(sub)]
+    return [err]
+
+
+def _format_error(err: BaseException) -> str:
+    """Build a human-readable one-liner for a test-connection failure, unwrapping
+    any anyio ``ExceptionGroup`` to the underlying cause(s).
+
+    ``str(err)`` is empty for many httpx/asyncio exceptions, so the class name is
+    always included to keep the message greppable. Only the first non-blank line
+    of each leaf is kept — httpx messages tack on a "For more information check:"
+    URL that is noise in the UI. Duplicate leaves (a group can carry repeats) are
+    collapsed while preserving order."""
+    parts: list[str] = []
+    for leaf in _flatten_exception(err):
+        first_line = next((line for line in str(leaf).splitlines() if line.strip()), "")
+        parts.append(f"{type(leaf).__name__}: {first_line}" if first_line else type(leaf).__name__)
+    return "; ".join(dict.fromkeys(parts))
+
+
 async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
     """Open a transient MCP session against ``payload`` and return either
     ``{ok: True, tools: [...]}`` or ``{ok: False, error: ...}``."""
@@ -186,9 +215,7 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"Connection timed out after {_TEST_CONNECTION_TIMEOUT:g}s"}
     except Exception as err:  # noqa: BLE001 — surface any failure to the UI
         logger.exception("MCP test_connection failed for url=%s", payload.get("url"))
-        # str(err) is empty for many httpx/asyncio exceptions; class name keeps the message greppable.
-        detail = str(err) or type(err).__name__
-        return {"ok": False, "error": f"{type(err).__name__}: {detail}"}
+        return {"ok": False, "error": _format_error(err)}
     return {
         "ok": True,
         "tools": [

@@ -236,6 +236,59 @@ async def test_test_connection_reports_blank_exception_with_class_name(monkeypat
     assert "_SilentError" in result["error"]
 
 
+async def test_test_connection_unwraps_exception_group(monkeypatch):
+    """The MCP streamable-http client runs inside an anyio task group, so a real
+    failure (e.g. an httpx 401) surfaces wrapped in an ExceptionGroup whose str()
+    is the useless "unhandled errors in a TaskGroup (N sub-exceptions)". The error
+    must unwrap to the underlying cause, not the wrapper."""
+    from mcp_servers.services import test_connection
+
+    def _fail(payload):
+        raise ExceptionGroup("unhandled errors in a TaskGroup", [RuntimeError("401 Unauthorized")])
+
+    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
+    result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
+    assert result["ok"] is False
+    assert "401 Unauthorized" in result["error"]
+    assert "RuntimeError" in result["error"]
+    # The opaque wrapper must NOT be what the user sees.
+    assert "unhandled errors in a TaskGroup" not in result["error"]
+    assert "ExceptionGroup" not in result["error"]
+
+
+async def test_test_connection_unwraps_nested_exception_groups(monkeypatch):
+    """Groups can nest (a group inside a group); flattening must reach the leaves."""
+    from mcp_servers.services import test_connection
+
+    def _fail(payload):
+        inner = ExceptionGroup("inner", [ValueError("bad url")])
+        raise ExceptionGroup("outer", [inner])
+
+    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
+    result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
+    assert result["ok"] is False
+    assert "bad url" in result["error"]
+    assert "ValueError" in result["error"]
+    assert "unhandled errors in a TaskGroup" not in result["error"]
+
+
+def test_format_error_trims_httpx_noise_line():
+    """httpx exceptions append a "For more information check: <url>" line that is
+    noise in the UI — only the first line of the underlying cause is kept."""
+    import httpx
+    from mcp_servers.services import _format_error
+
+    real = httpx.HTTPStatusError(
+        "Client error '401 Unauthorized' for url 'https://mcp.sentry.dev/mcp'\n"
+        "For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+        request=httpx.Request("POST", "https://mcp.sentry.dev/mcp"),
+        response=httpx.Response(401),
+    )
+    message = _format_error(ExceptionGroup("unhandled errors in a TaskGroup", [real]))
+    assert message == "HTTPStatusError: Client error '401 Unauthorized' for url 'https://mcp.sentry.dev/mcp'"
+    assert "For more information check" not in message
+
+
 @pytest.mark.django_db
 def test_server_health_ok_for_resolved_env_ref(monkeypatch):
     from mcp_servers.models import MCPServer

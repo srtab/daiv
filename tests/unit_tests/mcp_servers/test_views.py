@@ -485,6 +485,35 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
 
 
 @pytest.mark.django_db
+def test_test_endpoint_failure_returns_200_not_502(client, admin_user, monkeypatch):
+    """A failed probe is a successful *operation* that reports a negative result:
+    it must return HTTP 200 with {ok: False}, not a 5xx. A 5xx would log as a
+    Django server error (Bad Gateway noise) and can be swallowed by a reverse
+    proxy before the JSON body reaches the browser."""
+
+    async def fake_test_connection(payload):
+        return {"ok": False, "error": "HTTPStatusError: 401 Unauthorized"}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "transport": "http",
+            "url": "http://demo.test",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert "401 Unauthorized" in body["error"]
+
+
+@pytest.mark.django_db
 def test_edit_get_passes_discovered_tools_into_form(client, admin_user):
     obj = MCPServer.objects.create(
         name="dt3",

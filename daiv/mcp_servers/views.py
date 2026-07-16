@@ -379,7 +379,11 @@ class MCPServerTestView(LoginRequiredMixin, View):
             return JsonResponse({"ok": False, "error": "env_ref headers are not allowed"}, status=400)
         payload = {"transport": request.POST.get("transport"), "url": request.POST.get("url"), "headers": headers}
         result = async_to_sync(services.test_connection)(payload)
-        return JsonResponse(result, status=200 if result.get("ok") else 502)
+        # Always 200: the probe ran and produced a structured answer. A failed probe
+        # is a negative *result*, not a server error — returning 5xx would log as a
+        # Django "Bad Gateway" (Sentry noise) and can be swallowed by a reverse proxy
+        # before the JSON body reaches the browser. The client keys off ``result.ok``.
+        return JsonResponse(result, status=200)
 
     @staticmethod
     def _resolve_borrowable(user, name):
