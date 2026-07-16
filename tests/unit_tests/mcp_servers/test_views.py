@@ -143,6 +143,28 @@ def test_create_get_exposes_add_header_affordance(client, admin_user):
 
 
 @pytest.mark.django_db
+def test_cancel_link_is_scope_aware(admin_client):
+    import re
+
+    personal = admin_client.get(reverse("mcp_servers:create")).content.decode()
+    glob = admin_client.get(reverse("mcp_servers:global_create")).content.decode()
+    # Extract the Cancel link's href from the Actions section (look for button after "Save")
+    personal_cancel_match = re.search(
+        r'<button[^>]*class="btn-primary"[^>]*>.*?</button>\s*<a href="([^"]*)"[^>]*class="btn-secondary"',
+        personal,
+        re.DOTALL,
+    )
+    glob_cancel_match = re.search(
+        r'<button[^>]*class="btn-primary"[^>]*>.*?</button>\s*<a href="([^"]*)"[^>]*class="btn-secondary"',
+        glob,
+        re.DOTALL,
+    )
+    assert personal_cancel_match and glob_cancel_match
+    assert reverse("mcp_servers:global_list") not in personal_cancel_match.group(1)
+    assert reverse("mcp_servers:global_list") in glob_cancel_match.group(1)
+
+
+@pytest.mark.django_db
 def test_create_post_creates_server(client, admin_user):
     client.force_login(admin_user)
     resp = client.post(

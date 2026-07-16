@@ -192,7 +192,7 @@
     {# ── Actions ───────────────────────────────────────────────── #}
     <div class="flex items-center gap-3 border-t border-white/[0.06] pt-6">
         <button type="submit" class="btn-primary" {% if headers_locked %}disabled{% endif %}>{% translate "Save" %}</button>
-        <a href="{% url 'mcp_servers:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
+        <a href="{% if scope == "global" or object.scope == "global" %}{% url 'mcp_servers:global_list' %}{% else %}{% url 'mcp_servers:list' %}{% endif %}" class="btn-secondary">{% translate "Cancel" %}</a>
         {% if mode == "edit" and not builtin %}
         <a href="{% url 'mcp_servers:delete' object.pk %}" class="btn-danger-outline ml-auto">{% translate "Delete" %}</a>
         {% endif %}
