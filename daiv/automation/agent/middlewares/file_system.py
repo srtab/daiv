@@ -304,18 +304,35 @@ class DAIVFilesystemBackend(FilesystemBackend):
             return GrepResult(error=f"invalid regular expression: {pattern!r} ({exc})")
         return await asyncio.to_thread(self._regex_grep, pattern, path, glob)
 
+    def _grep_error_detail(self, exc: Exception) -> str:
+        """Agent-safe detail for a grep failure that never embeds the real on-disk path.
+
+        ``OSError.__str__`` appends the offending filename and, in ``virtual_mode``, even
+        generic exception text can carry the backend's real ``root_dir`` — either would leak
+        the host layout to the model. Mirrors the sanitisation deepagents applies in
+        ``FilesystemBackend._python_search`` (a method-local ``_safe_detail`` we cannot reuse),
+        keeping this shadowing regex walk in parity with the base's literal one.
+        """
+        if isinstance(exc, OSError):
+            detail = exc.strerror
+        else:
+            detail = getattr(exc, "reason", None)
+            if detail is None and not self.virtual_mode:
+                detail = str(exc)
+        return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
     def _regex_grep(self, pattern: str, path: str | None, glob: str | None) -> GrepResult:
         try:
             base_full = self._resolve_path(path or ".")
         except ValueError:
             return GrepResult(matches=[])
         except (OSError, RuntimeError) as exc:
-            return GrepResult(error=f"Error searching path '{path or '.'}': {exc}", matches=[])
+            return GrepResult(error=f"Error searching path '{path or '.'}': {self._grep_error_detail(exc)}", matches=[])
         try:
             if not base_full.exists():
                 return GrepResult(matches=[])
         except OSError as exc:
-            return GrepResult(error=f"Error searching path '{path or '.'}': {exc}", matches=[])
+            return GrepResult(error=f"Error searching path '{path or '.'}': {self._grep_error_detail(exc)}", matches=[])
 
         regex = re.compile(pattern)
         glob_matcher = wcglob.compile(glob, flags=wcglob.BRACE | wcglob.GLOBSTAR) if glob else None
@@ -324,87 +341,103 @@ class DAIVFilesystemBackend(FilesystemBackend):
         results: dict[str, list[tuple[int, str]]] = {}
         file_errors: list[str] = []
 
+        def _dump_matches() -> list[GrepMatch]:
+            return [
+                GrepMatch(path=fpath, line=int(line_num), text=line_text)
+                for fpath, items in results.items()
+                for (line_num, line_text) in items
+            ]
+
+        def _timed_out() -> GrepResult:
+            return GrepResult(
+                error=(
+                    f"Grep of '{path or '.'}' timed out after {DEFAULT_GREP_TIMEOUT}s "
+                    f"with {len(results)} matching file(s); try a more "
+                    f"specific pattern or a narrower path."
+                ),
+                matches=_dump_matches(),
+            )
+
         try:
             for fp in root.rglob("*"):
                 if time.monotonic() > deadline:
-                    return GrepResult(
-                        error=(
-                            f"Grep of '{path or '.'}' timed out after {DEFAULT_GREP_TIMEOUT}s "
-                            f"with {len(results)} matching file(s); try a more "
-                            f"specific pattern or a narrower path."
-                        ),
-                        matches=[
-                            GrepMatch(path=fpath, line=int(line_num), text=line_text)
-                            for fpath, items in results.items()
-                            for (line_num, line_text) in items
-                        ],
-                    )
+                    return _timed_out()
                 try:
                     if not fp.is_file():
                         continue
                 except OSError, RuntimeError:
                     continue
-                if glob_matcher is not None:
-                    rel_path = str(fp.relative_to(root))
-                    if not glob_matcher.match(rel_path):
-                        continue
+                if glob_matcher is not None and not glob_matcher.match(str(fp.relative_to(root))):
+                    continue
                 try:
                     if fp.stat().st_size > self.max_file_size_bytes:
                         continue
                 except OSError, RuntimeError:
                     continue
+                scanned_lines = 0
                 try:
                     if self.virtual_mode:
                         try:
                             virt_path = self._to_virtual_path(fp)
                         except ValueError:
+                            # Resolved outside the virtual root — expected for stray symlinks; the
+                            # base logs this at DEBUG, so mirror it rather than dropping silently.
+                            logger.debug("skipping grep result outside root: %s", fp)
                             continue
                         except OSError, RuntimeError:
+                            # ``resolve()`` failed (permission denied, or a symlink loop -> ELOOP).
+                            # A matched file would be dropped, so log loudly (base parity) instead
+                            # of vanishing without a trace.
+                            logger.warning("could not resolve grep result path: %s", fp, exc_info=True)
                             continue
                     else:
                         virt_path = str(fp)
                     with fp.open(encoding="utf-8", errors="strict") as handle:
                         for line_num, raw_line in enumerate(handle, 1):
+                            scanned_lines = line_num
                             if line_num % 2048 == 0 and time.monotonic() > deadline:
-                                return GrepResult(
-                                    error=(
-                                        f"Grep of '{path or '.'}' timed out after {DEFAULT_GREP_TIMEOUT}s "
-                                        f"with {len(results)} matching file(s); try a more "
-                                        f"specific pattern or a narrower path."
-                                    ),
-                                    matches=[
-                                        GrepMatch(path=fpath, line=int(line_num), text=line_text)
-                                        for fpath, items in results.items()
-                                        for (line_num, line_text) in items
-                                    ],
-                                )
-                            if not regex.search(raw_line):
-                                continue
-                            results.setdefault(virt_path, []).append((line_num, raw_line.rstrip("\n")))
-                except UnicodeDecodeError:
+                                return _timed_out()
+                            if regex.search(raw_line):
+                                results.setdefault(virt_path, []).append((line_num, raw_line.rstrip("\n")))
+                except UnicodeDecodeError as exc:
+                    # A file that fails to decode before any line is scanned is treated as binary
+                    # and skipped silently (mirroring ripgrep). Record it only when the decode
+                    # failed partway through (``scanned_lines > 0``), so a truncated per-file read is
+                    # logged (and surfaced if nothing else matched) rather than passing as complete.
+                    if scanned_lines > 0:
+                        file_errors.append(f"- {virt_path}: {self._grep_error_detail(exc)}")
                     continue
                 except (OSError, RuntimeError) as exc:
-                    file_errors.append(f"- {virt_path}: {exc}")
+                    file_errors.append(f"- {virt_path}: {self._grep_error_detail(exc)}")
                     continue
         except (OSError, RuntimeError) as exc:
+            # The tree walk itself aborted mid-iteration (a directory entry unlinked/renamed during
+            # the walk, or a symlink loop). Unlike a single unreadable file, the walk is now
+            # arbitrarily incomplete, so — deliberately, unlike the per-file path below — we *surface*
+            # (the agent must not trust an aborted walk as a complete search) *and* log for operators
+            # (base parity: it logs this abort with a traceback).
+            logger.warning(
+                "disk grep walk of %r aborted after %d matching file(s)", path or ".", len(results), exc_info=True
+            )
             return GrepResult(
-                error=f"Error searching path '{path or '.'}': {exc}",
-                matches=[
-                    GrepMatch(path=fpath, line=int(line_num), text=line_text)
-                    for fpath, items in results.items()
-                    for (line_num, line_text) in items
-                ],
+                error=f"Error searching path '{path or '.'}': {self._grep_error_detail(exc)}", matches=_dump_matches()
             )
 
-        matches = [
-            GrepMatch(path=fpath, line=int(line_num), text=line_text)
-            for fpath, items in results.items()
-            for (line_num, line_text) in items
-        ]
-        partial_error = (
-            "One or more files could not be fully searched:\n" + "\n".join(file_errors) if file_errors else None
-        )
-        return GrepResult(error=partial_error, matches=matches)
+        matches = _dump_matches()
+        if file_errors:
+            # A per-file read failure (permissions, a file unlinked mid-walk, transient I/O) is not
+            # agent-actionable. When usable matches survive, return them clean and keep the failures
+            # in the operator logs rather than setting ``GrepResult.error`` — ``DAIVCompositeBackend``
+            # ``.agrep`` treats a set ``error`` as fatal and would drop matches from the *other* routed
+            # backends (and the tool marks the call failed). Only when nothing matched do we surface,
+            # so an empty-because-unreadable result isn't mistaken for a genuine zero-match. See the
+            # partial-result-over-bare-error policy; the base's literal ``_python_search`` always
+            # surfaces here — this is a deliberate, documented divergence.
+            joined = "\n".join(file_errors)
+            logger.warning("disk grep could not fully search %d file(s):\n%s", len(file_errors), joined)
+            if not matches:
+                return GrepResult(error=f"One or more files could not be fully searched:\n{joined}", matches=matches)
+        return GrepResult(matches=matches)
 
 
 @runtime_checkable

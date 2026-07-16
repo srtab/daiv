@@ -155,6 +155,158 @@ class TestDiskBackendRegexGrep:
         assert "invalid regular expression" in result.error
         assert not result.matches
 
+    async def test_disk_grep_glob_filters_by_extension(self, tmp_path: Path):
+        (tmp_path / "keep.py").write_text("needle here\n")
+        (tmp_path / "skip.txt").write_text("needle here\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+        result = await backend.agrep("needle", glob="*.py")
+
+        assert result.error is None
+        paths = sorted(m["path"] for m in (result.matches or []))
+        assert paths == ["/keep.py"]
+
+    @staticmethod
+    def _raise_on_locked(monkeypatch):
+        """Make opening ``locked.py`` raise a realistic ``PermissionError`` (whose ``str`` embeds
+        the absolute path), leaving every other file readable."""
+        import pathlib
+
+        real_open = pathlib.Path.open
+
+        def fake_open(self, *args, **kwargs):
+            if self.name == "locked.py":
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(pathlib.Path, "open", fake_open)
+
+    async def test_disk_grep_unreadable_file_with_matches_returns_clean_and_logs(
+        self, tmp_path: Path, monkeypatch, caplog
+    ):
+        """A non-actionable per-file read error must not withhold usable matches: with a good match
+        present the result comes back clean (so the composite still merges the other backends) and
+        the failure goes to the logs -- never embedding the real on-disk path (``virtual_mode``)."""
+        import logging
+
+        (tmp_path / "good.py").write_text("needle here\n")
+        (tmp_path / "locked.py").write_text("needle here\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        self._raise_on_locked(monkeypatch)
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.agrep("needle")
+
+        # Usable matches survive and the result is NOT flagged as an error.
+        assert result.error is None
+        assert any(m["path"] == "/good.py" for m in (result.matches or []))
+        # The failure is logged for operators, sanitized (no real host path).
+        assert "could not fully search" in caplog.text
+        assert "PermissionError" in caplog.text and "Permission denied" in caplog.text
+        assert str(tmp_path) not in caplog.text
+
+    async def test_disk_grep_all_unreadable_surfaces_sanitized_error(self, tmp_path: Path, monkeypatch):
+        """With no matches to salvage the failure IS surfaced (so an empty result is not mistaken
+        for a genuine zero-match) -- still sanitized to keep the real host path out."""
+        (tmp_path / "locked.py").write_text("needle here\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        self._raise_on_locked(monkeypatch)
+
+        result = await backend.agrep("needle")
+
+        assert not result.matches
+        assert result.error is not None
+        assert "could not be fully searched" in result.error
+        assert "PermissionError" in result.error and "Permission denied" in result.error
+        assert str(tmp_path) not in result.error
+
+    async def test_disk_grep_timeout_is_flagged(self, tmp_path: Path, monkeypatch):
+        backend = self._backend(tmp_path)
+        # Force the wall-clock deadline into the past so the first walk step trips it.
+        monkeypatch.setattr(fs_module, "DEFAULT_GREP_TIMEOUT", -1)
+
+        result = await backend.agrep("alpha")
+
+        assert result.error is not None
+        assert "timed out" in result.error
+
+    async def test_disk_grep_globstar_matches_nested_but_star_does_not(self, tmp_path: Path):
+        """Pins the anchoring footgun the tool description warns about: ``**/*.py`` (GLOBSTAR)
+        reaches into subdirectories, a bare ``*.py`` does not — matched against the path relative
+        to root, not the bare filename."""
+        (tmp_path / "top.py").write_text("needle\n")
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "nested.py").write_text("needle\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+        globstar = await backend.agrep("needle", glob="**/*.py")
+        star = await backend.agrep("needle", glob="*.py")
+
+        globstar_paths = {m["path"] for m in (globstar.matches or [])}
+        star_paths = {m["path"] for m in (star.matches or [])}
+        assert "/pkg/nested.py" in globstar_paths  # GLOBSTAR crosses directories
+        assert "/pkg/nested.py" not in star_paths  # a bare * does not
+        assert "/top.py" in star_paths
+
+    async def test_disk_grep_binary_file_is_skipped_silently(self, tmp_path: Path, caplog):
+        """A file that fails to decode on its first read is treated as binary: skipped with no
+        ``error`` and no warning, while sibling matches are returned (a regression that dropped the
+        ``scanned_lines`` guard would flag every binary and, in an all-binary dir, spuriously fail)."""
+        import logging
+
+        (tmp_path / "good.py").write_text("needle here\n")
+        (tmp_path / "image.bin").write_bytes(b"\xff\xfe\x00 not valid utf-8 \x80\x81")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.agrep("needle")
+
+        assert result.error is None
+        assert any(m["path"] == "/good.py" for m in (result.matches or []))
+        assert "could not fully search" not in caplog.text  # binary skip is silent, not flagged
+
+    async def test_disk_grep_partial_decode_is_flagged(self, tmp_path: Path, caplog):
+        """A file whose valid prefix exceeds the text read-buffer before hitting invalid bytes is a
+        *mid-file* decode failure (``scanned_lines > 0``): its matches are kept and the truncation is
+        recorded, unlike a first-chunk binary skip."""
+        import logging
+
+        # ~35 KB of valid matching lines (well past TextIOWrapper's ~8 KB read chunk) then bad bytes,
+        # so decoding only fails after many lines have already been scanned and matched.
+        (tmp_path / "truncated.py").write_bytes(b"needle\n" * 5000 + b"\xff\xfe still not utf-8\n")
+        backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+
+        with caplog.at_level(logging.WARNING, logger="daiv.tools"):
+            result = await backend.agrep("needle")
+
+        # Matches from the decodable prefix survive; the partial read is flagged (returned clean
+        # because matches exist, and logged for operators).
+        assert result.error is None
+        assert result.matches and any(m["path"] == "/truncated.py" for m in result.matches)
+        assert "could not fully search" in caplog.text
+        assert "UnicodeDecodeError" in caplog.text
+
+    def test_grep_error_detail_sanitizes_and_respects_virtual_mode(self, tmp_path: Path):
+        """Direct contract for the sanitizer: never leak the on-disk path, and only include generic
+        exception text (which can carry ``root_dir``) when NOT in virtual mode."""
+        virt = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        disk = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=False)
+
+        # OSError: only strerror, never the filename ``str(exc)`` would append.
+        oserr = PermissionError(13, "Permission denied", str(tmp_path / "secret"))
+        assert virt._grep_error_detail(oserr) == "PermissionError: Permission denied"
+        assert str(tmp_path) not in virt._grep_error_detail(oserr)
+
+        # UnicodeDecodeError: its path-free ``reason``.
+        ude = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        assert virt._grep_error_detail(ude) == "UnicodeDecodeError: invalid start byte"
+
+        # Generic exception: message suppressed under virtual_mode (it may carry the real root),
+        # included otherwise.
+        generic = RuntimeError(f"boom at {tmp_path}")
+        assert virt._grep_error_detail(generic) == "RuntimeError"
+        assert disk._grep_error_detail(generic) == f"RuntimeError: boom at {tmp_path}"
+
 
 class TestDAIVCompositeBackend:
     """Composite routing must preserve the prefix-stripping invariant for DAIV's two
