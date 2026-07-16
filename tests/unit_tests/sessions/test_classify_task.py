@@ -8,6 +8,8 @@ called; the deterministic gating/invariants (enforced in the task) are what thes
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import IntegrityError
+
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.classification import ActionableDraft, RunClassification
@@ -152,8 +154,12 @@ async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear():
 
 @pytest.mark.django_db(transaction=True)
 async def test_ac5_failed_run_is_failed_status_no_llm_call():
+    # Non-empty prose on purpose: proves the FAILED gate wins over the classification path even when
+    # there *is* text to classify (not merely over the empty-prose short-circuit).
     run = await _make_scheduled_run(
-        status=RunStatus.FAILED, response_text="", error_message="Traceback: boom\nsecond line"
+        status=RunStatus.FAILED,
+        response_text="There is prose here that must NOT be classified.",
+        error_message="Traceback: boom\nsecond line",
     )
 
     with patch("sessions.classification._build_structured_llm") as build:
@@ -306,3 +312,112 @@ async def test_successful_run_with_empty_prose_is_all_clear_without_llm_call():
     assert envelope.actionable == []
     assert envelope.count == 0
     assert envelope.summary == ""
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_forwards_run_prose_and_model_names_to_method():
+    # Seam assertion: the run's prose and the primary-before-fallback model tuple (empties filtered)
+    # actually reach the classification method — not just that the output happens to be right.
+    run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="classify this exact prose")
+    llm = _llm_returning(RunClassification(status="all-clear", summary="ok", actionable=[]))
+
+    with (
+        patch("core.site_settings.site_settings", _fake_site_settings(model="primary", fallback="fallback")),
+        patch("sessions.classification._build_structured_llm", return_value=llm) as build,
+    ):
+        await classify_run_task.func(str(run.pk))
+
+    build.assert_called_once_with(RunClassification, ("primary", "fallback"))
+    messages = llm.with_config.return_value.ainvoke.call_args.args[0]
+    assert messages[1].content == "classify this exact prose"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_single_configured_model_forwards_one_tuple():
+    # The empty-fallback is filtered out, so the method receives a 1-tuple (not an empty or 2-tuple).
+    run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
+    llm = _llm_returning(RunClassification(status="all-clear", summary="ok", actionable=[]))
+
+    with (
+        patch("core.site_settings.site_settings", _fake_site_settings(model="only", fallback="")),
+        patch("sessions.classification._build_structured_llm", return_value=llm) as build,
+    ):
+        await classify_run_task.func(str(run.pk))
+
+    build.assert_called_once_with(RunClassification, ("only",))
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_failed_run_summary_skips_leading_blank_lines():
+    # First *non-empty* line, stripped — a regression to ``splitlines()[0]`` would yield "" here and
+    # fall back to the generic gloss.
+    run = await _make_scheduled_run(
+        status=RunStatus.FAILED, response_text="", error_message="\n\n   Real error here   \n"
+    )
+
+    with patch("sessions.classification._build_structured_llm") as build:
+        await classify_run_task.func(str(run.pk))
+
+    build.assert_not_called()
+    envelope = await RunEnvelope.objects.aget(run=run)
+    assert envelope.summary == "Real error here"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_empty_fix_prompt_is_omitted_from_stored_item():
+    # An off-contract empty ``fix_prompt`` is treated as absent, never stored as "" (which could seed a
+    # downstream Finding -> Fix with no instruction).
+    run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
+    classification = RunClassification(
+        status="found-issues",
+        summary="one",
+        actionable=[ActionableDraft(kind="bug", label="x", ref="y", fix_prompt="")],
+    )
+
+    with patch("sessions.classification._build_structured_llm", return_value=_llm_returning(classification)):
+        await classify_run_task.func(str(run.pk))
+
+    envelope = await RunEnvelope.objects.aget(run=run)
+    assert "fix_prompt" not in envelope.actionable[0]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_unexpected_integrity_error_propagates_and_writes_nothing():
+    # A genuine IntegrityError (not the documented OneToOne race) must surface as a FAILED task rather
+    # than being swallowed as a no-op — otherwise the run is left unclassified with no signal.
+    run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
+    classification = RunClassification(status="all-clear", summary="ok", actionable=[])
+
+    with (
+        patch("sessions.classification._build_structured_llm", return_value=_llm_returning(classification)),
+        patch.object(RunEnvelope.objects, "acreate", AsyncMock(side_effect=IntegrityError("boom"))),
+        pytest.raises(IntegrityError),
+    ):
+        await classify_run_task.func(str(run.pk))
+
+    # No envelope exists → the except re-checks aexists (False) and re-raises.
+    assert await RunEnvelope.objects.filter(run=run).acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_persist_noops_when_race_winner_already_wrote_envelope():
+    # The documented OneToOne race: the aexists guard passed, but a concurrent task wrote the envelope
+    # before our acreate. The IntegrityError is caught, the re-check finds the winner's row, and we
+    # no-op cleanly (no raise, exactly one envelope — the winner's).
+    run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
+    classification = RunClassification(status="all-clear", summary="loser", actionable=[])
+
+    async def _winner_then_raise(**kwargs):
+        winner = RunEnvelope(run=run, status=EnvelopeStatus.ALL_CLEAR, count=0, summary="winner", actionable=[])
+        await winner.asave()
+        raise IntegrityError("duplicate key value violates unique constraint")
+
+    with (
+        patch("sessions.classification._build_structured_llm", return_value=_llm_returning(classification)),
+        patch.object(RunEnvelope.objects, "acreate", AsyncMock(side_effect=_winner_then_raise)),
+    ):
+        await classify_run_task.func(str(run.pk))  # must not raise
+
+    assert await RunEnvelope.objects.filter(run=run).acount() == 1
+    envelope = await RunEnvelope.objects.aget(run=run)
+    assert envelope.summary == "winner"

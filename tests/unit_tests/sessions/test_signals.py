@@ -486,6 +486,8 @@ class TestClassifyOnRunFinished:
         with patch("sessions.signals.classify_run_task") as task_mock:
             task_mock.enqueue.side_effect = RuntimeError("broker down")
             classify_on_run_finished(sender=Run, run=run)  # must not raise
+        # The enqueue was actually attempted (and its failure swallowed) — not skipped by an early gate.
+        task_mock.enqueue.assert_called_once_with(str(run.pk))
 
     def test_wired_to_run_finished_signal(self):
         """apps.ready() must register the receiver on the run_finished signal."""

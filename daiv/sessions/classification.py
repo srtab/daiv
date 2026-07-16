@@ -23,6 +23,8 @@ from automation.agent.base import BaseAgent
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from schedules.models import Intent
+
 # Module-constant prompt (tunable / deferred). Instructs the model to classify a run's prose
 # report into one of the three non-failed statuses and emit one actionable per finding. The
 # model never authors ``failed`` (decided deterministically by the task before any LLM call),
@@ -95,7 +97,7 @@ def _build_structured_llm(schema: type, model_names: Sequence[str]):
     return chain
 
 
-async def classify_response_text(text: str, *, intent, model_names: Sequence[str]) -> RunClassification:
+async def classify_response_text(text: str, *, intent: Intent, model_names: Sequence[str]) -> RunClassification:
     """Classify a run's prose report into a draft :class:`RunClassification`.
 
     ``intent`` is carried into the trace metadata only; the report/found-issues/failed

@@ -99,6 +99,8 @@ def build_actionable_item(
         "ref": ref,
         "schema_version": ACTIONABLE_SCHEMA_VERSION,
     }
-    if fix_prompt is not None:
+    # Treat an empty string as absent (same rule as the model-name truthiness filter): a blank
+    # ``fix_prompt`` is off-contract and must not seed a downstream Finding -> Fix with no instruction.
+    if fix_prompt:
         item["fix_prompt"] = fix_prompt
     return item

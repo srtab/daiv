@@ -17,8 +17,8 @@ async def classify_run_task(run_id: str) -> None:
     """Classify a finished scheduled run's prose report into its :class:`~sessions.models.RunEnvelope`.
 
     Enqueued by the ``classify_on_run_finished`` receiver (SCHEDULE-only, terminal-only). Runs
-    out-of-band and never touches ``Run``/``Run.task_result``/``Run.response_text`` — it only
-    writes its own envelope.
+    out-of-band and never writes to or mutates ``Run``/``Run.task_result`` — it reads the run
+    (including ``response_text``) as its input and the only row it creates is its own envelope.
 
     ``dedup=True`` (keyed on ``run_id``) plus the in-task ``aexists`` guard make classification
     idempotent: a duplicate ``run_finished`` delivery, retry, or manual re-enqueue writes exactly
@@ -54,24 +54,29 @@ async def classify_run_task(run_id: str) -> None:
     if await RunEnvelope.objects.filter(run=run).aexists():
         return
 
-    async def _persist(*, status: str, count: int, summary: str, actionable: list) -> None:
-        # Write exactly one envelope. The ``aexists`` guard above is check-then-act, so a concurrent
-        # task can still race past it; the OneToOne then rejects the second insert. Catch that
-        # ``IntegrityError`` so the loser is the documented idempotent no-op rather than a crash.
+    async def _persist(*, status: EnvelopeStatus, summary: str, actionable: list) -> None:
+        # Write exactly one envelope. ``count`` is always ``len(actionable)`` (derived here so the two
+        # can never disagree). The ``aexists`` guard above is check-then-act, so a concurrent task can
+        # still race past it; the OneToOne then rejects the second insert with an ``IntegrityError``.
         try:
             await RunEnvelope.objects.acreate(
-                run=run, status=status, count=count, summary=summary, actionable=actionable
+                run=run, status=status, count=len(actionable), summary=summary, actionable=actionable
             )
         except IntegrityError:
-            logger.debug("classify_run_task: envelope for run %s already exists (raced), skipping", run_id)
+            # Only the documented race is a benign no-op: if an envelope now exists, a concurrent task
+            # wrote it and we lost. Any *other* IntegrityError (a genuine constraint violation) must
+            # surface as a FAILED task, not be silently disguised as a race — otherwise the run is left
+            # unclassified with no signal.
+            if await RunEnvelope.objects.filter(run=run).aexists():
+                logger.debug("classify_run_task: envelope for run %s already exists (raced), skipping", run_id)
+                return
+            raise
 
     # Deterministic FAILED gating (AC5): a failed run is a tooling problem, decided before — and
     # without — any LLM call. Its prose report may be empty, so the summary comes from error_message.
     if run.status == RunStatus.FAILED:
         first_line = next((line.strip() for line in run.error_message.splitlines() if line.strip()), "")
-        await _persist(
-            status=EnvelopeStatus.FAILED, count=0, summary=first_line or gettext("Run failed."), actionable=[]
-        )
+        await _persist(status=EnvelopeStatus.FAILED, summary=first_line or gettext("Run failed."), actionable=[])
         return
 
     # Resolve intent defensively: a SCHEDULE-triggered run can still have ``scheduled_job is None``
@@ -97,27 +102,27 @@ async def classify_run_task(run_id: str) -> None:
     # A SUCCESSFUL run can still have empty prose (e.g. a code-only run — ``response_text`` falls back
     # to an empty ``result_summary``). There is nothing to classify, and an empty prompt can make some
     # providers error, so write a calm ``all-clear`` directly instead of calling the method.
-    if not run.response_text.strip():
-        await _persist(status=EnvelopeStatus.ALL_CLEAR, count=0, summary="", actionable=[])
+    text = run.response_text
+    if not text.strip():
+        await _persist(status=EnvelopeStatus.ALL_CLEAR, summary="", actionable=[])
         return
 
-    draft = await classify_response_text(run.response_text, intent=intent, model_names=model_names)
+    draft = await classify_response_text(text, intent=intent, model_names=model_names)
 
-    # Apply the load-bearing invariants in code (never delegated to the method), in BOTH directions:
-    # only ``found-issues`` may carry actionable items, and it must carry at least one.
-    status = draft.status
-    if intent == Intent.REPORT:
-        # A report is never a *finding* (AC3). It may still warrant a review, so a would-be
-        # ``found-issues`` draft coerces up to ``needs-attention``; other statuses pass through.
-        if status == "found-issues":
-            status = "needs-attention"
-    elif status == "found-issues" and not draft.actionable:
-        # Never emit ``found-issues`` with an empty list (AC4).
-        status = "all-clear"
+    # Apply the load-bearing invariants in code (never delegated to the method), speaking the
+    # ``EnvelopeStatus`` enum rather than raw strings so the vocabulary has a single source of truth:
+    # a non-finding-bearing intent (report) never yields a *finding* (AC3) — a would-be ``found-issues``
+    # coerces up to ``needs-attention``; a ``found-issues`` draft with no items coerces down to
+    # ``all-clear`` (AC4). ``Intent.finding_bearing()`` is the enum's own source of truth for this.
+    status = EnvelopeStatus(draft.status)
+    if status == EnvelopeStatus.FOUND_ISSUES and intent not in Intent.finding_bearing():
+        status = EnvelopeStatus.NEEDS_ATTENTION
+    elif status == EnvelopeStatus.FOUND_ISSUES and not draft.actionable:
+        status = EnvelopeStatus.ALL_CLEAR
 
     # Only ``found-issues`` carries items; every other status (incl. a coerced report, or an
-    # off-contract ``all-clear``/``needs-attention`` draft that arrived with items) is emptied.
-    drafted_items = draft.actionable if status == "found-issues" else []
+    # off-contract draft that arrived with items) is emptied.
+    drafted_items = draft.actionable if status == EnvelopeStatus.FOUND_ISSUES else []
 
     actionable = [
         build_actionable_item(id=str(index), kind=item.kind, label=item.label, ref=item.ref, fix_prompt=item.fix_prompt)
@@ -127,7 +132,7 @@ async def classify_run_task(run_id: str) -> None:
     # ``run_envelope_status_valid`` CheckConstraint is the other persistence backstop.
     validate_actionable(actionable)
 
-    await _persist(status=EnvelopeStatus(status), count=len(actionable), summary=draft.summary, actionable=actionable)
+    await _persist(status=status, summary=draft.summary, actionable=actionable)
 
 
 # Hardcoded like the other housekeeping crons (see core.tasks.prune_db_task_results_cron_task)
