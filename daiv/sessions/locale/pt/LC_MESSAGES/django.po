@@ -417,6 +417,9 @@ msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
 msgid "Some repositories failed to submit: %(ids)s"
 msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
 
+msgid "Run failed."
+msgstr "A execução falhou."
+
 #~ msgid "Markdown"
 #~ msgstr "Markdown"
 

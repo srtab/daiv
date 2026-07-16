@@ -216,6 +216,8 @@ class SiteConfigurationForm(forms.ModelForm):
             "memory_consolidation_min_interval_hours",
             "memory_max_lines",
             "memory_max_bytes",
+            "run_classifier_model_name",
+            "run_classifier_fallback_model_name",
             "web_search_enabled",
             "web_search_max_results",
             "web_search_engine",

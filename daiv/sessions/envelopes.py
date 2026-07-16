@@ -99,6 +99,9 @@ def build_actionable_item(
         "ref": ref,
         "schema_version": ACTIONABLE_SCHEMA_VERSION,
     }
-    if fix_prompt is not None:
-        item["fix_prompt"] = fix_prompt
+    # Treat a blank string as absent (same rule as the model-name truthiness filter): a ``fix_prompt``
+    # that is empty *or only whitespace* is off-contract and must not seed a downstream Finding -> Fix
+    # with no instruction. Store the stripped value so leading/trailing noise never reaches the fix agent.
+    if fix_prompt and fix_prompt.strip():
+        item["fix_prompt"] = fix_prompt.strip()
     return item

@@ -85,6 +85,9 @@ def _build_field_defaults() -> dict[str, Any]:
         "memory_consolidation_min_interval_hours": 24,
         "memory_max_lines": 200,
         "memory_max_bytes": 10_240,
+        # Run classifier
+        "run_classifier_model_name": ModelName.GPT_5_4_MINI,
+        "run_classifier_fallback_model_name": ModelName.CLAUDE_HAIKU_4_5,
         # Web Search
         "web_search_enabled": True,
         "web_search_max_results": 5,
