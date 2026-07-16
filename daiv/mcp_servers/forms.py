@@ -146,19 +146,27 @@ class MCPServerForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        # A user-scoped create must not reuse a global server's name (global wins at
-        # runtime; block it up front to avoid a silently-shadowed row).
         name = cleaned.get("name")
-        if (
-            self.instance.pk is None
-            and name
-            and self.scope == MCPServer.Scope.USER
-            and MCPServer.objects.global_servers().filter(name=name).exists()
-        ):
-            self.add_error(
-                "name",
-                _("'%(name)s' is already used by a global MCP server. Choose a different name.") % {"name": name},
-            )
+        # Name uniqueness lives in the model's *conditional* UniqueConstraints
+        # (``mcp_global_name_unique`` / ``mcp_user_name_unique``). ModelForm
+        # validation can't see them: their condition references ``scope``/``user``,
+        # which are not form fields and so are excluded from constraint validation —
+        # a duplicate would otherwise pass ``clean()`` and 500 with an IntegrityError
+        # at ``save()``. Re-check the collision here on create so it surfaces as a
+        # friendly field error instead.
+        if self.instance.pk is None and name:
+            if self.scope == MCPServer.Scope.USER and MCPServer.objects.global_servers().filter(name=name).exists():
+                # A user-scoped create must not reuse a global server's name (global
+                # wins at runtime; block it up front to avoid a silently-shadowed row).
+                self.add_error(
+                    "name",
+                    _("'%(name)s' is already used by a global MCP server. Choose a different name.") % {"name": name},
+                )
+            elif self._duplicate_in_scope(name):
+                self.add_error(
+                    "name",
+                    _("An MCP server named '%(name)s' already exists. Choose a different name.") % {"name": name},
+                )
         if (
             cleaned.get("tool_filter_mode")
             and cleaned["tool_filter_mode"] != MCPServer.FilterMode.NONE
@@ -168,6 +176,14 @@ class MCPServerForm(forms.ModelForm):
                 "tool_filter_items", _("At least one item is required when a filter mode other than 'none' is set.")
             )
         return cleaned
+
+    def _duplicate_in_scope(self, name: str) -> bool:
+        """Whether ``name`` already exists within the create's target scope — mirrors
+        the DB's conditional UniqueConstraints (global: name; user: user+name), which
+        ModelForm validation skips because ``scope``/``user`` aren't form fields."""
+        if self.scope == MCPServer.Scope.GLOBAL:
+            return MCPServer.objects.global_servers().filter(name=name).exists()
+        return MCPServer.objects.filter(scope=MCPServer.Scope.USER, user=self.user, name=name).exists()
 
     def save(self, commit: bool = True) -> MCPServer:
         self.instance.tool_filter_items = self.cleaned_data.get("tool_filter_items", [])

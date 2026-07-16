@@ -18,6 +18,25 @@ def _user_server(user, name="u1"):
     )
 
 
+def _create_post_data(name="srv", url="https://srv.test/mcp"):
+    """Minimal valid create/edit POST body (with the empty headers formset management
+    form). Deliberately has NO 'scope' key: scope is derived from the URL route, never
+    from POST data. Add or override keys with ``| {...}``."""
+    return {
+        "name": name,
+        "description": "",
+        "transport": "http",
+        "url": url,
+        "enabled": "on",
+        "tool_filter_mode": "none",
+        "tool_filter_items": "",
+        "headers-TOTAL_FORMS": "0",
+        "headers-INITIAL_FORMS": "0",
+        "headers-MIN_NUM_FORMS": "0",
+        "headers-MAX_NUM_FORMS": "50",
+    }
+
+
 @pytest.mark.django_db
 def test_list_requires_login(client):
     resp = client.get(reverse("mcp_servers:list"))
@@ -90,6 +109,43 @@ def test_admin_cannot_edit_member_server(admin_client, member_user):
     s = _user_server(member_user)
     resp = admin_client.get(reverse("mcp_servers:edit", args=[s.pk]))
     assert resp.status_code == 404  # oversight = manage only, not edit
+
+
+# The edit POST re-derives the object via ``scoped_get`` on its own code path (not the
+# GET path, and distinct from the ``manageable_get`` path the toggle/delete/refresh
+# tests cover), so the authorization must be asserted for the mutating verb too — a
+# regression guarding only GET would let the write through. Each asserts the row is
+# untouched, not just the status code.
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_global_via_post(member_client):
+    g = _global(name="glob")
+    data = _create_post_data(name="glob", url="https://changed.test/mcp")
+    resp = member_client.post(reverse("mcp_servers:edit", args=[g.pk]), data=data)
+    assert resp.status_code == 403
+    g.refresh_from_db()
+    assert g.url == "https://g.test/mcp"  # write did not land
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_other_users_server_via_post(member_client, admin_user):
+    other = _user_server(admin_user, name="theirs")
+    data = _create_post_data(name="theirs", url="https://changed.test/mcp")
+    resp = member_client.post(reverse("mcp_servers:edit", args=[other.pk]), data=data)
+    assert resp.status_code == 404
+    other.refresh_from_db()
+    assert other.url == "https://u.test/mcp"  # write did not land
+
+
+@pytest.mark.django_db
+def test_admin_cannot_edit_member_server_via_post(admin_client, member_user):
+    s = _user_server(member_user, name="members-own")
+    data = _create_post_data(name="members-own", url="https://changed.test/mcp")
+    resp = admin_client.post(reverse("mcp_servers:edit", args=[s.pk]), data=data)
+    assert resp.status_code == 404  # oversight = manage only, not edit
+    s.refresh_from_db()
+    assert s.url == "https://u.test/mcp"  # write did not land
 
 
 # --- Create view tests ---
@@ -1129,24 +1185,6 @@ def test_list_flags_shadowed_personal_server(member_client, member_user):
 # --- Split views: global page + scope-from-entry-point ---
 
 
-def _create_post_data(name="srv", url="https://srv.test/mcp"):
-    """Minimal valid create POST. Deliberately has NO 'scope' key: scope is
-    derived from the URL route, never from POST data."""
-    return {
-        "name": name,
-        "description": "",
-        "transport": "http",
-        "url": url,
-        "enabled": "on",
-        "tool_filter_mode": "none",
-        "tool_filter_items": "",
-        "headers-TOTAL_FORMS": "0",
-        "headers-INITIAL_FORMS": "0",
-        "headers-MIN_NUM_FORMS": "0",
-        "headers-MAX_NUM_FORMS": "50",
-    }
-
-
 @pytest.mark.django_db
 def test_global_list_forbidden_for_member(member_client):
     resp = member_client.get(reverse("mcp_servers:global_list"))
@@ -1268,6 +1306,21 @@ def test_member_list_has_no_owner_dropdown(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_member_owner_param_cannot_reveal_another_users_servers(member_client, member_user, admin_user):
+    """End-to-end guard: a member hand-crafting ?owner=<other pk> still gets only their
+    own rows. The owner filter is popped for non-admins and the FilterView's qs pins to
+    the requester regardless of the param — proven here through the view, not just the
+    FilterSet unit, so a future get_queryset/get_context_data change can't leak silently."""
+    _user_server(member_user, name="mine")
+    _user_server(admin_user, name="admins-own")
+    resp = member_client.get(reverse("mcp_servers:list"), {"owner": str(admin_user.pk)})
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "mine" in body
+    assert "admins-own" not in body
+
+
+@pytest.mark.django_db
 def test_admin_owner_param_shows_that_users_servers_without_edit_link(admin_client, member_user):
     theirs = _user_server(member_user, name="members-own")
     resp = admin_client.get(reverse("mcp_servers:list"), {"owner": str(member_user.pk)})
@@ -1348,8 +1401,6 @@ def test_create_form_header_hosts_enabled_toggle(admin_client):
 
 
 # --- Tool-filter visibility gating ---
-# NOTE: `_create_post_data` is the helper Task 2 added near the top of this
-# file's split-views section; it is already present when this task runs.
 
 
 @pytest.mark.django_db

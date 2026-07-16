@@ -494,6 +494,52 @@ def test_user_create_rejects_name_of_existing_global(member_user):
     assert "name" in form.errors
 
 
+@pytest.mark.django_db
+def test_global_create_rejects_duplicate_global_name():
+    """A second global server with an existing global name is a duplicate under
+    ``mcp_global_name_unique``. Because ``scope`` isn't a form field, the conditional
+    constraint is skipped in ModelForm validation — the form's ``clean()`` must catch
+    it so the user gets a field error instead of a 500 (IntegrityError) on ``save()``."""
+    MCPServer.objects.create(
+        name="taken", scope=MCPServer.Scope.GLOBAL, transport=MCPServer.Transport.HTTP, url="https://g.test/mcp"
+    )
+    form = MCPServerForm(data=_data(name="taken"), scope=MCPServer.Scope.GLOBAL)
+    assert not form.is_valid()
+    assert "name" in form.errors
+
+
+@pytest.mark.django_db
+def test_user_create_rejects_duplicate_own_name(member_user):
+    """A user can't have two personal servers sharing a name (``mcp_user_name_unique``);
+    caught in ``clean()`` rather than surfacing as a ``save()`` IntegrityError."""
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://u.test/mcp",
+    )
+    form = MCPServerForm(data=_data(name="mine"), user=member_user, scope=MCPServer.Scope.USER)
+    assert not form.is_valid()
+    assert "name" in form.errors
+
+
+@pytest.mark.django_db
+def test_user_create_allows_name_used_by_another_user(member_user, admin_user):
+    """The same personal name for two different users is legal — the constraint is
+    per (user, name). The ``clean()`` duplicate check must be user-scoped, not a
+    blanket per-name check that would wrongly reject this."""
+    MCPServer.objects.create(
+        name="shared",
+        scope=MCPServer.Scope.USER,
+        user=admin_user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://u.test/mcp",
+    )
+    form = MCPServerForm(data=_data(name="shared"), user=member_user, scope=MCPServer.Scope.USER)
+    assert form.is_valid(), form.errors
+
+
 # ---------------------------------------------------------------------------
 # Fix 2: MCPServerHeaderForm literal_only
 # ---------------------------------------------------------------------------
