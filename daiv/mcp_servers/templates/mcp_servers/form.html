@@ -84,8 +84,10 @@
         </div>
     </fieldset>
 
+    <div class="border-t border-white/[0.06]"></div>
+
     {# ── Connection ────────────────────────────────────────────── #}
-    <fieldset class="space-y-5 border-t border-white/[0.06] pt-6">
+    <fieldset class="space-y-5">
         <legend class="text-[15px] font-semibold text-gray-200">{% translate "Connection" %}</legend>
 
         <div class="grid gap-5 sm:grid-cols-[auto_1fr]">
@@ -134,10 +136,12 @@
         </div>
     </fieldset>
 
+    <div class="border-t border-white/[0.06]" x-show="showFilter" x-cloak></div>
+
     {# ── Tool filter ───────────────────────────────────────────── #}
-    <fieldset class="space-y-5 border-t border-white/[0.06] pt-6" x-show="showFilter" x-cloak>
+    <fieldset class="space-y-5" x-show="showFilter" x-cloak>
         <div class="flex items-center gap-3">
-            <span class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</span>
+            <legend class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</legend>
             {% if mode == "edit" %}
             <button type="submit" form="refresh-tools-form" title="{% translate 'Refresh tools' %}"
                     aria-label="{% translate 'Refresh tools' %}" class="btn-icon">
