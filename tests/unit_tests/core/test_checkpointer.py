@@ -3,8 +3,10 @@
 The agent stores a :class:`~codebase.base.MergeRequest` in checkpointed state
 (``GitState.merge_request``). ``DAIVRedisSerializer`` encodes plain pydantic models
 via ``model_dump(mode="json")`` (cleaner nested-model handling than the stock
-``__dict__`` path) and -- critically -- reconstructs ``set`` values that the stock
-serializer's reviver silently nulls (``loaded_tool_names``).
+``__dict__`` path). ``set`` values (``loaded_tool_names``) used to be nulled by the
+stock reviver and needed a bespoke override; ``langgraph-checkpoint-redis`` 0.5.1 fixed
+that upstream, so the set tests below now guard the *stock* round-trip against a
+downgrade or regression.
 """
 
 from __future__ import annotations
@@ -119,17 +121,18 @@ def test_objects_with_to_json_are_not_intercepted():
     assert encoded.get("id", [None])[0] != "codebase.base"
 
 
-def test_stock_redis_serializer_loses_sets_on_round_trip():
+def test_stock_redis_serializer_round_trips_sets():
     """Regression guard: the stock serializer used to corrupt sets to ``None``.
 
-    The adapter encodes a set via ``kwargs["__set_items__"]``, but the base reviver
-    routed ``builtins.set`` through ``_revive_lc2`` (``set(**kwargs)`` → ``TypeError``),
-    which ``langgraph-checkpoint>=4.1.1`` swallowed by returning ``None`` -- silently
-    nulling the set.  This was fixed upstream in ``langgraph-checkpoint-redis`` 0.5.1
-    (nested-set deserialization fix), so the stock serializer now round-trips sets
-    correctly.  The guard is kept (asserting the fixed behaviour) so a regression in
-    the upstream fix would be caught here rather than silently corrupting production
-    checkpoints.
+    Historically the adapter encoded a set under a ``kwargs["__set_items__"]`` envelope, and
+    the base reviver routed ``builtins.set`` through ``_revive_lc2`` (``set(**kwargs)`` →
+    ``TypeError``), which ``langgraph-checkpoint>=4.1.1`` swallowed by returning ``None`` --
+    silently nulling the set. ``langgraph-checkpoint-redis`` 0.5.1 fixed this: the stock
+    serializer now encodes sets via the ``args`` constructor envelope and ``_revive_if_needed``
+    reconstructs them (``_reconstruct_set_constructor`` still accepts the legacy
+    ``__set_items__`` form too), so a round-trip is lossless. The guard is kept (asserting the
+    fixed behaviour) so a downgrade or upstream regression is caught here rather than silently
+    corrupting production checkpoints.
     """
     stock = JsonPlusRedisSerializer(allowed_json_modules=[("codebase.base", "MergeRequest")])
 
@@ -139,7 +142,7 @@ def test_stock_redis_serializer_loses_sets_on_round_trip():
 
 
 def test_set_round_trips_through_serde_contract():
-    """Through the public serde API the saver calls; our ``_reviver`` reconstructs the set."""
+    """Through the public serde API the saver calls; the stock reviver reconstructs the set (0.5.1)."""
     serde = DAIVRedisSerializer()
     original = {"loaded_tool_names": {"Read", "Edit", "Grep"}}
 
