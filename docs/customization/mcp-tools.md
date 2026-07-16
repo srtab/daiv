@@ -1,11 +1,13 @@
 # MCP Tools
 
 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with
-access to external services. MCP servers are managed from the dashboard at
-**Settings → MCP Servers** (`/dashboard/mcp-servers/`): each server is a row with a URL, a
-transport (`http` or `sse`), optional HTTP headers (stored encrypted, or referenced from an env
-var), and an optional tool filter. Connections are opened by the DAIV app itself at runtime — no
-sidecar containers are required.
+access to external services. MCP servers are managed from the dashboard on two pages: **MCP
+Servers** (`/dashboard/mcp-servers/`) shows your personal servers plus a read-only list of the
+global servers that load in every run; admins additionally get **Global MCP Servers**
+(`/dashboard/mcp-servers/global/`) to manage built-in and custom global servers. Each server is a
+row with a URL, a transport (`http` or `sse`), optional HTTP headers (stored encrypted, or
+referenced from an env var on global servers), and an optional tool filter. Connections are opened
+by the DAIV app itself at runtime — no sidecar containers are required.
 
 ## Built-in servers
 
@@ -84,7 +86,8 @@ keep the `Authorization: Sentry-Bearer <token>` header in the row.
 
 ## Custom servers
 
-Add any HTTP- or SSE-reachable MCP server from **MCP Servers → New server**:
+Admins add any HTTP- or SSE-reachable global MCP server from **Global MCP Servers → New
+server**:
 
 | Field | Description |
 |-------|-------------|
@@ -94,9 +97,11 @@ Add any HTTP- or SSE-reachable MCP server from **MCP Servers → New server**:
 | Headers | Per-header: literal value (encrypted at rest) or `env_ref` (resolved from the environment at runtime) |
 | Tool filter | `allow`/`block` a list of tool names |
 
-**Test connection** probes the server and, on success, turns the tool-filter field into
-checkboxes listing the discovered tools. Tool discovery also runs when you open a saved
-server's edit page, so the checkboxes are populated without re-testing.
+There is no scope field on the form: the page you create from decides it. The **Tool filter**
+section is hidden until it has something to act on — on create it appears after a successful
+**Test connection**; on edit it appears once the server's tools have been synced (or a filter is
+already active). A refresh icon next to the "Tool filter" heading re-syncs the discovered tools
+and shows "synced … ago · N tools".
 
 ### Tool filtering
 
@@ -114,9 +119,11 @@ custom server. Run one bridge container per MCP server for isolation.
 
 ## Personal servers
 
-Member users can add their own MCP servers from the same **MCP Servers** page. Personal servers
-work exactly like custom servers (same fields, same transport options, same tool-filter
-capabilities) with a few important differences.
+Every user, including admins, can add their own MCP servers from the personal **MCP Servers**
+page (`/dashboard/mcp-servers/`). Clicking **New server** there always creates a server owned by
+the requester — there is no scope field to change that. Personal servers work like the global
+custom servers above (same transport options, same tool-filter capabilities, same **Test
+connection**/sync gating for the Tool filter section) with a few important differences.
 
 **Where they load.** A personal server is loaded only in runs where DAIV knows who triggered the
 run: chat sessions, dashboard-initiated runs, and jobs submitted via the API or MCP interface.
@@ -136,9 +143,9 @@ server-side). The MCP Servers page flags such a personal server with a **Shadowe
 names are immutable, so to resolve a collision **delete the personal server and re-create it** under
 a different name.
 
-**Admin oversight.** Admins can see all personal servers in the "User servers" section of the MCP
-Servers page, and can disable or delete any of them. Admins cannot edit a personal server or view
-its header values — those are private to the owning member.
+**Admin oversight.** On the personal MCP Servers page, admins have an owner dropdown (defaulting
+to "You") to list any member's personal servers. They can disable, delete, or refresh those
+servers, but cannot edit them or view their header values.
 
 ## Security considerations
 
