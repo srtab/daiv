@@ -62,11 +62,9 @@ class MCPServerQuerySet(models.QuerySet):
 
 class MCPServer(TimeStampedModel):
     """An outbound MCP server connection. Source of truth for the MCP servers
-    loaded at runtime (via ``mcp_servers.services.build_runtime_servers``); the
-    file-based ``MCP_SERVERS_CONFIG_FILE`` is imported once by the 0002 migration
-    and thereafter only checked on ``post_migrate`` (i.e. whenever migrations run —
-    every web-container start, since ``start-app`` runs ``migrate``) to emit a
-    deprecation warning."""
+    loaded at runtime (via ``mcp_servers.services.build_runtime_servers``). A
+    legacy ``MCP_SERVERS_CONFIG_FILE`` JSON config, if set, is imported once by
+    the 0002 migration and ignored thereafter."""
 
     class Source(models.TextChoices):
         BUILTIN = "builtin", _("Built-in")

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
-import pathlib
 from typing import TYPE_CHECKING
 
 from django.apps import AppConfig
@@ -14,10 +12,6 @@ if TYPE_CHECKING:
     from mcp_servers.seeds import BuiltinSeed
 
 logger = logging.getLogger("daiv.mcp_servers")
-
-_LEGACY_WARNED = False
-
-_DEPRECATED_URL_VARS = ("MCP_SENTRY_URL", "MCP_CONTEXT7_URL")
 
 
 def upsert_builtin_rows(seeds: Iterable[BuiltinSeed] | None = None) -> None:
@@ -66,48 +60,9 @@ def upsert_builtin_rows(seeds: Iterable[BuiltinSeed] | None = None) -> None:
             logger.exception("Failed to upsert built-in MCP server row %r", seed.name)
 
 
-def warn_legacy_env_if_present() -> None:
-    global _LEGACY_WARNED
-    if _LEGACY_WARNED:
-        return
-    from automation.agent.mcp.conf import settings as mcp_conf
-    from mcp_servers.models import MCPServer
-
-    warned = False
-
-    if mcp_conf.SERVERS_CONFIG_FILE:
-        try:
-            any_rows = MCPServer.objects.exists()
-        except OperationalError, ProgrammingError:
-            logger.warning("mcp_servers table not ready; skipping legacy-env deprecation check (run migrations).")
-            return
-        if any_rows:
-            logger.warning(
-                "MCP_SERVERS_CONFIG_FILE is deprecated; servers are now managed via the UI at "
-                "/dashboard/mcp-servers/. Unset MCP_SERVERS_CONFIG_FILE to silence this warning."
-            )
-            warned = True
-
-    for var in _DEPRECATED_URL_VARS:
-        # Explicit presence, not the settings value: the settings fields keep
-        # non-None defaults for the 0004 import migration.
-        if var in os.environ or pathlib.Path("/run/secrets", var).exists():
-            logger.warning(
-                "%s is deprecated and ignored at runtime; the URL now lives in the corresponding "
-                "MCP server row (see /dashboard/mcp-servers/). Unset %s to silence this warning.",
-                var,
-                var,
-            )
-            warned = True
-
-    if warned:
-        _LEGACY_WARNED = True
-
-
 def _on_post_migrate(sender, **kwargs):
     # Connected with ``sender=self`` below, so this only fires for this app's migrations.
     upsert_builtin_rows()
-    warn_legacy_env_if_present()
 
 
 class MCPServersConfig(AppConfig):

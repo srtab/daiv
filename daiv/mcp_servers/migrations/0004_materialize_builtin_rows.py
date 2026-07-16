@@ -1,10 +1,30 @@
 from __future__ import annotations
 
 import logging
+import os
+import pathlib
 
 from django.db import migrations
 
 logger = logging.getLogger("daiv.mcp_servers.migrations")
+
+# Container defaults the removed MCP_SENTRY_URL / MCP_CONTEXT7_URL settings used to carry.
+_ENV_URL_DEFAULTS = {"sentry": "http://mcp_sentry:8000/mcp", "context7": "http://mcp_context7:8000/mcp"}
+
+
+def _legacy_url(name: str) -> str | None:
+    """Effective legacy bridge URL for ``name`` (``sentry``/``context7``), read the way
+    ``MCPSettings`` did before its fields were removed: ``os.environ`` value first, then a
+    ``/run/secrets/MCP_<NAME>_URL`` file, falling back to the container default; the literal
+    string ``"None"`` is the old kill switch (pydantic ``env_parse_none_str``) → ``None``.
+    Inlined so this one-shot migration no longer imports the (now-deleted) conf fields."""
+    env_name = f"MCP_{name.upper()}_URL"
+    value = os.environ.get(env_name)
+    if value is None:
+        secret = pathlib.Path("/run/secrets", env_name)
+        value = secret.read_text().strip() if secret.exists() else _ENV_URL_DEFAULTS[name]
+    return None if value == "None" else value
+
 
 # Frozen copies of the seed defaults — migrations must not drift with live code
 # (mcp_servers/seeds.py is the runtime source; these are the 2026-07 values).
@@ -80,10 +100,8 @@ def materialize_builtin_rows(apps, schema_editor):
       full remote defaults).
     - already-materialised row (non-placeholder URL) → skip (re-run safety, preserves edits).
     """
-    from automation.agent.mcp.conf import settings as mcp_conf
-
     MCPServer = apps.get_model("mcp_servers", "MCPServer")
-    effective = {"sentry": mcp_conf.SENTRY_URL, "context7": mcp_conf.CONTEXT7_URL}
+    effective = {"sentry": _legacy_url("sentry"), "context7": _legacy_url("context7")}
 
     for name in ("sentry", "context7"):
         row = MCPServer.objects.filter(name=name, source="builtin").first()
