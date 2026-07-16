@@ -10,7 +10,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_servers", "0005_mcpserver_tool_snapshot"),
+        ("mcp_servers", "0006_alter_mcpserver_url"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
