@@ -56,6 +56,7 @@
           testUrl: '{% url 'mcp_servers:test' %}',
           transport: '{{ form.transport.value|default:'http'|escapejs }}',
           filterMode: '{{ form.tool_filter_mode.value|default:'none'|escapejs }}',
+          showFilter: {{ tool_filter_visible|yesno:'true,false' }},
           filterPlaceholder: '{% translate 'Filter tools…'|escapejs %}',
           notInListLabel: '{% translate 'not in current tool list'|escapejs %}',
           readonlyLabel: '{% translate 'read-only'|escapejs %}',
@@ -134,19 +135,25 @@
     </fieldset>
 
     {# ── Tool filter ───────────────────────────────────────────── #}
-    <fieldset class="space-y-5 border-t border-white/[0.06] pt-6">
-        <legend class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</legend>
-
-        {% if mode == "edit" %}
+    <fieldset class="space-y-5 border-t border-white/[0.06] pt-6" x-show="showFilter" x-cloak>
         <div class="flex items-center gap-3">
-            <button type="submit" form="refresh-tools-form" class="btn-secondary text-sm">{% translate "Refresh tools" %}</button>
+            <span class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</span>
+            {% if mode == "edit" %}
+            <button type="submit" form="refresh-tools-form" title="{% translate 'Refresh tools' %}"
+                    aria-label="{% translate 'Refresh tools' %}"
+                    class="rounded-lg border border-white/[0.06] bg-white/[0.03] p-1.5 text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                {% icon "arrow-path" "h-4 w-4" %}
+            </button>
             {% if object.tools_synced_at %}
-            <span class="text-sm text-gray-500">{% blocktranslate with when=object.tools_synced_at|timesince %}synced {{ when }} ago{% endblocktranslate %}</span>
+            <span class="text-sm text-gray-500">
+                {% blocktranslate with when=object.tools_synced_at|timesince %}synced {{ when }} ago{% endblocktranslate %}
+                · {% blocktranslate count counter=object.discovered_tools|length %}{{ counter }} tool{% plural %}{{ counter }} tools{% endblocktranslate %}
+            </span>
             {% else %}
             <span class="text-sm text-gray-500">{% translate "not synced yet" %}</span>
             {% endif %}
+            {% endif %}
         </div>
-        {% endif %}
 
         {% include "mcp_servers/_segmented_control.html" with field=form.tool_filter_mode model="filterMode" %}
 
@@ -175,7 +182,7 @@
                 </div>
                 {% else %}
                 {{ form.tool_filter_items }}
-                <p class="mt-1.5 text-sm text-gray-500">{% translate "One tool name per line, or Test the connection above to pick from a list." %}</p>
+                <p class="mt-1.5 text-sm text-gray-500">{% translate "One tool name per line. Test the connection to pick from the discovered list." %}</p>
                 {% endif %}
             </div>
             {% for e in form.tool_filter_items.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}

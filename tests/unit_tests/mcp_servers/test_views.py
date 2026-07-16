@@ -1323,3 +1323,71 @@ def test_create_form_header_hosts_enabled_toggle(admin_client):
     assert 'form="mcp-server-form"' in body
     toggle = next(seg for seg in body.split("<input") if 'form="mcp-server-form"' in seg)
     assert "checked" in toggle
+
+
+# --- Tool-filter visibility gating ---
+# NOTE: `_create_post_data` is the helper Task 2 added near the top of this
+# file's split-views section; it is already present when this task runs.
+
+
+@pytest.mark.django_db
+def test_create_get_hides_tool_filter(admin_client):
+    resp = admin_client.get(reverse("mcp_servers:create"))
+    assert resp.context["tool_filter_visible"] is False
+
+
+@pytest.mark.django_db
+def test_create_failed_post_with_filter_keeps_section_visible(admin_client):
+    data = _create_post_data(name="badfilter", url="not a url") | {
+        "tool_filter_mode": "allow",
+        "tool_filter_items": "tool_a",
+    }
+    resp = admin_client.post(reverse("mcp_servers:create"), data=data)
+    assert resp.status_code == 400
+    assert resp.context["tool_filter_visible"] is True
+
+
+@pytest.mark.django_db
+def test_edit_synced_shows_tool_filter(admin_client):
+    from django.utils import timezone
+
+    obj = MCPServer.objects.create(name="synced", transport="http", url="http://x.test", tools_synced_at=timezone.now())
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[obj.pk]))
+    assert resp.context["tool_filter_visible"] is True
+
+
+@pytest.mark.django_db
+def test_edit_unsynced_hides_tool_filter(admin_client):
+    obj = MCPServer.objects.create(name="nosync2", transport="http", url="http://x.test")
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[obj.pk]))
+    assert resp.context["tool_filter_visible"] is False
+
+
+@pytest.mark.django_db
+def test_edit_unsynced_with_active_filter_stays_visible(admin_client):
+    obj = MCPServer.objects.create(
+        name="apifiltered",
+        transport="http",
+        url="http://x.test",
+        tool_filter_mode=MCPServer.FilterMode.ALLOW,
+        tool_filter_items=["tool_a"],
+    )
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[obj.pk]))
+    assert resp.context["tool_filter_visible"] is True
+
+
+@pytest.mark.django_db
+def test_edit_refresh_is_icon_button_with_metadata(admin_client):
+    from django.utils import timezone
+
+    obj = MCPServer.objects.create(
+        name="meta",
+        transport="http",
+        url="http://x.test",
+        discovered_tools=[{"name": "t1"}, {"name": "t2"}],
+        tools_synced_at=timezone.now(),
+    )
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[obj.pk]))
+    body = resp.content.decode()
+    assert 'form="refresh-tools-form"' in body  # icon button submits the hidden form
+    assert "2 tools" in body  # discovered count in the legend metadata

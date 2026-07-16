@@ -49,6 +49,23 @@ def _list_url_for(obj: MCPServer) -> str:
     return reverse("mcp_servers:list")
 
 
+def _tool_filter_visible(form, obj: MCPServer | None = None) -> bool:
+    """Whether the Tool filter section starts visible.
+
+    Visible only when actionable: an already-synced server (edit), or — as
+    fail-safes that must never hide live data — a bound POST carrying a
+    non-default filter (a validation re-render must keep the user's selection
+    on screen) or a persisted active filter on a never-synced row (possible via
+    the API; the DB constraint requires items whenever a mode is set)."""
+    if obj is not None and (obj.tools_synced_at or obj.tool_filter_mode != MCPServer.FilterMode.NONE):
+        return True
+    if form.is_bound:
+        mode = form.data.get("tool_filter_mode") or MCPServer.FilterMode.NONE
+        items = [v for v in form.data.getlist("tool_filter_items") if str(v).strip()]
+        return mode != MCPServer.FilterMode.NONE or bool(items)
+    return False
+
+
 class MCPServerListView(LoginRequiredMixin, FilterView):
     """Personal servers page: the requesting user's rows (admins may pick
     another member via the owner dropdown) plus a read-only view of the
@@ -142,7 +159,14 @@ class MCPServerCreateView(LoginRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            {"form": form, "formset": formset, "mode": "create", "scope": self.scope, "tool_choices": []},
+            {
+                "form": form,
+                "formset": formset,
+                "mode": "create",
+                "scope": self.scope,
+                "tool_choices": [],
+                "tool_filter_visible": _tool_filter_visible(form),
+            },
             status=status,
         )
 
@@ -227,6 +251,7 @@ class MCPServerEditView(LoginRequiredMixin, View):
                 "builtin": obj.is_builtin(),
                 "headers_locked": headers_locked,
                 "tool_choices": build_tool_choices(discovered, selected),
+                "tool_filter_visible": _tool_filter_visible(form, obj),
             },
             status=status,
         )
