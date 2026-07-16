@@ -229,3 +229,35 @@ def test_offered_action_unset_status_resolves_to_none():
 
 def test_ordering_has_deterministic_tiebreaker():
     assert RunEnvelope._meta.ordering == ["-created_at", "-id"]
+
+
+# --- Epic 1 review pass (2026-07-16): fix_prompt hygiene + envelope coherence ---
+
+
+def test_build_actionable_item_omits_whitespace_only_fix_prompt():
+    """A whitespace-only ``fix_prompt`` carries no instruction and must be dropped, not stored."""
+    item = build_actionable_item(id="f1", kind="finding", label="L", ref="r", fix_prompt="   ")
+    assert "fix_prompt" not in item
+
+
+def test_build_actionable_item_strips_stored_fix_prompt():
+    """A stored ``fix_prompt`` is stripped so leading/trailing noise never reaches the fix agent."""
+    item = build_actionable_item(id="f1", kind="finding", label="L", ref="r", fix_prompt="  patch it  ")
+    assert item["fix_prompt"] == "patch it"
+
+
+def test_clean_rejects_non_found_issues_carrying_actionable():
+    """The reverse coherence direction: only a found-issues envelope may carry actionable items."""
+    env = RunEnvelope(run=_mk_run(_mk_session()), status=EnvelopeStatus.ALL_CLEAR, actionable=[_item()])
+    with pytest.raises(ValidationError):
+        env.full_clean()
+
+
+def test_count_is_derived_from_actionable_on_save():
+    """``count`` mirrors ``len(actionable)`` regardless of any value a caller passes to ``create``."""
+    run = _mk_run(_mk_session())
+    env = RunEnvelope.objects.create(
+        run=run, status=EnvelopeStatus.FOUND_ISSUES, actionable=[_item("a"), _item("b")], count=99
+    )
+    env.refresh_from_db()
+    assert env.count == 2

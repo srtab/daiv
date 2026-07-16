@@ -1,7 +1,9 @@
 import logging
+from datetime import timedelta
 
 from django.core.management import call_command
 from django.db import IntegrityError
+from django.utils import timezone
 from django.utils.translation import gettext
 
 from crontask import cron
@@ -10,6 +12,13 @@ from django_tasks import task
 from core.utils import locked_task
 
 logger = logging.getLogger("daiv.sessions")
+
+# Grace window so the reconciler never races the normal out-of-band classification of a just-finished
+# run (the ``dedup=True`` + ``aexists`` guards already make a re-enqueue idempotent — this only trims churn).
+RECLASSIFY_GRACE = timedelta(minutes=15)
+# Bounded per tick so a backlog after a long provider/broker outage drains steadily rather than
+# storming the queue in a single pass.
+RECLASSIFY_BATCH_LIMIT = 200
 
 
 @task(dedup=True)
@@ -77,6 +86,14 @@ async def classify_run_task(run_id: str) -> None:
     if run.status == RunStatus.FAILED:
         first_line = next((line.strip() for line in run.error_message.splitlines() if line.strip()), "")
         await _persist(status=EnvelopeStatus.FAILED, summary=first_line or gettext("Run failed."), actionable=[])
+        return
+
+    # Defensive terminal-successful re-check: only a SUCCESSFUL run reaches the classification path.
+    # The signal gate enqueues terminal-only (currently ``{SUCCESSFUL, FAILED}``), but a manual
+    # re-enqueue (contemplated above) or a future third terminal ``RunStatus`` must never be dressed
+    # as success — skip rather than misclassify a non-successful run as ``all-clear``/``found-issues``.
+    if run.status != RunStatus.SUCCESSFUL:
+        logger.warning("classify_run_task: run %s is %s (not terminal-successful), skipping", run_id, run.status)
         return
 
     # Resolve intent defensively: a SCHEDULE-triggered run can still have ``scheduled_job is None``
@@ -155,3 +172,41 @@ def sync_stuck_runs_cron_task():
     is visible to monitoring rather than silently swallowed.
     """
     call_command("sync_stuck_runs")
+
+
+@cron("*/15 * * * *")
+@task
+@locked_task(key="reclassify-missing-envelopes")
+def reclassify_missing_envelopes_cron_task():
+    """Backstop the fire-once ``run_finished`` classification path (crash/failure recovery).
+
+    ``run_finished`` emits exactly once per terminal transition, so a ``classify_run_task`` that
+    failed unrecoverably (provider errors past all retries + fallback) or an ``.enqueue()`` that was
+    dropped (a broker/DB blip, swallowed in ``classify_on_run_finished``) would otherwise strand the
+    run at "classifying…" forever — nothing re-fires the signal. This periodic sweep re-targets
+    terminal SCHEDULE runs that still have no ``RunEnvelope`` and re-enqueues classification, which is
+    idempotent (``dedup=True`` + the in-task ``aexists`` guard) so re-enqueuing an in-flight or
+    already-classified run is a safe no-op. A FAILED run with no envelope is likewise re-targeted and
+    gets its ``failed`` envelope with no LLM call.
+
+    ``locked_task`` (non-blocking) skips this tick if the prior one still holds the lock, so a pass
+    that overruns the interval is never double-dispatched.
+    """
+    from sessions.models import Run, RunStatus, SessionOrigin
+
+    cutoff = timezone.now() - RECLASSIFY_GRACE
+    stranded_ids = list(
+        Run.objects
+        .filter(
+            trigger_type=SessionOrigin.SCHEDULE,
+            status__in=RunStatus.terminal(),
+            envelope__isnull=True,
+            created_at__lt=cutoff,
+        )
+        .order_by("created_at")
+        .values_list("pk", flat=True)[:RECLASSIFY_BATCH_LIMIT]
+    )
+    for run_id in stranded_ids:
+        classify_run_task.enqueue(str(run_id))
+    if stranded_ids:
+        logger.info("reclassify_missing_envelopes: re-enqueued %d stranded scheduled run(s)", len(stranded_ids))

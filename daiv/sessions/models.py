@@ -483,17 +483,37 @@ class RunEnvelope(models.Model):
     def __str__(self) -> str:
         return f"Envelope({self.status}) for run {self.run_id}"
 
-    def clean(self) -> None:
-        """Enforce the ``actionable[]`` contract and the FR-5 found-issues invariant.
+    def save(self, *args, **kwargs):
+        """Keep ``count`` a derived mirror of ``len(actionable)``.
 
-        Defense-in-depth at the model boundary: the classifier in Story 1.3 also guarantees
-        both, but ``full_clean()`` should reject a malformed payload or a ``found-issues``
-        envelope with an empty ``actionable[]`` here too.
+        ``count`` is a queryable column (the Feed badge) but never an independently-authored value:
+        deriving it here means no writer — an admin edit, a data fix, a future second producer — can
+        persist a count that disagrees with the list. (The classifier task also sets it explicitly;
+        this makes the coherence structural rather than convention.)
+        """
+        self.count = len(self.actionable)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            if "actionable" in update_fields:
+                update_fields.add("count")
+                kwargs["update_fields"] = update_fields
+        super().save(*args, **kwargs)
+
+    def clean(self) -> None:
+        """Enforce the ``actionable[]`` contract and the FR-5 status<->actionable coherence invariant.
+
+        Defense-in-depth at the model boundary: the Story 1.3 classifier already guarantees these,
+        but ``full_clean()`` should independently reject an incoherent envelope so an admin edit, a
+        raw ``RunEnvelope(...)`` build, or a future second writer cannot persist one. Both directions
+        of the found-issues invariant are enforced here; ``count`` is kept coherent in ``save()``.
         """
         super().clean()
         validate_actionable(self.actionable)
         if self.status == EnvelopeStatus.FOUND_ISSUES and not self.actionable:
             raise ValidationError({"actionable": "A found-issues envelope must list at least one actionable item."})
+        if self.status != EnvelopeStatus.FOUND_ISSUES and self.actionable:
+            raise ValidationError({"actionable": "Only a found-issues envelope may carry actionable items."})
 
     @property
     def offered_action(self) -> OfferedAction:

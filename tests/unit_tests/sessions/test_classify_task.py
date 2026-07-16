@@ -421,3 +421,17 @@ async def test_persist_noops_when_race_winner_already_wrote_envelope():
     assert await RunEnvelope.objects.filter(run=run).acount() == 1
     envelope = await RunEnvelope.objects.aget(run=run)
     assert envelope.summary == "winner"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_non_successful_run_is_skipped_without_llm_call():
+    # Defensive guard (Epic 1 review): only a SUCCESSFUL run reaches classification. A non-terminal
+    # run (e.g. a manual re-enqueue while still RUNNING, or a future third terminal RunStatus) must be
+    # skipped, never dressed as ``all-clear``/``found-issues``.
+    run = await _make_scheduled_run(intent=Intent.WATCH_FIND, status=RunStatus.RUNNING)
+
+    with patch("sessions.classification._build_structured_llm") as build:
+        await classify_run_task.func(str(run.pk))
+
+    build.assert_not_called()
+    assert await sync_to_async(RunEnvelope.objects.for_run)(run) is None
