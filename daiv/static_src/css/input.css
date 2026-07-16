@@ -808,10 +808,14 @@ main:has(.chat-shell) {
   /* Text segments breathe: more above than below, same whether alone in a
      turn or followed by tool-call segments. */
   .chat-segment--text {
+    /* Single source of truth for the text line-height: the collapsible clamp
+       (.chat-text--clamped) multiplies it by the line budget, and
+       chat-stream.js reads it back via computed style. */
+    --chat-text-line-height: 1.7;
     margin-top: 0.5rem;
     margin-bottom: 0.25rem;
     font-size: 15.5px;
-    line-height: 1.7;
+    line-height: var(--chat-text-line-height);
   }
 
   /* User turn: no thread line, bubble hugs the right edge */
@@ -834,6 +838,48 @@ main:has(.chat-shell) {
   .chat-turn--user .chat-text {
     white-space: pre-wrap;
     overflow-wrap: break-word;
+  }
+
+  /* Collapsible tall user messages: clamp to a line budget with a bottom fade
+     and a Show more/less toggle. The clamp height is derived from two custom
+     properties so JS and CSS never drift: --chat-user-clamp-lines (the budget,
+     read back by chat-stream.js) and --chat-text-line-height (set on
+     .chat-segment--text, the source of truth for the rendered line height). The
+     fade uses a mask (not a colour overlay) so it is independent of the
+     semi-transparent bubble background. */
+  .chat-user-msg {
+    --chat-user-clamp-lines: 7;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .chat-text--clamped {
+    display: block;
+    max-height: calc(var(--chat-user-clamp-lines) * var(--chat-text-line-height) * 1em);
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 68%, transparent);
+            mask-image: linear-gradient(to bottom, #000 68%, transparent);
+  }
+
+  .chat-user-msg__toggle {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 12px;
+    color: #93c5fd;
+    cursor: pointer;
+  }
+
+  .chat-user-msg__toggle:hover {
+    text-decoration: underline;
+  }
+
+  .chat-user-msg__toggle:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.5);
+    outline-offset: 2px;
+    border-radius: 3px;
   }
 
   .chat-turn-wrap { display: contents; }

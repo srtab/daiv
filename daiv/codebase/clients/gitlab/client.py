@@ -174,7 +174,12 @@ class GitLabClient(RepoClient):
         if limit is not None:
             optional_kwargs["per_page"] = min(limit, 100)
 
+        # The listing is ordered by a mutable key (last_activity_at), so a paginated iterator can
+        # surface the same project on two pages when its activity shifts mid-iteration. Dedupe by
+        # slug as we go — in-loop rather than a post-hoc pass so `limit` bounds unique repos and the
+        # early break is preserved. Callers rely on one entry per slug (see abstract list_repositories).
         repos: list[Repository] = []
+        seen: set[str] = set()
         for project in self.client.projects.list(
             iterator=True,
             archived=False,
@@ -185,12 +190,16 @@ class GitLabClient(RepoClient):
             sort="desc",
             **optional_kwargs,
         ):
+            slug = project.path_with_namespace
+            if slug in seen:
+                continue
+            seen.add(slug)
             repos.append(
                 Repository(
                     pk=cast("int", project.get_id()),
-                    slug=project.path_with_namespace,
+                    slug=slug,
                     name=project.name,
-                    clone_url=f"{self.client.url}/{project.path_with_namespace}.git",
+                    clone_url=f"{self.client.url}/{slug}.git",
                     html_url=project.web_url,
                     default_branch=project.default_branch,
                     git_platform=self.git_platform,

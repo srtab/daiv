@@ -190,6 +190,27 @@
       this.lockedAgentEffortDots = detail?.effort_dots || 0;
     },
 
+    applyPolledTurns(turns) {
+      // Background (non-chat) runs — schedules, webhooks, UI jobs — execute
+      // detached and never publish to the chat relay, so there is no live stream
+      // to join. The detail page polls the turns endpoint instead and re-emits
+      // the WHOLE transcript here every few seconds. Reassigning ``turns`` re-runs
+      // every x-html/x-text binding (re-rendered markdown, re-highlighted code,
+      // repaint) even when nothing changed — the visible every-poll flicker. Skip
+      // the swap when the transcript is byte-identical to what we already show, so
+      // steady-state polls during a long-running tool are free; only a genuine
+      // change repaints. Both sides come from the same server serializer
+      // (annotate_transcript(build_turns(...))), so key order is stable and the
+      // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
+      // on reassignment, so open tool <details> survive a real change too.
+      if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
+      this.turns = turns;
+      // Mirror the live-stream path (dispatch() scrolls after every event): follow
+      // the tail once the new turns render. The no-force scrollToBottom() no-ops
+      // when the user has scrolled up to read, so it only auto-follows at bottom.
+      this.$nextTick(() => this.scrollToBottom());
+    },
+
     applySandboxEnvSelection(detail) {
       this.selectedSandboxEnvId = detail?.id || "";
       // ``daiv:env-changed`` payload is {id, name, scope}; empty id = Auto pick. An id
@@ -917,7 +938,43 @@
     },
   });
 
+  // Collapse tall user-message bubbles. Measures the rendered height once on
+  // init: user text is immutable after creation, and Alpine's keyed x-for reuses
+  // the DOM node across the wholesale `turns` reassignment that polling performs,
+  // so a single measurement is stable. Both inputs to the overflow test are read
+  // from CSS so the JS decision can't drift from the visible clamp: the line
+  // budget from the --chat-user-clamp-lines custom property, and the per-line
+  // height from the element's computed line-height (CSS clamps to the same
+  // budget * line-height, see .chat-text--clamped). `id` is the shared id the
+  // text region exposes and the toggle points its aria-controls at.
+  const userClamp = (id) => ({
+    id,
+    collapsed: false,
+    overflowing: false,
+    init() {
+      this.$nextTick(() => {
+        const el = this.$el.querySelector(".chat-text");
+        if (!el) return;
+        const styles = getComputedStyle(el);
+        // Guard against a falsy 0 slipping through `||`: a 0-line budget is
+        // nonsensical but would read back as the fallback 7 while the CSS clamp
+        // honours 0, diverging the two. Number.isFinite rejects NaN (unreadable
+        // property) too.
+        const parsedLines = parseInt(styles.getPropertyValue("--chat-user-clamp-lines"), 10);
+        const maxLines = Number.isFinite(parsedLines) && parsedLines > 0 ? parsedLines : 7;
+        const lineHeight = parseFloat(styles.lineHeight) || 26;
+        // +1 absorbs sub-pixel rounding so a bubble exactly maxLines tall is
+        // left alone rather than clamped.
+        if (el.scrollHeight > lineHeight * maxLines + 1) {
+          this.overflowing = true;
+          this.collapsed = true;
+        }
+      });
+    },
+  });
+
   document.addEventListener("alpine:init", () => {
     window.Alpine.data("chat", chat);
+    window.Alpine.data("userClamp", userClamp);
   });
 })();

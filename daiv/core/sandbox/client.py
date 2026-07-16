@@ -12,6 +12,7 @@ from core.site_settings import site_settings
 from .schemas import (
     ApplyMutationsRequest,
     ApplyMutationsResponse,
+    EgressConfigRequest,
     FsDeleteRequest,
     FsDeleteResponse,
     FsEditRequest,
@@ -262,6 +263,19 @@ class DAIVSandboxClient:
         are owned by daiv-sandbox (see its ``DELETE /session/{id}/`` handler).
         """
         response = await self._client.delete(f"session/{session_id}/", params={"force": force})
+        response.raise_for_status()
+
+    async def update_egress(self, session_id: str, egress: EgressConfigRequest) -> None:
+        """Refresh a live session's egress policy + secrets (e.g. a freshly-minted git token) without
+        recreating the container. The sidecar hot-reloads its config on the next request.
+
+        Serialised via ``egress.to_wire()`` — the same plaintext-secret wire shape ``start_session``
+        uses — because ``model_dump`` masks ``SecretStr``. Raises ``httpx.HTTPError`` on failure —
+        ``httpx.HTTPStatusError`` for a non-2xx (e.g. 404 on a sandbox too old to expose the route, or
+        409 for a session with no egress proxy) and ``httpx.RequestError`` for a transport failure;
+        callers decide whether to recreate the session on failure.
+        """
+        response = await self._client.put(f"session/{session_id}/egress/", json=egress.to_wire())
         response.raise_for_status()
 
     def _get_headers(self) -> dict[str, str]:

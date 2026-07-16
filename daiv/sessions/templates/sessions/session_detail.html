@@ -47,6 +47,11 @@
   {% translate "Auto" as locked_agent_fallback %}
   {% translate "Auto" as locked_env_fallback %}
 
+  {# Labels for the collapsible user-message toggle. Piped through ``escapejs`` #}
+  {# below so a translation containing a quote can't break the JS string literal. #}
+  {% translate "Show more" as show_more_label %}
+  {% translate "Show less" as show_less_label %}
+
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
          streamEndpoint: "{% url 'api:chat_run_stream' %}",
@@ -69,7 +74,7 @@
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"
        @daiv:env-changed.window="applySandboxEnvSelection($event.detail)"
        @daiv:agent-changed.window="applyAgentSelection($event.detail)"
-       @daiv:session-turns.window="turns = $event.detail.turns"
+       @daiv:session-turns.window="applyPolledTurns($event.detail.turns)"
        x-cloak
        class="chat-shell"
        :class="{ 'chat-shell--empty': !thread && turns.length === 0 }">
@@ -188,7 +193,18 @@
                           </template>
                         </template>
                         <template x-if="seg.type === 'text' && turn.role === 'user'">
-                          <span class="chat-text" x-text="seg.content"></span>
+                          <div class="chat-user-msg" x-data="userClamp(`chat-user-text-${turn.id}-${si}`)">
+                            <span class="chat-text"
+                                  :id="id"
+                                  :class="{ 'chat-text--clamped': collapsed }"
+                                  x-text="seg.content"></span>
+                            <button type="button" class="chat-user-msg__toggle" x-cloak
+                                    x-show="overflowing"
+                                    :aria-controls="id"
+                                    :aria-expanded="(!collapsed).toString()"
+                                    @click="collapsed = !collapsed"
+                                    x-text="collapsed ? '{{ show_more_label|escapejs }}' : '{{ show_less_label|escapejs }}'"></button>
+                          </div>
                         </template>
 
                         <template x-if="seg.type === 'thinking'">

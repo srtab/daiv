@@ -31,6 +31,27 @@ class Frequency(models.TextChoices):
     ONCE = "once", _("Once")
 
 
+class Intent(models.TextChoices):
+    """What a scheduled run is for, so the review console knows what "success" looks like.
+
+    Values are the literal hyphenated strings shared with the envelope contract; do not
+    normalize to underscores.
+    """
+
+    WATCH_FIND = "watch-find", _("Watch & find")
+    DO_CHANGE = "do-change", _("Do & change")
+    REPORT = "report", _("Report")
+
+    @classmethod
+    def finding_bearing(cls) -> frozenset[str]:
+        """Intents whose runs may produce actionable findings (``report`` is excluded).
+
+        Consumed by the Story 1.3 classifier to enforce that a ``report``-intent run
+        never yields an actionable finding.
+        """
+        return frozenset({cls.WATCH_FIND, cls.DO_CHANGE})
+
+
 _USER_FACING_FIELDS = (
     "name",
     "prompt",
@@ -41,6 +62,7 @@ _USER_FACING_FIELDS = (
     "agent_model",
     "agent_thinking_level",
     "notify_on",
+    "intent",
 )
 
 
@@ -151,6 +173,13 @@ class ScheduledJob(TimeStampedModel):
     last_run_batch_id = models.UUIDField(_("last run batch ID"), null=True, blank=True)
     run_count = models.PositiveIntegerField(_("run count"), default=0)
     notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    intent = models.CharField(
+        _("intent"),
+        max_length=16,
+        choices=Intent.choices,
+        default=Intent.WATCH_FIND,
+        help_text=_("What this schedule is for: watch & find issues, do & change, or just report."),
+    )
     subscribers = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         blank=True,
@@ -185,7 +214,10 @@ class ScheduledJob(TimeStampedModel):
             models.CheckConstraint(
                 condition=~models.Q(frequency=Frequency.CUSTOM) | ~models.Q(cron_expression=""),
                 name="sched_custom_requires_cron",
-            )
+            ),
+            # ``choices=`` is not enforced at the DB layer, and ``.aupdate()``/raw writes
+            # bypass field validation, so pin the enum here too. Mirror ``session_origin_valid``.
+            models.CheckConstraint(condition=models.Q(intent__in=Intent.values), name="sched_intent_valid"),
         ]
 
     DUPLICABLE_FIELDS = (*_USER_FACING_FIELDS, "run_at")
@@ -323,6 +355,13 @@ class ScheduleTemplate(TimeStampedModel):
         _("agent thinking level"), max_length=20, blank=True, default="", choices=ThinkingLevelChoices.choices
     )
     notify_on = models.CharField(_("notify on"), max_length=16, choices=NotifyOn.choices, default=NotifyOn.NEVER)
+    intent = models.CharField(
+        _("intent"),
+        max_length=16,
+        choices=Intent.choices,
+        default=Intent.WATCH_FIND,
+        help_text=_("What this schedule is for: watch & find issues, do & change, or just report."),
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -340,7 +379,10 @@ class ScheduleTemplate(TimeStampedModel):
             models.CheckConstraint(
                 condition=~models.Q(frequency=Frequency.CUSTOM) | ~models.Q(cron_expression=""),
                 name="tpl_custom_requires_cron",
-            )
+            ),
+            # Pin the enum at the DB layer (mirror ``session_origin_valid``); ``.aupdate()``/raw
+            # writes bypass ``choices=`` field validation.
+            models.CheckConstraint(condition=models.Q(intent__in=Intent.values), name="tpl_intent_valid"),
         ]
 
     def __str__(self) -> str:

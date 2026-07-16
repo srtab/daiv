@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -14,7 +15,8 @@ from notifications.choices import NotifyOn
 
 from automation.agent.results import parse_agent_result
 from core.models import ThinkingLevelChoices
-from sessions.managers import RunManager, SessionManager
+from sessions.envelopes import validate_actionable
+from sessions.managers import RunEnvelopeManager, RunManager, SessionManager
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -58,6 +60,44 @@ class SessionOrigin(models.TextChoices):
     def prompt_driven(cls) -> frozenset[str]:
         """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
         return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
+
+
+class EnvelopeStatus(models.TextChoices):
+    """The classification of a completed scheduled run (stored on ``RunEnvelope.status``).
+
+    Values are hyphenated by deliberate convention — distinct from ``RunStatus``'s UPPER and
+    ``SessionOrigin``'s snake_case, consistent with Story 1.1's ``intent`` (``watch-find``).
+    Do not "normalize" them; the DB ``CheckConstraint`` pins these exact strings.
+    """
+
+    ALL_CLEAR = "all-clear", _("All clear")
+    FOUND_ISSUES = "found-issues", _("Found issues")
+    NEEDS_ATTENTION = "needs-attention", _("Needs attention")
+    FAILED = "failed", _("Failed")
+
+
+class OfferedAction(models.TextChoices):
+    """The action the console offers for an envelope status (the FR-5 semantics).
+
+    A stable action identifier the UI (Epic 5 ``button-fix``/``button-review``/``button-retry``)
+    binds labels/colors to. It is **not** a stored field — it is derived per instance by
+    :attr:`RunEnvelope.offered_action`.
+    """
+
+    NONE = "none", _("None")
+    FIX = "fix", _("Fix it")
+    REVIEW = "review", _("Review this")
+    RETRY = "retry", _("Retry")
+
+
+# The status -> offered-action mapping, defined exactly once (AC3/AC4); no call site
+# recomputes it. ``FOUND_ISSUES`` is intentionally absent: its action depends on whether
+# ``actionable`` is non-empty and is resolved in :attr:`RunEnvelope.offered_action`.
+_STATUS_OFFERED_ACTION = {
+    EnvelopeStatus.ALL_CLEAR: OfferedAction.NONE,
+    EnvelopeStatus.NEEDS_ATTENTION: OfferedAction.REVIEW,
+    EnvelopeStatus.FAILED: OfferedAction.RETRY,
+}
 
 
 class Session(models.Model):
@@ -397,3 +437,94 @@ class Run(models.Model):
             changed.append("error_message")
 
         return changed
+
+
+class RunEnvelope(models.Model):
+    """The structured classification of a completed scheduled ``Run``.
+
+    The sole store of a run's classification (``status`` / ``count`` / ``summary`` /
+    ``actionable[]``), OneToOne to its run. Read it via :meth:`RunEnvelopeManager.for_run`
+    (None-safe: returns ``None`` for a still-classifying run) or the ``run.envelope`` reverse
+    accessor (which raises ``DoesNotExist`` for a pending run). It is **not** a throughput/merge
+    record — that is ``codebase.MergeMetric`` (AD-10), which this model never touches.
+    """
+
+    run = models.OneToOneField(Run, on_delete=models.CASCADE, related_name="envelope", verbose_name=_("run"))
+    # No default: the classifier (Story 1.3) always sets a status; an unset value is invalid.
+    status = models.CharField(_("status"), max_length=16, choices=EnvelopeStatus.choices, db_index=True)
+    count = models.PositiveIntegerField(_("count"), default=0)
+    # The classifier's one-line gloss — distinct from ``Run.result_summary`` (the full
+    # agent-response fallback); do not conflate the two.
+    summary = models.TextField(_("summary"), blank=True, default="")
+    # The house list-JSON idiom (cf. ``codebase.topics``). The item contract lives in
+    # ``sessions.envelopes`` (enforced by ``clean()``); never store filterable state inside.
+    actionable = models.JSONField(_("actionable"), default=list, blank=True)
+    # Mirrors ``Run.created_at``; supports Feed freshness/ordering and leaves room for a later
+    # composite ``["status", "-created_at"]`` index without a rewrite.
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+
+    objects = RunEnvelopeManager()
+
+    class Meta:
+        verbose_name = _("Run Envelope")
+        verbose_name_plural = _("Run Envelopes")
+        # ``-id`` tiebreaker keeps Feed ordering/pagination deterministic when envelopes
+        # share a ``created_at`` (cf. RunManager's ("-created_at", "-id") ordering).
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            # DB-level enum enforcement (``choices=`` alone is not enforced, and
+            # ``.aupdate()``/raw writes bypass field validation). References
+            # ``EnvelopeStatus.values`` directly so the constraint cannot drift.
+            models.CheckConstraint(
+                condition=models.Q(status__in=EnvelopeStatus.values), name="run_envelope_status_valid"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"Envelope({self.status}) for run {self.run_id}"
+
+    def save(self, *args, **kwargs):
+        """Keep ``count`` a derived mirror of ``len(actionable)``.
+
+        ``count`` is a queryable column (the Feed badge) but never an independently-authored value:
+        deriving it here means no writer — an admin edit, a data fix, a future second producer — can
+        persist a count that disagrees with the list. (The classifier task also sets it explicitly;
+        this makes the coherence structural rather than convention.)
+        """
+        self.count = len(self.actionable)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            if "actionable" in update_fields:
+                update_fields.add("count")
+                kwargs["update_fields"] = update_fields
+        super().save(*args, **kwargs)
+
+    def clean(self) -> None:
+        """Enforce the ``actionable[]`` contract and the FR-5 status<->actionable coherence invariant.
+
+        Defense-in-depth at the model boundary: the Story 1.3 classifier already guarantees these,
+        but ``full_clean()`` should independently reject an incoherent envelope so an admin edit, a
+        raw ``RunEnvelope(...)`` build, or a future second writer cannot persist one. Both directions
+        of the found-issues invariant are enforced here; ``count`` is kept coherent in ``save()``.
+        """
+        super().clean()
+        validate_actionable(self.actionable)
+        if self.status == EnvelopeStatus.FOUND_ISSUES and not self.actionable:
+            raise ValidationError({"actionable": "A found-issues envelope must list at least one actionable item."})
+        if self.status != EnvelopeStatus.FOUND_ISSUES and self.actionable:
+            raise ValidationError({"actionable": "Only a found-issues envelope may carry actionable items."})
+
+    @property
+    def offered_action(self) -> OfferedAction:
+        """The action the console offers for this envelope (the single mapping site, AC3/AC4)."""
+        if self.status == EnvelopeStatus.FOUND_ISSUES:
+            return OfferedAction.FIX if self.actionable else OfferedAction.NONE
+        # ``.get`` (not ``[]``) so an unset/pending in-memory envelope resolves to NONE
+        # rather than raising KeyError — persisted rows always have a constraint-valid status.
+        return _STATUS_OFFERED_ACTION.get(self.status, OfferedAction.NONE)
+
+    @property
+    def is_actionable(self) -> bool:
+        """Whether the console offers any action (Queue / Finding -> Fix gating)."""
+        return self.offered_action != OfferedAction.NONE

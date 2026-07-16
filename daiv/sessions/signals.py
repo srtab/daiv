@@ -12,6 +12,8 @@ from asgiref.sync import async_to_sync
 from django_tasks.signals import task_finished, task_started
 from jobs.tasks import run_job_task
 
+from sessions.tasks import classify_run_task
+
 logger = logging.getLogger("daiv.sessions")
 
 # Emitted when a Run transitions to a terminal status (SUCCESSFUL or FAILED).
@@ -229,3 +231,32 @@ def _enqueue_queued_run(run: Any) -> bool:
         emit_run_finished_if_terminal(run, previous_status=RunStatus.READY, skip_dispatch=True)
         return False
     return True
+
+
+@receiver(run_finished, dispatch_uid="agent_sessions.classify_on_run_finished")
+def classify_on_run_finished(sender: type, run: Any, **kwargs: Any) -> None:
+    """Enqueue post-run classification when a scheduled run reaches a terminal status.
+
+    A single gated receiver (AC1), sitting alongside the dispatcher and the notification/memory
+    receivers — never folded into them. Only scheduled, terminal runs get an envelope.
+    ``skip_dispatch=True`` marks re-emits for runs that never executed (empty ``response_text``),
+    so they must not be classified — hence it is checked first.
+
+    Exception-safe: classification must never affect the run lifecycle (the signal is
+    ``send_robust``, but we wrap here like the peer receivers so one failure can't stall the emit
+    loop). ``RunStatus``/``SessionOrigin`` are imported locally (``sessions.models`` cannot be
+    imported at this module's top without a cycle); ``classify_run_task`` is a module-level import,
+    mirroring ``memory.signals``.
+    """
+    from sessions.models import RunStatus, SessionOrigin
+
+    try:
+        if kwargs.get("skip_dispatch"):
+            return
+        if run.trigger_type != SessionOrigin.SCHEDULE:
+            return
+        if run.status not in RunStatus.terminal():
+            return
+        classify_run_task.enqueue(str(run.pk))
+    except Exception:
+        logger.exception("classify_on_run_finished: failed to enqueue classification for run=%s", run.pk)

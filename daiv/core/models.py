@@ -336,6 +336,22 @@ class SiteConfiguration(models.Model):
         help_text=_("Hard cap on the consolidated memory document size, in bytes."),
     )
 
+    # -- Run Classifier --
+    run_classifier_model_name = models.CharField(
+        _("classifier model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Model that classifies each finished scheduled run's report into an envelope."),
+    )
+    run_classifier_fallback_model_name = models.CharField(
+        _("classifier fallback model"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Fallback model when the classifier model fails."),
+    )
+
     # -- Web Search --
     web_search_enabled = models.BooleanField(
         _("web search enabled"), null=True, help_text=_("Enable or disable the web search tool.")
@@ -486,6 +502,8 @@ class SiteConfiguration(models.Model):
         "memory_extraction_model_name",
         "memory_extraction_fallback_model_name",
         "memory_consolidation_model_name",
+        "run_classifier_model_name",
+        "run_classifier_fallback_model_name",
         "web_fetch_model_name",
     )
 
@@ -518,6 +536,13 @@ class SiteConfiguration(models.Model):
             match=("memory_*",),
             icon="cpu-chip",
             toggle_field="memory_enabled",
+            category="AI tasks",
+        ),
+        FieldGroup(
+            key="run_classifier",
+            title=_("Run classifier"),
+            match=("run_classifier_*",),
+            icon="cpu-chip",
             category="AI tasks",
         ),
         FieldGroup(key="providers", title=_("Providers"), match=(), icon="providers", category="Models"),

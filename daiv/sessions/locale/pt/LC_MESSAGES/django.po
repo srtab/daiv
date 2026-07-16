@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 10:54+0100\n"
+"POT-Creation-Date: 2026-07-15 17:39+0100\n"
 "PO-Revision-Date: 2026-07-08 09:00+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -89,6 +89,27 @@ msgstr "Webhook de issue"
 msgid "MR/PR Webhook"
 msgstr "Webhook de MR/PR"
 
+msgid "All clear"
+msgstr "Tudo em ordem"
+
+msgid "Found issues"
+msgstr "Problemas encontrados"
+
+msgid "Needs attention"
+msgstr "Requer atenção"
+
+msgid "None"
+msgstr "Nenhuma"
+
+msgid "Fix it"
+msgstr "Corrigir"
+
+msgid "Review this"
+msgstr "Rever"
+
+msgid "Retry"
+msgstr "Repetir"
+
 msgid "origin"
 msgstr "origem"
 
@@ -155,6 +176,9 @@ msgstr "ID do lote"
 msgid "prompt"
 msgstr "prompt"
 
+msgid "message ID"
+msgstr "ID da mensagem"
+
 msgid "notify on"
 msgstr "notificar em"
 
@@ -200,6 +224,24 @@ msgstr "Execução"
 msgid "Runs"
 msgstr "Execuções"
 
+msgid "run"
+msgstr "execução"
+
+msgid "count"
+msgstr "contagem"
+
+msgid "summary"
+msgstr "resumo"
+
+msgid "actionable"
+msgstr "itens acionáveis"
+
+msgid "Run Envelope"
+msgstr "Envelope de execução"
+
+msgid "Run Envelopes"
+msgstr "Envelopes de execução"
+
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."
 
@@ -215,7 +257,6 @@ msgstr "Todos"
 msgid "Type"
 msgstr "Tipo"
 
-#, python-format
 msgid "Clear type filter"
 msgstr "Limpar filtro de tipo"
 
@@ -261,26 +302,23 @@ msgstr "Limpar filtro de lote"
 msgid "Clear all"
 msgstr "Limpar tudo"
 
-msgid "Markdown"
-msgstr "Markdown"
+msgid "No sessions match these filters."
+msgstr "Nenhuma sessão corresponde a estes filtros."
 
-msgid "No recorded runs — this conversation predates run tracking."
-msgstr "Sem execuções registadas — esta conversa é anterior ao registo de execuções."
+msgid "Start your first run"
+msgstr "Inicie a sua primeira execução"
+
+msgid "Kick off an agent on one of your repositories and it will show up here."
+msgstr "Inicie um agente num dos seus repositórios e aparecerá aqui."
+
+msgid "New"
+msgstr "Novo"
 
 msgid "View session"
 msgstr "Ver sessão"
 
 msgid "generating title…"
 msgstr "a gerar título…"
-
-#, python-format
-msgid "%(n)s run"
-msgid_plural "%(n)s runs"
-msgstr[0] "%(n)s execução"
-msgstr[1] "%(n)s execuções"
-
-msgid "Pick a model"
-msgstr "Selecionar um modelo"
 
 msgid "Auto"
 msgstr "Automático"
@@ -318,9 +356,6 @@ msgstr "O agente está a trabalhar"
 msgid "This page refreshes automatically when the run finishes."
 msgstr "Esta página atualiza automaticamente quando a execução terminar."
 
-msgid "You stopped this run."
-msgstr "Parou esta execução."
-
 msgid "Session context"
 msgstr "Contexto da sessão"
 
@@ -338,40 +373,6 @@ msgstr "Sessões do agente"
 
 msgid "Every agent thread across jobs, schedules, webhooks, and chat."
 msgstr "Todos os processos do agente em tarefas, agendamentos, webhooks e chat."
-
-msgid "Start a run"
-msgstr "Iniciar execução"
-
-msgid "No sessions match these filters."
-msgstr "Nenhuma sessão corresponde a estes filtros."
-
-msgid "Start your first run"
-msgstr "Inicie a sua primeira execução"
-
-msgid "Kick off an agent on one of your repositories and it will show up here."
-msgstr "Inicie um agente num dos seus repositórios e aparecerá aqui."
-
-msgid "Earlier"
-msgstr "Anteriores"
-
-msgid "Yesterday"
-msgstr "Ontem"
-
-msgid "Previous 7 days"
-msgstr "Últimos 7 dias"
-
-msgid "Previous 30 days"
-msgstr "Últimos 30 dias"
-
-msgid "Failed to submit the run. Please try again in a moment."
-msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
-
-#, python-format
-msgid "Some repositories failed to submit: %(ids)s"
-msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
-
-msgid "New"
-msgstr "Novo"
 
 msgid "Start something new"
 msgstr "Começar algo novo"
@@ -393,3 +394,52 @@ msgstr "Delegar uma tarefa"
 
 msgid "Describe a well-specified task and let it run in the background — get notified when it's done. Works across one or many repositories, or on a schedule."
 msgstr "Descreva uma tarefa bem especificada e deixe-a correr em segundo plano — seja notificado quando terminar. Funciona com um ou vários repositórios, ou de acordo com um agendamento."
+
+msgid "Start a run"
+msgstr "Iniciar execução"
+
+msgid "Earlier"
+msgstr "Anteriores"
+
+msgid "Yesterday"
+msgstr "Ontem"
+
+msgid "Previous 7 days"
+msgstr "Últimos 7 dias"
+
+msgid "Previous 30 days"
+msgstr "Últimos 30 dias"
+
+msgid "Failed to submit the run. Please try again in a moment."
+msgstr "Falha ao submeter a execução. Tente novamente dentro de momentos."
+
+#, python-format
+msgid "Some repositories failed to submit: %(ids)s"
+msgstr "Alguns repositórios falharam ao submeter: %(ids)s"
+
+msgid "Run failed."
+msgstr "A execução falhou."
+
+#~ msgid "Markdown"
+#~ msgstr "Markdown"
+
+#~ msgid "No recorded runs — this conversation predates run tracking."
+#~ msgstr "Sem execuções registadas — esta conversa é anterior ao registo de execuções."
+
+#, python-format
+#~ msgid "%(n)s run"
+#~ msgid_plural "%(n)s runs"
+#~ msgstr[0] "%(n)s execução"
+#~ msgstr[1] "%(n)s execuções"
+
+#~ msgid "Pick a model"
+#~ msgstr "Selecionar um modelo"
+
+#~ msgid "You stopped this run."
+#~ msgstr "Parou esta execução."
+
+msgid "Show more"
+msgstr "Mostrar mais"
+
+msgid "Show less"
+msgstr "Mostrar menos"

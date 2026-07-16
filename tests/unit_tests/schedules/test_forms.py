@@ -8,8 +8,8 @@ from notifications.choices import NotifyOn
 
 from accounts.models import User
 from core.models import Provider, ProviderType
-from schedules.forms import ScheduledJobCreateForm
-from schedules.models import Frequency
+from schedules.forms import ScheduledJobCreateForm, ScheduledJobUpdateForm, ScheduleTemplateForm
+from schedules.models import Frequency, Intent
 
 
 @pytest.fixture
@@ -29,6 +29,7 @@ def _valid_data(**overrides):
         "cron_expression": "",
         "time": "12:00",
         "notify_on": NotifyOn.NEVER,
+        "intent": Intent.WATCH_FIND,
     }
     data.update(overrides)
     return data
@@ -123,6 +124,7 @@ def _once_data(_run_at, **overrides):
         "time": "",
         "run_at": _run_at.strftime("%Y-%m-%dT%H:%M"),
         "notify_on": NotifyOn.NEVER,
+        "intent": Intent.WATCH_FIND,
     }
     data.update(overrides)
     return data
@@ -200,3 +202,66 @@ class TestScheduledJobCreateFormAgentOverride:
         job.refresh_from_db()
         assert job.agent_model == "openrouter:anthropic/claude-haiku-4.5"
         assert job.agent_thinking_level == "high"
+
+
+def _valid_template_data(**overrides):
+    data = {
+        "name": "Nightly scan",
+        "prompt": "p",
+        "repos": json.dumps([{"repo_id": "x/y", "ref": ""}]),
+        "frequency": "daily",
+        "cron_expression": "",
+        "time": "12:00",
+        "notify_on": NotifyOn.NEVER,
+        "intent": Intent.WATCH_FIND,
+    }
+    data.update(overrides)
+    return data
+
+
+@pytest.mark.django_db
+class TestScheduledJobFormIntent:
+    def test_create_form_accepts_and_persists_intent(self, member_user):
+        form = ScheduledJobCreateForm(data=_valid_data(intent=Intent.DO_CHANGE), owner=member_user)
+        assert form.is_valid(), form.errors
+        job = form.save(commit=False)
+        job.user = member_user
+        job.save()
+        form.save_m2m()
+        job.refresh_from_db()
+        assert job.intent == Intent.DO_CHANGE
+
+    def test_create_form_rejects_invalid_intent(self, member_user):
+        form = ScheduledJobCreateForm(data=_valid_data(intent="bogus"), owner=member_user)
+        assert not form.is_valid()
+        assert "intent" in form.errors
+
+    def test_update_form_accepts_and_persists_intent(self, member_user):
+        form = ScheduledJobUpdateForm(data=_valid_data(intent=Intent.REPORT), owner=member_user)
+        assert form.is_valid(), form.errors
+        job = form.save(commit=False)
+        job.user = member_user
+        job.save()
+        form.save_m2m()
+        job.refresh_from_db()
+        assert job.intent == Intent.REPORT
+
+    def test_update_form_rejects_invalid_intent(self, member_user):
+        form = ScheduledJobUpdateForm(data=_valid_data(intent="bogus"), owner=member_user)
+        assert not form.is_valid()
+        assert "intent" in form.errors
+
+
+@pytest.mark.django_db
+class TestScheduleTemplateFormIntent:
+    def test_template_form_accepts_and_persists_intent(self):
+        form = ScheduleTemplateForm(data=_valid_template_data(intent=Intent.REPORT))
+        assert form.is_valid(), form.errors
+        tpl = form.save()
+        tpl.refresh_from_db()
+        assert tpl.intent == Intent.REPORT
+
+    def test_template_form_rejects_invalid_intent(self):
+        form = ScheduleTemplateForm(data=_valid_template_data(intent="bogus"))
+        assert not form.is_valid()
+        assert "intent" in form.errors

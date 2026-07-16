@@ -12,6 +12,7 @@ from django_extensions.db.models import TimeStampedModel
 
 from core.models import EncryptedJSONFieldDescriptor
 from mcp_servers.constants import MCP_NAME_RE
+from mcp_servers.validators import validate_http_url
 
 _UNSET = object()
 
@@ -99,7 +100,11 @@ class MCPServer(TimeStampedModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True, related_name="owned_mcp_servers"
     )
     transport = models.CharField(_("transport"), max_length=10, choices=Transport.choices)
-    url = models.URLField(_("URL"))
+    # CharField, not URLField (varchar(200) either way): URLValidator rejects internal hosts —
+    # single-label names and underscores, e.g. a Docker service like ``mcp_rt`` — that MCP servers
+    # use on the internal network. Validated by validate_http_url on the form / full_clean path;
+    # see its docstring for the full rationale.
+    url = models.CharField(_("URL"), max_length=200, validators=[validate_http_url])
     _headers_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001
     headers = EncryptedJSONFieldDescriptor("headers")
     tool_filter_mode = models.CharField(

@@ -109,6 +109,8 @@ class GitHubClient(RepoClient):
         Returns:
             The list of repositories.
         """
+        # No dedup pass (cf. the GitLab client): get_repos() lists the installation's repositories
+        # without a mutable-key ordering, so it has no structural source of duplicate slugs.
         repos: list[Repository] = []
         for repo in self.client_installation.get_repos():
             if topics is not None and not any(topic in repo.topics for topic in topics):
