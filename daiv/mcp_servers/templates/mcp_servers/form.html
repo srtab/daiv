@@ -140,8 +140,7 @@
             <span class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</span>
             {% if mode == "edit" %}
             <button type="submit" form="refresh-tools-form" title="{% translate 'Refresh tools' %}"
-                    aria-label="{% translate 'Refresh tools' %}"
-                    class="rounded-lg border border-white/[0.06] bg-white/[0.03] p-1.5 text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
+                    aria-label="{% translate 'Refresh tools' %}" class="btn-icon">
                 {% icon "arrow-path" "h-4 w-4" %}
             </button>
             {% if object.tools_synced_at %}
@@ -192,7 +191,7 @@
     {# ── Actions ───────────────────────────────────────────────── #}
     <div class="flex items-center gap-3 border-t border-white/[0.06] pt-6">
         <button type="submit" class="btn-primary" {% if headers_locked %}disabled{% endif %}>{% translate "Save" %}</button>
-        <a href="{% if scope == "global" or object.scope == "global" %}{% url 'mcp_servers:global_list' %}{% else %}{% url 'mcp_servers:list' %}{% endif %}" class="btn-secondary">{% translate "Cancel" %}</a>
+        <a href="{{ cancel_url }}" class="btn-secondary">{% translate "Cancel" %}</a>
         {% if mode == "edit" and not builtin %}
         <a href="{% url 'mcp_servers:delete' object.pk %}" class="btn-danger-outline ml-auto">{% translate "Delete" %}</a>
         {% endif %}

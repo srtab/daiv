@@ -14,6 +14,7 @@ from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
 from django_filters.views import FilterView
 
+from accounts.context_processors import NAV_SECTION_MCP_GLOBAL
 from accounts.mixins import AdminRequiredMixin
 from core.encryption import DecryptionError
 from mcp_servers import services
@@ -41,12 +42,26 @@ def _decorate(servers, *, global_names=frozenset()):
     return servers
 
 
+def _pin_nav_section(request, obj: MCPServer) -> None:
+    """Pin the sidebar to the global section for a global row. The edit/delete URLs
+    are shared with the personal page and resolve to the personal section by default,
+    so global rows need the explicit override; no-op for user-scoped rows."""
+    if obj.scope == MCPServer.Scope.GLOBAL:
+        request.nav_section_override = NAV_SECTION_MCP_GLOBAL
+
+
+def _list_url_for_scope(scope) -> str:
+    """The list page for a scope — the single source of the scope→list-URL mapping,
+    shared by redirects-after-save and the form's Cancel link so they never diverge."""
+    if scope == MCPServer.Scope.GLOBAL:
+        return reverse("mcp_servers:global_list")
+    return reverse("mcp_servers:list")
+
+
 def _list_url_for(obj: MCPServer) -> str:
     """List page matching the row's scope, so success/error flashes land on the
     page the user acted from."""
-    if obj.scope == MCPServer.Scope.GLOBAL:
-        return reverse("mcp_servers:global_list")
-    return reverse("mcp_servers:list")
+    return _list_url_for_scope(obj.scope)
 
 
 def _tool_filter_visible(form, obj: MCPServer | None = None) -> bool:
@@ -164,6 +179,7 @@ class MCPServerCreateView(LoginRequiredMixin, View):
                 "formset": formset,
                 "mode": "create",
                 "scope": self.scope,
+                "cancel_url": _list_url_for_scope(self.scope),
                 "tool_choices": [],
                 "tool_filter_visible": _tool_filter_visible(form),
             },
@@ -184,8 +200,7 @@ class MCPServerEditView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         obj = MCPServer.objects.scoped_get(request.user, pk)
-        if obj.scope == MCPServer.Scope.GLOBAL:
-            request.nav_section_override = "mcp_servers_global"
+        _pin_nav_section(request, obj)
         initial, headers_locked = _existing_headers_for_formset(obj)
         if headers_locked:
             messages.error(
@@ -202,8 +217,7 @@ class MCPServerEditView(LoginRequiredMixin, View):
 
     def post(self, request, pk):
         obj = MCPServer.objects.scoped_get(request.user, pk)
-        if obj.scope == MCPServer.Scope.GLOBAL:
-            request.nav_section_override = "mcp_servers_global"
+        _pin_nav_section(request, obj)
         try:
             existing_headers = obj.headers or []
         except DecryptionError:
@@ -248,6 +262,7 @@ class MCPServerEditView(LoginRequiredMixin, View):
                 "formset": formset,
                 "mode": "edit",
                 "object": obj,
+                "cancel_url": _list_url_for(obj),
                 "builtin": obj.is_builtin(),
                 "headers_locked": headers_locked,
                 "tool_choices": build_tool_choices(discovered, selected),
@@ -272,8 +287,7 @@ class MCPServerDeleteView(LoginRequiredMixin, View):
         obj = MCPServer.objects.manageable_get(request.user, pk)
         if reject := self._reject_builtin(request, obj):
             return reject
-        if obj.scope == MCPServer.Scope.GLOBAL:
-            request.nav_section_override = "mcp_servers_global"
+        _pin_nav_section(request, obj)
         return render(request, "mcp_servers/confirm_delete.html", {"object": obj})
 
     def post(self, request, pk):

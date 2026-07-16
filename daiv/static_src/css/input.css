@@ -104,6 +104,11 @@ main:has(.chat-shell) {
            hover:border-white/[0.25] hover:text-gray-300;
   }
 
+  .btn-icon {
+    @apply rounded-lg border border-white/[0.06] bg-white/[0.03] p-1.5 text-gray-400 transition-all duration-200
+           hover:border-white/[0.12] hover:text-white;
+  }
+
   .mcp-tool-list__scroll {
     @apply max-h-72 space-y-0.5 overflow-y-auto rounded-lg border border-white/[0.06] bg-white/[0.02] p-1;
   }
