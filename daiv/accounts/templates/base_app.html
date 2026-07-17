@@ -7,8 +7,10 @@
      class="flex h-dvh bg-ground">
   {% include "accounts/_sidebar.html" %}
 
-  {# Mobile navigation sheet (< 768px) — reuses the sidebar partial WITHOUT the
-     icon-rail modifier, so it always shows full labels. #}
+  {% comment %}
+  Mobile navigation sheet (< 768px) — reuses the sidebar partial WITHOUT the
+  icon-rail modifier, so it always shows full labels.
+  {% endcomment %}
   <div x-show="mobileNavOpen" x-cloak class="fixed inset-0 z-40 md:hidden">
     <div x-show="mobileNavOpen" x-transition.opacity
          @click="mobileNavOpen = false"
@@ -35,10 +37,12 @@
           {% icon "bars-3" "h-5 w-5" %}
         </button>
 
-        {# Top-bar left slot for page-specific controls (e.g. the console
-           range-switcher). Empty on shared pages, so a control only appears
-           where it makes sense — the dashboard fills it, MCP servers / sandbox
-           envs / users etc. leave it empty. #}
+        {% comment %}
+        Top-bar left slot for page-specific controls (e.g. the console
+        range-switcher). Empty on shared pages, so a control only appears
+        where it makes sense — the dashboard fills it, MCP servers / sandbox
+        envs / users etc. leave it empty.
+        {% endcomment %}
         {% block topbar_start %}{% endblock %}
       </div>
 

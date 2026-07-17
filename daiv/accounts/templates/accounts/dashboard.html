@@ -9,8 +9,10 @@
   {# Admin-gated console surface toggle, active on "Personal" (the default); absent for non-admins (AC2). #}
   {% include "accounts/_manager_lens_toggle.html" with surface="personal" %}
 
-  {# Range-switcher — console-only, static placeholder in 2.1; wired in Epic 3.
-     Active pill is teal; labels use the mono face + tabular figures. #}
+  {% comment %}
+  Range-switcher — console-only, static placeholder in 2.1; wired in Epic 3.
+  Active pill is teal; labels use the mono face + tabular figures.
+  {% endcomment %}
   <div data-testid="range-switcher" role="group" aria-label="{% translate 'Time range' %}"
        class="hidden items-center gap-0.5 rounded-md border border-border bg-ground p-0.5 md:flex">
     <button type="button" disabled aria-disabled="true" data-range="today"

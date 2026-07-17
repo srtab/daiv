@@ -1,10 +1,12 @@
 {% load i18n %}
-{# Review Console main column — three stacked placeholder regions (Story 2.1).
-   Structural skeletons only; Hero/Queue/Feed content and the "you have N" count
-   are wired by later stories (Epic 3 / Epic 4 / Story 2.3). This partial carries
-   NO job-creation control (FR-3). Reused verbatim as the HTMX body fragment.
-   Each region is marked aria-busy while its content is pending; the decorative
-   shimmer skeletons are aria-hidden so assistive tech is not read empty rows. #}
+{% comment %}
+Review Console main column — three stacked placeholder regions (Story 2.1).
+Structural skeletons only; Hero/Queue/Feed content and the "you have N" count
+are wired by later stories (Epic 3 / Epic 4 / Story 2.3). This partial carries
+NO job-creation control (FR-3). Reused verbatim as the HTMX body fragment.
+Each region is marked aria-busy while its content is pending; the decorative
+shimmer skeletons are aria-hidden so assistive tech is not read empty rows.
+{% endcomment %}
 <div class="flex flex-col gap-5">
   {# ── Hero ─────────────────────────────────────────────────────────────── #}
   <section data-testid="console-hero" aria-labelledby="console-hero-heading" aria-busy="true"
