@@ -16,7 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from automation.agent.base import BaseAgent
 from codebase.repo_config import RepositoryConfig
-from core.checkpointer import open_checkpointer
+from core.checkpointer import aresolve_thread_messages, open_checkpointer
 from core.site_settings import site_settings
 from memory.models import MemoryObservation, ObservationStatus, RepositoryMemory
 from memory.prompts import consolidation_human, consolidation_system, extraction_human, extraction_system
@@ -206,11 +206,9 @@ async def extract_observations_task(run_id: str) -> None:
         logger.info("extract_observations_task: memory disabled for repo %s, skipping", run.repo_id)
         return
 
+    thread_config = {"configurable": {"thread_id": str(run.session_id)}}
     async with open_checkpointer() as checkpointer:
-        checkpoint_tuple = await checkpointer.aget_tuple({"configurable": {"thread_id": str(run.session_id)}})
-
-    channel_values = (checkpoint_tuple.checkpoint or {}).get("channel_values", {}) if checkpoint_tuple else {}
-    if not (messages := channel_values.get("messages", [])):
+        checkpoint_tuple = await checkpointer.aget_tuple(thread_config)
         if checkpoint_tuple is None:
             # Benign: the checkpoint expired from Redis before this task ran.
             logger.info(
@@ -218,16 +216,22 @@ async def extract_observations_task(run_id: str) -> None:
                 run.session_id,
                 run_id,
             )
-        else:
-            # A present checkpoint with no messages signals a real defect (serialization
-            # or channel-name drift), not normal TTL expiry — surface it louder.
-            logger.warning(
-                "extract_observations_task: checkpoint present but has no messages for thread %s (run=%s); "
-                "available channels: %s — skipping (serialization or channel-name drift?)",
-                run.session_id,
-                run_id,
-                sorted(channel_values),
-            )
+            return
+        channel_values = (checkpoint_tuple.checkpoint or {}).get("channel_values", {})
+        # ``messages`` is stored in a deepagents ``DeltaChannel`` and is usually absent from
+        # ``channel_values`` — reconstruct it from the delta write history.
+        messages = await aresolve_thread_messages(checkpointer, thread_config, channel_values)
+
+    if not messages:
+        # A present checkpoint with no messages even after DeltaChannel reconstruction signals
+        # a real defect (serialization or channel-name drift), not normal TTL expiry — louder.
+        logger.warning(
+            "extract_observations_task: checkpoint present but has no messages for thread %s (run=%s); "
+            "available channels: %s — skipping (serialization or channel-name drift?)",
+            run.session_id,
+            run_id,
+            sorted(channel_values),
+        )
         return
 
     transcript = serialize_transcript(messages)

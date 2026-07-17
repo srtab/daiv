@@ -3,8 +3,10 @@
 The agent stores a :class:`~codebase.base.MergeRequest` in checkpointed state
 (``GitState.merge_request``). ``DAIVRedisSerializer`` encodes plain pydantic models
 via ``model_dump(mode="json")`` (cleaner nested-model handling than the stock
-``__dict__`` path) and -- critically -- reconstructs ``set`` values that the stock
-serializer's reviver silently nulls (``loaded_tool_names``).
+``__dict__`` path). ``set`` values (``loaded_tool_names``) used to be nulled by the
+stock reviver and needed a bespoke override; ``langgraph-checkpoint-redis`` 0.5.1 fixed
+that upstream, so the set tests below now guard the *stock* round-trip against a
+downgrade or regression.
 """
 
 from __future__ import annotations
@@ -119,22 +121,28 @@ def test_objects_with_to_json_are_not_intercepted():
     assert encoded.get("id", [None])[0] != "codebase.base"
 
 
-def test_stock_redis_serializer_loses_sets_on_round_trip():
-    """Regression guard: reproduce the production set→None corruption with the stock serializer.
+def test_stock_redis_serializer_round_trips_sets():
+    """Regression guard: the stock serializer used to corrupt sets to ``None``.
 
-    The adapter encodes a set via ``kwargs["__set_items__"]``, but the base reviver routes
-    ``builtins.set`` through ``_revive_lc2`` (``set(**kwargs)`` → ``TypeError``), which
-    ``langgraph-checkpoint>=4.1.1`` swallows by returning ``None`` -- silently nulling the set.
+    Historically the adapter encoded a set under a ``kwargs["__set_items__"]`` envelope, and
+    the base reviver routed ``builtins.set`` through ``_revive_lc2`` (``set(**kwargs)`` →
+    ``TypeError``), which ``langgraph-checkpoint>=4.1.1`` swallowed by returning ``None`` --
+    silently nulling the set. ``langgraph-checkpoint-redis`` 0.5.1 fixed this: the stock
+    serializer now encodes sets via the ``args`` constructor envelope and ``_revive_if_needed``
+    reconstructs them (``_reconstruct_set_constructor`` still accepts the legacy
+    ``__set_items__`` form too), so a round-trip is lossless. The guard is kept (asserting the
+    fixed behaviour) so a downgrade or upstream regression is caught here rather than silently
+    corrupting production checkpoints.
     """
     stock = JsonPlusRedisSerializer(allowed_json_modules=[("codebase.base", "MergeRequest")])
 
     restored = stock.loads_typed(stock.dumps_typed({"loaded_tool_names": {"Read", "Edit"}}))
 
-    assert restored == {"loaded_tool_names": None}  # corrupted
+    assert restored == {"loaded_tool_names": {"Read", "Edit"}}
 
 
 def test_set_round_trips_through_serde_contract():
-    """Through the public serde API the saver calls; our ``_reviver`` reconstructs the set."""
+    """Through the public serde API the saver calls; the stock reviver reconstructs the set (0.5.1)."""
     serde = DAIVRedisSerializer()
     original = {"loaded_tool_names": {"Read", "Edit", "Grep"}}
 
@@ -206,3 +214,85 @@ def test_dataclass_nested_alongside_set_and_model_round_trips(merge_request):
     assert restored["loaded_tool_names"] == {"Read", "Edit"}
     assert isinstance(restored["loaded_tool_names"], set)
     assert restored["merge_request"] == merge_request
+
+
+# ---------------------------------------------------------------------------
+# aresolve_thread_messages: DeltaChannel-aware messages read
+#
+# deepagents >= 0.6 stores ``messages`` in a langgraph ``DeltaChannel`` whose value is
+# usually ABSENT from ``channel_values`` (present only on periodic snapshot steps). The
+# helper reconstructs the accumulated list from the delta write history so the transcript
+# survives a reload. These tests pin the three resolution branches.
+# ---------------------------------------------------------------------------
+
+
+def _history_saver(history):
+    """A saver stub whose ``aget_delta_channel_history`` returns ``history``."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    saver = MagicMock()
+    saver.aget_delta_channel_history = AsyncMock(return_value=history)
+    return saver
+
+
+async def test_resolve_messages_returns_inline_list_without_history_walk():
+    """deepagents < 0.6 (plain add_messages) keeps the full list inline; return as-is and
+    never touch the (expensive, beta) delta-history contract."""
+    from core.checkpointer import aresolve_thread_messages
+
+    msgs = [HumanMessage(content="hi", id="h1")]
+    saver = _history_saver({})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {"messages": msgs})
+
+    assert result is msgs
+    saver.aget_delta_channel_history.assert_not_awaited()
+
+
+async def test_resolve_messages_reconstructs_from_write_history_when_absent():
+    """The core bug: ``messages`` absent from ``channel_values`` (DeltaChannel non-snapshot
+    step) must be rebuilt by folding the ancestor writes, not read as empty."""
+    from langchain_core.messages import AIMessage
+
+    from core.checkpointer import aresolve_thread_messages
+
+    writes = [
+        ("task-0", "messages", [HumanMessage(content="q", id="h1")]),
+        ("task-1", "messages", [AIMessage(content="a", id="a1")]),
+    ]
+    saver = _history_saver({"messages": {"writes": writes}})
+
+    # channel_values has other channels but NO messages key -> reconstruction path.
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {"session_id": "x"})
+
+    assert [m.id for m in result] == ["h1", "a1"]
+    assert [m.content for m in result] == ["q", "a"]
+
+
+async def test_resolve_messages_folds_seed_plus_writes():
+    """A snapshot ancestor supplies the ``seed``; later writes fold on top (and id-dedup
+    replaces an in-place update rather than duplicating)."""
+    from langchain_core.messages import AIMessage
+
+    from core.checkpointer import aresolve_thread_messages
+
+    seed = [HumanMessage(content="q", id="h1"), AIMessage(content="partial", id="a1")]
+    writes = [("task-2", "messages", [AIMessage(content="final", id="a1")])]
+    saver = _history_saver({"messages": {"seed": seed, "writes": writes}})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {})
+
+    assert [m.id for m in result] == ["h1", "a1"]
+    assert result[1].content == "final"  # id-dedup replaced the partial in place
+
+
+async def test_resolve_messages_empty_history_returns_empty_list():
+    """No seed and no writes (nothing recoverable) -> empty list, so callers still flag the
+    genuinely-empty case rather than crashing."""
+    from core.checkpointer import aresolve_thread_messages
+
+    saver = _history_saver({"messages": {"writes": []}})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {})
+
+    assert result == []
