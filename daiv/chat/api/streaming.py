@@ -178,7 +178,11 @@ class ChatRunStreamer:
             async with (
                 open_checkpointer() as checkpointer,
                 set_runtime_ctx(
-                    repo_id=self.repo_id, scope=Scope.GLOBAL, ref=self.ref, sandbox_env_id=self.sandbox_environment_id
+                    repo_id=self.repo_id,
+                    scope=Scope.GLOBAL,
+                    ref=self.ref,
+                    sandbox_env_id=self.sandbox_environment_id,
+                    acting_user_id=self.user_id,
                 ) as runtime_ctx,
             ):
                 # Record the turn as a RUNNING Run once we're committed to executing.

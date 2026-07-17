@@ -17,14 +17,30 @@
 </div>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 100ms">
-    <h2 class="text-lg font-semibold">{% translate "Custom servers" %}</h2>
-    {% translate "No custom servers configured." as custom_empty %}
-    {% include "mcp_servers/_server_list.html" with servers=custom_servers empty_message=custom_empty %}
+    <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+            <h2 class="text-lg font-semibold">
+                {% if selected_owner %}
+                {% blocktranslate with owner=selected_owner %}{{ owner }}’s servers{% endblocktranslate %}
+                {% else %}{% translate "Your servers" %}{% endif %}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500">{% translate "Personal MCP servers that load only in runs the owner triggers." %}</p>
+        </div>
+        {% if is_admin %}
+        <form method="get" x-data @change="$el.submit()">
+            {{ filter.form.owner }}
+        </form>
+        {% endif %}
+    </div>
+    {% translate "No personal MCP servers yet." as your_empty %}
+    {% include "mcp_servers/_server_list.html" with servers=your_servers empty_message=your_empty %}
+    {% include "accounts/_pagination.html" %}
 </section>
 
 <section class="animate-fade-up mt-8" style="animation-delay: 150ms">
-    <h2 class="text-lg font-semibold">{% translate "Built-in servers" %}</h2>
-    {% translate "No built-in servers registered." as builtin_empty %}
-    {% include "mcp_servers/_server_list.html" with servers=builtin_servers empty_message=builtin_empty %}
+    <h2 class="text-lg font-semibold">{% translate "Global servers" %}</h2>
+    <p class="mt-1 text-sm text-gray-500">{% translate "Admin-managed servers that load in every run." %}</p>
+    {% translate "No global servers configured." as g_empty %}
+    {% include "mcp_servers/_global_server_list.html" with servers=global_servers empty_message=g_empty %}
 </section>
 {% endblock app_content %}

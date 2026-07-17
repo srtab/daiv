@@ -206,6 +206,7 @@ def _enqueue_queued_run(run: Any) -> bool:
             agent_thinking_level=agent_thinking_level,
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
+            user_id=run.user_id,
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("dispatch_next_in_session: enqueue failed for run=%s", run.pk)

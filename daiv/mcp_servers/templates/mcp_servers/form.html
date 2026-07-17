@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load i18n static %}
+{% load i18n icon_tags static %}
 
 {% block title %}{% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %} — DAIV{% endblock %}
 
@@ -11,15 +11,28 @@
 {% endblock alpine_plugins %}
 
 {% block app_content %}
-<div class="animate-fade-up">
-    <h1 class="text-2xl font-bold tracking-tight">
-        {% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}
-    </h1>
-    <p class="mt-1.5 text-[15px] font-light text-gray-400">
-        {% if mode == "create" %}{% translate "Connect an MCP server to give the agent extra tools and context." %}
-        {% elif builtin %}{% translate "Built-in server — it can be edited and disabled, but not renamed or deleted." %}
-        {% else %}{% blocktranslate with name=object.name %}Update “{{ name }}”.{% endblocktranslate %}{% endif %}
-    </p>
+<div class="animate-fade-up flex items-start justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-bold tracking-tight">
+            {% if mode == "create" %}{% translate "New MCP server" %}{% else %}{% translate "Edit MCP server" %}{% endif %}
+        </h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            {% if mode == "create" %}
+                {% if scope == "global" %}{% translate "Global server — loads in every run." %}
+                {% else %}{% translate "Personal server — loads only in runs you trigger." %}{% endif %}
+            {% elif builtin %}{% translate "Built-in server — it can be edited and disabled, but not renamed or deleted." %}
+            {% else %}{% blocktranslate with name=object.name %}Update “{{ name }}”.{% endblocktranslate %}{% endif %}
+        </p>
+    </div>
+    <div class="flex shrink-0 items-center gap-3 pt-1.5">
+        <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
+        <label class="toggle-switch">
+            <input type="checkbox" name="{{ form.enabled.html_name }}" form="mcp-server-form"
+                   class="toggle-switch__input" {% if form.enabled.value %}checked{% endif %}>
+            <span class="toggle-switch__track"></span>
+        </label>
+        {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
+    </div>
 </div>
 
 {% if form.non_field_errors %}
@@ -36,13 +49,14 @@
 </div>
 {% endif %}
 
-<form method="post"
+<form id="mcp-server-form" method="post"
       class="animate-fade-up mt-8 space-y-8 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6"
       style="animation-delay: 50ms"
       x-data="mcpTestConnection({
           testUrl: '{% url 'mcp_servers:test' %}',
           transport: '{{ form.transport.value|default:'http'|escapejs }}',
           filterMode: '{{ form.tool_filter_mode.value|default:'none'|escapejs }}',
+          showFilter: {{ tool_filter_visible|yesno:'true,false' }},
           filterPlaceholder: '{% translate 'Filter tools…'|escapejs %}',
           notInListLabel: '{% translate 'not in current tool list'|escapejs %}',
           readonlyLabel: '{% translate 'read-only'|escapejs %}',
@@ -68,29 +82,23 @@
             <div class="mt-1.5">{{ form.description }}</div>
             {% for e in form.description.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
         </div>
-
-        <div class="flex items-center gap-3">
-            <label class="toggle-switch">
-                <input type="checkbox" name="{{ form.enabled.html_name }}" class="toggle-switch__input" {% if form.enabled.value %}checked{% endif %}>
-                <span class="toggle-switch__track"></span>
-            </label>
-            <span class="text-[15px] font-medium text-gray-400">{{ form.enabled.label }}</span>
-            {% for e in form.enabled.errors %}<span class="text-sm text-red-300">{{ e }}</span>{% endfor %}
-        </div>
     </fieldset>
 
+    <div class="border-t border-white/[0.06]"></div>
+
     {# ── Connection ────────────────────────────────────────────── #}
-    <fieldset class="space-y-5 border-t border-white/[0.06] pt-6">
+    <fieldset class="space-y-5">
         <legend class="text-[15px] font-semibold text-gray-200">{% translate "Connection" %}</legend>
 
-        {% include "mcp_servers/_segmented_control.html" with field=form.transport model="transport" %}
-
-        <div>
-            <label for="{{ form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-                {{ form.url.label }} <span class="text-red-400">*</span>
-            </label>
-            <div class="mt-1.5">{{ form.url }}</div>
-            {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+        <div class="grid gap-5 sm:grid-cols-[auto_1fr]">
+            {% include "mcp_servers/_segmented_control.html" with field=form.transport model="transport" %}
+            <div>
+                <label for="{{ form.url.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+                    {{ form.url.label }} <span class="text-red-400">*</span>
+                </label>
+                <div class="mt-1.5">{{ form.url }}</div>
+                {% for e in form.url.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
+            </div>
         </div>
 
         <fieldset {% if headers_locked %}disabled{% endif %}>
@@ -109,38 +117,46 @@
                 <template x-ref="rowTemplate">
                     {% include "mcp_servers/_header_row.html" with header_form=formset.empty_form %}
                 </template>
-                <button type="button" @click="addRow()" class="btn-secondary mt-3 text-sm">
-                    + {% translate "Add header" %}
+                <button type="button" @click="addRow()" class="btn-ghost-dashed mt-3 text-sm">
+                    {% icon "plus" "h-4 w-4" %} {% translate "Add header" %}
                 </button>
             </div>
         </fieldset>
 
-        <div class="flex items-center gap-3">
-            <button type="button" @click="test()" :disabled="state === 'testing'" class="btn-secondary text-sm">
-                <span x-show="state !== 'testing'">{% translate "Test connection" %}</span>
-                <span x-show="state === 'testing'" x-cloak>{% translate "Testing…" %}</span>
-            </button>
+        <div class="flex items-center justify-end gap-3">
             <span x-show="state === 'ok'" x-cloak class="text-sm text-emerald-300">
                 <span x-text="toolCount"></span> {% translate "tools discovered" %}
             </span>
             <span x-show="state === 'error'" x-cloak class="text-sm text-red-300" x-text="error"></span>
+            <button type="button" @click="test()" :disabled="state === 'testing'" class="btn-secondary gap-1.5 text-sm">
+                {% icon "bolt" "h-4 w-4" %}
+                <span x-show="state !== 'testing'">{% translate "Test connection" %}</span>
+                <span x-show="state === 'testing'" x-cloak>{% translate "Testing…" %}</span>
+            </button>
         </div>
     </fieldset>
 
-    {# ── Tool filter ───────────────────────────────────────────── #}
-    <fieldset class="space-y-5 border-t border-white/[0.06] pt-6">
-        <legend class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</legend>
+    <div class="border-t border-white/[0.06]" x-show="showFilter" x-cloak></div>
 
-        {% if mode == "edit" %}
+    {# ── Tool filter ───────────────────────────────────────────── #}
+    <fieldset class="space-y-5" x-show="showFilter" x-cloak>
         <div class="flex items-center gap-3">
-            <button type="submit" form="refresh-tools-form" class="btn-secondary text-sm">{% translate "Refresh tools" %}</button>
+            <legend class="text-[15px] font-semibold text-gray-200">{% translate "Tool filter" %}</legend>
+            {% if mode == "edit" %}
+            <button type="submit" form="refresh-tools-form" title="{% translate 'Refresh tools' %}"
+                    aria-label="{% translate 'Refresh tools' %}" class="btn-icon">
+                {% icon "arrow-path" "h-4 w-4" %}
+            </button>
             {% if object.tools_synced_at %}
-            <span class="text-sm text-gray-500">{% blocktranslate with when=object.tools_synced_at|timesince %}synced {{ when }} ago{% endblocktranslate %}</span>
+            <span class="text-sm text-gray-500">
+                {% blocktranslate with when=object.tools_synced_at|timesince %}synced {{ when }} ago{% endblocktranslate %}
+                · {% blocktranslate count counter=object.discovered_tools|length %}{{ counter }} tool{% plural %}{{ counter }} tools{% endblocktranslate %}
+            </span>
             {% else %}
             <span class="text-sm text-gray-500">{% translate "not synced yet" %}</span>
             {% endif %}
+            {% endif %}
         </div>
-        {% endif %}
 
         {% include "mcp_servers/_segmented_control.html" with field=form.tool_filter_mode model="filterMode" %}
 
@@ -169,7 +185,7 @@
                 </div>
                 {% else %}
                 {{ form.tool_filter_items }}
-                <p class="mt-1.5 text-sm text-gray-500">{% translate "One tool name per line, or Test the connection above to pick from a list." %}</p>
+                <p class="mt-1.5 text-sm text-gray-500">{% translate "One tool name per line. Test the connection to pick from the discovered list." %}</p>
                 {% endif %}
             </div>
             {% for e in form.tool_filter_items.errors %}<p class="mt-1 text-sm text-red-300">{{ e }}</p>{% endfor %}
@@ -179,15 +195,15 @@
     {# ── Actions ───────────────────────────────────────────────── #}
     <div class="flex items-center gap-3 border-t border-white/[0.06] pt-6">
         <button type="submit" class="btn-primary" {% if headers_locked %}disabled{% endif %}>{% translate "Save" %}</button>
-        <a href="{% url 'mcp_servers:list' %}" class="btn-secondary">{% translate "Cancel" %}</a>
+        <a href="{{ cancel_url }}" class="btn-secondary">{% translate "Cancel" %}</a>
         {% if mode == "edit" and not builtin %}
-        <a href="{% url 'mcp_servers:delete' object.name %}" class="btn-danger-outline ml-auto">{% translate "Delete" %}</a>
+        <a href="{% url 'mcp_servers:delete' object.pk %}" class="btn-danger-outline ml-auto">{% translate "Delete" %}</a>
         {% endif %}
     </div>
 </form>
 
 {% if mode == "edit" %}
-<form id="refresh-tools-form" method="post" action="{% url 'mcp_servers:refresh_tools' object.name %}" class="hidden">
+<form id="refresh-tools-form" method="post" action="{% url 'mcp_servers:refresh_tools' object.pk %}" class="hidden">
     {% csrf_token %}
     <input type="hidden" name="next" value="edit">
 </form>

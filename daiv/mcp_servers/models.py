@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
 from django.core.validators import RegexValidator
 from django.db import models
+from django.http import Http404
+from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 
 from django_extensions.db.models import TimeStampedModel
@@ -14,13 +17,54 @@ from mcp_servers.validators import validate_http_url
 _UNSET = object()
 
 
+class MCPServerQuerySet(models.QuerySet):
+    """Scoping helpers shared by views and runtime. GLOBAL rows are admin-managed
+    and visible to everyone; USER rows are owned by one user and load only in that
+    user's runs.
+
+    Authorization failures deliberately signal differently by scope: a forbidden
+    GLOBAL row raises ``PermissionDenied`` (its existence is not secret), while a
+    non-owned USER row raises ``Http404`` (so one member cannot probe for the
+    existence of another's personal servers)."""
+
+    def global_servers(self):
+        # Scope alone is authoritative — a global server may have any ``Source``.
+        return self.filter(scope=MCPServer.Scope.GLOBAL)
+
+    def user_servers(self, user):
+        return self.filter(scope=MCPServer.Scope.USER, user=user).order_by("name")
+
+    def scoped_get(self, user, pk):
+        """Fetch ``pk`` for an EDIT. GLOBAL → admin only (``PermissionDenied``);
+        USER → owner only (``Http404`` otherwise). Admins may NOT edit another
+        user's personal server — only manage it (see ``manageable_get``)."""
+        server = get_object_or_404(self, pk=pk)
+        if server.scope == MCPServer.Scope.GLOBAL:
+            if not user.is_admin:
+                raise PermissionDenied("Admin required for global MCP servers")
+            return server
+        if server.user_id != user.id:
+            raise Http404("Not found")
+        return server
+
+    def manageable_get(self, user, pk):
+        """Fetch ``pk`` for a MANAGE action (enable/disable, delete, refresh).
+        GLOBAL → admin only; USER → owner or admin."""
+        server = get_object_or_404(self, pk=pk)
+        if server.scope == MCPServer.Scope.GLOBAL:
+            if not user.is_admin:
+                raise PermissionDenied("Admin required for global MCP servers")
+            return server
+        if server.user_id != user.id and not user.is_admin:
+            raise Http404("Not found")
+        return server
+
+
 class MCPServer(TimeStampedModel):
     """An outbound MCP server connection. Source of truth for the MCP servers
-    loaded at runtime (via ``mcp_servers.services.build_runtime_servers``); the
-    file-based ``MCP_SERVERS_CONFIG_FILE`` is imported once by the 0002 migration
-    and thereafter only checked on ``post_migrate`` (i.e. whenever migrations run —
-    every web-container start, since ``start-app`` runs ``migrate``) to emit a
-    deprecation warning."""
+    loaded at runtime (via ``mcp_servers.services.build_runtime_servers``). A
+    legacy ``MCP_SERVERS_CONFIG_FILE`` JSON config, if set, is imported once by
+    the 0002 migration and ignored thereafter."""
 
     class Source(models.TextChoices):
         BUILTIN = "builtin", _("Built-in")
@@ -42,9 +86,17 @@ class MCPServer(TimeStampedModel):
         LITERAL = "literal", "literal"
         ENV_REF = "env_ref", "env_ref"
 
-    name = models.SlugField(_("name"), max_length=80, unique=True, validators=[RegexValidator(regex=MCP_NAME_RE)])
+    class Scope(models.TextChoices):
+        GLOBAL = "global", _("Global")
+        USER = "user", _("User")
+
+    name = models.SlugField(_("name"), max_length=80, validators=[RegexValidator(regex=MCP_NAME_RE)])
     description = models.CharField(_("description"), max_length=1024, blank=True, default="")
     source = models.CharField(_("source"), max_length=10, choices=Source.choices, default=Source.CUSTOM)
+    scope = models.CharField(_("scope"), max_length=10, choices=Scope.choices, default=Scope.GLOBAL)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True, related_name="owned_mcp_servers"
+    )
     transport = models.CharField(_("transport"), max_length=10, choices=Transport.choices)
     # CharField, not URLField (varchar(200) either way): URLValidator rejects internal hosts —
     # single-label names and underscores, e.g. a Docker service like ``mcp_rt`` — that MCP servers
@@ -64,6 +116,8 @@ class MCPServer(TimeStampedModel):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="mcp_servers"
     )
 
+    objects = MCPServerQuerySet.as_manager()
+
     class Meta:
         ordering = ["name"]
         constraints = [
@@ -72,7 +126,21 @@ class MCPServer(TimeStampedModel):
             models.CheckConstraint(
                 condition=models.Q(tool_filter_mode="none") | ~models.Q(tool_filter_items=[]),
                 name="mcp_tool_filter_items_required_when_mode_set",
-            )
+            ),
+            models.UniqueConstraint(fields=["name"], condition=models.Q(scope="global"), name="mcp_global_name_unique"),
+            models.UniqueConstraint(
+                fields=["user", "name"], condition=models.Q(scope="user"), name="mcp_user_name_unique"
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(scope="user") & models.Q(user__isnull=False))
+                    | (models.Q(scope="global") & models.Q(user__isnull=True))
+                ),
+                name="mcp_scope_user_shape",
+            ),
+            models.CheckConstraint(
+                condition=~(models.Q(source="builtin") & models.Q(scope="user")), name="mcp_builtin_is_global"
+            ),
         ]
 
     def __init__(self, *args, **kwargs) -> None:
@@ -110,3 +178,14 @@ class MCPServer(TimeStampedModel):
         row is the source of truth for connection details (URL, headers,
         tool filter, enabled)."""
         return self.source == self.Source.BUILTIN
+
+    @property
+    def is_user_scoped(self) -> bool:
+        return self.scope == self.Scope.USER
+
+    def is_shadowed_by(self, global_names) -> bool:
+        """Whether this personal server is superseded at runtime by a global server
+        of the same name. ``build_runtime_servers`` skips such rows (global wins) and
+        the list page flags them 'Shadowed'. ``global_names`` is the set of existing
+        global-server names."""
+        return self.is_user_scoped and self.name in global_names

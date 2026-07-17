@@ -3,6 +3,38 @@ from __future__ import annotations
 from django.urls import reverse
 
 import pytest
+from mcp_servers.models import MCPServer
+
+
+def _global(name="g1"):
+    return MCPServer.objects.create(
+        name=name, scope=MCPServer.Scope.GLOBAL, transport=MCPServer.Transport.HTTP, url="https://g.test/mcp"
+    )
+
+
+def _user_server(user, name="u1"):
+    return MCPServer.objects.create(
+        name=name, scope=MCPServer.Scope.USER, user=user, transport=MCPServer.Transport.HTTP, url="https://u.test/mcp"
+    )
+
+
+def _create_post_data(name="srv", url="https://srv.test/mcp"):
+    """Minimal valid create/edit POST body (with the empty headers formset management
+    form). Deliberately has NO 'scope' key: scope is derived from the URL route, never
+    from POST data. Add or override keys with ``| {...}``."""
+    return {
+        "name": name,
+        "description": "",
+        "transport": "http",
+        "url": url,
+        "enabled": "on",
+        "tool_filter_mode": "none",
+        "tool_filter_items": "",
+        "headers-TOTAL_FORMS": "0",
+        "headers-INITIAL_FORMS": "0",
+        "headers-MIN_NUM_FORMS": "0",
+        "headers-MAX_NUM_FORMS": "50",
+    }
 
 
 @pytest.mark.django_db
@@ -13,17 +45,110 @@ def test_list_requires_login(client):
 
 
 @pytest.mark.django_db
-def test_list_denies_member(client, member_user):
-    client.force_login(member_user)
-    resp = client.get(reverse("mcp_servers:list"))
-    assert resp.status_code == 403
-
-
-@pytest.mark.django_db
 def test_list_admin_gets_200(client, admin_user):
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:list"))
     assert resp.status_code == 200
+
+
+# --- Permission matrix tests ---
+
+
+@pytest.mark.django_db
+def test_member_sees_list_now(member_client):
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200  # was 403 before this feature
+
+
+@pytest.mark.django_db
+def test_member_can_create_personal_server(member_client, member_user):
+    resp = member_client.post(
+        reverse("mcp_servers:create"),
+        data={
+            "name": "mine",
+            "description": "",
+            "transport": "http",
+            "url": "https://u.test/mcp",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+    obj = MCPServer.objects.get(name="mine")
+    assert obj.scope == MCPServer.Scope.USER and obj.user_id == member_user.id
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_global(member_client):
+    g = _global()
+    resp = member_client.get(reverse("mcp_servers:edit", args=[g.pk]))
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_other_users_server(member_client, admin_user):
+    other = _user_server(admin_user, name="theirs")
+    resp = member_client.get(reverse("mcp_servers:edit", args=[other.pk]))
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_admin_can_delete_member_server(admin_client, member_user):
+    s = _user_server(member_user)
+    resp = admin_client.post(reverse("mcp_servers:delete", args=[s.pk]))
+    assert resp.status_code == 302
+    assert not MCPServer.objects.filter(pk=s.pk).exists()
+
+
+@pytest.mark.django_db
+def test_admin_cannot_edit_member_server(admin_client, member_user):
+    s = _user_server(member_user)
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[s.pk]))
+    assert resp.status_code == 404  # oversight = manage only, not edit
+
+
+# The edit POST re-derives the object via ``scoped_get`` on its own code path (not the
+# GET path, and distinct from the ``manageable_get`` path the toggle/delete/refresh
+# tests cover), so the authorization must be asserted for the mutating verb too — a
+# regression guarding only GET would let the write through. Each asserts the row is
+# untouched, not just the status code.
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_global_via_post(member_client):
+    g = _global(name="glob")
+    data = _create_post_data(name="glob", url="https://changed.test/mcp")
+    resp = member_client.post(reverse("mcp_servers:edit", args=[g.pk]), data=data)
+    assert resp.status_code == 403
+    g.refresh_from_db()
+    assert g.url == "https://g.test/mcp"  # write did not land
+
+
+@pytest.mark.django_db
+def test_member_cannot_edit_other_users_server_via_post(member_client, admin_user):
+    other = _user_server(admin_user, name="theirs")
+    data = _create_post_data(name="theirs", url="https://changed.test/mcp")
+    resp = member_client.post(reverse("mcp_servers:edit", args=[other.pk]), data=data)
+    assert resp.status_code == 404
+    other.refresh_from_db()
+    assert other.url == "https://u.test/mcp"  # write did not land
+
+
+@pytest.mark.django_db
+def test_admin_cannot_edit_member_server_via_post(admin_client, member_user):
+    s = _user_server(member_user, name="members-own")
+    data = _create_post_data(name="members-own", url="https://changed.test/mcp")
+    resp = admin_client.post(reverse("mcp_servers:edit", args=[s.pk]), data=data)
+    assert resp.status_code == 404  # oversight = manage only, not edit
+    s.refresh_from_db()
+    assert s.url == "https://u.test/mcp"  # write did not land
+
+
+# --- Create view tests ---
 
 
 @pytest.mark.django_db
@@ -44,8 +169,6 @@ def test_create_get_transport_control_has_no_blank_pill(client, admin_user):
     still visible and clickable. Assert the transport radio group renders
     exactly the two real ``MCPServer.Transport`` choices, never a blank one.
     """
-    from mcp_servers.models import MCPServer
-
     client.force_login(admin_user)
     resp = client.get(reverse("mcp_servers:create"))
     assert resp.status_code == 200
@@ -76,10 +199,32 @@ def test_create_get_exposes_add_header_affordance(client, admin_user):
 
 
 @pytest.mark.django_db
+def test_cancel_link_is_scope_aware(admin_client):
+    import re
+
+    personal = admin_client.get(reverse("mcp_servers:create")).content.decode()
+    glob = admin_client.get(reverse("mcp_servers:global_create")).content.decode()
+    # Extract the Cancel link's href from the Actions section (look for button after "Save")
+    personal_cancel_match = re.search(
+        r'<button[^>]*class="btn-primary"[^>]*>.*?</button>\s*<a href="([^"]*)"[^>]*class="btn-secondary"',
+        personal,
+        re.DOTALL,
+    )
+    glob_cancel_match = re.search(
+        r'<button[^>]*class="btn-primary"[^>]*>.*?</button>\s*<a href="([^"]*)"[^>]*class="btn-secondary"',
+        glob,
+        re.DOTALL,
+    )
+    assert personal_cancel_match and glob_cancel_match
+    assert reverse("mcp_servers:global_list") not in personal_cancel_match.group(1)
+    assert reverse("mcp_servers:global_list") in glob_cancel_match.group(1)
+
+
+@pytest.mark.django_db
 def test_create_post_creates_server(client, admin_user):
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:create"),
+        reverse("mcp_servers:global_create"),
         data={
             "name": "from-ui",
             "transport": "http",
@@ -94,26 +239,16 @@ def test_create_post_creates_server(client, admin_user):
         },
     )
     assert resp.status_code == 302
-    from mcp_servers.models import MCPServer
-
+    assert resp.url == reverse("mcp_servers:global_list")
     assert MCPServer.objects.filter(name="from-ui").exists()
 
 
 @pytest.mark.django_db
-def test_create_post_member_denied(client, member_user):
-    client.force_login(member_user)
-    resp = client.post(reverse("mcp_servers:create"), data={})
-    assert resp.status_code == 403
-
-
-@pytest.mark.django_db
 def test_edit_custom_updates_fields(client, admin_user):
-    from mcp_servers.models import MCPServer
-
     obj = MCPServer.objects.create(name="ed", transport="http", url="http://old.test")
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=[obj.name]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "ed",
             "transport": "http",
@@ -143,9 +278,7 @@ def test_edit_get_renders_existing_headers_blanked_and_marked(client, admin_user
     """
     import re
 
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="hdrs",
         transport="http",
         url="http://x.test",
@@ -155,7 +288,7 @@ def test_edit_get_renders_existing_headers_blanked_and_marked(client, admin_user
         ],
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:edit", args=["hdrs"]))
+    resp = client.get(reverse("mcp_servers:edit", args=[obj.pk]))
     body = resp.content.decode()
     assert resp.status_code == 200
     assert "data-initial" in body  # server-rendered row marker the JS remove() relies on
@@ -179,8 +312,6 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
     (encrypted) value, a DELETE'd row is dropped, and a new row is added — all in
     one POST with INITIAL_FORMS>0. This is the primary user story of the change.
     """
-    from mcp_servers.models import MCPServer
-
     obj = MCPServer.objects.create(
         name="rt",
         transport="http",
@@ -192,7 +323,7 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
     )
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["rt"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "rt",
             "transport": "http",
@@ -229,14 +360,12 @@ def test_edit_post_adds_removes_and_preserves_headers(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_builtin_full_form_persists(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
     )
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["bi"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "bi",
             "description": "repointed at on-prem bridge",
@@ -260,14 +389,12 @@ def test_edit_builtin_full_form_persists(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_builtin_rename_rejected(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="https://mcp.sentry.dev/mcp", enabled=True
     )
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["bi"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "renamed",
             "transport": "http",
@@ -286,48 +413,40 @@ def test_edit_builtin_rename_rejected(client, admin_user):
 
 @pytest.mark.django_db
 def test_delete_get_renders_confirm(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="delc", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="delc", transport="http", url="http://x.test")
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:delete", args=["delc"]))
+    resp = client.get(reverse("mcp_servers:delete", args=[obj.pk]))
     assert resp.status_code == 200
     assert b"delc" in resp.content
 
 
 @pytest.mark.django_db
 def test_delete_custom_succeeds(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="del", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="del", transport="http", url="http://x.test")
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:delete", args=["del"]))
+    resp = client.post(reverse("mcp_servers:delete", args=[obj.pk]))
     assert resp.status_code == 302
     assert not MCPServer.objects.filter(name="del").exists()
 
 
 @pytest.mark.django_db
-def test_delete_builtin_returns_404(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi")
+def test_delete_builtin_redirects_with_error(client, admin_user):
+    obj = MCPServer.objects.create(name="bi", source=MCPServer.Source.BUILTIN, transport="http", url="builtin://bi")
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:delete", args=["bi"]))
-    assert resp.status_code == 404
+    resp = client.post(reverse("mcp_servers:delete", args=[obj.pk]))
+    assert resp.status_code == 302
     assert MCPServer.objects.filter(name="bi").exists()
 
 
 @pytest.mark.django_db
 def test_toggle_flips_enabled(client, admin_user):
-    from mcp_servers.models import MCPServer
-
     obj = MCPServer.objects.create(name="t", transport="http", url="http://x.test", enabled=True)
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:toggle", args=["t"]))
+    resp = client.post(reverse("mcp_servers:toggle", args=[obj.pk]))
     assert resp.status_code == 302
     obj.refresh_from_db()
     assert obj.enabled is False
-    client.post(reverse("mcp_servers:toggle", args=["t"]))
+    client.post(reverse("mcp_servers:toggle", args=[obj.pk]))
     obj.refresh_from_db()
     assert obj.enabled is True
 
@@ -366,37 +485,37 @@ def test_test_endpoint_invokes_services_with_payload(client, admin_user, monkeyp
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "method,url_name,kwargs",
-    [
-        ("get", "list", {}),
-        ("get", "create", {}),
-        ("post", "create", {}),
-        ("get", "edit", {"name": "demo"}),
-        ("post", "edit", {"name": "demo"}),
-        ("get", "delete", {"name": "demo"}),
-        ("post", "delete", {"name": "demo"}),
-        ("post", "toggle", {"name": "demo"}),
-        ("post", "test", {}),
-        ("post", "refresh_tools", {"name": "demo"}),
-    ],
-)
-def test_member_forbidden_across_all_endpoints(client, member_user, method, url_name, kwargs):
-    from mcp_servers.models import MCPServer
+def test_test_endpoint_failure_returns_200_not_502(client, admin_user, monkeypatch):
+    """A failed probe is a successful *operation* that reports a negative result:
+    it must return HTTP 200 with {ok: False}, not a 5xx. A 5xx would log as a
+    Django server error (Bad Gateway noise) and can be swallowed by a reverse
+    proxy before the JSON body reaches the browser."""
 
-    MCPServer.objects.create(name="demo", transport="http", url="http://x.test")
-    client.force_login(member_user)
-    url = reverse(f"mcp_servers:{url_name}", kwargs=kwargs)
-    fn = getattr(client, method)
-    resp = fn(url)
-    assert resp.status_code == 403, f"{method.upper()} {url} should be forbidden for members"
+    async def fake_test_connection(payload):
+        return {"ok": False, "error": "HTTPStatusError: 401 Unauthorized"}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    client.force_login(admin_user)
+    resp = client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "transport": "http",
+            "url": "http://demo.test",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert "401 Unauthorized" in body["error"]
 
 
 @pytest.mark.django_db
 def test_edit_get_passes_discovered_tools_into_form(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="dt3",
         transport="http",
         url="http://x.test",
@@ -408,7 +527,7 @@ def test_edit_get_passes_discovered_tools_into_form(client, admin_user):
         ],
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:edit", args=["dt3"]))
+    resp = client.get(reverse("mcp_servers:edit", args=[obj.pk]))
     assert resp.status_code == 200
     assert b'type="checkbox"' in resp.content
     assert b"alpha" in resp.content
@@ -418,9 +537,7 @@ def test_edit_get_passes_discovered_tools_into_form(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_get_renders_read_only_pills(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="pills",
         transport="http",
         url="http://p.test",
@@ -433,7 +550,7 @@ def test_edit_get_renders_read_only_pills(client, admin_user):
         ],
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:edit", args=["pills"]))
+    resp = client.get(reverse("mcp_servers:edit", args=[obj.pk]))
     assert resp.status_code == 200
     assert b"mcp-tool-row__pill--ro" in resp.content
     assert b"mcp-tool-row__pill--rw" in resp.content
@@ -442,9 +559,7 @@ def test_edit_get_renders_read_only_pills(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(
+    obj = MCPServer.objects.create(
         name="multi",
         transport="http",
         url="http://multi.test",
@@ -458,7 +573,7 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
     )
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["multi"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "multi",
             "transport": "http",
@@ -479,9 +594,7 @@ def test_edit_post_preserves_multiple_checkbox_selections(client, admin_user):
 
 @pytest.mark.django_db
 def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="synced", transport="http", url="http://old.test")
+    obj = MCPServer.objects.create(name="synced", transport="http", url="http://old.test")
     called = {}
 
     def fake_sync(server):
@@ -491,7 +604,7 @@ def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["synced"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "synced",
             "transport": "http",
@@ -511,8 +624,6 @@ def test_edit_post_triggers_tool_sync(client, admin_user, monkeypatch):
 
 @pytest.mark.django_db
 def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
-    from mcp_servers.models import MCPServer
-
     called = {}
 
     def fake_sync(server):
@@ -522,7 +633,7 @@ def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:create"),
+        reverse("mcp_servers:global_create"),
         data={
             "name": "synced-create",
             "transport": "http",
@@ -537,6 +648,7 @@ def test_create_post_triggers_tool_sync(client, admin_user, monkeypatch):
         },
     )
     assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")
     assert MCPServer.objects.filter(name="synced-create").exists()
     assert called["name"] == "synced-create"
 
@@ -546,13 +658,11 @@ def test_edit_post_warns_when_sync_fails(client, admin_user, monkeypatch):
     """A failed on-save probe adds a soft warning flash but the save still succeeds."""
     from django.contrib.messages import get_messages
 
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="warned", transport="http", url="http://old.test")
+    obj = MCPServer.objects.create(name="warned", transport="http", url="http://old.test")
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": False, "error": "boom"})
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["warned"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "warned",
             "transport": "http",
@@ -576,8 +686,6 @@ def test_edit_post_warns_when_sync_fails(client, admin_user, monkeypatch):
 @pytest.mark.django_db
 def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
     """POST on a row whose ciphertext can't be decoded must not overwrite it with an empty list."""
-    from mcp_servers.models import MCPServer
-
     obj = MCPServer.objects.create(
         name="locked",
         transport="http",
@@ -587,7 +695,7 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
     MCPServer.objects.filter(pk=obj.pk).update(_headers_encrypted="not-a-fernet-token")
     client.force_login(admin_user)
     resp = client.post(
-        reverse("mcp_servers:edit", args=["locked"]),
+        reverse("mcp_servers:edit", args=[obj.pk]),
         data={
             "name": "locked",
             "transport": "http",
@@ -603,7 +711,7 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
         follow=False,
     )
     assert resp.status_code == 302
-    assert reverse("mcp_servers:edit", args=["locked"]) in resp["Location"]
+    assert reverse("mcp_servers:edit", args=[obj.pk]) in resp["Location"]
     obj.refresh_from_db()
     assert obj.url == "http://locked.test"
     assert obj._headers_encrypted == "not-a-fernet-token"
@@ -612,8 +720,6 @@ def test_edit_post_refuses_when_headers_undecryptable(client, admin_user):
 @pytest.mark.django_db
 def test_create_rejects_reserved_name(client, admin_user):
     """Names that collide with non-slug URL segments (e.g. 'new', 'test') are rejected."""
-    from mcp_servers.models import MCPServer
-
     client.force_login(admin_user)
     resp = client.post(
         reverse("mcp_servers:create"),
@@ -637,8 +743,6 @@ def test_create_rejects_reserved_name(client, admin_user):
 @pytest.mark.django_db
 def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeypatch):
     """Enabled row with a missing env-ref must render a 'Broken' badge."""
-    from mcp_servers.models import MCPServer
-
     monkeypatch.delenv("DEFINITELY_NOT_SET", raising=False)
     MCPServer.objects.create(
         name="broken",
@@ -648,7 +752,7 @@ def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeyp
         enabled=True,
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:list"))
+    resp = client.get(reverse("mcp_servers:global_list"))
     assert resp.status_code == 200
     assert b"Broken" in resp.content
     assert b"DEFINITELY_NOT_SET" in resp.content
@@ -657,8 +761,6 @@ def test_list_shows_broken_badge_for_missing_env_ref(client, admin_user, monkeyp
 @pytest.mark.django_db
 def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
     """Disabled rows are intentionally idle — no broken badge."""
-    from mcp_servers.models import MCPServer
-
     monkeypatch.delenv("ALSO_NOT_SET", raising=False)
     MCPServer.objects.create(
         name="sleeping",
@@ -668,7 +770,7 @@ def test_list_does_not_warn_on_disabled_rows(client, admin_user, monkeypatch):
         enabled=False,
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:list"))
+    resp = client.get(reverse("mcp_servers:global_list"))
     assert resp.status_code == 200
     assert b"Broken" not in resp.content
 
@@ -678,8 +780,6 @@ def test_test_endpoint_reuses_stored_headers_for_existing_server(client, admin_u
     """Re-testing a saved server must not drop a preserved (blanked) literal secret header —
     the edit form always blanks literal values on render, so a straight passthrough of the
     formset would probe without the real header and report a false failure."""
-    from mcp_servers.models import MCPServer
-
     MCPServer.objects.create(
         name="rt-test",
         transport="http",
@@ -723,9 +823,7 @@ def test_create_form_renders_test_connection_button(client, admin_user):
 
 @pytest.mark.django_db
 def test_refresh_tools_triggers_sync_and_redirects(client, admin_user, monkeypatch):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="rf-ok", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="rf-ok", transport="http", url="http://x.test")
     called = {}
 
     def fake_sync(server):
@@ -734,22 +832,21 @@ def test_refresh_tools_triggers_sync_and_redirects(client, admin_user, monkeypat
 
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", fake_sync)
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-ok"]))
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=[obj.pk]))
     assert resp.status_code == 302
-    assert resp.url == reverse("mcp_servers:list")
+    # obj defaults to GLOBAL scope, so the fallback redirect matches its scope.
+    assert resp.url == reverse("mcp_servers:global_list")
     assert called["name"] == "rf-ok"
 
 
 @pytest.mark.django_db
 def test_refresh_tools_next_edit_redirects_to_edit(client, admin_user, monkeypatch):
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="rf-edit", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="rf-edit", transport="http", url="http://x.test")
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": True, "count": 0})
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-edit"]), data={"next": "edit"})
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=[obj.pk]), data={"next": "edit"})
     assert resp.status_code == 302
-    assert resp.url == reverse("mcp_servers:edit", args=["rf-edit"])
+    assert resp.url == reverse("mcp_servers:edit", args=[obj.pk])
 
 
 @pytest.mark.django_db
@@ -758,14 +855,13 @@ def test_refresh_tools_reports_sync_failure(client, admin_user, monkeypatch):
     without crashing — exercises the view's ``messages.error`` branch."""
     from django.contrib.messages import get_messages
 
-    from mcp_servers.models import MCPServer
-
-    MCPServer.objects.create(name="rf-bad", transport="http", url="http://x.test")
+    obj = MCPServer.objects.create(name="rf-bad", transport="http", url="http://x.test")
     monkeypatch.setattr("mcp_servers.views.services.sync_discovered_tools", lambda s: {"ok": False, "error": "boom"})
     client.force_login(admin_user)
-    resp = client.post(reverse("mcp_servers:refresh_tools", args=["rf-bad"]))
+    resp = client.post(reverse("mcp_servers:refresh_tools", args=[obj.pk]))
     assert resp.status_code == 302
-    assert resp.url == reverse("mcp_servers:list")
+    # obj defaults to GLOBAL scope, so the fallback redirect matches its scope.
+    assert resp.url == reverse("mcp_servers:global_list")
     stored = list(get_messages(resp.wsgi_request))
     assert any(m.level_tag == "error" for m in stored)
 
@@ -773,8 +869,6 @@ def test_refresh_tools_reports_sync_failure(client, admin_user, monkeypatch):
 @pytest.mark.django_db
 def test_list_renders_exposed_tool_pills(client, admin_user):
     from django.utils import timezone
-
-    from mcp_servers.models import MCPServer
 
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(
@@ -789,7 +883,7 @@ def test_list_renders_exposed_tool_pills(client, admin_user):
         tools_synced_at=timezone.now(),
     )
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:list"))
+    resp = client.get(reverse("mcp_servers:global_list"))
     assert resp.status_code == 200
     assert b"create_pr" in resp.content
     assert b"get_file" in resp.content
@@ -798,10 +892,604 @@ def test_list_renders_exposed_tool_pills(client, admin_user):
 
 @pytest.mark.django_db
 def test_list_shows_not_synced_when_never_synced(client, admin_user):
-    from mcp_servers.models import MCPServer
-
     MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
     MCPServer.objects.create(name="nosync", transport="http", url="http://x.test", enabled=True)
     client.force_login(admin_user)
-    resp = client.get(reverse("mcp_servers:list"))
+    resp = client.get(reverse("mcp_servers:global_list"))
     assert b"not synced yet" in resp.content.lower()
+
+
+@pytest.mark.django_db
+def test_list_shows_your_servers_section_to_member(member_client, member_user):
+    _user_server(member_user, name="mine")
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"mine" in resp.content
+
+
+@pytest.mark.django_db
+def test_member_list_hides_global_health_reason(member_client):
+    g = _global()
+    g.enabled = True
+    # Force a degraded health with a reason that names an env var.
+    g.headers = [{"name": "A", "mode": "env_ref", "value": "SECRET_HOST_VAR"}]
+    g.save()
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"SECRET_HOST_VAR" not in resp.content  # reason string hidden from members
+
+
+@pytest.mark.django_db
+def test_member_list_has_no_edit_control_for_globals(member_client):
+    _global(name="glob")
+    resp = member_client.get(reverse("mcp_servers:list"))
+    # The member read-only global card links no edit route for globals.
+    assert reverse("mcp_servers:edit", args=[MCPServer.objects.get(name="glob").pk]).encode() not in resp.content
+
+
+# --- Test endpoint member-scoping tests (Fix 1) ---
+
+
+@pytest.mark.django_db
+def test_test_endpoint_member_env_ref_rejected(member_client, monkeypatch):
+    """A member POSTing a header with mode=env_ref must get 400 and NOT trigger test_connection.
+
+    The formset is built with literal_only=True for non-admins, so env_ref is not a
+    valid mode choice — the formset fails validation before the connection is attempted."""
+    called = {}
+
+    async def fake_test_connection(payload):
+        called["invoked"] = True
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = member_client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "transport": "http",
+            "url": "http://demo.test",
+            "headers-TOTAL_FORMS": "1",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+            "headers-0-name": "Authorization",
+            "headers-0-mode": "env_ref",
+            "headers-0-value": "MY_SECRET_ENV",
+        },
+    )
+    assert resp.status_code == 400
+    assert "invoked" not in called, "test_connection must NOT be called when formset is invalid"
+
+
+@pytest.mark.django_db
+def test_test_endpoint_member_cannot_borrow_global_secret(member_client, member_user, monkeypatch):
+    """A member POSTing name=<global server> must NOT receive the global's stored secret.
+
+    _resolve_borrowable for a non-admin resolves only scope=user rows owned by the
+    requesting user — a global row named 'shared' is invisible to a member."""
+    MCPServer.objects.create(
+        name="shared",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://shared.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = member_client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "name": "shared",
+            "transport": "http",
+            "url": "http://shared.test/mcp",
+            "headers-TOTAL_FORMS": "1",
+            "headers-INITIAL_FORMS": "1",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+            "headers-0-name": "Authorization",
+            "headers-0-mode": "literal",
+            "headers-0-value": "",  # blank → triggers the preserve-stored merge/borrow path
+        },
+    )
+    assert resp.status_code == 200
+    # The global server's stored secret must not appear in the probe headers.
+    # With INITIAL_FORMS=1 and a blank literal value the view invokes _resolve_borrowable;
+    # since "shared" is GLOBAL, a member gets no borrow → the blank literal is dropped or
+    # stays empty, so "global-secret" must be absent.  If _resolve_borrowable were broken
+    # and resolved the global for a member, the blank row would be filled with "global-secret"
+    # and this assertion would fail — making it a load-bearing security check.
+    header_values = [h.get("value") for h in captured["payload"]["headers"]]
+    assert "global-secret" not in header_values
+
+
+@pytest.mark.django_db
+def test_test_endpoint_member_can_borrow_own_user_server_secret(member_client, member_user, monkeypatch):
+    """A member can borrow their own user-scoped server's stored secret by name."""
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://mine.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "member-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = member_client.post(
+        reverse("mcp_servers:test"),
+        data={
+            "name": "mine",
+            "transport": "http",
+            "url": "http://mine.test/mcp",
+            "headers-TOTAL_FORMS": "1",
+            "headers-INITIAL_FORMS": "1",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+            "headers-0-name": "Authorization",
+            "headers-0-mode": "literal",
+            "headers-0-value": "",  # blank → preserve stored
+        },
+    )
+    assert resp.status_code == 200
+    # The member's own stored secret must be reused in the probe.
+    header_values = [h.get("value") for h in captured["payload"]["headers"]]
+    assert "member-secret" in header_values
+
+
+def _probe_data(name, *, value=""):
+    """POST body for the "Test connection" endpoint borrowing ``name``'s stored
+    header (blank literal value → triggers the preserve-stored/borrow path)."""
+    return {
+        "name": name,
+        "transport": "http",
+        "url": "http://probe.test/mcp",
+        "headers-TOTAL_FORMS": "1",
+        "headers-INITIAL_FORMS": "1",
+        "headers-MIN_NUM_FORMS": "0",
+        "headers-MAX_NUM_FORMS": "50",
+        "headers-0-name": "Authorization",
+        "headers-0-mode": "literal",
+        "headers-0-value": value,
+    }
+
+
+@pytest.mark.django_db
+def test_test_endpoint_admin_borrows_global_secret(admin_client, monkeypatch):
+    """An admin borrows a global server's stored secret by name — the common case."""
+    MCPServer.objects.create(
+        name="shared",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://shared.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = admin_client.post(reverse("mcp_servers:test"), data=_probe_data("shared"))
+    assert resp.status_code == 200
+    assert "global-secret" in [h.get("value") for h in captured["payload"]["headers"]]
+
+
+@pytest.mark.django_db
+def test_test_endpoint_admin_global_wins_ambiguity(admin_client, member_user, monkeypatch):
+    """When a global AND a member's user server share a name, an admin borrows the
+    GLOBAL row's secret — the documented tie-break. Guards the ``GLOBAL.first() or
+    …`` ordering in ``_resolve_borrowable`` against a "simplify to one filter" regression."""
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="http://global.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "global-secret"}],
+    )
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://user.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "member-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = admin_client.post(reverse("mcp_servers:test"), data=_probe_data("dup"))
+    assert resp.status_code == 200
+    values = [h.get("value") for h in captured["payload"]["headers"]]
+    assert "global-secret" in values
+    assert "member-secret" not in values  # the member's secret must never be borrowed
+
+
+@pytest.mark.django_db
+def test_test_endpoint_admin_cannot_borrow_other_members_secret(admin_client, member_user, monkeypatch):
+    """An admin must NOT borrow another member's personal-server secret, even absent a
+    global of the same name. Personal secrets stay private to their owner, matching the
+    per-user isolation the runtime enforces (an admin's own run never loads member rows)."""
+    MCPServer.objects.create(
+        name="theirs",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://theirs.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "member-secret"}],
+    )
+    captured = {}
+
+    async def fake_test_connection(payload):
+        captured["payload"] = payload
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = admin_client.post(reverse("mcp_servers:test"), data=_probe_data("theirs"))
+    assert resp.status_code == 200
+    # No global "theirs" and the admin does not own it → nothing to borrow.
+    assert "member-secret" not in [h.get("value") for h in captured["payload"]["headers"]]
+
+
+@pytest.mark.django_db
+def test_test_endpoint_undecryptable_borrow_returns_400(member_client, member_user, monkeypatch):
+    """If the row whose secret would be borrowed has undecryptable headers, the probe is
+    refused with a 400 rather than silently proceeding without the secret (which would
+    misattribute the failure to the remote server)."""
+    s = MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="http://mine.test/mcp",
+        headers=[{"name": "Authorization", "mode": "literal", "value": "member-secret"}],
+    )
+    MCPServer.objects.filter(pk=s.pk).update(_headers_encrypted="not-a-fernet-token")
+    called = {}
+
+    async def fake_test_connection(payload):
+        called["invoked"] = True
+        return {"ok": True, "tools": []}
+
+    monkeypatch.setattr("mcp_servers.views.services.test_connection", fake_test_connection)
+    resp = member_client.post(reverse("mcp_servers:test"), data=_probe_data("mine"))
+    assert resp.status_code == 400
+    assert "invoked" not in called  # never probed without the secret
+
+
+# --- Manage-action authorization (toggle / delete / refresh via manageable_get) ---
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("route", ["toggle", "delete", "refresh_tools"])
+def test_member_cannot_manage_global(member_client, route):
+    """A member cannot toggle/delete/refresh a global server (admin-only) → 403."""
+    g = _global(name="glob")
+    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[g.pk]))
+    assert resp.status_code == 403
+    g.refresh_from_db()
+    assert g.enabled is True  # toggle had no effect
+    assert MCPServer.objects.filter(pk=g.pk).exists()  # delete had no effect
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("route", ["toggle", "delete", "refresh_tools"])
+def test_member_cannot_manage_other_users_server(member_client, admin_user, route):
+    """A member cannot toggle/delete/refresh another user's personal server → 404."""
+    other = _user_server(admin_user, name="theirs")
+    resp = member_client.post(reverse(f"mcp_servers:{route}", args=[other.pk]))
+    assert resp.status_code == 404
+    assert MCPServer.objects.filter(pk=other.pk).exists()  # delete had no effect
+
+
+@pytest.mark.django_db
+def test_list_flags_shadowed_personal_server(member_client, member_user):
+    """A member's personal server whose name collides with a global one is flagged
+    'Shadowed' on the list (it does not load at runtime — global wins); a personal
+    server with a unique name is not."""
+    _global(name="dup")
+    _user_server(member_user, name="dup")
+    _user_server(member_user, name="solo")
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert resp.status_code == 200
+    assert b"Shadowed" in resp.content
+    # The unique-named server must not be flagged: exactly one Shadowed badge overall.
+    assert resp.content.count(b"Shadowed") == 1
+
+
+# --- Split views: global page + scope-from-entry-point ---
+
+
+@pytest.mark.django_db
+def test_global_list_forbidden_for_member(member_client):
+    resp = member_client.get(reverse("mcp_servers:global_list"))
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_global_list_shows_custom_and_builtin_sections(admin_client):
+    _global(name="custom-one")
+    resp = admin_client.get(reverse("mcp_servers:global_list"))
+    assert resp.status_code == 200
+    assert b"custom-one" in resp.content
+    assert b"Built-in" in resp.content
+
+
+@pytest.mark.django_db
+def test_global_create_forbidden_for_member(member_client):
+    assert member_client.get(reverse("mcp_servers:global_create")).status_code == 403
+    resp = member_client.post(reverse("mcp_servers:global_create"), data=_create_post_data())
+    assert resp.status_code == 403
+    assert not MCPServer.objects.filter(name="srv").exists()
+
+
+@pytest.mark.django_db
+def test_global_create_makes_global_row_and_redirects_to_global_list(admin_client):
+    resp = admin_client.post(reverse("mcp_servers:global_create"), data=_create_post_data(name="gnew"))
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")
+    obj = MCPServer.objects.get(name="gnew")
+    assert obj.scope == MCPServer.Scope.GLOBAL and obj.user_id is None
+
+
+@pytest.mark.django_db
+def test_personal_create_is_user_scoped_even_for_admin(admin_client, admin_user):
+    resp = admin_client.post(reverse("mcp_servers:create"), data=_create_post_data(name="padmin"))
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:list")
+    obj = MCPServer.objects.get(name="padmin")
+    assert obj.scope == MCPServer.Scope.USER and obj.user_id == admin_user.id
+
+
+@pytest.mark.django_db
+def test_personal_create_ignores_smuggled_scope_param(member_client, member_user):
+    data = _create_post_data(name="smuggle") | {"scope": "global"}
+    resp = member_client.post(reverse("mcp_servers:create"), data=data)
+    assert resp.status_code == 302
+    obj = MCPServer.objects.get(name="smuggle")
+    assert obj.scope == MCPServer.Scope.USER and obj.user_id == member_user.id
+
+
+@pytest.mark.django_db
+def test_personal_create_rejects_env_ref_headers_even_for_admin(admin_client):
+    """Create-time literal_only is keyed on scope now, not on is_admin: a
+    personal server may never carry env_ref headers, admin or not."""
+    data = _create_post_data(name="envref") | {
+        "headers-TOTAL_FORMS": "1",
+        "headers-0-name": "Authorization",
+        "headers-0-mode": "env_ref",
+        "headers-0-value": "HOST_SECRET",
+    }
+    resp = admin_client.post(reverse("mcp_servers:create"), data=data)
+    assert resp.status_code == 400
+    assert not MCPServer.objects.filter(name="envref").exists()
+
+
+@pytest.mark.django_db
+def test_global_create_still_accepts_env_ref_headers(admin_client):
+    data = _create_post_data(name="genvref") | {
+        "headers-TOTAL_FORMS": "1",
+        "headers-0-name": "Authorization",
+        "headers-0-mode": "env_ref",
+        "headers-0-value": "HOST_SECRET",
+    }
+    resp = admin_client.post(reverse("mcp_servers:global_create"), data=data)
+    assert resp.status_code == 302
+    obj = MCPServer.objects.get(name="genvref")
+    assert obj.headers == [{"name": "Authorization", "mode": "env_ref", "value": "HOST_SECRET"}]
+
+
+@pytest.mark.django_db
+def test_create_subtitles_state_the_scope(admin_client):
+    personal = admin_client.get(reverse("mcp_servers:create"))
+    glob = admin_client.get(reverse("mcp_servers:global_create"))
+    assert "Personal server" in personal.content.decode()
+    assert "Global server" in glob.content.decode()
+
+
+# --- Personal page: FilterView + read-only global section ---
+
+
+@pytest.mark.django_db
+def test_member_list_shows_own_and_global_but_not_others(member_client, member_user, admin_user):
+    _user_server(member_user, name="mine")
+    _user_server(admin_user, name="admins-own")
+    _global(name="shared-global")
+    resp = member_client.get(reverse("mcp_servers:list"))
+    body = resp.content.decode()
+    assert "mine" in body
+    assert "shared-global" in body  # read-only global section, flat list
+    assert "admins-own" not in body
+
+
+@pytest.mark.django_db
+def test_admin_list_defaults_to_own_servers_with_owner_dropdown(admin_client, admin_user, member_user):
+    _user_server(admin_user, name="admins-own")
+    _user_server(member_user, name="members-own")
+    resp = admin_client.get(reverse("mcp_servers:list"))
+    body = resp.content.decode()
+    assert "admins-own" in body
+    assert "members-own" not in body
+    assert 'name="owner"' in body  # the dropdown renders for admins
+
+
+@pytest.mark.django_db
+def test_member_list_has_no_owner_dropdown(member_client, member_user):
+    _user_server(member_user)
+    resp = member_client.get(reverse("mcp_servers:list"))
+    assert 'name="owner"' not in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_member_owner_param_cannot_reveal_another_users_servers(member_client, member_user, admin_user):
+    """End-to-end guard: a member hand-crafting ?owner=<other pk> still gets only their
+    own rows. The owner filter is popped for non-admins and the FilterView's qs pins to
+    the requester regardless of the param — proven here through the view, not just the
+    FilterSet unit, so a future get_queryset/get_context_data change can't leak silently."""
+    _user_server(member_user, name="mine")
+    _user_server(admin_user, name="admins-own")
+    resp = member_client.get(reverse("mcp_servers:list"), {"owner": str(admin_user.pk)})
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "mine" in body
+    assert "admins-own" not in body
+
+
+@pytest.mark.django_db
+def test_admin_owner_param_shows_that_users_servers_without_edit_link(admin_client, member_user):
+    theirs = _user_server(member_user, name="members-own")
+    resp = admin_client.get(reverse("mcp_servers:list"), {"owner": str(member_user.pk)})
+    body = resp.content.decode()
+    assert "members-own" in body
+    assert reverse("mcp_servers:edit", args=[theirs.pk]) not in body  # manage-only, no edit
+    assert reverse("mcp_servers:delete", args=[theirs.pk]) in body
+
+
+@pytest.mark.django_db
+def test_global_section_is_read_only_on_personal_page_even_for_admin(admin_client):
+    g = _global(name="glob-ro")
+    resp = admin_client.get(reverse("mcp_servers:list"))
+    body = resp.content.decode()
+    assert "glob-ro" in body
+    assert reverse("mcp_servers:edit", args=[g.pk]) not in body
+
+
+# --- Scope-aware redirects ---
+
+
+@pytest.mark.django_db
+def test_toggle_global_redirects_to_global_list(admin_client):
+    g = _global(name="tgl")
+    resp = admin_client.post(reverse("mcp_servers:toggle", args=[g.pk]))
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")
+
+
+@pytest.mark.django_db
+def test_toggle_personal_redirects_to_list(member_client, member_user):
+    s = _user_server(member_user)
+    resp = member_client.post(reverse("mcp_servers:toggle", args=[s.pk]))
+    assert resp.url == reverse("mcp_servers:list")
+
+
+@pytest.mark.django_db
+def test_delete_global_redirects_to_global_list(admin_client):
+    g = _global(name="delg")
+    resp = admin_client.post(reverse("mcp_servers:delete", args=[g.pk]))
+    assert resp.url == reverse("mcp_servers:global_list")
+
+
+@pytest.mark.django_db
+def test_edit_global_save_redirects_to_global_list(admin_client):
+    g = _global(name="edg")
+    resp = admin_client.post(
+        reverse("mcp_servers:edit", args=[g.pk]),
+        data={
+            "name": "edg",
+            "transport": "http",
+            "url": "http://edg.test",
+            "enabled": "on",
+            "tool_filter_mode": "none",
+            "tool_filter_items": "",
+            "headers-TOTAL_FORMS": "0",
+            "headers-INITIAL_FORMS": "0",
+            "headers-MIN_NUM_FORMS": "0",
+            "headers-MAX_NUM_FORMS": "50",
+        },
+    )
+    assert resp.status_code == 302
+    assert resp.url == reverse("mcp_servers:global_list")
+
+
+# --- Form layout ---
+
+
+@pytest.mark.django_db
+def test_create_form_header_hosts_enabled_toggle(admin_client):
+    resp = admin_client.get(reverse("mcp_servers:create"))
+    body = resp.content.decode()
+    assert 'id="mcp-server-form"' in body
+    # The toggle lives outside <form> and binds via the form attribute, checked by default.
+    assert 'form="mcp-server-form"' in body
+    toggle = next(seg for seg in body.split("<input") if 'form="mcp-server-form"' in seg)
+    assert "checked" in toggle
+
+
+# --- Tool-filter visibility gating ---
+
+
+@pytest.mark.django_db
+def test_create_get_hides_tool_filter(admin_client):
+    resp = admin_client.get(reverse("mcp_servers:create"))
+    assert resp.context["tool_filter_visible"] is False
+
+
+@pytest.mark.django_db
+def test_create_failed_post_with_filter_keeps_section_visible(admin_client):
+    data = _create_post_data(name="badfilter", url="not a url") | {
+        "tool_filter_mode": "allow",
+        "tool_filter_items": "tool_a",
+    }
+    resp = admin_client.post(reverse("mcp_servers:create"), data=data)
+    assert resp.status_code == 400
+    assert resp.context["tool_filter_visible"] is True
+
+
+@pytest.mark.django_db
+def test_edit_synced_shows_tool_filter(admin_client):
+    from django.utils import timezone
+
+    obj = MCPServer.objects.create(name="synced", transport="http", url="http://x.test", tools_synced_at=timezone.now())
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[obj.pk]))
+    assert resp.context["tool_filter_visible"] is True
+
+
+@pytest.mark.django_db
+def test_edit_unsynced_hides_tool_filter(admin_client):
+    obj = MCPServer.objects.create(name="nosync2", transport="http", url="http://x.test")
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[obj.pk]))
+    assert resp.context["tool_filter_visible"] is False
+
+
+@pytest.mark.django_db
+def test_edit_unsynced_with_active_filter_stays_visible(admin_client):
+    obj = MCPServer.objects.create(
+        name="apifiltered",
+        transport="http",
+        url="http://x.test",
+        tool_filter_mode=MCPServer.FilterMode.ALLOW,
+        tool_filter_items=["tool_a"],
+    )
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[obj.pk]))
+    assert resp.context["tool_filter_visible"] is True
+
+
+@pytest.mark.django_db
+def test_edit_refresh_is_icon_button_with_metadata(admin_client):
+    from django.utils import timezone
+
+    obj = MCPServer.objects.create(
+        name="meta",
+        transport="http",
+        url="http://x.test",
+        discovered_tools=[{"name": "t1"}, {"name": "t2"}],
+        tools_synced_at=timezone.now(),
+    )
+    resp = admin_client.get(reverse("mcp_servers:edit", args=[obj.pk]))
+    body = resp.content.decode()
+    assert 'form="refresh-tools-form"' in body  # icon button submits the hidden form
+    assert "2 tools" in body  # discovered count in the legend metadata

@@ -236,6 +236,59 @@ async def test_test_connection_reports_blank_exception_with_class_name(monkeypat
     assert "_SilentError" in result["error"]
 
 
+async def test_test_connection_unwraps_exception_group(monkeypatch):
+    """The MCP streamable-http client runs inside an anyio task group, so a real
+    failure (e.g. an httpx 401) surfaces wrapped in an ExceptionGroup whose str()
+    is the useless "unhandled errors in a TaskGroup (N sub-exceptions)". The error
+    must unwrap to the underlying cause, not the wrapper."""
+    from mcp_servers.services import test_connection
+
+    def _fail(payload):
+        raise ExceptionGroup("unhandled errors in a TaskGroup", [RuntimeError("401 Unauthorized")])
+
+    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
+    result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
+    assert result["ok"] is False
+    assert "401 Unauthorized" in result["error"]
+    assert "RuntimeError" in result["error"]
+    # The opaque wrapper must NOT be what the user sees.
+    assert "unhandled errors in a TaskGroup" not in result["error"]
+    assert "ExceptionGroup" not in result["error"]
+
+
+async def test_test_connection_unwraps_nested_exception_groups(monkeypatch):
+    """Groups can nest (a group inside a group); flattening must reach the leaves."""
+    from mcp_servers.services import test_connection
+
+    def _fail(payload):
+        inner = ExceptionGroup("inner", [ValueError("bad url")])
+        raise ExceptionGroup("outer", [inner])
+
+    monkeypatch.setattr("mcp_servers.services._build_client", _fail)
+    result = await test_connection({"transport": "http", "url": "http://x.test", "headers": []})
+    assert result["ok"] is False
+    assert "bad url" in result["error"]
+    assert "ValueError" in result["error"]
+    assert "unhandled errors in a TaskGroup" not in result["error"]
+
+
+def test_format_error_trims_httpx_noise_line():
+    """httpx exceptions append a "For more information check: <url>" line that is
+    noise in the UI — only the first line of the underlying cause is kept."""
+    import httpx
+    from mcp_servers.services import _format_error
+
+    real = httpx.HTTPStatusError(
+        "Client error '401 Unauthorized' for url 'https://mcp.sentry.dev/mcp'\n"
+        "For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401",
+        request=httpx.Request("POST", "https://mcp.sentry.dev/mcp"),
+        response=httpx.Response(401),
+    )
+    message = _format_error(ExceptionGroup("unhandled errors in a TaskGroup", [real]))
+    assert message == "HTTPStatusError: Client error '401 Unauthorized' for url 'https://mcp.sentry.dev/mcp'"
+    assert "For more information check" not in message
+
+
 @pytest.mark.django_db
 def test_server_health_ok_for_resolved_env_ref(monkeypatch):
     from mcp_servers.models import MCPServer
@@ -482,6 +535,98 @@ def test_sync_discovered_tools_ok_empty_clears_prior_snapshot(monkeypatch):
     assert result == {"ok": True, "count": 0}
     assert s.discovered_tools == []  # stale snapshot cleared, not preserved
     assert s.tools_synced_at is not None  # genuinely-empty sync is still a sync
+
+
+@pytest.mark.django_db
+def test_build_runtime_servers_merges_user_and_global(member_user):
+    from mcp_servers import services
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="glob",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="https://g.test/mcp",
+        enabled=True,
+    )
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://u.test/mcp",
+        enabled=True,
+    )
+
+    names_anon = [n for n, _ in services.build_runtime_servers()]
+    assert names_anon == ["glob"]  # no user → globals only
+
+    names_user = [n for n, _ in services.build_runtime_servers(user_id=member_user.id)]
+    assert set(names_user) == {"glob", "mine"}
+
+
+@pytest.mark.django_db
+def test_build_runtime_servers_global_wins_on_name_collision(member_user):
+    from mcp_servers import services
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.filter(source=MCPServer.Source.BUILTIN).delete()
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.GLOBAL,
+        transport=MCPServer.Transport.HTTP,
+        url="https://global.test/mcp",
+        enabled=True,
+    )
+    MCPServer.objects.create(
+        name="dup",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://user.test/mcp",
+        enabled=True,
+    )
+
+    result = dict(services.build_runtime_servers(user_id=member_user.id))
+    assert list(result) == ["dup"]
+    assert result["dup"].url == "https://global.test/mcp"  # global row wins
+
+
+@pytest.mark.django_db
+def test_build_runtime_servers_strips_env_ref_on_user_rows(member_user):
+    from mcp_servers import services
+    from mcp_servers.models import MCPServer
+
+    MCPServer.objects.create(
+        name="mine",
+        scope=MCPServer.Scope.USER,
+        user=member_user,
+        transport=MCPServer.Transport.HTTP,
+        url="https://u.test/mcp",
+        enabled=True,
+        headers=[
+            {"name": "X-Lit", "mode": "literal", "value": "ok"},
+            {"name": "X-Env", "mode": "env_ref", "value": "SOME_HOST_VAR"},
+        ],
+    )
+    result = dict(services.build_runtime_servers(user_id=member_user.id))
+    assert result["mine"].headers == {"X-Lit": "ok"}  # env_ref dropped
+
+
+async def test_mcptoolkit_forwards_user_id(monkeypatch):
+    from automation.agent.mcp import toolkits
+
+    seen = {}
+
+    def fake_build(user_id=None):
+        seen["user_id"] = user_id
+        return []
+
+    monkeypatch.setattr("mcp_servers.services.build_runtime_servers", fake_build)
+    tools = await toolkits.MCPToolkit.get_tools(user_id=42)
+    assert tools == []
+    assert seen["user_id"] == 42
 
 
 @pytest.mark.django_db
