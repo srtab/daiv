@@ -6,6 +6,9 @@
 {% block container_width %}max-w-screen-2xl{% endblock %}
 
 {% block topbar_start %}
+  {# Admin-gated console surface toggle, active on "Personal" (the default); absent for non-admins (AC2). #}
+  {% include "accounts/_manager_lens_toggle.html" with surface="personal" %}
+
   {# Range-switcher — console-only, static placeholder in 2.1; wired in Epic 3.
      Active pill is teal; labels use the mono face + tabular figures. #}
   <div data-testid="range-switcher" role="group" aria-label="{% translate 'Time range' %}"
@@ -34,5 +37,6 @@
 {% endblock topbar_start %}
 
 {% block app_content %}
-{% include "accounts/_console_body.html" %}
+{# #console-main is the HTMX swap target for the top-bar Manager-Lens toggle. #}
+<div id="console-main">{% include "accounts/_console_body.html" %}</div>
 {% endblock app_content %}

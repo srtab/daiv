@@ -1,0 +1,44 @@
+{% load i18n %}
+{% comment %}
+Admin-only, NON-PERSISTENT console surface toggle (Personal | Manager Lens).
+Rendered in the top-bar left slot of BOTH dashboard.html and manager_lens.html;
+pass the current surface in via {% include ... with surface="personal|manager" %}.
+
+- Gated with user.is_admin so non-admins get NO toggle in the DOM (absent, not
+  shown-then-blocked, AC2). The route itself is denied server-side by
+  AdminRequiredMixin (AC6) as belt-and-braces.
+- The two <a> links carry BOTH hx-get (calm partial swap of the console main
+  column) and a plain href (no-JS fallback; the full page is deep-link safe).
+- Stateless: nothing is written (no session key, no user field), so the next
+  fresh landing is always /dashboard/ and the surface never persists (AC4).
+- Alpine keeps the active/aria-current state in sync after an HTMX swap (the
+  toggle sits OUTSIDE the swapped #console-main); a hard load is already correct
+  because Alpine seeds `surface` from the server-passed value. Teal = active/DO
+  (never brand/violet). Touch targets are >= 44px and it is not hover-only.
+{% endcomment %}
+{% if user.is_admin %}
+<div data-testid="manager-lens-toggle"
+     x-data="{ surface: '{{ surface|default:'personal' }}' }"
+     role="group" aria-label="{% translate 'Console view' %}"
+     class="hidden items-center gap-0.5 rounded-md border border-border bg-ground p-0.5 sm:inline-flex">
+  <a href="{% url 'dashboard' %}"
+     hx-get="{% url 'dashboard' %}" hx-target="#console-main" hx-push-url="true"
+     @click="surface = 'personal'"
+     :aria-current="surface === 'personal' ? 'page' : null"
+     :class="surface === 'personal' ? 'bg-accent/15 text-accent-bright' : 'text-text-muted hover:text-text'"
+     class="inline-flex min-h-[44px] items-center rounded-md px-3 py-1.5 font-mono text-[12.5px] font-semibold tabular-nums no-underline transition-colors md:min-h-0 md:py-1">
+    {% translate "Personal" %}
+  </a>
+  <a href="{% url 'manager_lens' %}"
+     hx-get="{% url 'manager_lens' %}" hx-target="#console-main" hx-push-url="true"
+     @click="surface = 'manager'"
+     :aria-current="surface === 'manager' ? 'page' : null"
+     :class="surface === 'manager' ? 'bg-accent/15 text-accent-bright' : 'text-text-muted hover:text-text'"
+     class="inline-flex min-h-[44px] items-center rounded-md px-3 py-1.5 font-mono text-[12.5px] font-semibold tabular-nums no-underline transition-colors md:min-h-0 md:py-1">
+    {% translate "Manager Lens" %}
+  </a>
+  {# Announce the surface change to assistive tech on toggle (polite). #}
+  <span class="sr-only" aria-live="polite"
+        x-text="surface === 'manager' ? '{% translate 'Manager Lens.' %}' : '{% translate 'Review console.' %}'"></span>
+</div>
+{% endif %}

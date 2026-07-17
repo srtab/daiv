@@ -14,7 +14,9 @@ logger = logging.getLogger("daiv.accounts")
 NAV_SECTION_MCP_GLOBAL = "mcp_servers_global"
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
-    "dashboard": {"dashboard"},
+    # The admin Manager Lens is a console surface under Dashboard — keep the Dashboard
+    # sidebar item highlighted when it is open.
+    "dashboard": {"dashboard", "manager_lens"},
     "sessions": {
         "session_list",
         "session_new",

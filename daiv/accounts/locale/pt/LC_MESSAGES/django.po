@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-17 11:20+0100\n"
+"POT-Creation-Date: 2026-07-17 08:39-0500\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -95,6 +95,68 @@ msgstr "Feed"
 msgid "what happened"
 msgstr "o que aconteceu"
 
+msgid "Org impact"
+msgstr "Impacto da organização"
+
+msgid "Code Velocity"
+msgstr "Velocidade de código"
+
+msgid "team members"
+msgstr "membros da equipa"
+
+msgid "merges into default branches"
+msgstr "merges nos ramos predefinidos"
+
+msgid "Lines changed"
+msgstr "Linhas alteradas"
+
+#, python-format
+msgid "Net change: %(net)s lines"
+msgstr "Variação líquida: %(net)s linhas"
+
+msgid "DAIV attribution"
+msgstr "Atribuição ao DAIV"
+
+msgid "MRs involving DAIV"
+msgstr "MRs com participação do DAIV"
+
+#, python-format
+msgid "DAIV: %(n)s MRs"
+msgstr "DAIV: %(n)s MRs"
+
+#, python-format
+msgid "Human: %(n)s MRs"
+msgstr "Humano: %(n)s MRs"
+
+msgid "Commits authored by DAIV"
+msgstr "Commits da autoria do DAIV"
+
+#, python-format
+msgid "DAIV: %(n)s commits"
+msgstr "DAIV: %(n)s commits"
+
+#, python-format
+msgid "Human: %(n)s commits"
+msgstr "Humano: %(n)s commits"
+
+msgid "Computing org impact…"
+msgstr "A calcular o impacto da organização…"
+
+msgid "Console view"
+msgstr "Vista da consola"
+
+msgid "Personal"
+msgstr "Pessoal"
+
+msgid "Manager Lens"
+msgstr "Vista de gestor"
+
+msgid "Manager Lens."
+msgstr "Vista de gestor."
+
+msgid "Review console."
+msgstr "Consola de revisão."
+
 msgid "New"
 msgstr "Novo"
 
@@ -155,6 +217,21 @@ msgstr "Terminar sessão"
 msgid "No users found."
 msgstr "Nenhum utilizador encontrado."
 
+msgid "Time range"
+msgstr "Intervalo de tempo"
+
+msgid "7 days"
+msgstr "7 dias"
+
+msgid "30 days"
+msgstr "30 dias"
+
+msgid "90 days"
+msgstr "90 dias"
+
+msgid "All time"
+msgstr "Desde sempre"
+
 msgid "Welcome to DAIV"
 msgstr "Bem-vindo ao DAIV"
 
@@ -198,21 +275,6 @@ msgstr "Pode autenticar-se com um código único enviado para o seu email, ou us
 
 msgid "Open navigation"
 msgstr "Abrir navegação"
-
-msgid "Time range"
-msgstr "Intervalo de tempo"
-
-msgid "7 days"
-msgstr "7 dias"
-
-msgid "30 days"
-msgstr "30 dias"
-
-msgid "90 days"
-msgstr "90 dias"
-
-msgid "All time"
-msgstr "Desde sempre"
 
 msgid "Primary"
 msgstr "Principal"

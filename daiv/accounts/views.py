@@ -108,6 +108,74 @@ def _format_duration(td: timedelta | None) -> str:
     return f"{hours}h {minutes}m"
 
 
+def _resolve_period(request) -> tuple[str, date | None]:
+    """Resolve the stateless ``?period=`` querystring to a ``(period_key, cutoff_date)`` pair.
+
+    Falls back to ``DEFAULT_PERIOD`` for a missing/invalid value. ``cutoff_date`` is ``None`` for
+    the "all time" period, today's date for the zero-day "today" period, and ``today - days``
+    otherwise. Shared by the personal console (``DashboardView``) and the org ``ManagerLensView``
+    so both honour the same range semantics with no persisted state.
+    """
+    period = request.GET.get("period", DEFAULT_PERIOD)
+    if period not in PERIOD_DAYS:
+        period = DEFAULT_PERIOD
+    days = PERIOD_DAYS[period]
+    cutoff_date = localdate() - timedelta(days=days) if days is not None else None
+    if days == 0:
+        cutoff_date = localdate()
+    return period, cutoff_date
+
+
+def get_velocity_data(cutoff_date: date | None) -> dict | None:
+    """Aggregate org-wide code-velocity + DAIV-attribution from ``MergeMetric``.
+
+    Org-wide by design — ``MergeMetric.objects.all()`` (never user-scoped, never derived from
+    ``RunEnvelope`` per AD-10); an optional ``cutoff_date`` restricts to merges on/after that date.
+    Returns ``None`` when there are zero matching rows so the caller can render an honest cold-load
+    state instead of a misleading zero reading. Single source of truth for the Manager Lens.
+    """
+    merges = MergeMetric.objects.all()
+    if cutoff_date is not None:
+        merges = merges.filter(merged_at__date__gte=cutoff_date)
+
+    stats = merges.aggregate(
+        total=Count("id"),
+        total_added=Sum("lines_added", default=0),
+        total_removed=Sum("lines_removed", default=0),
+        daiv_merges=Count("id", filter=Q(daiv_commits__gt=0)),
+        total_commits_sum=Sum("total_commits", default=0),
+        daiv_commits_sum=Sum("daiv_commits", default=0),
+    )
+
+    if not stats["total"]:
+        return None
+
+    total_merges = stats["total"]
+    daiv_merges = stats["daiv_merges"]
+    human_merges = total_merges - daiv_merges
+    total_commits = stats["total_commits_sum"]
+    daiv_commits = stats["daiv_commits_sum"]
+    human_commits = max(0, total_commits - daiv_commits)
+    max_lines = max(stats["total_added"], stats["total_removed"], 1)
+
+    return {
+        "total_merges": total_merges,
+        "lines_added": stats["total_added"],
+        "lines_removed": stats["total_removed"],
+        "net_lines": stats["total_added"] - stats["total_removed"],
+        "daiv_merges_pct": _format_pct(daiv_merges, total_merges),
+        "daiv_merges_pct_raw": min(_raw_pct(daiv_merges, total_merges) or 0, 100),
+        "daiv_merges": daiv_merges,
+        "human_merges": human_merges,
+        "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
+        "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
+        "daiv_commits": daiv_commits,
+        "human_commits": human_commits,
+        "lines_added_pct": round(stats["total_added"] / max_lines * 100, 1),
+        "lines_removed_pct": round(stats["total_removed"] / max_lines * 100, 1),
+    }
+
+
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = "accounts/dashboard.html"
 
@@ -122,23 +190,17 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        period = self.request.GET.get("period", DEFAULT_PERIOD)
-        if period not in PERIOD_DAYS:
-            period = DEFAULT_PERIOD
-        days = PERIOD_DAYS[period]
-        cutoff_date = localdate() - timedelta(days=days) if days is not None else None
-        if days == 0:
-            cutoff_date = localdate()
+        period, cutoff_date = _resolve_period(self.request)
 
+        # Personal-by-default (AC1): the console default carries NO org/aggregate content for
+        # anyone — admin OR member. Org velocity / total_users now live ONLY in the Manager Lens
+        # (``ManagerLensView``); every read here is personal-scoped via ``visible_to`` / ``user=``.
         user = self.request.user
         context["activity"] = self._get_activity_data(cutoff_date, user)
         context["active_api_keys"] = APIKey.objects.filter(user=user, revoked=False).count()
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
-        context["velocity"] = self._get_velocity_data(cutoff_date) if user.is_admin else None
         context["active_schedules"] = ScheduledJob.objects.filter(user=user, is_enabled=True).count()
-        if user.is_admin:
-            context["total_users"] = User.objects.count()
 
         return context
 
@@ -237,47 +299,40 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "segments": segments,
         }
 
-    def _get_velocity_data(self, cutoff_date: date | None) -> dict | None:
-        merges = MergeMetric.objects.all()
-        if cutoff_date is not None:
-            merges = merges.filter(merged_at__date__gte=cutoff_date)
 
-        stats = merges.aggregate(
-            total=Count("id"),
-            total_added=Sum("lines_added", default=0),
-            total_removed=Sum("lines_removed", default=0),
-            daiv_merges=Count("id", filter=Q(daiv_commits__gt=0)),
-            total_commits_sum=Sum("total_commits", default=0),
-            daiv_commits_sum=Sum("daiv_commits", default=0),
-        )
+class ManagerLensView(AdminRequiredMixin, TemplateView):
+    """Admin-only org-impact surface — the relocated Code-Velocity / DAIV-attribution content.
 
-        if not stats["total"]:
-            return None
+    ``AdminRequiredMixin`` raises ``PermissionDenied`` (→ HTTP 403) for a logged-in non-admin, so a
+    forged direct request is denied server-side, not merely hidden (AC6). Reuses the stateless
+    ``?period=`` idiom and the shared module-level ``get_velocity_data`` computation (no duplicated
+    query). Nothing about the current surface is persisted (AC4) — the Lens is simply a distinct
+    route from the personal console, so a fresh landing is always ``/dashboard/``.
+    """
 
-        total_merges = stats["total"]
-        daiv_merges = stats["daiv_merges"]
-        human_merges = total_merges - daiv_merges
-        total_commits = stats["total_commits_sum"]
-        daiv_commits = stats["daiv_commits_sum"]
-        human_commits = max(0, total_commits - daiv_commits)
-        max_lines = max(stats["total_added"], stats["total_removed"], 1)
+    template_name = "accounts/manager_lens.html"
 
-        return {
-            "total_merges": total_merges,
-            "lines_added": stats["total_added"],
-            "lines_removed": stats["total_removed"],
-            "net_lines": stats["total_added"] - stats["total_removed"],
-            "daiv_merges_pct": _format_pct(daiv_merges, total_merges),
-            "daiv_merges_pct_raw": min(_raw_pct(daiv_merges, total_merges) or 0, 100),
-            "daiv_merges": daiv_merges,
-            "human_merges": human_merges,
-            "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
-            "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
-            "daiv_commits": daiv_commits,
-            "human_commits": human_commits,
-            "lines_added_pct": round(stats["total_added"] / max_lines * 100, 1),
-            "lines_removed_pct": round(stats["total_removed"] / max_lines * 100, 1),
-        }
+    def get_template_names(self) -> list[str]:
+        # HTMX (the top-bar toggle) swaps in the body fragment; a normal GET / no-JS deep link
+        # renders the full shell. Mirrors ``SessionListView`` / ``DashboardView``.
+        if is_htmx(self.request):
+            return ["accounts/_manager_lens.html"]
+        return ["accounts/manager_lens.html"]
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        period, cutoff_date = _resolve_period(self.request)
+
+        # Org-scoped by design — this is the ONE place org velocity / total_users render.
+        # ``get_velocity_data`` returns ``None`` on zero rows so the template shows a cold-load
+        # skeleton rather than a "DAIV did nothing" zero (AC5).
+        context["velocity"] = get_velocity_data(cutoff_date)
+        context["total_users"] = User.objects.count()
+        context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
+        context["current_period"] = period
+
+        return context
 
 
 class APIKeyListView(LoginRequiredMixin, ListView):
