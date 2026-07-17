@@ -34,6 +34,8 @@ CLAUDE_THINKING_MODELS = (
     "claude-sonnet-5",
     "claude-opus-4-5",
     "claude-opus-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
     "claude-haiku-4-5",
     "claude-fable-5",
     "anthropic/claude-sonnet-4.5",
@@ -41,6 +43,8 @@ CLAUDE_THINKING_MODELS = (
     "anthropic/claude-sonnet-5",
     "anthropic/claude-opus-4.5",
     "anthropic/claude-opus-4.6",
+    "anthropic/claude-opus-4.7",
+    "anthropic/claude-opus-4.8",
     "anthropic/claude-haiku-4.5",
     "anthropic/claude-fable-5",
 )
@@ -56,7 +60,18 @@ CLAUDE_NO_TEMPERATURE_MODELS = (
     "anthropic/claude-fable-5",
 )
 
-OPENAI_THINKING_MODELS = ("gpt-5.2", "gpt-5.3-codex", "openai/gpt-5.2", "openai/gpt-5.3-codex")
+OPENAI_THINKING_MODELS = (
+    "gpt-5.2",
+    "gpt-5.3-codex",
+    "gpt-5.4",
+    "gpt-5.5",
+    "gpt-5.6",
+    "openai/gpt-5.2",
+    "openai/gpt-5.3-codex",
+    "openai/gpt-5.4",
+    "openai/gpt-5.5",
+    "openai/gpt-5.6",
+)
 
 ANTHROPIC_STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 
