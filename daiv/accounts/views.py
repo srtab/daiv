@@ -22,6 +22,7 @@ from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.models import APIKey, User
 from codebase.models import MergeMetric
+from core.utils import is_htmx
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,14 @@ def _format_duration(td: timedelta | None) -> str:
 
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = "accounts/dashboard.html"
+
+    def get_template_names(self) -> list[str]:
+        # HTMX requests get just the console-body fragment (three region sections);
+        # a normal GET renders the full shell. Mirrors ``SessionListView`` so later
+        # stories' region partials refresh in place.
+        if is_htmx(self.request):
+            return ["accounts/_console_body.html"]
+        return ["accounts/dashboard.html"]
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

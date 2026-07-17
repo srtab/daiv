@@ -20,16 +20,45 @@ There is no separate `tailwind.config.js` — all theme configuration lives insi
 
 | Token              | Value                                                       |
 |--------------------|-------------------------------------------------------------|
-| Font family        | `"Outfit"`, ui-sans-serif, system-ui, sans-serif            |
-| Weights loaded     | 300 (light), 400 (regular), 500 (medium), 600 (semi), 700 (bold), 800 (extra-bold) |
-| Body text          | `text-[14px]` regular, `text-gray-300` or `text-gray-400`  |
-| Small / meta text  | `text-[13px]` or `text-[12px]`                              |
-| Headings           | `font-semibold` or `font-bold`, `text-white` or `text-gray-100` |
-| Uppercase labels   | `tracking-[0.15em]` to `tracking-[0.2em]`, `font-semibold` |
+| Sans family        | `"Geist"`, ui-sans-serif, system-ui, sans-serif (`font-sans`) — prose, headings, section headers, body |
+| Mono family        | `"Geist Mono"`, ui-monospace, SFMono-Regular, monospace (`font-mono`) — all *data*: counts, timestamps, repo tags, uppercase eyebrow/label roles |
+| Hosting            | **Self-hosted woff2** at `daiv/static/fonts/geist/` (variable weight `100 900`, `font-display: swap`, latin subset covers ã ç õ é). `@font-face` lives in `input.css`. **No font CDN.** |
+| Body text          | `text-[14px]` regular, `text-text` or `text-text-muted`    |
+| Small / meta text  | `text-[13px]` or `text-[12px]`, often `font-mono`           |
+| Headings           | `font-semibold` or `font-bold`, `text-text` or `text-text-strong` |
+| Uppercase labels   | `tracking-[0.14em]` to `tracking-[0.2em]`, `font-semibold`, `font-mono` |
+| Tabular figures    | `tabular-nums` wherever digits align or change             |
 
 ### Color Palette
 
-The UI is **dark-mode only**. All colors are applied directly with Tailwind utilities — there are no custom CSS variables beyond `--font-sans`.
+The UI is **dark-mode only** (no light theme). The Review Console and all new
+surfaces use the **semantic design-token layer** below; older pages still use the
+raw Tailwind utilities in the legacy table that follows. Prefer the tokens.
+
+#### Semantic Design Tokens (Tailwind v4 `@theme`)
+
+Declared as `--color-*` / `--font-*` / `--shadow-*` in `input.css`'s `@theme`
+block, so utilities generate automatically (`bg-ground`, `text-text-muted`,
+`border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). Values
+are the authoritative DESIGN frontmatter values.
+
+| Token | Value | Role |
+|---|---|---|
+| `ground` | `#0D1117` | base plane (`bg-ground` on `<body>`) |
+| `surface-1` | `#10151D` | sidebar + top bar |
+| `surface-2` | `#161C26` | cards + hero |
+| `surface-3` | `#1E2733` | hover / inset chips |
+| `border` | `#232B36` | 1px hairline separators |
+| `text` / `text-strong` / `text-muted` / `text-faint` | `#E6EDF3` / `#FFFFFF` / `#9AA4B0` / `#767F8E` | text ramp |
+| `brand` / `brand-bright` | `#8B5CF6` / `#A78BFA` | violet — WHO/brand & mark only, **never a CTA** |
+| `accent` / `accent-bright` / `accent-ink` | `#2DD4BF` / `#5FE6D4` / `#04211D` | teal — DO/action; owns "clickable" |
+| `focus` | `#5FE6D4` | focus ring |
+| `status-clear` / `status-found` / `status-attn` / `status-fail` | `#3FB950` / `#D6A036` / `#38BDF8` / `#F85149` | green / amber / cyan / red — each AA-legible on `ground`; a status color never signals "clickable" |
+
+Weak-tint status backgrounds = the status token at ~14–16% alpha via
+`color-mix(in srgb, <token> 14%, transparent)`; such tints carry no text.
+
+#### Legacy raw utilities (pre-console pages)
 
 | Role             | Value                              | Usage                               |
 |------------------|------------------------------------|---------------------------------------|
@@ -76,9 +105,20 @@ Use Tailwind's default spacing scale. Common values:
 
 ### Layout
 
-- **Max content width**: `max-w-5xl` (consistent across all pages)
-- **Horizontal padding**: `px-6`
-- **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px)
+- **Content width — `container_width` tier system.** `base_app.html` exposes a
+  `{% block container_width %}` whose allowed values are `max-w-3xl` (narrow),
+  `max-w-6xl` (default), `max-w-screen-2xl` (wide — the Review Console), or
+  `max-w-none` (fluid). Pick the tier per page; don't hard-code arbitrary widths.
+- **Horizontal padding**: `px-4 sm:px-6`
+- **Responsive breakpoints**: mobile-first; the app shell reflows at **768px**
+  (sidebar → sheet + bottom tab bar) and **1024px** (icon rail → full sidebar).
+- **Flat elevation.** Depth is built from the `surface-1 → surface-2 → surface-3`
+  ramp plus hairline `border-border` — **persistent surfaces carry no box-shadow.**
+  The single sanctioned shadow (`shadow-overlay`, `0 16px 40px -24px rgba(0,0,0,.85)`)
+  is reserved for transient overlays (menus / popovers / dialogs).
+- **Focus & keyboard.** A global `:focus-visible` teal ring
+  (`outline: 2px solid var(--color-focus); outline-offset: 2px`) applies to every
+  interactive element; `Esc` closes the topmost drawer/popover. No command palette.
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
 ## Component Library

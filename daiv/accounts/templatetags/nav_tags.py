@@ -4,7 +4,7 @@ from django import template
 
 register = template.Library()
 
-ACTIVE_CLASSES = "bg-white/[0.06] text-white"
+ACTIVE_CLASSES = "bg-surface-3 text-text-strong"
 
 
 @register.simple_tag(takes_context=True)

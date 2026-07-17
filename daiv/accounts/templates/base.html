@@ -14,9 +14,6 @@
     <meta property="og:site_name" content="DAIV">
     {% endblock open_graph %}
     <meta name="twitter:card" content="summary">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="shortcut icon" href="/favicon.ico" />
@@ -35,7 +32,7 @@
             crossorigin="anonymous"></script>
     <script defer src="{% static 'core/js/toasts.js' %}"></script>
 </head>
-<body class="h-full bg-[#030712] font-sans text-white antialiased"
+<body class="h-full bg-ground font-sans text-text antialiased"
       hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
     {% if messages %}
     <div id="messages" class="fixed top-5 right-5 z-50 flex flex-col gap-2">
