@@ -6,6 +6,7 @@ from langchain.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
 from automation.agent.base import BaseAgent, ResolvedProvider, parse_model_spec
+from automation.agent.chat_models import OPENROUTER_BASE_URL, ChatOpenRouter
 from core.models import Provider, ProviderType, ThinkingLevelChoices
 
 if TYPE_CHECKING:
@@ -272,6 +273,17 @@ class TestGetModelKwargs:
         sync_client, _async_client = sync_holder
         assert sync_client.is_closed
         del orig_init
+
+    def test_get_model_openrouter_returns_chat_openrouter(self):
+        self._enable_seed("openrouter", "sk-or")
+        model = BaseAgent.get_model(model="openrouter:anthropic/claude-sonnet-4.6")
+        assert isinstance(model, ChatOpenRouter)
+        assert model.openai_api_base == OPENROUTER_BASE_URL
+
+    def test_get_model_non_openrouter_is_not_chat_openrouter(self):
+        self._enable_seed("anthropic", "sk-a")
+        model = BaseAgent.get_model(model="anthropic:claude-sonnet-4-6")
+        assert not isinstance(model, ChatOpenRouter)
 
     def test_openrouter_anthropic_thinking(self):
         self._enable_seed("openrouter", "sk-or")

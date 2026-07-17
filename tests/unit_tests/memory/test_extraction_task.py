@@ -42,6 +42,23 @@ def _checkpointer_with(messages):
     return _open
 
 
+def _checkpointer_with_delta(writes):
+    """A checkpointer whose ``messages`` is a DeltaChannel: absent from ``channel_values``,
+    recoverable only via ``aget_delta_channel_history``."""
+    tup = MagicMock()
+    tup.checkpoint = {"channel_values": {"session_id": "x"}}  # no messages key
+
+    cp = MagicMock()
+    cp.aget_tuple = AsyncMock(return_value=tup)
+    cp.aget_delta_channel_history = AsyncMock(return_value={"messages": {"writes": writes}})
+
+    @asynccontextmanager
+    async def _open():
+        yield cp
+
+    return _open
+
+
 def _structured_llm_returning(observations=None, *, error=None):
     llm = MagicMock()
     if error is not None:
@@ -88,6 +105,30 @@ async def test_extraction_creates_observation_rows():
     assert all(row.status == ObservationStatus.PENDING for row in rows)
     assert all(row.run_id == run.pk for row in rows)
     assert {row.category for row in rows} == {"build_test", "pitfall"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extraction_reconstructs_deltachannel_messages():
+    """deepagents' DeltaChannel keeps ``messages`` out of ``channel_values``; extraction
+    must reconstruct the transcript from the delta write history, not skip as empty."""
+    run = await _create_run()
+    writes = [
+        ("t0", "messages", [HumanMessage(content="fix the bug", id="h1")]),
+        ("t1", "messages", [AIMessage(content="done, ran make test", id="a1")]),
+    ]
+    extracted = [ExtractedObservation(category="build_test", content="`make test` sets LANGCHAIN_TRACING_V2=false")]
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.tasks.open_checkpointer", _checkpointer_with_delta(writes)),
+        patch("memory.tasks._build_structured_llm", return_value=_structured_llm_returning(extracted)),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(run.pk))
+
+    rows = [obs async for obs in MemoryObservation.objects.filter(repo_id="group/project")]
+    assert len(rows) == 1
+    assert rows[0].category == "build_test"
 
 
 @pytest.mark.django_db(transaction=True)
