@@ -140,6 +140,40 @@ def test_detail_with_live_checkpoint_renders_transcript(member_client, member_us
 
 
 @pytest.mark.django_db
+def test_detail_reconstructs_deltachannel_transcript(member_client, member_user):
+    """Regression: deepagents' ``DeltaChannel`` leaves ``messages`` out of
+    ``channel_values`` on non-snapshot steps, so a raw read yields an empty transcript on
+    reload. The detail view must reconstruct it from the delta write history instead."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    session = _create_session(user=member_user)
+    # A live checkpoint whose channel_values has NO messages key (DeltaChannel non-snapshot).
+    tup = MagicMock(checkpoint={"channel_values": {"session_id": "x"}})
+    writes = [
+        ("t0", "messages", [HumanMessage(content="count todos", id="h1")]),
+        ("t1", "messages", [AIMessage(content="there are 18", id="a1")]),
+    ]
+
+    with (
+        patch("sessions.hydration.open_checkpointer") as cp_ctx,
+        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=tup)
+        saver.aget_delta_channel_history = AsyncMock(return_value={"messages": {"writes": writes}})
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is False
+    turns = resp.context["turns"]
+    assert [t["role"] for t in turns] == ["user", "assistant"]
+    assert turns[0]["segments"] == [{"type": "text", "content": "count todos"}]
+    assert turns[1]["segments"] == [{"type": "text", "content": "there are 18"}]
+
+
+@pytest.mark.django_db
 def test_detail_with_missing_checkpoint_flags_expired(member_client, member_user):
     session = _create_session(user=member_user)
 

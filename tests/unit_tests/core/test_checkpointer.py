@@ -214,3 +214,85 @@ def test_dataclass_nested_alongside_set_and_model_round_trips(merge_request):
     assert restored["loaded_tool_names"] == {"Read", "Edit"}
     assert isinstance(restored["loaded_tool_names"], set)
     assert restored["merge_request"] == merge_request
+
+
+# ---------------------------------------------------------------------------
+# aresolve_thread_messages: DeltaChannel-aware messages read
+#
+# deepagents >= 0.6 stores ``messages`` in a langgraph ``DeltaChannel`` whose value is
+# usually ABSENT from ``channel_values`` (present only on periodic snapshot steps). The
+# helper reconstructs the accumulated list from the delta write history so the transcript
+# survives a reload. These tests pin the three resolution branches.
+# ---------------------------------------------------------------------------
+
+
+def _history_saver(history):
+    """A saver stub whose ``aget_delta_channel_history`` returns ``history``."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    saver = MagicMock()
+    saver.aget_delta_channel_history = AsyncMock(return_value=history)
+    return saver
+
+
+async def test_resolve_messages_returns_inline_list_without_history_walk():
+    """deepagents < 0.6 (plain add_messages) keeps the full list inline; return as-is and
+    never touch the (expensive, beta) delta-history contract."""
+    from core.checkpointer import aresolve_thread_messages
+
+    msgs = [HumanMessage(content="hi", id="h1")]
+    saver = _history_saver({})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {"messages": msgs})
+
+    assert result is msgs
+    saver.aget_delta_channel_history.assert_not_awaited()
+
+
+async def test_resolve_messages_reconstructs_from_write_history_when_absent():
+    """The core bug: ``messages`` absent from ``channel_values`` (DeltaChannel non-snapshot
+    step) must be rebuilt by folding the ancestor writes, not read as empty."""
+    from langchain_core.messages import AIMessage
+
+    from core.checkpointer import aresolve_thread_messages
+
+    writes = [
+        ("task-0", "messages", [HumanMessage(content="q", id="h1")]),
+        ("task-1", "messages", [AIMessage(content="a", id="a1")]),
+    ]
+    saver = _history_saver({"messages": {"writes": writes}})
+
+    # channel_values has other channels but NO messages key -> reconstruction path.
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {"session_id": "x"})
+
+    assert [m.id for m in result] == ["h1", "a1"]
+    assert [m.content for m in result] == ["q", "a"]
+
+
+async def test_resolve_messages_folds_seed_plus_writes():
+    """A snapshot ancestor supplies the ``seed``; later writes fold on top (and id-dedup
+    replaces an in-place update rather than duplicating)."""
+    from langchain_core.messages import AIMessage
+
+    from core.checkpointer import aresolve_thread_messages
+
+    seed = [HumanMessage(content="q", id="h1"), AIMessage(content="partial", id="a1")]
+    writes = [("task-2", "messages", [AIMessage(content="final", id="a1")])]
+    saver = _history_saver({"messages": {"seed": seed, "writes": writes}})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {})
+
+    assert [m.id for m in result] == ["h1", "a1"]
+    assert result[1].content == "final"  # id-dedup replaced the partial in place
+
+
+async def test_resolve_messages_empty_history_returns_empty_list():
+    """No seed and no writes (nothing recoverable) -> empty list, so callers still flag the
+    genuinely-empty case rather than crashing."""
+    from core.checkpointer import aresolve_thread_messages
+
+    saver = _history_saver({"messages": {"writes": []}})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {})
+
+    assert result == []
