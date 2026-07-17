@@ -89,3 +89,68 @@ def logged_in_client(user):
     c = Client()
     c.force_login(user)
     return c
+
+
+def _create_envelope(run, status=None):
+    from sessions.models import EnvelopeStatus, RunEnvelope
+
+    return RunEnvelope.objects.create(run=run, status=status or EnvelopeStatus.ALL_CLEAR, summary="")
+
+
+@pytest.mark.django_db
+class TestResolvedEnvelopeIds:
+    """Story 2.3 AC9 — the Feed live-resolve helper (inverse of the session-status predicate)."""
+
+    def test_returns_only_runs_with_envelopes(self, user):
+        session = _create_session(user=user)
+        classified = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+        pending = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+        _create_envelope(classified)
+
+        from sessions.views import resolved_envelope_ids
+
+        resolved = resolved_envelope_ids({classified.id, pending.id})
+        assert resolved == {classified.id}
+
+    def test_empty_input_returns_empty(self):
+        from sessions.views import resolved_envelope_ids
+
+        assert resolved_envelope_ids(set()) == set()
+
+
+@pytest.mark.django_db
+class TestFeedStreamEndpoint:
+    def test_feed_ids_param_returns_sse_stream(self, logged_in_client, user):
+        session = _create_session(user=user)
+        run = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+        resp = logged_in_client.get(reverse("session_stream"), {"feed_ids": str(run.id)})
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.get("Content-Type", "")
+
+    def test_neither_ids_nor_feed_ids_returns_400(self, logged_in_client):
+        resp = logged_in_client.get(reverse("session_stream"), {"feed_ids": "not-a-uuid"})
+        assert resp.status_code == 400
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_emits_envelope_resolved_frame(monkeypatch, user):
+    """A pending feed id gains an envelope → the stream emits an ``envelope: resolved`` frame."""
+    from asgiref.sync import sync_to_async
+    from sessions import views as sviews
+    from sessions.views import SessionStreamView
+
+    monkeypatch.setattr(sviews, "POLL_INTERVAL", 0.01)
+
+    def _seed():
+        session = _create_session(user=user)
+        run = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+        _create_envelope(run)
+        return run
+
+    run = await sync_to_async(_seed)()
+
+    frames = [chunk async for chunk in SessionStreamView()._stream([], [run.id], user)]
+    joined = "".join(frames)
+    assert f'"id": "{run.id}"' in joined
+    assert '"envelope": "resolved"' in joined
+    assert '"done": true' in joined

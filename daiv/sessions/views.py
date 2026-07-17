@@ -12,7 +12,7 @@ from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
 from django.db.models import Prefetch
-from django.http import Http404, HttpResponse, HttpResponseBase, StreamingHttpResponse
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBase, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.text import slugify
@@ -36,7 +36,7 @@ from sessions.filters import RANGE_CHOICES, SessionFilter
 from sessions.forms import AgentRunCreateForm
 from sessions.hydration import ahydrate_thread
 from sessions.locks import stale_cutoff
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunEnvelope, RunStatus, Session, SessionOrigin
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.transcript import annotate_transcript
 
@@ -50,75 +50,112 @@ POLL_INTERVAL = 2.0
 MAX_DURATION = 300.0
 
 
-class SessionStreamView(View):
-    """SSE endpoint that streams Run status updates for in-flight sessions."""
+def _parse_uuid_csv(value: str) -> list[uuid.UUID]:
+    """Parse a comma-separated list of UUIDs, skipping malformed entries."""
+    parsed: list[uuid.UUID] = []
+    for part in value.split(","):
+        try:
+            parsed.append(uuid.UUID(part.strip()))
+        except ValueError:
+            continue
+    return parsed
 
-    async def get(self, request: HttpResponseBase) -> HttpResponseBase:
+
+def resolved_envelope_ids(run_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+    """Return the subset of ``run_ids`` whose ``RunEnvelope`` now exists (classifying → resolved).
+
+    The Feed's live-resolve mechanism (Story 2.3, AC9): a feed id is a terminal-but-unclassified
+    run (``for_run`` is None only because the worker hasn't written the envelope yet), so it must
+    stay tracked until its envelope lands — the INVERSE of the session-status stream, which
+    discards a run the instant it is terminal. Sync (DB read); wrap in ``sync_to_async`` off-loop.
+    """
+    if not run_ids:
+        return set()
+    return set(RunEnvelope.objects.filter(run_id__in=run_ids).values_list("run_id", flat=True))
+
+
+class SessionStreamView(View):
+    """SSE endpoint that streams Run status updates and (Story 2.3) Feed envelope resolutions.
+
+    ``?ids=`` tracks Run status for the sessions list (discard on terminal — unchanged). ``?feed_ids=``
+    tracks terminal-but-unclassified Feed runs for envelope resolution (kept until ``for_run``
+    resolves OR MAX_DURATION); the two sets are independent so session-status streaming is untouched.
+    """
+
+    async def get(self, request: HttpRequest) -> HttpResponseBase:
         user = await request.auser()
         if not user.is_authenticated:
             return HttpResponse(status=403)
 
-        ids_param = request.GET.get("ids", "")
-        uuids: list[uuid.UUID] = []
-        for part in ids_param.split(","):
-            try:
-                uuids.append(uuid.UUID(part.strip()))
-            except ValueError:
-                continue
+        uuids = _parse_uuid_csv(request.GET.get("ids", ""))
+        feed_uuids = _parse_uuid_csv(request.GET.get("feed_ids", ""))
 
-        if not uuids:
+        if not uuids and not feed_uuids:
             return HttpResponse(status=400)
 
         return StreamingHttpResponse(
-            self._stream(uuids, user),
+            self._stream(uuids, feed_uuids, user),
             content_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    async def _stream(self, run_ids: list[uuid.UUID], user):
-        """Stream current Run state to the browser.
+    async def _stream(self, run_ids: list[uuid.UUID], feed_ids: list[uuid.UUID], user):
+        """Stream Run state (status frames) and Feed envelope-resolution frames to the browser.
 
-        Sync from DBTaskResult happens in the worker via django-tasks signals; this view
-        only reads already-synced rows and emits SSE events for state changes.
+        Sync from DBTaskResult happens in the worker via django-tasks signals; this view only reads
+        already-synced rows. The envelope check DB-polls on the same tick — the classifier runs in a
+        worker process, so an in-process signal can't reach this (web) process.
         """
         terminal = RunStatus.terminal()
         # Authorize the requested ids once: run visibility is stable for the life of the
         # stream, so re-running the (distinct-join) visibility filter every tick is wasted work.
-        # Restricting ``tracking`` to visible ids also lets the loop finish cleanly instead
+        # Restricting the tracked sets to visible ids also lets the loop finish cleanly instead
         # of spinning to MAX_DURATION on ids the caller can't see. ``visible_to`` resolves the
         # caller's platform identity with a sync DB read, so build the queryset off-loop.
         visible = await sync_to_async(Run.objects.visible_to)(user)
-        tracking: set[uuid.UUID] = {rid async for rid in visible.filter(id__in=run_ids).values_list("id", flat=True)}
+        all_ids = set(run_ids) | set(feed_ids)
+        visible_ids: set[uuid.UUID] = {rid async for rid in visible.filter(id__in=all_ids).values_list("id", flat=True)}
+        # ``tracking`` = session-status ids (discard on terminal). ``feed_tracking`` = Feed ids kept
+        # until their envelope resolves — do NOT discard these on terminal (they are already terminal).
+        tracking: set[uuid.UUID] = {rid for rid in run_ids if rid in visible_ids}
+        feed_tracking: set[uuid.UUID] = {rid for rid in feed_ids if rid in visible_ids}
         start = time.monotonic()
         last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
 
-        while tracking and (time.monotonic() - start) < MAX_DURATION:
+        while (tracking or feed_tracking) and (time.monotonic() - start) < MAX_DURATION:
             await asyncio.sleep(POLL_INTERVAL)
 
-            runs = Run.objects.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
+            if tracking:
+                runs = Run.objects.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
+                async for run in runs:
+                    started_iso = run.started_at.isoformat() if run.started_at else None
+                    finished_iso = run.finished_at.isoformat() if run.finished_at else None
+                    current_state = (run.status, started_iso, finished_iso)
 
-            async for run in runs:
-                started_iso = run.started_at.isoformat() if run.started_at else None
-                finished_iso = run.finished_at.isoformat() if run.finished_at else None
-                current_state = (run.status, started_iso, finished_iso)
+                    if last_emitted.get(run.id) != current_state:
+                        last_emitted[run.id] = current_state
+                        data = json.dumps({
+                            "id": str(run.id),
+                            "status": run.status,
+                            "started_at": started_iso,
+                            "finished_at": finished_iso,
+                        })
+                        yield f"data: {data}\n\n"
 
-                if last_emitted.get(run.id) != current_state:
-                    last_emitted[run.id] = current_state
-                    data = json.dumps({
-                        "id": str(run.id),
-                        "status": run.status,
-                        "started_at": started_iso,
-                        "finished_at": finished_iso,
-                    })
-                    yield f"data: {data}\n\n"
+                    if run.status in terminal:
+                        tracking.discard(run.id)
 
-                if run.status in terminal:
-                    tracking.discard(run.id)
+            # Feed live-resolve: emit one frame per run whose envelope has just landed, then stop
+            # tracking it. Keeps envelope-pending feed ids alive across ticks (the discard-on-terminal
+            # above never touches feed_tracking) so the resolution frame is not dropped prematurely.
+            if feed_tracking:
+                for rid in await sync_to_async(resolved_envelope_ids)(feed_tracking):
+                    yield f"data: {json.dumps({'id': str(rid), 'envelope': 'resolved'})}\n\n"
+                    feed_tracking.discard(rid)
 
-        # ``complete`` distinguishes a clean finish (all tracked runs reached a
-        # terminal state) from a timeout with runs still pending, so the client
-        # can decide whether to re-subscribe rather than freeze on stale state.
-        done = json.dumps({"done": True, "complete": not tracking})
+        # ``complete`` distinguishes a clean finish (nothing left tracked) from a timeout with work
+        # still pending, so the client can decide whether to re-subscribe rather than freeze.
+        done = json.dumps({"done": True, "complete": not tracking and not feed_tracking})
         yield f"data: {done}\n\n"
 
 
