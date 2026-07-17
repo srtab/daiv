@@ -6,6 +6,7 @@ The console ships as a structural/visual substrate only — no region data, no
 job-creation launcher in the console content.
 """
 
+from datetime import timedelta
 from pathlib import Path
 
 from django.template.loader import get_template
@@ -276,6 +277,17 @@ class TestManagerLensContent:
         # Data present -> no cold-load skeleton.
         assert b'data-testid="manager-lens-skeleton"' not in response.content
 
+    def test_default_shows_cumulative_velocity_not_scoped_to_today(self, admin_client):
+        # Regression guard: the Lens defaults to the cumulative window, so an org whose only
+        # merges are older than "today" still shows real velocity — never the cold-load skeleton.
+        old = _make_merge_metric(iid=99)
+        MergeMetric.objects.filter(pk=old.pk).update(merged_at=timezone.now() - timedelta(days=40))
+        response = admin_client.get(reverse("manager_lens"))  # no ?period= -> cumulative default
+        assert response.status_code == 200
+        assert response.context["velocity"] is not None
+        assert response.context["velocity"]["total_merges"] == 1
+        assert b'data-testid="manager-lens-skeleton"' not in response.content
+
     def test_velocity_uses_shared_module_function(self, admin_client):
         # The Lens reads through the extracted module-level ``get_velocity_data`` (AD-10: MergeMetric).
         _make_merge_metric(iid=1, daiv_commits=2, total_commits=2)
@@ -330,9 +342,11 @@ class TestManagerLensNonPersistence:
         first = admin_client.get(reverse("manager_lens"))
         assert first.status_code == 200
 
-        # No surface/lens preference key was written to the session.
+        # No app-level state was persisted: only Django's own framework keys (``_csrftoken`` etc.,
+        # all underscore-prefixed) may appear — no surface/lens preference of ANY name is written.
         new_keys = set(admin_client.session.keys()) - keys_before
-        assert not any(("lens" in k or "surface" in k or "manager" in k) for k in new_keys)
+        app_keys = {k for k in new_keys if not k.startswith("_")}
+        assert not app_keys, f"Manager Lens visit unexpectedly wrote app session keys: {app_keys}"
 
         # Returning to the console lands on the PERSONAL view — no org content flips the default.
         second = admin_client.get(reverse("dashboard"))

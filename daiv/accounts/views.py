@@ -108,17 +108,18 @@ def _format_duration(td: timedelta | None) -> str:
     return f"{hours}h {minutes}m"
 
 
-def _resolve_period(request) -> tuple[str, date | None]:
+def _resolve_period(request, default: str = DEFAULT_PERIOD) -> tuple[str, date | None]:
     """Resolve the stateless ``?period=`` querystring to a ``(period_key, cutoff_date)`` pair.
 
-    Falls back to ``DEFAULT_PERIOD`` for a missing/invalid value. ``cutoff_date`` is ``None`` for
-    the "all time" period, today's date for the zero-day "today" period, and ``today - days``
-    otherwise. Shared by the personal console (``DashboardView``) and the org ``ManagerLensView``
-    so both honour the same range semantics with no persisted state.
+    Falls back to ``default`` for a missing/invalid value — the personal console uses the module
+    ``DEFAULT_PERIOD`` ("today"), while the org ``ManagerLensView`` passes ``default="all"`` because
+    org velocity is cumulative. ``cutoff_date`` is ``None`` for the "all time" period, today's date
+    for the zero-day "today" period, and ``today - days`` otherwise. Shared by both console surfaces
+    so they honour the same range semantics with no persisted state.
     """
-    period = request.GET.get("period", DEFAULT_PERIOD)
+    period = request.GET.get("period", default)
     if period not in PERIOD_DAYS:
-        period = DEFAULT_PERIOD
+        period = default
     days = PERIOD_DAYS[period]
     cutoff_date = localdate() - timedelta(days=days) if days is not None else None
     if days == 0:
@@ -322,15 +323,16 @@ class ManagerLensView(AdminRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        period, cutoff_date = _resolve_period(self.request)
+        _, cutoff_date = _resolve_period(self.request, default="all")
 
-        # Org-scoped by design — this is the ONE place org velocity / total_users render.
-        # ``get_velocity_data`` returns ``None`` on zero rows so the template shows a cold-load
-        # skeleton rather than a "DAIV did nothing" zero (AC5).
+        # Org-scoped by design — this is the ONE place org velocity / total_users render. The Lens
+        # defaults to the cumulative "all" window (not the personal console's "today"): org velocity
+        # is cumulative, so a fresh visit shows real historical impact instead of an empty view.
+        # ``get_velocity_data`` then returns ``None`` only for a genuinely-empty org (zero
+        # ``MergeMetric`` rows ever) — the honest cold-load skeleton, never a "DAIV did nothing"
+        # zero (AC5). No range switcher on the Lens yet — that arrives with Epic 3.
         context["velocity"] = get_velocity_data(cutoff_date)
         context["total_users"] = User.objects.count()
-        context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
-        context["current_period"] = period
 
         return context
 
