@@ -5,6 +5,34 @@
 
 {% block container_width %}max-w-screen-2xl{% endblock %}
 
+{% block topbar_start %}
+  {# Range-switcher — console-only, static placeholder in 2.1; wired in Epic 3.
+     Active pill is teal; labels use the mono face + tabular figures. #}
+  <div data-testid="range-switcher" role="group" aria-label="{% translate 'Time range' %}"
+       class="hidden items-center gap-0.5 rounded-md border border-border bg-ground p-0.5 md:flex">
+    <button type="button" disabled aria-disabled="true" data-range="today"
+            class="rounded-md bg-accent/15 px-2.5 py-1 font-mono text-[12.5px] font-semibold tabular-nums text-accent-bright">
+      {% translate "Today" %}
+    </button>
+    <button type="button" disabled aria-disabled="true" data-range="7d"
+            class="rounded-md px-2.5 py-1 font-mono text-[12.5px] tabular-nums text-text-muted transition-colors hover:text-text">
+      {% translate "7 days" %}
+    </button>
+    <button type="button" disabled aria-disabled="true" data-range="30d"
+            class="rounded-md px-2.5 py-1 font-mono text-[12.5px] tabular-nums text-text-muted transition-colors hover:text-text">
+      {% translate "30 days" %}
+    </button>
+    <button type="button" disabled aria-disabled="true" data-range="90d"
+            class="rounded-md px-2.5 py-1 font-mono text-[12.5px] tabular-nums text-text-muted transition-colors hover:text-text">
+      {% translate "90 days" %}
+    </button>
+    <button type="button" disabled aria-disabled="true" data-range="all"
+            class="rounded-md px-2.5 py-1 font-mono text-[12.5px] tabular-nums text-text-muted transition-colors hover:text-text">
+      {% translate "All time" %}
+    </button>
+  </div>
+{% endblock topbar_start %}
+
 {% block app_content %}
 {% include "accounts/_console_body.html" %}
 {% endblock app_content %}

@@ -110,6 +110,15 @@ class TestVisualFoundationWiring:
         # Exactly four bottom-tab labels; touch targets sized to >= 44px.
         assert b"min-h-[44px]" in response.content
 
+    def test_range_switcher_absent_on_non_console_pages(self, member_client):
+        """The range-switcher is console-only: it lives in the dashboard's
+        ``topbar_start`` block, so other pages sharing ``base_app.html`` (MCP
+        servers, sandbox envs, users, sessions, ...) must NOT show it."""
+        response = member_client.get(reverse("session_list"))
+        assert response.status_code == 200
+        assert b'data-testid="app-sidebar"' in response.content  # it IS a base_app shell page
+        assert b'data-testid="range-switcher"' not in response.content
+
     def test_no_outfit_google_fonts_cdn(self, member_client):
         response = member_client.get(reverse("dashboard"))
         assert b"fonts.googleapis.com" not in response.content
@@ -155,7 +164,9 @@ class TestI18nExternalization:
         assert '{% translate "Needs-me queue" %}' in src
 
     def test_range_switcher_labels_are_translated(self):
-        src = Path(get_template("base_app.html").origin.name).read_text(encoding="utf-8")
+        # The range-switcher now lives in the dashboard's topbar_start block
+        # (console-only), not in the shared base_app.html shell.
+        src = Path(get_template("accounts/dashboard.html").origin.name).read_text(encoding="utf-8")
         assert '{% translate "All time" %}' in src
         # aria-label wraps the string in single quotes (double-quoted attribute).
         assert 'translate "Time range"' in src or "translate 'Time range'" in src
