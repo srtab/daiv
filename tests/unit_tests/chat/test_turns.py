@@ -231,3 +231,185 @@ def test_build_turns_mixed_order_human_ai_tool_ai_tool_human():
     assert [t["role"] for t in result] == ["user", "assistant", "assistant", "user"]
     assert result[1]["segments"][1]["result"] == "result-1"
     assert result[2]["segments"][1]["result"] == "result-2"
+
+
+# --- OpenAI Responses API shape (gpt-5.x / codex via langchain-openai) ------------------
+#
+# These models return content as a list of ``reasoning`` / ``function_call`` / ``text``
+# blocks (not Anthropic ``thinking`` / ``tool_use``). Tool calls carry their canonical id
+# under ``call_id`` (the value ToolMessage.tool_call_id matches), args as a JSON *string*
+# under ``arguments``, and the block's own ``id`` is an unrelated ``fc_...`` handle. The
+# normalized ``AIMessage.tool_calls`` attribute mirrors each call keyed on ``id`` = call_id.
+
+
+def test_build_turns_openai_function_call_block_emits_tool_segment():
+    m = AIMessage(
+        content=[
+            {"id": "rs_1", "type": "reasoning", "summary": [], "content": [], "encrypted_content": "x"},
+            {
+                "type": "function_call",
+                "call_id": "call_abc",
+                "name": "rt_get_ticket",
+                "arguments": '{"id": 1160298}',
+                "id": "fc_1",
+                "status": "completed",
+            },
+        ],
+        id="a-1",
+        tool_calls=[{"id": "call_abc", "name": "rt_get_ticket", "args": {"id": 1160298}, "type": "tool_call"}],
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [
+        {
+            "type": "tool_call",
+            "id": "call_abc",
+            "name": "rt_get_ticket",
+            "args": '{"id": 1160298}',
+            "result": None,
+            "status": "done",
+        }
+    ]
+
+
+def test_build_turns_openai_tool_result_attaches_by_call_id():
+    ai = AIMessage(
+        content=[
+            {
+                "type": "function_call",
+                "call_id": "call_abc",
+                "name": "rt_get_current_user",
+                "arguments": "{}",
+                "id": "fc_1",
+                "status": "completed",
+            }
+        ],
+        id="a-1",
+        tool_calls=[{"id": "call_abc", "name": "rt_get_current_user", "args": {}, "type": "tool_call"}],
+    )
+    tool = ToolMessage(content=[{"type": "text", "text": "user=daiv"}], tool_call_id="call_abc", id="t-1")
+    result = build_turns([ai, tool])
+    assert len(result) == 1  # ToolMessage does not create its own turn
+    assert result[0]["segments"][0]["result"] == "user=daiv"
+
+
+def test_build_turns_openai_full_turn_keeps_tools_and_final_text():
+    # Reproduces the "3 messages, no tools" collapse: before the fix every function_call
+    # block was ignored, every ToolMessage orphaned, and the transcript flattened to the
+    # user prompt + final text only.
+    msgs = [
+        HumanMessage(content="/rt-work-ticket 1160298", id="h-1"),
+        AIMessage(
+            content=[
+                {"id": "rs_1", "type": "reasoning", "summary": [], "content": [], "encrypted_content": "x"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "rt_get_ticket",
+                    "arguments": '{"id": 1160298}',
+                    "id": "fc_1",
+                    "status": "completed",
+                },
+            ],
+            id="a-1",
+            tool_calls=[{"id": "call_1", "name": "rt_get_ticket", "args": {"id": 1160298}, "type": "tool_call"}],
+        ),
+        ToolMessage(content=[{"type": "text", "text": "ticket data"}], tool_call_id="call_1", id="t-1"),
+        AIMessage(
+            content=[
+                {"id": "rs_2", "type": "reasoning", "summary": [], "content": [], "encrypted_content": "y"},
+                {"type": "text", "text": "Done.", "annotations": [], "id": "msg_1", "phase": "final_answer"},
+            ],
+            id="a-2",
+        ),
+    ]
+    result = build_turns(msgs)
+    assert [t["role"] for t in result] == ["user", "assistant", "assistant"]
+    tool_seg = result[1]["segments"][0]
+    assert tool_seg["type"] == "tool_call"
+    assert tool_seg["name"] == "rt_get_ticket"
+    assert tool_seg["result"] == "ticket data"
+    assert result[2]["segments"] == [{"type": "text", "content": "Done."}]
+
+
+def test_build_turns_openai_skill_injection_folds_body():
+    msgs = [
+        HumanMessage(content="/plan", id="h-1"),
+        AIMessage(
+            content=[
+                {
+                    "type": "function_call",
+                    "call_id": "call_skill",
+                    "name": "skill",
+                    "arguments": '{"skill": "plan"}',
+                    "id": "fc_1",
+                    "status": "completed",
+                }
+            ],
+            id="a-1",
+            tool_calls=[{"id": "call_skill", "name": "skill", "args": {"skill": "plan"}, "type": "tool_call"}],
+        ),
+        ToolMessage(content="Launching skill 'plan'...", tool_call_id="call_skill", id="t-1"),
+        HumanMessage(content="# Plan skill body", id="h-syn"),
+        AIMessage(content=[{"type": "text", "text": "Here is the plan.", "id": "msg_2"}], id="a-2"),
+    ]
+    result = build_turns(msgs)
+    # The injected skill body folds into the skill call's result, not a spurious user turn.
+    assert [t["role"] for t in result] == ["user", "assistant", "assistant"]
+    skill_seg = result[1]["segments"][0]
+    assert skill_seg["name"] == "skill"
+    assert skill_seg["result"] == "# Plan skill body"
+
+
+def test_build_turns_openai_reasoning_summary_emits_thinking_segment():
+    m = AIMessage(
+        content=[
+            {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [{"type": "summary_text", "text": "First…"}, {"type": "summary_text", "text": "Then…"}],
+                "content": [],
+                "encrypted_content": "x",
+            },
+            {"type": "text", "text": "Answer.", "id": "msg_1"},
+        ],
+        id="a-1",
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [
+        {"type": "thinking", "content": "First…\n\nThen…"},
+        {"type": "text", "content": "Answer."},
+    ]
+
+
+def test_build_turns_openai_empty_reasoning_omits_thinking_segment():
+    # summary/content empty (reasoning only in encrypted_content) → nothing to render.
+    m = AIMessage(
+        content=[
+            {"type": "reasoning", "id": "rs_1", "summary": [], "content": [], "encrypted_content": "x"},
+            {"type": "text", "text": "Answer.", "id": "msg_1"},
+        ],
+        id="a-1",
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [{"type": "text", "content": "Answer."}]
+
+
+def test_build_turns_list_content_falls_back_to_tool_calls_attr_when_no_tool_block():
+    # Defensive net: a provider emits only reasoning/text blocks yet still populates the
+    # normalized tool_calls attribute — the call must not be silently dropped.
+    m = AIMessage(
+        content=[{"type": "reasoning", "id": "rs_1", "summary": [], "content": [], "encrypted_content": "x"}],
+        id="a-1",
+        tool_calls=[{"id": "call_z", "name": "grep", "args": {"pattern": "x"}, "type": "tool_call"}],
+    )
+    result = build_turns([m])
+    assert result[0]["segments"] == [
+        {
+            "type": "tool_call",
+            "id": "call_z",
+            "name": "grep",
+            "args": '{"pattern": "x"}',
+            "result": None,
+            "status": "done",
+        }
+    ]
