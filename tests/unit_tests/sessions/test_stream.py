@@ -154,3 +154,50 @@ async def test_stream_emits_envelope_resolved_frame(monkeypatch, user):
     assert f'"id": "{run.id}"' in joined
     assert '"envelope": "resolved"' in joined
     assert '"done": true' in joined
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_resolves_feed_id_that_gains_envelope_across_ticks(monkeypatch, user):
+    """A terminal feed id with NO envelope on the first tick is not discarded; the resolution frame
+    fires only once the envelope lands on a later tick, then the stream completes.
+
+    This is the load-bearing across-tick case: the feed id is already TERMINAL on the first poll but
+    still has no envelope, so it must survive the terminal tick (the relaxed-discard — unlike a
+    session-status id, which is dropped the instant it is terminal). If that discard were reverted
+    the id would be gone before the envelope arrives and no ``envelope: resolved`` frame would ever
+    be emitted.
+    """
+    from asgiref.sync import sync_to_async
+    from sessions import views as sviews
+    from sessions.views import SessionStreamView
+
+    monkeypatch.setattr(sviews, "POLL_INTERVAL", 0.01)
+
+    def _seed():
+        session = _create_session(user=user)
+        # Terminal run, but deliberately NO envelope yet — still "classifying" for the Feed.
+        return _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+
+    run = await sync_to_async(_seed)()
+
+    # The envelope lands ACROSS ticks: absent on the first probe, present on the second.
+    calls = {"n": 0}
+
+    def _fake_resolved(run_ids):
+        calls["n"] += 1
+        return {run.id} if calls["n"] >= 2 else set()
+
+    monkeypatch.setattr(sviews, "resolved_envelope_ids", _fake_resolved)
+
+    frames = [chunk async for chunk in SessionStreamView()._stream([], [run.id], user)]
+
+    resolved_frames = [f for f in frames if '"envelope": "resolved"' in f]
+    # (1) No resolution before the envelope lands: it took more than one probe (the id survived the
+    # terminal first tick) for the frame to appear.
+    assert calls["n"] >= 2
+    # (2) Exactly one resolved frame, carrying this run id.
+    assert len(resolved_frames) == 1
+    assert f'"id": "{run.id}"' in resolved_frames[0]
+    # (3) The stream then completes cleanly (nothing left tracked).
+    assert '"done": true' in frames[-1]
+    assert '"complete": true' in frames[-1]

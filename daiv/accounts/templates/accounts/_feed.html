@@ -12,7 +12,7 @@ reuse ``sessionStream`` — it hard-codes ``#session-in-flight``.
   {# In-flight collector — INVERSE of the sessions predicate: terminal-but-unclassified run ids. #}
   <div id="feed-in-flight" data-ids="{{ feed_in_flight_ids }}" hidden></div>
   {% if feed_has_attention %}
-    <div class="flex flex-col gap-2" role="list">
+    <div class="flex flex-col gap-2" role="list" aria-live="polite">
       {% for item in feed_items %}
         {% include "accounts/_feed_item.html" with item=item %}
       {% endfor %}

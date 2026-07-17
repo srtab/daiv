@@ -195,15 +195,16 @@ _FEED_ACCENT_VARS = {
 }
 
 
-def build_feed_item(run: Run, notification: Notification | None) -> dict:
-    """Assemble the render-ready Feed item for a run from its live envelope.
+def build_feed_item(run: Run, notification: Notification | None, envelope: RunEnvelope | None) -> dict:
+    """Assemble the render-ready Feed item for a run from its (already-resolved) envelope.
 
-    ``RunEnvelope.objects.for_run(run) is None`` is the "classifying…" state (the classifier
-    has not written the envelope yet — there is no ``pending`` row/status). Reads status/count/
-    summary straight off the envelope (never recomputed). ``read_at`` is carried for Story 2.4 but
-    is NOT rendered here (no unread delta / badge / mark-seen in Story 2.3).
+    ``envelope is None`` is the "classifying…" state (the classifier has not written the envelope
+    yet — there is no ``pending`` row/status). The caller resolves the envelope and passes it in:
+    the dashboard batches them in one query (avoids an N+1), and ``FeedItemView`` resolves the one
+    run's envelope via ``RunEnvelope.objects.for_run``. Reads status/count/summary straight off the
+    envelope (never recomputed). ``read_at`` is carried for Story 2.4 but is NOT rendered here (no
+    unread delta / badge / mark-seen in Story 2.3).
     """
-    envelope = RunEnvelope.objects.for_run(run)
     if envelope is None:
         status_slug = "classifying"
         accent_var = ""
@@ -246,10 +247,10 @@ class FeedItemView(LoginRequiredMixin, TemplateView):
         )
         if notification is None:
             raise Http404
-        run = Run.objects.filter(pk=run_id).select_related("session__scheduled_job").first()
+        run = Run.objects.filter(pk=run_id).first()
         if run is None:
             raise Http404
-        ctx["item"] = build_feed_item(run, notification)
+        ctx["item"] = build_feed_item(run, notification, RunEnvelope.objects.for_run(run))
         return ctx
 
 
@@ -286,45 +287,45 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         """Build the console Feed: RUN_FEED rows newest-first, each rendered from its live envelope.
 
         Rows come from the Feed notifications (the per-user seen-state anchor); render content comes
-        from the live Run + RunEnvelope. The zero-state seal shows when nothing needs attention —
-        every item ``all-clear`` (audited-clean) or no rows at all (never-ran). ``for_run`` is
+        from the live Run + RunEnvelope. Envelopes for the rendered page are batched in one query
+        (no N+1). The zero-state seal shows only when NOTHING across the user's whole feed needs
+        attention — decided over the full set, not just the rendered page, so a finding paged past
+        ``FEED_PAGE_SIZE`` is never hidden behind a false "nothing needs you." ``for_run`` is
         sync-only and ``DashboardView`` is sync, so direct calls are correct.
         """
-        notifications = list(
-            Notification.objects.filter(recipient=user, event_type=EventType.RUN_FEED).order_by("-created")[
-                :FEED_PAGE_SIZE
-            ]
-        )
+        feed_qs = Notification.objects.filter(recipient=user, event_type=EventType.RUN_FEED)
+        notifications = list(feed_qs.order_by("-created")[:FEED_PAGE_SIZE])
         run_ids = [n.source_id for n in notifications]
-        runs_by_id = {
-            str(pk): run
-            for pk, run in Run.objects.filter(pk__in=run_ids).select_related("session__scheduled_job").in_bulk().items()
-        }
+        runs_by_id = {str(pk): run for pk, run in Run.objects.filter(pk__in=run_ids).in_bulk().items()}
+        # Batch the page's envelopes in one query rather than one ``for_run`` per row (N+1).
+        envelopes_by_run = {str(env.run_id): env for env in RunEnvelope.objects.filter(run_id__in=run_ids)}
 
         items: list[dict] = []
         in_flight_ids: list[str] = []
-        all_clear_count = 0
-        has_attention = False
         latest_finished = None
-
         for notification in notifications:
             run = runs_by_id.get(notification.source_id)
             if run is None:
                 # The run was deleted out from under a stale Feed row; skip it rather than 500.
                 continue
-            item = build_feed_item(run, notification)
+            item = build_feed_item(run, notification, envelope=envelopes_by_run.get(str(run.id)))
             items.append(item)
-            slug = item["status_slug"]
-            if slug == "classifying":
+            if item["status_slug"] == "classifying":
                 in_flight_ids.append(str(run.id))
-                has_attention = True
-            elif slug == EnvelopeStatus.ALL_CLEAR:
-                all_clear_count += 1
-            else:
-                # found-issues / needs-attention / failed all demand attention → break the seal.
-                has_attention = True
             if run.finished_at and (latest_finished is None or run.finished_at > latest_finished):
                 latest_finished = run.finished_at
+
+        # Seal decision. A run "needs attention" when it is classifying or non-all-clear. If any
+        # rendered item already needs attention we render the list; otherwise confirm across the
+        # WHOLE feed (not just this page) before sealing, so a finding paged past row 20 is never
+        # masked by a false "nothing needs you." The full scan runs only in the all-clear case.
+        page_has_attention = any(item["status_slug"] != EnvelopeStatus.ALL_CLEAR for item in items)
+        if not items:
+            has_attention, all_clear_count = False, 0
+        elif page_has_attention:
+            has_attention, all_clear_count = True, 0
+        else:
+            has_attention, all_clear_count = self._feed_attention_summary(feed_qs)
 
         zero = None
         if not has_attention:
@@ -344,6 +345,25 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "feed_has_attention": has_attention,
             "feed_zero": zero,
         }
+
+    @staticmethod
+    def _feed_attention_summary(feed_qs) -> tuple[bool, int]:
+        """Return ``(has_attention, all_clear_count)`` over the FULL feed set.
+
+        ``has_attention`` is True when any feed run is classifying (no envelope yet) or has a
+        non-all-clear envelope. Called only when the rendered page is entirely all-clear, to avoid a
+        false zero-state seal that would hide a finding paged past ``FEED_PAGE_SIZE`` and to count
+        all-clear runs across the whole feed (not just the page).
+        """
+        run_ids = list(feed_qs.values_list("source_id", flat=True))
+        if not run_ids:
+            return False, 0
+        statuses = list(RunEnvelope.objects.filter(run_id__in=run_ids).values_list("status", flat=True))
+        all_clear_count = sum(1 for status in statuses if status == EnvelopeStatus.ALL_CLEAR)
+        # Fewer envelopes than feed runs ⇒ at least one run is still classifying (no envelope) — don't seal.
+        classifying = len(statuses) < len(run_ids)
+        has_non_all_clear = any(status != EnvelopeStatus.ALL_CLEAR for status in statuses)
+        return (classifying or has_non_all_clear), all_clear_count
 
     @staticmethod
     def _next_sweep(user: User):

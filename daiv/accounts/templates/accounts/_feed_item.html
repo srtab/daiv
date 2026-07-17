@@ -45,10 +45,12 @@ colors are applied inline as ``var(--color-status-*)`` because not every status 
         <p class="mt-1 text-[13px] text-text-muted">{% translate "we checked — nothing needs you" %}</p>
       {% elif item.status_slug == "failed" %}
         <p class="mt-1 text-[13px] text-text-muted">
-          {% blocktranslate with detail=item.envelope.summary %}Tooling problem — {{ detail }}{% endblocktranslate %}
+          {% if item.envelope.summary %}{% blocktranslate with detail=item.envelope.summary %}Tooling problem — {{ detail }}{% endblocktranslate %}{% else %}{% translate "Tooling problem" %}{% endif %}
         </p>
       {% elif item.envelope.summary %}
         <p class="mt-1 text-[13px] text-text-muted">{{ item.envelope.summary }}</p>
+      {% else %}
+        <p class="mt-1 text-[13px] text-text-muted">{% translate "needs your attention" %}</p>
       {% endif %}
     </div>
 

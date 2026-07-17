@@ -30,17 +30,22 @@ document.addEventListener("alpine:init", () => {
             // Re-arm after the console body is HTMX-swapped: read the fresh in-flight ids.
             this._arm();
         },
+        _streamUrl() {
+            // Build the stream URL from the CURRENT in-flight ids (resolved ids are pruned as they
+            // land), or null when there is nothing to stream.
+            const el = document.getElementById("feed-in-flight");
+            if (!el) return null;
+            const ids = el.dataset.ids;
+            return ids ? streamUrl + "?feed_ids=" + ids : null;
+        },
         _arm() {
             if (this._source) {
                 this._source.close();
                 this._source = null;
             }
             this._reconnects = 0;
-            const el = document.getElementById("feed-in-flight");
-            if (!el) return;
-            // Empty data-ids is correct silence: no classifying items to resolve.
-            const ids = el.dataset.ids;
-            if (ids) this._connect(streamUrl + "?feed_ids=" + ids);
+            const url = this._streamUrl();
+            if (url) this._connect(url);
         },
         _connect(url) {
             const source = new EventSource(url);
@@ -55,10 +60,13 @@ document.addEventListener("alpine:init", () => {
                 }
                 if (data.done) {
                     source.close();
-                    // Timed out (server MAX_DURATION) with items still pending — re-subscribe.
+                    // Timed out (server MAX_DURATION) with items still pending — re-subscribe using
+                    // the CURRENT in-flight ids (resolved ones already pruned; newly-classifying ones
+                    // picked up), not the stale connect-time URL. The bound stops an endless chain.
                     if (data.complete === false && this._reconnects < this._maxReconnects) {
                         this._reconnects += 1;
-                        this._connect(url);
+                        const next = this._streamUrl();
+                        if (next) this._connect(next);
                     }
                     return;
                 }
@@ -67,7 +75,6 @@ document.addEventListener("alpine:init", () => {
                 }
             };
             source.onerror = () => {
-                // Let EventSource auto-reconnect on transient drops; warn once permanently closed.
                 if (source.readyState === EventSource.CLOSED) {
                     console.warn("feedStream: SSE connection closed; live Feed updates stopped");
                 }
@@ -75,15 +82,14 @@ document.addEventListener("alpine:init", () => {
         },
         _resolve(id, itemUrlTemplate) {
             const target = document.getElementById("feed-item-" + id);
-            if (target && window.htmx) {
-                // The re-fetched partial renders the resolved envelope and omits the classifying
-                // hooks, so the item stops streaming.
-                window.htmx.ajax("GET", itemUrlTemplate.replace(PLACEHOLDER, id), {
-                    target: "#feed-item-" + id,
-                    swap: "outerHTML",
-                });
-            }
-            // Prune the resolved id so a stream re-subscribe doesn't re-emit it.
+            // Only consume the resolution once we can actually swap the item; otherwise leave it
+            // in-flight so a reconnect or full reload retries it (the */15 reclassify cron backstops).
+            if (!(target && window.htmx)) return;
+            window.htmx.ajax("GET", itemUrlTemplate.replace(PLACEHOLDER, id), {
+                target: "#feed-item-" + id,
+                swap: "outerHTML",
+            });
+            // Prune the resolved id so a re-subscribe doesn't re-request it.
             const flight = document.getElementById("feed-in-flight");
             if (flight) {
                 const remaining = (flight.dataset.ids || "").split(",").filter((x) => x && x !== id);
