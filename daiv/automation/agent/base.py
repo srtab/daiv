@@ -11,6 +11,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable
 from langgraph.graph.state import CompiledStateGraph
 
+from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.model_catalog.exceptions import MissingApiKeyError
 from automation.agent.provider_clients import build_sdk_client_kwargs
 from core.constants import BOT_NAME
@@ -274,6 +275,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
         resolved = parse_model_spec(model)
         model_kwargs = BaseAgent.get_model_kwargs(resolved=resolved, thinking_level=thinking_level, **kwargs)
         try:
+            if resolved.row.provider_type == ProviderType.OPENROUTER:
+                # OpenRouter routes through our ChatOpenAI subclass (reasoning extraction +
+                # base-URL default). init_chat_model can't return a subclass, so instantiate
+                # directly.
+                return ChatOpenRouter(**model_kwargs)
             return init_chat_model(**model_kwargs)
         except Exception:
             _close_insecure_http_clients(model_kwargs)
@@ -317,9 +323,11 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             _apply_openai_reasoning(kw, thinking_level, resolved.model_name)
 
         elif row.provider_type == ProviderType.OPENROUTER:
-            # OpenRouter is OpenAI-compatible over the wire.
-            kw["model_provider"] = ProviderType.OPENAI.value
-            kw["openai_api_base"] = sdk_kw["base_url"] or "https://openrouter.ai/api/v1"
+            # OpenRouter is OpenAI-compatible over the wire, but constructed directly as a
+            # ChatOpenRouter (not via init_chat_model) — that subclass supplies the base-URL
+            # default, so mirror the OpenAI branch and only forward an explicit override.
+            if sdk_kw["base_url"]:
+                kw["openai_api_base"] = sdk_kw["base_url"]
             kw["model_kwargs"]["extra_headers"] = {"HTTP-Referer": "https://srtab.github.io/daiv", "X-Title": BOT_NAME}
             _apply_openrouter_thinking(kw, thinking_level, resolved.model_name)
 
