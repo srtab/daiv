@@ -137,6 +137,23 @@ class TestGetModelKwargs:
         assert kw["api_key"] == "sk-a"
         assert kw["base_url"] == "https://proxy.example.com"
         assert kw["model"] == "claude-haiku-4-5"
+        # Models that still accept ``temperature`` keep the seeded default.
+        assert kw["temperature"] == 0
+
+    @pytest.mark.parametrize(
+        ("slug", "provider_type", "model_name"),
+        [
+            ("anth5", ProviderType.ANTHROPIC, "claude-sonnet-5"),
+            ("or5", ProviderType.OPENROUTER, "anthropic/claude-sonnet-5"),
+        ],
+    )
+    def test_claude5_omits_temperature(self, slug, provider_type, model_name):
+        """Claude 5-generation models reject ``temperature`` (400 invalid_request_error), so it
+        must be stripped — covers direct-Anthropic and OpenRouter slug forms. See Sentry DAIV-9P."""
+        Provider.objects.create(slug=slug, display_name=slug, provider_type=provider_type, api_key="sk")
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(f"{slug}:{model_name}"))
+        assert kw["model"] == model_name
+        assert "temperature" not in kw
 
     def test_openai_compatible_with_custom_base_url_defaults_to_chat_completions(self):
         """Custom OpenAI-compatible rows default to ``use_responses_api=False`` because
@@ -342,3 +359,28 @@ class TestGetModelKwargs:
         assert kw["max_tokens"] == 64_000
         assert kw["thinking"]["type"] == "enabled"
         assert kw["thinking"]["budget_tokens"] == 64_000 - 16_384
+
+    @pytest.mark.parametrize("model_name", ["claude-sonnet-5", "claude-fable-5"])
+    def test_claude5_thinking_enables_budget_without_temperature(self, model_name):
+        """Claude 5 models are thinking-capable, so a thinking level enables the extended-
+        thinking budget. Anthropic normally pairs that with temperature=1, but Claude 5
+        rejects temperature, so it must be stripped from the final kwargs."""
+        self._enable_seed("anthropic", "sk-a")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec(f"anthropic:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
+        )
+        assert kw["thinking"] == {"type": "enabled", "budget_tokens": 25_600}
+        assert kw["max_tokens"] == 16_384 + 25_600
+        assert "temperature" not in kw
+
+    def test_claude5_openrouter_thinking_enables_without_temperature(self):
+        """The OpenRouter Anthropic path also seeds temperature=1 for Claude thinking
+        models; Claude 5 must still end up with it stripped."""
+        self._enable_seed("openrouter", "sk-or")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec("openrouter:anthropic/claude-sonnet-5"),
+            thinking_level=ThinkingLevelChoices.MEDIUM,
+        )
+        assert kw["extra_body"]["reasoning"]["enabled"] is True
+        assert kw["extra_body"]["reasoning"]["effort"] == ThinkingLevelChoices.MEDIUM
+        assert "temperature" not in kw

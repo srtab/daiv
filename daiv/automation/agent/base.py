@@ -31,14 +31,29 @@ CLAUDE_MAX_TOKENS = 16_384
 CLAUDE_THINKING_MODELS = (
     "claude-sonnet-4-5",
     "claude-sonnet-4-6",
+    "claude-sonnet-5",
     "claude-opus-4-5",
     "claude-opus-4-6",
     "claude-haiku-4-5",
+    "claude-fable-5",
     "anthropic/claude-sonnet-4.5",
     "anthropic/claude-sonnet-4.6",
+    "anthropic/claude-sonnet-5",
     "anthropic/claude-opus-4.5",
     "anthropic/claude-opus-4.6",
     "anthropic/claude-haiku-4.5",
+    "anthropic/claude-fable-5",
+)
+
+# Claude 5-generation models removed support for the ``temperature`` sampling
+# parameter — sending it returns a 400 ``invalid_request_error`` ("`temperature` is
+# deprecated for this model"). Matched as prefixes so dated variants (e.g.
+# ``claude-sonnet-5-20260101``) are covered; includes the OpenRouter slugs.
+CLAUDE_NO_TEMPERATURE_MODELS = (
+    "claude-sonnet-5",
+    "claude-fable-5",
+    "anthropic/claude-sonnet-5",
+    "anthropic/claude-fable-5",
 )
 
 OPENAI_THINKING_MODELS = ("gpt-5.2", "gpt-5.3-codex", "openai/gpt-5.2", "openai/gpt-5.3-codex")
@@ -120,6 +135,17 @@ def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, m
         # passes the kwarg through to the upstream Anthropic API.
         kw["temperature"] = 1
         kw["max_tokens"] = _OPENROUTER_ANTHROPIC_MAX_TOKENS[thinking_level]
+
+
+def _apply_temperature_support(kw: dict, model_name: str) -> None:
+    """Drop ``temperature`` for models that no longer accept it.
+
+    The base kwargs always seed ``temperature`` (and the thinking helpers may override
+    it to ``1``), but Claude 5-generation models deprecated the parameter and reject any
+    request that includes it. Run this last so it wins over every provider/thinking
+    branch and any caller-supplied ``temperature``."""
+    if model_name.startswith(CLAUDE_NO_TEMPERATURE_MODELS):
+        kw.pop("temperature", None)
 
 
 @dataclass(frozen=True)
@@ -341,6 +367,8 @@ class BaseAgent(ABC, Generic[T]):  # noqa: UP046
             existing = kw["model_kwargs"].setdefault("extra_headers", {})
             for name, value in sdk_kw["default_headers"].items():
                 existing.setdefault(name, value)
+
+        _apply_temperature_support(kw, resolved.model_name)
 
         return kw
 
