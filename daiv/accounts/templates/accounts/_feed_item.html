@@ -1,0 +1,57 @@
+{% load i18n icon_tags %}
+{% comment %}
+Feed item (Story 2.3) — one scheduled Run rendered from its RunEnvelope. Also returned by
+``FeedItemView`` for the SSE re-fetch, so this is the single source of an item's markup.
+
+Five states keyed on ``item.status_slug`` (classifying / all-clear / found-issues /
+needs-attention / failed). ``id`` + ``data-status`` are the SSE-swap + assertion hooks. Status
+colors are applied inline as ``var(--color-status-*)`` because not every status utility is compiled
+(the Feed reuses existing tokens without a Tailwind rebuild). Render-only: status + one-line summary
++ drill-through — NO action button (Epic 5), NO unread badge / mark-seen (Story 2.4).
+{% endcomment %}
+<article id="feed-item-{{ item.run.id }}"
+         data-testid="feed-item"
+         data-status="{{ item.status_slug }}"
+         role="listitem"
+         {% if item.status_slug == "classifying" %}aria-live="polite" aria-busy="true"{% endif %}
+         class="rounded-md border border-l-2 border-border bg-surface-2{% if item.status_slug == 'classifying' %} border-dashed{% endif %}"
+         {% if item.status_slug == "all-clear" %}style="opacity: 0.92; border-left-color: var(--color-status-clear)"{% elif item.accent_var %}style="border-left-color: var({{ item.accent_var }})"{% endif %}>
+  <a href="{{ item.link_url }}"
+     class="flex items-start gap-3 p-4 no-underline transition-colors hover:text-text">
+    {# status indicator: spinner while classifying, per-status dot otherwise #}
+    {% if item.status_slug == "classifying" %}
+      {% icon "arrow-path" "mt-0.5 h-4 w-4 shrink-0 animate-spin text-text-faint" %}
+    {% else %}
+      <span class="mt-1 h-2 w-2 shrink-0 rounded-full" aria-hidden="true"
+            style="background-color: var({{ item.accent_var }})"></span>
+    {% endif %}
+
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span class="text-[13px] font-medium text-text">{{ item.run.repo_id }}</span>
+        {% if item.status_slug == "found-issues" and item.envelope.count %}
+          <span class="font-mono text-[12px] tabular-nums" style="color: var(--color-status-found)">
+            {% blocktranslate count counter=item.envelope.count %}{{ counter }} item{% plural %}{{ counter }} items{% endblocktranslate %}
+          </span>
+        {% endif %}
+        {% if item.run.finished_at %}
+          <span class="font-mono text-[11px] tabular-nums text-text-faint">{{ item.run.finished_at|date:"H:i" }}</span>
+        {% endif %}
+      </div>
+
+      {% if item.status_slug == "classifying" %}
+        <p class="mt-1 text-[13px] text-text-muted">{% translate "classifying…" %}</p>
+      {% elif item.status_slug == "all-clear" %}
+        <p class="mt-1 text-[13px] text-text-muted">{% translate "we checked — nothing needs you" %}</p>
+      {% elif item.status_slug == "failed" %}
+        <p class="mt-1 text-[13px] text-text-muted">
+          {% blocktranslate with detail=item.envelope.summary %}Tooling problem — {{ detail }}{% endblocktranslate %}
+        </p>
+      {% elif item.envelope.summary %}
+        <p class="mt-1 text-[13px] text-text-muted">{{ item.envelope.summary }}</p>
+      {% endif %}
+    </div>
+
+    <span class="mt-0.5 shrink-0 text-text-faint" aria-hidden="true">{% icon "chevron-right" "h-4 w-4" %}</span>
+  </a>
+</article>

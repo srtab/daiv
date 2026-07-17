@@ -1,9 +1,14 @@
 {% extends "base_app.html" %}
-{% load i18n %}
+{% load i18n static %}
 
 {% block title %}{% translate "Dashboard" %} — DAIV{% endblock %}
 
 {% block container_width %}max-w-screen-2xl{% endblock %}
+
+{% block alpine_plugins %}
+{# Feed-scoped SSE consumer: live-resolves classifying Feed items (Story 2.3, AC9). #}
+<script defer src="{% static 'accounts/js/feed-stream.js' %}"></script>
+{% endblock alpine_plugins %}
 
 {% block topbar_start %}
   {# Admin-gated console surface toggle, active on "Personal" (the default); absent for non-admins (AC2). #}

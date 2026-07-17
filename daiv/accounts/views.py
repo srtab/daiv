@@ -6,6 +6,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
+from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.timezone import localdate
@@ -13,7 +14,9 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from django_filters.views import FilterView
-from sessions.models import Run, RunStatus, SessionOrigin
+from notifications.choices import EventType
+from notifications.models import Notification
+from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, SessionOrigin
 
 from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
@@ -177,6 +180,79 @@ def get_velocity_data(cutoff_date: date | None) -> dict | None:
     }
 
 
+# The console Feed lists the user's RUN_FEED rows newest-first; a single page (mirrors the
+# notifications ``paginate_by``). Render content comes from each run's live RunEnvelope.
+FEED_PAGE_SIZE = 20
+
+# Per-status accent applied inline as ``var(--color-status-*)`` — the status utility classes are
+# not all compiled and the Feed reuses existing tokens without a Tailwind rebuild. Classifying has
+# no accent (neutral/dashed). Keyed on the hyphenated ``EnvelopeStatus`` values.
+_FEED_ACCENT_VARS = {
+    EnvelopeStatus.ALL_CLEAR: "--color-status-clear",
+    EnvelopeStatus.FOUND_ISSUES: "--color-status-found",
+    EnvelopeStatus.NEEDS_ATTENTION: "--color-status-attn",
+    EnvelopeStatus.FAILED: "--color-status-fail",
+}
+
+
+def build_feed_item(run: Run, notification: Notification | None) -> dict:
+    """Assemble the render-ready Feed item for a run from its live envelope.
+
+    ``RunEnvelope.objects.for_run(run) is None`` is the "classifying…" state (the classifier
+    has not written the envelope yet — there is no ``pending`` row/status). Reads status/count/
+    summary straight off the envelope (never recomputed). ``read_at`` is carried for Story 2.4 but
+    is NOT rendered here (no unread delta / badge / mark-seen in Story 2.3).
+    """
+    envelope = RunEnvelope.objects.for_run(run)
+    if envelope is None:
+        status_slug = "classifying"
+        accent_var = ""
+    else:
+        status_slug = envelope.status
+        accent_var = _FEED_ACCENT_VARS.get(envelope.status, "")
+    return {
+        "run": run,
+        "envelope": envelope,
+        "status_slug": status_slug,
+        "accent_var": accent_var,
+        "read_at": notification.read_at if notification is not None else None,
+        "link_url": notification.link_url if notification is not None else "",
+    }
+
+
+class FeedItemView(LoginRequiredMixin, TemplateView):
+    """Render a single Feed item (the SSE re-fetch source, Story 2.3 AC9).
+
+    Owner-scoped: only renders if the requesting user holds a ``RUN_FEED`` row for that run
+    (mirrors ``MarkNotificationReadView``'s owner-scoped guard) — else 404. The resolved partial
+    omits the classifying/in-flight hooks, so the client stops streaming for that item.
+    """
+
+    template_name = "accounts/_feed_item.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        run_id = self.kwargs["run_id"]
+        notification = (
+            Notification.objects
+            .filter(
+                recipient=self.request.user,
+                event_type=EventType.RUN_FEED,
+                source_type="sessions.Run",
+                source_id=str(run_id),
+            )
+            .order_by("-created")
+            .first()
+        )
+        if notification is None:
+            raise Http404
+        run = Run.objects.filter(pk=run_id).select_related("session__scheduled_job").first()
+        if run is None:
+            raise Http404
+        ctx["item"] = build_feed_item(run, notification)
+        return ctx
+
+
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = "accounts/dashboard.html"
 
@@ -202,8 +278,83 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
         context["active_schedules"] = ScheduledJob.objects.filter(user=user, is_enabled=True).count()
+        context.update(self._get_feed_data(user))
 
         return context
+
+    def _get_feed_data(self, user: User) -> dict:
+        """Build the console Feed: RUN_FEED rows newest-first, each rendered from its live envelope.
+
+        Rows come from the Feed notifications (the per-user seen-state anchor); render content comes
+        from the live Run + RunEnvelope. The zero-state seal shows when nothing needs attention —
+        every item ``all-clear`` (audited-clean) or no rows at all (never-ran). ``for_run`` is
+        sync-only and ``DashboardView`` is sync, so direct calls are correct.
+        """
+        notifications = list(
+            Notification.objects.filter(recipient=user, event_type=EventType.RUN_FEED).order_by("-created")[
+                :FEED_PAGE_SIZE
+            ]
+        )
+        run_ids = [n.source_id for n in notifications]
+        runs_by_id = {
+            str(pk): run
+            for pk, run in Run.objects.filter(pk__in=run_ids).select_related("session__scheduled_job").in_bulk().items()
+        }
+
+        items: list[dict] = []
+        in_flight_ids: list[str] = []
+        all_clear_count = 0
+        has_attention = False
+        latest_finished = None
+
+        for notification in notifications:
+            run = runs_by_id.get(notification.source_id)
+            if run is None:
+                # The run was deleted out from under a stale Feed row; skip it rather than 500.
+                continue
+            item = build_feed_item(run, notification)
+            items.append(item)
+            slug = item["status_slug"]
+            if slug == "classifying":
+                in_flight_ids.append(str(run.id))
+                has_attention = True
+            elif slug == EnvelopeStatus.ALL_CLEAR:
+                all_clear_count += 1
+            else:
+                # found-issues / needs-attention / failed all demand attention → break the seal.
+                has_attention = True
+            if run.finished_at and (latest_finished is None or run.finished_at > latest_finished):
+                latest_finished = run.finished_at
+
+        zero = None
+        if not has_attention:
+            if items:
+                zero = {
+                    "variant": "audited-clean",
+                    "all_clear_count": all_clear_count,
+                    "last_checked": latest_finished,
+                    "next_sweep": self._next_sweep(user),
+                }
+            else:
+                zero = {"variant": "never-ran"}
+
+        return {
+            "feed_items": items,
+            "feed_in_flight_ids": ",".join(in_flight_ids),
+            "feed_has_attention": has_attention,
+            "feed_zero": zero,
+        }
+
+    @staticmethod
+    def _next_sweep(user: User):
+        """Earliest upcoming scheduled-run time across the user's enabled schedules, or None."""
+        return (
+            ScheduledJob.objects
+            .filter(user=user, is_enabled=True, next_run_at__isnull=False)
+            .order_by("next_run_at")
+            .values_list("next_run_at", flat=True)
+            .first()
+        )
 
     def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
         visible = Run.objects.visible_to(user)

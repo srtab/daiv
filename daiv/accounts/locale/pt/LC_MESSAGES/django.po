@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-17 08:39-0500\n"
+"POT-Creation-Date: 2026-07-17 23:27+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -94,6 +94,47 @@ msgstr "Feed"
 
 msgid "what happened"
 msgstr "o que aconteceu"
+
+#, python-format
+msgid "%(counter)s item"
+msgid_plural "%(counter)s items"
+msgstr[0] "%(counter)s item"
+msgstr[1] "%(counter)s itens"
+
+msgid "classifying…"
+msgstr "a classificar…"
+
+msgid "we checked — nothing needs you"
+msgstr "verificámos — nada precisa de ti"
+
+#, python-format
+msgid "Tooling problem — %(detail)s"
+msgstr "Problema de ferramenta — %(detail)s"
+
+msgid "nothing needs you."
+msgstr "nada precisa de ti."
+
+msgid "DAIV checked and everything's clear."
+msgstr "O DAIV verificou e está tudo em ordem."
+
+#, python-format
+msgid "%(counter)s run all clear · last checked %(ago)s"
+msgid_plural "%(counter)s runs all clear · last checked %(ago)s"
+msgstr[0] "%(counter)s execução sem problemas · última verificação há %(ago)s"
+msgstr[1] "%(counter)s execuções sem problemas · última verificação há %(ago)s"
+
+#, python-format
+msgid "%(counter)s run all clear"
+msgid_plural "%(counter)s runs all clear"
+msgstr[0] "%(counter)s execução sem problemas"
+msgstr[1] "%(counter)s execuções sem problemas"
+
+#, python-format
+msgid "next sweep %(sweep)s"
+msgstr "próxima verificação %(sweep)s"
+
+msgid "No scheduled runs yet."
+msgstr "Ainda não há execuções agendadas."
 
 msgid "Org impact"
 msgstr "Impacto da organização"
