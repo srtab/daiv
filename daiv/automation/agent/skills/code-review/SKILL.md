@@ -2,7 +2,7 @@
 name: code-review
 description: This skill should be used when a user asks for a code review, feedback on a PR or MR, diff assessment, or says things like 'can you review my changes', 'look at this diff', 'is this ready to merge', 'check my code', 'review this branch', 'what do you think of these changes', or 'LGTM check'. Covers correctness, performance, security, structural concerns, repo-specific review rules, and questions of intent on pull/merge requests or raw diffs from any platform (GitHub, GitLab).
 metadata:
-  version: 3.5.0
+  version: 3.6.0
 ---
 
 # Code Review
@@ -16,7 +16,7 @@ This skill runs in two phases. The **review workflow** finds and verifies high-s
 
 ## Run the review
 
-1. **Read `references/review-workflow.md` and follow it.** It walks scope → Stage 0 (per-repo review rules) → Stage 1 (detector fan-out) → Stage 2 (merge + adversarial verification) → severity, and hands off the **verified findings**.
+1. **Read `references/review-workflow.md` and follow it.** It walks scope → Stage 0 (per-repo review rules) → Stage 1 (detector fan-out, or an inline triage pass for trivially small changes) → Stage 2 (merge + adversarial verification) → severity, and hands off the **verified findings**.
 2. **Interactive mode:** render the survivors using the interactive output protocol at the end of `review-workflow.md`, and return it as the final message. Done.
 3. **Delivery mode:** once the workflow hands off verified findings, **read `references/gitlab-delivery.md` and follow it** to post them. Read it *before* posting anything — the marker, anchor, and dedup machinery is not reconstructable from memory.
 

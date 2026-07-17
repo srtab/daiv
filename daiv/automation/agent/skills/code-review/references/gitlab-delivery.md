@@ -10,7 +10,7 @@ Carry these in from the verified-findings handoff:
 
 - **scope** + the SHA triplet (`base_sha`, `start_sha`, `head_sha`). Markers and positions use `head_sha`.
 - the **verified findings**, each with `detector`, `file`, `line`, `bar`, `archetype`, `title`, `rationale`, optional `suggestion`, and assigned **severity**.
-- **detector status** (dispatched / expected) and **merge stats** (`candidates` / `dropped` / `merged`) for the Step 7 status line.
+- **detector status** (dispatched / expected, or `inline (triage)` when the Stage 1 gate skipped the fan-out) and **merge stats** (`candidates` / `dropped` / `merged`) for the Step 7 status line.
 
 **Even when there are zero verified findings, do not skip delivery.** Steps 1, 2, and 6 still run — parse existing notes, address any pending replies on prior daiv threads, and reconcile the summary (update it in place; write nothing new if none exists). Only the new-finding work (Steps 3–5) is skipped.
 
@@ -174,7 +174,7 @@ Final assistant message in delivery mode: one short line. Use the shape below. T
 Posted 3 inline + updated summary on MR !128 — 5/5 detectors · 11 candidates → 3 inline, 1 demoted to summary, 1 duplicate skipped (rest refuted).
 ```
 
-The `N/M detectors` field is **dispatched / expected** from the Stage 1 reconciliation, not a hardcoded `5/5`: if a `cr-*` detector failed to load (absent from the `task` tool's agent list), report e.g. `4/5 detectors (cr-security unavailable)` so the missing dimension is visible. The candidate count is `merge.candidates` (the pre-refutation count from Stage 2, after cross-detector dedup); account for the gap between it and what shipped — demoted to summary, duplicates skipped, refuted — so the line reads cleanly. When `merge.dropped` is nonzero, note it too (e.g. `2 malformed dropped`) — a detector emitting schema-invalid findings is a real signal worth surfacing, not hiding. When the Stage 2 merge was short-circuited (every detector empty), `candidates`/`dropped`/`merged` are all `0`; report the detector count and a `0 findings` tail.
+The `N/M detectors` field is **dispatched / expected** from the Stage 1 reconciliation, not a hardcoded `5/5`: if a `cr-*` detector failed to load (absent from the `task` tool's agent list), report e.g. `4/5 detectors (cr-security unavailable)` so the missing dimension is visible. The candidate count is `merge.candidates` (the pre-refutation count from Stage 2, after cross-detector dedup); account for the gap between it and what shipped — demoted to summary, duplicates skipped, refuted — so the line reads cleanly. When `merge.dropped` is nonzero, note it too (e.g. `2 malformed dropped`) — a detector emitting schema-invalid findings is a real signal worth surfacing, not hiding. When the Stage 2 merge was short-circuited (every detector empty), `candidates`/`dropped`/`merged` are all `0`; report the detector count and a `0 findings` tail. When the Stage 1 triage gate reviewed inline (no fan-out), write `inline (triage)` in place of the `N/M detectors` field; `candidates` is then the inline pass's pre-refutation count, so the `candidates → shipped` accounting reads the same.
 
 Do **not** return the review markdown when delivery succeeded — the comments are the deliverable.
 
