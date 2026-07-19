@@ -321,3 +321,202 @@ class _StringIOStdin:
 
     def read(self) -> str:
         return self._text
+
+
+_DIFF = """\
+diff --git a/services/api.py b/services/api.py
+index 1111111..2222222 100644
+--- a/services/api.py
++++ b/services/api.py
+@@ -1,3 +1,4 @@
+ import json
+-import os
++import sys
++RETRY_LIMIT = 3
+ def handler(event):
+@@ -10,1 +11,2 @@ def handler(event):
+     return json.dumps(payload)
++    # unreachable
+"""
+
+
+class TestParseDiffNewSide:
+    def test_added_line_has_no_old_line(self):
+        positions = marker.parse_diff_new_side(_DIFF, "services/api.py")
+        assert positions[2] == (None, "import sys")
+        assert positions[3] == (None, "RETRY_LIMIT = 3")
+
+    def test_context_line_maps_to_old_line(self):
+        positions = marker.parse_diff_new_side(_DIFF, "services/api.py")
+        assert positions[1] == (1, "import json")
+        assert positions[4] == (3, "def handler(event):")
+
+    def test_second_hunk_tracked_independently(self):
+        positions = marker.parse_diff_new_side(_DIFF, "services/api.py")
+        assert positions[11] == (10, "    return json.dumps(payload)")
+        assert positions[12] == (None, "    # unreachable")
+
+    def test_line_outside_hunks_absent(self):
+        positions = marker.parse_diff_new_side(_DIFF, "services/api.py")
+        assert 8 not in positions
+
+    def test_other_file_ignored(self):
+        assert marker.parse_diff_new_side(_DIFF, "other/file.py") == {}
+
+    def test_added_line_starting_with_plus_signs_not_misread_as_header(self):
+        # Hunk counts must drive consumption: an added content line "++ x" (diff
+        # line "+++ x") is NOT a `+++ b/...` file header while the hunk is open.
+        diff = "diff --git a/f.py b/f.py\n--- a/f.py\n+++ b/f.py\n@@ -1,1 +1,2 @@\n keep\n+++ x\n"
+        positions = marker.parse_diff_new_side(diff, "f.py")
+        assert positions[2] == (None, "++ x")
+
+    def test_rename_keyed_by_new_path(self):
+        diff = "diff --git a/old.py b/new.py\n--- a/old.py\n+++ b/new.py\n@@ -5,1 +7,2 @@\n ctx\n+added\n"
+        positions = marker.parse_diff_new_side(diff, "new.py")
+        assert positions == {7: (5, "ctx"), 8: (None, "added")}
+
+
+class TestStaleLines:
+    _POSITIONS = {1: (1, "import json"), 2: (None, "import sys")}
+
+    def test_fresh_checkout_not_stale(self):
+        assert marker.stale_lines(self._POSITIONS, ["import json", "import sys"]) == []
+
+    def test_content_drift_detected(self):
+        assert marker.stale_lines(self._POSITIONS, ["import json", "import io"]) == [2]
+
+    def test_position_past_eof_detected(self):
+        assert marker.stale_lines(self._POSITIONS, ["import json"]) == [2]
+
+
+class TestResolveMatches:
+    _LINES = ["import json", "import sys", "RETRY_LIMIT = 3", "def handler(event):", "", "    return None"]
+    _POSITIONS = {
+        1: (1, "import json"),
+        2: (None, "import sys"),
+        3: (None, "RETRY_LIMIT = 3"),
+        4: (3, "def handler(event):"),
+    }
+
+    def test_added_line_match(self):
+        (m,) = marker.resolve_matches(self._LINES, self._POSITIONS, "RETRY_LIMIT")
+        assert m["new_line"] == 3
+        assert m["old_line"] is None
+        assert m["line_type"] == "added"
+        assert m["in_diff"] is True
+        assert m["target"] == "RETRY_LIMIT = 3"
+
+    def test_context_line_match_carries_old_line(self):
+        (m,) = marker.resolve_matches(self._LINES, self._POSITIONS, "import json")
+        assert m["old_line"] == 1
+        assert m["line_type"] == "context"
+
+    def test_line_not_in_diff_flagged(self):
+        (m,) = marker.resolve_matches(self._LINES, self._POSITIONS, "return None")
+        assert m["in_diff"] is False
+        assert m["line_type"] is None
+        assert m["old_line"] is None
+
+    def test_no_match_returns_empty(self):
+        assert marker.resolve_matches(self._LINES, self._POSITIONS, "not present") == []
+
+    def test_snippet_is_literal_not_regex(self):
+        lines = ["value = data[0].strip()"]
+        (m,) = marker.resolve_matches(lines, {1: None}, "data[0].strip()")
+        assert m["new_line"] == 1
+
+    def test_anchor_matches_compute_anchor_with_next_nonblank(self):
+        # Line 4 is followed by a blank line; the next NON-blank line feeds the
+        # disambiguator exactly as compute_anchor would receive it.
+        (m,) = marker.resolve_matches(self._LINES, self._POSITIONS, "def handler")
+        assert m["anchor"] == marker.compute_anchor("def handler(event):", "    return None")
+
+    def test_multiple_matches_ordered_by_line(self):
+        lines = ["x = fetch()", "y = 1", "z = fetch()"]
+        ms = marker.resolve_matches(lines, {1: None, 3: None}, "fetch()")
+        assert [m["new_line"] for m in ms] == [1, 3]
+
+
+class TestResolveCli:
+    # Matches _DIFF's full new side — lines 1-4 (first hunk) and 11-12 (second hunk).
+    # The staleness guard verifies EVERY new-side line the diff shows, not just the
+    # matched one, so the fixture file must agree with both hunks.
+    _API_PY = (
+        "import json\nimport sys\nRETRY_LIMIT = 3\ndef handler(event):\n"
+        '    payload = {"ok": True}\n\n\n\n\n\n'
+        "    return json.dumps(payload)\n    # unreachable\n"
+    )
+
+    def _run(self, argv, capsys):
+        old = sys.argv
+        sys.argv = ["marker.py", *argv]
+        try:
+            code = marker.main()
+        finally:
+            sys.argv = old
+        out, err = capsys.readouterr()
+        return code, out, err
+
+    def test_end_to_end(self, tmp_path, capsys, monkeypatch):
+        repo = tmp_path / "repo"
+        (repo / "services").mkdir(parents=True)
+        (repo / "services" / "api.py").write_text(self._API_PY, encoding="utf-8")
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text(_DIFF, encoding="utf-8")
+        monkeypatch.chdir(repo)
+        code, out, err = self._run(
+            ["resolve", "--file", "services/api.py", "--snippet", "RETRY_LIMIT", "--diff", str(diff_file)], capsys
+        )
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["file"] == "services/api.py"
+        assert payload["matches"][0]["new_line"] == 3
+        assert payload["matches"][0]["line_type"] == "added"
+
+    def test_stale_diff_exits_1(self, tmp_path, capsys, monkeypatch):
+        repo = tmp_path / "repo"
+        (repo / "services").mkdir(parents=True)
+        (repo / "services" / "api.py").write_text(
+            self._API_PY.replace("RETRY_LIMIT = 3", "RETRY_LIMIT = 5"), encoding="utf-8"
+        )
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text(_DIFF, encoding="utf-8")
+        monkeypatch.chdir(repo)
+        code, _, err = self._run(
+            ["resolve", "--file", "services/api.py", "--snippet", "RETRY_LIMIT", "--diff", str(diff_file)], capsys
+        )
+        assert code == 1
+        assert "stale diff" in err
+
+    def test_missing_diff_file_exits_1(self, tmp_path, capsys, monkeypatch):
+        (tmp_path / "f.py").write_text("x = 1\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        code, _, err = self._run(["resolve", "--file", "f.py", "--snippet", "x", "--diff", "/nope.diff"], capsys)
+        assert code == 1
+        assert "diff file not found" in err
+
+    def test_missing_target_file_exits_1(self, tmp_path, capsys, monkeypatch):
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text(_DIFF, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        code, _, err = self._run(["resolve", "--file", "gone.py", "--snippet", "x", "--diff", str(diff_file)], capsys)
+        assert code == 1
+        assert "file not found" in err
+
+    def test_too_common_snippet_exits_1(self, tmp_path, capsys, monkeypatch):
+        (tmp_path / "f.py").write_text("x = 1\n" * 30, encoding="utf-8")
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text("", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        code, _, err = self._run(["resolve", "--file", "f.py", "--snippet", "x", "--diff", str(diff_file)], capsys)
+        assert code == 1
+        assert "too common" in err
+
+    def test_empty_snippet_exits_1(self, tmp_path, capsys, monkeypatch):
+        (tmp_path / "f.py").write_text("x = 1\n", encoding="utf-8")
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text("", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        code, _, err = self._run(["resolve", "--file", "f.py", "--snippet", "  ", "--diff", str(diff_file)], capsys)
+        assert code == 1
+        assert "empty snippet" in err
