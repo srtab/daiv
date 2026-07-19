@@ -1,23 +1,31 @@
 {% load i18n icon_tags %}
 {% comment %}
-Feed item (Story 2.3) — one scheduled Run rendered from its RunEnvelope. Also returned by
-``FeedItemView`` for the SSE re-fetch, so this is the single source of an item's markup.
+Feed item (Story 2.3 + 2.4) — one scheduled Run rendered from its RunEnvelope. Also returned by
+``FeedItemView`` (SSE re-fetch) and ``FeedItemSeenView`` (mark-seen), so this is the single source
+of an item's markup.
 
-Five states keyed on ``item.status_slug`` (classifying / all-clear / found-issues /
-needs-attention / failed). ``id`` + ``data-status`` are the SSE-swap + assertion hooks. Status
-colors are applied inline as ``var(--color-status-*)`` because not every status utility is compiled
-(the Feed reuses existing tokens without a Tailwind rebuild). Render-only: status + one-line summary
-+ drill-through — NO action button (Epic 5), NO unread badge / mark-seen (Story 2.4).
+Five envelope states keyed on ``item.status_slug`` (classifying / all-clear / found-issues /
+needs-attention / failed) — UNTOUCHED by 2.4. ``id`` + ``data-status`` are the SSE-swap + assertion
+hooks. Status colors are applied inline as ``var(--color-status-*)`` because not every status utility
+is compiled (the Feed reuses existing tokens without a Tailwind rebuild).
+
+Story 2.4 adds a per-user seen/unread layer keyed on ``item.read_at`` (NULL = unread), orthogonal to
+``data-status``: an unread neutral wash + SR-labelled dot, the drill-through marks-seen, and a
+resolved-only dismiss control. Neutral tokens ONLY — never a status/teal/violet color. Still NO Epic
+5 action button (fix/review/retry).
 {% endcomment %}
 <article id="feed-item-{{ item.run.id }}"
          data-testid="feed-item"
          data-status="{{ item.status_slug }}"
          role="listitem"
          {% if item.status_slug == "classifying" %}aria-live="polite" aria-busy="true"{% endif %}
-         class="rounded-md border border-l-2 border-border bg-surface-2{% if item.status_slug == 'classifying' %} border-dashed{% endif %}"
-         {% if item.status_slug == "all-clear" %}style="opacity: 0.92; border-left-color: var(--color-status-clear)"{% elif item.accent_var %}style="border-left-color: var({{ item.accent_var }})"{% endif %}>
+         class="flex items-stretch rounded-md border border-l-2 border-border bg-surface-2{% if item.status_slug == 'classifying' %} border-dashed{% endif %}{% if not item.read_at %} bg-white/[0.02]{% endif %}"
+         style="{% if item.status_slug == 'all-clear' %}opacity: 0.92; border-left-color: var(--color-status-clear);{% else %}{% if item.read_at %}opacity: 0.7;{% endif %}{% if item.accent_var %}border-left-color: var({{ item.accent_var }});{% endif %}{% endif %}">
   <a href="{{ item.link_url }}"
-     class="flex items-start gap-3 p-4 no-underline transition-colors hover:text-text">
+     hx-post="{% url 'feed_item_seen' item.run.id %}"
+     hx-swap="none"
+     hx-on::after-request="window.location.href = this.getAttribute('href')"
+     class="flex flex-1 items-start gap-3 p-4 no-underline transition-colors hover:text-text">
     {# status indicator: spinner while classifying, per-status dot otherwise #}
     {% if item.status_slug == "classifying" %}
       {% icon "arrow-path" "mt-0.5 h-4 w-4 shrink-0 animate-spin text-text-faint" %}
@@ -36,6 +44,12 @@ colors are applied inline as ``var(--color-status-*)`` because not every status 
         {% endif %}
         {% if item.run.finished_at %}
           <span class="font-mono text-[11px] tabular-nums text-text-faint">{{ item.run.finished_at|date:"H:i" }}</span>
+        {% endif %}
+        {# Unread cue — neutral dot, SR-labelled. Never a status/teal/violet color (AC8). #}
+        {% if not item.read_at %}
+          <span data-testid="feed-item-unread" role="img" aria-label="{% translate 'unread' %}"
+                class="h-1.5 w-1.5 shrink-0 self-center rounded-full"
+                style="background-color: var(--color-text-faint)"></span>
         {% endif %}
       </div>
 
@@ -56,4 +70,18 @@ colors are applied inline as ``var(--color-status-*)`` because not every status 
 
     <span class="mt-0.5 shrink-0 text-text-faint" aria-hidden="true">{% icon "chevron-right" "h-4 w-4" %}</span>
   </a>
+  {# Dismiss (mark-seen) — resolved-only, unread-only. A seen-state control, NOT an Epic 5 action.
+     Single accessible name (aria-label); 44px touch target; inherits the global teal focus ring. #}
+  {% if not item.read_at and item.status_slug != "classifying" %}
+    <button type="button"
+            data-testid="feed-item-dismiss"
+            aria-label="{% translate 'mark seen' %}"
+            title="{% translate 'mark seen' %}"
+            hx-post="{% url 'feed_item_seen' item.run.id %}"
+            hx-target="#feed-item-{{ item.run.id }}"
+            hx-swap="outerHTML"
+            class="flex h-11 w-11 shrink-0 items-center justify-center self-center text-text-faint transition-colors hover:text-text">
+      {% icon "check" "h-4 w-4" %}
+    </button>
+  {% endif %}
 </article>

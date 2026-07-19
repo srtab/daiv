@@ -50,6 +50,11 @@ shimmer skeletons are aria-hidden so assistive tech is not read empty rows.
       <span class="font-mono text-[11px] uppercase tracking-[0.14em] text-text-faint">
         {% translate "what happened" %}
       </span>
+      {# Persistent aria-live container: only its inner fragment swaps on ``feed:seen`` so the live
+         region survives and the change (including to 0) is announced. #}
+      <span id="feed-unread" role="status" aria-live="polite" class="ml-auto"
+            hx-get="{% url 'feed_unread_badge' %}" hx-trigger="feed:seen from:body"
+            hx-target="this" hx-swap="innerHTML">{% include "accounts/_feed_unread_badge.html" %}</span>
     </header>
     {% include "accounts/_feed.html" %}
   </section>

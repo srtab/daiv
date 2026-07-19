@@ -101,6 +101,54 @@ def running_jobs_count(request, user) -> int:
     return running
 
 
+def feed_unread_attention_count(user) -> int:
+    """Count the user's unread Feed rows that still NEED ATTENTION (Story 2.4, Option 1).
+
+    Envelope-aware, unlike the bell's flat unread count: a row counts only when its run still
+    exists AND its envelope is not ``all-clear``. A ``classifying`` run (terminal but no envelope
+    yet) counts — it needs attention until it resolves; an unread ``all-clear`` run does not (quiet
+    by design, so the badge never contradicts the "nothing needs you." seal); a row whose ``Run``
+    was deleted does not. Three small queries, all scoped to the user's unread ``RUN_FEED`` rows
+    (per-user, low volume) — never an unscoped notification-table scan.
+    """
+    from notifications.choices import EventType
+    from notifications.models import Notification
+    from sessions.models import EnvelopeStatus, Run, RunEnvelope
+
+    source_ids = list(
+        Notification.objects.filter(recipient=user, event_type=EventType.RUN_FEED, read_at__isnull=True).values_list(
+            "source_id", flat=True
+        )
+    )
+    if not source_ids:
+        return 0
+    existing = {str(pk) for pk in Run.objects.filter(pk__in=source_ids).values_list("pk", flat=True)}
+    all_clear = {
+        str(run_id)
+        for run_id in RunEnvelope.objects.filter(run_id__in=source_ids, status=EnvelopeStatus.ALL_CLEAR).values_list(
+            "run_id", flat=True
+        )
+    }
+    # classifying (run exists, no envelope) is not in ``all_clear`` → counts.
+    return sum(1 for source_id in source_ids if source_id in existing and source_id not in all_clear)
+
+
+def feed_unread_count(request) -> dict[str, int]:
+    """Expose the user's unread-attention Feed count to every template (the console badge).
+
+    Mirrors ``notifications.context_processors.unread_notification_count``'s guards: anonymous →
+    ``{}``; a ``DatabaseError`` degrades to ``0`` (logged) rather than breaking page rendering.
+    Envelope-aware via ``feed_unread_attention_count`` — it is NOT the bell count's inverse.
+    """
+    if not getattr(request, "user", None) or not request.user.is_authenticated:
+        return {}
+    try:
+        return {"feed_unread_count": feed_unread_attention_count(request.user)}
+    except DatabaseError:
+        logger.exception("Failed to compute feed unread count for user %s", request.user.pk)
+        return {"feed_unread_count": 0}
+
+
 def nav(request) -> dict[str, Any]:
     """Supply ``nav_running_jobs`` and ``nav_active_section`` to every authenticated request.
 

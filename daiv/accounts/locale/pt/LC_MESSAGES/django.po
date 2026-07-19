@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-17 23:27+0100\n"
+"POT-Creation-Date: 2026-07-19 12:50+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -101,6 +101,9 @@ msgid_plural "%(counter)s items"
 msgstr[0] "%(counter)s item"
 msgstr[1] "%(counter)s itens"
 
+msgid "unread"
+msgstr "por ler"
+
 msgid "classifying…"
 msgstr "a classificar…"
 
@@ -110,6 +113,24 @@ msgstr "verificámos — nada precisa de ti"
 #, python-format
 msgid "Tooling problem — %(detail)s"
 msgstr "Problema de ferramenta — %(detail)s"
+
+msgid "Tooling problem"
+msgstr "Problema de ferramenta"
+
+msgid "needs your attention"
+msgstr "precisa da tua atenção"
+
+msgid "mark seen"
+msgstr "marcar como visto"
+
+#, python-format
+msgid "%(n)s unread"
+msgid_plural "%(n)s unread"
+msgstr[0] "%(n)s por ler"
+msgstr[1] "%(n)s por ler"
+
+msgid "all seen"
+msgstr "tudo visto"
 
 msgid "nothing needs you."
 msgstr "nada precisa de ti."

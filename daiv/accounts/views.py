@@ -9,8 +9,10 @@ from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q,
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils.decorators import method_decorator
 from django.utils.timezone import localdate
 from django.views import View
+from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from django_filters.views import FilterView
@@ -252,6 +254,49 @@ class FeedItemView(LoginRequiredMixin, TemplateView):
             raise Http404
         ctx["item"] = build_feed_item(run, notification, RunEnvelope.objects.for_run(run))
         return ctx
+
+
+@method_decorator(require_POST, name="dispatch")
+class FeedItemSeenView(LoginRequiredMixin, TemplateView):
+    """Mark the requester's own Feed row for a run seen, then re-render the seen item (Story 2.4).
+
+    Owner-scoped exactly like ``FeedItemView``: only the requesting user's ``RUN_FEED`` row for that
+    run is touched — a cross-user request, a run with no Feed row, or a deleted run all 404.
+    ``mark_as_read`` is idempotent, so a repeat POST is a no-op. The ``HX-Trigger: feed:seen`` header
+    pushes the persistent badge container to re-fetch its fragment (which re-reads the envelope-aware
+    ``feed_unread_count``), announcing the change via its ``aria-live`` region.
+    """
+
+    template_name = "accounts/_feed_item.html"
+
+    def post(self, request, run_id):
+        notification = (
+            Notification.objects
+            .filter(
+                recipient=request.user, event_type=EventType.RUN_FEED, source_type="sessions.Run", source_id=str(run_id)
+            )
+            .order_by("-created")
+            .first()
+        )
+        if notification is None:
+            raise Http404
+        run = Run.objects.filter(pk=run_id).first()
+        if run is None:
+            raise Http404
+        notification.mark_as_read()
+        resp = self.render_to_response({"item": build_feed_item(run, notification, RunEnvelope.objects.for_run(run))})
+        resp["HX-Trigger"] = "feed:seen"
+        return resp
+
+
+class FeedUnreadBadgeView(LoginRequiredMixin, TemplateView):
+    """Render just the Feed unread badge fragment (the ``feed:seen`` live-refresh target).
+
+    The count comes from the ``feed_unread_count`` context processor, so the fragment is correct
+    both on a full console load and on every ``feed:seen`` re-fetch.
+    """
+
+    template_name = "accounts/_feed_unread_badge.html"
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
