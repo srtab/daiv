@@ -1,6 +1,6 @@
 # GitLab Delivery
 
-Delivery mode only. You reach here after `references/review-workflow.md` has produced verified findings. Deliver them as inline discussions on specific lines plus one top-level summary discussion, posting directly via the `gitlab` tool. The review is done — you are now publishing it, not re-adjudicating it.
+Delivery mode only. You reach here after `references/review-workflow.md` has produced verified findings — deliver them as inline discussions on specific lines plus one top-level summary, posted via the `gitlab` tool. The review is done; you're publishing it, not re-adjudicating it.
 
 Relative paths (`scripts/…`, `references/…`, `examples/…`) resolve under the skill root injected in `SKILL.md`.
 
@@ -9,28 +9,27 @@ Relative paths (`scripts/…`, `references/…`, `examples/…`) resolve under t
 Carry these in from the verified-findings handoff:
 
 - **scope** + the SHA triplet (`base_sha`, `start_sha`, `head_sha`). Markers and positions use `head_sha`.
-- the **verified findings**, each with `detector`, `file`, `line`, `bar`, `archetype`, `title`, `rationale`, optional `suggestion`, and assigned **severity**.
-- **detector status** (dispatched / expected, or `inline (triage)` when the Stage 1 gate skipped the fan-out) and **merge stats** (`candidates` / `dropped` / `merged`) for the Step 7 status line.
+- the **verified findings**, each with `detector`, `file`, `line`, `bar`, `archetype`, `title`, `rationale`, optional `suggestion`, and **severity**.
+- **detector status** (dispatched/expected, or `inline (triage)` when Stage 1 skipped fan-out) and **merge stats** (`candidates`/`dropped`/`merged`) for Step 7's status line.
 
-**Even when there are zero verified findings, do not skip delivery.** Steps 1, 2, and 6 still run — parse existing notes, address any pending replies on prior daiv threads, and reconcile the summary (update it in place; write nothing new if none exists). Only the new-finding work (Steps 3–5) is skipped.
+**Even with zero verified findings, do not skip delivery.** Steps 1, 2, and 6 still run — parse notes, address replies, reconcile the summary (update in place; write nothing if none exists). Only Steps 3–5 are skipped.
 
 ## Marker format
 
-`scripts/marker.py` is the canonical implementation of the marker contract — **never compute anchors or assemble markers by hand.** Its `anchor`, `build`, and `parse-notes` subcommands are deterministic and version-stable; paraphrasing the rules into ad-hoc Python or prose silently breaks dedup across reruns. Run `scripts/marker.py <cmd> --help` for arguments. The marker payload shape, per-field meanings, the daiv-authored detection rule (prefix, not author), and resolution semantics all live in `references/marker-format.md` — open it when a field's purpose is unclear.
+`scripts/marker.py` is the canonical implementation of the marker contract — **never compute anchors, positions, or markers by hand.** Its `resolve`, `anchor`, `build`, and `parse-notes` subcommands are deterministic and version-stable. Run `scripts/marker.py <cmd> --help` for arguments. Field meanings, daiv-authored detection, and resolution semantics live in `references/marker-format.md`.
 
 This procedure decides only two things; the script does the rest:
 
-- **Anchor target — which line.** Inline findings anchor on **added or context** lines on the new side of the diff. A pure-deletion finding (no `new_line`) is not inline-eligible — demote it to the summary. For a single-line finding (suggestion or question), the target is `new_line` from the diff position. For a multi-line finding (`suggestion:-N+M`, or a question over a contiguous block), the target is the **first** new-side line of the range. The model picks the line; the script computes the anchor.
-- **Dedup fingerprint — what to compare.** Inline findings dedup on `(kind, archetype, file, anchor)`; the summary on `kind=summary` (exactly one summary daiv note per MR). Step 4 builds these.
+- **Anchor target — which line.** Inline findings anchor on **added or context** lines on the new side of the diff. Pure-deletion findings (no new-side line) demote to the summary. For a multi-line finding (`suggestion:-N+M`, or a question over a contiguous block), the target is the **first** new-side line of the range. The model picks the line; the script computes everything else.
+- **Dedup fingerprint — what to compare.** Inline: `(kind, archetype, file, anchor)`; summary: `kind=summary` (exactly one summary daiv note per MR). Step 4 builds these.
 
 ## Step 1 — Acquire context and dedup state
 
-- Read `merge_request_id`, project, and the SHA triplet from the runtime merge-request context. If any field is missing, demote to interactive mode and return markdown.
-- **List existing discussions to a file, then parse that file** — do not transcribe the discussion JSON into your context. Call the `gitlab` tool with subcommand `project-merge-request-discussion list --mr-iid <iid> --get-all` and `output_to_file=true`:
-  - `--get-all` is **mandatory**. Dedup is only correct if `parse-notes` sees *every* discussion; without it the tool returns only the first page, so fingerprints on later pages are missed and prior findings get reposted.
-  - `output_to_file=true` writes the **full** discussion array to a file (it forces `--output json`, which is the only form `parse-notes` can read — the tool's inline output is human-readable text, not JSON) and returns a compact confirmation containing the file path. The discussion blob never enters your context, so you never retype it.
-  - Take the **absolute** path from that confirmation and, in a separate `bash` call, run `python3 scripts/marker.py parse-notes <path>`. The path is its sole argument (it still reads stdin if no path is given, but the file path is the path to use here).
-  - **Empty listing:** if the tool reports it wrote no file because the command produced no output, the MR has no existing discussions — there is no dedup state. Treat `inline_fingerprints`, `summary`, and `pending_replies` as empty and continue; do not call `parse-notes`.
+- Read `merge_request_id`, project, and the SHA triplet from the runtime context; if any is missing, demote to interactive mode and return markdown.
+- **List existing discussions to a file, then parse that file** — never transcribe the JSON into context. Call the `gitlab` tool with subcommand `project-merge-request-discussion list --mr-iid <iid> --get-all` and `output_to_file=true`:
+  - `--get-all` is **mandatory** — without it only the first page loads and later-page findings get reposted.
+  - `output_to_file=true` forces `--output json` (`parse-notes`' only readable form), writes the full array to a file, and returns just its absolute path — the blob never enters context. In a separate `bash` call, run `python3 scripts/marker.py parse-notes <path>` (it also reads stdin; pass the path here).
+  - **Empty listing:** no file written means no existing discussions — treat `inline_fingerprints`, `summary`, and `pending_replies` as empty; skip `parse-notes`.
 
   `parse-notes` returns:
   ```json
@@ -43,21 +42,21 @@ This procedure decides only two things; the script does the rest:
      ...
    ]}
   ```
-  Keep all three: `inline_fingerprints` is the **dedup set** for Step 4; `summary` tells Step 6 whether to update in place or create a fresh discussion **and carries the prior summary's `body`** for the Step 6 carry-forward rule; `pending_replies` lists unresolved daiv threads with at least one note after daiv's last — usually a human reply, but the trailing note can be a system event (flagged `system: true`), handled in Step 2. The script projects each note down to `author` / `body` / `system` — that is all the model needs to choose a Step 2 outcome.
+  Keep all three: `inline_fingerprints` is Step 4's **dedup set**; `summary` tells Step 6 whether to update or create fresh, **and carries the prior body** for its carry-forward rule; `pending_replies` lists unresolved daiv threads (Step 2).
 
 ## Step 2 — Address pending replies
 
-For each discussion in `pending_replies`, read the conversation (the full `notes` array is included) and decide the outcome. Every thread here is already open — `parse-notes` excludes resolved threads upstream, so you never need to re-check `resolved`. Skip any thread where the only notes after daiv's last are `system: true` (e.g. a label change or resolve event) — there's nothing to respond to.
+For each discussion in `pending_replies`, decide the outcome from its conversation. Every thread is already open — `parse-notes` excludes resolved threads, so never re-check `resolved`. Skip threads whose only notes after daiv's last are `system: true` (e.g. a label change).
 
 | Outcome | Action |
 |---|---|
-| **Daiv concedes** — false positive, user's reasoning is correct, or finding no longer applies | Post a brief acknowledgment reply, then **resolve the thread** (resolve command below). |
-| **User concedes** — user accepts the finding, either by saying so or by already pushing a commit that addresses it | Post a brief acknowledgment reply. **Do not resolve** — let the user resolve when they apply the fix. |
-| **Disagreement persists** — user pushes back, daiv still believes the finding holds | Post a defense reply that adds new evidence or restates the concern concretely. **Do not resolve.** |
+| **Daiv concedes** — false positive or no longer applies | Acknowledge briefly, then **resolve the thread** (command below). |
+| **User concedes** — accepts it, or already pushed a fixing commit | Acknowledge briefly. **Do not resolve** — the user resolves when they apply the fix. |
+| **Disagreement persists** — user pushes back, daiv still holds | Defend with new evidence or a concrete restatement. **Do not resolve.** |
 
-Daiv resolves only when daiv withdraws. Posting prose without resolution is the default; resolution is the exception. Resolving a withdrawn finding does **not** leak a future repost — the marker stays on the resolved note, so the fingerprint stays in the next run's dedup set and the same finding is skipped.
+Daiv resolves only when it withdraws; posting without resolving is the default. Resolving doesn't leak a repost — the marker stays on the resolved note, keeping its fingerprint in the dedup set.
 
-Build each reply's marker with `scripts/marker.py build --kind reply --sha <head_sha>` and place its output as the first physical line of the reply body.
+Build each reply's marker with `scripts/marker.py build --kind reply --sha <head_sha>` and place its output as the reply body's first physical line.
 
 Post the reply:
 
@@ -71,71 +70,62 @@ Resolve the thread (only in the *Daiv concedes* case):
 gitlab project-merge-request-discussion update --mr-iid <iid> --id <discussion_id> --resolved true
 ```
 
-Note the `--id` flag means different things across subcommands: on `discussion update` it is the **discussion** id; on `discussion-note update` it is the **note** id. The reply create subcommand takes `--discussion-id` for the parent thread.
+The `--id` flag differs by subcommand: **discussion** id on `discussion update`, **note** id on `discussion-note update`. Reply create instead takes `--discussion-id`.
 
 Keep replies short. If there is nothing concrete to add beyond "noted", post nothing and leave the thread for the user.
 
-After addressing all pending replies, continue to bucketing new findings. A reply does not become a dedup entry — the original finding's fingerprint already prevents reposts.
+After addressing pending replies, continue to bucketing new findings — a reply isn't a dedup entry; the original fingerprint already prevents reposts.
 
 ## Step 3 — Bucket findings
 
-Inline delivery comes in two shapes — both anchor on a single new-side line (or contiguous new-side range) and both dedup by `(inline, archetype, file, anchor)`.
+Inline delivery has two shapes, anchoring on a single new-side line (or contiguous range) and deduping per the fingerprint rule above.
 
-**Fix archetypes** — the finding ships a concrete code change expressible as a `suggestion` block replacing a contiguous range of new-side lines within a single hunk:
+**Fix archetypes** — a concrete code change as a `suggestion` block replacing a contiguous new-side range in one hunk: `remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`. The range may span several lines (`suggestion:-N+M`); unchanged lines inside it are restated verbatim.
 
-- `remove_dead_lines`
-- `use_framework_idiom`
-- `replace_with_constant`
-- `swap_library_call`
+**Question archetype** — `question`: a targeted, single-line/contiguous-range yes/no question — marker + 1-2 sentences ending in `?`, no `suggestion` block. Use it for findings meeting the Signal filter's *Question* bar, landing in-diff rather than buried in the summary. Same range/anchor rule as fix archetypes; pure-deletion questions demote to summary.
 
-The range may cover several lines (use `suggestion:-N+M`) — what matters is that it's one contiguous hunk replacement, not that only one line changes. Lines inside the range that don't change are restated verbatim in the suggestion. For example, a finding that the same expression is computed twice across a 4-line block is still inline: the suggestion replaces all 4 lines, restating the ones that stay.
+Demote to **discussion-only** when no clean inline shape exists: multi-file/non-adjacent-hunk findings, prose-only conclusions (e.g., "needs restructuring"), un-anchorable questions, rename-impact questions, or renames themselves — a `suggestion` patches only the declaration, not call sites (see `references/few-shot-examples.md` Part 2).
 
-**Question archetype** — `question`. A targeted question that anchors on a single new-side line or a contiguous new-side range within a single hunk, and poses a concrete hypothesis the author can answer yes/no. No `suggestion` block — just marker + one or two sentences ending in `?`. Use this for every finding that meets the Signal filter's *Question* bar; the reader sees the question on the exact line(s) in the diff view instead of hunting for it in the summary. When anchoring on a range, follow the same rule as multi-line suggestions: post the discussion against the full range, and compute the anchor on the **first** new-side line of the range. Pure-deletion questions (no new-side line) demote to summary, same rule as fix archetypes.
-
-Demote to **discussion-only** only when no clean inline shape exists: the finding spans multiple files or non-adjacent hunks, requires prose to land (e.g., "this module needs restructuring"), is a question with no single-line anchor (e.g., a cross-cutting concern about a refactor), is a question whose subject is a rename (the question is about call-site impact the anchor can't show), or is a rename that propagates to call sites.
-
-A rename is *not* inline-eligible — a `suggestion` block patches only the declaration, not the call sites (worked example: `references/few-shot-examples.md` Part 2). Renames go in the summary.
-
-If an inline finding's diff position cannot be constructed reliably (file renamed across the diff, line moved within a hunk, anchor ambiguous), **demote it to discussion-only**. Never post a misaligned suggestion or a misanchored question.
+If an inline finding's diff position can't be constructed reliably (file renamed, line moved within a hunk, ambiguous anchor), **demote it to discussion-only**.
 
 ## Step 4 — Resolve the line, then apply dedup
 
-**Get `new_line` and the target line with `grep -n` — never by counting hunk lines.** The repo is checked out at `head_sha`, so a file's own line numbers *are* its new-side diff line numbers; counting `@@` hunks by hand is what misplaces comments onto the wrong line. For each candidate, from the repo root run:
+**Resolve every candidate's position with `scripts/marker.py resolve` — never by counting hunk lines or hand-computing anchors.** From the repo root (checked out at `head_sha`):
 
 ```
-grep -Fn "<distinctive snippet of the target line>" <new_path>
+python3 scripts/marker.py resolve --file <new_path> --snippet "<distinctive literal run of the target line>" --diff /workspace/tmp/review-change.diff
 ```
 
-`-F` matches the snippet literally — without it, regex metacharacters that are everywhere in code (`.`, `[`, `*`, `$`) silently break or mis-target the match. Pick a long, distinctive, quote-free run of the line so the match is unique. The leading number is `new_line`; the text after the first colon is the **full** target line — pass that whole line to `--target` below (not a snippet). If grep returns several matches, pick the one inside the finding's diff hunk — the target must be a line shown in the diff. If it returns none, the target is a pure deletion (no new-side line) — demote to summary.
+The snippet is matched literally (no regex escaping needed). The output lists every matching line with its position and anchor:
 
-**A context-line target also needs `old_line`.** Most findings anchor on an added (`+`) line, whose position carries `new_line` only. But Step 3 also allows anchoring on an unchanged (context) line — e.g. an inline question about a line shown in the diff but not modified — and GitLab requires *both* `old_line` and `new_line` for an unchanged line. A context line is byte-identical in the base revision, so get `old_line` the same deterministic way, pointed at `base_sha`:
-
-```
-git show <base_sha>:<new_path> | grep -Fn "<same snippet>"
+```json
+{"file": "<new_path>", "matches": [{"new_line": 42, "old_line": null, "line_type": "added", "in_diff": true, "target": "<full line>", "anchor": "a1b2c3d4"}]}
 ```
 
-The leading number there is `old_line`. (Added-line targets have no `old_line` — leave it out.)
+- **Pick the match inside the finding's hunk** with `in_diff: true`. `in_diff: false` means the line isn't shown in the diff — not inline-eligible; demote to summary.
+- **No matches** → the target is a pure deletion; demote to summary.
+- **`line_type: "context"`** → the GitLab position needs both the returned `old_line` and `new_line`. **`"added"`** → `new_line` only.
+- The returned `anchor` is final — no separate `anchor` call.
+- If `resolve` exits 1 reporting the shared diff file **missing or stale** (stale = it no longer matches the checkout — e.g. written before a new push, or left over from a triage-path run that never rewrote it), regenerate it (`git diff <target>...<source> > /workspace/tmp/review-change.diff`) and retry; if it still fails or the match is ambiguous (e.g. file renamed across the diff), demote to discussion-only. Never post a misaligned suggestion or a misanchored question.
 
-Then compute the anchor with `scripts/marker.py anchor --target "<full line from grep>" --next "<next non-blank new-side line>"` and form the fingerprint `["inline", archetype, file, anchor]`. Always pass `--next` (the next non-blank new-side line — `grep -n -A2` shows it) on every call — the script uses it only when it needs to disambiguate a short or all-separator target (`references/marker-format.md` has the exact rule), so there's no judgment call about when to pass it. **Skip if the fingerprint matches the dedup set** — do not rephrase, do not "post a stronger version." Only surface fingerprints not already present.
+Form the fingerprint `["inline", archetype, file, anchor]` and compare:
 
-The fingerprint is anchored on line *content*, so two distinct findings on byte-identical target lines in different hunks of the same file (same archetype) collide on one fingerprint (`references/marker-format.md` documents why). Two cases, opposite handling:
-
-- **Collision against the dedup set (a prior run posted it):** skip, as above — that's the dedup working.
-- **Collision against a candidate you've already posted *this run*:** do **not** silently skip the second — it is a different, valid finding. Demote it to discussion-only (Step 6) so it still lands in the summary. Silently dropping it would lose a real finding.
+- **Collision with the dedup set (a prior run posted it):** skip — do not rephrase, do not "post a stronger version."
+- **Collision with a fingerprint you already posted *this run*:** demote the second finding to discussion-only (Step 6) — byte-identical target lines in different hunks share one anchor (`references/marker-format.md` documents the trade-off), and the second finding is real; silently dropping it would lose it.
 
 ## Step 5 — Post inline findings
 
 For each surviving inline finding:
 
-1. Build the marker line with `scripts/marker.py build --kind inline --sha <head_sha> --archetype <X> --file <new_path> --line <new_line> --anchor <anchor>` — `<new_line>` is the `grep` number from Step 4. Capture the output verbatim — it is the first physical line of the note body.
-2. Post via `gitlab project-merge-request-discussion create` with `--position`, using that same `new_line` (and the `old_line` from Step 4 when the target is a context line). Follow the position-construction and suggestion-block guidance already documented on the `gitlab` tool — do not invent your own conventions.
+1. Build the marker line with `scripts/marker.py build --kind inline --sha <head_sha> --archetype <X> --file <new_path> --line <new_line> --anchor <anchor>` — `<new_line>` is the `new_line` from Step 4's resolve output. Capture verbatim as the note body's first line.
+2. Post via `gitlab project-merge-request-discussion create` with `--position`, using that same `new_line` (plus `old_line` when Step 4 returned `line_type: "context"`) — follow the `gitlab` tool's guidance; don't invent your own.
 
 Body shape depends on the archetype:
 
-- **Fix archetype** (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`): marker line, then a short comment (one or two sentences), then a `suggestion` block replacing the target range. The suggestion block IS the value.
-- **Question archetype** (`question`): marker line, then one or two sentences ending in `?`. No `suggestion` block. The question itself IS the value.
+- **Fix archetype** (the four archetypes from Step 3): marker line, a short comment (1-2 sentences), then a `suggestion` block replacing the target range — the suggestion IS the value.
+- **Question archetype** (`question`): marker line, then 1-2 sentences ending in `?`, no `suggestion` block — the question IS the value.
 
-Keep bodies tight; the prose around it is justification, not filler. Example marker lines:
+Keep bodies tight — prose is justification, not filler. Example marker lines:
 
 ```
 <!-- daiv-cr {"v":1,"kind":"inline","archetype":"remove_dead_lines","file":"services/api.py","line":42,"anchor":"a1b2c3d4","sha":"abc1234"} -->
@@ -146,45 +136,45 @@ Keep bodies tight; the prose around it is justification, not filler. Example mar
 
 Compose **one** top-level summary containing:
 
-- All discussion-only findings, grouped by severity (High / Medium / Low — use the severity assigned in the review workflow). Same shape as the interactive Findings list: one-line summary + `<details>` block.
-- A short **Questions** section for discussion-only questions (cross-file or un-anchored). Targeted questions go inline (see Step 3), not here.
-- A one-line index of the inline findings posted this run (filename + line + archetype), so a reviewer skimming the thread sees the full picture without expanding diffs.
+- All discussion-only findings, grouped by severity (High/Medium/Low) — same shape as the interactive Findings list: one-line summary + `<details>` block.
+- A short **Questions** section for discussion-only questions (cross-file or un-anchored) — targeted questions go inline (Step 3), not here.
+- A one-line index of the inline findings posted this run (file + line + archetype) so reviewers see the full picture without expanding diffs.
 
-**Delta-only re-reviews must not shrink the summary.** When this run only re-examined a delta (`review-workflow.md` scope rule), its discussion-only findings cover only the changed area. A discussion-only finding has **no** inline fingerprint — only the single `kind=summary` marker exists — so `parse-notes` cannot surface it as a dedup entry. But `parse-notes` does return the prior summary's full markdown as `summary.body` (Step 1), and that body is the only record of these findings. Re-read it and **carry forward every discussion-only finding whose subject lies outside this run's delta**: it was not rechecked, so it is neither confirmed nor disproved, and rewriting the note without it would silently erase a still-valid finding. Drop a prior finding only when this run actively disproves it, or reposts it inline (the inline copy supersedes the summary prose). The body you post is the **union** of carried-forward prior findings and this run's new findings — never this run's findings alone. On a *full* re-review (every hunk re-detected) there is nothing outside the delta, so the union reduces to this run's findings and no special handling is needed.
+**Delta-only re-reviews must not shrink the summary.** A discussion-only finding has no inline fingerprint — the prior summary's `body` (Step 1) is its only record. When this run re-examined only a delta, re-read that body and **carry forward every discussion-only finding whose subject lies outside the delta**: it was neither confirmed nor disproved, so it stays. Drop a prior finding only when this run actively disproves it or reposts it inline (the inline copy supersedes the prose). The body you post is the **union** of carried-forward prior findings and this run's — never this run's alone. (On a full re-review nothing lies outside the delta, so the union reduces to this run's findings.)
 
-Build the marker with `scripts/marker.py build --kind summary --sha <head_sha>` and place its output as the first physical line of the body. Example:
+Build the marker with `scripts/marker.py build --kind summary --sha <head_sha>` and place its output as the body's first physical line. Example:
 
 ```
 <!-- daiv-cr {"v":1,"kind":"summary","sha":"abc1234"} -->
 ```
 
-If `summary` from Step 1 was non-null, **update the existing note in place** (`gitlab project-merge-request-discussion-note update --mr-iid <iid> --discussion-id <discussion_id> --id <note_id> --body "..."`). Recall the `--id` overloading from Step 2: on `discussion-note update` it is the **note** id — pass `summary.note_id` from Step 1 here, not the discussion id. The summary always reflects the current review state — every finding that still holds (this run's, plus the carried-forward prior findings from the rule above), not an append-only log of past reviews. "Update in place, not appended" governs the *note*: one summary discussion per MR, never a second; it does not license dropping still-valid findings. Inline discussions are never updated or deleted — the dedup set prevents reposts.
+If `summary` from Step 1 was non-null, **update the existing note in place** (`gitlab project-merge-request-discussion-note update --mr-iid <iid> --discussion-id <discussion_id> --id <note_id> --body "..."`) — here `--id` is the **note** id (`summary.note_id`), not the discussion id (Step 2). The summary always reflects current state (this run's plus carried-forward) — one discussion per MR, never a second, and never license to drop still-valid findings. Inline discussions are never updated or deleted — the dedup set prevents reposts.
 
-If `summary` was null, create a fresh top-level discussion (`project-merge-request-discussion create --mr-iid <iid> --body "..."` with no `--position`).
+If `summary` was null, create a fresh discussion (`project-merge-request-discussion create --mr-iid <iid> --body "..."` with no `--position`).
 
 If there are zero discussion-only findings AND zero inline findings AND no prior summary, write **nothing** — don't post an empty summary.
 
-A question previously embedded in an older summary's *Questions* section has no `(inline, question, file, anchor)` fingerprint — only the summary's `kind=summary` fingerprint exists. So on re-review the agent posts the question inline (new fingerprint, not deduped) AND rewrites the summary in place to drop the prose copy. Both happen in one run; convergence is single-pass.
+A question embedded in an older summary's *Questions* section has no `(inline, question, file, anchor)` fingerprint — only `kind=summary` does. On re-review, post it inline (new fingerprint) AND rewrite the summary to drop the prose copy, both in one run — convergence is single-pass.
 
 ## Step 7 — Return status to the harness
 
-Final assistant message in delivery mode: one short line. Use the shape below. The summary-body footer (the index line in Step 6) may carry the same shape, but the two are **distinct strings** — this one is the harness message; that one lives inside the summary discussion.
+Final assistant message in delivery mode: one short line, shaped like below — **distinct** from Step 6's similar-looking index line (this is the harness message; that lives in the summary discussion).
 
 ```
 Posted 3 inline + updated summary on MR !128 — 5/5 detectors · 11 candidates → 3 inline, 1 demoted to summary, 1 duplicate skipped (rest refuted).
 ```
 
-The `N/M detectors` field is **dispatched / expected** from the Stage 1 reconciliation, not a hardcoded `5/5`: if a `cr-*` detector failed to load (absent from the `task` tool's agent list), report e.g. `4/5 detectors (cr-security unavailable)` so the missing dimension is visible. The candidate count is `merge.candidates` (the pre-refutation count from Stage 2, after cross-detector dedup); account for the gap between it and what shipped — demoted to summary, duplicates skipped, refuted — so the line reads cleanly. When `merge.dropped` is nonzero, note it too (e.g. `2 malformed dropped`) — a detector emitting schema-invalid findings is a real signal worth surfacing, not hiding. When the Stage 2 merge was short-circuited (every detector empty), `candidates`/`dropped`/`merged` are all `0`; report the detector count and a `0 findings` tail. When the Stage 1 triage gate reviewed inline (no fan-out), write `inline (triage)` in place of the `N/M detectors` field; `candidates` is then the inline pass's pre-refutation count, so the `candidates → shipped` accounting reads the same.
+The `N/M detectors` field is **dispatched / expected** from the Stage 1 reconciliation — if a detector failed to load, name it (e.g. `4/5 detectors (cr-security unavailable)`). The candidate count is `merge.candidates`; account for the gap between it and what shipped (demoted to summary, duplicates skipped, refuted). Fold in every entry from `merge.notes` — failed detectors, malformed drops, collapsed duplicates. When the merge was all-zero, report the detector count and a `0 findings` tail. When the Stage 1 triage gate reviewed inline (no fan-out), write `inline (triage)` in place of the `N/M detectors` field — `candidates` is then the inline pass's pre-refutation count, so the accounting reads the same.
 
 Do **not** return the review markdown when delivery succeeded — the comments are the deliverable.
 
 ## Delivery-phase error recovery
 
-- If posting a specific inline finding fails (HTTP error, invalid position, etc.), demote that finding to discussion-only and continue with the rest. If the summary post also fails, return the full review as markdown so the harness can deliver it; surface the posting error in your final message.
-- If the `gitlab` tool isn't loadable or returns 403s for the discussion endpoint, demote to interactive mode and return markdown.
+- If posting an inline finding fails (HTTP error, invalid position, etc.), demote it to discussion-only and continue. If the summary post fails too, return the full review as markdown and surface the error.
+- If the `gitlab` tool isn't loadable or returns 403s, demote to interactive mode and return markdown.
 - Never re-invoke the `skill` tool to restart the review.
 
 ## Reference material (optional)
 
-- `references/marker-format.md` — per-field meaning of the `<!-- daiv-cr … -->` marker, daiv-authored detection, and resolution semantics. Open when a marker field's purpose is unclear.
-- `examples/example-review-output.md` — a complete, well-formed example of inline + summary delivery output. The shape to match in delivery mode.
+- `references/marker-format.md` — per-field meaning, daiv-authored detection, resolution semantics.
+- `examples/example-review-output.md` — a well-formed inline + summary delivery example.
