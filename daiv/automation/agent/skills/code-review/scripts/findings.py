@@ -115,6 +115,30 @@ def merge(raw: list) -> dict:
     return {"findings": deduped, "candidates": len(deduped), "dropped": dropped, "merged": len(valid) - len(deduped)}
 
 
+def status_notes(*, candidates: int, dropped: int, merged: int, skipped: int, total_files: int) -> list[str]:
+    """Plain-language obligations for the status line, derived from the merge stats.
+
+    The reference docs point the agent here instead of re-explaining each stat:
+    every note is something the run must surface (gitlab-delivery.md Step 7 /
+    the interactive output), so an empty list means a clean, unremarkable merge.
+    """
+    notes: list[str] = []
+    if skipped:
+        notes.append(
+            f"{skipped}/{total_files} detector output file(s) failed to deliver findings — report them as "
+            "failed detectors in the status line; do not read this as a legitimately empty outcome."
+        )
+    if dropped:
+        notes.append(f"{dropped} finding(s) failed schema validation and were dropped — surface in the status line.")
+    if merged:
+        notes.append(
+            f"{merged} duplicate finding(s) collapsed across detectors (strongest bar kept) — note in the status line."
+        )
+    if candidates == 0 and skipped == 0:
+        notes.append("All detectors returned empty findings — a legitimately empty review.")
+    return notes
+
+
 def read_findings_from_files(paths: list) -> tuple[list, int]:
     """Read raw findings from detector output files.
 
@@ -174,6 +198,13 @@ def main() -> int:
         # `skipped` comes from read_findings_from_files (file I/O), not from merge()'s pure transform,
         # so it is injected here rather than added to merge()'s return dict.
         result["skipped"] = skipped
+        result["notes"] = status_notes(
+            candidates=result["candidates"],
+            dropped=result["dropped"],
+            merged=result["merged"],
+            skipped=skipped,
+            total_files=len(args.paths),
+        )
         json.dump(result, sys.stdout)
         sys.stdout.write("\n")
         return 0

@@ -261,7 +261,14 @@ class TestMergeCli:
         monkeypatch.setattr(sys, "argv", ["findings.py", "merge"])
         assert findings.main() == 0
         out = json.loads(capsys.readouterr().out)
-        assert out == {"findings": [], "candidates": 0, "dropped": 0, "merged": 0, "skipped": 0}
+        assert out == {
+            "findings": [],
+            "candidates": 0,
+            "dropped": 0,
+            "merged": 0,
+            "skipped": 0,
+            "notes": ["All detectors returned empty findings — a legitimately empty review."],
+        }
 
     def test_cli_partial_skip_exits_zero_and_reports_skipped(self, tmp_path, monkeypatch, capsys):
         # One valid findings JSON + one .txt file (simulating a loop-stopped detector that emitted
@@ -315,3 +322,52 @@ class TestSchemaSingleSource:
         assert findings.is_valid(sample)
         for field in schema["required"]:
             assert field in sample
+
+
+class TestStatusNotes:
+    def test_clean_nonempty_run_has_no_notes(self):
+        assert findings.status_notes(candidates=3, dropped=0, merged=0, skipped=0, total_files=5) == []
+
+    def test_skipped_reported_as_failed_detectors(self):
+        (note,) = findings.status_notes(candidates=2, dropped=0, merged=0, skipped=2, total_files=5)
+        assert "2/5" in note
+        assert "failed to deliver" in note
+
+    def test_dropped_reported(self):
+        (note,) = findings.status_notes(candidates=1, dropped=3, merged=0, skipped=0, total_files=4)
+        assert "3" in note
+        assert "schema" in note
+
+    def test_merged_reported(self):
+        (note,) = findings.status_notes(candidates=1, dropped=0, merged=2, skipped=0, total_files=4)
+        assert "2" in note
+        assert "collapsed" in note
+
+    def test_legitimately_empty_review_noted(self):
+        (note,) = findings.status_notes(candidates=0, dropped=0, merged=0, skipped=0, total_files=5)
+        assert "empty review" in note
+
+    def test_empty_with_skipped_is_not_called_empty_review(self):
+        notes = findings.status_notes(candidates=0, dropped=0, merged=0, skipped=1, total_files=5)
+        assert not any("empty review" in n for n in notes)
+
+    def test_notes_combine(self):
+        notes = findings.status_notes(candidates=2, dropped=1, merged=1, skipped=1, total_files=5)
+        assert len(notes) == 3
+
+
+class TestMergeCliNotes:
+    def test_merge_output_carries_notes(self, tmp_path, capsys, monkeypatch):
+        p = tmp_path / "cr-correctness.json"
+        p.write_text(json.dumps({"findings": [_f(), {"detector": "bogus"}]}), encoding="utf-8")
+        old = sys.argv
+        sys.argv = ["findings.py", "merge", str(p)]
+        try:
+            code = findings.main()
+        finally:
+            sys.argv = old
+        out, _ = capsys.readouterr()
+        assert code == 0
+        result = json.loads(out)
+        assert result["dropped"] == 1
+        assert any("schema" in n for n in result["notes"])
