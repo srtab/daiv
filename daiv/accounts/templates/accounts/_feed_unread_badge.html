@@ -3,9 +3,12 @@
 Feed unread badge fragment (Story 2.4). Rendered on full console load and re-fetched by the
 persistent ``#feed-unread`` aria-live container on every ``feed:seen`` event. Neutral mono chip —
 NOT teal, NOT the Needs-me Queue's "you have N" count-pill. ``feed_unread_count`` is the
-envelope-aware unread-attention total from ``accounts.context_processors.feed_unread_count``.
+envelope-aware unread-ATTENTION total from ``accounts.context_processors.feed_unread_count`` — it
+counts only rows that still need attention (an unread all-clear row is NOT counted), so the sr-only
+text says "need attention" rather than "unread"; the per-item unread dot (which marks EVERY unseen
+row) keeps its own distinct "unread" label.
 
-The ``{% else %}`` sr-only "all seen" is deliberate and MUST stay: it keeps the fragment non-empty
-at 0 so the 1→0 innerHTML swap is announced (an empty inner would be silent). The visible number
-stays hidden at 0.
-{% endcomment %}{% if feed_unread_count %}<span data-testid="feed-unread-badge" class="font-mono text-[11px] tabular-nums text-text-muted"><span aria-hidden="true">{{ feed_unread_count }}</span> <span class="sr-only">{% blocktranslate count n=feed_unread_count %}{{ n }} unread{% plural %}{{ n }} unread{% endblocktranslate %}</span></span>{% else %}<span class="sr-only">{% translate "all seen" %}</span>{% endif %}
+The ``{% else %}`` sr-only "nothing needs your attention" is deliberate and MUST stay: it keeps the
+fragment non-empty at 0 so the 1→0 innerHTML swap is announced (an empty inner would be silent).
+The visible number stays hidden at 0.
+{% endcomment %}{% if feed_unread_count %}<span data-testid="feed-unread-badge" class="font-mono text-[11px] tabular-nums text-text-muted"><span aria-hidden="true">{{ feed_unread_count }}</span> <span class="sr-only">{% blocktranslate count n=feed_unread_count %}{{ n }} need attention{% plural %}{{ n }} need attention{% endblocktranslate %}</span></span>{% else %}<span class="sr-only">{% translate "nothing needs your attention" %}</span>{% endif %}

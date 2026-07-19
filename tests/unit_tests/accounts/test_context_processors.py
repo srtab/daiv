@@ -242,6 +242,11 @@ class TestFeedUnreadAttentionCount:
         _feed_notif(member_user, run.pk)
         assert feed_unread_attention_count(member_user) == 1
 
+    def test_found_issues_is_counted(self, member_user):
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.FOUND_ISSUES)
+        _feed_notif(member_user, run.pk)
+        assert feed_unread_attention_count(member_user) == 1
+
     def test_failed_is_counted(self, member_user):
         run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.FAILED)
         _feed_notif(member_user, run.pk)
@@ -295,7 +300,16 @@ class TestFeedUnreadCount:
         request.user = member_user
         with patch.object(Notification.objects, "filter", side_effect=OperationalError("connection refused")):
             result = feed_unread_count(request)
+        # The count is lazy; the equality comparison forces evaluation, which trips the guard.
         assert result == {"feed_unread_count": 0}
+
+    def test_malformed_source_id_degrades_to_zero(self, rf, member_user):
+        # A RUN_FEED row with a non-UUID ``source_id`` makes the ``pk__in`` UUID filter raise
+        # ValueError/ValidationError; the broadened guard (P6) must degrade to 0, not 500 the page.
+        _feed_notif(member_user, "not-a-uuid")
+        request = rf.get("/")
+        request.user = member_user
+        assert feed_unread_count(request) == {"feed_unread_count": 0}
 
     def test_bell_mark_all_read_leaves_feed_count(self, member_user):
         # AC6 — the bell's carved mark-all-read (exclude RUN_FEED) must not clear the Feed count.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import Error as DatabaseError
 from django.utils.functional import SimpleLazyObject
 
@@ -133,20 +134,29 @@ def feed_unread_attention_count(user) -> int:
     return sum(1 for source_id in source_ids if source_id in existing and source_id not in all_clear)
 
 
-def feed_unread_count(request) -> dict[str, int]:
+def feed_unread_count(request) -> dict[str, Any]:
     """Expose the user's unread-attention Feed count to every template (the console badge).
 
-    Mirrors ``notifications.context_processors.unread_notification_count``'s guards: anonymous →
-    ``{}``; a ``DatabaseError`` degrades to ``0`` (logged) rather than breaking page rendering.
-    Envelope-aware via ``feed_unread_attention_count`` — it is NOT the bell count's inverse.
+    Mirrors the sibling ``nav`` processor: the anonymous guard is eager (cheap), but the count is
+    wrapped in ``SimpleLazyObject`` so the 1-3 queries run ONLY when a template actually references
+    ``feed_unread_count`` (the badge appears only on the console) — not on every authenticated
+    request app-wide. The guard degrades to ``0`` (logged) rather than breaking page rendering; it
+    also catches ``ValueError``/``ValidationError`` because a malformed ``source_id`` (non-UUID)
+    raises on the ``pk__in`` UUID filter, and this processor is global. Envelope-aware via
+    ``feed_unread_attention_count`` — it is NOT the bell count's inverse.
     """
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         return {}
-    try:
-        return {"feed_unread_count": feed_unread_attention_count(request.user)}
-    except DatabaseError:
-        logger.exception("Failed to compute feed unread count for user %s", request.user.pk)
-        return {"feed_unread_count": 0}
+    user = request.user
+
+    def _count() -> int:
+        try:
+            return feed_unread_attention_count(user)
+        except DatabaseError, ValueError, ValidationError:
+            logger.exception("Failed to compute feed unread count for user %s", user.pk)
+            return 0
+
+    return {"feed_unread_count": SimpleLazyObject(_count)}
 
 
 def nav(request) -> dict[str, Any]:

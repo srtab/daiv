@@ -733,14 +733,17 @@ class TestFeedRenderDelta:
         _make_feed_run(member_user, envelope_status=None)  # classifying counts
         content = member_client.get(reverse("dashboard")).content.decode()
         assert 'data-testid="feed-unread-badge"' in content
-        assert "2 unread" in content
+        # The sr-only text counts ATTENTION items, not "unread" (P2) — the per-item unread dots keep
+        # their own bare "unread" label, so the badge must announce the distinct attention wording.
+        assert "2 need attention" in content
 
-    def test_badge_absent_at_zero_but_all_seen_persists(self, member_client, member_user):
-        # Only an unread all-clear run → attention count 0 → badge chip absent, "all seen" persists.
+    def test_badge_absent_at_zero_but_attention_seal_persists(self, member_client, member_user):
+        # Only an unread all-clear run → attention count 0 → badge chip absent, but the non-empty
+        # "nothing needs your attention" sr-only text persists so the to-zero swap is announced (P2).
         _make_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
         content = member_client.get(reverse("dashboard")).content.decode()
         assert 'data-testid="feed-unread-badge"' not in content
-        assert "all seen" in content
+        assert "nothing needs your attention" in content
 
     def test_badge_is_not_teal_nor_you_have_n(self, member_client, member_user):
         _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)

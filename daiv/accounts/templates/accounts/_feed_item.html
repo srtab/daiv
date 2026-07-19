@@ -18,11 +18,16 @@ resolved-only dismiss control. Neutral tokens ONLY — never a status/teal/viole
          data-testid="feed-item"
          data-status="{{ item.status_slug }}"
          role="listitem"
+         tabindex="-1"
          {% if item.status_slug == "classifying" %}aria-live="polite" aria-busy="true"{% endif %}
          class="flex items-stretch rounded-md border border-l-2 border-border bg-surface-2{% if item.status_slug == 'classifying' %} border-dashed{% endif %}{% if not item.read_at %} bg-white/[0.02]{% endif %}"
          style="{% if item.status_slug == 'all-clear' %}opacity: 0.92; border-left-color: var(--color-status-clear);{% else %}{% if item.read_at %}opacity: 0.7;{% endif %}{% if item.accent_var %}border-left-color: var({{ item.accent_var }});{% endif %}{% endif %}">
+  {# Only an unmodified left-click marks-seen-then-navigates via htmx; ctrl/cmd/shift/middle-click
+     fall through to the native ``href`` (open in a new tab) WITHOUT marking seen — restoring 2.3's
+     plain-<a> behaviour that the bare ``hx-post`` (fires on every click) regressed. #}
   <a href="{{ item.link_url }}"
      hx-post="{% url 'feed_item_seen' item.run.id %}"
+     hx-trigger="click[button==0&&!ctrlKey&&!metaKey&&!shiftKey]"
      hx-swap="none"
      hx-on::after-request="window.location.href = this.getAttribute('href')"
      class="flex flex-1 items-start gap-3 p-4 no-underline transition-colors hover:text-text">
@@ -71,7 +76,11 @@ resolved-only dismiss control. Neutral tokens ONLY — never a status/teal/viole
     <span class="mt-0.5 shrink-0 text-text-faint" aria-hidden="true">{% icon "chevron-right" "h-4 w-4" %}</span>
   </a>
   {# Dismiss (mark-seen) — resolved-only, unread-only. A seen-state control, NOT an Epic 5 action.
-     Single accessible name (aria-label); 44px touch target; inherits the global teal focus ring. #}
+     Single accessible name (aria-label); 44px touch target; inherits the global teal focus ring.
+     The swap replaces this <article> with its seen version (which has NO dismiss button), so focus
+     would fall to <body>; after the swap, move focus back onto the swapped-in article (same
+     ``#feed-item-{id}``, made focusable by ``tabindex="-1"``) so keyboard/AT users keep their place
+     (WCAG 2.4.3). The global ``:focus-visible`` ring supplies the visible indicator. #}
   {% if not item.read_at and item.status_slug != "classifying" %}
     <button type="button"
             data-testid="feed-item-dismiss"
@@ -80,6 +89,7 @@ resolved-only dismiss control. Neutral tokens ONLY — never a status/teal/viole
             hx-post="{% url 'feed_item_seen' item.run.id %}"
             hx-target="#feed-item-{{ item.run.id }}"
             hx-swap="outerHTML"
+            hx-on::after-request="requestAnimationFrame(() => document.getElementById('feed-item-{{ item.run.id }}')?.focus())"
             class="flex h-11 w-11 shrink-0 items-center justify-center self-center text-text-faint transition-colors hover:text-text">
       {% icon "check" "h-4 w-4" %}
     </button>
