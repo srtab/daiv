@@ -9,8 +9,8 @@ shimmer skeletons are aria-hidden so assistive tech is not read empty rows.
 {% endcomment %}
 <div class="flex flex-col gap-5">
   {# ── Hero (Story 3.1) ─────────────────────────────────────────────────── #}
-  {# Range-agnostic section heading: the active range is carried honestly by the Hero headline
-     itself ("… this week"), so this label can never contradict the selected range. #}
+  {% comment %} Range-agnostic section heading: the active range is carried honestly by the Hero headline
+     itself ("… this week"), so this label can never contradict the selected range. {% endcomment %}
   <section data-testid="console-hero" aria-labelledby="console-hero-heading"
            class="rounded-xl border border-border bg-surface-2 p-[22px]">
     <header class="mb-4 flex items-center gap-2">
@@ -49,8 +49,8 @@ shimmer skeletons are aria-hidden so assistive tech is not read empty rows.
       <span class="font-mono text-[11px] uppercase tracking-[0.14em] text-text-faint">
         {% translate "what happened" %}
       </span>
-      {# Persistent aria-live container: only its inner fragment swaps on ``feed:seen`` so the live
-         region survives and the change (including to 0) is announced. #}
+      {% comment %} Persistent aria-live container: only its inner fragment swaps on ``feed:seen`` so the live
+         region survives and the change (including to 0) is announced. {% endcomment %}
       <span id="feed-unread" role="status" aria-live="polite" class="ml-auto"
             hx-get="{% url 'feed_unread_badge' %}" hx-trigger="feed:seen from:body"
             hx-target="this" hx-swap="innerHTML">{% include "accounts/_feed_unread_badge.html" %}</span>

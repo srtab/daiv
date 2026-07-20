@@ -84,9 +84,9 @@
       {% if expired %}
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.08] px-4 py-3 text-sm text-amber-200">
           <span>{% translate "This session's state has expired. Start a new session to continue." %}</span>
-          {# AC12: the transcript is gone with the checkpoint, but ``Run.response_text`` is persisted —
+          {% comment %} AC12: the transcript is gone with the checkpoint, but ``Run.response_text`` is persisted —
              surface a link to the durable prose report for every successful run so the drill-through
-             never dead-ends. ``session_run_download_md`` serves it verbatim from the DB. #}
+             never dead-ends. ``session_run_download_md`` serves it verbatim from the DB. {% endcomment %}
           <div class="flex flex-wrap items-center gap-2">
             {% for run in runs %}
               {% if run.status == "SUCCESSFUL" and run.response_text %}

@@ -31,16 +31,16 @@ line, never a ``0`` dressed as a headline fact (AC13).
 
 <div class="flex flex-col gap-4">
   {# ── This-range headline (click-through trigger) + delta + how-computed disclosure ── #}
-  {# The headline number, the muted "how this is computed" link, and the inline breakdown panel share
+  {% comment %} The headline number, the muted "how this is computed" link, and the inline breakdown panel share
      ONE Alpine scope so the trigger's aria-controls and the panel stay in sync (mirrors
      _user_menu.html; this repo uses ``@click.outside``, not ``@click.away``). Esc closes; the global
      teal ``:focus-visible`` ring is inherited (not re-implemented). The existing polite
      ``role=status`` region is PRESERVED so a range change still announces the new value — the
-     deferred aria-live-across-swap gap (3.1) is left untouched, not worsened. #}
+     deferred aria-live-across-swap gap (3.1) is left untouched, not worsened. {% endcomment %}
   <div x-data="{ open: false }" @keydown.escape.window="open = false">
     <div role="status" aria-live="polite">
-      {# A <button> cannot wrap a block <p>, so the headline element ITSELF is the button — it keeps
-         the ``hero-headline`` testid and the display-mono fact styling, as an unstyled text button. #}
+      {% comment %} A <button> cannot wrap a block <p>, so the headline element ITSELF is the button — it keeps
+         the ``hero-headline`` testid and the display-mono fact styling, as an unstyled text button. {% endcomment %}
       <button type="button" data-testid="hero-headline"
               @click="open = !open" :aria-expanded="open.toString()" aria-controls="hero-breakdown-range"
               class="block cursor-pointer text-left font-mono text-[34px] font-bold leading-[1.02] tracking-[-0.02em] tabular-nums text-text">
@@ -65,17 +65,17 @@ line, never a ``0`` dressed as a headline fact (AC13).
       </button>
     </p>
 
-    {# Inline breakdown panel — flat surface below the fact (no overlay shadow), reflows on <768px,
-       re-renders with #console-main on a range change. One panel serves AC1 (rows) + AC2 (how). #}
+    {% comment %} Inline breakdown panel — flat surface below the fact (no overlay shadow), reflows on <768px,
+       re-renders with #console-main on a range change. One panel serves AC1 (rows) + AC2 (how). {% endcomment %}
     <div x-show="open" x-cloak x-transition @click.outside="open = false" class="mt-3">
       {% include "accounts/_clickthrough.html" with rows=hero.this_range_rows number=hero.this_range.total_merges how_computed=True panel_id="hero-breakdown-range" %}
     </div>
   </div>
 
   {# ── All-time odometer (range-invariant) — click-through trigger ─────────── #}
-  {# Its OWN Alpine scope + panel (range-invariant all-time rows). The odometer element is itself the
+  {% comment %} Its OWN Alpine scope + panel (range-invariant all-time rows). The odometer element is itself the
      button (keeps the ``hero-odometer`` testid + the ``.animate-number`` span). ``how_computed`` is
-     omitted here — the headline panel already carries the AD-10 disclosure. #}
+     omitted here — the headline panel already carries the AD-10 disclosure. {% endcomment %}
   <div x-data="{ open: false }" @keydown.escape.window="open = false">
     <button type="button" data-testid="hero-odometer"
             @click="open = !open" :aria-expanded="open.toString()" aria-controls="hero-breakdown-alltime"
