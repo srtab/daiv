@@ -362,9 +362,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         - ``this_range`` — the range-scoped count through the SHARED ``get_velocity_data`` body
           (never a forked count, AC11); ``0`` when the window is empty but all-time is not.
-        - ``delta`` — ``this_range − prev_equal_window`` where the previous window is
-          ``[cutoff − window, cutoff)``; ``None`` for the "all time" range (no prior window) so the
-          template hides the chip.
+        - ``delta`` — ``this_range − prev_equal_window`` where the previous window spans the same
+          number of days as the current [cutoff, today] window (``PERIOD_DAYS[period] + 1``);
+          ``None`` for the "all time" range (no prior window) so the template hides the chip.
         - ``all_time`` — the range-invariant odometer count.
         - ``estimate`` — ``None`` in v1 (D1: no defensible dev-hours field exists); the key is kept
           so the template's ``{% if hero.estimate %}`` demotion path stays exercisable.
@@ -379,9 +379,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         delta = None
         if period != "all" and cutoff_date is not None:
-            # "today" has a zero-day window; compare it against the single preceding day.
-            window_days = PERIOD_DAYS[period] or 1
-            prev_start = cutoff_date - timedelta(days=window_days)
+            # The current window ``merged_at__date >= cutoff_date`` is [cutoff, today] *inclusive*,
+            # spanning ``PERIOD_DAYS[period] + 1`` days ("7d" cutoff = today−7 ⇒ 8 days; "today" ⇒ 1).
+            # The preceding window must span the SAME number of days, else a flat one-merge-per-day
+            # cadence reports a spurious +1 (an 8-day current window vs a 7-day previous one).
+            window_span = (PERIOD_DAYS[period] or 0) + 1
+            prev_start = cutoff_date - timedelta(days=window_span)
             prev_count = shipped.filter(merged_at__date__gte=prev_start, merged_at__date__lt=cutoff_date).count()
             delta = this_count - prev_count
 

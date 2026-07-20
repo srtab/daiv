@@ -505,6 +505,19 @@ class TestHeroRangeScopingAndDelta:
         assert b"this week" in response.content
         assert b'data-testid="hero-delta"' in response.content
 
+    def test_delta_uses_equal_length_windows(self, member_client, member_user):
+        # AC1/D3 regression: the current "7d" window is [today−7, today] = 8 inclusive days, so the
+        # preceding window must also span 8 days. With a flat one-merge-per-day cadence a 7-day
+        # previous window would report a spurious +1; an equal 8-day window reports 0.
+        for offset in range(16):  # today, today−1, … today−15 (one merge per day)
+            iid = offset + 1
+            _make_merge_metric(iid=iid)
+            _make_shipping_run(member_user, iid=iid)
+            MergeMetric.objects.filter(merge_request_iid=iid).update(merged_at=timezone.now() - timedelta(days=offset))
+        hero = member_client.get(reverse("dashboard"), {"period": "7d"}).context["hero"]
+        assert hero["this_range"]["total_merges"] == 8  # offsets 0..7
+        assert hero["delta"] == 0  # preceding equal 8-day window (offsets 8..15) also holds 8
+
     def test_30d_range_label_and_scope(self, member_client, member_user):
         self._seed_windows(member_user)
         response = member_client.get(reverse("dashboard"), {"period": "30d"})
