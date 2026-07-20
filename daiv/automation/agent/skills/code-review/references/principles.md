@@ -1,12 +1,12 @@
 # Code Review Principles
 
-The canonical, language-agnostic list of code-review principles and the rationale for raising or defending a finding.
+The canonical, language- and framework-agnostic list of code-review principles and the rationale for raising or defending a finding.
 
 ---
 
 ## 1. Dead code / unused / leftover
 
-Remove anything never called, referenced, or reachable — including commented-out blocks (version control is the history), unused variables/parameters/imports, and leftover scaffolding, debug helpers, or TODO-stubs. Dead code creates false surface area and misleads future readers.
+Remove anything never called, referenced, or reachable — including commented-out blocks (version control is the history), unused variables/parameters/imports, and leftover scaffolding, debug helpers, or TODO-stubs — it misleads future readers.
 
 ## 2. Wrong placement / responsibility
 
@@ -14,7 +14,7 @@ Wrong-layer logic, or mixed unrelated concerns in one module, causes hard-to-tes
 
 ## 3. Use existing framework or library feature
 
-Prefer a tested built-in or well-known library abstraction over hand-rolled logic, which accrues its own bugs; check existing dependencies before adding a new helper.
+Prefer a tested built-in or well-known library abstraction over hand-rolled logic; check existing dependencies before adding a new helper.
 
 ## 4. Naming that misleads
 
@@ -102,7 +102,7 @@ Dropping a column/table, or adding non-nullable without default, ahead of full r
 
 ## 25. API contract / backward compatibility
 
-Removing/renaming a field/endpoint, changing type/semantics without a version bump, or adding required params breaks lagging consumers; prefer optional defaults, announce deprecations first.
+Removing/renaming a public field/endpoint, changing a public field's type/semantics without a version bump, or adding required params to a public function breaks lagging consumers; prefer optional defaults, announce deprecations first.
 
 ## 26. Question for the author
 
