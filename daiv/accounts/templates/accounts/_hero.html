@@ -30,25 +30,63 @@ line, never a ``0`` dressed as a headline fact (AC13).
 {% else %}{% translate "all time" as range_label %}{% endif %}
 
 <div class="flex flex-col gap-4">
-  {# ── This-range headline + delta (announced politely on a range change) ── #}
-  <div role="status" aria-live="polite">
-    <p data-testid="hero-headline"
-       class="font-mono text-[34px] font-bold leading-[1.02] tracking-[-0.02em] tabular-nums text-text">
-      {% blocktranslate count n=hero.this_range.total_merges %}<span class="text-text-strong">{{ n }}</span> change shipped {{ range_label }}{% plural %}<span class="text-text-strong">{{ n }}</span> changes shipped {{ range_label }}{% endblocktranslate %}
+  {# ── This-range headline (click-through trigger) + delta + how-computed disclosure ── #}
+  {# The headline number, the muted "how this is computed" link, and the inline breakdown panel share
+     ONE Alpine scope so the trigger's aria-controls and the panel stay in sync (mirrors
+     _user_menu.html; this repo uses ``@click.outside``, not ``@click.away``). Esc closes; the global
+     teal ``:focus-visible`` ring is inherited (not re-implemented). The existing polite
+     ``role=status`` region is PRESERVED so a range change still announces the new value — the
+     deferred aria-live-across-swap gap (3.1) is left untouched, not worsened. #}
+  <div x-data="{ open: false }" @keydown.escape.window="open = false">
+    <div role="status" aria-live="polite">
+      {# A <button> cannot wrap a block <p>, so the headline element ITSELF is the button — it keeps
+         the ``hero-headline`` testid and the display-mono fact styling, as an unstyled text button. #}
+      <button type="button" data-testid="hero-headline"
+              @click="open = !open" :aria-expanded="open.toString()" aria-controls="hero-breakdown-range"
+              class="block cursor-pointer text-left font-mono text-[34px] font-bold leading-[1.02] tracking-[-0.02em] tabular-nums text-text">
+        {% blocktranslate count n=hero.this_range.total_merges %}<span class="text-text-strong">{{ n }}</span> change shipped {{ range_label }}{% plural %}<span class="text-text-strong">{{ n }}</span> changes shipped {{ range_label }}{% endblocktranslate %}
+      </button>
+      {% if hero.delta is not None %}
+      {# Delta chip stays INERT — a plain <p>, never a click target (never wrapped in the trigger). #}
+      <p data-testid="hero-delta"
+         class="mt-1.5 font-mono text-[13px] font-semibold tabular-nums {% if hero.delta > 0 %}text-status-clear{% elif hero.delta < 0 %}text-status-fail{% else %}text-text-faint{% endif %}">
+        {% if hero.delta > 0 %}+{{ hero.delta }}{% elif hero.delta < 0 %}{{ hero.delta }}{% else %}0{% endif %} {{ delta_label }}
+      </p>
+      {% endif %}
+    </div>
+
+    {# Fact caption + the mockup's muted "how this is computed" entry point — toggles the SAME panel. #}
+    <p class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-text-faint">
+      <span data-testid="hero-fact-caption">{% translate "counted — every merged change" %}</span>
+      <button type="button" data-testid="hero-howcomputed-link"
+              @click="open = !open" :aria-expanded="open.toString()" aria-controls="hero-breakdown-range"
+              class="min-h-[44px] cursor-pointer text-text-muted underline decoration-dotted underline-offset-2 transition-colors hover:text-accent-bright md:min-h-0">
+        {% translate "how this is computed" %}
+      </button>
     </p>
-    {% if hero.delta is not None %}
-    <p data-testid="hero-delta"
-       class="mt-1.5 font-mono text-[13px] font-semibold tabular-nums {% if hero.delta > 0 %}text-status-clear{% elif hero.delta < 0 %}text-status-fail{% else %}text-text-faint{% endif %}">
-      {% if hero.delta > 0 %}+{{ hero.delta }}{% elif hero.delta < 0 %}{{ hero.delta }}{% else %}0{% endif %} {{ delta_label }}
-    </p>
-    {% endif %}
+
+    {# Inline breakdown panel — flat surface below the fact (no overlay shadow), reflows on <768px,
+       re-renders with #console-main on a range change. One panel serves AC1 (rows) + AC2 (how). #}
+    <div x-show="open" x-cloak x-transition @click.outside="open = false" class="mt-3">
+      {% include "accounts/_clickthrough.html" with rows=hero.this_range_rows number=hero.this_range.total_merges how_computed=True panel_id="hero-breakdown-range" %}
+    </div>
   </div>
 
-  {# ── All-time odometer (range-invariant) ─────────────────────────────── #}
-  <p data-testid="hero-odometer" class="font-mono text-[15px] tabular-nums text-text">
-    <span class="animate-number inline-block font-semibold text-text">{{ hero.all_time }}</span>
-    <span class="text-text-muted">{% translate "shipped since day one" %}</span>
-  </p>
+  {# ── All-time odometer (range-invariant) — click-through trigger ─────────── #}
+  {# Its OWN Alpine scope + panel (range-invariant all-time rows). The odometer element is itself the
+     button (keeps the ``hero-odometer`` testid + the ``.animate-number`` span). ``how_computed`` is
+     omitted here — the headline panel already carries the AD-10 disclosure. #}
+  <div x-data="{ open: false }" @keydown.escape.window="open = false">
+    <button type="button" data-testid="hero-odometer"
+            @click="open = !open" :aria-expanded="open.toString()" aria-controls="hero-breakdown-alltime"
+            class="block min-h-[44px] cursor-pointer text-left font-mono text-[15px] tabular-nums text-text md:min-h-0">
+      <span class="animate-number inline-block font-semibold text-text">{{ hero.all_time }}</span>
+      <span class="text-text-muted">{% translate "shipped since day one" %}</span>
+    </button>
+    <div x-show="open" x-cloak x-transition @click.outside="open = false" class="mt-3">
+      {% include "accounts/_clickthrough.html" with rows=hero.all_time_rows number=hero.all_time how_computed=False panel_id="hero-breakdown-alltime" %}
+    </div>
+  </div>
 
   {# ── Demoted estimate (D1: OMITTED in v1 — falsy ``estimate`` renders nothing) ── #}
   {% if hero.estimate %}

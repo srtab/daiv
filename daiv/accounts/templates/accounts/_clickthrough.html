@@ -1,0 +1,64 @@
+{% load i18n icon_tags %}
+{% comment %}
+Generic click-through breakdown panel (Story 3.2) — reused by Epic 4's Queue count (AC9).
+HERO-AGNOSTIC: reads ONLY its include params, never a ``hero.``-prefixed context var, so Epic 4
+wires Queue rows in with no rework.
+
+  {% include "accounts/_clickthrough.html" with rows=… number=… how_computed=… panel_id=… %}
+
+Params:
+  rows         — iterable of row objects. Row contract (each item exposes, as attr or dict key):
+                   · repo_id           — repo tag (raw, mono chip)
+                   · merge_request_iid — the MR/PR number (rendered ``!{iid}``, mono)
+                   · title             — human title (Geist Sans, truncate-tolerant)
+                   · merged_at         — merged timestamp (mono, tabular)
+                   · web_url           — best-effort out-link URL; blank → NO out-link, never ``#`` (AC11)
+                   · thread_id         — originating session for the same-tab drill-through
+  number       — the count/label this panel is behind (contract param; not force-rendered).
+  how_computed — truthy renders the "how computed" AD-10 formula disclosure (AC2).
+  panel_id     — the unique id the trigger's ``aria-controls`` points at (a11y, AC10).
+
+Flat INLINE surface (surface-2 + hairline) — NOT a floating popover, so no overlay shadow. Links
+are teal ``accent`` NAVIGATION — never a ``button-*`` action, never a status colour. Icons via
+``{% templatetag openblock %} icon {% templatetag closeblock %}`` only (no inline ``<svg>``).
+{% endcomment %}
+<div id="{{ panel_id }}" data-testid="hero-breakdown"
+     class="rounded-md border border-border bg-surface-2 p-3">
+  {% if how_computed %}
+  <div data-testid="hero-howcomputed" class="mb-3 border-b border-border pb-3">
+    <h3 class="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-text-faint">
+      {% translate "What this counts" %}
+    </h3>
+    <p class="mt-1.5 text-[13px] leading-relaxed text-text-muted">
+      {% blocktranslate %}Changes shipped = merged MRs opened by DAIV, counted from GitLab merges and attributed to you because each one links to one of your runs.{% endblocktranslate %}
+    </p>
+  </div>
+  {% endif %}
+  <div class="overflow-x-auto">
+    <ul role="list" class="flex min-w-0 flex-col divide-y divide-border">
+      {% for row in rows %}
+      <li data-testid="breakdown-row" class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+        <span class="inline-flex shrink-0 items-center rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-text-muted">&rsaquo; {{ row.repo_id }}</span>
+        <span class="shrink-0 font-mono text-[12px] tabular-nums text-text-muted">MR !{{ row.merge_request_iid }}</span>
+        <span class="min-w-0 flex-1 truncate text-[13px] text-text">{{ row.title }}</span>
+        <time class="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">{{ row.merged_at|date:"Y-m-d H:i" }}</time>
+        <span class="ml-auto flex shrink-0 items-center gap-3">
+          {% if row.web_url %}
+          <a href="{{ row.web_url }}" target="_blank" rel="noopener"
+             aria-label="{% blocktranslate with iid=row.merge_request_iid %}open MR !{{ iid }} on GitLab{% endblocktranslate %}"
+             class="inline-flex min-h-[44px] items-center gap-1 text-[12px] text-accent transition-colors hover:text-accent-bright md:min-h-0">
+            <span>MR</span>{% icon "arrow-right" "h-3.5 w-3.5" %}
+          </a>
+          {% endif %}
+          <a href="{% url 'session_detail' thread_id=row.thread_id %}"
+             class="inline-flex min-h-[44px] items-center gap-1 text-[12px] text-accent transition-colors hover:text-accent-bright md:min-h-0">
+            {% translate "view run" %}
+          </a>
+        </span>
+      </li>
+      {% empty %}
+      <li class="py-2 text-[13px] text-text-faint">{% translate "No changes shipped in this range." %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>

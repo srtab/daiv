@@ -9,6 +9,7 @@ job-creation launcher in the console content.
 import uuid
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from django.template.loader import get_template, render_to_string
 from django.test import Client
@@ -16,10 +17,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from notifications.choices import EventType
+from notifications.models import Notification
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import Role
 from accounts.views import get_velocity_data
+from codebase.clients import RepoClient
 from codebase.models import MergeMetric, PlatformType
 
 # Repo root: tests/unit_tests/accounts/ -> parents[3].
@@ -27,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 INPUT_CSS = REPO_ROOT / "daiv" / "static_src" / "css" / "input.css"
 
 
-def _make_merge_metric(*, iid=1, daiv_commits=1, total_commits=2, lines_added=10, lines_removed=3):
+def _make_merge_metric(*, iid=1, daiv_commits=1, total_commits=2, lines_added=10, lines_removed=3, title=""):
     """Create a ``MergeMetric`` row directly (no factory exists).
 
     Fills the required non-default fields (``merged_at``/``target_branch``/``source_branch``/
@@ -37,6 +41,7 @@ def _make_merge_metric(*, iid=1, daiv_commits=1, total_commits=2, lines_added=10
     return MergeMetric.objects.create(
         repo_id="daiv/test",
         merge_request_iid=iid,
+        title=title,
         lines_added=lines_added,
         lines_removed=lines_removed,
         total_commits=total_commits,
@@ -411,9 +416,12 @@ class TestManagerLensI18n:
 # factory exists), mirroring how ``_make_merge_metric`` builds the MergeMetric directly.
 
 
-def _make_shipping_run(user, *, iid, repo_id="daiv/test"):
+def _make_shipping_run(user, *, iid, repo_id="daiv/test", web_url=""):
     """Create a Session owned by ``user`` + a Run sharing ``(repo_id, iid)`` — the DAIV-opened,
-    by-this-user attribution the Hero join asserts. Pairs with a ``_make_merge_metric(iid=iid)``."""
+    by-this-user attribution the Hero join asserts. Pairs with a ``_make_merge_metric(iid=iid)``.
+
+    ``web_url`` carries onto ``Run.merge_request_web_url`` (the best-effort MR out-link the 3.2
+    breakdown surfaces through the join; blank exercises the AC11 degrade-to-session-link path)."""
     session = Session.objects.create(
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.MR_WEBHOOK, repo_id=repo_id, user=user
     )
@@ -423,6 +431,7 @@ def _make_shipping_run(user, *, iid, repo_id="daiv/test"):
         status=RunStatus.SUCCESSFUL,
         repo_id=repo_id,
         merge_request_iid=iid,
+        merge_request_web_url=web_url,
     )
 
 
@@ -678,3 +687,270 @@ class TestHeroI18n:
         assert '{% translate "Throughput" %}' in src
         assert '{% include "accounts/_hero.html" %}' in src
         assert 'data-testid="console-hero" aria-labelledby="console-hero-heading" aria-busy="true"' not in src
+
+
+# ---------------------------------------------------------------------------
+# Story 3.2 — Click-through to source (the auditable-in-place breakdown)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestBreakdownReconcilesExactly:
+    """AC1/AC5 (NFR1, load-bearing): the revealed rows are exactly the rows the count summed."""
+
+    def test_this_range_rows_equal_headline_count_and_exclude_the_rest(self, member_client, member_user, admin_user):
+        # K=3 matched, in-range (now) → counted this range AND all-time.
+        for iid in (1, 2, 3):
+            _make_merge_metric(iid=iid)
+            _make_shipping_run(member_user, iid=iid)
+        # matched but out-of-range (40d ago) → excluded this range, present all-time.
+        _make_merge_metric(iid=4)
+        _make_shipping_run(member_user, iid=4)
+        MergeMetric.objects.filter(merge_request_iid=4).update(merged_at=timezone.now() - timedelta(days=40))
+        # matched by ANOTHER user's run → excluded from both (personal scope).
+        _make_merge_metric(iid=5)
+        _make_shipping_run(admin_user, iid=5)
+        # human MR, no matching run → excluded from both (attribution join).
+        _make_merge_metric(iid=6)
+
+        response = member_client.get(reverse("dashboard"))  # 7d default
+        hero = response.context["hero"]
+        # Reconcile-exactly by construction: len(this_range_rows) == the headline count.
+        assert hero["this_range"]["total_merges"] == 3
+        assert len(hero["this_range_rows"]) == 3
+        # all-time carries the out-of-range matched row too, still excludes other-user/human.
+        assert hero["all_time"] == 4
+        assert len(hero["all_time_rows"]) == 4
+
+        range_iids = {row.merge_request_iid for row in hero["this_range_rows"]}
+        assert range_iids == {1, 2, 3}
+        all_time_iids = {row.merge_request_iid for row in hero["all_time_rows"]}
+        assert all_time_iids == {1, 2, 3, 4}
+        # Excluded rows appear in neither breakdown.
+        assert 5 not in all_time_iids
+        assert 6 not in all_time_iids
+        # The rendered panel carries one row per underlying merge.
+        assert b'data-testid="hero-breakdown"' in response.content
+        assert b'data-testid="breakdown-row"' in response.content
+
+    def test_rows_carry_the_row_contract_fields(self, member_client, member_user):
+        _make_merge_metric(iid=7, title="Fix the flaky auth test")
+        _make_shipping_run(member_user, iid=7, web_url="https://gitlab.example.com/daiv/test/-/merge_requests/7")
+        hero = member_client.get(reverse("dashboard")).context["hero"]
+        row = hero["this_range_rows"][0]
+        assert row.repo_id == "daiv/test"
+        assert row.merge_request_iid == 7
+        assert row.title == "Fix the flaky auth test"
+        assert row.merged_at is not None
+        assert row.web_url == "https://gitlab.example.com/daiv/test/-/merge_requests/7"
+        assert row.thread_id  # a representative session for the drill-through
+
+
+@pytest.mark.django_db
+class TestBreakdownAdminPersonalScope:
+    """AC7: the admin breakdown lists ONLY the admin's own rows — never the by_owner/.all() path."""
+
+    def test_admin_breakdown_is_personal_not_org_wide(self, admin_client, admin_user, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(admin_user, iid=1)  # admin's own → listed
+        _make_merge_metric(iid=2)
+        _make_shipping_run(member_user, iid=2)  # another user's → excluded for admin
+        _make_merge_metric(iid=3)  # human MR, no run → excluded
+
+        hero = admin_client.get(reverse("dashboard"), {"period": "all"}).context["hero"]
+        assert len(hero["all_time_rows"]) == 1
+        assert hero["all_time_rows"][0].merge_request_iid == 1
+        assert len(hero["this_range_rows"]) == 1
+        assert hero["this_range_rows"][0].merge_request_iid == 1
+
+
+@pytest.mark.django_db
+class TestBreakdownRangeAndOdometer:
+    """AC8: headline rows track the active range; odometer rows are range-invariant."""
+
+    def _seed(self, user):
+        # two this-week (now) + one 20 days ago; all owned by ``user``.
+        for iid in (1, 2, 3):
+            _make_merge_metric(iid=iid)
+            _make_shipping_run(user, iid=iid)
+        MergeMetric.objects.filter(merge_request_iid=3).update(merged_at=timezone.now() - timedelta(days=20))
+
+    def test_headline_rows_match_counted_range(self, member_client, member_user):
+        self._seed(member_user)
+        seven = member_client.get(reverse("dashboard"), {"period": "7d"}).context["hero"]
+        assert len(seven["this_range_rows"]) == seven["this_range"]["total_merges"] == 2
+        thirty = member_client.get(reverse("dashboard"), {"period": "30d"}).context["hero"]
+        assert len(thirty["this_range_rows"]) == thirty["this_range"]["total_merges"] == 3
+
+    def test_odometer_rows_identical_across_ranges(self, member_client, member_user):
+        self._seed(member_user)
+        seven = member_client.get(reverse("dashboard"), {"period": "7d"}).context["hero"]
+        thirty = member_client.get(reverse("dashboard"), {"period": "30d"}).context["hero"]
+        assert len(seven["all_time_rows"]) == len(thirty["all_time_rows"]) == 3
+
+    def test_htmx_fragment_carries_the_rescoped_breakdown(self, member_client, member_user):
+        self._seed(member_user)
+        response = member_client.get(reverse("dashboard"), {"period": "7d"}, HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        assert b'data-testid="app-sidebar"' not in response.content  # fragment, not the shell
+        assert b'data-testid="hero-breakdown"' in response.content
+        assert len(response.context["hero"]["this_range_rows"]) == 2
+
+    def test_empty_range_shows_honest_empty_state(self, member_client, member_user):
+        # A non-zero all-time but nothing in the active range must not open a blank panel: the
+        # breakdown renders an honest "nothing here" row rather than an empty reveal (Edge-A).
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1)
+        MergeMetric.objects.filter(merge_request_iid=1).update(merged_at=timezone.now() - timedelta(days=20))
+        response = member_client.get(reverse("dashboard"), {"period": "7d"})
+        ctx = response.context["hero"]
+        assert ctx["all_time"] == 1
+        assert len(ctx["this_range_rows"]) == 0
+        assert b"No changes shipped in this range." in response.content
+
+
+@pytest.mark.django_db
+class TestBreakdownHowComputed:
+    """AC2: an honest AD-10 disclosure — no envelope category error, no NON-GOAL promises."""
+
+    def test_how_computed_present_and_honest(self, member_client, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1)
+        # Use the console-body fragment (no shell chrome), so the envelope guard reads the console
+        # content only — the shared sidebar renders an unrelated ``{% icon "envelope" %}`` glyph.
+        content = member_client.get(reverse("dashboard"), HTTP_HX_REQUEST="true").content
+        assert b'data-testid="hero-howcomputed"' in content
+        assert b"Changes shipped = merged MRs opened by DAIV" in content
+        # The Hero never reads RunEnvelope — the word must not appear in the disclosure (category error).
+        assert b"RunEnvelope" not in content
+        assert b"envelope" not in content
+        # No NON-GOAL metric is promised (diff-survival / clean-vs-edited / sparkline).
+        for word in (b"diff-survival", b"sparkline", b"clean-vs", b"dev-hours"):
+            assert word not in content
+
+
+@pytest.mark.django_db
+class TestBreakdownMrLinkHonesty:
+    """AC11/AC6: link out via the persisted URL only; blank degrades; no live client on render."""
+
+    def test_web_url_links_out_blank_degrades_to_session(self, member_client, member_user):
+        _make_merge_metric(iid=1)
+        run_linked = _make_shipping_run(
+            member_user, iid=1, web_url="https://gitlab.example.com/daiv/test/-/merge_requests/1"
+        )
+        _make_merge_metric(iid=2)
+        run_blank = _make_shipping_run(member_user, iid=2, web_url="")  # blank → no out-link
+
+        content = member_client.get(reverse("dashboard"), {"period": "all"}).content.decode()
+        # The set URL renders a real out-link opening in a new tab.
+        assert 'href="https://gitlab.example.com/daiv/test/-/merge_requests/1"' in content
+        assert 'target="_blank"' in content
+        # Never a broken/placeholder link when the URL is blank.
+        assert 'href="#"' not in content
+        # Both rows still carry a same-tab session drill-through.
+        for run in (run_linked, run_blank):
+            assert reverse("session_detail", kwargs={"thread_id": run.session_id}) in content
+
+    def test_no_repo_client_instantiated_on_render(self, member_client, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1, web_url="https://gitlab.example.com/daiv/test/-/merge_requests/1")
+        with patch.object(RepoClient, "create_instance") as mock_create_instance:
+            member_client.get(reverse("dashboard"))
+            member_client.get(reverse("dashboard"), {"period": "all"})
+        mock_create_instance.assert_not_called()
+
+    def test_prefers_a_run_with_a_url_over_a_newer_blank_one(self, member_client, member_user):
+        # A merge attributed by two of the user's runs: the OLDER persisted the url, a newer re-run
+        # left it blank (the field default). The good url must win — a blank newest run must not hide
+        # an out-link that genuinely exists (AC11 degrades only when NO attributing run has a url).
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1, web_url="https://gitlab.example.com/daiv/test/-/merge_requests/1")
+        _make_shipping_run(member_user, iid=1, web_url="")  # newer re-run, blank url
+        content = member_client.get(reverse("dashboard"), {"period": "all"}).content.decode()
+        assert 'href="https://gitlab.example.com/daiv/test/-/merge_requests/1"' in content
+
+
+@pytest.mark.django_db
+class TestBreakdownA11y:
+    """AC10: the trigger is a native <button> with aria-expanded + aria-controls to the panel id."""
+
+    def test_triggers_are_buttons_wired_to_their_panels(self, member_client, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1)
+        content = member_client.get(reverse("dashboard")).content.decode()
+        # Both numbers are native buttons (Enter/Space free), not bare text.
+        assert '<button type="button" data-testid="hero-headline"' in content
+        assert '<button type="button" data-testid="hero-odometer"' in content
+        # aria-controls points at a panel id that is actually rendered.
+        assert 'aria-controls="hero-breakdown-range"' in content
+        assert 'id="hero-breakdown-range"' in content
+        assert 'aria-controls="hero-breakdown-alltime"' in content
+        assert 'id="hero-breakdown-alltime"' in content
+        # aria-expanded reflects state; Esc + click-outside close the panel.
+        assert ':aria-expanded="open.toString()"' in content
+        assert "@keydown.escape.window" in content
+        assert "@click.outside" in content
+
+
+@pytest.mark.django_db
+class TestBreakdownReadOnly:
+    """AC6: rendering the breakdown creates/mutates nothing."""
+
+    def test_render_writes_nothing(self, member_client, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1, web_url="https://gitlab.example.com/daiv/test/-/merge_requests/1")
+        before = (MergeMetric.objects.count(), Run.objects.count(), Session.objects.count())
+        member_client.get(reverse("dashboard"))
+        member_client.get(reverse("dashboard"), {"period": "all"})
+        after = (MergeMetric.objects.count(), Run.objects.count(), Session.objects.count())
+        assert before == after
+
+
+@pytest.mark.django_db
+class TestFeedDrillThrough:
+    """AC3: every Feed item drills through to its session_detail (2.3 wiring — verify)."""
+
+    def test_feed_item_links_to_session_detail(self, member_client, member_user):
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="daiv/test", user=member_user
+        )
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.SCHEDULE,
+            status=RunStatus.SUCCESSFUL,
+            repo_id="daiv/test",
+            user=member_user,
+            finished_at=timezone.now(),
+        )
+        # An unclassified run renders as "classifying" → the Feed lists it (not the zero-state seal).
+        Notification.objects.create(
+            recipient=member_user,
+            event_type=EventType.RUN_FEED,
+            source_type="sessions.Run",
+            source_id=str(run.pk),
+            subject="nightly",
+            body="",
+            link_url=reverse("session_detail", kwargs={"thread_id": session.thread_id}),
+        )
+        content = member_client.get(reverse("dashboard")).content.decode()
+        assert reverse("session_detail", kwargs={"thread_id": session.thread_id}) in content
+
+
+class TestClickThroughI18n:
+    """AC4: every new accounts-side click-through string is {% translate %}/{% blocktranslate %}-wrapped."""
+
+    def test_hero_new_strings_are_translated(self):
+        src = Path(get_template("accounts/_hero.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "counted — every merged change" %}' in src
+        assert '{% translate "how this is computed" %}' in src
+
+    def test_clickthrough_strings_are_translated(self):
+        src = Path(get_template("accounts/_clickthrough.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "What this counts" %}' in src
+        assert '{% translate "view run" %}' in src
+        assert "{% blocktranslate %}Changes shipped = merged MRs opened by DAIV" in src
+        # The MR out-link aria-label is a blocktranslate carrying the iid placeholder.
+        aria_tag = (
+            "{% blocktranslate with iid=row.merge_request_iid %}open MR !{{ iid }} on GitLab{% endblocktranslate %}"
+        )
+        assert aria_tag in src

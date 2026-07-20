@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-20 03:55-0500\n"
+"POT-Creation-Date: 2026-07-20 05:23-0500\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -82,6 +82,22 @@ msgstr "Introduza este código na janela do navegador para concluir a autentica�
 
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
+
+msgid "What this counts"
+msgstr "O que isto conta"
+
+msgid "Changes shipped = merged MRs opened by DAIV, counted from GitLab merges and attributed to you because each one links to one of your runs."
+msgstr "Alterações entregues = MRs integrados abertos pelo DAIV, contados a partir das integrações do GitLab e atribuídos a ti porque cada um está ligado a uma das tuas execuções."
+
+#, python-format
+msgid "open MR !%(iid)s on GitLab"
+msgstr "abrir MR !%(iid)s no GitLab"
+
+msgid "view run"
+msgstr "ver execução"
+
+msgid "No changes shipped in this range."
+msgstr "Sem alterações entregues neste intervalo."
 
 msgid "Throughput"
 msgstr "Entregas"
@@ -189,6 +205,12 @@ msgid "<span class=\"text-text-strong\">%(n)s</span> change shipped %(range_labe
 msgid_plural "<span class=\"text-text-strong\">%(n)s</span> changes shipped %(range_label)s"
 msgstr[0] "<span class=\"text-text-strong\">%(n)s</span> alteração entregue %(range_label)s"
 msgstr[1] "<span class=\"text-text-strong\">%(n)s</span> alterações entregues %(range_label)s"
+
+msgid "counted — every merged change"
+msgstr "contado — cada alteração integrada"
+
+msgid "how this is computed"
+msgstr "como isto é calculado"
 
 msgid "shipped since day one"
 msgstr "entregues desde o início"

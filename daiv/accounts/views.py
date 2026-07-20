@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
-from django.db.models import Avg, Count, DurationField, Exists, ExpressionWrapper, F, OuterRef, Q, Sum
+from django.db.models import Avg, Count, DurationField, Exists, ExpressionWrapper, F, OuterRef, Q, Subquery, Sum
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
@@ -151,6 +151,38 @@ def _shipped_metrics_for(user: User):
         merge_request_iid=OuterRef("merge_request_iid"),
     )
     return MergeMetric.objects.filter(Exists(daiv_user_runs))
+
+
+def _hero_breakdown_rows(shipped, user: User, cutoff_date: date | None) -> tuple[list, list]:
+    """Annotate the exact ``MergeMetric`` rows behind the Hero counts (AC1/AC5, read-only).
+
+    Derived from the SAME ``shipped`` base ``get_velocity_data`` aggregates, so the revealed list
+    can never diverge from the number (NFR1): a ``.count()`` and this ``.annotate()`` over one base
+    queryset return the identical set. Each row carries its native ``MergeMetric`` fields
+    (``repo_id`` / ``merge_request_iid`` / ``title`` / ``merged_at``) plus two annotation-only names
+    joined from the most-recent attributing ``Run`` in one of the USER's own sessions:
+
+    - ``web_url`` — the already-persisted ``Run.merge_request_web_url`` (no live client, AC6/AC11);
+      may be ``""`` (blank, best-effort) → the template degrades to the session link.
+    - ``thread_id`` — the representative session for the drill-through.
+
+    The correlation is the literal ``session__user=user`` scope — never ``by_owner`` / ``visible_to``
+    (which broaden to ``.all()`` for admins, AC7). The this-range list applies the IDENTICAL window
+    filter ``get_velocity_data`` uses (``merged_at__date__gte=cutoff_date`` when dated; unfiltered for
+    "all"), so it matches the headline count; the unfiltered list matches the odometer (AC8).
+    """
+    attributing_run = Run.objects.filter(
+        session__user=user, repo_id=OuterRef("repo_id"), merge_request_iid=OuterRef("merge_request_iid")
+    ).order_by("-created_at", "-pk")  # ``-pk`` is a deterministic tiebreak on a created_at collision
+    rows = shipped.annotate(
+        # Prefer an attributing run that actually PERSISTED a url: a blank best-effort url on the
+        # newest re-run must not hide a good url carried by an older run (AC11 degrades to the session
+        # link only when NO attributing run has one). ``thread_id`` (the session PK) is always present.
+        web_url=Subquery(attributing_run.exclude(merge_request_web_url="").values("merge_request_web_url")[:1]),
+        thread_id=Subquery(attributing_run.values("session__thread_id")[:1]),
+    ).order_by("-merged_at")
+    this_range_rows = rows.filter(merged_at__date__gte=cutoff_date) if cutoff_date is not None else rows
+    return list(this_range_rows), list(rows)
 
 
 def get_velocity_data(cutoff_date: date | None, queryset=None) -> dict | None:
@@ -388,12 +420,20 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             prev_count = shipped.filter(merged_at__date__gte=prev_start, merged_at__date__lt=cutoff_date).count()
             delta = this_count - prev_count
 
+        # Story 3.2 — attach the exact underlying rows behind each number, derived from the SAME
+        # ``shipped`` base with the identical window filter, so the click-through breakdown always
+        # reconciles with the count (``len(this_range_rows) == this_count``, ``len(all_time_rows) ==
+        # all_time`` by construction). Read-only annotate/list only — no live client (AC5/AC6/AC11).
+        this_range_rows, all_time_rows = _hero_breakdown_rows(shipped, user, cutoff_date)
+
         return {
             "this_range": {"total_merges": this_count},
             "period": period,
             "delta": delta,
             "all_time": all_time,
             "estimate": None,
+            "this_range_rows": this_range_rows,
+            "all_time_rows": all_time_rows,
         }
 
     def _get_feed_data(self, user: User) -> dict:
