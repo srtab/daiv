@@ -1039,12 +1039,25 @@ class TestConsoleReconcile:
         assert 'data-status="failed"' in content
 
     def test_reconciled_at_in_context_and_last_checked_rendered(self, member_client, member_user):
-        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
-        response = member_client.get(reverse("dashboard"))
+        # A live MR-state read actually occurs (an actionable MR run) → the render-time "last checked"
+        # stamp is honest and rendered alongside the attention list.
+        from codebase.base import MergeRequestState
+
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_iid=7)
+        with patch(_LIVE_READ, return_value=MergeRequestState.OPEN):
+            response = member_client.get(reverse("dashboard"))
         assert response.context["reconciled_at"] is not None
         content = response.content.decode()
         assert 'data-testid="feed-reconciled-meta"' in content
         assert "last checked" in content
+
+    def test_last_checked_omitted_when_no_live_read_occurs(self, member_client, member_user):
+        # Honest freshness (review P2 / NFR1): an all-clear-only feed triggers NO live MR read, so the
+        # console must NOT claim a "last checked" source-of-truth verification that never happened.
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        response = member_client.get(reverse("dashboard"))
+        assert response.context["reconciled_at"] is None
+        assert 'data-testid="feed-reconciled-meta"' not in response.content.decode()
 
     def test_last_checked_string_is_translated(self):
         src = Path(get_template("accounts/_feed.html").origin.name).read_text(encoding="utf-8")

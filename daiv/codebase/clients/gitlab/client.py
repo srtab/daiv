@@ -907,15 +907,18 @@ class GitLabClient(RepoClient):
 
         Maps GitLab's raw ``state`` (``opened`` / ``merged`` / ``closed`` / ``locked``) plus the
         ``work_in_progress`` flag (the same flag ``_serialize_merge_request`` maps to ``draft``) onto
-        the normalized :class:`MergeRequestState`: a ``locked`` MR is settled like ``closed``, and an
-        ``opened`` WIP MR is a ``DRAFT``. Raises ``GitlabError`` on API failure — the cached wrapper
-        in :mod:`codebase.mr_state` owns the fail-safe.
+        the normalized :class:`MergeRequestState`: ``locked`` is TRANSIENT (GitLab locks an MR while a
+        merge is being processed and reverts to ``opened`` if it fails), so it is NOT a confirmed
+        resolution — it maps to ``OPEN`` and the item stays visible until a confirmed ``merged`` /
+        ``closed`` (AC6, under-claim never over-claim). An ``opened`` WIP MR is a ``DRAFT``. Raises
+        ``GitlabError`` on API failure — the cached wrapper in :mod:`codebase.mr_state` owns the
+        fail-safe.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         mr = project.mergerequests.get(merge_request_id)
         if mr.state == "merged":
             return MergeRequestState.MERGED
-        if mr.state in ("closed", "locked"):
+        if mr.state == "closed":
             return MergeRequestState.CLOSED
         if mr.work_in_progress:
             return MergeRequestState.DRAFT

@@ -347,7 +347,10 @@ class TestGitLabClient:
         [
             ("merged", False, MergeRequestState.MERGED),
             ("closed", False, MergeRequestState.CLOSED),
-            ("locked", False, MergeRequestState.CLOSED),
+            # ``locked`` is transient (GitLab locks an MR mid-merge, reverting to ``opened`` if the
+            # merge fails), so it is kept OPEN — the item leaves only on a CONFIRMED merged/closed
+            # (AC6), never dropped on a lock.
+            ("locked", False, MergeRequestState.OPEN),
             ("opened", True, MergeRequestState.DRAFT),
             ("opened", False, MergeRequestState.OPEN),
             # A merged MR whose stale WIP flag is set is still MERGED (merged wins over draft).

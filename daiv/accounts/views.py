@@ -382,10 +382,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
         context["active_schedules"] = ScheduledJob.objects.filter(user=user, is_enabled=True).count()
-        context.update(self._get_feed_data(user))
-        # Reconciliation happens at render time (AD-6 live/cached read), so the "last checked" stamp
-        # is the request time. Read-only / presentation-only: passed into context, never stored.
-        context["reconciled_at"] = timezone.now()
+        feed = self._get_feed_data(user)
+        reconciled = feed.pop("feed_reconciled")
+        context.update(feed)
+        # Reconciliation happens at render time (AD-6 live/cached read). Only stamp "last checked"
+        # when a live MR-state read ACTUALLY occurred this render (>=1 actionable MR run) — a feed
+        # with nothing to reconcile must not claim a source-of-truth check that never happened
+        # (review P2 / NFR1). Read-only / presentation-only: passed into context, never stored.
+        context["reconciled_at"] = timezone.now() if reconciled else None
 
         return context
 
@@ -461,6 +465,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         items: list[dict] = []
         in_flight_ids: list[str] = []
         latest_finished = None
+        feed_reconciled = False
         for notification in notifications:
             run = runs_by_id.get(notification.source_id)
             if run is None:
@@ -473,6 +478,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             # NOT dropped; it stays as a quiet card, exactly as before. A read failure keeps the item
             # visible (AC6, fail-safe) since ``still_actionable`` then resolves to actionable.
             classification_actionable = envelope is None or envelope.is_actionable
+            # A live MR-state read is performed iff the run is (classification-)actionable AND
+            # references an MR (see reconcile.still_actionable). Track it so the view stamps
+            # "last checked" only when a real reconciliation happened this render (review P2 / NFR1).
+            if classification_actionable and run.merge_request_iid is not None:
+                feed_reconciled = True
             if classification_actionable and not still_actionable(run, envelope):
                 continue
             item = build_feed_item(run, notification, envelope=envelope)
@@ -511,6 +521,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "feed_in_flight_ids": ",".join(in_flight_ids),
             "feed_has_attention": has_attention,
             "feed_zero": zero,
+            "feed_reconciled": feed_reconciled,
         }
 
     @staticmethod

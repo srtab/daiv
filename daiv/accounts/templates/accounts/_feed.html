@@ -17,15 +17,17 @@ reuse ``sessionStream`` — it hard-codes ``#session-in-flight``.
         {% include "accounts/_feed_item.html" with item=item %}
       {% endfor %}
     </div>
+    {% comment %} Reconcile freshness (Story 3.3, AC8): rendered ONLY alongside the attention list and
+       ONLY when a live MR-state read actually happened this render (``reconciled_at`` is gated in the
+       view — review P2 / NFR1). This avoids both duplicating the zero-state's own "last checked" meta
+       (_feed_zero_state.html) and claiming a source-of-truth check that never occurred. Presentation-only.
+    {% endcomment %}
+    {% if reconciled_at %}
+      <p data-testid="feed-reconciled-meta" class="mt-3 font-mono text-[12px] tabular-nums text-text-faint">
+        {% blocktranslate with checked=reconciled_at|date:"H:i" %}last checked {{ checked }}{% endblocktranslate %}
+      </p>
+    {% endif %}
   {% else %}
     {% include "accounts/_feed_zero_state.html" with zero=feed_zero %}
-  {% endif %}
-  {% comment %} Reconcile freshness (Story 3.3, AC8): the console reconciles against live GitLab/GitHub MR
-     state at render time, so this "last checked" stamp is the render time. Presentation-only,
-     mirroring the zero-state audit meta (_feed_zero_state.html). {% endcomment %}
-  {% if reconciled_at %}
-    <p data-testid="feed-reconciled-meta" class="mt-3 font-mono text-[12px] tabular-nums text-text-faint">
-      {% blocktranslate with checked=reconciled_at|date:"H:i" %}last checked {{ checked }}{% endblocktranslate %}
-    </p>
   {% endif %}
 </div>
