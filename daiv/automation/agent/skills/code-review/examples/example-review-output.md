@@ -1,66 +1,10 @@
 # Code review — example output
 
-Three shapes exist: **interactive-mode markdown** (returned as the final assistant message when there's no MR to post to), **inline comment bodies** (one per inline finding, posted to a diff line in delivery mode), and the **summary discussion body** (one per review, posted as a top-level MR discussion).
-
-Every posted body in delivery mode **must start** with a `<!-- daiv-cr { ... } -->` marker carrying a JSON payload. It's invisible in the rendered view but parsed on the next review to dedup. The inline-marker `line` and `sha` fields are diagnostic; the dedup fingerprint is `(kind, archetype, file, anchor)` where `anchor` is the first 8 hex chars of `sha256` over the stripped target line, with a next-line disambiguator appended when the target is short or all-separators. See `references/marker-format.md` for the full schema, and `scripts/marker.py` for the canonical implementation.
-
-For a wider range of per-archetype examples across multiple languages, see `references/few-shot-examples.md`.
+Two delivery-mode shapes: **inline comment bodies** and the **summary discussion body** (one per review); interactive mode's protocol is in `review-workflow.md`. Every body starts with a `<!-- daiv-cr ... -->` marker (`references/marker-format.md`; `scripts/marker.py` canonical). More examples: `references/few-shot-examples.md`.
 
 ---
 
-## Interactive mode (returned as the final assistant message)
-
-```markdown
-## Findings
-
-### High
-
-**1. Recursive call drops the `is_provider` flag** — [billing/routing.go:64](https://example.org/repo/-/blob/feature-branch/billing/routing.go#L64)
-
-<details>
-<summary>Details</summary>
-
-`checkRouting(routing)` recursively calls itself without forwarding `isProvider`. Provider routing on chained transfers will always take the non-provider branch.
-
-```go
-c.checkRouting(routing, isProvider)
-```
-
-</details>
-
-### Medium
-
-**2. Re-implements `slugify()` instead of calling the shared helper** — [content/models.py:48](https://example.org/repo/-/blob/feature-branch/content/models.py#L48)
-
-<details>
-<summary>Details</summary>
-
-This inlines lowercasing, whitespace-to-dash, and stripping — exactly what `utils.text.slugify()` already does and what three sibling models call. Duplicating it means the slug rules drift the moment one copy changes.
-
-```python
-from utils.text import slugify
-
-slug = slugify(title)
-```
-
-</details>
-
-## Questions
-
-**3. Notification fires on every save, not only on creation?** — [orders/hooks.ts:118](https://example.org/repo/-/blob/feature-branch/orders/hooks.ts#L118)
-
-<details>
-<summary>Details</summary>
-
-The handler invokes `sendOrderConfirmation(order)` whenever `Order` is persisted. A subsequent admin edit will re-send the email. Is this intended, or should the trigger guard on a creation event?
-
-</details>
-
-```
-
----
-
-## Delivery mode — inline body (example A: `remove_dead_lines`, Python)
+## Inline body A: `remove_dead_lines` (Python)
 
 ````markdown
 <!-- daiv-cr {"v":1,"kind":"inline","archetype":"remove_dead_lines","file":"services/api.py","line":42,"anchor":"a1b2c3d4","sha":"abc1234"} -->
@@ -74,23 +18,9 @@ The handler invokes `sendOrderConfirmation(order)` whenever `Order` is persisted
 
 ---
 
-## Delivery mode — inline body (example B: `use_framework_idiom`, Go)
+## Inline body B: `question` (env file)
 
-````markdown
-<!-- daiv-cr {"v":1,"kind":"inline","archetype":"use_framework_idiom","file":"internal/cache/key.go","line":18,"anchor":"7f3c9d12","sha":"abc1234"} -->
-
-The standard library has `strings.Join` for this; the manual `+` loop is harder to read.
-
-```suggestion:-0+0
-return strings.Join(parts, ":")
-```
-````
-
----
-
-## Delivery mode — inline body (example C: `question`, env file)
-
-A targeted question — anchored on one new-side line, no `suggestion` block, just a concrete hypothesis the author can answer yes/no.
+A question anchored on one line — no `suggestion`, just a yes/no hypothesis.
 
 ````markdown
 <!-- daiv-cr {"v":1,"kind":"inline","archetype":"question","file":"env_files/all/grafana.env","line":9,"anchor":"b2c3d4e5","sha":"abc1234"} -->
@@ -100,9 +30,9 @@ The migration notes call for `fake|alloy` during cutover, but this default is `f
 
 ---
 
-## Delivery mode — inline body (example D: custom-rule, Python)
+## Inline body C: custom-rule (Python)
 
-A `custom-rules` finding cites the rule it enforces in the prose, so the author sees *why* it was flagged. It still uses one of the standard archetypes (here `question`) and goes through the same dedup + adjudication as built-in findings.
+A `custom-rules` finding cites the enforced rule; same archetype, dedup, adjudication as built-in findings.
 
 ````markdown
 <!-- daiv-cr {"v":1,"kind":"inline","archetype":"question","file":"payments/client.py","line":34,"anchor":"c4d5e6f7","sha":"abc1234"} -->
@@ -112,9 +42,9 @@ Per your `.agents/review-rules.md` ("every external call in `payments/` must set
 
 ---
 
-## Delivery mode — summary discussion body
+## Summary discussion body
 
-The summary collects every **discussion-only** finding plus a one-line index of the inline findings posted this run. On re-review, this body is updated in place — never appended (one summary note per MR). "Updated in place" replaces the *note*, not the *findings*: a delta-only re-review must carry forward still-valid prior discussion-only findings rather than drop the ones it didn't recheck (`references/gitlab-delivery.md` Step 6).
+The summary collects **discussion-only** findings plus a one-line inline-findings index, updated in place per MR (the *note*, not carried-forward *findings*) — delta-only re-reviews keep, not drop, unrechecked prior findings (`references/gitlab-delivery.md` Step 6).
 
 ````markdown
 <!-- daiv-cr {"v":1,"kind":"summary","sha":"abc1234"} -->
@@ -176,4 +106,4 @@ _5/5 detectors · 9 candidates · 2 merged → 3 inline, 4 in summary (rest refu
 
 ## What goes inline vs in the summary
 
-The bucketing rule — which findings ship as a `suggestion` block, which go inline as a `question`, which demote to the summary, and the demote-on-unreliable-position guard — is authoritative in `references/gitlab-delivery.md` Step 3. The bodies above show each resulting shape; consult Step 3 for the rule itself.
+Bucketing (inline vs summary, and the demote-on-unreliable-position guard) is authoritative in `references/gitlab-delivery.md` Step 3.
