@@ -134,7 +134,7 @@ def status_notes(*, candidates: int, dropped: int, merged: int, skipped: int, to
         notes.append(
             f"{merged} duplicate finding(s) collapsed across detectors (strongest bar kept) — note in the status line."
         )
-    if candidates == 0 and skipped == 0:
+    if candidates == 0 and skipped == 0 and dropped == 0:
         notes.append("All detectors returned empty findings — a legitimately empty review.")
     return notes
 

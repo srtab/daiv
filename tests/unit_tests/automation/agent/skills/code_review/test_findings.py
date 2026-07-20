@@ -351,6 +351,13 @@ class TestStatusNotes:
         notes = findings.status_notes(candidates=0, dropped=0, merged=0, skipped=1, total_files=5)
         assert not any("empty review" in n for n in notes)
 
+    def test_all_malformed_is_not_called_empty_review(self):
+        # Every finding failed schema validation (candidates==0, dropped>0): the run is NOT a
+        # legitimately empty review — the "dropped" note carries the real signal instead.
+        notes = findings.status_notes(candidates=0, dropped=2, merged=0, skipped=0, total_files=3)
+        assert not any("empty review" in n for n in notes)
+        assert any("schema" in n for n in notes)
+
     def test_notes_combine(self):
         notes = findings.status_notes(candidates=2, dropped=1, merged=1, skipped=1, total_files=5)
         assert len(notes) == 3
