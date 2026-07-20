@@ -44,6 +44,8 @@ This procedure decides only two things; the script does the rest:
   ```
   Keep all three: `inline_fingerprints` is Step 4's **dedup set**; `summary` tells Step 6 whether to update or create fresh, **and carries the prior body** for its carry-forward rule; `pending_replies` lists unresolved daiv threads (Step 2).
 
+  `parse-notes` also emits `last_reviewed_sha` (the summary marker's sha = the head at the previous review). The **review workflow's scope stage** reads it to bound detection to commits since that sha; delivery is unchanged — prior findings still carry forward here via `inline_fingerprints` (dedup) and the summary `body` (Step 6). A delta re-review therefore only ever *adds* markers for genuinely new findings; nothing previously posted is re-resolved or re-posted.
+
 ## Step 2 — Address pending replies
 
 For each discussion in `pending_replies`, decide the outcome from its conversation. Every thread is already open — `parse-notes` excludes resolved threads, so never re-check `resolved`. Skip threads whose only notes after daiv's last are `system: true` (e.g. a label change).

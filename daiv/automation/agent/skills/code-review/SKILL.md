@@ -28,6 +28,7 @@ This skill runs in two phases. The **review workflow** finds and verifies high-s
 - **Never compute markers or anchors by hand.** `scripts/marker.py` is the only source of markers, anchors, and note parsing; hand-rolling them silently breaks dedup across reruns.
 - **In delivery mode the posted comments are the deliverable.** Do not also return the review markdown after a successful post.
 - **Never re-invoke the `skill` tool to restart the review.** On a tool failure, switch to an alternative and continue — each phase reference lists its fallbacks.
+- **Delta re-reviews are the default in delivery mode.** A re-review scopes detection to commits since the last review (`review-workflow.md`, scope stage). When the user asks for a full re-scan — e.g. `@daiv /code-review --full`, "review the whole MR again", or after a rebase/force-push — review the full `<target>...<head>` range instead.
 
 ## References
 
