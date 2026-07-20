@@ -19,7 +19,7 @@ from django.utils import timezone
 import pytest
 from notifications.choices import EventType
 from notifications.models import Notification
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 
 from accounts.models import Role
 from accounts.views import get_velocity_data
@@ -954,3 +954,116 @@ class TestClickThroughI18n:
             "{% blocktranslate with iid=row.merge_request_iid %}open MR !{{ iid }} on GitLab{% endblocktranslate %}"
         )
         assert aria_tag in src
+
+
+# ---------------------------------------------------------------------------
+# Story 3.3 — reconcile with source of truth (live MR read + freshness stamp)
+# ---------------------------------------------------------------------------
+
+_LIVE_READ = "codebase.mr_state.get_merge_request_state"
+
+
+def _make_scheduled_feed_run(user, *, envelope_status, merge_request_iid=None, repo_id="daiv/test"):
+    """A scheduled RUN_FEED run (+ envelope + notification) for ``user``, optionally MR-referencing."""
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id=repo_id, user=user
+    )
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.SCHEDULE,
+        repo_id=repo_id,
+        status=RunStatus.SUCCESSFUL,
+        user=user,
+        merge_request_iid=merge_request_iid,
+        finished_at=timezone.now(),
+    )
+    RunEnvelope.objects.create(run=run, status=envelope_status)
+    Notification.objects.create(
+        recipient=user,
+        event_type=EventType.RUN_FEED,
+        source_type="sessions.Run",
+        source_id=str(run.pk),
+        subject="nightly",
+        body="",
+        link_url=reverse("session_detail", kwargs={"thread_id": session.thread_id}),
+    )
+    return run
+
+
+@pytest.mark.django_db
+class TestConsoleReconcile:
+    """AC4/AC5/AC8 — the console reflects live MR state and stamps a freshness time."""
+
+    def test_externally_merged_run_leaves_the_feed(self, member_client, member_user):
+        from codebase.base import MergeRequestState
+
+        # A lone needs-attention run whose MR merged externally must drop out — the "nothing needs
+        # you." seal resolves instead of an awaiting item.
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_iid=7)
+        with patch(_LIVE_READ, return_value=MergeRequestState.MERGED):
+            response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.status_code == 200
+        assert 'data-status="needs-attention"' not in content
+        assert 'data-testid="feed-zero-state"' in content
+
+    def test_open_mr_run_still_shows_as_awaiting(self, member_client, member_user):
+        from codebase.base import MergeRequestState
+
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_iid=7)
+        with patch(_LIVE_READ, return_value=MergeRequestState.OPEN):
+            response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-status="needs-attention"' in content
+
+    def test_read_failure_keeps_the_run_visible(self, member_client, member_user):
+        # The wrapper resolves a failed read to OPEN → the item stays (AC6, fail-safe).
+        from codebase.base import MergeRequestState
+
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_iid=7)
+        with patch(_LIVE_READ, return_value=MergeRequestState.OPEN):
+            response = member_client.get(reverse("dashboard"))
+        assert 'data-status="needs-attention"' in response.content.decode()
+
+    def test_all_clear_stays_a_quiet_card_in_a_mixed_feed(self, member_client, member_user):
+        # An all-clear run is NOT dropped by reconciliation — only externally-resolved actionable
+        # runs leave. A mixed feed keeps the quiet all-clear card.
+        from codebase.base import MergeRequestState
+
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.FAILED)
+        with patch(_LIVE_READ, return_value=MergeRequestState.OPEN):
+            response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-status="all-clear"' in content
+        assert 'data-status="failed"' in content
+
+    def test_reconciled_at_in_context_and_last_checked_rendered(self, member_client, member_user):
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        response = member_client.get(reverse("dashboard"))
+        assert response.context["reconciled_at"] is not None
+        content = response.content.decode()
+        assert 'data-testid="feed-reconciled-meta"' in content
+        assert "last checked" in content
+
+    def test_last_checked_string_is_translated(self):
+        src = Path(get_template("accounts/_feed.html").origin.name).read_text(encoding="utf-8")
+        assert '{% blocktranslate with checked=reconciled_at|date:"H:i" %}last checked {{ checked }}' in src
+
+    def test_render_performs_no_writes(self, member_client, member_user):
+        from codebase.base import MergeRequestState
+
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_iid=7)
+        before = (MergeMetric.objects.count(), Run.objects.count(), RunEnvelope.objects.count())
+        with patch(_LIVE_READ, return_value=MergeRequestState.MERGED):
+            member_client.get(reverse("dashboard"))
+        after = (MergeMetric.objects.count(), Run.objects.count(), RunEnvelope.objects.count())
+        assert before == after
+
+    def test_no_client_instantiated_for_non_mr_feed(self, member_client, member_user):
+        # A feed of runs with no MR reference must not reach the live read at all.
+        _make_scheduled_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_iid=None)
+        with patch(_LIVE_READ) as read:
+            response = member_client.get(reverse("dashboard"))
+        assert response.status_code == 200
+        read.assert_not_called()

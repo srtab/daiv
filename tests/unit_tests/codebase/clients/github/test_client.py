@@ -6,7 +6,7 @@ from github.GithubException import GithubException
 from github.IssueComment import IssueComment
 from github.PullRequestComment import PullRequestComment
 
-from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
+from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestState, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.github.client import GitHubClient
 
@@ -423,6 +423,38 @@ class TestGitHubClient:
         assert result.web_url == "https://github.com/o/r/pull/7"
         assert result.labels == ["enhancement"]
         mock_repo.get_pulls.assert_called_once_with(state="open", base="main", head="feat-x")
+
+    @pytest.mark.parametrize(
+        ("merged", "state", "draft", "expected"),
+        [
+            (True, "closed", False, MergeRequestState.MERGED),
+            # A merged PR reports state == "closed"; the ``merged`` boolean wins.
+            (True, "open", False, MergeRequestState.MERGED),
+            (False, "closed", False, MergeRequestState.CLOSED),
+            (False, "open", True, MergeRequestState.DRAFT),
+            (False, "open", False, MergeRequestState.OPEN),
+        ],
+    )
+    def test_get_merge_request_state_maps_platform_state(self, github_client, merged, state, draft, expected):
+        mock_repo = Mock()
+        mock_pr = Mock()
+        mock_pr.merged = merged
+        mock_pr.state = state
+        mock_pr.draft = draft
+        mock_repo.get_pull.return_value = mock_pr
+        github_client.client.get_repo.return_value = mock_repo
+
+        assert github_client.get_merge_request_state("owner/repo", 7) == expected
+        mock_repo.get_pull.assert_called_once_with(7)
+
+    def test_get_merge_request_state_propagates_github_exception(self, github_client):
+        """Providers RAISE their native error — the cached wrapper owns the fail-safe, not the client."""
+        mock_repo = Mock()
+        mock_repo.get_pull.side_effect = GithubException(500, {}, {})
+        github_client.client.get_repo.return_value = mock_repo
+
+        with pytest.raises(GithubException):
+            github_client.get_merge_request_state("owner/repo", 7)
 
     def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
         mock_repo = Mock()

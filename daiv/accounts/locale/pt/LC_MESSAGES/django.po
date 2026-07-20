@@ -170,6 +170,10 @@ msgstr[1] "%(counter)s execuções sem problemas"
 msgid "next sweep %(sweep)s"
 msgstr "próxima verificação %(sweep)s"
 
+#, python-format
+msgid "last checked %(checked)s"
+msgstr "última verificação %(checked)s"
+
 msgid "No scheduled runs yet."
 msgstr "Ainda não há execuções agendadas."
 

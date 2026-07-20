@@ -20,6 +20,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    MergeRequestState,
     Note,
     NoteableType,
     NoteDiffPosition,
@@ -754,6 +755,24 @@ class GitHubClient(RepoClient):
             sha=mr.head.sha,
             author=User(id=mr.user.id, username=mr.user.login, name=mr.user.name),
         )
+
+    def get_merge_request_state(self, repo_id: str, merge_request_id: int) -> MergeRequestState:
+        """Read the live lifecycle state of a pull request (AC1, AC5).
+
+        GitHub layers ``merged`` / ``draft`` booleans on top of ``state ∈ {open, closed}``: a merged
+        PR is ``MERGED``; a non-merged closed PR is ``CLOSED``; an open draft is ``DRAFT``; else
+        ``OPEN``. Raises ``GithubException`` on API failure — the cached wrapper in
+        :mod:`codebase.mr_state` owns the fail-safe.
+        """
+        repo = self.client.get_repo(repo_id, lazy=True)
+        pr = repo.get_pull(merge_request_id)
+        if pr.merged:
+            return MergeRequestState.MERGED
+        if pr.state == "closed":
+            return MergeRequestState.CLOSED
+        if pr.draft:
+            return MergeRequestState.DRAFT
+        return MergeRequestState.OPEN
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """

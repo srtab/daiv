@@ -20,6 +20,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    MergeRequestState,
     RepoAccessLevel,
     RepoMember,
     Repository,
@@ -417,6 +418,24 @@ class RepoClient(abc.ABC):
 
     @abc.abstractmethod
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
+        pass
+
+    @abc.abstractmethod
+    def get_merge_request_state(self, repo_id: str, merge_request_id: int) -> MergeRequestState:
+        """Read the live lifecycle state (open / merged / closed / draft) of a merge/pull request.
+
+        Presentation-only trust-baseline read (AC1): returns the current platform state so the
+        console can reconcile against source of truth at render time. Providers RAISE their native
+        API error on failure (``GitlabError`` / ``GithubException``); the cached wrapper in
+        :mod:`codebase.mr_state` owns the fail-safe (AC6), not this method.
+
+        Args:
+            repo_id: The repository ID.
+            merge_request_id: The merge request IID (GitLab) or pull request number (GitHub).
+
+        Returns:
+            The live :class:`~codebase.base.MergeRequestState`.
+        """
         pass
 
     @abc.abstractmethod

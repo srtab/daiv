@@ -211,6 +211,13 @@ class TestSWERepoClient:
         assert user.username == "swe-bench"
         assert user.name == "SWE Bench"
 
+    def test_get_merge_request_state_returns_open(self, swe_client):
+        """SWE has no live MR lifecycle: report OPEN (unresolved → keep visible) rather than raise,
+        so AC6's fail-safe stays intact without the wrapper logging on every reconcile."""
+        from codebase.base import MergeRequestState
+
+        assert swe_client.get_merge_request_state("psf/requests", 1) == MergeRequestState.OPEN
+
     def test_unsupported_methods_raise_not_implemented(self, swe_client):
         """Test that unsupported methods raise NotImplementedError."""
         unsupported_methods = [

@@ -9,6 +9,7 @@ from django.db.models import Avg, Count, DurationField, Exists, ExpressionWrappe
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.timezone import localdate
 from django.views import View
@@ -19,6 +20,7 @@ from django_filters.views import FilterView
 from notifications.choices import EventType
 from notifications.models import Notification
 from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, SessionOrigin
+from sessions.reconcile import still_actionable
 
 from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
@@ -381,6 +383,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context["current_period"] = period
         context["active_schedules"] = ScheduledJob.objects.filter(user=user, is_enabled=True).count()
         context.update(self._get_feed_data(user))
+        # Reconciliation happens at render time (AD-6 live/cached read), so the "last checked" stamp
+        # is the request time. Read-only / presentation-only: passed into context, never stored.
+        context["reconciled_at"] = timezone.now()
 
         return context
 
@@ -461,7 +466,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             if run is None:
                 # The run was deleted out from under a stale Feed row; skip it rather than 500.
                 continue
-            item = build_feed_item(run, notification, envelope=envelopes_by_run.get(str(run.id)))
+            envelope = envelopes_by_run.get(str(run.id))
+            # Reconcile against live MR state (Story 3.3, AC4/AC5). A run that WAS actionable but
+            # whose MR resolved externally (merged/closed) leaves the surface — it no longer counts
+            # toward attention nor renders as awaiting. An ``all-clear`` run (never actionable) is
+            # NOT dropped; it stays as a quiet card, exactly as before. A read failure keeps the item
+            # visible (AC6, fail-safe) since ``still_actionable`` then resolves to actionable.
+            classification_actionable = envelope is None or envelope.is_actionable
+            if classification_actionable and not still_actionable(run, envelope):
+                continue
+            item = build_feed_item(run, notification, envelope=envelope)
             items.append(item)
             if item["status_slug"] == "classifying":
                 in_flight_ids.append(str(run.id))
@@ -503,20 +517,21 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def _feed_attention_summary(feed_qs) -> tuple[bool, int]:
         """Return ``(has_attention, all_clear_count)`` over the FULL feed set.
 
-        ``has_attention`` is True when any feed run is classifying (no envelope yet) or has a
-        non-all-clear envelope. Called only when the rendered page is entirely all-clear, to avoid a
-        false zero-state seal that would hide a finding paged past ``FEED_PAGE_SIZE`` and to count
-        all-clear runs across the whole feed (not just the page).
+        ``has_attention`` routes every existing feed run through the shared ``still_actionable``
+        predicate (Story 3.3, AC2) — a classifying run, a non-all-clear envelope, or an open/unknown
+        live MR read all mean attention; an all-clear envelope or an externally-resolved MR does not
+        — so the zero-state seal decision can never diverge from the badge or the per-item render.
+        Called only when the rendered page is entirely quiet, to avoid a false seal that would hide a
+        finding paged past ``FEED_PAGE_SIZE`` and to count all-clear runs across the whole feed.
         """
         run_ids = list(feed_qs.values_list("source_id", flat=True))
         if not run_ids:
             return False, 0
-        statuses = list(RunEnvelope.objects.filter(run_id__in=run_ids).values_list("status", flat=True))
-        all_clear_count = sum(1 for status in statuses if status == EnvelopeStatus.ALL_CLEAR)
-        # Fewer envelopes than feed runs ⇒ at least one run is still classifying (no envelope) — don't seal.
-        classifying = len(statuses) < len(run_ids)
-        has_non_all_clear = any(status != EnvelopeStatus.ALL_CLEAR for status in statuses)
-        return (classifying or has_non_all_clear), all_clear_count
+        runs_by_id = Run.objects.filter(pk__in=run_ids).in_bulk()
+        envelopes_by_run = {str(env.run_id): env for env in RunEnvelope.objects.filter(run_id__in=run_ids)}
+        all_clear_count = sum(1 for env in envelopes_by_run.values() if env.status == EnvelopeStatus.ALL_CLEAR)
+        has_attention = any(still_actionable(run, envelopes_by_run.get(str(run.id))) for run in runs_by_id.values())
+        return has_attention, all_clear_count
 
     @staticmethod
     def _next_sweep(user: User):

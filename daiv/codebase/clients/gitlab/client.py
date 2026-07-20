@@ -23,6 +23,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    MergeRequestState,
     Note,
     NoteDiffPosition,
     NotePosition,
@@ -900,6 +901,25 @@ class GitLabClient(RepoClient):
             sha=mr.sha,
             author=User(id=mr.author.get("id"), username=mr.author.get("username"), name=mr.author.get("name")),
         )
+
+    def get_merge_request_state(self, repo_id: str, merge_request_id: int) -> MergeRequestState:
+        """Read the live lifecycle state of a merge request (AC1, AC5).
+
+        Maps GitLab's raw ``state`` (``opened`` / ``merged`` / ``closed`` / ``locked``) plus the
+        ``work_in_progress`` flag (the same flag ``_serialize_merge_request`` maps to ``draft``) onto
+        the normalized :class:`MergeRequestState`: a ``locked`` MR is settled like ``closed``, and an
+        ``opened`` WIP MR is a ``DRAFT``. Raises ``GitlabError`` on API failure — the cached wrapper
+        in :mod:`codebase.mr_state` owns the fail-safe.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        mr = project.mergerequests.get(merge_request_id)
+        if mr.state == "merged":
+            return MergeRequestState.MERGED
+        if mr.state in ("closed", "locked"):
+            return MergeRequestState.CLOSED
+        if mr.work_in_progress:
+            return MergeRequestState.DRAFT
+        return MergeRequestState.OPEN
 
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:
         """
