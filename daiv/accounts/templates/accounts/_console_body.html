@@ -8,20 +8,19 @@ Each region is marked aria-busy while its content is pending; the decorative
 shimmer skeletons are aria-hidden so assistive tech is not read empty rows.
 {% endcomment %}
 <div class="flex flex-col gap-5">
-  {# ── Hero ─────────────────────────────────────────────────────────────── #}
-  <section data-testid="console-hero" aria-labelledby="console-hero-heading" aria-busy="true"
+  {# ── Hero (Story 3.1) ─────────────────────────────────────────────────── #}
+  {# Range-agnostic section heading: the active range is carried honestly by the Hero headline
+     itself ("… this week"), so this label can never contradict the selected range. #}
+  <section data-testid="console-hero" aria-labelledby="console-hero-heading"
            class="rounded-xl border border-border bg-surface-2 p-[22px]">
     <header class="mb-4 flex items-center gap-2">
       <span class="h-1.5 w-1.5 rounded-full bg-status-clear"></span>
       <h2 id="console-hero-heading"
           class="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
-        {% translate "Today" %}
+        {% translate "Throughput" %}
       </h2>
     </header>
-    <div class="space-y-3" aria-hidden="true">
-      <div class="skeleton h-9 w-2/3 rounded-md"></div>
-      <div class="skeleton h-4 w-2/5 rounded-md"></div>
-    </div>
+    {% include "accounts/_hero.html" %}
   </section>
 
   {# ── Needs-me queue ───────────────────────────────────────────────────── #}

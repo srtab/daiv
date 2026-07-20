@@ -1,0 +1,107 @@
+{% load i18n icon_tags %}
+{% comment %}
+Personal Throughput Hero body (Story 3.1) — the live, personal, server-rendered replacement for
+the 2.1 ``console-hero`` skeleton. Rendered INSIDE the ``console-hero`` section card in
+``_console_body.html`` (flat surface-2, hairline border), so this partial carries no card chrome
+of its own. Four honest parts on the 2.1 token layer:
+
+  1. This-range headline fact — "N changes shipped this week" in display mono/tabular; the NUMBER is
+     the single text-text-strong at display size, so a fact reads solid/white and can't be mistaken
+     for the demoted estimate.
+  2. ``vs last`` delta chip — this-range minus the preceding equal-length window; green/red/muted;
+     hidden for the "all time" range (no prior window). Wrapped with the headline in a polite
+     aria-live region so a range change announces the new value.
+  3. All-time odometer — range-invariant, mono, entering via the CSS-only ``.animate-number``
+     (auto-neutralised under prefers-reduced-motion by the global kill-switch in input.css — no JS).
+  4. Copyable Slack one-liner — mono, in a ``ground`` inset inside its OWN overflow-x-auto container
+     so a long line never scrolls the body; copied via the existing Alpine clipboard idiom (no new JS).
+
+The demoted estimate slot is OMITTED in v1 (D1: no defensible dev-hours field), rendered only
+``{% if hero.estimate %}`` — the markup + demotion styling are retained so a later story enables it
+by supplying a value. When ``hero`` is falsy (nothing shipped all-time) we render an honest empty
+line, never a ``0`` dressed as a headline fact (AC13).
+{% endcomment %}
+{% if hero %}
+{# Range-adaptive labels — externalised here (not in the view) so the i18n source lives with the markup. #}
+{% if hero.period == "today" %}{% translate "today" as range_label %}{% translate "vs yesterday" as delta_label %}
+{% elif hero.period == "7d" %}{% translate "this week" as range_label %}{% translate "vs last week" as delta_label %}
+{% elif hero.period == "30d" %}{% translate "in the last 30 days" as range_label %}{% translate "vs last 30 days" as delta_label %}
+{% elif hero.period == "90d" %}{% translate "in the last 90 days" as range_label %}{% translate "vs last 90 days" as delta_label %}
+{% else %}{% translate "all time" as range_label %}{% endif %}
+
+<div class="flex flex-col gap-4">
+  {# ── This-range headline + delta (announced politely on a range change) ── #}
+  <div role="status" aria-live="polite">
+    <p data-testid="hero-headline"
+       class="font-mono text-[34px] font-bold leading-[1.02] tracking-[-0.02em] tabular-nums text-text">
+      {% blocktranslate count n=hero.this_range.total_merges %}<span class="text-text-strong">{{ n }}</span> change shipped {{ range_label }}{% plural %}<span class="text-text-strong">{{ n }}</span> changes shipped {{ range_label }}{% endblocktranslate %}
+    </p>
+    {% if hero.delta is not None %}
+    <p data-testid="hero-delta"
+       class="mt-1.5 font-mono text-[13px] font-semibold tabular-nums {% if hero.delta > 0 %}text-status-clear{% elif hero.delta < 0 %}text-status-fail{% else %}text-text-faint{% endif %}">
+      {% if hero.delta > 0 %}+{{ hero.delta }}{% elif hero.delta < 0 %}{{ hero.delta }}{% else %}0{% endif %} {{ delta_label }}
+    </p>
+    {% endif %}
+  </div>
+
+  {# ── All-time odometer (range-invariant) ─────────────────────────────── #}
+  <p data-testid="hero-odometer" class="font-mono text-[15px] tabular-nums text-text">
+    <span class="animate-number inline-block font-semibold text-text">{{ hero.all_time }}</span>
+    <span class="text-text-muted">{% translate "shipped since day one" %}</span>
+  </p>
+
+  {# ── Demoted estimate (D1: OMITTED in v1 — falsy ``estimate`` renders nothing) ── #}
+  {% if hero.estimate %}
+  <p data-testid="hero-estimate" class="text-[13px]">
+    <span class="italic text-text-faint underline decoration-dotted decoration-text-muted/60"
+          style="text-underline-offset: 3px;">{% blocktranslate with n=hero.estimate %}~{{ n }} dev-hours saved{% endblocktranslate %}</span>
+    <span class="ml-1 font-mono text-[11px] uppercase tracking-[0.08em] text-text-faint">{% translate "est." %}</span>
+  </p>
+  {% endif %}
+
+  {# ── Copyable Slack one-liner (own overflow-x-auto container; Alpine clipboard, no new JS) ── #}
+  {% blocktranslate asvar slack_line with n=hero.this_range.total_merges range=range_label total=hero.all_time %}DAIV shipped {{ n }} changes {{ range }} ({{ total }} all-time){% endblocktranslate %}
+  {{ slack_line|json_script:"hero-slack-line" }}
+  <div class="flex flex-wrap items-center gap-2">
+    <div data-testid="hero-slack"
+         class="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-ground px-3 py-2">
+      <code class="whitespace-nowrap font-mono text-[12px] tabular-nums text-text-muted">{{ slack_line }}</code>
+    </div>
+    <button type="button" data-testid="hero-copy"
+            data-label="{% translate 'Copy' %}"
+            x-data="{
+                copied: false,
+                failed: false,
+                async copy() {
+                    const el = document.getElementById('hero-slack-line');
+                    if (!el) return;
+                    try {
+                        await navigator.clipboard.writeText(JSON.parse(el.textContent));
+                        this.copied = true;
+                        setTimeout(() => this.copied = false, 2000);
+                    } catch (e) {
+                        console.error('Clipboard write failed', e);
+                        this.failed = true;
+                        setTimeout(() => this.failed = false, 2000);
+                    }
+                }
+            }"
+            @click="copy()"
+            :aria-label="copied ? '{% translate 'Copied to clipboard' %}' : (failed ? '{% translate 'Copy failed' %}' : '{% translate 'Copy Slack summary' %}')"
+            class="btn-secondary min-h-[44px] gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors md:min-h-0"
+            :class="copied ? '!border-emerald-800/50 !bg-emerald-900/20 !text-emerald-300'
+                           : (failed ? '!border-red-800/50 !bg-red-950/30 !text-red-300' : '')">
+      <span class="inline-flex" x-show="!copied && !failed">{% icon "clipboard-document" "h-4 w-4" %}</span>
+      <span class="inline-flex" x-show="copied" x-cloak>{% icon "check" "h-4 w-4" %}</span>
+      <span class="inline-flex" x-show="failed" x-cloak>{% icon "exclamation-triangle" "h-4 w-4" %}</span>
+      <span x-text="copied ? '{% translate 'Copied' %}' : (failed ? '{% translate 'Copy failed' %}' : '{% translate 'Copy' %}')">{% translate "Copy" %}</span>
+    </button>
+  </div>
+</div>
+{% else %}
+{# Honest empty state (AC13): nothing shipped all-time — a quiet onboarding line, never a fake 0. #}
+<div data-testid="hero-empty" class="flex flex-col gap-1.5">
+  <p class="font-mono text-[15px] tabular-nums text-text-muted">{% translate "No changes shipped yet" %}</p>
+  <p class="text-[13px] text-text-faint">{% translate "Your throughput appears here once DAIV merges its first change." %}</p>
+</div>
+{% endif %}

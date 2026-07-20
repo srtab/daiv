@@ -6,17 +6,20 @@ The console ships as a structural/visual substrate only — no region data, no
 job-creation launcher in the console content.
 """
 
+import uuid
 from datetime import timedelta
 from pathlib import Path
 
-from django.template.loader import get_template
+from django.template.loader import get_template, render_to_string
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import Role
+from accounts.views import get_velocity_data
 from codebase.models import MergeMetric, PlatformType
 
 # Repo root: tests/unit_tests/accounts/ -> parents[3].
@@ -395,3 +398,270 @@ class TestManagerLensI18n:
         assert '{% translate "MRs involving DAIV" %}' in src
         # The cold-load aria-busy label (single-quoted inside the double-quoted attribute).
         assert "{% translate 'Computing org impact…' %}" in src
+
+
+# ---------------------------------------------------------------------------
+# Story 3.1 — The personal Throughput Hero + wired range switcher
+# ---------------------------------------------------------------------------
+
+# ``merged_at`` is *now* in ``_make_merge_metric``; distinct ``iid`` keeps the
+# (repo_id, merge_request_iid, platform) uniqueness happy. The Hero counts a merge only when a
+# ``Run`` in one of the USER's own sessions shares its (repo_id, merge_request_iid) — the value-based
+# ``MergeMetric ⋈ Run`` attribution join. This helper builds that owning Session+Run inline (no
+# factory exists), mirroring how ``_make_merge_metric`` builds the MergeMetric directly.
+
+
+def _make_shipping_run(user, *, iid, repo_id="daiv/test"):
+    """Create a Session owned by ``user`` + a Run sharing ``(repo_id, iid)`` — the DAIV-opened,
+    by-this-user attribution the Hero join asserts. Pairs with a ``_make_merge_metric(iid=iid)``."""
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MR_WEBHOOK, repo_id=repo_id, user=user
+    )
+    return Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.MR_WEBHOOK,
+        status=RunStatus.SUCCESSFUL,
+        repo_id=repo_id,
+        merge_request_iid=iid,
+    )
+
+
+@pytest.mark.django_db
+class TestHeroCountAndAttribution:
+    """AC2/AC3: 'changes shipped' = merged MRs opened by DAIV for THIS user (MergeMetric ⋈ Run)."""
+
+    def test_counts_only_merges_with_a_matching_user_run(self, member_client, member_user):
+        # iid=1 → member's own run (counted); iid=2 → human MR, no run (excluded).
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1)
+        _make_merge_metric(iid=2)  # no run → human-authored → excluded
+
+        response = member_client.get(reverse("dashboard"))
+        assert response.status_code == 200
+        hero = response.context["hero"]
+        assert hero is not None
+        assert hero["all_time"] == 1
+        assert hero["this_range"]["total_merges"] == 1
+        assert b'data-testid="hero-headline"' in response.content
+
+    def test_another_users_merge_is_excluded(self, member_client, member_user, admin_user):
+        # A merge matched only by ANOTHER user's run must not count for member.
+        _make_merge_metric(iid=3)
+        _make_shipping_run(admin_user, iid=3)
+
+        response = member_client.get(reverse("dashboard"))
+        # member has zero matched merges → honest empty state, not a 0-headline.
+        assert response.context["hero"] is None
+        assert b'data-testid="hero-empty"' in response.content
+
+
+@pytest.mark.django_db
+class TestHeroAdminPersonalScope:
+    """AC10: the admin Hero counts only the admin's OWN merges — never the by_owner/.all() short-circuit."""
+
+    def test_admin_hero_is_personal_not_org_wide(self, admin_client, admin_user, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(admin_user, iid=1)  # admin's own → counted
+        _make_merge_metric(iid=2)
+        _make_shipping_run(member_user, iid=2)  # another user's → excluded for admin
+        _make_merge_metric(iid=3)  # human MR, no run → excluded
+
+        response = admin_client.get(reverse("dashboard"))
+        hero = response.context["hero"]
+        assert hero is not None
+        # Personal scope: only the admin's own 1 merge, NOT the org-wide 3 (or 2).
+        assert hero["all_time"] == 1
+
+    def test_personal_by_default_still_holds_with_hero(self, admin_client, admin_user):
+        # AC10 belt-and-braces: even with a live personal Hero, the default carries no org content.
+        _make_merge_metric(iid=1)
+        _make_shipping_run(admin_user, iid=1)
+        response = admin_client.get(reverse("dashboard"))
+        assert "velocity" not in response.context
+        assert "total_users" not in response.context
+        assert b'data-testid="manager-lens"' not in response.content
+
+
+@pytest.mark.django_db
+class TestHeroRangeScopingAndDelta:
+    """AC1/AC6 + D3/D4: range scopes the headline, delta vs the prior equal window, hidden for 'all'."""
+
+    def _seed_windows(self, user):
+        # this-week ×2 (now), prev-window ×1 (10d ago), older ×1 (40d ago); all owned by ``user``.
+        for iid in (1, 2, 3, 4):
+            _make_merge_metric(iid=iid)
+            _make_shipping_run(user, iid=iid)
+        MergeMetric.objects.filter(merge_request_iid=3).update(merged_at=timezone.now() - timedelta(days=10))
+        MergeMetric.objects.filter(merge_request_iid=4).update(merged_at=timezone.now() - timedelta(days=40))
+
+    def test_default_view_resolves_to_7d_this_week_with_delta(self, member_client, member_user):
+        self._seed_windows(member_user)
+        response = member_client.get(reverse("dashboard"))  # no ?period= → D4 default
+        assert response.context["current_period"] == "7d"
+        hero = response.context["hero"]
+        assert hero["this_range"]["total_merges"] == 2  # the two this-week merges
+        assert hero["delta"] == 1  # 2 this week − 1 in the preceding 7-day window
+        assert hero["all_time"] == 4
+        assert b"this week" in response.content
+        assert b'data-testid="hero-delta"' in response.content
+
+    def test_30d_range_label_and_scope(self, member_client, member_user):
+        self._seed_windows(member_user)
+        response = member_client.get(reverse("dashboard"), {"period": "30d"})
+        hero = response.context["hero"]
+        assert hero["this_range"]["total_merges"] == 3  # excludes the 40-day-old merge
+        assert b"in the last 30 days" in response.content
+
+    def test_all_time_range_has_no_delta_chip(self, member_client, member_user):
+        self._seed_windows(member_user)
+        response = member_client.get(reverse("dashboard"), {"period": "all"})
+        hero = response.context["hero"]
+        assert hero["this_range"]["total_merges"] == 4  # every merge
+        assert hero["delta"] is None
+        assert b'data-testid="hero-delta"' not in response.content
+
+    def test_htmx_fragment_rescopes_hero(self, member_client, member_user):
+        self._seed_windows(member_user)
+        response = member_client.get(reverse("dashboard"), {"period": "all"}, HTTP_HX_REQUEST="true")
+        assert response.status_code == 200
+        assert b'data-testid="hero-headline"' in response.content
+        assert b'data-testid="app-sidebar"' not in response.content  # fragment, not the shell
+        assert response.context["hero"]["this_range"]["total_merges"] == 4
+
+
+@pytest.mark.django_db
+class TestHeroOdometerInvariance:
+    """AC1: the all-time odometer is invariant to the selected range."""
+
+    def test_all_time_identical_across_ranges(self, member_client, member_user):
+        for iid in (1, 2, 3):
+            _make_merge_metric(iid=iid)
+            _make_shipping_run(member_user, iid=iid)
+        MergeMetric.objects.filter(merge_request_iid=3).update(merged_at=timezone.now() - timedelta(days=40))
+
+        seven = member_client.get(reverse("dashboard"), {"period": "7d"}).context["hero"]["all_time"]
+        thirty = member_client.get(reverse("dashboard"), {"period": "30d"}).context["hero"]["all_time"]
+        assert seven == thirty == 3
+
+
+@pytest.mark.django_db
+class TestHeroDefaultPeriod:
+    """D4: the personal console default period is now '7d' (was 'today')."""
+
+    def test_default_period_is_7d(self, member_client):
+        response = member_client.get(reverse("dashboard"))
+        assert response.context["current_period"] == "7d"
+
+
+class TestHeroEstimateDemotion:
+    """AC4/D1: no estimate line in v1; a truthy estimate renders demoted (never fact-styled)."""
+
+    def _render(self, *, estimate):
+        hero = {"this_range": {"total_merges": 5}, "period": "7d", "delta": 1, "all_time": 100, "estimate": estimate}
+        return render_to_string("accounts/_hero.html", {"hero": hero})
+
+    def test_v1_estimate_none_renders_no_estimate_line(self):
+        html = self._render(estimate=None)
+        assert 'data-testid="hero-estimate"' not in html
+
+    def test_truthy_estimate_is_visually_demoted(self):
+        html = self._render(estimate=48)
+        assert 'data-testid="hero-estimate"' in html
+        start = html.index('data-testid="hero-estimate"')
+        block = html[start : html.index("</p>", start)]
+        assert "~48 dev-hours saved" in html
+        # Demotion: italic + faint + dotted underline + an ``est.`` tag ...
+        assert "italic" in block
+        assert "text-text-faint" in block
+        assert "decoration-dotted" in block
+        assert "est." in block
+        # ... and NEVER the fact styling (solid white display mono).
+        assert "text-text-strong" not in block
+
+
+@pytest.mark.django_db
+class TestHeroSlackLine:
+    """AC5: the copyable Slack one-liner sits in its own overflow-x-auto inset with a Copy control."""
+
+    def test_slack_line_overflow_and_copy_control(self, member_client, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-testid="hero-slack"' in content
+        # The inset owns its overflow container so a long line never scrolls the body.
+        slack_start = content.index('data-testid="hero-slack"')
+        assert "overflow-x-auto" in content[slack_start - 120 : slack_start + 120]
+        assert 'data-testid="hero-copy"' in content
+        # The clipboard idiom's json_script payload is present with the referenced id.
+        assert 'id="hero-slack-line"' in content
+        assert "DAIV shipped 1 changes this week (1 all-time)" in content
+
+
+@pytest.mark.django_db
+class TestHeroEmptyState:
+    """AC13: nothing shipped all-time → honest empty state, never a 0-headline fact."""
+
+    def test_empty_hero_is_honest(self, member_client):
+        response = member_client.get(reverse("dashboard"))
+        assert response.context["hero"] is None
+        assert b'data-testid="hero-empty"' in response.content
+        assert b"No changes shipped yet" in response.content
+        # No 0 dressed up as a headline fact.
+        assert b'data-testid="hero-headline"' not in response.content
+
+
+@pytest.mark.django_db
+class TestGetVelocityDataQuerysetRefactor:
+    """AC11: one shared counting body — the queryset arg scopes it; the default stays org-wide."""
+
+    def test_default_is_org_wide_and_queryset_scopes(self, member_user):
+        _make_merge_metric(iid=1)
+        _make_merge_metric(iid=2)
+        # Default (no queryset) aggregates every MergeMetric — protects the org-wide ManagerLensView.
+        assert get_velocity_data(None)["total_merges"] == 2
+        # A passed subset aggregates only that subset — the personal Hero's user-scoped path.
+        subset = MergeMetric.objects.filter(merge_request_iid=1)
+        assert get_velocity_data(None, queryset=subset)["total_merges"] == 1
+
+    def test_empty_queryset_returns_none(self):
+        assert get_velocity_data(None, queryset=MergeMetric.objects.none()) is None
+
+
+@pytest.mark.django_db
+class TestHeroReadOnly:
+    """AC12: rendering the Hero performs read-only queries — no row is created or mutated."""
+
+    def test_render_writes_nothing(self, member_client, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1)
+        before = (MergeMetric.objects.count(), Run.objects.count(), Session.objects.count())
+        member_client.get(reverse("dashboard"))
+        member_client.get(reverse("dashboard"), {"period": "all"})
+        after = (MergeMetric.objects.count(), Run.objects.count(), Session.objects.count())
+        assert before == after
+
+
+class TestHeroI18n:
+    """AC9: every new Hero string is {% translate %}/{% blocktranslate %}-wrapped (no bare literal)."""
+
+    def test_hero_strings_are_translated(self):
+        src = Path(get_template("accounts/_hero.html").origin.name).read_text(encoding="utf-8")
+        assert "{% blocktranslate count n=hero.this_range.total_merges %}" in src
+        assert "changes shipped" in src
+        assert '{% translate "shipped since day one" %}' in src
+        assert '{% translate "est." %}' in src
+        assert "DAIV shipped" in src  # the locked Slack line (D2), blocktranslate asvar
+        assert "{% translate 'Copy' %}" in src
+        assert '{% translate "No changes shipped yet" %}' in src
+        # A range-adaptive label is wrapped too (the ``as`` form).
+        assert '{% translate "this week" as range_label %}' in src
+
+    def test_hero_eyebrow_is_range_agnostic_and_mounts_the_partial(self):
+        # The reconciled eyebrow can no longer hard-code "Today" and contradict the active range,
+        # the live partial is mounted, and the hero section no longer carries the placeholder
+        # aria-busy (its content is live now).
+        src = Path(get_template("accounts/_console_body.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Throughput" %}' in src
+        assert '{% include "accounts/_hero.html" %}' in src
+        assert 'data-testid="console-hero" aria-labelledby="console-hero-heading" aria-busy="true"' not in src

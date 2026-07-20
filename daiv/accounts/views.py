@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
-from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
+from django.db.models import Avg, Count, DurationField, Exists, ExpressionWrapper, F, OuterRef, Q, Sum
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
@@ -83,7 +83,10 @@ PERIOD_CHOICES = [
     ("all", "All time", None),
 ]
 PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
-DEFAULT_PERIOD = "today"
+# The personal console lands on the week (Story 3.1 / D4): a weekly throughput number is
+# screenshot-worthy where a daily one is not, and it satisfies the FR-16 "this week" headline.
+# ``ManagerLensView`` is unaffected — it passes ``default="all"`` explicitly.
+DEFAULT_PERIOD = "7d"
 
 
 def _raw_pct(numerator: int, denominator: int) -> int | None:
@@ -117,7 +120,7 @@ def _resolve_period(request, default: str = DEFAULT_PERIOD) -> tuple[str, date |
     """Resolve the stateless ``?period=`` querystring to a ``(period_key, cutoff_date)`` pair.
 
     Falls back to ``default`` for a missing/invalid value — the personal console uses the module
-    ``DEFAULT_PERIOD`` ("today"), while the org ``ManagerLensView`` passes ``default="all"`` because
+    ``DEFAULT_PERIOD`` ("7d"), while the org ``ManagerLensView`` passes ``default="all"`` because
     org velocity is cumulative. ``cutoff_date`` is ``None`` for the "all time" period, today's date
     for the zero-day "today" period, and ``today - days`` otherwise. Shared by both console surfaces
     so they honour the same range semantics with no persisted state.
@@ -132,15 +135,35 @@ def _resolve_period(request, default: str = DEFAULT_PERIOD) -> tuple[str, date |
     return period, cutoff_date
 
 
-def get_velocity_data(cutoff_date: date | None) -> dict | None:
-    """Aggregate org-wide code-velocity + DAIV-attribution from ``MergeMetric``.
+def _shipped_metrics_for(user: User):
+    """Return the ``MergeMetric`` queryset of merges opened by DAIV **for this user** (AR9 / AD-10).
 
-    Org-wide by design — ``MergeMetric.objects.all()`` (never user-scoped, never derived from
-    ``RunEnvelope`` per AD-10); an optional ``cutoff_date`` restricts to merges on/after that date.
-    Returns ``None`` when there are zero matching rows so the caller can render an honest cold-load
-    state instead of a misleading zero reading. Single source of truth for the Manager Lens.
+    A merge counts as "shipped by DAIV, by this user" iff a ``Run`` in one of the user's own
+    sessions shares the merge's ``(repo_id, merge_request_iid)`` — the value-based ``Exists`` join
+    (there is no FK) *is* the attribution predicate, so human-authored MRs (no matching DAIV ``Run``)
+    are excluded. Uses the literal ``session__user=user`` — never ``Run.objects.by_owner`` /
+    ``visible_to``, which short-circuit to ``.all()`` for admins and would break personal scope (AC10).
     """
-    merges = MergeMetric.objects.all()
+    daiv_user_runs = Run.objects.filter(
+        session__user=user,
+        merge_request_iid__isnull=False,
+        repo_id=OuterRef("repo_id"),
+        merge_request_iid=OuterRef("merge_request_iid"),
+    )
+    return MergeMetric.objects.filter(Exists(daiv_user_runs))
+
+
+def get_velocity_data(cutoff_date: date | None, queryset=None) -> dict | None:
+    """Aggregate code-velocity + DAIV-attribution over a ``MergeMetric`` queryset.
+
+    The single shared counting body (AC11): the Manager Lens passes nothing (defaulting to the
+    org-wide ``MergeMetric.objects.all()``, never derived from ``RunEnvelope`` per AD-10), while the
+    personal Hero passes the user-scoped ``_shipped_metrics_for(user)`` queryset — so the org number
+    and the personal number can never disagree in method. An optional ``cutoff_date`` restricts to
+    merges on/after that date. Returns ``None`` when there are zero matching rows so the caller can
+    render an honest cold-load state instead of a misleading zero reading.
+    """
+    merges = MergeMetric.objects.all() if queryset is None else queryset
     if cutoff_date is not None:
         merges = merges.filter(merged_at__date__gte=cutoff_date)
 
@@ -320,6 +343,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # (``ManagerLensView``); every read here is personal-scoped via ``visible_to`` / ``user=``.
         user = self.request.user
         context["activity"] = self._get_activity_data(cutoff_date, user)
+        context["hero"] = self._get_hero_data(user, cutoff_date, period)
         context["active_api_keys"] = APIKey.objects.filter(user=user, revoked=False).count()
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
@@ -327,6 +351,47 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context.update(self._get_feed_data(user))
 
         return context
+
+    def _get_hero_data(self, user: User, cutoff_date: date | None, period: str) -> dict | None:
+        """Compose the personal Throughput Hero from the user-scoped ``MergeMetric ⋈ Run`` join.
+
+        Read-only (``.count()`` / ``.aggregate()`` only — AC12): nothing is written on the render
+        path. Returns ``None`` when the user has shipped nothing all-time so the template renders the
+        honest empty state rather than a ``0`` dressed as a headline fact (AC13); a genuine "0 this
+        range" with a non-zero all-time is a true fact and *is* rendered.
+
+        - ``this_range`` — the range-scoped count through the SHARED ``get_velocity_data`` body
+          (never a forked count, AC11); ``0`` when the window is empty but all-time is not.
+        - ``delta`` — ``this_range − prev_equal_window`` where the previous window is
+          ``[cutoff − window, cutoff)``; ``None`` for the "all time" range (no prior window) so the
+          template hides the chip.
+        - ``all_time`` — the range-invariant odometer count.
+        - ``estimate`` — ``None`` in v1 (D1: no defensible dev-hours field exists); the key is kept
+          so the template's ``{% if hero.estimate %}`` demotion path stays exercisable.
+        """
+        shipped = _shipped_metrics_for(user)
+        all_time = shipped.count()
+        if not all_time:
+            return None
+
+        this_range = get_velocity_data(cutoff_date, queryset=shipped)
+        this_count = this_range["total_merges"] if this_range else 0
+
+        delta = None
+        if period != "all" and cutoff_date is not None:
+            # "today" has a zero-day window; compare it against the single preceding day.
+            window_days = PERIOD_DAYS[period] or 1
+            prev_start = cutoff_date - timedelta(days=window_days)
+            prev_count = shipped.filter(merged_at__date__gte=prev_start, merged_at__date__lt=cutoff_date).count()
+            delta = this_count - prev_count
+
+        return {
+            "this_range": {"total_merges": this_count},
+            "period": period,
+            "delta": delta,
+            "all_time": all_time,
+            "estimate": None,
+        }
 
     def _get_feed_data(self, user: User) -> dict:
         """Build the console Feed: RUN_FEED rows newest-first, each rendered from its live envelope.
