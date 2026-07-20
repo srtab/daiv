@@ -134,7 +134,7 @@ def status_notes(*, candidates: int, dropped: int, merged: int, skipped: int, to
         notes.append(
             f"{merged} duplicate finding(s) collapsed across detectors (strongest bar kept) — note in the status line."
         )
-    if candidates == 0 and skipped == 0 and dropped == 0:
+    if total_files > 0 and candidates == 0 and skipped == 0 and dropped == 0:
         notes.append("All detectors returned empty findings — a legitimately empty review.")
     return notes
 
@@ -182,8 +182,14 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.cmd == "merge":
+        if not args.paths:
+            sys.stderr.write(
+                "no detector output files given to merge; expected one path per detector. "
+                "An empty path list is a fan-out failure, not a legitimately empty review.\n"
+            )
+            return 1
         raw, skipped = read_findings_from_files(args.paths)
-        if args.paths and skipped == len(args.paths):
+        if skipped == len(args.paths):
             sys.stderr.write(
                 f"all {len(args.paths)} detector output file(s) were skipped; findings were lost "
                 "(see messages above). Treating as a failed merge, not an empty review.\n"

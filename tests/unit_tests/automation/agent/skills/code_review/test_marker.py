@@ -375,6 +375,42 @@ class TestParseDiffNewSide:
         positions = marker.parse_diff_new_side(diff, "new.py")
         assert positions == {7: (5, "ctx"), 8: (None, "added")}
 
+    def test_no_newline_sentinel_mid_hunk_not_counted(self):
+        # "\ No newline at end of file" can appear mid-hunk (between the deletion of the
+        # old last line and its added replacement). It must be skipped WITHOUT advancing
+        # counters — otherwise the added line's new-side number would shift by one.
+        diff = (
+            "diff --git a/f.py b/f.py\n--- a/f.py\n+++ b/f.py\n"
+            "@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n"
+        )
+        positions = marker.parse_diff_new_side(diff, "f.py")
+        assert positions == {1: (1, "a"), 2: (None, "c")}
+
+    def test_pure_deletion_hunk_records_no_new_side_line(self):
+        # A deletion-only tail (new count exhausted while old count keeps the loop in-hunk)
+        # advances old_ln without recording any new-side position.
+        diff = "diff --git a/f.py b/f.py\n--- a/f.py\n+++ b/f.py\n@@ -1,3 +1,1 @@\n keep\n-gone1\n-gone2\n"
+        positions = marker.parse_diff_new_side(diff, "f.py")
+        assert positions == {1: (1, "keep")}
+
+
+class TestSnippetInDeletedLines:
+    def test_snippet_on_deleted_line_found(self):
+        diff = "diff --git a/f.py b/f.py\n--- a/f.py\n+++ b/f.py\n@@ -1,2 +1,1 @@\n keep\n-secret = 1\n"
+        assert marker.snippet_in_deleted_lines(diff, "f.py", "secret = 1") is True
+
+    def test_snippet_only_on_added_line_is_not_a_deletion(self):
+        diff = "diff --git a/f.py b/f.py\n--- a/f.py\n+++ b/f.py\n@@ -1,1 +1,2 @@\n keep\n+added = 1\n"
+        assert marker.snippet_in_deleted_lines(diff, "f.py", "added = 1") is False
+
+    def test_snippet_absent_from_diff(self):
+        diff = "diff --git a/f.py b/f.py\n--- a/f.py\n+++ b/f.py\n@@ -1,1 +1,2 @@\n keep\n+added = 1\n"
+        assert marker.snippet_in_deleted_lines(diff, "f.py", "nope") is False
+
+    def test_deletion_in_other_file_ignored(self):
+        diff = "diff --git a/other.py b/other.py\n--- a/other.py\n+++ b/other.py\n@@ -1,1 +0,0 @@\n-secret = 1\n"
+        assert marker.snippet_in_deleted_lines(diff, "f.py", "secret = 1") is False
+
 
 class TestStaleLines:
     _POSITIONS = {1: (1, "import json"), 2: (None, "import sys")}
@@ -520,3 +556,58 @@ class TestResolveCli:
         code, _, err = self._run(["resolve", "--file", "f.py", "--snippet", "  ", "--diff", str(diff_file)], capsys)
         assert code == 1
         assert "empty snippet" in err
+
+    def test_exactly_max_matches_succeeds(self, tmp_path, capsys, monkeypatch):
+        # Boundary: exactly MAX_RESOLVE_MATCHES matches is allowed; MAX + 1 is refused
+        # (test_one_over_max_matches_fails). Pins the `>` comparison against off-by-one drift.
+        (tmp_path / "f.py").write_text("x = 1\n" * marker.MAX_RESOLVE_MATCHES, encoding="utf-8")
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text("", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        code, out, _ = self._run(["resolve", "--file", "f.py", "--snippet", "x", "--diff", str(diff_file)], capsys)
+        assert code == 0
+        assert len(json.loads(out)["matches"]) == marker.MAX_RESOLVE_MATCHES
+
+    def test_one_over_max_matches_fails(self, tmp_path, capsys, monkeypatch):
+        (tmp_path / "f.py").write_text("x = 1\n" * (marker.MAX_RESOLVE_MATCHES + 1), encoding="utf-8")
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text("", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        code, _, err = self._run(["resolve", "--file", "f.py", "--snippet", "x", "--diff", str(diff_file)], capsys)
+        assert code == 1
+        assert "too common" in err
+
+    def test_zero_match_pure_deletion_signals_deletion_true(self, tmp_path, capsys, monkeypatch):
+        # "import os" is deleted by _DIFF and absent from the checkout: a genuine pure
+        # deletion — resolve exits 0 with empty matches and snippet_in_deletion True.
+        repo = tmp_path / "repo"
+        (repo / "services").mkdir(parents=True)
+        (repo / "services" / "api.py").write_text(self._API_PY, encoding="utf-8")
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text(_DIFF, encoding="utf-8")
+        monkeypatch.chdir(repo)
+        code, out, _ = self._run(
+            ["resolve", "--file", "services/api.py", "--snippet", "import os", "--diff", str(diff_file)], capsys
+        )
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["matches"] == []
+        assert payload["snippet_in_deletion"] is True
+
+    def test_zero_match_wrong_snippet_signals_deletion_false(self, tmp_path, capsys, monkeypatch):
+        # A snippet in neither the checkout nor any deleted line: the caller has the wrong
+        # snippet, not a deletion — snippet_in_deletion False tells the two apart.
+        repo = tmp_path / "repo"
+        (repo / "services").mkdir(parents=True)
+        (repo / "services" / "api.py").write_text(self._API_PY, encoding="utf-8")
+        diff_file = tmp_path / "change.diff"
+        diff_file.write_text(_DIFF, encoding="utf-8")
+        monkeypatch.chdir(repo)
+        code, out, _ = self._run(
+            ["resolve", "--file", "services/api.py", "--snippet", "def nonexistent_func", "--diff", str(diff_file)],
+            capsys,
+        )
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["matches"] == []
+        assert payload["snippet_in_deletion"] is False

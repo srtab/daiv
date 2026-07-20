@@ -257,18 +257,14 @@ class TestMergeCli:
         assert out["candidates"] == 1
         assert out["skipped"] == 0
 
-    def test_cli_no_paths_returns_zeros(self, monkeypatch, capsys):
+    def test_cli_no_paths_is_usage_error(self, monkeypatch, capsys):
+        # Zero paths is a fan-out failure, not a legitimately empty review: refuse (exit 1)
+        # rather than certifying a clean, empty run that hides the loss of every detector.
         monkeypatch.setattr(sys, "argv", ["findings.py", "merge"])
-        assert findings.main() == 0
-        out = json.loads(capsys.readouterr().out)
-        assert out == {
-            "findings": [],
-            "candidates": 0,
-            "dropped": 0,
-            "merged": 0,
-            "skipped": 0,
-            "notes": ["All detectors returned empty findings — a legitimately empty review."],
-        }
+        assert findings.main() == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""  # no JSON emitted on the error path
+        assert "empty path list" in captured.err.lower()
 
     def test_cli_partial_skip_exits_zero_and_reports_skipped(self, tmp_path, monkeypatch, capsys):
         # One valid findings JSON + one .txt file (simulating a loop-stopped detector that emitted
@@ -346,6 +342,12 @@ class TestStatusNotes:
     def test_legitimately_empty_review_noted(self):
         (note,) = findings.status_notes(candidates=0, dropped=0, merged=0, skipped=0, total_files=5)
         assert "empty review" in note
+
+    def test_zero_total_files_is_not_called_empty_review(self):
+        # No detector output files at all is a fan-out failure, not a legitimately empty
+        # review — the "empty review" note must not fire (main() rejects this upstream too).
+        notes = findings.status_notes(candidates=0, dropped=0, merged=0, skipped=0, total_files=0)
+        assert not any("empty review" in n for n in notes)
 
     def test_empty_with_skipped_is_not_called_empty_review(self):
         notes = findings.status_notes(candidates=0, dropped=0, merged=0, skipped=1, total_files=5)

@@ -3,7 +3,7 @@
 
 Subcommands:
   anchor       compute the 8-hex anchor for an inline finding
-  resolve      resolve a target line to (new_line, old_line, anchor) via the shared diff file
+  resolve      resolve a target line to new_line/old_line/line_type/in_diff/anchor via the shared diff file
   build        build a <!-- daiv-cr ... --> marker line (inline | summary | reply)
   parse-notes  parse MR discussions (from a file path, or stdin); emit dedup state + pending replies
 
@@ -40,24 +40,24 @@ MAX_RESOLVE_MATCHES = 20
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
-def parse_diff_new_side(diff_text: str, file: str) -> dict[int, tuple[int | None, str]]:
-    """Map new-side line numbers of ``file`` to ``(old_line, content)``.
+def _iter_hunk_lines(diff_text: str, file: str):
+    """Yield ``(side, old_line, new_line, content)`` for each hunk body line of ``file``.
 
-    ``old_line`` is ``None`` for an added line (position takes ``new_line`` only) and the
-    old-side number for a context line (position takes both). ``content`` is the line text
-    as recorded in the diff — ``stale_lines`` compares it against the checkout so a stale
-    shared diff can never yield positions. New-side lines absent from the map are not
-    shown in the diff and are not inline-eligible.
+    ``side`` is ``"+"`` (added: ``old_line`` None), ``"-"`` (deleted: ``new_line`` None),
+    or ``" "`` (context: both set). Splitting is ``\\n``-only to match git/GitLab line
+    numbering exactly — ``str.splitlines()`` would break on form feed, NEL, ``\\u2028`` etc.,
+    which git treats as ordinary in-line bytes, drifting the numbering out of sync.
 
-    Hunk-header counts drive consumption, so content lines that look like headers
-    (an added ``++ x`` serialized as ``+++ x``) cannot be misread mid-hunk.
+    Counters are tracked for EVERY file's hunks (not just the target) so header detection
+    stays suppressed while any hunk body is being consumed — a content line like ``+++ x``
+    can't be misread as a ``+++ b/...`` file header. Lines are yielded only while inside
+    ``file``. The ``\\ No newline at end of file`` sentinel is skipped, not counted.
     """
-    positions: dict[int, tuple[int | None, str]] = {}
     in_file = False
     old_left = new_left = 0
     old_ln = new_ln = 0
 
-    for line in diff_text.splitlines():
+    for line in diff_text.split("\n"):
         in_hunk = old_left > 0 or new_left > 0
         if not in_hunk and line.startswith("diff --git "):
             in_file = False
@@ -66,9 +66,6 @@ def parse_diff_new_side(diff_text: str, file: str) -> dict[int, tuple[int | None
             path = path[2:] if path.startswith("b/") else path
             in_file = path == file
         elif not in_hunk and (m := _HUNK_RE.match(line)):
-            # Track counters for EVERY file's hunks (not just the target): header
-            # detection must stay suppressed while any hunk body is being consumed,
-            # or a content line like "+++ x" would be misread as a file header.
             old_ln, old_left = int(m.group(1)), int(m.group(2) or 1)
             new_ln, new_left = int(m.group(3)), int(m.group(4) or 1)
         elif in_hunk:
@@ -76,20 +73,49 @@ def parse_diff_new_side(diff_text: str, file: str) -> dict[int, tuple[int | None
                 continue
             if line.startswith("+"):
                 if in_file:
-                    positions[new_ln] = (None, line[1:])
+                    yield "+", None, new_ln, line[1:]
                 new_ln += 1
                 new_left -= 1
             elif line.startswith("-"):
+                if in_file:
+                    yield "-", old_ln, None, line[1:]
                 old_ln += 1
                 old_left -= 1
             else:  # context (" ..." or a bare empty line)
                 if in_file:
-                    positions[new_ln] = (old_ln, line[1:])
+                    yield " ", old_ln, new_ln, line[1:]
                 new_ln += 1
                 old_ln += 1
                 new_left -= 1
                 old_left -= 1
+
+
+def parse_diff_new_side(diff_text: str, file: str) -> dict[int, tuple[int | None, str]]:
+    """Map new-side line numbers of ``file`` to ``(old_line, content)``.
+
+    ``old_line`` is ``None`` for an added line (position takes ``new_line`` only) and the
+    old-side number for a context line (position takes both). ``content`` is the line text
+    as recorded in the diff; the ``resolve`` command gates on ``stale_lines`` before using
+    these positions, so a stale shared diff is rejected rather than misplaced. New-side
+    lines absent from the map are not shown in the diff and are not inline-eligible.
+    """
+    positions: dict[int, tuple[int | None, str]] = {}
+    for side, old_ln, new_ln, content in _iter_hunk_lines(diff_text, file):
+        if side == "+":
+            positions[new_ln] = (None, content)
+        elif side == " ":
+            positions[new_ln] = (old_ln, content)
     return positions
+
+
+def snippet_in_deleted_lines(diff_text: str, file: str, snippet: str) -> bool:
+    """True if ``snippet`` appears literally on a deleted (old-side) line of ``file``.
+
+    Lets ``resolve`` tell a legitimate pure-deletion target (the snippet was removed by
+    the diff → correctly demote to summary) apart from a snippet the caller got wrong
+    (absent from both the checkout and the diff's deletions → re-derive it).
+    """
+    return any(side == "-" and snippet in content for side, _o, _n, content in _iter_hunk_lines(diff_text, file))
 
 
 def stale_lines(positions: dict[int, tuple[int | None, str]], lines: list[str]) -> list[int]:
@@ -252,7 +278,7 @@ def main() -> int:
     )
 
     p_resolve = sub.add_parser(
-        "resolve", help="Resolve a target line: new_line/old_line/line_type/anchor from the file + shared diff."
+        "resolve", help="Resolve a target line: new_line/old_line/line_type/in_diff/anchor from the file + shared diff."
     )
     p_resolve.add_argument("--file", required=True, help="new_path, relative to the repo root (the CWD).")
     p_resolve.add_argument("--snippet", required=True, help="Literal (non-regex) snippet of the target line.")
@@ -303,8 +329,9 @@ def main() -> int:
                 "`git diff <target>...<source> > <path>` and retry\n"
             )
             return 1
-        lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
-        positions = parse_diff_new_side(diff_path.read_text(encoding="utf-8", errors="replace"), args.file)
+        lines = file_path.read_text(encoding="utf-8", errors="replace").split("\n")
+        diff_text = diff_path.read_text(encoding="utf-8", errors="replace")
+        positions = parse_diff_new_side(diff_text, args.file)
         if stale := stale_lines(positions, lines):
             sys.stderr.write(
                 f"stale diff: {len(stale)} new-side line(s) of {args.file} (first: line {stale[0]}) don't match "
@@ -319,7 +346,13 @@ def main() -> int:
                 "use a longer, more distinctive run of the target line\n"
             )
             return 1
-        json.dump({"file": args.file, "matches": matches}, sys.stdout)
+        out: dict = {"file": args.file, "matches": matches}
+        if not matches:
+            # No new-side match. Distinguish a genuine pure deletion (snippet on a deleted
+            # line → correctly demote to summary) from a wrong snippet (absent from the diff
+            # entirely → the caller should re-derive it before demoting).
+            out["snippet_in_deletion"] = snippet_in_deleted_lines(diff_text, args.file, args.snippet)
+        json.dump(out, sys.stdout)
         sys.stdout.write("\n")
         return 0
 

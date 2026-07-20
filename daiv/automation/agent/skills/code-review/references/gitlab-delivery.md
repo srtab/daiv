@@ -103,7 +103,7 @@ The snippet is matched literally (no regex escaping needed). The output lists ev
 ```
 
 - **Pick the match inside the finding's hunk** with `in_diff: true`. `in_diff: false` means the line isn't shown in the diff — not inline-eligible; demote to summary.
-- **No matches** → the target is a pure deletion; demote to summary.
+- **No matches** → the output carries `snippet_in_deletion`. `true` = the target line was removed by the diff (a pure deletion); demote to summary. `false` = the snippet matched neither the checkout nor any deleted line, so you most likely have the wrong snippet — re-derive it from the diff before demoting.
 - **`line_type: "context"`** → the GitLab position needs both the returned `old_line` and `new_line`. **`"added"`** → `new_line` only.
 - The returned `anchor` is final — no separate `anchor` call.
 - If `resolve` exits 1 reporting the shared diff file **missing or stale** (stale = it no longer matches the checkout — e.g. written before a new push, or left over from a triage-path run that never rewrote it), regenerate it (`git diff <target>...<source> > /workspace/tmp/review-change.diff`) and retry; if it still fails or the match is ambiguous (e.g. file renamed across the diff), demote to discussion-only. Never post a misaligned suggestion or a misanchored question.
