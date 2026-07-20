@@ -92,7 +92,7 @@ If an inline finding's diff position can't be constructed reliably (file renamed
 
 ## Step 4 — Resolve the line, then apply dedup
 
-**Resolve every candidate's position with `scripts/marker.py resolve` — never by counting hunk lines or hand-computing anchors.** From the repo root (checked out at `head_sha`):
+**Resolve every candidate's position with `scripts/marker.py resolve` — never by counting hunk lines or hand-computing anchors.** Resolution needs a diff whose `old_line` is relative to the MR's real `base_sha`. On a first/full review, the Stage 1 shared diff (`/workspace/tmp/review-change.diff`) is already the full `<target>...<head_sha>` range, so use it as-is. On a **delta re-review**, Stage 1 built that file as `<last_reviewed_sha>...<head_sha>` to bound *detection* to the new commits — its `old_line` values are relative to `last_reviewed_sha`, not `base_sha`. Before resolving, regenerate the shared diff as the full range: `git diff <target>...<head_sha> > /workspace/tmp/review-change.diff` (detection already ran, so overwriting this file now is safe; `resolve` is a local call with no token cost). `new_line` and the `anchor` are checkout-derived and identical either way — only a context line's `old_line` needs the base-relative diff so the posted position matches the MR's real `base_sha`. Added-line findings (`old_line` null) are unaffected. From the repo root (checked out at `head_sha`):
 
 ```
 python3 scripts/marker.py resolve --file <new_path> --snippet "<distinctive literal run of the target line>" --diff /workspace/tmp/review-change.diff
@@ -108,7 +108,7 @@ The snippet is matched literally (no regex escaping needed). The output lists ev
 - **No matches** → the output carries `snippet_in_deletion`. `true` = the target line was removed by the diff (a pure deletion); demote to summary. `false` = the snippet matched neither the checkout nor any deleted line, so you most likely have the wrong snippet — re-derive it from the diff before demoting.
 - **`line_type: "context"`** → the GitLab position needs both the returned `old_line` and `new_line`. **`"added"`** → `new_line` only.
 - The returned `anchor` is final — no separate `anchor` call.
-- If `resolve` exits 1 reporting the shared diff file **missing or stale** (stale = it no longer matches the checkout — e.g. written before a new push, or left over from a triage-path run that never rewrote it), regenerate it (`git diff <target>...<source> > /workspace/tmp/review-change.diff`) and retry; if it still fails or the match is ambiguous (e.g. file renamed across the diff), demote to discussion-only. Never post a misaligned suggestion or a misanchored question.
+- If `resolve` exits 1 reporting the shared diff file **missing or stale** (stale = it no longer matches the checkout — e.g. written before a new push, or left over from a triage-path run that never rewrote it), regenerate it (`git diff <target>...<head_sha> > /workspace/tmp/review-change.diff`) and retry; if it still fails or the match is ambiguous (e.g. file renamed across the diff), demote to discussion-only. Never post a misaligned suggestion or a misanchored question.
 
 Form the fingerprint `["inline", archetype, file, anchor]` and compare:
 
