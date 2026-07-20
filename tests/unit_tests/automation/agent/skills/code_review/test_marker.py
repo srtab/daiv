@@ -211,7 +211,21 @@ class TestParseNotes:
         # A pure-human discussion is invisible to the dedup state.
         discussions = [{"id": "d1", "notes": [self._note("user-only thread", author_username="user1")]}]
         out = marker.parse_notes(discussions)
-        assert out == {"inline_fingerprints": [], "summary": None, "pending_replies": []}
+        assert out == {"inline_fingerprints": [], "summary": None, "last_reviewed_sha": None, "pending_replies": []}
+
+    def test_emits_last_reviewed_sha_from_summary(self):
+        summary_line = marker.build_marker("summary", sha="abc123")
+        discussions = [{"id": "d1", "notes": [self._note(summary_line, note_id=10)]}]
+        out = marker.parse_notes(discussions)
+        assert out["last_reviewed_sha"] == "abc123"
+
+    def test_last_reviewed_sha_none_without_summary(self):
+        inline_line = marker.build_marker(
+            "inline", sha="zzz", archetype="remove_dead_lines", file="x.py", line=1, anchor="deadbeef"
+        )
+        discussions = [{"id": "d1", "notes": [self._note(inline_line)]}]
+        out = marker.parse_notes(discussions)
+        assert out["last_reviewed_sha"] is None
 
     def test_summary_carries_full_body(self):
         # The Step 6 delta carry-forward re-reads the prior summary's full markdown from
@@ -247,7 +261,7 @@ class TestCli:
         rc = marker.main()
         assert rc == 0
         out = json.loads(capsys.readouterr().out)
-        assert out == {"inline_fingerprints": [], "summary": None, "pending_replies": []}
+        assert out == {"inline_fingerprints": [], "summary": None, "last_reviewed_sha": None, "pending_replies": []}
 
     def test_parse_notes_reads_from_file_path(self, tmp_path, monkeypatch, capsys):
         # The delivery step passes the gitlab tool's output_to_file dump by path;

@@ -207,6 +207,7 @@ def parse_marker(body: str) -> dict | None:
 def parse_notes(discussions: list[dict]) -> dict:
     inline: list[list] = []
     summary: dict | None = None
+    last_reviewed_sha: str | None = None
     pending_replies: list[dict] = []
 
     for disc in discussions:
@@ -240,6 +241,9 @@ def parse_notes(discussions: list[dict]) -> dict:
                 "note_id": notes[seed_idx].get("id"),
                 "body": notes[seed_idx].get("body", ""),
             }
+            # The summary marker's sha is the head at the previous review — the detection
+            # base for a delta re-review (review-workflow.md, scope stage).
+            last_reviewed_sha = seed_payload.get("sha")
 
         last_daiv_idx = seed_idx
         for i in range(seed_idx + 1, len(notes)):
@@ -261,7 +265,12 @@ def parse_notes(discussions: list[dict]) -> dict:
                 ],
             })
 
-    return {"inline_fingerprints": inline, "summary": summary, "pending_replies": pending_replies}
+    return {
+        "inline_fingerprints": inline,
+        "summary": summary,
+        "last_reviewed_sha": last_reviewed_sha,
+        "pending_replies": pending_replies,
+    }
 
 
 def main() -> int:
