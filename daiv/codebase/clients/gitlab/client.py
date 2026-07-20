@@ -59,6 +59,15 @@ logger = logging.getLogger("daiv.clients")
 # surfaces to the caller.
 MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
 
+# The client-level ``retry_transient_errors=True`` (see ``__init__``) retries any 5xx with exponential
+# backoff. That is safe for idempotent GETs but dangerous for the non-idempotent create() POSTs below:
+# GitLab can return 500 *after* it already persisted the note/discussion, so each retry appends another
+# duplicate — observed in production as a single inline code-review finding posted 12× (1 create + 11
+# backoff-spaced retries). Pass this per-request override on those writes so a 500 surfaces once instead
+# of being amplified into a comment storm. Emoji award-creates deliberately keep the client-level retry
+# (GitLab's unique-reaction constraint 409s the retry, so it cannot duplicate).
+_NO_TRANSIENT_RETRY_ON_WRITE = {"retry_transient_errors": False}
+
 
 def _is_clone_auth_error(error: GitCommandError) -> bool:
     """True when a clone failed because the remote rejected the credential (HTTP auth), as opposed
@@ -518,7 +527,7 @@ class GitLabClient(RepoClient):
         issue_data = {"title": title, "description": description}
         if labels:
             issue_data["labels"] = ",".join(labels)
-        issue = project.issues.create(issue_data)
+        issue = project.issues.create(issue_data, **_NO_TRANSIENT_RETRY_ON_WRITE)
         return issue.iid
 
     def get_issue_comment(self, repo_id: str, issue_id: int, comment_id: str) -> Discussion:
@@ -558,11 +567,11 @@ class GitLabClient(RepoClient):
         issue = project.issues.get(issue_id, lazy=True)
         if reply_to_id:
             discussion = issue.discussions.get(reply_to_id, lazy=True)
-            return discussion.notes.create({"body": body}).id
+            return discussion.notes.create({"body": body}, **_NO_TRANSIENT_RETRY_ON_WRITE).id
         elif as_thread:
-            discussion = issue.discussions.create({"body": body})
+            discussion = issue.discussions.create({"body": body}, **_NO_TRANSIENT_RETRY_ON_WRITE)
             return discussion.attributes["notes"][0]["id"]
-        return issue.notes.create({"body": body}).id
+        return issue.notes.create({"body": body}, **_NO_TRANSIENT_RETRY_ON_WRITE).id
 
     def create_issue_emoji(self, repo_id: str, issue_id: int, emoji: Emoji, note_id: int | None = None):
         """
@@ -669,7 +678,7 @@ class GitLabClient(RepoClient):
         retries = MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS
         for attempt, delay in enumerate(retries, start=1):
             try:
-                return project.mergerequests.create(payload)
+                return project.mergerequests.create(payload, **_NO_TRANSIENT_RETRY_ON_WRITE)
             except GitlabCreateError as e:
                 if not _is_source_branch_missing_error(e):
                     raise
@@ -684,7 +693,7 @@ class GitLabClient(RepoClient):
                 time.sleep(delay)
         # Retries exhausted: the branch should be visible now, so this final attempt's result — or its
         # error, if the branch genuinely never appeared — is the caller's to handle.
-        return project.mergerequests.create(payload)
+        return project.mergerequests.create(payload, **_NO_TRANSIENT_RETRY_ON_WRITE)
 
     def get_merge_request_by_branches(
         self, repo_id: str, source_branch: str, target_branch: str
@@ -783,17 +792,17 @@ class GitLabClient(RepoClient):
 
         if reply_to_id:
             discussion = merge_request.discussions.get(reply_to_id, lazy=True)
-            to_return = discussion.notes.create({"body": body}).id
+            to_return = discussion.notes.create({"body": body}, **_NO_TRANSIENT_RETRY_ON_WRITE).id
 
             if mark_as_resolved:
                 self.mark_merge_request_comment_as_resolved(repo_id, merge_request_id, reply_to_id)
 
         elif as_thread:
-            discussion = merge_request.discussions.create({"body": body})
+            discussion = merge_request.discussions.create({"body": body}, **_NO_TRANSIENT_RETRY_ON_WRITE)
             note_id = discussion.attributes["notes"][0]["id"]
             to_return = note_id
         else:
-            to_return = merge_request.notes.create({"body": body}).id
+            to_return = merge_request.notes.create({"body": body}, **_NO_TRANSIENT_RETRY_ON_WRITE).id
 
         return to_return
 
@@ -970,7 +979,9 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        discussion = merge_request.discussions.create({"body": body, "position": position})
+        discussion = merge_request.discussions.create(
+            {"body": body, "position": position}, **_NO_TRANSIENT_RETRY_ON_WRITE
+        )
         return discussion.id
 
     # User
