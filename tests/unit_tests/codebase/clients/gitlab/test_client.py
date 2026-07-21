@@ -10,6 +10,7 @@ from gitlab.exceptions import GitlabCreateError, GitlabGetError
 from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.gitlab.client import (
+    CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS,
     MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS,
     GitLabClient,
     _is_source_branch_missing_error,
@@ -21,6 +22,13 @@ _CLONE_URL = "https://gitlab.com/group/repo.git"
 def _expected_clone_env(token: str) -> dict[str, str]:
     """The git env the clone/publish is expected to run with for ``token`` (fixture's clone_url)."""
     return GitAuthEnv.for_token(_CLONE_URL, token).as_env()
+
+
+def _clone_dir_removals(mock_rmtree: Mock) -> int:
+    """Count `shutil.rmtree` calls that target the clone dir (the ``repo`` subdir), i.e. the
+    self-heal's partial-clone cleanup — excluding the `TemporaryDirectory` teardown that the
+    patched-module-level rmtree also intercepts (it targets the parent temp dir)."""
+    return sum(1 for c in mock_rmtree.call_args_list if c.args and getattr(c.args[0], "name", None) == "repo")
 
 
 def _gl_project(slug: str) -> Mock:
@@ -199,55 +207,136 @@ class TestGitLabClient:
 
         clone_from.assert_not_called()
 
-    def test_load_repo_retries_with_fresh_token_when_cached_ephemeral_is_rejected(self, gitlab_client, clone_setup):
-        """A cached ephemeral token GitLab now rejects must be dropped and re-minted, not left to
-        wedge every clone of this project for the rest of the cache window."""
+    @pytest.mark.parametrize(
+        "n_failures",
+        [
+            pytest.param(2, id="mid-window"),
+            pytest.param(len(CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS), id="on-final-post-loop-attempt"),
+        ],
+    )
+    def test_load_repo_retries_same_token_through_propagation_lag(self, gitlab_client, clone_setup, n_failures):
+        """A freshly minted clone token can be briefly rejected while GitLab propagates its
+        authorization; the clone retries the SAME token on the backoff schedule until it lands,
+        never re-minting (a new token would hit the same window). Covers success both mid-window and
+        on the final post-loop attempt — the loop/final-attempt boundary. Pins the fix for the
+        `could not read Username` clone failures (Sentry DAIV-A6 / DAIV-9B)."""
+        repository, clone_from, _ = clone_setup
+        mock_repo = clone_from.return_value
+        backoff = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
+        auth_error = GitCommandError(
+            "git clone", 128, "fatal: could not read Username for 'https://...': terminal prompts disabled"
+        )
+        # Rejected on the first n_failures attempts, then the authorization propagates.
+        clone_from.side_effect = [*(auth_error for _ in range(n_failures)), mock_repo]
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph") as get_token,
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.shutil.rmtree") as mock_rmtree,
+            patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep,
+            gitlab_client.load_repo(repository, "main") as loaded_repo,
+        ):
+            assert loaded_repo == mock_repo
+
+        # Same token throughout, minted once, never invalidated/re-minted.
+        invalidate.assert_not_called()
+        get_token.assert_called_once()
+        assert clone_from.call_count == n_failures + 1
+        assert all(c.kwargs["env"] == _expected_clone_env("glpat-eph") for c in clone_from.call_args_list)
+        assert mock_sleep.call_args_list == [call(delay) for delay in backoff[:n_failures]]
+        # The partial clone dir is cleared before each re-attempt (git refuses a non-empty target).
+        assert _clone_dir_removals(mock_rmtree) == n_failures
+
+    def test_load_repo_remints_after_propagation_window_when_cached_ephemeral_stays_rejected(
+        self, gitlab_client, clone_setup
+    ):
+        """Once the propagation retries are exhausted and the cached ephemeral token still fails
+        auth, it is genuinely dead (revoked, project/instance reset) — drop it and re-mint, so it
+        can't wedge every clone of this project for the rest of the cache window."""
         repository, clone_from, _ = clone_setup
         mock_repo = clone_from.return_value
         auth_error = GitCommandError(
             "git clone", 128, "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://...'"
         )
-        clone_from.side_effect = [auth_error, mock_repo]
+        # The stale token fails every propagation attempt (len(backoff) retries + one final);
+        # the freshly minted token then clones on its first attempt.
+        backoff = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
+        stale_attempts = len(backoff) + 1
+        clone_from.side_effect = [*(auth_error for _ in range(stale_attempts)), mock_repo]
 
         with (
             patch(
                 "codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", "glpat-fresh"]
             ),
             patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.shutil.rmtree"),
+            patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep,
             gitlab_client.load_repo(repository, "main") as loaded_repo,
         ):
             assert loaded_repo == mock_repo
 
         invalidate.assert_called_once_with(1)
-        assert clone_from.call_count == 2
-        first_env = clone_from.call_args_list[0].kwargs["env"]
-        second_env = clone_from.call_args_list[1].kwargs["env"]
-        assert first_env == _expected_clone_env("glpat-stale")
-        assert second_env == _expected_clone_env("glpat-fresh")
+        assert clone_from.call_count == stale_attempts + 1
+        assert clone_from.call_args_list[0].kwargs["env"] == _expected_clone_env("glpat-stale")
+        assert clone_from.call_args_list[-1].kwargs["env"] == _expected_clone_env("glpat-fresh")
+        # The stale token sleeps the exact documented schedule before the window is declared exhausted;
+        # the fresh token then clones on its first attempt, so no further sleeps.
+        assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
 
-    def test_load_repo_retries_exactly_once_then_propagates_when_fresh_token_also_rejected(
-        self, gitlab_client, clone_setup
-    ):
-        """The self-heal retries at most once: if the freshly minted token is also rejected, the
-        second failure propagates rather than looping. Pins 'retry once, then give up'."""
+    def test_load_repo_propagates_when_both_cached_and_fresh_tokens_stay_rejected(self, gitlab_client, clone_setup):
+        """The self-heal re-mints at most once: if the fresh token also fails auth through its own
+        propagation window, the error propagates rather than looping forever."""
         repository, clone_from, _ = clone_setup
         auth_error = GitCommandError(
             "git clone", 128, "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://...'"
         )
-        clone_from.side_effect = [auth_error, auth_error]
+        clone_from.side_effect = auth_error  # every attempt fails
 
         with (
             patch(
                 "codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", "glpat-fresh"]
             ),
             patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.time.sleep"),
             pytest.raises(GitCommandError),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
 
         invalidate.assert_called_once_with(1)
-        assert clone_from.call_count == 2
+        # (len(backoff) retries + one final) attempts per token, for the stale and the fresh token.
+        assert clone_from.call_count == 2 * (len(CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS) + 1)
+
+    def test_load_repo_remint_falls_back_to_pat_with_single_attempt(self, gitlab_client, clone_setup):
+        """If ephemeral provisioning breaks between the two mints, the re-mint resolves to the PAT.
+        The PAT is long-lived (an auth rejection is a real misconfiguration, not a propagation blip),
+        so it must get a single fail-fast attempt — not the full propagation backoff, which would
+        waste ~15s and mislabel the failure as a token-propagation lag."""
+        repository, clone_from, _ = clone_setup
+        backoff = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
+        auth_error = GitCommandError(
+            "git clone", 128, "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://...'"
+        )
+        stale_attempts = len(backoff) + 1
+        # Stale ephemeral token exhausts its window; the re-minted credential is the PAT and fails too.
+        clone_from.side_effect = [auth_error for _ in range(stale_attempts + 1)]
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", None]),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.shutil.rmtree"),
+            patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep,
+            pytest.raises(GitCommandError),
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        invalidate.assert_called_once_with(1)
+        # stale token gets the full window; the PAT gets exactly ONE more attempt (no second window).
+        assert clone_from.call_count == stale_attempts + 1
+        assert clone_from.call_args_list[-1].kwargs["env"] == _expected_clone_env("pat-token")
+        # Only the stale token slept; the PAT attempt adds no further backoff.
+        assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
 
     def test_load_repo_does_not_retry_when_the_clone_used_the_pat(self, gitlab_client, clone_setup):
         """Re-minting can't fix a clone that already used the PAT directly (no ephemeral token to
