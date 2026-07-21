@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-20 05:23-0500\n"
+"POT-Creation-Date: 2026-07-21 10:45+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -105,11 +105,21 @@ msgstr "Entregas"
 msgid "Needs-me queue"
 msgstr "Fila de pendências"
 
+#, python-format
+msgid "you have %(n)s"
+msgid_plural "you have %(n)s"
+msgstr[0] "tens %(n)s"
+msgstr[1] "tens %(n)s"
+
 msgid "Feed"
 msgstr "Feed"
 
 msgid "what happened"
 msgstr "o que aconteceu"
+
+#, python-format
+msgid "last checked %(checked)s"
+msgstr "última verificação %(checked)s"
 
 #, python-format
 msgid "%(counter)s item"
@@ -169,10 +179,6 @@ msgstr[1] "%(counter)s execuções sem problemas"
 #, python-format
 msgid "next sweep %(sweep)s"
 msgstr "próxima verificação %(sweep)s"
-
-#, python-format
-msgid "last checked %(checked)s"
-msgstr "última verificação %(checked)s"
 
 msgid "No scheduled runs yet."
 msgstr "Ainda não há execuções agendadas."
@@ -312,6 +318,49 @@ msgstr "Vista de gestor."
 
 msgid "Review console."
 msgstr "Consola de revisão."
+
+msgid "found issues"
+msgstr "problemas encontrados"
+
+msgid "needs attention"
+msgstr "precisa de atenção"
+
+msgid "failed"
+msgstr "falhou"
+
+msgid "needs you"
+msgstr "precisa de ti"
+
+#, python-format
+msgid "%(ago)s ago"
+msgstr "há %(ago)s"
+
+msgid "stale"
+msgstr "parado"
+
+msgid "Review"
+msgstr "rever"
+
+msgid "Fix"
+msgstr "corrigir"
+
+msgid "Retry"
+msgstr "repetir"
+
+msgid "View run"
+msgstr "ver execução"
+
+msgid "DAIV checked your work — nothing is waiting on you."
+msgstr "O DAIV verificou o teu trabalho — nada está à tua espera."
+
+#, python-format
+msgid "checked %(counter)s run · last checked %(checked)s"
+msgid_plural "checked %(counter)s runs · last checked %(checked)s"
+msgstr[0] "verificada %(counter)s execução · última verificação %(checked)s"
+msgstr[1] "verificadas %(counter)s execuções · última verificação %(checked)s"
+
+msgid "No runs yet."
+msgstr "Ainda não há execuções."
 
 msgid "New"
 msgstr "Novo"

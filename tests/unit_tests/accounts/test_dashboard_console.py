@@ -11,6 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.template.loader import get_template, render_to_string
 from django.test import Client
 from django.urls import reverse
@@ -19,10 +20,12 @@ from django.utils import timezone
 import pytest
 from notifications.choices import EventType
 from notifications.models import Notification
-from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
+from sessions.envelopes import build_actionable_item
+from sessions.models import EnvelopeStatus, OfferedAction, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 
 from accounts.models import Role
 from accounts.views import get_velocity_data
+from codebase.base import MergeRequestState
 from codebase.clients import RepoClient
 from codebase.models import MergeMetric, PlatformType
 
@@ -854,7 +857,14 @@ class TestBreakdownMrLinkHonesty:
     def test_no_repo_client_instantiated_on_render(self, member_client, member_user):
         _make_merge_metric(iid=1)
         _make_shipping_run(member_user, iid=1, web_url="https://gitlab.example.com/daiv/test/-/merge_requests/1")
-        with patch.object(RepoClient, "create_instance") as mock_create_instance:
+        # Story 4.1: the open-MR shipping run is now a Queue candidate, so the Queue reconciles its
+        # live state through the cached ``mr_state`` module. Stub that read so this test isolates the
+        # HERO breakdown's own client-free render path (AC6/AC11) — the assertion below then proves the
+        # Hero instantiates no client, unclouded by the Queue's (independently-tested) live reconcile.
+        with (
+            patch(_LIVE_READ, return_value=MergeRequestState.OPEN),
+            patch.object(RepoClient, "create_instance") as mock_create_instance,
+        ):
             member_client.get(reverse("dashboard"))
             member_client.get(reverse("dashboard"), {"period": "all"})
         mock_create_instance.assert_not_called()
@@ -1080,3 +1090,570 @@ class TestConsoleReconcile:
             response = member_client.get(reverse("dashboard"))
         assert response.status_code == 200
         read.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Story 4.1 — The unified Needs-me Queue with a single count
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _clear_queue_cache():
+    """Cold-cache isolation for the Queue tests (Story 4.1 review D9).
+
+    The live MR-state read (``codebase.mr_state.get_merge_request_state``) is backed by the real
+    Django cache keyed on ``(repo_id, iid)`` with a 60s TTL. ``@pytest.mark.django_db`` rolls the DB
+    back but never clears that cache, so a warm key from a sibling test could otherwise decide a
+    cold-cache assertion here. Clearing on both ends removes any iid/order coupling.
+    """
+    cache.clear()
+    yield
+    cache.clear()
+
+
+def _make_queue_run(
+    user,
+    *,
+    status=RunStatus.SUCCESSFUL,
+    trigger=SessionOrigin.SCHEDULE,
+    envelope_status=None,
+    actionable=None,
+    merge_request_iid=None,
+    merge_request_web_url="",
+    title="",
+    repo_id="daiv/test",
+):
+    """Build a Session (owned by ``user``) + a Run + optional RunEnvelope — a Queue candidate.
+
+    Parameterises status / trigger / envelope / MR so the terminal gate, the three candidate
+    classes, and the (envelope, status, origin) presentation branches can each be exercised. No
+    factory exists; mirrors ``_make_scheduled_feed_run``.
+    """
+    session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=trigger, repo_id=repo_id, user=user)
+    run = Run.objects.create(
+        session=session,
+        trigger_type=trigger,
+        status=status,
+        repo_id=repo_id,
+        user=user,
+        title=title,
+        merge_request_iid=merge_request_iid,
+        merge_request_web_url=merge_request_web_url,
+        finished_at=timezone.now(),
+    )
+    if envelope_status is not None:
+        RunEnvelope.objects.create(run=run, status=envelope_status, actionable=actionable or [])
+    return run
+
+
+def _found_issues_items():
+    """A contract-valid single-item ``actionable[]`` for a FOUND_ISSUES envelope (offered_action=FIX)."""
+    return [build_actionable_item(id="f1", kind="finding", label="Null deref in auth", ref="app/auth.py:42")]
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueSingleCountAndList:
+    """AC1/AC2/AC3: exactly one count pill + one list; queue_count == rendered rows (honest count)."""
+
+    def test_one_count_pill_one_list_count_equals_rows(self, member_client, member_user):
+        for _ in range(3):
+            _make_queue_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_count"] == 3
+        # One count pill container, no per-type widgets ...
+        assert content.count('data-testid="console-queue-count"') == 1
+        # ... and the count equals the number of rendered rows (breakdown rows carry a distinct id).
+        assert content.count('data-testid="queue-item"') == 3
+        assert b'aria-live="polite"' in response.content
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueTerminalGate:
+    """Review C1 / edge-matrix: an in-flight (non-terminal) run carrying an MR iid is NOT 'needs me'."""
+
+    def test_running_mr_run_excluded_from_queue_and_count(self, member_client, member_user):
+        # A genuinely actionable schedule run keeps the queue non-empty ...
+        _make_queue_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        # ... and a RUNNING MR-webhook run (already carrying an iid) must be gated out.
+        running = _make_queue_run(
+            member_user, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.RUNNING, merge_request_iid=42
+        )
+        response = member_client.get(reverse("dashboard"))
+        assert response.context["queue_count"] == 1
+        assert running.id not in {item["run_id"] for item in response.context["queue_items"]}
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueClassifierFlaggedNoMr:
+    """Intent-fix regression guard (AMENDED intent-contract): a FOUND_ISSUES-no-MR run is reachable."""
+
+    def test_found_issues_no_mr_appears_counted_and_no_false_seal(self, member_client, member_user):
+        run = _make_queue_run(
+            member_user,
+            trigger=SessionOrigin.SCHEDULE,
+            envelope_status=EnvelopeStatus.FOUND_ISSUES,
+            actionable=_found_issues_items(),
+        )
+        # No MR → no live read needed.
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_count"] == 1
+        assert 'data-testid="queue-item"' in content
+        assert 'data-status="found-issues"' in content
+        assert 'data-action="fix"' in content
+        # FIX navigates to the run page (the findings live there), never a new-tab MR link.
+        assert reverse("session_detail", kwargs={"thread_id": run.session_id}) in content
+        # The seal must NOT appear — this is the exact false-"nothing needs you" the widening closes.
+        assert 'data-testid="queue-zero-state"' not in content
+        assert response.context["queue_zero"] is False
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueAntiFlood:
+    """Design Notes (three-classes-not-a-flood): a plain done run is NOT flooded in as 'classifying'."""
+
+    def test_plain_successful_non_schedule_run_excluded(self, member_client, member_user):
+        # SUCCESSFUL, non-schedule, no envelope, no MR, not FAILED → none of the three classes.
+        _make_queue_run(member_user, trigger=SessionOrigin.MCP_JOB, status=RunStatus.SUCCESSFUL)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_count"] == 0
+        assert response.context["queue_zero"] is True
+        assert 'data-testid="queue-item"' not in content
+        assert 'data-testid="queue-zero-state"' in content
+        # The user HAS run(s) → audited-clean, but zero candidates were examined → count clause omitted.
+        audit = response.context["queue_audit"]
+        assert audit["variant"] == "audited-clean"
+        assert audit["checked_count"] == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueOriginAware:
+    """Review C1/D3: non-schedule open MR → REVIEW (never 'classifying…'); non-retryable → no RETRY."""
+
+    def test_non_schedule_open_mr_renders_review_never_classifying(self, member_client, member_user):
+        _make_queue_run(
+            member_user,
+            trigger=SessionOrigin.MR_WEBHOOK,
+            status=RunStatus.SUCCESSFUL,
+            merge_request_iid=7,
+            merge_request_web_url="https://gitlab.example.com/daiv/test/-/merge_requests/7",
+        )
+        with patch(_LIVE_READ, return_value=MergeRequestState.OPEN):
+            response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_count"] == 1
+        assert 'data-status="needs-attention"' in content
+        assert 'data-action="review"' in content
+        # NEVER a permanent classifying row for a non-schedule open-MR run.
+        assert "classifying" not in content
+        # REVIEW of a live MR → the MR link opens in a new tab.
+        assert 'href="https://gitlab.example.com/daiv/test/-/merge_requests/7"' in content
+        assert 'target="_blank"' in content
+
+    def test_failed_non_retryable_run_offers_no_retry(self, member_client, member_user):
+        # A CHAT-origin FAILED run is terminal but NOT retryable (Run.is_retryable is False).
+        _make_queue_run(member_user, trigger=SessionOrigin.CHAT, status=RunStatus.FAILED)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_count"] == 1
+        assert 'data-status="failed"' in content
+        # No RETRY verb the domain forbids; falls back to a neutral "view run" (NONE).
+        assert 'data-action="retry"' not in content
+        assert 'data-action="none"' in content
+
+    def test_failed_retryable_run_offers_retry(self, member_client, member_user):
+        # An API-job FAILED run IS retryable → RETRY verb.
+        _make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_count"] == 1
+        assert 'data-action="retry"' in content
+
+    def test_failed_envelope_on_non_retryable_run_downgrades_retry(self, member_client, member_user):
+        # Patch 3 (W2): a FAILED envelope maps unconditionally to RETRY. The envelope-present branch
+        # (a) must apply the SAME ``is_retryable`` guard branch (b) enforces, so a CHAT-origin FAILED
+        # run (not retryable) never advertises a RETRY the domain forbids — it downgrades to NONE.
+        _make_queue_run(
+            member_user, trigger=SessionOrigin.CHAT, status=RunStatus.FAILED, envelope_status=EnvelopeStatus.FAILED
+        )
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        # The FAILED envelope keeps the run actionable (is_actionable → RETRY != NONE) so it stays ...
+        assert response.context["queue_count"] == 1
+        # ... but the rendered verb is downgraded to NONE, never a forbidden RETRY.
+        assert response.context["queue_items"][0]["offered_action"] == OfferedAction.NONE
+        assert 'data-action="retry"' not in content
+        assert 'data-action="none"' in content
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueReconcileLiveness:
+    """AC5: membership decided by the shared ``still_actionable`` — merged drops, open/failure stays."""
+
+    def test_open_mr_stays(self, member_client, member_user):
+        _make_queue_run(member_user, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.SUCCESSFUL, merge_request_iid=7)
+        with patch(_LIVE_READ, return_value=MergeRequestState.OPEN):
+            response = member_client.get(reverse("dashboard"))
+        assert response.context["queue_count"] == 1
+
+    def test_externally_merged_mr_drops_and_seals(self, member_client, member_user):
+        _make_queue_run(member_user, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.SUCCESSFUL, merge_request_iid=7)
+        with patch(_LIVE_READ, return_value=MergeRequestState.MERGED):
+            response = member_client.get(reverse("dashboard"))
+        assert response.context["queue_count"] == 0
+        assert 'data-testid="queue-zero-state"' in response.content.decode()
+
+    def test_live_read_failure_keeps_item_visible(self, member_client, member_user, mock_repo_client):
+        # A failing provider read is resolved to OPEN by the mr_state fail-safe (NOT patched here), so
+        # the item stays visible (AC6 under-claim). Exercises the real wrapper, not a stubbed return.
+        mock_repo_client.get_merge_request_state.side_effect = RuntimeError("boom")
+        _make_queue_run(member_user, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.SUCCESSFUL, merge_request_iid=7)
+        response = member_client.get(reverse("dashboard"))
+        assert response.context["queue_count"] == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueNoFalseSeal:
+    """Review D1: reconcile the FULL candidate set — an older actionable item past the newest is kept."""
+
+    def test_older_actionable_not_hidden_behind_a_cap(self, member_client, member_user):
+        # 25 NEWER open-MR candidates whose MRs merged externally (reconciled OUT) ...
+        for iid in range(1, 26):
+            _make_queue_run(
+                member_user, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.SUCCESSFUL, merge_request_iid=iid
+            )
+        # ... plus ONE OLDER genuinely-actionable FAILED run (no MR → no live read → stays).
+        old = _make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED)
+        Run.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=10))
+
+        with patch(_LIVE_READ, return_value=MergeRequestState.MERGED):
+            response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        # A membership cap would have kept only the 25 newest (all merged → dropped) and sealed the
+        # queue with the old actionable item hidden. The full-set reconcile keeps it.
+        assert response.context["queue_count"] == 1
+        assert old.id in {item["run_id"] for item in response.context["queue_items"]}
+        assert 'data-testid="queue-zero-state"' not in content
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueHonestSeal:
+    """AC9 / NFR1: honest zero-state — never-ran vs audited-clean; never 'N runs all clear'."""
+
+    def test_never_ran_variant_when_no_runs(self, member_client, member_user):
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_zero"] is True
+        assert response.context["queue_audit"]["variant"] == "never-ran"
+        assert 'data-variant="never-ran"' in content
+        assert "nothing needs you." in content
+
+    def test_audited_clean_when_runs_exist_but_none_actionable(self, member_client, member_user):
+        # An all-clear scheduled run is not a candidate; a merged open-MR run reconciles out → both
+        # leave the queue empty while the user genuinely HAS terminal runs.
+        _make_queue_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        _make_queue_run(member_user, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.SUCCESSFUL, merge_request_iid=3)
+        with patch(_LIVE_READ, return_value=MergeRequestState.MERGED):
+            response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_zero"] is True
+        assert response.context["queue_audit"]["variant"] == "audited-clean"
+        assert 'data-variant="audited-clean"' in content
+        # The audit meta must never label the examined runs "all clear" (they include a merged MR).
+        assert "all clear" not in content
+
+    def test_only_non_terminal_run_yields_never_ran_not_audited_clean(self, member_client, member_user):
+        # Patch 2: the never-ran probe is scoped to TERMINAL runs. A user whose only run is still
+        # RUNNING has NOT been checked yet — the seal must be ``never-ran``, not a false
+        # ``audited-clean`` ("DAIV checked your work … nothing waiting") over an in-flight run.
+        _make_queue_run(member_user, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.RUNNING, merge_request_iid=5)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert response.context["queue_zero"] is True
+        assert response.context["queue_audit"]["variant"] == "never-ran"
+        assert 'data-variant="never-ran"' in content
+
+    def test_last_checked_is_a_stable_real_event_time_not_now(self, member_client, member_user):
+        # Patch 1: ``last_checked`` is the real most-recent terminal-run ``finished_at``, NOT
+        # ``timezone.now()``. An all-clear scheduled run is terminal but not a Queue candidate → the
+        # queue seals audited-clean while the user genuinely has a terminal run to date the check.
+        run = _make_queue_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        finished = timezone.now() - timedelta(hours=3)
+        Run.objects.filter(pk=run.pk).update(finished_at=finished)
+
+        first = member_client.get(reverse("dashboard")).context["queue_audit"]
+        second = member_client.get(reverse("dashboard")).context["queue_audit"]
+
+        assert first["variant"] == "audited-clean"
+        # Stable across reloads — a ``timezone.now()`` stamp would differ between the two renders ...
+        assert first["last_checked"] == second["last_checked"]
+        # ... and it is the real terminal finish (~3h ago), never render time.
+        assert first["last_checked"] is not None
+        assert abs((first["last_checked"] - finished).total_seconds()) < 1
+        assert timezone.now() - first["last_checked"] > timedelta(minutes=1)
+
+    def test_pill_recolors_status_clear_at_zero(self, member_client, member_user):
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert "you have 0" in content
+        # The zero pill uses the status-clear (green) token, not the teal accent.
+        assert "--color-status-clear" in content
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueAdminPersonalScope:
+    """AC8: the admin default Queue is personal — own items only, never by_owner/.all() org leak."""
+
+    def test_admin_sees_only_own_actionable_items(self, admin_client, admin_user, member_user):
+        mine = _make_queue_run(admin_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        _make_queue_run(
+            member_user, envelope_status=EnvelopeStatus.FOUND_ISSUES, actionable=_found_issues_items()
+        )  # another user's — must be excluded
+        response = admin_client.get(reverse("dashboard"))
+        assert response.context["queue_count"] == 1
+        thread_ids = {item["thread_id"] for item in response.context["queue_items"]}
+        assert thread_ids == {mine.session_id}
+
+    def test_personal_by_default_still_holds_with_queue(self, admin_client, admin_user):
+        _make_queue_run(admin_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        response = admin_client.get(reverse("dashboard"))
+        assert "velocity" not in response.context
+        assert "total_users" not in response.context
+        assert b'data-testid="manager-lens"' not in response.content
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueDedupe:
+    """Honest-count: a run in more than one class is counted exactly once (single-table OR)."""
+
+    def test_failed_run_with_open_mr_counted_once(self, member_client, member_user):
+        # FAILED AND open-MR → matches two OR arms, but a forward-FK/reverse-OneToOne OR cannot fan out.
+        _make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED, merge_request_iid=5)
+        with patch(_LIVE_READ, return_value=MergeRequestState.OPEN):
+            response = member_client.get(reverse("dashboard"))
+        assert response.context["queue_count"] == 1
+        assert response.content.decode().count('data-testid="queue-item"') == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueDisclosure:
+    """AC6: the count is a <button> wired to the click-through panel, collapsed by default."""
+
+    def test_count_toggle_wired_to_collapsed_panel(self, member_client, member_user):
+        _make_queue_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        content = member_client.get(reverse("dashboard")).content.decode()
+        assert '<button type="button" data-testid="queue-count-toggle"' in content
+        assert 'aria-controls="queue-breakdown"' in content
+        assert ':aria-expanded="open.toString()"' in content
+        assert 'id="queue-breakdown"' in content
+        # Collapsed by default — the reveal is out of the a11y tree until opened.
+        assert "x-cloak" in content
+        assert "@click.outside" in content
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueClickthroughReuse:
+    """AC6 reuse: the Hero click-through stays byte-compatible; the Queue gets its own hooks."""
+
+    def test_hero_clickthrough_testids_preserved(self, member_client, member_user):
+        _make_merge_metric(iid=1)
+        _make_shipping_run(member_user, iid=1)
+        content = member_client.get(reverse("dashboard")).content.decode()
+        # The default testid_prefix keeps the hero hooks unchanged.
+        assert 'data-testid="hero-breakdown"' in content
+        assert 'data-testid="hero-howcomputed"' in content
+
+    def test_queue_clickthrough_uses_queue_prefix_and_row(self, member_client, member_user):
+        _make_queue_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        content = member_client.get(reverse("dashboard")).content.decode()
+        assert 'data-testid="queue-breakdown"' in content
+        # how_computed=False → the Queue count has no AD-10 "how computed" disclosure.
+        assert 'data-testid="queue-howcomputed"' not in content
+        # The Queue supplies its own compact row shape (not the hero merged-MR row).
+        assert 'data-testid="queue-breakdown-row"' in content
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueHtmxFragment:
+    """The Queue region re-renders inside the #console-main HTMX fragment with one count pill."""
+
+    def test_htmx_fragment_has_one_count_pill_and_no_chrome(self, member_client, member_user):
+        _make_queue_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        response = member_client.get(reverse("dashboard"), HTTP_HX_REQUEST="true")
+        content = response.content.decode()
+        assert response.status_code == 200
+        assert content.count('data-testid="console-queue-count"') == 1
+        assert 'data-testid="queue-item"' in content
+        # Fragment only — no shell chrome.
+        assert 'data-testid="app-sidebar"' not in content
+        assert 'data-testid="app-user-menu"' not in content
+        assert "<html" not in content
+
+
+class TestQueueVerbHref:
+    """Verb/href agreement (review C5, extended to FIX): the destination must not contradict the verb."""
+
+    def _render(self, *, offered_action, merge_request_web_url="", status_slug="needs-attention"):
+        item = {
+            "run_id": uuid.uuid4(),
+            "repo_id": "daiv/test",
+            "title": "boom",
+            "merge_request_iid": 9,
+            "merge_request_web_url": merge_request_web_url,
+            "thread_id": "thread-abc",
+            "created_at": timezone.now(),
+            "status_slug": status_slug,
+            "accent_var": "--color-status-attn",
+            "offered_action": offered_action,
+            "is_stale": False,
+        }
+        return render_to_string("accounts/_queue_item.html", {"item": item})
+
+    def test_review_with_url_links_to_mr_new_tab(self):
+        url = "https://gitlab.example.com/daiv/test/-/merge_requests/9"
+        html = self._render(offered_action=OfferedAction.REVIEW, merge_request_web_url=url)
+        assert f'href="{url}"' in html
+        assert 'target="_blank"' in html
+        assert 'data-action="review"' in html
+
+    def test_review_without_url_links_to_run_page(self):
+        html = self._render(offered_action=OfferedAction.REVIEW, merge_request_web_url="")
+        assert reverse("session_detail", kwargs={"thread_id": "thread-abc"}) in html
+        assert 'target="_blank"' not in html
+
+    def test_fix_links_to_run_page_not_mr(self):
+        url = "https://gitlab.example.com/daiv/test/-/merge_requests/9"
+        html = self._render(offered_action=OfferedAction.FIX, merge_request_web_url=url, status_slug="found-issues")
+        assert reverse("session_detail", kwargs={"thread_id": "thread-abc"}) in html
+        # FIX findings live on the run page — never the MR, even with a persisted url.
+        assert url not in html
+
+    def test_retry_links_to_run_page_not_mr(self):
+        url = "https://gitlab.example.com/daiv/test/-/merge_requests/9"
+        html = self._render(offered_action=OfferedAction.RETRY, merge_request_web_url=url, status_slug="failed")
+        assert reverse("session_detail", kwargs={"thread_id": "thread-abc"}) in html
+        assert url not in html
+        assert 'data-action="retry"' in html
+
+
+class TestQueueClickthroughRowOutLink:
+    """Patch 6: the MR out-link aria-label interpolates the iid, so it must never render '!None'."""
+
+    def _render(self, *, merge_request_iid, merge_request_web_url):
+        row = {
+            "repo_id": "daiv/test",
+            "title": "boom",
+            "merge_request_iid": merge_request_iid,
+            "merge_request_web_url": merge_request_web_url,
+            "thread_id": "thread-abc",
+            "created_at": timezone.now(),
+        }
+        return render_to_string("accounts/_queue_clickthrough_row.html", {"row": row})
+
+    def test_url_without_iid_omits_out_link_never_none(self):
+        # A web_url present but no iid must not render "open MR !None on GitLab" — the out-link is gated.
+        html = self._render(
+            merge_request_iid=None, merge_request_web_url="https://gitlab.example.com/daiv/test/-/merge_requests/9"
+        )
+        assert "!None" not in html
+        assert "open MR" not in html  # the whole out-link is omitted
+
+    def test_url_with_iid_still_renders_out_link(self):
+        # The healthy path is unchanged: url + iid → a real out-link with the iid in its aria-label.
+        url = "https://gitlab.example.com/daiv/test/-/merge_requests/9"
+        html = self._render(merge_request_iid=9, merge_request_web_url=url)
+        assert f'href="{url}"' in html
+        assert "open MR !9 on GitLab" in html
+        assert "!None" not in html
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueDeterministicOrdering:
+    """Patch 5: same-``created_at`` candidates order by the ``("-created_at", "-id")`` convention."""
+
+    def test_same_created_at_rows_are_deterministic(self, member_client, member_user):
+        # Five FAILED API-job candidates sharing one ``created_at``. Without the ``-id`` tiebreak the
+        # DB order is unspecified and can reorder between HTMX re-renders; with it the order is stable
+        # and matches the explicit ``("-created_at", "-id")`` the rest of the codebase uses.
+        runs = [_make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED) for _ in range(5)]
+        pinned = timezone.now()
+        Run.objects.filter(pk__in=[r.pk for r in runs]).update(created_at=pinned)
+
+        first = [item["run_id"] for item in member_client.get(reverse("dashboard")).context["queue_items"]]
+        second = [item["run_id"] for item in member_client.get(reverse("dashboard")).context["queue_items"]]
+
+        assert len(first) == 5
+        assert first == second  # stable across re-renders
+        expected = list(
+            Run.objects.filter(pk__in=[r.pk for r in runs]).order_by("-created_at", "-id").values_list("id", flat=True)
+        )
+        assert first == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueStaleTag:
+    """Passive-decay indication: a row older than QUEUE_DECAY_DAYS is tagged is_stale (no extra query)."""
+
+    def test_old_actionable_run_is_tagged_stale(self, member_client, member_user):
+        old = _make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED)
+        Run.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=30))
+        response = member_client.get(reverse("dashboard"))
+        assert response.context["queue_items"][0]["is_stale"] is True
+        assert 'data-testid="queue-item-stale"' in response.content.decode()
+
+    def test_recent_run_is_not_stale(self, member_client, member_user):
+        _make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED)
+        response = member_client.get(reverse("dashboard"))
+        assert response.context["queue_items"][0]["is_stale"] is False
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueReadOnly:
+    """Presentation-only: rendering the Queue creates/mutates nothing (no model, no migration path)."""
+
+    def test_render_writes_nothing(self, member_client, member_user):
+        _make_queue_run(member_user, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.SUCCESSFUL, merge_request_iid=7)
+        before = (Run.objects.count(), RunEnvelope.objects.count(), Session.objects.count())
+        with patch(_LIVE_READ, return_value=MergeRequestState.OPEN):
+            member_client.get(reverse("dashboard"))
+        after = (Run.objects.count(), RunEnvelope.objects.count(), Session.objects.count())
+        assert before == after
+
+
+class TestQueueI18n:
+    """AC7: every new Queue string is {% translate %}/{% blocktranslate %}-wrapped (source read)."""
+
+    def test_count_pill_is_translated(self):
+        src = Path(get_template("accounts/_console_body.html").origin.name).read_text(encoding="utf-8")
+        assert "{% blocktranslate count n=queue_count %}you have {{ n }}" in src
+
+    def test_queue_item_verbs_are_translated(self):
+        src = Path(get_template("accounts/_queue_item.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Review" %}' in src
+        assert '{% translate "Fix" %}' in src
+        assert '{% translate "Retry" %}' in src
+        assert '{% translate "View run" %}' in src
+        assert '{% translate "needs attention" %}' in src
+
+    def test_queue_zero_state_is_translated(self):
+        src = Path(get_template("accounts/_queue_zero_state.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "nothing needs you." %}' in src
+        assert '{% translate "No runs yet." %}' in src

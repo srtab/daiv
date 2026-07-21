@@ -1,0 +1,32 @@
+{% load i18n icon_tags %}
+{% comment %}
+Queue count click-through row (Story 4.1, AC6) — the compact breakdown row supplied to the generic
+``_clickthrough.html`` via its ``row_partial`` param (``row`` is one ``_get_queue_data`` item dict).
+Unlike the hero row this is NOT a merged-MR record: it shows repo chip · title · created-at
+timestamp · an out-link ONLY when the run persisted BOTH a ``merge_request_web_url`` and a
+``merge_request_iid`` (the aria-label interpolates the iid, so a url without an iid would otherwise
+render "open MR !None") · and a same-tab drill-through to ``session_detail``. Handles a null
+``merge_request_iid`` gracefully (the MR chip and the out-link are simply omitted). Icons via
+``{% templatetag openblock %} icon {% templatetag closeblock %}`` only.
+{% endcomment %}
+<li data-testid="queue-breakdown-row" class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+  <span class="inline-flex shrink-0 items-center rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-text-muted">&rsaquo; {{ row.repo_id }}</span>
+  {% if row.merge_request_iid %}
+  <span class="shrink-0 font-mono text-[12px] tabular-nums text-text-muted">MR !{{ row.merge_request_iid }}</span>
+  {% endif %}
+  <span class="min-w-0 flex-1 truncate text-[13px] text-text">{{ row.title }}</span>
+  <time class="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">{{ row.created_at|date:"Y-m-d H:i" }}</time>
+  <span class="ml-auto flex shrink-0 items-center gap-3">
+    {% if row.merge_request_web_url and row.merge_request_iid %}
+    <a href="{{ row.merge_request_web_url }}" target="_blank" rel="noopener"
+       aria-label="{% blocktranslate with iid=row.merge_request_iid %}open MR !{{ iid }} on GitLab{% endblocktranslate %}"
+       class="inline-flex min-h-[44px] items-center gap-1 text-[12px] text-accent transition-colors hover:text-accent-bright md:min-h-0">
+      <span>MR</span>{% icon "arrow-right" "h-3.5 w-3.5" %}
+    </a>
+    {% endif %}
+    <a href="{% url 'session_detail' thread_id=row.thread_id %}"
+       class="inline-flex min-h-[44px] items-center gap-1 text-[12px] text-accent transition-colors hover:text-accent-bright md:min-h-0">
+      {% translate "view run" %}
+    </a>
+  </span>
+</li>

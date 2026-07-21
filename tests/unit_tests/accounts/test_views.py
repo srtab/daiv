@@ -752,4 +752,6 @@ class TestFeedRenderDelta:
         assert "text-text-muted" in badge  # neutral/muted, mono
         assert "teal" not in badge
         assert "accent" not in badge
-        assert "you have" not in content.lower()
+        # The "you have N" phrasing belongs to the Queue count pill (Story 4.1), which now renders on
+        # the same page — so scope the check to the badge: the FEED badge must not adopt that wording.
+        assert "you have" not in badge.lower()
