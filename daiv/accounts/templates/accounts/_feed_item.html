@@ -11,8 +11,14 @@ is compiled (the Feed reuses existing tokens without a Tailwind rebuild).
 
 Story 2.4 adds a per-user seen/unread layer keyed on ``item.read_at`` (NULL = unread), orthogonal to
 ``data-status``: an unread neutral wash + SR-labelled dot, the drill-through marks-seen, and a
-resolved-only dismiss control. Neutral tokens ONLY — never a status/teal/violet color. Still NO Epic
-5 action button (fix/review/retry).
+resolved-only dismiss control. Neutral tokens ONLY — never a status/teal/violet color.
+
+Story 5.1 adds the ONE Epic-5 action button: a ``fix it`` affordance on a still-actionable
+found-issues item that carries a fix-able finding (``item.fixable`` — computed server-side via the
+``offered_action == FIX`` + ``still_actionable`` + non-empty ``fix_prompt`` gate). It sits OUTSIDE
+the card ``<a>`` and ``hx-get``s the scope/intent preview into ``#fix-preview-mount`` — it NEVER
+POSTs / launches; only the preview's explicit confirm does. Inline amber, byte-identical to the
+Queue's. No ``review``/``retry`` here (Story 5.2).
 {% endcomment %}
 <article id="feed-item-{{ item.run.id }}"
          data-testid="feed-item"
@@ -75,6 +81,23 @@ resolved-only dismiss control. Neutral tokens ONLY — never a status/teal/viole
 
     <span class="mt-0.5 shrink-0 text-text-faint" aria-hidden="true">{% icon "chevron-right" "h-4 w-4" %}</span>
   </a>
+  {% comment %} Story 5.1 — Finding -> Fix launch affordance. Rendered ONLY for a still-actionable
+     found-issues item carrying ≥1 fix-able finding (``item.fixable`` gated server-side). It
+     ``hx-get``s the scope/intent preview into the persistent dialog mount — it NEVER POSTs /
+     launches; only the preview's explicit confirm does. Inline amber, byte-identical to the Queue's
+     (see _queue_item.html). Outside the card ``<a>`` so a fix click never marks-seen-navigates. {% endcomment %}
+  {% if item.status_slug == "found-issues" and item.offered_action == "fix" and item.fixable %}
+  <div class="flex shrink-0 items-center self-center py-4 pr-2 pl-2">
+    <button type="button" id="fix-btn-feed-{{ item.run.id }}"
+            data-testid="feed-item-action" data-action="fix"
+            hx-get="{% url 'feed_item_fix' item.run.id %}?surface=feed"
+            hx-target="#fix-preview-mount" hx-swap="innerHTML"
+            class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+            style="color: var(--color-status-found); background-color: color-mix(in srgb, var(--color-status-found) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-found) 28%, transparent)">
+      {% icon "bolt" "h-3.5 w-3.5" %}<span>{% translate "Fix it" %}</span>
+    </button>
+  </div>
+  {% endif %}
   {% comment %} Dismiss (mark-seen) — resolved-only, unread-only. A seen-state control, NOT an Epic 5 action.
      Single accessible name (aria-label); 44px touch target; inherits the global teal focus ring.
      The swap replaces this <article> with its seen version (which has NO dismiss button), so focus

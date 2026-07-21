@@ -1734,3 +1734,184 @@ class TestQueueI18n:
         src = Path(get_template("accounts/_queue_zero_state.html").origin.name).read_text(encoding="utf-8")
         assert '{% translate "nothing needs you." %}' in src
         assert '{% translate "No runs yet." %}' in src
+
+
+# ---------------------------------------------------------------------------
+# Story 5.1 — Finding -> Fix affordance (render presence/absence on both surfaces)
+# ---------------------------------------------------------------------------
+
+# The exact inline amber every ``fix it`` control reuses (Feed + Queue stay byte-identical). Asserting
+# the literal string guards the "no new Tailwind class / reuse the proven amber" styling contract.
+_FIX_AMBER = (
+    "color: var(--color-status-found); "
+    "background-color: color-mix(in srgb, var(--color-status-found) 12%, transparent); "
+    "border: 1px solid color-mix(in srgb, var(--color-status-found) 28%, transparent)"
+)
+_FIX_PROMPT = "Repair the null dereference in the auth guard."
+
+
+def _fixable_items():
+    """A contract-valid single-item ``actionable[]`` carrying a non-empty ``fix_prompt`` (offers FIX)."""
+    return [
+        build_actionable_item(
+            id="f1", kind="finding", label="Null deref in auth", ref="app/auth.py:42", fix_prompt=_FIX_PROMPT
+        )
+    ]
+
+
+def _make_fixable_feed_run(user, *, repo_id="daiv/test"):
+    """A found-issues RUN_FEED run whose actionable item carries a ``fix_prompt`` (fix-able)."""
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id=repo_id, user=user
+    )
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.SCHEDULE,
+        repo_id=repo_id,
+        status=RunStatus.SUCCESSFUL,
+        user=user,
+        finished_at=timezone.now(),
+    )
+    RunEnvelope.objects.create(run=run, status=EnvelopeStatus.FOUND_ISSUES, actionable=_fixable_items())
+    Notification.objects.create(
+        recipient=user,
+        event_type=EventType.RUN_FEED,
+        source_type="sessions.Run",
+        source_id=str(run.pk),
+        subject="nightly",
+        body="",
+        link_url=reverse("session_detail", kwargs={"thread_id": session.thread_id}),
+    )
+    return run
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueFixAffordance:
+    """AC1/AC6/AC8 — a fix-able FOUND_ISSUES Queue row offers the preview trigger; no-prompt does not."""
+
+    def _queue(self, member_client):
+        content = member_client.get(reverse("dashboard")).content.decode()
+        return content.split('data-testid="console-queue"')[1].split('data-testid="console-feed"')[0]
+
+    def test_fixable_row_offers_amber_preview_trigger(self, member_client, member_user):
+        run = _make_queue_run(
+            member_user,
+            trigger=SessionOrigin.SCHEDULE,
+            envelope_status=EnvelopeStatus.FOUND_ISSUES,
+            actionable=_fixable_items(),
+        )
+        queue = self._queue(member_client)
+        # A preview trigger (hx-get into the persistent mount), never a direct launch/POST from the row.
+        assert reverse("feed_item_fix", kwargs={"run_id": run.id}) in queue
+        assert "?surface=queue" in queue
+        assert 'data-action="fix"' in queue
+        assert 'hx-target="#fix-preview-mount"' in queue
+        assert _FIX_AMBER in queue
+        # It is the preview trigger, not the navigate-to-run link.
+        assert 'hx-get="' in queue.split('data-testid="queue-item-action"')[1][:400]
+
+    def test_found_issues_without_fix_prompt_keeps_navigate_link(self, member_client, member_user):
+        # FOUND_ISSUES with actionable items but NO fix_prompt → offered_action is still FIX, yet NO
+        # launch affordance: the row navigates to the run page and never opens the preview (AC8).
+        run = _make_queue_run(
+            member_user,
+            trigger=SessionOrigin.SCHEDULE,
+            envelope_status=EnvelopeStatus.FOUND_ISSUES,
+            actionable=_found_issues_items(),
+        )
+        queue = self._queue(member_client)
+        assert reverse("feed_item_fix", kwargs={"run_id": run.id}) not in queue
+        assert reverse("session_detail", kwargs={"thread_id": run.session_id}) in queue
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestFeedFixAffordance:
+    """AC1/AC8 — a fix-able found-issues Feed item offers the preview trigger; no-prompt does not."""
+
+    def _feed(self, member_client):
+        return member_client.get(reverse("dashboard")).content.decode().split('data-testid="console-feed"')[1]
+
+    def test_fixable_feed_item_offers_amber_preview_trigger(self, member_client, member_user):
+        run = _make_fixable_feed_run(member_user)
+        feed = self._feed(member_client)
+        assert reverse("feed_item_fix", kwargs={"run_id": run.id}) in feed
+        assert "?surface=feed" in feed
+        assert 'data-testid="feed-item-action"' in feed
+        assert 'data-action="fix"' in feed
+        assert 'hx-target="#fix-preview-mount"' in feed
+        assert _FIX_AMBER in feed
+
+    def test_found_issues_feed_item_without_fix_prompt_offers_nothing(self, member_client, member_user):
+        # A found-issues feed item whose actionable items carry no fix_prompt shows no fix affordance.
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="daiv/test", user=member_user
+        )
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.SCHEDULE,
+            repo_id="daiv/test",
+            status=RunStatus.SUCCESSFUL,
+            user=member_user,
+            finished_at=timezone.now(),
+        )
+        RunEnvelope.objects.create(run=run, status=EnvelopeStatus.FOUND_ISSUES, actionable=_found_issues_items())
+        Notification.objects.create(
+            recipient=member_user,
+            event_type=EventType.RUN_FEED,
+            source_type="sessions.Run",
+            source_id=str(run.pk),
+            subject="n",
+            body="",
+            link_url="/",
+        )
+        feed = self._feed(member_client)
+        assert 'data-testid="feed-item-action"' not in feed
+        assert reverse("feed_item_fix", kwargs={"run_id": run.id}) not in feed
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestFixAffordanceIdenticalAcrossSurfaces:
+    """AC1 — the Feed and Queue ``fix it`` reuse the identical amber treatment + verb."""
+
+    def test_both_surfaces_render_identical_amber_fix_it(self, member_client, member_user):
+        _make_queue_run(
+            member_user,
+            trigger=SessionOrigin.SCHEDULE,
+            envelope_status=EnvelopeStatus.FOUND_ISSUES,
+            actionable=_fixable_items(),
+        )
+        _make_fixable_feed_run(member_user, repo_id="daiv/other")
+        content = member_client.get(reverse("dashboard")).content.decode()
+        # The exact amber appears on both surfaces (queue row + feed item action).
+        assert content.count(_FIX_AMBER) >= 2
+        # Both carry the reused OfferedAction.FIX verb ("Fix it") on a preview trigger.
+        assert content.count('hx-target="#fix-preview-mount"') >= 2
+
+
+class TestFixPreviewI18nAndSafety:
+    """AC6/AC10 — new preview strings are externalized; fix_prompt is inert (autoescaped, never |safe)."""
+
+    def test_preview_strings_are_translated(self):
+        src = Path(get_template("accounts/_fix_preview.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Start a fix" %}' in src
+        assert '{% translate "Fix it" %}' in src
+        assert '{% translate "Cancel" %}' in src
+        assert '{% translate "What will be attempted" %}' in src
+
+    def test_fix_prompt_is_inert_never_safe(self):
+        src = Path(get_template("accounts/_fix_preview.html").origin.name).read_text(encoding="utf-8")
+        # Rendered via plain autoescaping — never marked |safe, never as a template with user context.
+        assert "{{ fix_prompt }}" in src
+        assert "fix_prompt|safe" not in src
+        assert "fix_prompt |safe" not in src
+
+    def test_started_and_notice_strings_are_translated(self):
+        started = Path(get_template("accounts/_fix_started.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Fix started" %}' in started
+        # The queue item keeps its navigate-only "Fix" label alongside the new "Fix it" preview verb.
+        queue = Path(get_template("accounts/_queue_item.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Fix it" %}' in queue
+        assert '{% translate "Fix" %}' in queue

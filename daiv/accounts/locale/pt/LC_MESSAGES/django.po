@@ -518,6 +518,56 @@ msgid_plural "checked %(counter)s runs"
 msgstr[0] "verificada %(counter)s execução"
 msgstr[1] "verificadas %(counter)s execuções"
 
+
+# Story 5.1 — Finding -> Fix scope/intent preview
+msgid "Fix it"
+msgstr "Corrigir"
+
+msgid "Start a fix"
+msgstr "Iniciar uma correção"
+
+msgid "Review what will run before starting it. Nothing happens until you confirm."
+msgstr "Reveja o que será executado antes de iniciar. Nada acontece até confirmar."
+
+msgid "Close"
+msgstr "Fechar"
+
+msgid "Scope"
+msgstr "Âmbito"
+
+msgid "default branch"
+msgstr "ramo predefinido"
+
+msgid "What will be attempted"
+msgstr "O que será tentado"
+
+msgid "Instruction"
+msgstr "Instrução"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "This finding is no longer actionable — nothing to start."
+msgstr "Esta deteção já não é acionável — nada para iniciar."
+
+msgid "Fix started"
+msgstr "Correção iniciada"
+
+msgid "Started, but some repositories could not be queued — check your sessions."
+msgstr "Iniciada, mas alguns repositórios não puderam ser colocados em fila — verifique as suas sessões."
+
+msgid "A change session is on its way."
+msgstr "Uma sessão de alteração está a caminho."
+
+msgid "View session"
+msgstr "Ver sessão"
+
+msgid "This finding is no longer actionable — nothing was started."
+msgstr "Esta deteção já não é acionável — nada foi iniciado."
+
+msgid "Could not start the fix. Please try again in a moment."
+msgstr "Não foi possível iniciar a correção. Tente novamente daqui a instantes."
+
 #~ msgid "stale"
 #~ msgstr "parado"
 

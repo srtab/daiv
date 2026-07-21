@@ -70,4 +70,14 @@
 {% block app_content %}
 {# #console-main is the HTMX swap target for the top-bar Manager-Lens toggle. #}
 <div id="console-main">{% include "accounts/_console_body.html" %}</div>
+
+{% comment %} Story 5.1 — the persistent Finding -> Fix preview dialog mount + the OOB announce
+   region, mounted OUTSIDE #console-main so they survive every Manager-Lens / range-switch console
+   swap and the announce region is never clobbered (deferred-work.md:53-55). A ``fix it`` button
+   ``hx-get``s the scope/intent preview into ``#fix-preview-mount``; only the preview's explicit
+   confirm POST launches a run and fires ``fix:started``, which this region announces politely. {% endcomment %}
+<div id="fix-preview-mount"></div>
+{% translate "Fix started" as fix_started_label %}
+<div id="fix-announce" role="status" aria-live="polite" class="sr-only"
+     x-data="{ msg: '' }" @fix:started.window="msg = '{{ fix_started_label|escapejs }}'" x-text="msg"></div>
 {% endblock app_content %}

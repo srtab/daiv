@@ -7,11 +7,17 @@ per-STATUS, never repurposed as an impact-order hue, AC9), a main column (title 
 meta line: repo chip · status/impact word · relative timestamp · optional passive-decay impact chip
 ``stale · Nd`` + a reserved-but-empty who-waits slot), and exactly ONE right-anchored action slot.
 Rows render in ``order_queue`` sequence so DOM order == visual order (tab order == reading order,
-AC10); priority is position + chip only, never a rank number or a rank colour (AC9). v1 is NAVIGATE-ONLY: the verb button is a link, never a POST (Epic 5
-wires behaviour). The href MUST agree with the verb — only a REVIEW of a live MR links to the MR
-(new tab); RETRY / FIX / REVIEW-without-url / NONE all navigate to ``session_detail``.
+AC10); priority is position + chip only, never a rank number or a rank colour (AC9).
+
+Story 5.1 wires the ``fix`` verb: a FOUND_ISSUES row carrying a fix-able finding (``item.fixable``)
+gets a ``fix it`` PREVIEW trigger (``hx-get`` into ``#fix-preview-mount``) instead of a navigate
+link — it never POSTs / launches; only the preview's explicit confirm does. Every other verb
+(REVIEW / RETRY / a FOUND_ISSUES row with no ``fix_prompt`` / NONE) stays navigate-only: the href
+MUST agree with the verb — only a REVIEW of a live MR links to the MR (new tab); the rest navigate
+to ``session_detail``. The row's ``id`` is the confirm swap target.
 {% endcomment %}
-<div data-testid="queue-item"
+<div id="queue-item-{{ item.run_id }}"
+     data-testid="queue-item"
      data-status="{{ item.status_slug }}"
      data-action="{{ item.offered_action }}"
      role="listitem"
@@ -56,7 +62,21 @@ wires behaviour). The href MUST agree with the verb — only a REVIEW of a live 
        style="color: var(--color-status-attn); background-color: color-mix(in srgb, var(--color-status-attn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-attn) 28%, transparent)">
       {% icon "magnifying-glass" "h-3.5 w-3.5" %}<span>{% translate "Review" %}</span>
     </a>
+    {% elif item.offered_action == "fix" and item.fixable %}
+    {% comment %} Story 5.1 — a fix-able finding → the scope/intent PREVIEW trigger (``hx-get`` into
+       the persistent dialog mount). Never a direct POST/launch; only the preview's confirm launches.
+       Inline amber, byte-identical to the Feed's ``fix it`` (see _feed_item.html). {% endcomment %}
+    <button type="button" id="fix-btn-queue-{{ item.run_id }}"
+       data-testid="queue-item-action" data-action="fix"
+       hx-get="{% url 'feed_item_fix' item.run_id %}?surface=queue"
+       hx-target="#fix-preview-mount" hx-swap="innerHTML"
+       class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+       style="color: var(--color-status-found); background-color: color-mix(in srgb, var(--color-status-found) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-found) 28%, transparent)">
+      {% icon "bolt" "h-3.5 w-3.5" %}<span>{% translate "Fix it" %}</span>
+    </button>
     {% elif item.offered_action == "fix" %}
+    {% comment %} A FOUND_ISSUES row with no fix-able ``fix_prompt`` → NO launch affordance; the
+       findings live on the run page, so navigate there (never a new-tab MR link, even with a url). {% endcomment %}
     <a data-testid="queue-item-action"
        href="{% url 'session_detail' thread_id=item.thread_id %}"
        class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"

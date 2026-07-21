@@ -12,6 +12,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.timezone import localdate
+from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
@@ -19,9 +20,11 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 from django_filters.views import FilterView
 from notifications.choices import EventType
 from notifications.models import Notification
+from sandbox_envs.services import resolve_repo_envs
 from sessions.models import EnvelopeStatus, OfferedAction, Run, RunEnvelope, RunStatus, SessionOrigin
 from sessions.queue import QUEUE_DECAY_STALE_AFTER, impact_class, order_queue
 from sessions.reconcile import still_actionable
+from sessions.services import RepoTarget, submit_batch_runs
 
 from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
@@ -29,6 +32,7 @@ from accounts.filters import UserFilter
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.models import APIKey, User
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
 from codebase.models import MergeMetric
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
@@ -255,6 +259,36 @@ _FEED_ACCENT_VARS = {
 }
 
 
+def _fixable_actionable(run: Run, envelope: RunEnvelope | None) -> list[dict]:
+    """The fix-able ``actionable[]`` subset for a run — items carrying a non-empty ``fix_prompt``.
+
+    The single Finding -> Fix gate (Story 5.1): items are returned ONLY when the run's live envelope
+    offers ``FIX`` **and** the run is still ``still_actionable`` (the shared predicate — never
+    re-derived inline). Empty list for every non-fixable run, so the template stays dumb (render the
+    ``fix it`` affordance iff this list is non-empty). Read-only: ``still_actionable`` may perform a
+    *cached* live MR read for an MR-linked run, but this never writes and enqueues nothing.
+    """
+    if envelope is None or envelope.offered_action != OfferedAction.FIX:
+        return []
+    if not still_actionable(run, envelope):
+        return []
+    return [item for item in envelope.actionable if item.get("fix_prompt", "").strip()]
+
+
+def compose_fix_prompt(fixable: list[dict]) -> str:
+    """Compose the ONE fix prompt from a run's fix-able items (UX-DR8: one fix per run).
+
+    A single item is used verbatim; multiple items are concatenated as a numbered list so the single
+    launched change session addresses every flagged finding. The text is the classifier's stored
+    (already-stripped) ``fix_prompt`` — inert, untrusted seed/display text, never executed nor used
+    as a template with user context.
+    """
+    prompts = [item["fix_prompt"].strip() for item in fixable]
+    if len(prompts) == 1:
+        return prompts[0]
+    return "\n\n".join(f"{index}. {prompt}" for index, prompt in enumerate(prompts, start=1))
+
+
 def build_feed_item(run: Run, notification: Notification | None, envelope: RunEnvelope | None) -> dict:
     """Assemble the render-ready Feed item for a run from its (already-resolved) envelope.
 
@@ -264,18 +298,28 @@ def build_feed_item(run: Run, notification: Notification | None, envelope: RunEn
     run's envelope via ``RunEnvelope.objects.for_run``. Reads status/count/summary straight off the
     envelope (never recomputed). ``read_at`` is carried for Story 2.4 but is NOT rendered here (no
     unread delta / badge / mark-seen in Story 2.3).
+
+    Story 5.1 attaches ``offered_action`` + a filtered ``fixable`` subset so the template can offer a
+    ``fix it`` affordance without re-deriving actionability: the gate (``offered_action == FIX`` +
+    ``still_actionable`` + a non-empty ``fix_prompt``) lives in ``_fixable_actionable``. Computed on
+    EVERY call site (dashboard loop, ``FeedItemView`` re-fetch, ``FeedItemSeenView``) so the single-
+    item render paths gate identically — never a stale ``fix it`` on an externally-resolved finding.
     """
     if envelope is None:
         status_slug = "classifying"
         accent_var = ""
+        offered_action = OfferedAction.NONE
     else:
         status_slug = envelope.status
         accent_var = _FEED_ACCENT_VARS.get(envelope.status, "")
+        offered_action = envelope.offered_action
     return {
         "run": run,
         "envelope": envelope,
         "status_slug": status_slug,
         "accent_var": accent_var,
+        "offered_action": offered_action,
+        "fixable": _fixable_actionable(run, envelope),
         "read_at": notification.read_at if notification is not None else None,
         "link_url": notification.link_url if notification is not None else "",
     }
@@ -355,6 +399,142 @@ class FeedUnreadBadgeView(LoginRequiredMixin, TemplateView):
     """
 
     template_name = "accounts/_feed_unread_badge.html"
+
+
+# The DOM surface a ``fix it`` was launched from — controls which item region the confirm swaps and
+# which trigger button focus returns to. Server-validated (a client cannot inject an arbitrary id).
+_FIX_SURFACES = ("feed", "queue")
+_DEFAULT_FIX_SURFACE = "feed"
+
+
+class FeedItemFixView(LoginRequiredMixin, TemplateView):
+    """Story 5.1 — the console's single launch capability AND the human-in-the-loop security gate.
+
+    ``fix_prompt`` is classifier-authored from untrusted run prose, so no run is ever enqueued
+    without an explicit POST following an explicit user confirm:
+
+    - ``get()`` renders the scope/intent preview (target repo/ref + the finding intent + the inert,
+      auto-escaped ``fix_prompt`` — never a generated diff). It is a **pure read**: it re-reads the
+      live envelope, re-asserts the fix gate, and performs ZERO writes and enqueues ZERO runs.
+    - ``post()`` re-validates server-side, enforces ``can_run``, resolves the sandbox env, and
+      launches EXACTLY ONE change session via ``submit_batch_runs(trigger_type=UI_JOB)`` built from
+      the ORIGINATING run's ``repo_id``/``ref`` — never the finding's ``actionable[].ref`` — then
+      swaps the item region to a calm "fix started" state and fires ``HX-Trigger: fix:started``.
+
+    Owner-scoped to the requester (a ``Run`` in one of their own sessions OR a run they hold a
+    ``RUN_FEED`` notification for); cross-user / unknown → ``Http404``. NEVER ``by_owner`` /
+    ``visible_to`` (they short-circuit to ``.all()`` for admins).
+    """
+
+    template_name = "accounts/_fix_preview.html"
+
+    def _resolve_run(self, request, run_id) -> Run:
+        """Owner-scope the run to the requester, else ``Http404``.
+
+        Two owner paths, both literal-scoped (NEVER ``by_owner`` / ``visible_to``): a ``Run`` in one
+        of the requester's own sessions (``session__user``), or a run the requester holds a
+        ``RUN_FEED`` notification for (a schedule subscriber can act on a finding surfaced to them).
+        """
+        run = Run.objects.filter(pk=run_id, session__user=request.user).select_related("session").first()
+        if run is not None:
+            return run
+        has_feed_row = Notification.objects.filter(
+            recipient=request.user, event_type=EventType.RUN_FEED, source_type="sessions.Run", source_id=str(run_id)
+        ).exists()
+        if has_feed_row:
+            run = Run.objects.filter(pk=run_id).select_related("session").first()
+            if run is not None:
+                return run
+        raise Http404
+
+    def _surface(self, request) -> str:
+        surface = request.GET.get("surface", _DEFAULT_FIX_SURFACE)
+        return surface if surface in _FIX_SURFACES else _DEFAULT_FIX_SURFACE
+
+    def get(self, request, *args, **kwargs):
+        run = self._resolve_run(request, kwargs["run_id"])
+        envelope = RunEnvelope.objects.for_run(run)
+        fixable = _fixable_actionable(run, envelope)
+        surface = self._surface(request)
+        # Pure read only — no write, no enqueue. A stale/no-longer-fixable finding renders the inert
+        # "no longer actionable" preview (``fixable`` empty) rather than a launchable dialog.
+        return self.render_to_response({
+            "run": run,
+            "fixable": fixable,
+            "fix_prompt": compose_fix_prompt(fixable) if fixable else "",
+            "surface": surface,
+            "region_id": f"{surface}-item-{run.id}",
+            "trigger_id": f"fix-btn-{surface}-{run.id}",
+        })
+
+    def post(self, request, *args, **kwargs):
+        run = self._resolve_run(request, kwargs["run_id"])
+        envelope = RunEnvelope.objects.for_run(run)
+        # Re-validate the LIVE envelope server-side and pull ``fix_prompt`` from it keyed by
+        # (run_id, actionable id) — a client-supplied prompt field is never trusted.
+        fixable = _fixable_actionable(run, envelope)
+        surface = self._surface(request)
+        region_id = f"{surface}-item-{run.id}"
+        if not fixable:
+            # Stale / tampered: the live envelope no longer offers FIX (or the item lost its
+            # fix_prompt). No launch — a calm inline no-op inside the open dialog.
+            return self._dialog_notice(request, _("This finding is no longer actionable — nothing was started."))
+
+        actionable_ids = [item["id"] for item in fixable]
+        prompt = compose_fix_prompt(fixable)
+
+        # Access can be revoked between render and submit — the explicit ``can_run`` pre-check plus
+        # the ``RepositoryAccessDenied`` catch below both surface a clean inline error (no crash).
+        if not can_run(request.user, run.repo_id):
+            return self._dialog_notice(request, REPO_ACCESS_DENIED_MESSAGE)
+
+        try:
+            repos = resolve_repo_envs(
+                user=request.user, repos=[RepoTarget(repo_id=run.repo_id, ref=run.ref)], explicit_env_id=None
+            )
+            result = submit_batch_runs(user=request.user, prompt=prompt, repos=repos, trigger_type=SessionOrigin.UI_JOB)
+        except RepositoryAccessDenied:
+            return self._dialog_notice(request, REPO_ACCESS_DENIED_MESSAGE)
+        except Exception:
+            logger.exception(
+                "finding_fix: launch failed for run=%s repo=%s user=%s", run.pk, run.repo_id, request.user.pk
+            )
+            return self._dialog_notice(request, _("Could not start the fix. Please try again in a moment."))
+
+        if not result.runs:
+            # Every repo target failed to enqueue — for this single-target launch that means NOTHING
+            # started. Surface a calm inline error and fire NO ``fix:started``; the finding stays
+            # actionable so the user can retry (a false "fix started" + dead batch link is worse).
+            logger.warning(
+                "finding_fix.launch_failed run_id=%s repo_id=%s user=%s errors=%s",
+                run.pk,
+                run.repo_id,
+                request.user.pk,
+                [failure.error for failure in result.failed],
+            )
+            return self._dialog_notice(request, _("Could not start the fix. Please try again in a moment."))
+
+        # Traceability finding -> spawned batch (Q3 lightweight, no migration): the batch_id is
+        # surfaced in the response AND logged bound to (origin run_id, actionable ids).
+        logger.info(
+            "finding_fix.launched run_id=%s actionable_ids=%s batch_id=%s repo_id=%s user=%s",
+            run.pk,
+            actionable_ids,
+            result.batch_id,
+            run.repo_id,
+            request.user.pk,
+        )
+        resp = render(request, "accounts/_fix_started.html", {"region_id": region_id, "batch_id": result.batch_id})
+        resp["HX-Trigger"] = "fix:started"
+        return resp
+
+    @staticmethod
+    def _dialog_notice(request, message):
+        """Render a calm inline notice retargeted INTO the open dialog (no launch, no region swap)."""
+        resp = render(request, "accounts/_fix_notice.html", {"message": message})
+        resp["HX-Retarget"] = "#fix-preview-error"
+        resp["HX-Reswap"] = "innerHTML"
+        return resp
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -671,6 +851,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # chip can never disagree.
         age_at = run.finished_at or run.created_at
         age = now - age_at
+        # Story 5.1 — the fix-able ``actionable[]`` subset (items with a ``fix_prompt``). The Queue
+        # only builds still-actionable rows, so the shared ``_fixable_actionable`` gate resolves to a
+        # plain filter here; the template offers the ``fix it`` preview iff this is non-empty (a
+        # FOUND_ISSUES row with no ``fix_prompt`` keeps its navigate-only link instead).
         return {
             "run_id": run.id,
             "repo_id": run.repo_id,
@@ -682,6 +866,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "status_slug": status_slug,
             "accent_var": accent_var,
             "offered_action": offered_action,
+            "fixable": _fixable_actionable(run, envelope),
             # Impact class attached here so ``order_queue`` sorts on it and a deferred class can be
             # emitted later without touching the sort (AC5). v1: always ``PASSIVE_DECAY``.
             "impact_class": impact_class(run, envelope),

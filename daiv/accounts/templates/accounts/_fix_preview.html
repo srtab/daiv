@@ -1,0 +1,128 @@
+{% load i18n icon_tags %}
+{% comment %}
+Finding -> Fix scope/intent preview (Story 5.1) — the human-in-the-loop gate. Server-rendered by
+``FeedItemFixView.get`` and swapped into the persistent ``#fix-preview-mount`` (mounted in
+dashboard.html, OUTSIDE #console-main) by a ``fix it`` button's ``hx-get``. It shows WHAT will be
+attempted — the target repo/ref scope + the finding intent + the inert ``fix_prompt`` — NEVER a
+generated diff. The GET that produced it did ZERO writes / ZERO enqueues; only the explicit confirm
+``hx-post`` below launches a run. ``fix_prompt`` is UNTRUSTED classifier prose rendered via ``{{ }}``
+autoescaping — never ``|safe``, never executed. Adapted from _env_paste_overlay.html but centered,
+with aria-labelledby/aria-describedby + a manual focus trap (no x-trap plugin is loaded).
+{% endcomment %}
+<div x-data="{
+       open: false,
+       triggerId: '{{ trigger_id }}',
+       show() { this.open = true; this.$nextTick(() => { (this.$refs.confirm || this.$refs.dismiss)?.focus(); }); },
+       close() { this.open = false; this.$nextTick(() => document.getElementById(this.triggerId)?.focus()); },
+       started() { this.open = false; this.$nextTick(() => document.getElementById('{{ region_id }}')?.focus()); },
+       trap(e) {
+         if (!this.open) return;
+         const nodes = this.$refs.panel.querySelectorAll('a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex=\'-1\'])');
+         if (!nodes.length) return;
+         const first = nodes[0], last = nodes[nodes.length - 1];
+         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+       }
+     }"
+     x-init="show()"
+     @keydown.escape.window="close()"
+     @fix:started.window="started()">
+  <div x-show="open" x-cloak class="fixed inset-0 z-50">
+    <div x-show="open" x-transition.opacity @click="close()"
+         class="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div x-ref="panel" x-show="open" x-transition.opacity
+           role="dialog" aria-modal="true"
+           aria-labelledby="fix-preview-title" aria-describedby="fix-preview-desc"
+           @keydown.tab="trap($event)"
+           data-testid="fix-preview"
+           class="flex w-full max-w-lg flex-col overflow-hidden rounded-xl border border-border bg-surface-2 shadow-overlay">
+        <header class="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+          <div class="min-w-0">
+            <h2 id="fix-preview-title" class="text-[15px] font-semibold text-text">
+              {% translate "Start a fix" %}
+            </h2>
+            <p id="fix-preview-desc" class="mt-1 text-[13px] text-text-muted">
+              {% translate "Review what will run before starting it. Nothing happens until you confirm." %}
+            </p>
+          </div>
+          <button type="button" x-ref="dismiss" @click="close()"
+                  aria-label="{% translate 'Close' %}"
+                  class="flex h-11 w-11 shrink-0 items-center justify-center self-start rounded-md text-text-faint transition-colors hover:text-text">
+            {% icon "x-mark" "h-4 w-4" %}
+          </button>
+        </header>
+
+        {% if fixable %}
+        <div class="flex-1 overflow-y-auto px-6 py-5">
+          {% comment %} Scope — the target repo/ref taken from the ORIGINATING run, never the
+             finding's ``actionable[].ref`` (which is a file path/symbol, not a git ref). {% endcomment %}
+          <section aria-labelledby="fix-scope-heading">
+            <h3 id="fix-scope-heading"
+                class="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
+              {% translate "Scope" %}
+            </h3>
+            <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px] tabular-nums text-text-muted">
+              <span class="inline-flex items-center rounded bg-ground px-1.5 py-0.5">&rsaquo; {{ run.repo_id }}</span>
+              <span aria-hidden="true">&middot;</span>
+              <span data-testid="fix-preview-ref">{% if run.ref %}{{ run.ref }}{% else %}{% translate "default branch" %}{% endif %}</span>
+            </div>
+          </section>
+
+          <section aria-labelledby="fix-intent-heading" class="mt-5">
+            <h3 id="fix-intent-heading"
+                class="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
+              {% translate "What will be attempted" %}
+            </h3>
+            <ul class="mt-2 flex flex-col gap-2">
+              {% for item in fixable %}
+              <li class="rounded-md border border-border bg-ground px-3 py-2">
+                <p class="text-[13px] font-medium text-text">{{ item.label }}</p>
+                <p class="mt-0.5 font-mono text-[11px] tabular-nums text-text-faint">{{ item.kind }} &middot; {{ item.ref }}</p>
+              </li>
+              {% endfor %}
+            </ul>
+            {% comment %} The classifier-authored fix_prompt is UNTRUSTED run prose. It is shown as
+               inert, auto-escaped text (Django {{ }} — never |safe, never executed as a template). {% endcomment %}
+            <p class="mt-3 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
+              {% translate "Instruction" %}
+            </p>
+            <div data-testid="fix-preview-prompt"
+                 class="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-ground px-3 py-2 font-mono text-[12px] text-text-muted">{{ fix_prompt }}</div>
+          </section>
+        </div>
+
+        {% comment %} Error/notice sink — the confirm POST retargets a clean inline error here
+           (via HX-Retarget) on revoked access / stale state / transient failure. {% endcomment %}
+        <div id="fix-preview-error" aria-live="polite"></div>
+
+        <footer class="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
+          <button type="button" @click="close()"
+                  class="inline-flex min-h-[44px] items-center rounded-md px-3 py-1.5 text-[13px] font-medium text-text-muted transition-colors hover:text-text md:min-h-0">
+            {% translate "Cancel" %}
+          </button>
+          <button type="button" x-ref="confirm" data-testid="fix-confirm"
+                  hx-post="{% url 'feed_item_fix' run.id %}?surface={{ surface }}"
+                  hx-target="#{{ region_id }}" hx-swap="outerHTML" hx-disabled-elt="this"
+                  class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+                  style="color: var(--color-status-found); background-color: color-mix(in srgb, var(--color-status-found) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-found) 28%, transparent)">
+            {% icon "bolt" "h-3.5 w-3.5" %}<span>{% translate "Fix it" %}</span>
+          </button>
+        </footer>
+        {% else %}
+        {% comment %} Stale GET: the finding is no longer actionable (resolved externally / tampered
+           run id). Inert — no confirm control, no launch path. {% endcomment %}
+        <div class="flex-1 px-6 py-5" data-testid="fix-preview-stale">
+          <p class="text-[13px] text-text-muted">{% translate "This finding is no longer actionable — nothing to start." %}</p>
+        </div>
+        <footer class="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
+          <button type="button" @click="close()"
+                  class="inline-flex min-h-[44px] items-center rounded-md px-3 py-1.5 text-[13px] font-medium text-text-muted transition-colors hover:text-text md:min-h-0">
+            {% translate "Close" %}
+          </button>
+        </footer>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
