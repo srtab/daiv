@@ -298,6 +298,94 @@ async def test_resolve_messages_empty_history_returns_empty_list():
     assert result == []
 
 
+async def test_resolve_messages_tolerates_lossy_legacy_delta_snapshot_seed():
+    """Sentry DAIV-1T: a checkpoint written BEFORE the #1418 serializer fix stored the
+    ``_DeltaSnapshot`` seed as a bare JSON array, so it deserialises to a doubly-nested
+    ``[[msg, ...]]`` with the wrapper lost. Those checkpoints still live in Redis until their
+    TTL expires, so reading one (e.g. rendering an old session in the dashboard) must unwrap
+    the lost wrapper instead of feeding ``[[msg, ...]]`` to ``add_messages`` -- which unpacks
+    the inner list as ``(role, template)`` and raises ``NotImplementedError: Message as a
+    sequence must be (role string, template)``."""
+    from langchain_core.messages import AIMessage
+
+    from core.checkpointer import aresolve_thread_messages
+
+    inner = [HumanMessage(content="q", id="h1"), AIMessage(content="a", id="a1")]
+    lossy_seed = [inner]  # _DeltaSnapshot(value=inner) serialised pre-#1418 as a bare 1-element array
+    writes = [("task-3", "messages", [AIMessage(content="more", id="a2")])]
+    saver = _history_saver({"messages": {"seed": lossy_seed, "writes": writes}})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {})
+
+    assert [m.id for m in result] == ["h1", "a1", "a2"]
+
+
+async def test_resolve_messages_tolerates_lossy_legacy_snapshot_inline():
+    """The other legacy read path: the latest checkpoint IS a snapshot boundary written
+    pre-#1418, so ``channel_values['messages']`` itself holds the lossy ``[[msg, ...]]``.
+    Unwrap it rather than returning the malformed nested list to the caller."""
+    from core.checkpointer import aresolve_thread_messages
+
+    inner = [HumanMessage(content="q", id="h1")]
+    saver = _history_saver({})
+
+    result = await aresolve_thread_messages(saver, {"configurable": {"thread_id": "t"}}, {"messages": [inner]})
+
+    assert [m.id for m in result] == ["h1"]
+    saver.aget_delta_channel_history.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _unwrap_delta_snapshot: tolerate the live wrapper AND its lossy legacy serialisation
+# ---------------------------------------------------------------------------
+
+
+def test_unwrap_delta_snapshot_unwraps_live_wrapper():
+    """A live ``_DeltaSnapshot`` (what the #1418 serializer round-trips) yields its ``.value``."""
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    inner = [HumanMessage(content="q", id="h1")]
+    assert _unwrap_delta_snapshot(_DeltaSnapshot(inner)) is inner
+
+
+def test_unwrap_delta_snapshot_unwraps_lossy_legacy_form():
+    """Pre-#1418 lossy form: a bare 1-element list wrapping the messages list -> inner list."""
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    inner = [HumanMessage(content="q", id="h1"), HumanMessage(content="q2", id="h2")]
+    assert _unwrap_delta_snapshot([inner]) is inner
+
+
+def test_unwrap_delta_snapshot_unwraps_lossy_empty_snapshot():
+    """A lossy empty snapshot ``_DeltaSnapshot([])`` -> ``[[]]`` unwraps to ``[]``."""
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    assert _unwrap_delta_snapshot([[]]) == []
+
+
+def test_unwrap_delta_snapshot_passes_through_genuine_message_list():
+    """A genuine messages list is returned unchanged (identity), even a single-message one:
+    its elements are messages, never lists, so the lossy-form heuristic never misfires."""
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    single = [HumanMessage(content="hi", id="h1")]
+    assert _unwrap_delta_snapshot(single) is single
+
+    many = [HumanMessage(content="a", id="h1"), HumanMessage(content="b", id="h2")]
+    assert _unwrap_delta_snapshot(many) is many
+
+
+def test_unwrap_delta_snapshot_passes_through_non_snapshot_values():
+    """Non-snapshot inputs (``None``, empty list) pass through untouched."""
+    from core.checkpointer import _unwrap_delta_snapshot
+
+    assert _unwrap_delta_snapshot(None) is None
+    empty: list = []
+    assert _unwrap_delta_snapshot(empty) is empty
+
+
 # ---------------------------------------------------------------------------
 # _DeltaSnapshot round-trip (Sentry DAIV-1S)
 #

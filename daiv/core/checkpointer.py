@@ -191,9 +191,31 @@ async def open_checkpointer() -> AsyncIterator[AsyncRedisSaver]:
 
 
 def _unwrap_delta_snapshot(value: Any) -> Any:
-    """Unwrap a ``DeltaChannel`` snapshot to its stored value; pass anything else through."""
+    """Unwrap a ``DeltaChannel`` snapshot to its stored value; pass anything else through.
+
+    Two encodings are unwrapped:
+
+    * A live ``_DeltaSnapshot`` NamedTuple -- what the serializer round-trip (``_preprocess_interrupts``
+      / ``_revive_if_needed``) reconstructs for checkpoints written after that fix shipped -- yields
+      its ``.value``.
+    * The *lossy legacy* form from a checkpoint written BEFORE that fix: the stock serializer emitted
+      the single-field NamedTuple as a bare JSON array ``[value]``, so a ``messages`` snapshot comes
+      back doubly-nested as ``[[msg, ...]]`` with the wrapper lost. Such checkpoints still live in
+      Redis until their TTL expires, so reading one (e.g. rendering an old session in the dashboard)
+      must unwrap the inner list rather than feed ``[[msg, ...]]`` to ``add_messages`` -- which unpacks
+      the inner list as ``(role, template)`` and raises ``NotImplementedError: Message as a sequence
+      must be (role string, template)`` (Sentry DAIV-1S / DAIV-1T).
+
+    The lossy heuristic (length-1 list whose sole element is a list) is unambiguous for the ``messages``
+    channel this helper serves: a genuine messages list holds messages (objects or ``lc`` envelope
+    dicts), never lists, so it never misfires -- and a lossy empty snapshot ``[[]]`` correctly unwraps
+    to ``[]``. A genuine list is returned unchanged (identity preserved) so the inline fast-path caller
+    can keep returning it as-is.
+    """
     if _DeltaSnapshot is not None and isinstance(value, _DeltaSnapshot):
         return value.value
+    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], list):
+        return value[0]
     return value
 
 
