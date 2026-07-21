@@ -2,6 +2,8 @@ import logging
 from functools import cached_property
 from typing import Any, Literal
 
+from django.core.cache import cache
+
 from gitlab.exceptions import GitlabError
 from sandbox_envs.services import resolve_env_for_run
 from sessions.models import SessionOrigin
@@ -12,6 +14,7 @@ from codebase.api.callbacks import BaseCallback
 from codebase.base import Scope
 from codebase.clients import RepoClient
 from codebase.clients.base import Emoji
+from codebase.mr_state import _mr_state_cache_key
 from codebase.repo_config import RepositoryConfig
 from codebase.tasks import address_issue_task, address_mr_comments_task
 from codebase.utils import compute_thread_id, note_mentions_daiv
@@ -337,6 +340,10 @@ class MergeRequestCallback(BaseCallback):
             merged_at=self.object_attributes.merged_at or "",
             platform="gitlab",
         )
+        # Eagerly drop the cached live MR state so the merged MR leaves the console near-instantly
+        # rather than after the TTL (AC7). Pure cache side effect — no accept-gate change, no new
+        # stored state; the same posture as ``PushCallback`` invalidating the repo-config cache.
+        cache.delete(_mr_state_cache_key(self.project.path_with_namespace, self.object_attributes.iid))
 
 
 class PushCallback(BaseCallback):

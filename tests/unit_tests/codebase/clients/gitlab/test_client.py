@@ -7,7 +7,7 @@ import pytest
 from git import GitCommandError
 from gitlab.exceptions import GitlabCreateError, GitlabGetError
 
-from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
+from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, MergeRequestState, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
 from codebase.clients.gitlab.client import (
     MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS,
@@ -341,6 +341,41 @@ class TestGitLabClient:
         result = gitlab_client.create_merge_request_inline_discussion("ns/proj", 99, "body text", _POSITION)
 
         assert result == "unique-id-xyz"
+
+    @pytest.mark.parametrize(
+        ("raw_state", "work_in_progress", "expected"),
+        [
+            ("merged", False, MergeRequestState.MERGED),
+            ("closed", False, MergeRequestState.CLOSED),
+            # ``locked`` is transient (GitLab locks an MR mid-merge, reverting to ``opened`` if the
+            # merge fails), so it is kept OPEN — the item leaves only on a CONFIRMED merged/closed
+            # (AC6), never dropped on a lock.
+            ("locked", False, MergeRequestState.OPEN),
+            ("opened", True, MergeRequestState.DRAFT),
+            ("opened", False, MergeRequestState.OPEN),
+            # A merged MR whose stale WIP flag is set is still MERGED (merged wins over draft).
+            ("merged", True, MergeRequestState.MERGED),
+        ],
+    )
+    def test_get_merge_request_state_maps_platform_state(self, gitlab_client, raw_state, work_in_progress, expected):
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_mr.state = raw_state
+        mock_mr.work_in_progress = work_in_progress
+        mock_project.mergerequests.get.return_value = mock_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        assert gitlab_client.get_merge_request_state("group/repo", 5) == expected
+        mock_project.mergerequests.get.assert_called_once_with(5)
+
+    def test_get_merge_request_state_propagates_gitlab_error(self, gitlab_client):
+        """Providers RAISE their native error — the cached wrapper owns the fail-safe, not the client."""
+        mock_project = Mock()
+        mock_project.mergerequests.get.side_effect = GitlabGetError("boom", response_code=500)
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with pytest.raises(GitlabGetError):
+            gitlab_client.get_merge_request_state("group/repo", 5)
 
     @staticmethod
     def _merge_request_mock(source_branch="feat/x"):

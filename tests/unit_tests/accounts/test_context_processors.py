@@ -187,6 +187,8 @@ def rf():
 
 def _make_feed_run(user, *, envelope_status=None, repo_id="group/project"):
     """Build a SCHEDULE run for ``user``, optionally with a ``RunEnvelope`` of the given status."""
+    from sessions.envelopes import build_actionable_item
+
     session = Session.objects.create(
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id=repo_id, user=user
     )
@@ -199,7 +201,14 @@ def _make_feed_run(user, *, envelope_status=None, repo_id="group/project"):
         finished_at=timezone.now(),
     )
     if envelope_status is not None:
-        RunEnvelope.objects.create(run=run, status=envelope_status)
+        # A found-issues envelope MUST carry ≥1 actionable item (RunEnvelope.clean() / FR-5), so its
+        # ``is_actionable`` is True — the invariant the badge's predicate routing relies on.
+        actionable = (
+            [build_actionable_item(id="1", kind="bug", label="issue", ref="a.py")]
+            if envelope_status == EnvelopeStatus.FOUND_ISSUES
+            else []
+        )
+        RunEnvelope.objects.create(run=run, status=envelope_status, actionable=actionable)
     return run
 
 
@@ -320,3 +329,68 @@ class TestFeedUnreadCount:
         _feed_notif(member_user, run.pk)
         Notification.mark_all_read_for(member_user, exclude_event_types=(EventType.RUN_FEED,))
         assert feed_unread_attention_count(member_user) == 1
+
+
+def _make_mr_feed_run(user, *, envelope_status, merge_request_iid, repo_id="group/project"):
+    """An attention run that references an MR (so the badge reconciles it against live MR state)."""
+    from sessions.envelopes import build_actionable_item
+
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MR_WEBHOOK, repo_id=repo_id, user=user
+    )
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.MR_WEBHOOK,
+        repo_id=repo_id,
+        status=RunStatus.SUCCESSFUL,
+        user=user,
+        merge_request_iid=merge_request_iid,
+        finished_at=timezone.now(),
+    )
+    actionable = (
+        [build_actionable_item(id="1", kind="bug", label="issue", ref="a.py")]
+        if envelope_status == EnvelopeStatus.FOUND_ISSUES
+        else []
+    )
+    RunEnvelope.objects.create(run=run, status=envelope_status, actionable=actionable)
+    return run
+
+
+@pytest.mark.django_db
+class TestFeedUnreadAttentionCountReconcile:
+    """Story 3.3 — the badge routes liveness through ``still_actionable`` (AC2, AC4, AC5, AC6)."""
+
+    _LIVE_READ = "codebase.mr_state.get_merge_request_state"
+
+    def test_externally_merged_mr_run_is_excluded(self, member_user):
+        from codebase.base import MergeRequestState
+
+        run = _make_mr_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_iid=7)
+        _feed_notif(member_user, run.pk)
+        with patch(self._LIVE_READ, return_value=MergeRequestState.MERGED):
+            assert feed_unread_attention_count(member_user) == 0
+
+    def test_open_mr_run_is_counted(self, member_user):
+        from codebase.base import MergeRequestState
+
+        run = _make_mr_feed_run(member_user, envelope_status=EnvelopeStatus.FOUND_ISSUES, merge_request_iid=7)
+        _feed_notif(member_user, run.pk)
+        with patch(self._LIVE_READ, return_value=MergeRequestState.OPEN):
+            assert feed_unread_attention_count(member_user) == 1
+
+    def test_read_failure_keeps_the_run_counted(self, member_user):
+        # The wrapper resolves a failed read to OPEN → the item stays counted (AC6, fail-safe).
+        from codebase.base import MergeRequestState
+
+        run = _make_mr_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_iid=7)
+        _feed_notif(member_user, run.pk)
+        with patch(self._LIVE_READ, return_value=MergeRequestState.OPEN):
+            assert feed_unread_attention_count(member_user) == 1
+
+    def test_all_clear_mr_run_never_triggers_a_live_read(self, member_user):
+        # An all-clear run is quiet regardless of its MR: no live read, not counted.
+        run = _make_mr_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR, merge_request_iid=7)
+        _feed_notif(member_user, run.pk)
+        with patch(self._LIVE_READ) as read:
+            assert feed_unread_attention_count(member_user) == 0
+        read.assert_not_called()

@@ -17,6 +17,7 @@ from codebase.base import (
     MergeRequest,
     MergeRequestCommit,
     MergeRequestDiffStats,
+    MergeRequestState,
     RepoMember,
     Repository,
     User,
@@ -334,6 +335,15 @@ class SWERepoClient(RepoClient):
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
+
+    def get_merge_request_state(self, repo_id: str, merge_request_id: int) -> MergeRequestState:
+        """SWE runs have no live MR lifecycle: report ``OPEN`` (unresolved → keep visible, AC6).
+
+        Returning a benign default rather than raising keeps AC6's fail-safe intact without the
+        cached wrapper logging an exception on every reconcile of a SWE install — the same graceful
+        posture as :meth:`get_merge_request_by_branches` returning ``None``. Genuine GitLab/GitHub
+        API failures still raise from their clients and are caught by the wrapper."""
+        return MergeRequestState.OPEN
 
     def get_merge_request_by_branches(
         self, repo_id: str, source_branch: str, target_branch: str

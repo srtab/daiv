@@ -103,18 +103,24 @@ def running_jobs_count(request, user) -> int:
 
 
 def feed_unread_attention_count(user) -> int:
-    """Count the user's unread Feed rows that still NEED ATTENTION (Story 2.4, Option 1).
+    """Count the user's unread Feed rows that are still ACTIONABLE (Story 2.4 / Story 3.3).
 
-    Envelope-aware, unlike the bell's flat unread count: a row counts only when its run still
-    exists AND its envelope is not ``all-clear``. A ``classifying`` run (terminal but no envelope
-    yet) counts — it needs attention until it resolves; an unread ``all-clear`` run does not (quiet
-    by design, so the badge never contradicts the "nothing needs you." seal); a row whose ``Run``
-    was deleted does not. Three small queries, all scoped to the user's unread ``RUN_FEED`` rows
-    (per-user, low volume) — never an unscoped notification-table scan.
+    Routes the liveness decision through the single shared ``still_actionable`` predicate (AC2), so
+    the badge can never diverge from the Feed or the (future) Queue. A row counts only when its run
+    still exists AND ``still_actionable`` holds: an ``all-clear`` envelope is quiet (not counted, so
+    the badge never contradicts the "nothing needs you." seal); a ``classifying`` run (terminal, no
+    envelope yet) counts until it resolves; needs-attention / found-issues / failed count; a row
+    whose ``Run`` was deleted does not; and — new in Story 3.3 — a run whose MR was merged/closed
+    externally no longer counts (AC4/AC5), while a read failure keeps it counted (AC6, fail-safe).
+
+    All queries are scoped to the user's unread ``RUN_FEED`` rows (per-user, low volume) — never an
+    unscoped notification-table scan. Runs + envelopes are batched (no N+1); only MR-referencing
+    runs trigger a live read, and cache-warm reads are free.
     """
     from notifications.choices import EventType
     from notifications.models import Notification
-    from sessions.models import EnvelopeStatus, Run, RunEnvelope
+    from sessions.models import Run, RunEnvelope
+    from sessions.reconcile import still_actionable
 
     source_ids = list(
         Notification.objects.filter(recipient=user, event_type=EventType.RUN_FEED, read_at__isnull=True).values_list(
@@ -123,15 +129,15 @@ def feed_unread_attention_count(user) -> int:
     )
     if not source_ids:
         return 0
-    existing = {str(pk) for pk in Run.objects.filter(pk__in=source_ids).values_list("pk", flat=True)}
-    all_clear = {
-        str(run_id)
-        for run_id in RunEnvelope.objects.filter(run_id__in=source_ids, status=EnvelopeStatus.ALL_CLEAR).values_list(
-            "run_id", flat=True
-        )
-    }
-    # classifying (run exists, no envelope) is not in ``all_clear`` → counts.
-    return sum(1 for source_id in source_ids if source_id in existing and source_id not in all_clear)
+    runs = {str(run.pk): run for run in Run.objects.filter(pk__in=source_ids)}
+    # Batch the envelopes once; a missing entry (``None``) is the classifying state passed straight
+    # into ``still_actionable`` — no per-run re-query.
+    envelopes = {str(env.run_id): env for env in RunEnvelope.objects.filter(run_id__in=source_ids)}
+    return sum(
+        1
+        for source_id in source_ids
+        if (run := runs.get(str(source_id))) is not None and still_actionable(run, envelopes.get(str(source_id)))
+    )
 
 
 def feed_unread_count(request) -> dict[str, Any]:

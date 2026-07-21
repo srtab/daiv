@@ -14,6 +14,31 @@ class GitPlatform(StrEnum):
     SWE = "swe"
 
 
+class MergeRequestState(StrEnum):
+    """Live lifecycle state of a merge/pull request, normalized across platforms.
+
+    Presentation-only (AC1): read live from the platform for render-time reconciliation and
+    never persisted — so this is a plain ``StrEnum``, NOT a ``models.TextChoices`` with a
+    DB ``CheckConstraint``. The ``resolved()`` / ``live()`` groupings mirror the
+    ``RunStatus.terminal()`` classmethod idiom (AR14), returning ``frozenset[str]``.
+    """
+
+    OPEN = "open"
+    MERGED = "merged"
+    CLOSED = "closed"
+    DRAFT = "draft"
+
+    @classmethod
+    def resolved(cls) -> frozenset[str]:
+        """States that mean the MR was settled externally — an item in one leaves the console."""
+        return frozenset({cls.MERGED, cls.CLOSED})
+
+    @classmethod
+    def live(cls) -> frozenset[str]:
+        """States that mean the MR is still open work — an item in one stays on the console."""
+        return frozenset({cls.OPEN, cls.DRAFT})
+
+
 class Scope(StrEnum):
     """
     Scope of the conversation.

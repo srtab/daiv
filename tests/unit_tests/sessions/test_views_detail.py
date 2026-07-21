@@ -560,6 +560,54 @@ def test_detail_expired_checkpoint_recovers_every_failed_run(member_client, memb
 
 
 @pytest.mark.django_db
+def test_detail_expired_surfaces_durable_report_link(member_client, member_user):
+    """AC12 (Story 3.2): an expired checkpoint hides the transcript, but ``Run.response_text`` is
+    durably persisted. The expired block must link to ``session_run_download_md`` for each SUCCESSFUL
+    run that has retained prose, so the drill-through never dead-ends at a bare "expired" screen."""
+    session = _create_session(user=member_user, ref="")
+    run = _create_run(
+        session,
+        trigger_type=SessionOrigin.UI_JOB,
+        status=RunStatus.SUCCESSFUL,
+        result_summary="# Durable report\n\nFindings survive the checkpoint TTL.",
+        user=member_user,
+    )
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)  # no checkpoint → genuine TTL expiry
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is True
+    content = resp.content.decode()
+    # The retained prose report is reachable via the existing markdown route (no transcript refactor).
+    assert reverse("session_run_download_md", kwargs={"thread_id": session.thread_id, "pk": run.pk}) in content
+    assert "Download report" in content
+
+
+@pytest.mark.django_db
+def test_detail_expired_no_report_link_without_retained_prose(member_client, member_user):
+    """Guard: a SUCCESSFUL run with empty ``response_text`` yields no report link — no dead/empty
+    download affordance is offered when there is genuinely nothing to serve."""
+    session = _create_session(user=member_user, ref="")
+    _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.SUCCESSFUL, result_summary="")
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.status_code == 200
+    assert resp.context["expired"] is True
+    assert "Download report" not in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_download_md_serves_run_result(member_client, member_user):
     """GET session_run_download_md for a SUCCESSFUL run returns markdown attachment."""
     session = _create_session(user=member_user)
@@ -603,3 +651,37 @@ def test_download_md_404_when_no_result_summary(member_client, member_user):
 
     resp = member_client.get(reverse("session_run_download_md", kwargs={"thread_id": session.thread_id, "pk": run.id}))
     assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_detail_expired_report_links_are_distinct_per_run(member_client, member_user):
+    """AC12 hardening: multiple SUCCESSFUL runs with retained prose each get their own reachable
+    download link (distinct href), so an expired session with several reports is not one ambiguous
+    button — the operator can reach each report individually."""
+    session = _create_session(user=member_user, ref="")
+    run_a = _create_run(
+        session,
+        trigger_type=SessionOrigin.UI_JOB,
+        status=RunStatus.SUCCESSFUL,
+        result_summary="# Report A",
+        user=member_user,
+    )
+    run_b = _create_run(
+        session,
+        trigger_type=SessionOrigin.UI_JOB,
+        status=RunStatus.SUCCESSFUL,
+        result_summary="# Report B",
+        user=member_user,
+    )
+
+    with patch("sessions.hydration.open_checkpointer") as cp_ctx:
+        saver = MagicMock()
+        saver.aget_tuple = AsyncMock(return_value=None)
+        cp_ctx.return_value.__aenter__ = AsyncMock(return_value=saver)
+        cp_ctx.return_value.__aexit__ = AsyncMock(return_value=None)
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["expired"] is True
+    content = resp.content.decode()
+    assert reverse("session_run_download_md", kwargs={"thread_id": session.thread_id, "pk": run_a.pk}) in content
+    assert reverse("session_run_download_md", kwargs={"thread_id": session.thread_id, "pk": run_b.pk}) in content

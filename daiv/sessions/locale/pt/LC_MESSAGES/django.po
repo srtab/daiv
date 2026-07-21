@@ -443,3 +443,9 @@ msgstr "Mostrar mais"
 
 msgid "Show less"
 msgstr "Mostrar menos"
+
+msgid "Download report"
+msgstr "Descarregar relatório"
+
+msgid "Download report from %(when)s"
+msgstr "Descarregar relatório de %(when)s"

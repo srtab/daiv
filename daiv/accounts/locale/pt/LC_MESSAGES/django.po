@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-19 13:16+0100\n"
+"POT-Creation-Date: 2026-07-20 05:23-0500\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -83,8 +83,24 @@ msgstr "Introduza este código na janela do navegador para concluir a autentica�
 msgid "Your DAIV Sign-In Code"
 msgstr "O Seu Código de Autenticação DAIV"
 
-msgid "Today"
-msgstr "Hoje"
+msgid "What this counts"
+msgstr "O que isto conta"
+
+msgid "Changes shipped = merged MRs opened by DAIV, counted from GitLab merges and attributed to you because each one links to one of your runs."
+msgstr "Alterações entregues = MRs integrados abertos pelo DAIV, contados a partir das integrações do GitLab e atribuídos a ti porque cada um está ligado a uma das tuas execuções."
+
+#, python-format
+msgid "open MR !%(iid)s on GitLab"
+msgstr "abrir MR !%(iid)s no GitLab"
+
+msgid "view run"
+msgstr "ver execução"
+
+msgid "No changes shipped in this range."
+msgstr "Sem alterações entregues neste intervalo."
+
+msgid "Throughput"
+msgstr "Entregas"
 
 msgid "Needs-me queue"
 msgstr "Fila de pendências"
@@ -154,8 +170,86 @@ msgstr[1] "%(counter)s execuções sem problemas"
 msgid "next sweep %(sweep)s"
 msgstr "próxima verificação %(sweep)s"
 
+#, python-format
+msgid "last checked %(checked)s"
+msgstr "última verificação %(checked)s"
+
 msgid "No scheduled runs yet."
 msgstr "Ainda não há execuções agendadas."
+
+msgid "today"
+msgstr "hoje"
+
+msgid "vs yesterday"
+msgstr "vs ontem"
+
+msgid "this week"
+msgstr "esta semana"
+
+msgid "vs last week"
+msgstr "vs semana passada"
+
+msgid "in the last 30 days"
+msgstr "nos últimos 30 dias"
+
+msgid "vs last 30 days"
+msgstr "vs últimos 30 dias"
+
+msgid "in the last 90 days"
+msgstr "nos últimos 90 dias"
+
+msgid "vs last 90 days"
+msgstr "vs últimos 90 dias"
+
+msgid "all time"
+msgstr "desde sempre"
+
+#, python-format
+msgid "<span class=\"text-text-strong\">%(n)s</span> change shipped %(range_label)s"
+msgid_plural "<span class=\"text-text-strong\">%(n)s</span> changes shipped %(range_label)s"
+msgstr[0] "<span class=\"text-text-strong\">%(n)s</span> alteração entregue %(range_label)s"
+msgstr[1] "<span class=\"text-text-strong\">%(n)s</span> alterações entregues %(range_label)s"
+
+msgid "counted — every merged change"
+msgstr "contado — cada alteração integrada"
+
+msgid "how this is computed"
+msgstr "como isto é calculado"
+
+msgid "shipped since day one"
+msgstr "entregues desde o início"
+
+#, python-format
+msgid "~%(n)s dev-hours saved"
+msgstr "~%(n)s horas de dev poupadas"
+
+msgid "est."
+msgstr "est."
+
+#, python-format
+msgid "DAIV shipped %(n)s changes %(range)s (%(total)s all-time)"
+msgstr "A DAIV entregou %(n)s alterações %(range)s (%(total)s no total)"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Copied to clipboard"
+msgstr "Copiado para a área de transferência"
+
+msgid "Copy failed"
+msgstr "Falha ao copiar"
+
+msgid "Copy Slack summary"
+msgstr "Copiar resumo para o Slack"
+
+msgid "Copied"
+msgstr "Copiado"
+
+msgid "No changes shipped yet"
+msgstr "Ainda sem alterações entregues"
+
+msgid "Your throughput appears here once DAIV merges its first change."
+msgstr "As tuas entregas aparecem aqui assim que o DAIV fizer o primeiro merge."
 
 msgid "Org impact"
 msgstr "Impacto da organização"
@@ -281,6 +375,9 @@ msgstr "Nenhum utilizador encontrado."
 
 msgid "Time range"
 msgstr "Intervalo de tempo"
+
+msgid "Today"
+msgstr "Hoje"
 
 msgid "7 days"
 msgstr "7 dias"

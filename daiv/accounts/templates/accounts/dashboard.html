@@ -14,32 +14,56 @@
   {# Admin-gated console surface toggle, active on "Personal" (the default); absent for non-admins (AC2). #}
   {% include "accounts/_manager_lens_toggle.html" with surface="personal" %}
 
-  {% comment %}
-  Range-switcher — console-only, static placeholder in 2.1; wired in Epic 3.
-  Active pill is teal; labels use the mono face + tabular figures.
-  {% endcomment %}
-  <div data-testid="range-switcher" role="group" aria-label="{% translate 'Time range' %}"
+  {% comment %} Range-switcher (Story 3.1) — scopes the whole #console-main swap (Hero + activity block) to the
+     selected window. Each pill carries its own literal ``?period=`` on both hx-get (calm partial
+     swap) and href (no-JS fallback / deep-link). Sits OUTSIDE #console-main so Alpine keeps the
+     active/aria-current state across the swap; a hard load is already correct because Alpine seeds
+     ``range`` from the server-resolved ``current_period``. Teal = active pill. Mirrors
+     _manager_lens_toggle.html. (hx-push-url touches the known is_htmx / HX-History-Restore-Request
+     gap — see deferred-work.md; not fixed here.) {% endcomment %}
+  <div data-testid="range-switcher" x-data="{ range: '{{ current_period }}' }"
+       role="group" aria-label="{% translate 'Time range' %}"
        class="hidden items-center gap-0.5 rounded-md border border-border bg-ground p-0.5 md:flex">
-    <button type="button" disabled aria-disabled="true" data-range="today"
-            class="rounded-md bg-accent/15 px-2.5 py-1 font-mono text-[12.5px] font-semibold tabular-nums text-accent-bright">
+    <a href="{% url 'dashboard' %}?period=today" data-range="today"
+       hx-get="{% url 'dashboard' %}?period=today" hx-target="#console-main" hx-push-url="true"
+       @click="range = 'today'"
+       :aria-current="range === 'today' ? 'true' : null"
+       :class="range === 'today' ? 'bg-accent/15 text-accent-bright' : 'text-text-muted hover:text-text'"
+       class="inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 font-mono text-[12.5px] font-semibold tabular-nums no-underline transition-colors md:min-h-0">
       {% translate "Today" %}
-    </button>
-    <button type="button" disabled aria-disabled="true" data-range="7d"
-            class="rounded-md px-2.5 py-1 font-mono text-[12.5px] tabular-nums text-text-muted transition-colors hover:text-text">
+    </a>
+    <a href="{% url 'dashboard' %}?period=7d" data-range="7d"
+       hx-get="{% url 'dashboard' %}?period=7d" hx-target="#console-main" hx-push-url="true"
+       @click="range = '7d'"
+       :aria-current="range === '7d' ? 'true' : null"
+       :class="range === '7d' ? 'bg-accent/15 text-accent-bright' : 'text-text-muted hover:text-text'"
+       class="inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 font-mono text-[12.5px] font-semibold tabular-nums no-underline transition-colors md:min-h-0">
       {% translate "7 days" %}
-    </button>
-    <button type="button" disabled aria-disabled="true" data-range="30d"
-            class="rounded-md px-2.5 py-1 font-mono text-[12.5px] tabular-nums text-text-muted transition-colors hover:text-text">
+    </a>
+    <a href="{% url 'dashboard' %}?period=30d" data-range="30d"
+       hx-get="{% url 'dashboard' %}?period=30d" hx-target="#console-main" hx-push-url="true"
+       @click="range = '30d'"
+       :aria-current="range === '30d' ? 'true' : null"
+       :class="range === '30d' ? 'bg-accent/15 text-accent-bright' : 'text-text-muted hover:text-text'"
+       class="inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 font-mono text-[12.5px] font-semibold tabular-nums no-underline transition-colors md:min-h-0">
       {% translate "30 days" %}
-    </button>
-    <button type="button" disabled aria-disabled="true" data-range="90d"
-            class="rounded-md px-2.5 py-1 font-mono text-[12.5px] tabular-nums text-text-muted transition-colors hover:text-text">
+    </a>
+    <a href="{% url 'dashboard' %}?period=90d" data-range="90d"
+       hx-get="{% url 'dashboard' %}?period=90d" hx-target="#console-main" hx-push-url="true"
+       @click="range = '90d'"
+       :aria-current="range === '90d' ? 'true' : null"
+       :class="range === '90d' ? 'bg-accent/15 text-accent-bright' : 'text-text-muted hover:text-text'"
+       class="inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 font-mono text-[12.5px] font-semibold tabular-nums no-underline transition-colors md:min-h-0">
       {% translate "90 days" %}
-    </button>
-    <button type="button" disabled aria-disabled="true" data-range="all"
-            class="rounded-md px-2.5 py-1 font-mono text-[12.5px] tabular-nums text-text-muted transition-colors hover:text-text">
+    </a>
+    <a href="{% url 'dashboard' %}?period=all" data-range="all"
+       hx-get="{% url 'dashboard' %}?period=all" hx-target="#console-main" hx-push-url="true"
+       @click="range = 'all'"
+       :aria-current="range === 'all' ? 'true' : null"
+       :class="range === 'all' ? 'bg-accent/15 text-accent-bright' : 'text-text-muted hover:text-text'"
+       class="inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 font-mono text-[12.5px] font-semibold tabular-nums no-underline transition-colors md:min-h-0">
       {% translate "All time" %}
-    </button>
+    </a>
   </div>
 {% endblock topbar_start %}
 
