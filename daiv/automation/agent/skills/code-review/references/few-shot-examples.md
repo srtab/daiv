@@ -162,7 +162,7 @@ function getTopScorers(players: Player[]): Player[] {
 
 ## `question` (inline-eligible)
 
-A targeted question anchored on a new-side line (or, for a multi-line block, the full range with the anchor on its first new-side line) — the body is marker + one or two sentences ending in `?`, seeking the author's intent rather than proposing a fix. The bar is high: no curiosity questions or paraphrasing — only a concrete, yes/no-answerable hypothesis.
+A targeted question anchored on a new-side line (or, for a multi-line block, the full range with the anchor on its first new-side line) — the body is marker + one or two sentences ending in `?`, seeking the author's intent rather than proposing a fix. The bar is high: only a concrete, yes/no-answerable hypothesis whose plausible answer would itself expose a defect or behavior/contract problem — no curiosity, no test-coverage confirmation, no paraphrasing. Both examples below probe a real bug (a leaked handler; a swallowed error class), not merely "did you mean this?".
 
 ### Example — Python
 

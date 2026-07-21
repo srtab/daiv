@@ -106,4 +106,4 @@ Removing/renaming a public field/endpoint, changing a public field's type/semant
 
 ## 26. Question for the author
 
-When intent or a deliberate trade-off lacks a comment, ask rather than assume; apparent duplication may be intentional, and a missing test on a non-trivial path deserves a question.
+When intent or a deliberate trade-off lacks a comment, ask rather than assume — but only when a plausible answer would itself expose a defect or behavior/contract problem, not to confirm test coverage or satisfy curiosity. Apparent duplication may be intentional (worth a question when collapsing it would change behavior); a missing test is worth a question only when the untested path carries a concrete, plausible defect — a bare coverage gap is not a finding.

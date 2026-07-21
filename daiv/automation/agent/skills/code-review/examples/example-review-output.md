@@ -44,10 +44,12 @@ Per your `.agents/review-rules.md` ("every external call in `payments/` must set
 
 ## Summary discussion body
 
-The summary collects **discussion-only** findings plus a one-line inline-findings index, updated in place per MR (the *note*, not carried-forward *findings*) — delta-only re-reviews keep, not drop, unrechecked prior findings (`references/gitlab-delivery.md` Step 6).
+The summary collects **discussion-only** findings plus a one-line inline-findings index, updated in place per MR — delta-only re-reviews keep, not drop, unrechecked prior findings (`references/gitlab-delivery.md` Step 6).
 
 ````markdown
 <!-- daiv-cr {"v":1,"kind":"summary","sha":"abc1234"} -->
+
+**Code review** — as of abc1234
 
 ## Findings
 

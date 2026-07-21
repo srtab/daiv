@@ -26,7 +26,7 @@ This procedure decides only two things; the script does the rest:
 ## Step 1 — Acquire context and dedup state
 
 - Read `merge_request_id`, project, and the SHA triplet from the runtime context; if any is missing, demote to interactive mode and return markdown.
-- **List existing discussions to a file, then parse that file** — never transcribe the JSON into context. Call the `gitlab` tool with subcommand `project-merge-request-discussion list --mr-iid <iid> --get-all` and `output_to_file=true`:
+- **Reuse the scope stage's `parse-notes` output** (nothing was posted since — it's current) and skip the rest of this bullet. Without it, **list existing discussions to a file, then parse that file** — never transcribe the JSON into context. Call the `gitlab` tool with subcommand `project-merge-request-discussion list --mr-iid <iid> --get-all` and `output_to_file=true`:
   - `--get-all` is **mandatory** — without it only the first page loads and later-page findings get reposted.
   - `output_to_file=true` forces `--output json` (`parse-notes`' only readable form), writes the full array to a file, and returns just its absolute path — the blob never enters context. In a separate `bash` call, run `python3 scripts/marker.py parse-notes <path>` (it also reads stdin; pass the path here).
   - **Empty listing:** no file written means no existing discussions — treat `inline_fingerprints`, `summary`, and `pending_replies` as empty; skip `parse-notes`.
@@ -44,7 +44,7 @@ This procedure decides only two things; the script does the rest:
   ```
   Keep all three: `inline_fingerprints` is Step 4's **dedup set**; `summary` tells Step 6 whether to update or create fresh, **and carries the prior body** for its carry-forward rule; `pending_replies` lists unresolved daiv threads (Step 2).
 
-  `parse-notes` also emits `last_reviewed_sha` (the summary marker's sha = the head at the previous review). The **review workflow's scope stage** reads it to bound detection to commits since that sha; delivery is unchanged — prior findings still carry forward here via `inline_fingerprints` (dedup) and the summary `body` (Step 6). A delta re-review therefore only ever *adds* markers for genuinely new findings; nothing previously posted is re-resolved or re-posted.
+  `parse-notes` also emits `last_reviewed_sha` (the summary marker's sha = the head at the previous review). The **review workflow's scope stage** reads it to bound detection to commits since that sha; delivery is unchanged — prior findings still carry forward here via `inline_fingerprints` (dedup) and the summary `body` (Step 6). A delta re-review therefore only ever *adds* notes (new findings; a prior summary question migrating inline per Step 6); nothing previously posted is re-resolved or re-posted.
 
 ## Step 2 — Address pending replies
 
@@ -92,7 +92,7 @@ If an inline finding's diff position can't be constructed reliably (file renamed
 
 ## Step 4 — Resolve the line, then apply dedup
 
-**Resolve every candidate's position with `scripts/marker.py resolve` — never by counting hunk lines or hand-computing anchors.** Resolution needs a diff whose `old_line` is relative to the MR's real `base_sha`. On a first/full review, the Stage 1 shared diff (`/workspace/tmp/review-change.diff`) is already the full `<target>...<head_sha>` range, so use it as-is. On a **delta re-review**, Stage 1 built that file as `<last_reviewed_sha>...<head_sha>` to bound *detection* to the new commits — its `old_line` values are relative to `last_reviewed_sha`, not `base_sha`. Before resolving, regenerate the shared diff as the full range: `git diff <target>...<head_sha> > /workspace/tmp/review-change.diff` (detection already ran, so overwriting this file now is safe; `resolve` is a local call with no token cost). `new_line` and the `anchor` are checkout-derived and identical either way — only a context line's `old_line` needs the base-relative diff so the posted position matches the MR's real `base_sha`. Added-line findings (`old_line` null) are unaffected. From the repo root (checked out at `head_sha`):
+**Resolve every candidate's position with `scripts/marker.py resolve` — never by counting hunk lines or hand-computing anchors.** Resolution needs a diff whose `old_line` is relative to the MR's real `base_sha`. **Always regenerate the shared diff as the full range first** — `git diff <target>...<head_sha> > /workspace/tmp/review-change.diff` — unconditionally, whatever Stage 1 wrote (detection already ran; overwriting is safe): a delta re-review's file was `<last_reviewed_sha>...<head_sha>`, whose wrong-base `old_line`s the staleness guard **cannot** catch (its new side still matches the checkout — `resolve` would emit misplaced context-line positions with no error); the triage path never wrote one; on a full review it's a free no-op. Only a context line's `old_line` depends on the base — added-line findings (`old_line` null) are unaffected. From the repo root (checked out at `head_sha`):
 
 ```
 python3 scripts/marker.py resolve --file <new_path> --snippet "<distinctive literal run of the target line>" --diff /workspace/tmp/review-change.diff
@@ -108,7 +108,7 @@ The snippet is matched literally (no regex escaping needed). The output lists ev
 - **No matches** → the output carries `snippet_in_deletion`. `true` = the target line was removed by the diff (a pure deletion); demote to summary. `false` = the snippet matched neither the checkout nor any deleted line, so you most likely have the wrong snippet — re-derive it from the diff before demoting.
 - **`line_type: "context"`** → the GitLab position needs both the returned `old_line` and `new_line`. **`"added"`** → `new_line` only.
 - The returned `anchor` is final — no separate `anchor` call.
-- If `resolve` exits 1 reporting the shared diff file **missing or stale** (stale = it no longer matches the checkout — e.g. written before a new push, or left over from a triage-path run that never rewrote it), regenerate it (`git diff <target>...<head_sha> > /workspace/tmp/review-change.diff`) and retry; if it still fails or the match is ambiguous (e.g. file renamed across the diff), demote to discussion-only. Never post a misaligned suggestion or a misanchored question.
+- If `resolve` exits 1 reporting the shared diff file **missing or stale** (you regenerated it above, so: the checkout isn't at `head_sha`, or a new push landed since), fix the checkout, regenerate, and retry; if it still fails or the match is ambiguous (e.g. file renamed across the diff), demote to discussion-only. Never post a misaligned suggestion or a misanchored question.
 
 Form the fingerprint `["inline", archetype, file, anchor]` and compare:
 
@@ -127,6 +127,8 @@ Body shape depends on the archetype:
 - **Fix archetype** (the four archetypes from Step 3): marker line, a short comment (1-2 sentences), then a `suggestion` block replacing the target range — the suggestion IS the value.
 - **Question archetype** (`question`): marker line, then 1-2 sentences ending in `?`, no `suggestion` block — the question IS the value.
 
+**Suggestion range header — must match the replaced span exactly.** The block header `suggestion:-A+B` replaces `A` lines above and `B` lines below the anchored line. Findings anchor on the **first** new-side line of the range (Step 3), so **`A` is always `0`**; set **`B` = `(last new-side line of the range) − (anchor `new_line` from Step 4)`** — `0` for a single line, `1` for the anchor plus one line below, and so on. The block body must contain **exactly** the lines that replace that span (every line in the range, unchanged ones restated verbatim) — a body whose line count contradicts `B`, or a `B` that reaches past the hunk's last new-side line, makes GitLab reject the create with HTTP 500. This is not transient: recompute the range against Step 4's resolve output and repost once corrected — never retry the same malformed block. When unsure of the span, prefer a single-line `suggestion:-0+0`; if the change genuinely needs a wider range you cannot pin to the diff, demote to discussion-only.
+
 Keep bodies tight — prose is justification, not filler. Example marker lines:
 
 ```
@@ -138,11 +140,12 @@ Keep bodies tight — prose is justification, not filler. Example marker lines:
 
 Compose **one** top-level summary containing:
 
+- A visible status line right under the marker: `**Code review** — as of <short head_sha> · N new · M carried forward` (fresh summary: omit the counts).
 - All discussion-only findings, grouped by severity (High/Medium/Low) — same shape as the interactive Findings list: one-line summary + `<details>` block.
 - A short **Questions** section for discussion-only questions (cross-file or un-anchored) — targeted questions go inline (Step 3), not here.
-- A one-line index of the inline findings posted this run (file + line + archetype) so reviewers see the full picture without expanding diffs.
+- An index of the inline findings (file + line + archetype), **cumulative across reviews** — the prior summary's entries plus this run's — so reviewers see the full picture without expanding diffs.
 
-**Delta-only re-reviews must not shrink the summary.** A discussion-only finding has no inline fingerprint — the prior summary's `body` (Step 1) is its only record. When this run re-examined only a delta, re-read that body and **carry forward every discussion-only finding whose subject lies outside the delta**: it was neither confirmed nor disproved, so it stays. Drop a prior finding only when this run actively disproves it or reposts it inline (the inline copy supersedes the prose). The body you post is the **union** of carried-forward prior findings and this run's — never this run's alone. (On a full re-review nothing lies outside the delta, so the union reduces to this run's findings.)
+**Delta-only re-reviews must not shrink the summary.** A discussion-only finding has no inline fingerprint — the prior summary's `body` (Step 1) is its only record. Re-read it and **carry forward every prior discussion-only finding; drop one only when this run actively disproves it or reposts it inline** (the inline copy supersedes the prose) — outside the delta or merely not re-reported, it stays. The body you post is the **union** of carried-forward prior findings and this run's — never this run's alone. Mark what this update added with a leading **🆕** (severity groups and inline index alike); strip the prior run's 🆕 marks. (On a **full** re-review everything was re-adjudicated, so the union reduces to this run's findings; the inline index stays cumulative regardless.)
 
 Build the marker with `scripts/marker.py build --kind summary --sha <head_sha>` and place its output as the body's first physical line. Example:
 
@@ -151,6 +154,8 @@ Build the marker with `scripts/marker.py build --kind summary --sha <head_sha>` 
 ```
 
 If `summary` from Step 1 was non-null, **update the existing note in place** (`gitlab project-merge-request-discussion-note update --mr-iid <iid> --discussion-id <discussion_id> --id <note_id> --body "..."`) — here `--id` is the **note** id (`summary.note_id`), not the discussion id (Step 2). The summary always reflects current state (this run's plus carried-forward) — one discussion per MR, never a second, and never license to drop still-valid findings. Inline discussions are never updated or deleted — the dedup set prevents reposts.
+
+An in-place edit is **silent** — GitLab notifies no one. If the update changed anything, also post a one-line reply in the summary discussion (command + `--kind reply` marker as in Step 2), e.g. `Updated for <short sha>: 2 new (1 inline), 1 resolved.`; nothing changed → no reply.
 
 If `summary` was null, create a fresh discussion (`project-merge-request-discussion create --mr-iid <iid> --body "..."` with no `--position`).
 

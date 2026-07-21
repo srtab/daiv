@@ -6,12 +6,15 @@ Relative paths (`scripts/…`, `references/…`, `examples/…`, `agents/…`) r
 
 ## Establish scope and inputs
 
-- **Delivery mode — scope detection to the delta since the last review.** Before building the shared diff (Stage 1), determine a **detection base**: list the MR's daiv discussions and run `scripts/marker.py parse-notes` (the same call `gitlab-delivery.md` Step 1 makes) to read `last_reviewed_sha`. Use `last_reviewed_sha` as the detection base only when **all** hold — otherwise use the target branch:
-  - `last_reviewed_sha` is non-null (a prior review posted a summary), **and**
-  - the user did not ask for a full re-scan (`--full`; see `SKILL.md`), **and**
-  - `git merge-base --is-ancestor <last_reviewed_sha> <head_sha>` succeeds (a force-push/rebase where the prior head is no longer an ancestor falls back to the target branch).
+- **Delivery mode — scope detection to the delta since the last review.** Before building the shared diff (Stage 1), determine a **detection base**:
+  1. List the MR's discussions to a file: `gitlab` subcommand `project-merge-request-discussion list --mr-iid <iid> --get-all` with `output_to_file=true` — both mandatory (a partial page loses prior markers; the file keeps the blob out of context). No file written = no discussions: use the target branch and skip step 2.
+  2. Run `python3 scripts/marker.py parse-notes <path>` and read `last_reviewed_sha`; **keep the full output** — `gitlab-delivery.md` Step 1 consumes it instead of re-listing.
+  3. Use `last_reviewed_sha` as the detection base only when **all** hold — otherwise use the target branch:
+     - `last_reviewed_sha` is non-null (a prior review posted a summary), **and**
+     - the user did not ask for a full re-scan (`--full`; see `SKILL.md`), **and**
+     - `git merge-base --is-ancestor <last_reviewed_sha> <head_sha>` succeeds (a rebase/force-push fails this and falls back to the target branch).
 
-  This bounds *detection* to the new commits; every prior verified finding carries forward unchanged via the existing markers (`gitlab-delivery.md` Step 6 is authoritative — do not re-resolve or re-post them). The SHA triplet (`base_sha`, `start_sha`, `head_sha`) is always the MR's real triplet — the detection base changes only which diff the **detectors** read, bounding *detection* to the new commits. Inline **position resolution** during delivery uses the full `<target>...<head_sha>` diff, so posted positions — including a context line's `old_line` — always match the MR's real triplet (see `gitlab-delivery.md` Step 4). If you already reviewed this branch this conversation, also refresh the MR metadata + SHA triplet and rewrite `/workspace/tmp/review-intent.md`.
+  The detection base changes only which diff the **detectors** read — bounding *detection* to the new commits; every prior verified finding carries forward unchanged via the existing markers (`gitlab-delivery.md` Step 6 is authoritative — do not re-resolve or re-post them). The SHA triplet (`base_sha`, `start_sha`, `head_sha`) is always the MR's real triplet, and delivery resolves inline positions against the full `<target>...<head_sha>` diff (`gitlab-delivery.md` Step 4), so posted positions — including a context line's `old_line` — always match it. If you already reviewed this branch this conversation, also refresh the MR metadata + SHA triplet and rewrite `/workspace/tmp/review-intent.md`.
 - If an MR/PR is referenced:
   1. fetch it to determine source/target branches and the SHA triplet (`base_sha`, `start_sha`, `head_sha`) needed for inline anchors;
   2. fetch the diffs using `git diff <target>...<source>`. If `bash` fails, fall back to the platform tool.
@@ -88,7 +91,7 @@ A finding that survives refutation must meet one of three bars (the Signal filte
 
 - **Defect** — will fail to compile/parse or produce wrong results on common inputs; you could write the failing test without knowing the runtime environment.
 - **Structural concern** — points at a specific line and proposes, in the next sentence, a concrete change: `use X instead of Y`, `move to file Z`, `delete lines L-M`. Vague ("consider cleaning this up") doesn't ship.
-- **Question** — points at a specific line with a concrete hypothesis ("does this trigger an email on every save, not just on create?"); the answer needs the author's intent, not the diff. No curiosity questions, no paraphrasing the code.
+- **Question** — points at a specific line with a concrete hypothesis ("does this trigger an email on every save, not just on create?"); the answer needs the author's intent, not the diff. **It earns a slot only if a plausible answer would itself be a defect or structural concern** — you ask because one answer exposes a bug or a behavior/contract problem, not to confirm test coverage, satisfy curiosity, or paraphrase the code. If every plausible answer leaves the code correct, **drop it** — do not soften it into the summary. No curiosity questions, no paraphrasing the code.
 
 Never include self-corrected findings, strikethrough, or "on closer reading this is fine" — reason internally, present only confirmed survivors. Over-pruning is fine.
 
