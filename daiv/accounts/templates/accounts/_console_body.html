@@ -41,9 +41,12 @@ so assistive tech is never read empty rows.
                 style="color: var(--color-status-clear); background-color: color-mix(in srgb, var(--color-status-clear) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-clear) 30%, transparent)">
             {% blocktranslate count n=queue_count %}you have {{ n }}{% plural %}you have {{ n }}{% endblocktranslate %}
           </span>
+          {% comment %} "caught up" meta suffix (Task 5 / UX-DR12) — the zero pill's calm affirmation
+             beside the green "you have 0"; muted/faint so the pill stays the anchor. {% endcomment %}
+          <span class="ml-2 font-mono text-[11px] tabular-nums text-text-faint">{% translate "caught up" %}</span>
           {% else %}
           <button type="button" data-testid="queue-count-toggle"
-                  @click="open = !open" :aria-expanded="open.toString()" aria-controls="queue-breakdown"
+                  aria-expanded="false" @click="open = !open" :aria-expanded="open.toString()" aria-controls="queue-breakdown"
                   class="inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[12px] tabular-nums transition-opacity hover:opacity-80"
                   style="color: var(--color-accent-bright); background-color: color-mix(in srgb, var(--color-accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)">
             {% blocktranslate count n=queue_count %}you have {{ n }}{% plural %}you have {{ n }}{% endblocktranslate %}

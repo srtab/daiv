@@ -1585,15 +1585,16 @@ class TestQueueClickthroughRowOutLink:
 @pytest.mark.django_db
 @pytest.mark.usefixtures("_clear_queue_cache")
 class TestQueueDeterministicOrdering:
-    """Patch 5: same-``created_at`` candidates order by the ``("-created_at", "-id")`` convention."""
+    """Same-age candidates keep the ``("-created_at", "-id")`` tiebreak under 4.2's impact sort."""
 
-    def test_same_created_at_rows_are_deterministic(self, member_client, member_user):
-        # Five FAILED API-job candidates sharing one ``created_at``. Without the ``-id`` tiebreak the
-        # DB order is unspecified and can reorder between HTMX re-renders; with it the order is stable
-        # and matches the explicit ``("-created_at", "-id")`` the rest of the codebase uses.
+    def test_same_age_rows_are_deterministic(self, member_client, member_user):
+        # Five FAILED API-job candidates sharing one age (created_at AND finished_at). All are the
+        # same impact class (passive-decay) with an identical age key, so ``order_queue``'s stable
+        # sort leaves them in Story 4.1's incoming ``("-created_at", "-id")`` order — deterministic
+        # across HTMX re-renders, never reshuffled by the impact re-sequence.
         runs = [_make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED) for _ in range(5)]
         pinned = timezone.now()
-        Run.objects.filter(pk__in=[r.pk for r in runs]).update(created_at=pinned)
+        Run.objects.filter(pk__in=[r.pk for r in runs]).update(created_at=pinned, finished_at=pinned)
 
         first = [item["run_id"] for item in member_client.get(reverse("dashboard")).context["queue_items"]]
         second = [item["run_id"] for item in member_client.get(reverse("dashboard")).context["queue_items"]]
@@ -1608,20 +1609,90 @@ class TestQueueDeterministicOrdering:
 
 @pytest.mark.django_db
 @pytest.mark.usefixtures("_clear_queue_cache")
+class TestQueueImpactOrdering:
+    """Story 4.2 — impact-based ordering. v1 (every item passive-decay) sorts most-stale first; the
+    re-sequence never changes membership or the count, and priority is position + chip only."""
+
+    @staticmethod
+    def _age(run, when):
+        # Age off BOTH timestamps so ``finished_at or created_at`` (the 4.2 clock) is unambiguous.
+        Run.objects.filter(pk=run.pk).update(created_at=when, finished_at=when)
+
+    def _failed(self, user, repo_id):
+        return _make_queue_run(user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED, repo_id=repo_id)
+
+    def test_most_stale_first_inverts_newest_first(self, member_client, member_user):
+        # Three actionable failed runs of distinct ages. v1 orders them OLDEST-first — the observable
+        # inversion of Story 4.1's newest-first placeholder (AC1/AC4). A failure never ranks by
+        # loudness; within passive-decay, age decides.
+        now = timezone.now()
+        newest, middle, oldest = (self._failed(member_user, f"daiv/{n}") for n in ("newest", "middle", "oldest"))
+        self._age(newest, now - timedelta(days=1))
+        self._age(middle, now - timedelta(days=10))
+        self._age(oldest, now - timedelta(days=40))
+
+        items = member_client.get(reverse("dashboard")).context["queue_items"]
+        assert [it["run_id"] for it in items] == [oldest.pk, middle.pk, newest.pk]
+
+    def test_ordering_is_a_pure_resequence(self, member_client, member_user):
+        # AC6/AC7: ordering changes only the sequence — the SET of items and the honest count are
+        # unchanged, and ``queue_count`` still equals the rendered rows.
+        now = timezone.now()
+        runs = [self._failed(member_user, f"daiv/r{i}") for i in range(4)]
+        for i, run in enumerate(runs):
+            self._age(run, now - timedelta(days=i))
+
+        ctx = member_client.get(reverse("dashboard")).context
+        assert ctx["queue_count"] == 4
+        assert ctx["queue_count"] == len(ctx["queue_items"])  # honest count (AC7)
+        assert {it["run_id"] for it in ctx["queue_items"]} == {r.pk for r in runs}  # membership intact (AC6)
+
+    def test_dom_order_equals_context_order(self, member_client, member_user):
+        # AC10: rows render server-side in the ordered sequence, so DOM order == visual order ==
+        # context order (tab order == reading order). No CSS ``order`` reflow desyncs the two.
+        now = timezone.now()
+        for i in range(3):
+            self._age(self._failed(member_user, f"daiv/ord{i}"), now - timedelta(days=(3 - i)))
+
+        resp = member_client.get(reverse("dashboard"))
+        content = resp.content.decode()
+        ordered_repos = [it["repo_id"] for it in resp.context["queue_items"]]
+        dom_positions = [content.index(repo) for repo in ordered_repos]
+        assert dom_positions == sorted(dom_positions)  # the DOM follows the context order exactly
+        assert ordered_repos == ["daiv/ord0", "daiv/ord1", "daiv/ord2"]  # oldest-first
+
+    def test_no_rank_number_and_stripe_stays_per_status(self, member_client, member_user):
+        # AC9: priority is position + chip only — no ordinal rank number/badge; the left stripe stays
+        # per-STATUS (``--color-status-*``), never repurposed as an impact-order hue.
+        self._failed(member_user, "daiv/failed")
+        content = member_client.get(reverse("dashboard")).content.decode()
+        assert "border-left-color: var(--color-status-fail)" in content  # per-status stripe intact
+        assert 'data-testid="queue-item-rank"' not in content  # no rank badge/number rendered
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
 class TestQueueStaleTag:
-    """Passive-decay indication: a row older than QUEUE_DECAY_DAYS is tagged is_stale (no extra query)."""
+    """Passive-decay indication: a row older than QUEUE_DECAY_STALE_AFTER surfaces a ``stale · Nd`` chip."""
 
     def test_old_actionable_run_is_tagged_stale(self, member_client, member_user):
         old = _make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED)
-        Run.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=30))
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        # Age off ``finished_at or created_at`` (the 4.2 clock, AC4): move BOTH so the item is stale.
+        Run.objects.filter(pk=old.pk).update(created_at=thirty_days_ago, finished_at=thirty_days_ago)
         response = member_client.get(reverse("dashboard"))
-        assert response.context["queue_items"][0]["is_stale"] is True
+        item = response.context["queue_items"][0]
+        assert item["is_stale"] is True
+        assert item["stale_days"] == 30
+        # The chip is enriched with the age (AC4) — no longer a bare "stale".
+        assert "stale · 30d" in response.content.decode()
         assert 'data-testid="queue-item-stale"' in response.content.decode()
 
     def test_recent_run_is_not_stale(self, member_client, member_user):
         _make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED)
         response = member_client.get(reverse("dashboard"))
         assert response.context["queue_items"][0]["is_stale"] is False
+        assert 'data-testid="queue-item-stale"' not in response.content.decode()
 
 
 @pytest.mark.django_db
@@ -1652,6 +1723,12 @@ class TestQueueI18n:
         assert '{% translate "Retry" %}' in src
         assert '{% translate "View run" %}' in src
         assert '{% translate "needs attention" %}' in src
+
+    def test_stale_impact_chip_is_translated(self):
+        # Story 4.2 (AC11): the new passive-decay chip is a blocktranslate with a ``days`` var,
+        # English as source. ``pt`` is produced via makemessages, never hand-authored here.
+        src = Path(get_template("accounts/_queue_item.html").origin.name).read_text(encoding="utf-8")
+        assert "{% blocktranslate with days=item.stale_days %}stale · {{ days }}d{% endblocktranslate %}" in src
 
     def test_queue_zero_state_is_translated(self):
         src = Path(get_template("accounts/_queue_zero_state.html").origin.name).read_text(encoding="utf-8")

@@ -20,6 +20,7 @@ from django_filters.views import FilterView
 from notifications.choices import EventType
 from notifications.models import Notification
 from sessions.models import EnvelopeStatus, OfferedAction, Run, RunEnvelope, RunStatus, SessionOrigin
+from sessions.queue import QUEUE_DECAY_STALE_AFTER, impact_class, order_queue
 from sessions.reconcile import still_actionable
 
 from accounts.context_processors import running_jobs_count
@@ -242,11 +243,6 @@ def get_velocity_data(cutoff_date: date | None, queryset=None) -> dict | None:
 # The console Feed lists the user's RUN_FEED rows newest-first; a single page (mirrors the
 # notifications ``paginate_by``). Render content comes from each run's live RunEnvelope.
 FEED_PAGE_SIZE = 20
-
-# Passive-decay INDICATION only (Story 4.1) — a Queue row older than this is tagged ``is_stale`` in
-# its meta line. It is NOT a separate query and NOT an ordering key: default order stays newest-first
-# (the single isolated seam Story 4.2 swaps for impact ordering).
-QUEUE_DECAY_DAYS = 7
 
 # Per-status accent applied inline as ``var(--color-status-*)`` — the status utility classes are
 # not all compiled and the Feed reuses existing tokens without a Tailwind rebuild. Classifying has
@@ -570,7 +566,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         ONE personal-scoped list over the three actionable signal classes — (a) FAILED runs, (b)
         open-MR runs, and (c) classifier-flagged runs (``FOUND_ISSUES``/``NEEDS_ATTENTION``, with or
         without an MR) — each confirmed by the shared ``still_actionable`` predicate (the same one
-        the Feed and the nav badge use), so the Queue can never diverge from the attention badge.
+        the Feed and the nav badge use), so no surface can show a contradictory LIVE STATE for the
+        same item. That is a per-ITEM guarantee, NOT count equality: the nav badge counts unread,
+        schedule-only Feed rows while the Queue spans origins and ignores read-state, so the two
+        counts legitimately differ (e.g. a still-classifying successful schedule run can briefly
+        show a positive badge over a "nothing needs you." seal until its envelope resolves).
 
         The candidate filter is deliberately the union of those three classes, NOT a bare "all
         terminal runs filtered by ``still_actionable``": that predicate treats a missing envelope as
@@ -606,12 +606,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             str(env.run_id): env for env in RunEnvelope.objects.filter(run_id__in=[run.id for run in candidates])
         }
 
-        stale_before = timezone.now() - timedelta(days=QUEUE_DECAY_DAYS)
+        now = timezone.now()
         items: list[dict] = []
         for run in candidates:
             envelope = envelopes.get(str(run.id))
             if still_actionable(run, envelope):
-                items.append(self._build_queue_item(run, envelope, stale_before))
+                items.append(self._build_queue_item(run, envelope, now))
+        # Story 4.2 — re-sequence by impact class then age (most-stale first), replacing 4.1's
+        # newest-first placeholder. A PURE re-sequence over the already-built items: membership and
+        # ``queue_count`` are untouched (AC6), and it adds no query / no live read (AC8).
+        items = order_queue(items)
         queue_count = len(items)
 
         return {
@@ -624,7 +628,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         }
 
     @staticmethod
-    def _build_queue_item(run: Run, envelope: RunEnvelope | None, stale_before) -> dict:
+    def _build_queue_item(run: Run, envelope: RunEnvelope | None, now) -> dict:
         """Map ONE still-actionable run to a render-ready Queue row.
 
         Presentation is decided by (envelope, status, origin) because a ``RunEnvelope`` exists ONLY
@@ -661,6 +665,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             status_slug = EnvelopeStatus.NEEDS_ATTENTION
             accent_var = _FEED_ACCENT_VARS[EnvelopeStatus.NEEDS_ATTENTION]
             offered_action = OfferedAction.REVIEW
+        # Story 4.2 — passive-decay age (AC4): ``finished_at`` (when the item became "done and
+        # awaiting you") falling back to ``created_at``. This single clock is BOTH the sort key
+        # (``order_queue``) and the staleness threshold, so the row's position and its "stale · Nd"
+        # chip can never disagree.
+        age_at = run.finished_at or run.created_at
+        age = now - age_at
         return {
             "run_id": run.id,
             "repo_id": run.repo_id,
@@ -672,7 +682,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "status_slug": status_slug,
             "accent_var": accent_var,
             "offered_action": offered_action,
-            "is_stale": run.created_at < stale_before,
+            # Impact class attached here so ``order_queue`` sorts on it and a deferred class can be
+            # emitted later without touching the sort (AC5). v1: always ``PASSIVE_DECAY``.
+            "impact_class": impact_class(run, envelope),
+            "age_at": age_at,
+            "is_stale": age >= QUEUE_DECAY_STALE_AFTER,
+            "stale_days": age.days,
         }
 
     def _queue_audit(self, user: User, checked_count: int) -> dict:

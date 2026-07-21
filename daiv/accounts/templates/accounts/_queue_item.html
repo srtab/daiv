@@ -1,10 +1,13 @@
 {% load i18n icon_tags %}
 {% comment %}
-Queue row (Story 4.1) — one still-actionable terminal run, built by ``_build_queue_item``. Three
-parts: a left ``border-l-2`` per-status stripe (accent applied inline as ``var(--color-status-*)``
-because not every status utility is compiled), a main column (title + a wrapping mono meta line:
-repo chip · status/impact word · relative timestamp · optional ``stale`` marker), and exactly ONE
-right-anchored action slot. v1 is NAVIGATE-ONLY: the verb button is a link, never a POST (Epic 5
+Queue row (Story 4.1; impact chip + ordering added by Story 4.2) — one still-actionable terminal
+run, built by ``_build_queue_item``. Three parts: a left ``border-l-2`` per-status stripe (accent
+applied inline as ``var(--color-status-*)`` because not every status utility is compiled — kept
+per-STATUS, never repurposed as an impact-order hue, AC9), a main column (title + a wrapping mono
+meta line: repo chip · status/impact word · relative timestamp · optional passive-decay impact chip
+``stale · Nd`` + a reserved-but-empty who-waits slot), and exactly ONE right-anchored action slot.
+Rows render in ``order_queue`` sequence so DOM order == visual order (tab order == reading order,
+AC10); priority is position + chip only, never a rank number or a rank colour (AC9). v1 is NAVIGATE-ONLY: the verb button is a link, never a POST (Epic 5
 wires behaviour). The href MUST agree with the verb — only a REVIEW of a live MR links to the MR
 (new tab); RETRY / FIX / REVIEW-without-url / NONE all navigate to ``session_detail``.
 {% endcomment %}
@@ -27,11 +30,19 @@ wires behaviour). The href MUST agree with the verb — only a REVIEW of a live 
         {% else %}{% translate "needs you" %}{% endif %}
       </span>
       <span aria-hidden="true">&middot;</span>
-      <time datetime="{{ item.created_at|date:'c' }}">{% blocktranslate with ago=item.created_at|timesince %}{{ ago }} ago{% endblocktranslate %}</time>
+      {% comment %} Render the SAME age clock ``order_queue`` sorts on and the ``stale · Nd`` chip
+         flags (``age_at = finished_at or created_at``, Story 4.2 review) — not ``created_at`` — so the
+         visible "N ago" can never contradict the row's position or its stale label. {% endcomment %}
+      <time datetime="{{ item.age_at|date:'c' }}">{% blocktranslate with ago=item.age_at|timesince %}{{ ago }} ago{% endblocktranslate %}</time>
       {% if item.is_stale %}
       <span aria-hidden="true">&middot;</span>
-      <span data-testid="queue-item-stale">{% translate "stale" %}</span>
+      {% comment %} Passive-decay impact chip (Story 4.2, AC4/AC9): the only impact indication v1 can
+         honestly show — an item aging past the staleness threshold. Priority is conveyed by row
+         POSITION (order_queue) + this chip, never a rank number or a rank-specific colour. {% endcomment %}
+      <span data-testid="queue-item-stale">{% blocktranslate with days=item.stale_days %}stale · {{ days }}d{% endblocktranslate %}</span>
       {% endif %}
+      {% comment %} who-waits slot (DESIGN.md queue-row) — reserved for the deferred blocking classes
+         (SOMEONE_ELSE_BLOCKED / AGENT_IDLE); intentionally EMPTY in v1 (no blocking data — NFR1). {% endcomment %}
     </div>
   </div>
   {% comment %} Exactly ONE right-anchored action slot. The href agrees with the verb: a REVIEW of a

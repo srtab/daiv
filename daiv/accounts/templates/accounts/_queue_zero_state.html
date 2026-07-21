@@ -19,16 +19,21 @@ state, never a blank/error panel. Mirrors ``_feed_zero_state.html``. Reads the `
   <h3 class="text-[15px] font-semibold text-text">{% translate "nothing needs you." %}</h3>
   {% if audit.variant == "audited-clean" %}
     <p class="mx-auto mt-1.5 max-w-sm text-[13px] text-text-muted">
-      {% translate "DAIV checked your work — nothing is waiting on you." %}
+      {% translate "we checked — nothing needs you" %}
     </p>
+    {% comment %} Guard the whole meta line: when none of the three clauses has a value (no candidate
+       examined, no real ``last_checked``, no scheduled sweep) the <p> would otherwise render as an
+       empty styled paragraph with reserved margin (Story 4.2 review). {% endcomment %}
+    {% if audit.checked_count or audit.last_checked or audit.next_sweep %}
     <p class="mt-3 font-mono text-[12px] tabular-nums text-text-faint">
-      {% if audit.checked_count %}
-        {% blocktranslate with checked=audit.last_checked|date:"H:i" count counter=audit.checked_count %}checked {{ counter }} run · last checked {{ checked }}{% plural %}checked {{ counter }} runs · last checked {{ checked }}{% endblocktranslate %}
-      {% else %}
-        {% blocktranslate with checked=audit.last_checked|date:"H:i" %}last checked {{ checked }}{% endblocktranslate %}
-      {% endif %}
-      {% if audit.next_sweep %} · {% blocktranslate with sweep=audit.next_sweep|date:"H:i" %}next sweep {{ sweep }}{% endblocktranslate %}{% endif %}
+      {% if audit.checked_count %}{% blocktranslate count counter=audit.checked_count %}checked {{ counter }} run{% plural %}checked {{ counter }} runs{% endblocktranslate %}{% endif %}
+      {% comment %} Only render "last checked" when there is a REAL event time — a terminal run
+         missing its ``finished_at`` degrades ``last_checked`` to None; surfacing a dangling
+         "last checked " with an empty time would undercut the honest audit meta (NFR1). {% endcomment %}
+      {% if audit.last_checked %}{% if audit.checked_count %} · {% endif %}{% blocktranslate with checked=audit.last_checked|date:"H:i" %}last checked {{ checked }}{% endblocktranslate %}{% endif %}
+      {% if audit.next_sweep %}{% if audit.checked_count or audit.last_checked %} · {% endif %}{% blocktranslate with sweep=audit.next_sweep|date:"H:i" %}next sweep {{ sweep }}{% endblocktranslate %}{% endif %}
     </p>
+    {% endif %}
   {% else %}
     <p class="mx-auto mt-1.5 max-w-sm text-[13px] text-text-muted">
       {% translate "No runs yet." %}

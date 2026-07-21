@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-21 10:45+0100\n"
+"POT-Creation-Date: 2026-07-21 15:27+0100\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -335,8 +335,9 @@ msgstr "precisa de ti"
 msgid "%(ago)s ago"
 msgstr "há %(ago)s"
 
-msgid "stale"
-msgstr "parado"
+#, python-format
+msgid "stale · %(days)sd"
+msgstr "parado · %(days)sd"
 
 msgid "Review"
 msgstr "rever"
@@ -507,6 +508,18 @@ msgstr "Autorizar"
 
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
+
+msgid "caught up"
+msgstr "em dia"
+
+#, python-format
+msgid "checked %(counter)s run"
+msgid_plural "checked %(counter)s runs"
+msgstr[0] "verificada %(counter)s execução"
+msgstr[1] "verificadas %(counter)s execuções"
+
+#~ msgid "stale"
+#~ msgstr "parado"
 
 #~ msgid "Activity"
 #~ msgstr "Atividade"
