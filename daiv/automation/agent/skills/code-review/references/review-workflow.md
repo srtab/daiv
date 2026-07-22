@@ -99,12 +99,14 @@ Never include self-corrected findings, strikethrough, or "on closer reading this
 
 Assign each verified finding a severity now — it travels with the finding as data; both the interactive output and the delivery summary (`gitlab-delivery.md` Step 6) group by it without recomputing. The mapping follows `bar` and detector deterministically:
 
-- **High** — a `defect` from `correctness`, `security`, or `custom-rules` (wrong results, broken authz, data loss, violated rule).
+- **High** — a `defect` from `correctness`, `security`, or `custom-rules` whose **impact is triggerable by a realistic actor/input in this code's actual deployment** and material (wrong results, broken authz, data loss, a violated rule with real runtime consequence). If exploitation requires privileged/committer access, an unrealistic precondition, or is defense-in-depth only — grade Medium (or Low if also local in scope).
 - **Medium** — a `defect` from `performance`, or any detector's `structural` concern that spans files or changes a behavior/contract.
 - **Low** — any detector's local `structural` concern (dead lines, magic values, a single-spot idiom, misleading naming).
 - `question` findings are **not** severity-graded — they go in the *Questions* section, never a High/Medium/Low bucket.
 
-Medium/Low grade by **scope, not detector** (unlike High, which is detector-specific — see above).
+Medium/Low grade by scope; High grades by detector × reachability/impact. Reachability means *triggering the impact at runtime*, not authoring the code — every MR defect is committer-introduced, and that alone never demotes.
+
+Boundary with Stage 2's refutation rule (`the code path isn't actually reachable or triggered`, above): that rule still means *unreachable, full stop* — dropped, not graded. A defect reachable only by a privileged actor is a different case — it survives verification (the path is reachable, just gated) and demotes here instead.
 
 ## Verified-findings handoff
 
