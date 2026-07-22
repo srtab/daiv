@@ -15,6 +15,9 @@ pass the current surface in via {% include ... with surface="personal|manager" %
   toggle sits OUTSIDE the swapped #console-main); a hard load is already correct
   because Alpine seeds `surface` from the server-passed value. Teal = active/DO
   (never brand/violet). Touch targets are >= 44px and it is not hover-only.
+- The hx-push-url history-restore (Back-navigation cache miss) is handled by the
+  shared `is_htmx` fix (Story 6.1): it returns False on a HX-History-Restore-Request,
+  so htmx re-restores the full page, not the chrome-less #console-main fragment.
 {% endcomment %}
 {% if user.is_admin %}
 <div data-testid="manager-lens-toggle"

@@ -112,6 +112,18 @@ class TestHtmxFragment:
         assert b'data-testid="app-sidebar"' in response.content
         assert b'data-testid="app-user-menu"' in response.content
 
+    def test_history_restore_returns_full_page(self, member_client):
+        # Story 6.1 regression: a Back-navigation history-restore GET carries BOTH HX-Request and
+        # HX-History-Restore-Request. htmx restores the response into the <body>, so the server must
+        # hand back the full shell — never the chrome-less fragment.
+        response = member_client.get(
+            reverse("dashboard"), HTTP_HX_REQUEST="true", HTTP_HX_HISTORY_RESTORE_REQUEST="true"
+        )
+        assert response.status_code == 200
+        assert b'data-testid="app-sidebar"' in response.content
+        assert b'data-testid="app-user-menu"' in response.content
+        assert b"<html" in response.content
+
 
 @pytest.mark.django_db
 class TestAdminNavVisibility:
@@ -391,6 +403,19 @@ class TestManagerLensHtmxFragment:
         response = admin_client.get(reverse("manager_lens"), {"period": "all"})
         assert b'data-testid="app-sidebar"' in response.content
         assert b'data-testid="app-user-menu"' in response.content
+
+    def test_history_restore_returns_full_page(self, admin_client):
+        # Story 6.1 regression: the Manager-Lens toggle uses hx-push-url, so a Back-navigation
+        # history-restore GET (HX-Request + HX-History-Restore-Request) must restore the full shell,
+        # not the chrome-less Lens body fragment.
+        _make_merge_metric()
+        response = admin_client.get(
+            reverse("manager_lens"), {"period": "all"}, HTTP_HX_REQUEST="true", HTTP_HX_HISTORY_RESTORE_REQUEST="true"
+        )
+        assert response.status_code == 200
+        assert b'data-testid="app-sidebar"' in response.content
+        assert b'data-testid="app-user-menu"' in response.content
+        assert b"<html" in response.content
 
 
 class TestManagerLensI18n:

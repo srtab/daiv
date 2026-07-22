@@ -19,8 +19,9 @@
      swap) and href (no-JS fallback / deep-link). Sits OUTSIDE #console-main so Alpine keeps the
      active/aria-current state across the swap; a hard load is already correct because Alpine seeds
      ``range`` from the server-resolved ``current_period``. Teal = active pill. Mirrors
-     _manager_lens_toggle.html. (hx-push-url touches the known is_htmx / HX-History-Restore-Request
-     gap — see deferred-work.md; not fixed here.) {% endcomment %}
+     _manager_lens_toggle.html. The hx-push-url history-restore (Back-navigation cache miss) is
+     handled by the shared ``is_htmx`` fix (Story 6.1): it returns ``False`` on a
+     HX-History-Restore-Request, so htmx re-restores the full page, not the fragment. {% endcomment %}
   <div data-testid="range-switcher" x-data="{ range: '{{ current_period }}' }"
        role="group" aria-label="{% translate 'Time range' %}"
        class="hidden items-center gap-0.5 rounded-md border border-border bg-ground p-0.5 md:flex">
