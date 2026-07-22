@@ -19,7 +19,8 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView,
 from django_filters.views import FilterView
 from notifications.choices import EventType
 from notifications.models import Notification
-from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, SessionOrigin
+from sessions.models import EnvelopeStatus, OfferedAction, Run, RunEnvelope, RunStatus, SessionOrigin
+from sessions.queue import QUEUE_DECAY_STALE_AFTER, impact_class, order_queue
 from sessions.reconcile import still_actionable
 
 from accounts.context_processors import running_jobs_count
@@ -391,6 +392,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # (review P2 / NFR1). Read-only / presentation-only: passed into context, never stored.
         context["reconciled_at"] = timezone.now() if reconciled else None
 
+        # The unified Needs-me Queue (Story 4.1) — one personal-scoped list of still-actionable
+        # terminal runs, fronted by the single "you have N" count. Presentation-only.
+        context.update(self._get_queue_data(user))
+
         return context
 
     def _get_hero_data(self, user: User, cutoff_date: date | None, period: str) -> dict | None:
@@ -554,6 +559,169 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             .values_list("next_run_at", flat=True)
             .first()
         )
+
+    def _get_queue_data(self, user: User) -> dict:
+        """Build the unified Needs-me Queue: the user's still-actionable TERMINAL runs (Story 4.1).
+
+        ONE personal-scoped list over the three actionable signal classes — (a) FAILED runs, (b)
+        open-MR runs, and (c) classifier-flagged runs (``FOUND_ISSUES``/``NEEDS_ATTENTION``, with or
+        without an MR) — each confirmed by the shared ``still_actionable`` predicate (the same one
+        the Feed and the nav badge use), so no surface can show a contradictory LIVE STATE for the
+        same item. That is a per-ITEM guarantee, NOT count equality: the nav badge counts unread,
+        schedule-only Feed rows while the Queue spans origins and ignores read-state, so the two
+        counts legitimately differ (e.g. a still-classifying successful schedule run can briefly
+        show a positive badge over a "nothing needs you." seal until its envelope resolves).
+
+        The candidate filter is deliberately the union of those three classes, NOT a bare "all
+        terminal runs filtered by ``still_actionable``": that predicate treats a missing envelope as
+        "still classifying ⇒ actionable" (a Feed-context default), so an unfiltered set would flood
+        the Queue with plain successful non-schedule jobs that carry no envelope and no MR. The gate
+        to ``RunStatus.terminal()`` keeps in-flight webhook/job runs (which already carry a
+        ``merge_request_iid`` while RUNNING/QUEUED) out of "needs me". No ``.distinct()`` / no
+        ``seen``-set: a single-table OR that reaches the ``envelope`` reverse OneToOne cannot fan out.
+
+        Membership/count/seal reconcile the FULL candidate set (no cap) so the "nothing needs you."
+        seal is never a false negative and ``queue_count`` equals the rendered rows (NFR1). The
+        cold-cache cost of the per-candidate live MR read rides with the deferred resilience
+        follow-up (real batching), NOT a membership cap. Read-only / presentation-only.
+        """
+        candidates = list(
+            Run.objects
+            .filter(session__user=user)
+            .select_related("session")
+            .filter(status__in=RunStatus.terminal())
+            .filter(
+                Q(status=RunStatus.FAILED)
+                | Q(merge_request_iid__isnull=False)
+                | Q(envelope__status__in=[EnvelopeStatus.FOUND_ISSUES, EnvelopeStatus.NEEDS_ATTENTION])
+            )
+            # The ``-id`` tiebreak matches ``RunManager`` / ``RunEnvelope.Meta.ordering``
+            # (``("-created_at", "-id")``) so same-``created_at`` runs render in a deterministic
+            # order and never reorder between HTMX re-renders.
+            .order_by("-created_at", "-id")
+        )
+        # Batch the candidates' envelopes in one query (no per-row ``for_run``); ``None`` for a run
+        # with none is passed straight into ``still_actionable`` (its classifying default).
+        envelopes = {
+            str(env.run_id): env for env in RunEnvelope.objects.filter(run_id__in=[run.id for run in candidates])
+        }
+
+        now = timezone.now()
+        items: list[dict] = []
+        for run in candidates:
+            envelope = envelopes.get(str(run.id))
+            if still_actionable(run, envelope):
+                items.append(self._build_queue_item(run, envelope, now))
+        # Story 4.2 — re-sequence by impact class then age (most-stale first), replacing 4.1's
+        # newest-first placeholder. A PURE re-sequence over the already-built items: membership and
+        # ``queue_count`` are untouched (AC6), and it adds no query / no live read (AC8).
+        items = order_queue(items)
+        queue_count = len(items)
+
+        return {
+            "queue_items": items,
+            "queue_count": queue_count,
+            "queue_zero": queue_count == 0,
+            # The audit meta is only consulted by the zero-state seal; build it (one ``.exists()``)
+            # only when the Queue is actually empty.
+            "queue_audit": self._queue_audit(user, len(candidates)) if queue_count == 0 else None,
+        }
+
+    @staticmethod
+    def _build_queue_item(run: Run, envelope: RunEnvelope | None, now) -> dict:
+        """Map ONE still-actionable run to a render-ready Queue row.
+
+        Presentation is decided by (envelope, status, origin) because a ``RunEnvelope`` exists ONLY
+        for ``SCHEDULE`` + terminal-SUCCESSFUL runs (``sessions/signals.py``, ``tasks.py``):
+
+        (a) envelope present → its ``status`` slug, the ``_FEED_ACCENT_VARS`` accent, and its
+            ``offered_action`` (``FOUND_ISSUES`` → FIX, ``NEEDS_ATTENTION`` → REVIEW);
+        (b) no envelope + FAILED → a failed run: RETRY only when ``run.is_retryable`` (which is
+            False for webhook/CHAT origins) else NONE — never advertise a retry the domain forbids;
+        (c) no envelope + SCHEDULE → genuinely still ``classifying`` (envelope pending in the brief
+            post-run window), neutral, NONE;
+        (d) no envelope + non-SCHEDULE → an open MR awaiting review (``NEEDS_ATTENTION`` / REVIEW),
+            NEVER a permanent "classifying…".
+        """
+        if envelope is not None:
+            status_slug = envelope.status
+            accent_var = _FEED_ACCENT_VARS.get(envelope.status, "")
+            offered_action = envelope.offered_action
+            # A FAILED envelope maps unconditionally to RETRY; enforce the same ``is_retryable``
+            # guard branch (b) applies so a domain-forbidden retry is never advertised — both FAILED
+            # paths share the guarantee. Latent today (FAILED envelopes only attach to retryable
+            # SCHEDULE runs) but removes the divergence between the two FAILED branches.
+            if offered_action == OfferedAction.RETRY and not run.is_retryable:
+                offered_action = OfferedAction.NONE
+        elif run.status == RunStatus.FAILED:
+            status_slug = EnvelopeStatus.FAILED
+            accent_var = _FEED_ACCENT_VARS[EnvelopeStatus.FAILED]
+            offered_action = OfferedAction.RETRY if run.is_retryable else OfferedAction.NONE
+        elif run.trigger_type == SessionOrigin.SCHEDULE:
+            status_slug = "classifying"
+            accent_var = ""
+            offered_action = OfferedAction.NONE
+        else:
+            status_slug = EnvelopeStatus.NEEDS_ATTENTION
+            accent_var = _FEED_ACCENT_VARS[EnvelopeStatus.NEEDS_ATTENTION]
+            offered_action = OfferedAction.REVIEW
+        # Story 4.2 — passive-decay age (AC4): ``finished_at`` (when the item became "done and
+        # awaiting you") falling back to ``created_at``. This single clock is BOTH the sort key
+        # (``order_queue``) and the staleness threshold, so the row's position and its "stale · Nd"
+        # chip can never disagree.
+        age_at = run.finished_at or run.created_at
+        age = now - age_at
+        return {
+            "run_id": run.id,
+            "repo_id": run.repo_id,
+            "title": run.title or run.repo_id,
+            "merge_request_iid": run.merge_request_iid,
+            "merge_request_web_url": run.merge_request_web_url,
+            "thread_id": run.session.thread_id,
+            "created_at": run.created_at,
+            "status_slug": status_slug,
+            "accent_var": accent_var,
+            "offered_action": offered_action,
+            # Impact class attached here so ``order_queue`` sorts on it and a deferred class can be
+            # emitted later without touching the sort (AC5). v1: always ``PASSIVE_DECAY``.
+            "impact_class": impact_class(run, envelope),
+            "age_at": age_at,
+            "is_stale": age >= QUEUE_DECAY_STALE_AFTER,
+            "stale_days": age.days,
+        }
+
+    def _queue_audit(self, user: User, checked_count: int) -> dict:
+        """The honest zero-state audit meta (Story 4.1, NFR1).
+
+        ``never-ran`` only when the user has NO TERMINAL runs — an in-flight (QUEUED/RUNNING/READY)
+        run is not a check that happened, so a user whose only run is still running gets ``never-ran``
+        rather than a false ``audited-clean`` seal. Otherwise ``audited-clean`` with the number of
+        candidates actually examined this render (may be 0 → the copy omits the count; NEVER "N runs
+        all clear", which would mislabel the failed/merged runs the candidate filter never even
+        selected).
+
+        ``last_checked`` is a REAL event time — the most-recent terminal run's ``finished_at`` for
+        this user (mirrors the Feed zero-state's ``latest_finished`` max-``finished_at`` idiom), NOT
+        ``timezone.now()`` (which advances on every reload and over-claims a check that never
+        happened). NULL-safe: the ``finished_at__isnull=False`` filter means a terminal run missing
+        its finish degrades ``last_checked`` to ``None`` rather than surfacing a null. ``next_sweep``
+        reuses the shared helper.
+        """
+        if not Run.objects.filter(session__user=user, status__in=RunStatus.terminal()).exists():
+            return {"variant": "never-ran"}
+        last_checked = (
+            Run.objects
+            .filter(session__user=user, status__in=RunStatus.terminal(), finished_at__isnull=False)
+            .order_by("-finished_at")
+            .values_list("finished_at", flat=True)
+            .first()
+        )
+        return {
+            "variant": "audited-clean",
+            "checked_count": checked_count,
+            "last_checked": last_checked,
+            "next_sweep": self._next_sweep(user),
+        }
 
     def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
         visible = Run.objects.visible_to(user)

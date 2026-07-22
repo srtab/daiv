@@ -1,11 +1,10 @@
 {% load i18n %}
 {% comment %}
-Review Console main column — three stacked placeholder regions (Story 2.1).
-Structural skeletons only; Hero/Queue/Feed content and the "you have N" count
-are wired by later stories (Epic 3 / Epic 4 / Story 2.3). This partial carries
-NO job-creation control (FR-3). Reused verbatim as the HTMX body fragment.
-Each region is marked aria-busy while its content is pending; the decorative
-shimmer skeletons are aria-hidden so assistive tech is not read empty rows.
+Review Console main column — three stacked regions Hero → Queue → Feed (Story 2.1 shell, now
+live: Hero = Epic 3, Queue = Epic 4, Feed = Story 2.3). This partial carries NO job-creation
+control (FR-3). Reused verbatim as the HTMX body fragment. A server render always carries data,
+so no region claims a live ``aria-busy`` state; any decorative cold-load skeleton is aria-hidden
+so assistive tech is never read empty rows.
 {% endcomment %}
 <div class="flex flex-col gap-5">
   {# ── Hero (Story 3.1) ─────────────────────────────────────────────────── #}
@@ -23,20 +22,48 @@ shimmer skeletons are aria-hidden so assistive tech is not read empty rows.
     {% include "accounts/_hero.html" %}
   </section>
 
-  {# ── Needs-me queue ───────────────────────────────────────────────────── #}
-  <section data-testid="console-queue" aria-labelledby="console-queue-heading" aria-busy="true">
-    <header class="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <h2 id="console-queue-heading" class="text-[14px] font-semibold tracking-tight text-text">
-        {% translate "Needs-me queue" %}
-      </h2>
-      {# "you have N" count container — populated in Epic 4; announced politely. #}
-      <span data-testid="console-queue-count" aria-live="polite"
-            class="font-mono text-[12px] tabular-nums text-text-muted"></span>
-    </header>
-    <div class="overflow-hidden rounded-xl border border-border bg-surface-2" aria-hidden="true">
-      <div class="skeleton h-16 border-b border-border"></div>
-      <div class="skeleton h-16 border-b border-border"></div>
-      <div class="skeleton h-16"></div>
+  {# ── Needs-me queue (Story 4.1) ───────────────────────────────────────── #}
+  <section data-testid="console-queue" aria-labelledby="console-queue-heading">
+    <div x-data="{ open: false }" @keydown.escape.window="open = false">
+      <header class="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 id="console-queue-heading" class="text-[14px] font-semibold tracking-tight text-text">
+          {% translate "Needs-me queue" %}
+        </h2>
+        {% comment %} The single "you have N" count pill — teal (recoloured status-clear green at zero),
+           mono/tabular, sized to content, announced politely via the PRESERVED aria-live span (fill it,
+           don't replace it). When the Queue is non-empty the pill is a <button> that reveals the
+           click-through breakdown; the disclosure is COLLAPSED by default (x-show/x-cloak →
+           display:none) so the reveal panel is not in the a11y tree until opened and the always-visible
+           list stays the single announced role="list". No dead aria-busy / no unsatisfiable guard. {% endcomment %}
+        <span data-testid="console-queue-count" aria-live="polite" class="inline-flex items-center">
+          {% if queue_zero %}
+          <span class="inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[12px] tabular-nums"
+                style="color: var(--color-status-clear); background-color: color-mix(in srgb, var(--color-status-clear) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-clear) 30%, transparent)">
+            {% blocktranslate count n=queue_count %}you have {{ n }}{% plural %}you have {{ n }}{% endblocktranslate %}
+          </span>
+          {% comment %} "caught up" meta suffix (Task 5 / UX-DR12) — the zero pill's calm affirmation
+             beside the green "you have 0"; muted/faint so the pill stays the anchor. {% endcomment %}
+          <span class="ml-2 font-mono text-[11px] tabular-nums text-text-faint">{% translate "caught up" %}</span>
+          {% else %}
+          <button type="button" data-testid="queue-count-toggle"
+                  aria-expanded="false" @click="open = !open" :aria-expanded="open.toString()" aria-controls="queue-breakdown"
+                  class="inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[12px] tabular-nums transition-opacity hover:opacity-80"
+                  style="color: var(--color-accent-bright); background-color: color-mix(in srgb, var(--color-accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)">
+            {% blocktranslate count n=queue_count %}you have {{ n }}{% plural %}you have {{ n }}{% endblocktranslate %}
+          </button>
+          {% endif %}
+        </span>
+      </header>
+      {% if not queue_zero %}
+      {% comment %} Count click-through (AC6): reuses the generic ``_clickthrough.html`` via its
+         back-compatible ``testid_prefix`` + ``row_partial`` params, so the Queue supplies its own
+         (non-merged-MR) compact row shape without inheriting the hero-named / MR-only markup. Flat
+         inline surface below the header; collapsed by default. {% endcomment %}
+      <div x-show="open" x-cloak x-transition @click.outside="open = false" class="mb-3">
+        {% include "accounts/_clickthrough.html" with rows=queue_items number=queue_count how_computed=False panel_id="queue-breakdown" testid_prefix="queue" row_partial="accounts/_queue_clickthrough_row.html" %}
+      </div>
+      {% endif %}
+      {% include "accounts/_queue.html" %}
     </div>
   </section>
 

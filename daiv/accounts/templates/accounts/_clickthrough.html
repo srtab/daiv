@@ -17,15 +17,22 @@ Params:
   number       — the count/label this panel is behind (contract param; not force-rendered).
   how_computed — truthy renders the "how computed" AD-10 formula disclosure (AC2).
   panel_id     — the unique id the trigger's ``aria-controls`` points at (a11y, AC10).
+  testid_prefix — OPTIONAL, default ``"hero"``: prefixes the panel + how-computed ``data-testid``
+                  (``{prefix}-breakdown`` / ``{prefix}-howcomputed``) so a second consumer (Epic 4's
+                  Queue count → ``"queue"``) gets its own unique hooks. Omitted by the Hero includes,
+                  which therefore stay byte-compatible on ``hero-breakdown`` / ``hero-howcomputed``.
+  row_partial  — OPTIONAL: when set, each row is rendered via ``{% templatetag openblock %} include
+                  row_partial with row=row {% templatetag closeblock %}`` instead of the inline hero
+                  (merged-MR) row, letting the Queue supply its own row shape. Omitted → inline hero row.
 
 Flat INLINE surface (surface-2 + hairline) — NOT a floating popover, so no overlay shadow. Links
 are teal ``accent`` NAVIGATION — never a ``button-*`` action, never a status colour. Icons via
 ``{% templatetag openblock %} icon {% templatetag closeblock %}`` only (no inline ``<svg>``).
 {% endcomment %}
-<div id="{{ panel_id }}" data-testid="hero-breakdown"
+<div id="{{ panel_id }}" data-testid="{{ testid_prefix|default:'hero' }}-breakdown"
      class="rounded-md border border-border bg-surface-2 p-3">
   {% if how_computed %}
-  <div data-testid="hero-howcomputed" class="mb-3 border-b border-border pb-3">
+  <div data-testid="{{ testid_prefix|default:'hero' }}-howcomputed" class="mb-3 border-b border-border pb-3">
     <h3 class="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-text-faint">
       {% translate "What this counts" %}
     </h3>
@@ -37,6 +44,7 @@ are teal ``accent`` NAVIGATION — never a ``button-*`` action, never a status c
   <div class="overflow-x-auto">
     <ul role="list" class="flex min-w-0 flex-col divide-y divide-border">
       {% for row in rows %}
+      {% if row_partial %}{% include row_partial with row=row %}{% else %}
       <li data-testid="breakdown-row" class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
         <span class="inline-flex shrink-0 items-center rounded bg-ground px-1.5 py-0.5 font-mono text-[11px] text-text-muted">&rsaquo; {{ row.repo_id }}</span>
         <span class="shrink-0 font-mono text-[12px] tabular-nums text-text-muted">MR !{{ row.merge_request_iid }}</span>
@@ -56,6 +64,7 @@ are teal ``accent`` NAVIGATION — never a ``button-*`` action, never a status c
           </a>
         </span>
       </li>
+      {% endif %}
       {% empty %}
       <li class="py-2 text-[13px] text-text-faint">{% translate "No changes shipped in this range." %}</li>
       {% endfor %}

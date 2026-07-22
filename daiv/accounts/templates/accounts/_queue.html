@@ -1,0 +1,29 @@
+{% load i18n icon_tags %}
+{% comment %}
+Needs-me Queue region body (Story 4.1). Rendered inside the ``console-queue`` section of
+_console_body.html. Shows ONE list of the user's still-actionable terminal runs (built by
+``DashboardView._get_queue_data``); when nothing is actionable, the "nothing needs you." seal.
+Mirrors ``_feed.html``'s if/else region shape (``queue_zero`` is trustworthy — it equals
+``queue_count == 0`` over the FULLY reconciled candidate set, so there is no third "loading" state
+and no unsatisfiable guard).
+{% endcomment %}
+<div>
+  {% comment %} Cold-load skeleton substrate (AC11): rows matching the queue-row layout, aria-hidden
+     so assistive tech is never read empty rows. A server render always carries data, so it is
+     superseded by the real rows / seal below and stays hidden — retained as the loading substrate
+     for parity with the 2.1 shell. {% endcomment %}
+  <div class="overflow-hidden rounded-xl border border-border bg-surface-2" aria-hidden="true" hidden>
+    <div class="skeleton h-16 border-b border-border"></div>
+    <div class="skeleton h-16 border-b border-border"></div>
+    <div class="skeleton h-16"></div>
+  </div>
+  {% if queue_zero %}
+    {% include "accounts/_queue_zero_state.html" with audit=queue_audit %}
+  {% else %}
+    <div role="list" data-testid="queue-list" class="flex flex-col gap-2">
+      {% for item in queue_items %}
+        {% include "accounts/_queue_item.html" with item=item %}
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

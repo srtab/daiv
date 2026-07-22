@@ -1,0 +1,90 @@
+{% load i18n icon_tags %}
+{% comment %}
+Queue row (Story 4.1; impact chip + ordering added by Story 4.2) — one still-actionable terminal
+run, built by ``_build_queue_item``. Three parts: a left ``border-l-2`` per-status stripe (accent
+applied inline as ``var(--color-status-*)`` because not every status utility is compiled — kept
+per-STATUS, never repurposed as an impact-order hue, AC9), a main column (title + a wrapping mono
+meta line: repo chip · status/impact word · relative timestamp · optional passive-decay impact chip
+``stale · Nd`` + a reserved-but-empty who-waits slot), and exactly ONE right-anchored action slot.
+Rows render in ``order_queue`` sequence so DOM order == visual order (tab order == reading order,
+AC10); priority is position + chip only, never a rank number or a rank colour (AC9). v1 is NAVIGATE-ONLY: the verb button is a link, never a POST (Epic 5
+wires behaviour). The href MUST agree with the verb — only a REVIEW of a live MR links to the MR
+(new tab); RETRY / FIX / REVIEW-without-url / NONE all navigate to ``session_detail``.
+{% endcomment %}
+<div data-testid="queue-item"
+     data-status="{{ item.status_slug }}"
+     data-action="{{ item.offered_action }}"
+     role="listitem"
+     class="flex items-stretch overflow-hidden rounded-md border border-l-2 border-border bg-surface-2{% if item.status_slug == 'classifying' %} border-dashed{% endif %}"
+     style="{% if item.accent_var %}border-left-color: var({{ item.accent_var }});{% endif %}">
+  <div class="min-w-0 flex-1 p-4">
+    <p class="truncate text-[13px] font-medium text-text">{{ item.title }}</p>
+    <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] tabular-nums text-text-faint">
+      <span class="inline-flex shrink-0 items-center rounded bg-ground px-1.5 py-0.5 text-text-muted">&rsaquo; {{ item.repo_id }}</span>
+      <span aria-hidden="true">&middot;</span>
+      <span>
+        {% if item.status_slug == "found-issues" %}{% translate "found issues" %}
+        {% elif item.status_slug == "needs-attention" %}{% translate "needs attention" %}
+        {% elif item.status_slug == "failed" %}{% translate "failed" %}
+        {% elif item.status_slug == "classifying" %}{% translate "classifying…" %}
+        {% else %}{% translate "needs you" %}{% endif %}
+      </span>
+      <span aria-hidden="true">&middot;</span>
+      {% comment %} Render the SAME age clock ``order_queue`` sorts on and the ``stale · Nd`` chip
+         flags (``age_at = finished_at or created_at``, Story 4.2 review) — not ``created_at`` — so the
+         visible "N ago" can never contradict the row's position or its stale label. {% endcomment %}
+      <time datetime="{{ item.age_at|date:'c' }}">{% blocktranslate with ago=item.age_at|timesince %}{{ ago }} ago{% endblocktranslate %}</time>
+      {% if item.is_stale %}
+      <span aria-hidden="true">&middot;</span>
+      {% comment %} Passive-decay impact chip (Story 4.2, AC4/AC9): the only impact indication v1 can
+         honestly show — an item aging past the staleness threshold. Priority is conveyed by row
+         POSITION (order_queue) + this chip, never a rank number or a rank-specific colour. {% endcomment %}
+      <span data-testid="queue-item-stale">{% blocktranslate with days=item.stale_days %}stale · {{ days }}d{% endblocktranslate %}</span>
+      {% endif %}
+      {% comment %} who-waits slot (DESIGN.md queue-row) — reserved for the deferred blocking classes
+         (SOMEONE_ELSE_BLOCKED / AGENT_IDLE); intentionally EMPTY in v1 (no blocking data — NFR1). {% endcomment %}
+    </div>
+  </div>
+  {% comment %} Exactly ONE right-anchored action slot. The href agrees with the verb: a REVIEW of a
+     live MR opens the MR in a new tab; every other verb (RETRY / FIX / REVIEW-without-url / NONE)
+     navigates to the run page — never derive the destination from a persisted url alone. {% endcomment %}
+  <div class="flex shrink-0 items-center py-4 pr-4 pl-2">
+    {% if item.offered_action == "review" and item.merge_request_web_url %}
+    <a data-testid="queue-item-action"
+       href="{{ item.merge_request_web_url }}" target="_blank" rel="noopener"
+       class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+       style="color: var(--color-status-attn); background-color: color-mix(in srgb, var(--color-status-attn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-attn) 28%, transparent)">
+      {% icon "magnifying-glass" "h-3.5 w-3.5" %}<span>{% translate "Review" %}</span>
+    </a>
+    {% elif item.offered_action == "fix" %}
+    <a data-testid="queue-item-action"
+       href="{% url 'session_detail' thread_id=item.thread_id %}"
+       class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+       style="color: var(--color-status-found); background-color: color-mix(in srgb, var(--color-status-found) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-found) 28%, transparent)">
+      {% icon "bolt" "h-3.5 w-3.5" %}<span>{% translate "Fix" %}</span>
+    </a>
+    {% elif item.offered_action == "retry" %}
+    <a data-testid="queue-item-action"
+       href="{% url 'session_detail' thread_id=item.thread_id %}"
+       class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+       style="color: var(--color-status-fail); background-color: color-mix(in srgb, var(--color-status-fail) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-fail) 28%, transparent)">
+      {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
+    </a>
+    {% elif item.offered_action == "review" %}
+    {% comment %} REVIEW without a persisted MR url → the review context lives on the run page. {% endcomment %}
+    <a data-testid="queue-item-action"
+       href="{% url 'session_detail' thread_id=item.thread_id %}"
+       class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+       style="color: var(--color-status-attn); background-color: color-mix(in srgb, var(--color-status-attn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-attn) 28%, transparent)">
+      {% icon "magnifying-glass" "h-3.5 w-3.5" %}<span>{% translate "Review" %}</span>
+    </a>
+    {% else %}
+    {% comment %} NONE → a neutral teal "view run" navigation (e.g. a non-retryable failed run). {% endcomment %}
+    <a data-testid="queue-item-action"
+       href="{% url 'session_detail' thread_id=item.thread_id %}"
+       class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium text-accent transition-colors hover:text-accent-bright md:min-h-0">
+      <span>{% translate "View run" %}</span>{% icon "arrow-right" "h-3.5 w-3.5" %}
+    </a>
+    {% endif %}
+  </div>
+</div>
