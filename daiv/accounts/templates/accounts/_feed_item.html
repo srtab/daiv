@@ -18,7 +18,12 @@ found-issues item that carries a fix-able finding (``item.fixable`` — computed
 ``offered_action == FIX`` + ``still_actionable`` + non-empty ``fix_prompt`` gate). It sits OUTSIDE
 the card ``<a>`` and ``hx-get``s the scope/intent preview into ``#fix-preview-mount`` — it NEVER
 POSTs / launches; only the preview's explicit confirm does. Inline amber, byte-identical to the
-Queue's. No ``review``/``retry`` here (Story 5.2).
+Queue's.
+
+Story 5.2 completes the action slot: ``retry`` (a failed, retryable, still-actionable run — a
+confirm-trigger like ``fix``, red), ``review this`` (a needs-attention item — a PLAIN navigate: MR
+link-out / report drill, cyan), plus a low-emphasis teal ``re-run`` secondary control gated on
+``item.can_rerun`` (a resolvable owned schedule), sibling to dismiss.
 {% endcomment %}
 <article id="feed-item-{{ item.run.id }}"
          data-testid="feed-item"
@@ -81,11 +86,13 @@ Queue's. No ``review``/``retry`` here (Story 5.2).
 
     <span class="mt-0.5 shrink-0 text-text-faint" aria-hidden="true">{% icon "chevron-right" "h-4 w-4" %}</span>
   </a>
-  {% comment %} Story 5.1 — Finding -> Fix launch affordance. Rendered ONLY for a still-actionable
-     found-issues item carrying ≥1 fix-able finding (``item.fixable`` gated server-side). It
-     ``hx-get``s the scope/intent preview into the persistent dialog mount — it NEVER POSTs /
-     launches; only the preview's explicit confirm does. Inline amber, byte-identical to the Queue's
-     (see _queue_item.html). Outside the card ``<a>`` so a fix click never marks-seen-navigates. {% endcomment %}
+  {% comment %} Epic-5 action slot (one primary status verb). Story 5.1 wired ``fix``; Story 5.2 adds
+     ``retry`` (a failed, still-actionable, retryable run) and ``review this`` (a needs-attention
+     item). ``fix`` / ``retry`` ``hx-get`` the confirm dialog into the persistent mount — they NEVER
+     POST / launch; only the dialog's explicit confirm does. ``review this`` launches nothing: it is
+     a plain navigate (MR link-out new tab / else report drill). Colors bind to the verb (AC7): fix
+     amber, retry red (byte-identical to the Queue's retry), review cyan. Outside the card ``<a>`` so
+     an action click never marks-seen-navigates. {% endcomment %}
   {% if item.status_slug == "found-issues" and item.offered_action == "fix" and item.fixable %}
   <div class="flex shrink-0 items-center self-center py-4 pr-2 pl-2">
     <button type="button" id="fix-btn-feed-{{ item.run.id }}"
@@ -95,6 +102,57 @@ Queue's. No ``review``/``retry`` here (Story 5.2).
             class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
             style="color: var(--color-status-found); background-color: color-mix(in srgb, var(--color-status-found) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-found) 28%, transparent)">
       {% icon "bolt" "h-3.5 w-3.5" %}<span>{% translate "Fix it" %}</span>
+    </button>
+  </div>
+  {% elif item.offered_action == "retry" %}
+  {% comment %} RETRY confirm-trigger — red (``--color-status-fail``), byte-identical to the Queue's
+     retry button (see _queue_item.html). {% endcomment %}
+  <div class="flex shrink-0 items-center self-center py-4 pr-2 pl-2">
+    <button type="button" id="retry-btn-feed-{{ item.run.id }}"
+            data-testid="feed-item-action" data-action="retry"
+            hx-get="{% url 'feed_item_retry' item.run.id %}?surface=feed"
+            hx-target="#fix-preview-mount" hx-swap="innerHTML"
+            class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+            style="color: var(--color-status-fail); background-color: color-mix(in srgb, var(--color-status-fail) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-fail) 28%, transparent)">
+      {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
+    </button>
+  </div>
+  {% elif item.offered_action == "review" %}
+  {% comment %} REVIEW this — a PLAIN navigate (launches nothing, writes nothing): an open MR links
+     out in a new tab; a non-MR needs-attention item drills to the retained report. Cyan
+     (``--color-status-attn``). Sibling to the mark-seen card ``<a>``. {% endcomment %}
+  <div class="flex shrink-0 items-center self-center py-4 pr-2 pl-2">
+    {% if item.merge_request_web_url %}
+    <a data-testid="feed-item-action" data-action="review"
+       href="{{ item.merge_request_web_url }}" target="_blank" rel="noopener"
+       class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+       style="color: var(--color-status-attn); background-color: color-mix(in srgb, var(--color-status-attn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-attn) 28%, transparent)">
+      {% icon "magnifying-glass" "h-3.5 w-3.5" %}<span>{% translate "Review this" %}</span>
+    </a>
+    {% else %}
+    <a data-testid="feed-item-action" data-action="review"
+       href="{% if item.link_url %}{{ item.link_url }}{% else %}{% url 'session_detail' thread_id=item.run.session.thread_id %}{% endif %}"
+       class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+       style="color: var(--color-status-attn); background-color: color-mix(in srgb, var(--color-status-attn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-attn) 28%, transparent)">
+      {% icon "magnifying-glass" "h-3.5 w-3.5" %}<span>{% translate "Review this" %}</span>
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% comment %} Story 5.2 — the low-emphasis teal ``re-run`` secondary control. Gated on
+     ``item.can_rerun`` (a resolvable, owned ``run.session.scheduled_job``) — independent of envelope
+     status, so it stays available (quietly) even on a collapsed all-clear card. Sibling to dismiss;
+     ``hx-get``s the confirm dialog into the persistent mount — it NEVER POSTs / launches, only the
+     dialog's confirm does. Text-only teal (``text-accent``) so it never competes with the primary
+     status verb (UX-DR8). {% endcomment %}
+  {% if item.can_rerun %}
+  <div class="flex shrink-0 items-center self-center py-4 pr-1 pl-1">
+    <button type="button" id="rerun-btn-feed-{{ item.run.id }}"
+            data-testid="feed-item-rerun" data-action="re-run"
+            hx-get="{% url 'feed_item_rerun' item.run.id %}?surface=feed"
+            hx-target="#fix-preview-mount" hx-swap="innerHTML"
+            class="inline-flex min-h-[44px] items-center gap-1 rounded-md px-2 py-1.5 text-[12px] font-medium text-accent transition-colors hover:text-accent-bright md:min-h-0">
+      {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Re-run" %}</span>
     </button>
   </div>
   {% endif %}

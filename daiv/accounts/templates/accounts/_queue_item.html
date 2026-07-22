@@ -9,12 +9,14 @@ meta line: repo chip · status/impact word · relative timestamp · optional pas
 Rows render in ``order_queue`` sequence so DOM order == visual order (tab order == reading order,
 AC10); priority is position + chip only, never a rank number or a rank colour (AC9).
 
-Story 5.1 wires the ``fix`` verb: a FOUND_ISSUES row carrying a fix-able finding (``item.fixable``)
-gets a ``fix it`` PREVIEW trigger (``hx-get`` into ``#fix-preview-mount``) instead of a navigate
-link — it never POSTs / launches; only the preview's explicit confirm does. Every other verb
-(REVIEW / RETRY / a FOUND_ISSUES row with no ``fix_prompt`` / NONE) stays navigate-only: the href
-MUST agree with the verb — only a REVIEW of a live MR links to the MR (new tab); the rest navigate
-to ``session_detail``. The row's ``id`` is the confirm swap target.
+Story 5.1 wires the ``fix`` verb and Story 5.2 wires ``retry``: a FOUND_ISSUES row carrying a
+fix-able finding (``item.fixable``) gets a ``fix it`` PREVIEW trigger, and a failed retryable row
+gets a ``retry`` PREVIEW trigger (both ``hx-get`` into ``#fix-preview-mount``) instead of a navigate
+link — neither POSTs / launches; only the preview's explicit confirm does. The remaining verbs
+(REVIEW / a FOUND_ISSUES row with no ``fix_prompt`` / NONE) stay navigate-only: the href MUST agree
+with the verb — only a REVIEW of a live MR links to the MR (new tab); the rest navigate to
+``session_detail``. The row's ``id`` is the confirm swap target. (No ``re-run`` on Queue rows,
+UX-DR8 — they keep exactly one action.)
 {% endcomment %}
 <div id="queue-item-{{ item.run_id }}"
      data-testid="queue-item"
@@ -84,12 +86,18 @@ to ``session_detail``. The row's ``id`` is the confirm swap target.
       {% icon "bolt" "h-3.5 w-3.5" %}<span>{% translate "Fix" %}</span>
     </a>
     {% elif item.offered_action == "retry" %}
-    <a data-testid="queue-item-action"
-       href="{% url 'session_detail' thread_id=item.thread_id %}"
+    {% comment %} Story 5.2 — RETRY (a failed, still-actionable, retryable run) → the confirm PREVIEW
+       trigger (``hx-get`` into the persistent dialog mount), never a direct POST/launch; only the
+       preview's confirm launches. Red (``--color-status-fail``), byte-identical to the Feed's retry
+       (see _feed_item.html). {% endcomment %}
+    <button type="button" id="retry-btn-queue-{{ item.run_id }}"
+       data-testid="queue-item-action" data-action="retry"
+       hx-get="{% url 'feed_item_retry' item.run_id %}?surface=queue"
+       hx-target="#fix-preview-mount" hx-swap="innerHTML"
        class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
        style="color: var(--color-status-fail); background-color: color-mix(in srgb, var(--color-status-fail) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-fail) 28%, transparent)">
       {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
-    </a>
+    </button>
     {% elif item.offered_action == "review" %}
     {% comment %} REVIEW without a persisted MR url → the review context lives on the run page. {% endcomment %}
     <a data-testid="queue-item-action"

@@ -28,6 +28,7 @@ from accounts.views import get_velocity_data
 from codebase.base import MergeRequestState
 from codebase.clients import RepoClient
 from codebase.models import MergeMetric, PlatformType
+from schedules.models import Frequency, ScheduledJob
 
 # Repo root: tests/unit_tests/accounts/ -> parents[3].
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -1543,12 +1544,19 @@ class TestQueueVerbHref:
         # FIX findings live on the run page — never the MR, even with a persisted url.
         assert url not in html
 
-    def test_retry_links_to_run_page_not_mr(self):
+    def test_retry_opens_confirm_preview_not_mr(self):
+        # Story 5.2 rewires the Queue's retry from a navigate placeholder to a confirm PREVIEW
+        # trigger (hx-get into the persistent mount), mirroring ``fix``. The verb never links to the
+        # MR, never posts/launches from the row, and keeps its data-action/testid.
         url = "https://gitlab.example.com/daiv/test/-/merge_requests/9"
         html = self._render(offered_action=OfferedAction.RETRY, merge_request_web_url=url, status_slug="failed")
-        assert reverse("session_detail", kwargs={"thread_id": "thread-abc"}) in html
-        assert url not in html
         assert 'data-action="retry"' in html
+        assert 'data-testid="queue-item-action"' in html
+        assert 'hx-target="#fix-preview-mount"' in html
+        assert "/retry/" in html  # the preview trigger, not a session_detail navigate
+        assert 'hx-get="' in html
+        assert url not in html  # never the MR link, even with a persisted url
+        assert 'target="_blank"' not in html
 
 
 class TestQueueClickthroughRowOutLink:
@@ -1915,3 +1923,314 @@ class TestFixPreviewI18nAndSafety:
         queue = Path(get_template("accounts/_queue_item.html").origin.name).read_text(encoding="utf-8")
         assert '{% translate "Fix it" %}' in queue
         assert '{% translate "Fix" %}' in queue
+
+
+# ---------------------------------------------------------------------------
+# Story 5.2 — retry / review this / re-run affordances on Feed + Queue
+# ---------------------------------------------------------------------------
+
+# The exact inline reds/cyans the launch verbs reuse (no new Tailwind class). Asserting the literal
+# strings guards the verb -> color binding (AC7) and the byte-identical Feed/Queue retry.
+_RETRY_RED = (
+    "color: var(--color-status-fail); "
+    "background-color: color-mix(in srgb, var(--color-status-fail) 12%, transparent); "
+    "border: 1px solid color-mix(in srgb, var(--color-status-fail) 28%, transparent)"
+)
+_REVIEW_CYAN = (
+    "color: var(--color-status-attn); "
+    "background-color: color-mix(in srgb, var(--color-status-attn) 12%, transparent); "
+    "border: 1px solid color-mix(in srgb, var(--color-status-attn) 28%, transparent)"
+)
+
+
+def _make_feed_run_5_2(user, *, envelope_status, with_schedule=True, merge_request_web_url="", repo_id="daiv/test"):
+    """A RUN_FEED item for the 5.2 render tests: a SUCCESSFUL scheduled run + a chosen envelope.
+
+    ``with_schedule`` controls whether the session carries a ``scheduled_job`` (the ``can_rerun``
+    gate). ``envelope_status`` drives the Feed's rendered status/verb (Feed status comes from the
+    envelope, not run.status — a FAILED envelope on a SUCCESSFUL schedule run is the retry case).
+    """
+    schedule = None
+    if with_schedule:
+        schedule = ScheduledJob.objects.create(
+            user=user,
+            name="nightly",
+            prompt="p",
+            repos=[{"repo_id": repo_id, "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+        )
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id=repo_id, user=user, scheduled_job=schedule
+    )
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.SCHEDULE,
+        repo_id=repo_id,
+        status=RunStatus.SUCCESSFUL,
+        user=user,
+        merge_request_web_url=merge_request_web_url,
+        finished_at=timezone.now(),
+    )
+    RunEnvelope.objects.create(run=run, status=envelope_status, actionable=[])
+    Notification.objects.create(
+        recipient=user,
+        event_type=EventType.RUN_FEED,
+        source_type="sessions.Run",
+        source_id=str(run.pk),
+        subject="nightly",
+        body="",
+        link_url=reverse("session_detail", kwargs={"thread_id": session.thread_id}),
+    )
+    return run
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestFeedRetryAffordance:
+    """AC1/AC7 — a failed, retryable, still-actionable Feed item offers the red retry confirm trigger."""
+
+    def _feed(self, member_client):
+        return member_client.get(reverse("dashboard")).content.decode().split('data-testid="console-feed"')[1]
+
+    def test_failed_retryable_item_offers_red_retry_trigger(self, member_client, member_user):
+        run = _make_feed_run_5_2(member_user, envelope_status=EnvelopeStatus.FAILED)
+        feed = self._feed(member_client)
+        assert 'data-testid="feed-item-action"' in feed
+        assert 'data-action="retry"' in feed
+        # A confirm PREVIEW trigger into the persistent mount — never a direct POST/launch.
+        assert reverse("feed_item_retry", kwargs={"run_id": run.id}) in feed
+        assert "?surface=feed" in feed
+        assert 'hx-target="#fix-preview-mount"' in feed
+        assert _RETRY_RED in feed
+
+    def test_retry_absent_when_not_retryable(self, member_client, member_user):
+        # A CHAT-origin run is not retryable; a FAILED envelope on it downgrades RETRY -> NONE, so no
+        # retry verb ever renders (mirror of the Queue's is_retryable downgrade).
+        schedule = ScheduledJob.objects.create(
+            user=member_user,
+            name="n",
+            prompt="p",
+            repos=[{"repo_id": "daiv/test", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+        )
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()),
+            origin=SessionOrigin.CHAT,
+            repo_id="daiv/test",
+            user=member_user,
+            scheduled_job=schedule,
+        )
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.CHAT,
+            repo_id="daiv/test",
+            status=RunStatus.SUCCESSFUL,
+            user=member_user,
+            finished_at=timezone.now(),
+        )
+        RunEnvelope.objects.create(run=run, status=EnvelopeStatus.FAILED, actionable=[])
+        Notification.objects.create(
+            recipient=member_user,
+            event_type=EventType.RUN_FEED,
+            source_type="sessions.Run",
+            source_id=str(run.pk),
+            subject="n",
+            body="",
+            link_url="/",
+        )
+        feed = self._feed(member_client)
+        assert 'data-action="retry"' not in feed
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestFeedReviewAffordance:
+    """AC4/AC7 — a needs-attention Feed item offers the cyan ``review this`` PLAIN navigate."""
+
+    def _feed(self, member_client):
+        return member_client.get(reverse("dashboard")).content.decode().split('data-testid="console-feed"')[1]
+
+    def test_needs_attention_mr_links_out_new_tab(self, member_client, member_user):
+        url = "https://gitlab.example.com/daiv/test/-/merge_requests/9"
+        _make_feed_run_5_2(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, merge_request_web_url=url)
+        feed = self._feed(member_client)
+        assert 'data-action="review"' in feed
+        assert "Review this" in feed
+        assert f'href="{url}"' in feed
+        assert 'target="_blank"' in feed
+        assert _REVIEW_CYAN in feed
+        # A plain navigate — never a launch/POST from the review verb.
+        action = feed.split('data-action="review"')[1][:400]
+        assert "hx-post" not in action
+        assert "hx-get" not in action
+
+    def test_needs_attention_no_mr_drills_to_report(self, member_client, member_user):
+        run = _make_feed_run_5_2(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        feed = self._feed(member_client)
+        assert 'data-action="review"' in feed
+        assert reverse("session_detail", kwargs={"thread_id": run.session_id}) in feed
+        # No new tab for a non-MR report drill.
+        review = feed.split('data-action="review"')[1][:400]
+        assert 'target="_blank"' not in review
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestFeedRerunControl:
+    """AC3/AC7 — a scheduled-run Feed item carries the low-emphasis teal re-run secondary control."""
+
+    def _feed(self, member_client):
+        return member_client.get(reverse("dashboard")).content.decode().split('data-testid="console-feed"')[1]
+
+    def test_scheduled_item_offers_teal_rerun_control(self, member_client, member_user):
+        run = _make_feed_run_5_2(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        # An all-clear lone feed item seals the feed; add an attention item so the list renders.
+        _make_feed_run_5_2(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, repo_id="daiv/other")
+        feed = self._feed(member_client)
+        assert 'data-testid="feed-item-rerun"' in feed
+        assert 'data-action="re-run"' in feed
+        assert reverse("feed_item_rerun", kwargs={"run_id": run.id}) in feed
+        assert 'hx-target="#fix-preview-mount"' in feed
+        # Low-emphasis teal (text-accent), never a filled status color.
+        rerun = feed.split('data-testid="feed-item-rerun"')[1][:400]
+        assert "text-accent" in rerun
+
+    def test_rerun_absent_when_no_schedule(self, member_client, member_user):
+        # A feed run whose session carries no scheduled_job → can_rerun False → no re-run control.
+        _make_feed_run_5_2(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, with_schedule=False)
+        feed = self._feed(member_client)
+        assert 'data-testid="feed-item-rerun"' not in feed
+        assert 'data-action="re-run"' not in feed
+
+    def test_queue_rows_never_show_rerun(self, member_client, member_user):
+        # UX-DR8: Queue rows keep exactly one action; re-run is Feed-only.
+        _make_queue_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        content = member_client.get(reverse("dashboard")).content.decode()
+        queue = content.split('data-testid="console-queue"')[1].split('data-testid="console-feed"')[0]
+        assert 'data-action="re-run"' not in queue
+        assert 'data-testid="feed-item-rerun"' not in queue
+
+    def test_rerun_hidden_for_subscriber_non_owner(self, member_client, member_user, admin_user):
+        # Render gate must match the action gate. A schedule SUBSCRIBER holds a RUN_FEED row for a
+        # scheduled run they do NOT own; the re-run endpoint is owner-only and 404s every click, so
+        # the control must NOT render for them (else a dead button). Build an ADMIN-owned scheduled
+        # run and give member_user (the viewer) only a RUN_FEED notification for it.
+        schedule = ScheduledJob.objects.create(
+            user=admin_user,
+            name="nightly",
+            prompt="p",
+            repos=[{"repo_id": "daiv/test", "ref": ""}],
+            frequency=Frequency.DAILY,
+            time="12:00",
+        )
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()),
+            origin=SessionOrigin.SCHEDULE,
+            repo_id="daiv/test",
+            user=admin_user,
+            scheduled_job=schedule,
+        )
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.SCHEDULE,
+            repo_id="daiv/test",
+            status=RunStatus.SUCCESSFUL,
+            user=admin_user,
+            finished_at=timezone.now(),
+        )
+        RunEnvelope.objects.create(run=run, status=EnvelopeStatus.NEEDS_ATTENTION, actionable=[])
+        Notification.objects.create(
+            recipient=member_user,
+            event_type=EventType.RUN_FEED,
+            source_type="sessions.Run",
+            source_id=str(run.pk),
+            subject="nightly",
+            body="",
+            link_url="/",
+        )
+        feed = self._feed(member_client)
+        # The item renders (the subscriber holds the row) but the owner-only re-run control does not.
+        assert f"feed-item-{run.id}" in feed
+        assert 'data-testid="feed-item-rerun"' not in feed
+        assert 'data-action="re-run"' not in feed
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("_clear_queue_cache")
+class TestRetryIdenticalAcrossSurfaces:
+    """AC7 — the Feed and Queue retry buttons reuse the identical red treatment + verb."""
+
+    def test_both_surfaces_render_identical_red_retry(self, member_client, member_user):
+        # Queue: a no-envelope FAILED retryable run. Feed: a FAILED-envelope schedule run.
+        _make_queue_run(member_user, trigger=SessionOrigin.API_JOB, status=RunStatus.FAILED)
+        _make_feed_run_5_2(member_user, envelope_status=EnvelopeStatus.FAILED, repo_id="daiv/feed")
+        content = member_client.get(reverse("dashboard")).content.decode()
+        assert content.count(_RETRY_RED) >= 2
+        # Both retry buttons are confirm PREVIEW triggers into the same persistent mount.
+        assert content.count("/retry/") >= 2
+
+
+class TestQueueRetryIsPreviewTrigger:
+    """AC6 — the Queue retry is a confirm PREVIEW trigger (hx-get), never a direct row launch."""
+
+    def _render(self, *, status_slug="failed"):
+        item = {
+            "run_id": uuid.uuid4(),
+            "repo_id": "daiv/test",
+            "title": "boom",
+            "merge_request_iid": None,
+            "merge_request_web_url": "",
+            "thread_id": "thread-abc",
+            "created_at": timezone.now(),
+            "status_slug": status_slug,
+            "accent_var": "--color-status-fail",
+            "offered_action": OfferedAction.RETRY,
+            "is_stale": False,
+        }
+        return render_to_string("accounts/_queue_item.html", {"item": item})
+
+    def test_retry_row_is_preview_trigger_not_navigate(self):
+        html = self._render()
+        assert 'data-testid="queue-item-action"' in html
+        assert 'data-action="retry"' in html
+        assert 'hx-get="' in html
+        assert 'hx-target="#fix-preview-mount"' in html
+        assert "/retry/" in html
+        assert _RETRY_RED in html
+
+
+class TestLaunchActionI18n:
+    """AC11 — every new launch-action string is {% translate %}-wrapped (template source read)."""
+
+    def test_feed_verbs_are_translated(self):
+        src = Path(get_template("accounts/_feed_item.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Retry" %}' in src
+        assert '{% translate "Review this" %}' in src
+        assert '{% translate "Re-run" %}' in src
+
+    def test_queue_retry_is_translated(self):
+        src = Path(get_template("accounts/_queue_item.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Retry" %}' in src
+
+    def test_launch_started_strings_are_translated(self):
+        src = Path(get_template("accounts/_launch_started.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "A change session is on its way." %}' in src
+        assert '{% translate "View session" %}' in src
+
+    def test_announce_labels_are_translated(self):
+        src = Path(get_template("accounts/dashboard.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Retry started…" as retry_started_label %}' in src
+        assert '{% translate "Re-run started…" as rerun_started_label %}' in src
+        assert "@retry:started.window" in src
+        assert "@rerun:started.window" in src
+
+    def test_fix_preview_launch_branch_reuses_scope_msgids(self):
+        # The retry/re-run confirm reuses the existing "Scope" / "default branch" msgids (no new
+        # scope strings) and keeps the byte-identical fix defaults.
+        src = Path(get_template("accounts/_fix_preview.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "Scope" %}' in src
+        assert '{% translate "Start a fix" %}' in src  # fix default preserved
+        assert "@retry:started.window" in src
+        assert "@rerun:started.window" in src

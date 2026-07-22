@@ -78,6 +78,12 @@
    confirm POST launches a run and fires ``fix:started``, which this region announces politely. {% endcomment %}
 <div id="fix-preview-mount"></div>
 {% translate "Fix started" as fix_started_label %}
+{% translate "Retry started…" as retry_started_label %}
+{% translate "Re-run started…" as rerun_started_label %}
 <div id="fix-announce" role="status" aria-live="polite" class="sr-only"
-     x-data="{ msg: '' }" @fix:started.window="msg = '{{ fix_started_label|escapejs }}'" x-text="msg"></div>
+     x-data="{ msg: '' }"
+     @fix:started.window="msg = '{{ fix_started_label|escapejs }}'"
+     @retry:started.window="msg = '{{ retry_started_label|escapejs }}'"
+     @rerun:started.window="msg = '{{ rerun_started_label|escapejs }}'"
+     x-text="msg"></div>
 {% endblock app_content %}

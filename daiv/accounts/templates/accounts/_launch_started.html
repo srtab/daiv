@@ -1,0 +1,32 @@
+{% load i18n icon_tags %}
+{% comment %}
+Generic "launch started" region swap (Story 5.2) — replaces the item region (feed ``<article>`` /
+queue ``<div>``) after a CONFIRMED retry / re-run launch, reusing the ``classifying…`` dashed-spinner
+idiom of _fix_started.html. Carries the SAME id as the region it replaces so the htmx ``outerHTML``
+swap is coherent and the swapped-in node is focusable (``tabindex="-1"``). NO ``aria-live`` here:
+this node lives inside #console-main (clobbered on the next console swap) — the single announcer is
+the OOB ``#fix-announce`` region in dashboard.html.
+
+Honest count (AC8/AC9): a launch does NOT resolve the finding/failure, so this is a pending
+treatment, not a removal — the "you have N" pill is never decremented here. ``started_label`` is the
+view-authored, already-translated verb copy ("Retry started…" / "Re-run started…"); ``batch_id`` is
+the forward link (origin -> spawned batch) for traceability.
+{% endcomment %}
+<div id="{{ region_id }}" data-testid="launch-started" role="listitem" tabindex="-1"
+     class="flex items-stretch rounded-md border border-l-2 border-dashed border-border bg-surface-2">
+  <div class="flex flex-1 items-start gap-3 p-4">
+    {% icon "arrow-path" "mt-0.5 h-4 w-4 shrink-0 animate-spin text-text-faint" %}
+    <div class="min-w-0 flex-1">
+      <p class="text-[13px] font-medium text-text">{{ started_label }}</p>
+      <p class="mt-1 text-[13px] text-text-muted">
+        {% translate "A change session is on its way." %}
+      </p>
+      {% if batch_id %}
+      <a href="{% url 'session_list' %}?batch={{ batch_id }}"
+         class="mt-1 inline-flex items-center gap-1 text-[12px] font-medium text-accent transition-colors hover:text-accent-bright">
+        <span>{% translate "View session" %}</span>{% icon "arrow-right" "h-3.5 w-3.5" %}
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>

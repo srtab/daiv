@@ -1,13 +1,22 @@
 {% load i18n icon_tags %}
 {% comment %}
-Finding -> Fix scope/intent preview (Story 5.1) — the human-in-the-loop gate. Server-rendered by
-``FeedItemFixView.get`` and swapped into the persistent ``#fix-preview-mount`` (mounted in
-dashboard.html, OUTSIDE #console-main) by a ``fix it`` button's ``hx-get``. It shows WHAT will be
-attempted — the target repo/ref scope + the finding intent + the inert ``fix_prompt`` — NEVER a
-generated diff. The GET that produced it did ZERO writes / ZERO enqueues; only the explicit confirm
-``hx-post`` below launches a run. ``fix_prompt`` is UNTRUSTED classifier prose rendered via ``{{  }}``
-autoescaping — never ``|safe``, never executed. Adapted from _env_paste_overlay.html but centered,
-with aria-labelledby/aria-describedby + a manual focus trap (no x-trap plugin is loaded).
+Launch-action confirm dialog. Server-rendered into the persistent ``#fix-preview-mount`` (mounted in
+dashboard.html, OUTSIDE #console-main) by a launch button's ``hx-get``. The GET that produced it did
+ZERO writes / ZERO enqueues; only the explicit confirm ``hx-post`` below launches a run.
+
+Parametrised for three launch verbs sharing one shell:
+- ``fixable`` non-empty → Finding -> Fix (Story 5.1), the human-in-the-loop SECURITY gate: it shows
+  WHAT will be attempted — target repo/ref scope + finding intent + the inert ``fix_prompt`` — NEVER
+  a generated diff. ``fix_prompt`` is UNTRUSTED classifier prose rendered via ``{{  }}`` autoescaping
+  (never ``|safe``, never executed). This render path is byte-identical to 5.1.
+- ``can_confirm`` (retry / re-run, Story 5.2) → a lightweight "are you sure?" pause. These replay a
+  TRUSTED prompt (the run's own / the schedule's), so there is no untrusted prompt to review — the
+  dialog is a double-launch + a11y pause, NOT a security gate. Title / confirm-label / ``post_url``
+  come from the view; the fix branch keeps its literal defaults.
+- neither → the inert "no longer actionable" dialog (Close only, no launch path).
+
+Adapted from _env_paste_overlay.html but centered, with aria-labelledby/aria-describedby + a manual
+focus trap (no x-trap plugin is loaded).
 {% endcomment %}
 <div x-data="{
        open: false,
@@ -33,7 +42,9 @@ with aria-labelledby/aria-describedby + a manual focus trap (no x-trap plugin is
      }"
      x-init="show()"
      @keydown.escape.window="close()"
-     @fix:started.window="started()">
+     @fix:started.window="started()"
+     @retry:started.window="started()"
+     @rerun:started.window="started()">
   <div x-show="open" x-cloak class="fixed inset-0 z-50">
     <div x-show="open" x-transition.opacity @click="close()"
          class="absolute inset-0 bg-black/60 backdrop-blur-[2px]"></div>
@@ -47,7 +58,7 @@ with aria-labelledby/aria-describedby + a manual focus trap (no x-trap plugin is
         <header class="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div class="min-w-0">
             <h2 id="fix-preview-title" class="text-[15px] font-semibold text-text">
-              {% translate "Start a fix" %}
+              {% if dialog_title %}{{ dialog_title }}{% else %}{% translate "Start a fix" %}{% endif %}
             </h2>
             <p id="fix-preview-desc" class="mt-1 text-[13px] text-text-muted">
               {% translate "Review what will run before starting it. Nothing happens until you confirm." %}
@@ -119,11 +130,53 @@ with aria-labelledby/aria-describedby + a manual focus trap (no x-trap plugin is
             {% icon "bolt" "h-3.5 w-3.5" %}<span>{% translate "Fix it" %}</span>
           </button>
         </footer>
+        {% elif can_confirm %}
+        {% comment %} Story 5.2 — the lightweight retry / re-run confirm ("are you sure?" pause, NOT a
+           security gate: retry replays the trusted ``run.prompt``, re-run the ``schedule.prompt`` — no
+           untrusted ``fix_prompt`` to review). A read-only scope line anchors what will run; the GET
+           did ZERO writes / ZERO enqueues, only the confirm ``hx-post`` below launches. {% endcomment %}
+        <div class="flex-1 px-6 py-5">
+          <section aria-labelledby="launch-scope-heading" data-testid="launch-confirm-scope">
+            <h3 id="launch-scope-heading"
+                class="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
+              {% translate "Scope" %}
+            </h3>
+            <div class="mt-2 flex flex-col gap-1 font-mono text-[12px] tabular-nums text-text-muted">
+              {% for r in scope_repos %}
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span class="inline-flex items-center rounded bg-ground px-1.5 py-0.5">&rsaquo; {{ r.repo_id }}</span>
+                <span aria-hidden="true">&middot;</span>
+                <span>{% if r.ref %}{{ r.ref }}{% else %}{% translate "default branch" %}{% endif %}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </section>
+        </div>
+
+        {% comment %} Error/notice sink — the confirm POST retargets a clean inline error here (via
+           HX-Retarget) on revoked access / stale state / transient failure. {% endcomment %}
+        <div id="fix-preview-error" aria-live="polite"></div>
+
+        <footer class="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
+          <button type="button" @click="close()"
+                  class="inline-flex min-h-[44px] items-center rounded-md px-3 py-1.5 text-[13px] font-medium text-text-muted transition-colors hover:text-text md:min-h-0">
+            {% translate "Cancel" %}
+          </button>
+          {% comment %} Verb -> color binding (AC7): retry red (``--color-status-fail``), re-run teal
+             (``--color-accent``). ``hx-disabled-elt="this"`` is the same-dialog double-launch guard. {% endcomment %}
+          <button type="button" x-ref="confirm" data-testid="launch-confirm"
+                  hx-post="{{ post_url }}"
+                  hx-target="#{{ region_id }}" hx-swap="outerHTML" hx-disabled-elt="this"
+                  class="inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-80 md:min-h-0"
+                  style="{% if verb == 'rerun' %}color: var(--color-accent); background-color: color-mix(in srgb, var(--color-accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent){% else %}color: var(--color-status-fail); background-color: color-mix(in srgb, var(--color-status-fail) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-status-fail) 28%, transparent){% endif %}">
+            {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{{ confirm_label }}</span>
+          </button>
+        </footer>
         {% else %}
         {% comment %} Stale GET: the finding is no longer actionable (resolved externally / tampered
            run id). Inert — no confirm control, no launch path. {% endcomment %}
         <div class="flex-1 px-6 py-5" data-testid="fix-preview-stale">
-          <p class="text-[13px] text-text-muted">{% translate "This finding is no longer actionable — nothing to start." %}</p>
+          <p class="text-[13px] text-text-muted">{% if stale_message %}{{ stale_message }}{% else %}{% translate "This finding is no longer actionable — nothing to start." %}{% endif %}</p>
         </div>
         <footer class="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
           <button type="button" @click="close()"

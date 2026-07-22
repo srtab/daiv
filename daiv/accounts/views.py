@@ -304,6 +304,11 @@ def build_feed_item(run: Run, notification: Notification | None, envelope: RunEn
     ``still_actionable`` + a non-empty ``fix_prompt``) lives in ``_fixable_actionable``. Computed on
     EVERY call site (dashboard loop, ``FeedItemView`` re-fetch, ``FeedItemSeenView``) so the single-
     item render paths gate identically — never a stale ``fix it`` on an externally-resolved finding.
+
+    Story 5.2 attaches ``merge_request_web_url`` (the ``review this`` link-out target), ``can_rerun``
+    (``run.session.scheduled_job`` resolvable — the low-emphasis re-run secondary control's gate), and
+    mirrors the Queue's ``is_retryable`` downgrade so a domain-forbidden retry (webhook/chat/
+    non-terminal origin) never surfaces a ``retry`` verb the endpoint would reject.
     """
     if envelope is None:
         status_slug = "classifying"
@@ -313,6 +318,12 @@ def build_feed_item(run: Run, notification: Notification | None, envelope: RunEn
         status_slug = envelope.status
         accent_var = _FEED_ACCENT_VARS.get(envelope.status, "")
         offered_action = envelope.offered_action
+    # Mirror ``_build_queue_item``'s RETRY -> NONE downgrade: a RETRY offer the domain forbids
+    # (``run.is_retryable`` False) or one the shared liveness predicate no longer holds for
+    # (``still_actionable`` False — e.g. an externally-resolved MR) must never render a retry
+    # affordance on the Feed either.
+    if offered_action == OfferedAction.RETRY and (not run.is_retryable or not still_actionable(run, envelope)):
+        offered_action = OfferedAction.NONE
     return {
         "run": run,
         "envelope": envelope,
@@ -320,6 +331,21 @@ def build_feed_item(run: Run, notification: Notification | None, envelope: RunEn
         "accent_var": accent_var,
         "offered_action": offered_action,
         "fixable": _fixable_actionable(run, envelope),
+        "merge_request_web_url": run.merge_request_web_url,
+        # A schedule-owned run can be re-run in place (Story 5.2). Independent of envelope status —
+        # a secondary control, NOT an ``OfferedAction``. Requires a SCHEDULE-origin run (not merely a
+        # session that happens to carry a ``scheduled_job``); ``scheduled_job_id`` avoids loading the FK.
+        # Gated on the VIEWER OWNING the schedule: a scheduled run's ``session.user`` is the schedule
+        # owner (the cron dispatcher submits as ``schedule.user``), so the render gate must match
+        # ``FeedItemRerunView._resolve_schedule``'s owner check. Otherwise a schedule SUBSCRIBER holding
+        # a ``RUN_FEED`` row for someone else's scheduled run would see a re-run button every click of
+        # which 404s (the endpoint is owner-only) — a dead control (render gate != action gate).
+        "can_rerun": (
+            run.trigger_type == SessionOrigin.SCHEDULE
+            and run.session.scheduled_job_id is not None
+            and notification is not None
+            and run.session.user_id == notification.recipient_id
+        ),
         "read_at": notification.read_at if notification is not None else None,
         "link_url": notification.link_url if notification is not None else "",
     }
@@ -351,7 +377,7 @@ class FeedItemView(LoginRequiredMixin, TemplateView):
         )
         if notification is None:
             raise Http404
-        run = Run.objects.filter(pk=run_id).first()
+        run = Run.objects.filter(pk=run_id).select_related("session").first()
         if run is None:
             raise Http404
         ctx["item"] = build_feed_item(run, notification, RunEnvelope.objects.for_run(run))
@@ -382,7 +408,7 @@ class FeedItemSeenView(LoginRequiredMixin, TemplateView):
         )
         if notification is None:
             raise Http404
-        run = Run.objects.filter(pk=run_id).first()
+        run = Run.objects.filter(pk=run_id).select_related("session").first()
         if run is None:
             raise Http404
         notification.mark_as_read()
@@ -401,13 +427,64 @@ class FeedUnreadBadgeView(LoginRequiredMixin, TemplateView):
     template_name = "accounts/_feed_unread_badge.html"
 
 
-# The DOM surface a ``fix it`` was launched from — controls which item region the confirm swaps and
-# which trigger button focus returns to. Server-validated (a client cannot inject an arbitrary id).
+# The DOM surface a launch action was invoked from — controls which item region the confirm swaps
+# and which trigger button focus returns to. Server-validated (a client cannot inject an arbitrary
+# id). Shared by every launch action (fix / retry / re-run).
 _FIX_SURFACES = ("feed", "queue")
 _DEFAULT_FIX_SURFACE = "feed"
 
 
-class FeedItemFixView(LoginRequiredMixin, TemplateView):
+class _LaunchActionMixin:
+    """Shared owner-scope / surface / inline-notice primitives for the console's launch actions.
+
+    Story 5.1's ``FeedItemFixView`` established these three helpers; Story 5.2 reuses them VERBATIM
+    for ``retry`` and ``re-run`` rather than forking them, so every launch action resolves its target,
+    validates its surface, and renders its inline error identically (and ``FeedItemFixView``'s
+    behaviour is unchanged — it simply inherits what it used to define).
+    """
+
+    def _resolve_run(self, request, run_id) -> Run:
+        """Owner-scope the run to the requester, else ``Http404``.
+
+        Two owner paths, both literal-scoped (NEVER ``by_owner`` / ``visible_to``, which short-circuit
+        to ``.all()`` for admins): a ``Run`` in one of the requester's own sessions (``session__user``),
+        or a run the requester holds a ``RUN_FEED`` notification for (a schedule subscriber can act on
+        a finding surfaced to them).
+        """
+        run = Run.objects.filter(pk=run_id, session__user=request.user).select_related("session").first()
+        if run is not None:
+            return run
+        has_feed_row = Notification.objects.filter(
+            recipient=request.user, event_type=EventType.RUN_FEED, source_type="sessions.Run", source_id=str(run_id)
+        ).exists()
+        if has_feed_row:
+            run = Run.objects.filter(pk=run_id).select_related("session").first()
+            if run is not None:
+                return run
+        raise Http404
+
+    def _surface(self, request) -> str:
+        surface = request.GET.get("surface")
+        if surface is None:
+            return _DEFAULT_FIX_SURFACE
+        # A view may narrow the allow-list (e.g. re-run is Feed-only): a surface outside it is a
+        # tampered request — reject it rather than silently coercing to the default (which would
+        # mis-target the confirm swap to a nonexistent / wrong region).
+        allowed = getattr(self, "_allowed_surfaces", _FIX_SURFACES)
+        if surface not in allowed:
+            raise Http404
+        return surface
+
+    @staticmethod
+    def _dialog_notice(request, message):
+        """Render a calm inline notice retargeted INTO the open dialog (no launch, no region swap)."""
+        resp = render(request, "accounts/_fix_notice.html", {"message": message})
+        resp["HX-Retarget"] = "#fix-preview-error"
+        resp["HX-Reswap"] = "innerHTML"
+        return resp
+
+
+class FeedItemFixView(_LaunchActionMixin, LoginRequiredMixin, TemplateView):
     """Story 5.1 — the console's single launch capability AND the human-in-the-loop security gate.
 
     ``fix_prompt`` is classifier-authored from untrusted run prose, so no run is ever enqueued
@@ -427,35 +504,6 @@ class FeedItemFixView(LoginRequiredMixin, TemplateView):
     """
 
     template_name = "accounts/_fix_preview.html"
-
-    def _resolve_run(self, request, run_id) -> Run:
-        """Owner-scope the run to the requester, else ``Http404``.
-
-        Two owner paths, both literal-scoped (NEVER ``by_owner`` / ``visible_to``): a ``Run`` in one
-        of the requester's own sessions (``session__user``), or a run the requester holds a
-        ``RUN_FEED`` notification for (a schedule subscriber can act on a finding surfaced to them).
-        """
-        run = Run.objects.filter(pk=run_id, session__user=request.user).select_related("session").first()
-        if run is not None:
-            return run
-        has_feed_row = Notification.objects.filter(
-            recipient=request.user, event_type=EventType.RUN_FEED, source_type="sessions.Run", source_id=str(run_id)
-        ).exists()
-        if has_feed_row:
-            run = Run.objects.filter(pk=run_id).select_related("session").first()
-            if run is not None:
-                return run
-        raise Http404
-
-    def _surface(self, request) -> str:
-        surface = request.GET.get("surface")
-        if surface is None:
-            return _DEFAULT_FIX_SURFACE
-        if surface not in _FIX_SURFACES:
-            # A present-but-invalid surface is a tampered request — reject it rather than silently
-            # coercing to the default (which would mis-target the confirm swap to the wrong region).
-            raise Http404
-        return surface
 
     def get(self, request, *args, **kwargs):
         run = self._resolve_run(request, kwargs["run_id"])
@@ -536,12 +584,229 @@ class FeedItemFixView(LoginRequiredMixin, TemplateView):
         resp["HX-Trigger"] = "fix:started"
         return resp
 
+
+class FeedItemRetryView(_LaunchActionMixin, LoginRequiredMixin, TemplateView):
+    """Story 5.2 — retry a failed run in place (a lightweight confirm, then EXACTLY ONE launch).
+
+    Retry replays the ORIGINATING run's own trusted ``prompt`` on its own ``repo_id``/``ref`` via
+    ``submit_batch_runs(trigger_type=UI_JOB)`` — never a finding's ``actionable[].ref``. Unlike
+    ``fix``, there is no untrusted classifier ``fix_prompt`` to review, so the confirm dialog is a
+    plain "are you sure?" pause (double-launch guard + a11y), not a security gate.
+
+    - ``get()`` renders the confirm dialog. Pure read: re-reads the live envelope, re-asserts the
+      retry gate, ZERO writes / ZERO enqueues.
+    - ``post()`` re-validates server-side (retry still offered + ``can_run``), launches one run, swaps
+      the item region to a calm "retry started" state, and fires ``HX-Trigger: retry:started``.
+
+    Owner-scoped exactly like ``FeedItemFixView`` (shared ``_LaunchActionMixin``).
+    """
+
+    template_name = "accounts/_fix_preview.html"
+
     @staticmethod
-    def _dialog_notice(request, message):
-        """Render a calm inline notice retargeted INTO the open dialog (no launch, no region swap)."""
-        resp = render(request, "accounts/_fix_notice.html", {"message": message})
-        resp["HX-Retarget"] = "#fix-preview-error"
-        resp["HX-Reswap"] = "innerHTML"
+    def _retry_offered(run: Run, envelope: RunEnvelope | None) -> bool:
+        """Whether a live retry is genuinely offered for this run (the single gate, GET and POST).
+
+        RETRY is offered iff the run's live state is ``failed`` (a FAILED envelope, or — the common
+        no-envelope case — a FAILED run status), the domain permits a retry (``run.is_retryable`` is
+        False for webhook/chat/non-terminal origins), and the shared ``still_actionable`` predicate
+        still holds. ``still_actionable`` is the ONLY liveness check — never re-derived inline.
+        """
+        if envelope is not None:
+            status_failed = envelope.status == EnvelopeStatus.FAILED
+        else:
+            status_failed = run.status == RunStatus.FAILED
+        return status_failed and run.is_retryable and still_actionable(run, envelope)
+
+    def get(self, request, *args, **kwargs):
+        run = self._resolve_run(request, kwargs["run_id"])
+        envelope = RunEnvelope.objects.for_run(run)
+        surface = self._surface(request)
+        # Pure read only — no write, no enqueue. A stale/no-longer-retryable run renders the inert
+        # "no longer actionable" dialog (``can_confirm`` False) rather than a launchable one.
+        return self.render_to_response({
+            "run": run,
+            "fixable": [],
+            "surface": surface,
+            "region_id": f"{surface}-item-{run.id}",
+            "trigger_id": f"retry-btn-{surface}-{run.id}",
+            "can_confirm": self._retry_offered(run, envelope),
+            "verb": "retry",
+            "dialog_title": _("Retry this run?"),
+            "confirm_label": _("Retry"),
+            "stale_message": _("This run can no longer be retried — nothing to start."),
+            # Retry re-launches the ORIGINATING run's single repo/ref — a one-entry scope.
+            "scope_repos": [{"repo_id": run.repo_id, "ref": run.ref}],
+            "post_url": reverse("feed_item_retry", kwargs={"run_id": run.id}) + f"?surface={surface}",
+        })
+
+    def post(self, request, *args, **kwargs):
+        run = self._resolve_run(request, kwargs["run_id"])
+        envelope = RunEnvelope.objects.for_run(run)
+        surface = self._surface(request)
+        region_id = f"{surface}-item-{run.id}"
+        if not self._retry_offered(run, envelope):
+            # Stale / tampered: the live state no longer offers retry. No launch — a calm no-op.
+            return self._dialog_notice(request, _("This run can no longer be retried — nothing was started."))
+        try:
+            # Access can be revoked between render and submit; this pre-check and the
+            # ``RepositoryAccessDenied`` catch below surface the same clean inline error. Kept INSIDE
+            # the ``try`` (like ``FeedItemFixView``/``FeedItemRerunView``) so a repo-client or backstop
+            # error raised inside ``can_run`` degrades to a calm inline notice, never an uncaught 500
+            # that leaves the confirm dialog spinner-locked.
+            if not can_run(request.user, run.repo_id):
+                return self._dialog_notice(request, _("Repository not found or not accessible."))
+            repos = resolve_repo_envs(
+                user=request.user, repos=[RepoTarget(repo_id=run.repo_id, ref=run.ref)], explicit_env_id=None
+            )
+            # Seed from the run's OWN trusted prompt/repo/ref — NEVER a finding's actionable[].ref.
+            result = submit_batch_runs(
+                user=request.user, prompt=run.prompt, repos=repos, trigger_type=SessionOrigin.UI_JOB
+            )
+        except RepositoryAccessDenied:
+            return self._dialog_notice(request, _("Repository not found or not accessible."))
+        except Exception:
+            logger.exception(
+                "run_retry: launch failed for run=%s repo=%s user=%s", run.pk, run.repo_id, request.user.pk
+            )
+            return self._dialog_notice(request, _("Could not start the run. Please try again in a moment."))
+
+        if not result.runs:
+            # The only target failed to enqueue → nothing started. No false "started" + dead batch
+            # link: fire no trigger and surface a calm inline error; the run stays retryable.
+            logger.warning(
+                "run_retry.launch_failed run_id=%s repo_id=%s user=%s errors=%s",
+                run.pk,
+                run.repo_id,
+                request.user.pk,
+                [failure.error for failure in result.failed],
+            )
+            return self._dialog_notice(request, _("Could not start the run. Please try again in a moment."))
+
+        logger.info(
+            "run_retry.launched run_id=%s batch_id=%s repo_id=%s user=%s",
+            run.pk,
+            result.batch_id,
+            run.repo_id,
+            request.user.pk,
+        )
+        resp = render(
+            request,
+            "accounts/_launch_started.html",
+            {"region_id": region_id, "batch_id": result.batch_id, "started_label": _("Retry started…")},
+        )
+        resp["HX-Trigger"] = "retry:started"
+        return resp
+
+
+class FeedItemRerunView(_LaunchActionMixin, LoginRequiredMixin, TemplateView):
+    """Story 5.2 — re-run the schedule behind a scheduled-run Feed item, in place.
+
+    Re-run is a secondary control on scheduled-run Feed items (NOT an ``OfferedAction``, NOT on Queue
+    rows). It replicates ``ScheduleRunNowView``'s exact service sequence — repos from
+    ``schedule.repos``, envs resolved against the schedule OWNER, one launch via
+    ``submit_batch_runs(trigger_type=SCHEDULE, scheduled_job=<job>)`` — but returns the calm-partial
+    console idiom (a targeted region swap + ``HX-Trigger: rerun:started``) instead of a redirect.
+
+    Owner-scoped to the requester via the shared ``_LaunchActionMixin``; the run must resolve to a
+    non-null ``run.session.scheduled_job`` AND the requester must OWN that schedule
+    (``schedule.user_id == request.user.id``) — merely holding a ``RUN_FEED`` notification for the run
+    is NOT enough (else ``Http404``). This closes the subscriber-escalation the shared ``_resolve_run``
+    would otherwise allow: re-run fans out in the schedule OWNER's sandbox env, so a non-owner
+    notification holder must never be able to re-trigger someone else's schedule. ``schedule.prompt``
+    is operator-authored (trusted), so — like retry — the confirm is a plain "are you sure?" pause,
+    not a security gate.
+    """
+
+    template_name = "accounts/_fix_preview.html"
+    # Re-run never renders on the Queue — reject a crafted ``?surface=queue`` (which would target a
+    # nonexistent ``queue-item-<id>`` region: the launch fires but nothing swaps).
+    _allowed_surfaces = ("feed",)
+
+    def _resolve_schedule(self, request, run_id) -> tuple[Run, ScheduledJob]:
+        run = self._resolve_run(request, run_id)
+        schedule = run.session.scheduled_job
+        if schedule is None or schedule.user_id != request.user.id:
+            raise Http404
+        return run, schedule
+
+    def get(self, request, *args, **kwargs):
+        run, schedule = self._resolve_schedule(request, kwargs["run_id"])
+        surface = self._surface(request)
+        # Pure read — no write, no enqueue. Re-run is independent of envelope status (a secondary
+        # control), so a resolvable owned schedule is the whole gate.
+        return self.render_to_response({
+            "run": run,
+            "fixable": [],
+            "surface": surface,
+            "region_id": f"{surface}-item-{run.id}",
+            "trigger_id": f"rerun-btn-{surface}-{run.id}",
+            "can_confirm": True,
+            "verb": "rerun",
+            "dialog_title": _("Re-run schedule?"),
+            "confirm_label": _("Re-run"),
+            # Re-run fans out to EVERY entry in ``schedule.repos`` — show the real launch scope, not
+            # just the originating run's single repo/ref (honesty: the confirm must not under-report).
+            "scope_repos": list(schedule.repos),
+            "post_url": reverse("feed_item_rerun", kwargs={"run_id": run.id}) + f"?surface={surface}",
+        })
+
+    def post(self, request, *args, **kwargs):
+        run, schedule = self._resolve_schedule(request, kwargs["run_id"])
+        surface = self._surface(request)
+        region_id = f"{surface}-item-{run.id}"
+        try:
+            # Replicate ScheduleRunNowView.post: repos from ``schedule.repos``, envs resolved against
+            # the schedule OWNER (parity with the cron dispatcher), submitted as the requester.
+            repos = [RepoTarget(repo_id=r["repo_id"], ref=r["ref"]) for r in schedule.repos]
+            # Gate the repos actually launched (schedule.repos), not the originating run's repo.
+            if not all(can_run(request.user, t.repo_id) for t in repos):
+                return self._dialog_notice(request, _("Repository not found or not accessible."))
+            repos = resolve_repo_envs(
+                user=schedule.user,
+                repos=repos,
+                explicit_env_id=str(schedule.sandbox_environment_id) if schedule.sandbox_environment_id else None,
+            )
+            result = submit_batch_runs(
+                user=request.user,
+                prompt=schedule.prompt,
+                repos=repos,
+                trigger_type=SessionOrigin.SCHEDULE,
+                scheduled_job=schedule,
+                agent_model=schedule.agent_model,
+                agent_thinking_level=schedule.agent_thinking_level,
+            )
+        except RepositoryAccessDenied:
+            return self._dialog_notice(request, _("Repository not found or not accessible."))
+        except Exception:
+            logger.exception(
+                "schedule_rerun: launch failed for run=%s schedule=%s user=%s", run.pk, schedule.pk, request.user.pk
+            )
+            return self._dialog_notice(request, _("Could not start the run. Please try again in a moment."))
+
+        if not result.runs:
+            logger.warning(
+                "schedule_rerun.launch_failed run_id=%s schedule=%s user=%s errors=%s",
+                run.pk,
+                schedule.pk,
+                request.user.pk,
+                [failure.error for failure in result.failed],
+            )
+            return self._dialog_notice(request, _("Could not start the run. Please try again in a moment."))
+
+        logger.info(
+            "schedule_rerun.launched run_id=%s schedule=%s batch_id=%s user=%s",
+            run.pk,
+            schedule.pk,
+            result.batch_id,
+            request.user.pk,
+        )
+        resp = render(
+            request,
+            "accounts/_launch_started.html",
+            {"region_id": region_id, "batch_id": result.batch_id, "started_label": _("Re-run started…")},
+        )
+        resp["HX-Trigger"] = "rerun:started"
         return resp
 
 
@@ -651,7 +916,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         feed_qs = Notification.objects.filter(recipient=user, event_type=EventType.RUN_FEED)
         notifications = list(feed_qs.order_by("-created")[:FEED_PAGE_SIZE])
         run_ids = [n.source_id for n in notifications]
-        runs_by_id = {str(pk): run for pk, run in Run.objects.filter(pk__in=run_ids).in_bulk().items()}
+        # ``select_related("session")`` so ``build_feed_item``'s ``can_rerun`` read of
+        # ``run.session.scheduled_job_id`` (Story 5.2) stays a single join, not a per-row N+1.
+        runs_by_id = {
+            str(pk): run for pk, run in Run.objects.filter(pk__in=run_ids).select_related("session").in_bulk().items()
+        }
         # Batch the page's envelopes in one query rather than one ``for_run`` per row (N+1).
         envelopes_by_run = {str(env.run_id): env for env in RunEnvelope.objects.filter(run_id__in=run_ids)}
 
