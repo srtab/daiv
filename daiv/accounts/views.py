@@ -32,7 +32,7 @@ from accounts.filters import UserFilter
 from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.models import APIKey, User
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, can_run
+from codebase.authorization import RepositoryAccessDenied, can_run
 from codebase.models import MergeMetric
 from core.utils import is_htmx
 from schedules.models import ScheduledJob
@@ -448,8 +448,14 @@ class FeedItemFixView(LoginRequiredMixin, TemplateView):
         raise Http404
 
     def _surface(self, request) -> str:
-        surface = request.GET.get("surface", _DEFAULT_FIX_SURFACE)
-        return surface if surface in _FIX_SURFACES else _DEFAULT_FIX_SURFACE
+        surface = request.GET.get("surface")
+        if surface is None:
+            return _DEFAULT_FIX_SURFACE
+        if surface not in _FIX_SURFACES:
+            # A present-but-invalid surface is a tampered request — reject it rather than silently
+            # coercing to the default (which would mis-target the confirm swap to the wrong region).
+            raise Http404
+        return surface
 
     def get(self, request, *args, **kwargs):
         run = self._resolve_run(request, kwargs["run_id"])
@@ -480,21 +486,23 @@ class FeedItemFixView(LoginRequiredMixin, TemplateView):
             # fix_prompt). No launch — a calm inline no-op inside the open dialog.
             return self._dialog_notice(request, _("This finding is no longer actionable — nothing was started."))
 
-        actionable_ids = [item["id"] for item in fixable]
-        prompt = compose_fix_prompt(fixable)
-
-        # Access can be revoked between render and submit — the explicit ``can_run`` pre-check plus
-        # the ``RepositoryAccessDenied`` catch below both surface a clean inline error (no crash).
-        if not can_run(request.user, run.repo_id):
-            return self._dialog_notice(request, REPO_ACCESS_DENIED_MESSAGE)
-
+        # Everything that can raise on a hostile/stale payload or a revoked repo lives inside the
+        # try, so a failure degrades to a calm inline notice ("no crash") rather than a 500: the
+        # actionable-id/prompt assembly (an off-contract envelope item could lack ``id``), the
+        # ``can_run`` gate (a repo-client error can raise), env resolution, and the launch itself.
         try:
+            actionable_ids = [item["id"] for item in fixable]
+            prompt = compose_fix_prompt(fixable)
+            # Access can be revoked between render and submit — this pre-check and the
+            # ``RepositoryAccessDenied`` catch below surface the same clean inline error.
+            if not can_run(request.user, run.repo_id):
+                return self._dialog_notice(request, _("Repository not found or not accessible."))
             repos = resolve_repo_envs(
                 user=request.user, repos=[RepoTarget(repo_id=run.repo_id, ref=run.ref)], explicit_env_id=None
             )
             result = submit_batch_runs(user=request.user, prompt=prompt, repos=repos, trigger_type=SessionOrigin.UI_JOB)
         except RepositoryAccessDenied:
-            return self._dialog_notice(request, REPO_ACCESS_DENIED_MESSAGE)
+            return self._dialog_notice(request, _("Repository not found or not accessible."))
         except Exception:
             logger.exception(
                 "finding_fix: launch failed for run=%s repo=%s user=%s", run.pk, run.repo_id, request.user.pk

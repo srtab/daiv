@@ -553,9 +553,6 @@ msgstr "Esta deteção já não é acionável — nada para iniciar."
 msgid "Fix started"
 msgstr "Correção iniciada"
 
-msgid "Started, but some repositories could not be queued — check your sessions."
-msgstr "Iniciada, mas alguns repositórios não puderam ser colocados em fila — verifique as suas sessões."
-
 msgid "A change session is on its way."
 msgstr "Uma sessão de alteração está a caminho."
 
@@ -567,6 +564,9 @@ msgstr "Esta deteção já não é acionável — nada foi iniciado."
 
 msgid "Could not start the fix. Please try again in a moment."
 msgstr "Não foi possível iniciar a correção. Tente novamente daqui a instantes."
+
+msgid "Repository not found or not accessible."
+msgstr "Repositório não encontrado ou não acessível."
 
 #~ msgid "stale"
 #~ msgstr "parado"

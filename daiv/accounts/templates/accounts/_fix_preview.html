@@ -5,7 +5,7 @@ Finding -> Fix scope/intent preview (Story 5.1) — the human-in-the-loop gate. 
 dashboard.html, OUTSIDE #console-main) by a ``fix it`` button's ``hx-get``. It shows WHAT will be
 attempted — the target repo/ref scope + the finding intent + the inert ``fix_prompt`` — NEVER a
 generated diff. The GET that produced it did ZERO writes / ZERO enqueues; only the explicit confirm
-``hx-post`` below launches a run. ``fix_prompt`` is UNTRUSTED classifier prose rendered via ``{{ }}``
+``hx-post`` below launches a run. ``fix_prompt`` is UNTRUSTED classifier prose rendered via ``{{  }}``
 autoescaping — never ``|safe``, never executed. Adapted from _env_paste_overlay.html but centered,
 with aria-labelledby/aria-describedby + a manual focus trap (no x-trap plugin is loaded).
 {% endcomment %}
@@ -13,7 +13,14 @@ with aria-labelledby/aria-describedby + a manual focus trap (no x-trap plugin is
        open: false,
        triggerId: '{{ trigger_id }}',
        show() { this.open = true; this.$nextTick(() => { (this.$refs.confirm || this.$refs.dismiss)?.focus(); }); },
-       close() { this.open = false; this.$nextTick(() => document.getElementById(this.triggerId)?.focus()); },
+       close() { this.open = false; this.$nextTick(() => {
+         // Return focus to the trigger; if a concurrent console swap detached it, fall back to the
+         // item region (made focusable) so focus never silently drops to <body>.
+         const target = document.getElementById(this.triggerId) || document.getElementById('{{ region_id }}');
+         if (!target) return;
+         if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+         target.focus();
+       }); },
        started() { this.open = false; this.$nextTick(() => document.getElementById('{{ region_id }}')?.focus()); },
        trap(e) {
          if (!this.open) return;
@@ -83,12 +90,15 @@ with aria-labelledby/aria-describedby + a manual focus trap (no x-trap plugin is
               {% endfor %}
             </ul>
             {% comment %} The classifier-authored fix_prompt is UNTRUSTED run prose. It is shown as
-               inert, auto-escaped text (Django {{ }} — never |safe, never executed as a template). {% endcomment %}
+               inert, auto-escaped text (Django {{  }} — never |safe, never executed as a template). {% endcomment %}
             <p class="mt-3 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
               {% translate "Instruction" %}
             </p>
+            {% comment %} No max-height cap: this untrusted instruction is what the confirm will run,
+               so the operator must be able to read ALL of it before confirming. The dialog body
+               (the parent .overflow-y-auto) scrolls if the whole preview grows tall. {% endcomment %}
             <div data-testid="fix-preview-prompt"
-                 class="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-ground px-3 py-2 font-mono text-[12px] text-text-muted">{{ fix_prompt }}</div>
+                 class="mt-1 whitespace-pre-wrap rounded-md border border-border bg-ground px-3 py-2 font-mono text-[12px] text-text-muted">{{ fix_prompt }}</div>
           </section>
         </div>
 
