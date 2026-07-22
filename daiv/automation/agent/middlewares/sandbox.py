@@ -340,7 +340,21 @@ _BASH_PERMANENT_ERROR = (
     "the bash tool again — further calls will fail the same way."
 )
 
-_BASH_FAILURE_MESSAGES = {BashFailure.TRANSIENT: _BASH_TRANSIENT_ERROR, BashFailure.PERMANENT: _BASH_PERMANENT_ERROR}
+# Code-enforced circuit breaker (B6): once this many *consecutive* transient transport failures have
+# been observed for the run's shared SandboxFileBackend (see file_system.SandboxFileBackend), further
+# bash dispatches are short-circuited regardless of what the model does — the prompt-only "stop after
+# two identical errors" backstop above is advisory only and a model may ignore it. Mirrors that
+# prompt's "two consecutive" framing (kept as one tunable, not a magic per-case value).
+_MAX_CONSECUTIVE_SANDBOX_FAILURES = 3
+
+# Returned once the breaker has latched (SandboxFileBackend.bash_unavailable is True) — for both the
+# transient failure that *reaches* the threshold and every call afterwards. Deliberately NOT
+# _BASH_PERMANENT_ERROR: that message's "the sandbox rejected the call" is false for a short-circuited
+# call, since the sandbox was never dispatched to.
+_BASH_BREAKER_ERROR = (
+    "error: The bash tool is unavailable for the rest of this conversation — repeated consecutive "
+    "sandbox transport failures. No command was executed; do NOT call the bash tool again."
+)
 
 
 async def _run_bash_commands(backend: SandboxFileBackend, commands: list[str]) -> RunCommandsResponse | BashFailure:
@@ -445,14 +459,37 @@ class SandboxMiddleware(AgentMiddleware):
             """Run a Bash command in the persistent shell session of this run."""
             denial_error = _check_command_policy(command, runtime)
             if denial_error:
+                # Policy denials never reach the sandbox: they neither increment nor reset the
+                # breaker's failure counter.
                 return denial_error
 
             if self._sandbox_backend is None:
                 raise RuntimeError("SandboxMiddleware bash tool invoked before abefore_agent bound the sandbox backend")
 
-            result = await _run_bash_commands(self._sandbox_backend, [command])
+            backend = self._sandbox_backend
+            if backend.bash_unavailable:
+                # Breaker already latched (by this call's predecessors, possibly from another
+                # subagent sharing this backend) — short-circuit without dispatching.
+                return _BASH_BREAKER_ERROR
+
+            result = await _run_bash_commands(backend, [command])
             if isinstance(result, BashFailure):
-                return _BASH_FAILURE_MESSAGES[result]
+                if result is BashFailure.PERMANENT:
+                    backend.bash_unavailable = True
+                    return _BASH_PERMANENT_ERROR
+
+                # TRANSIENT: count it; reaching the threshold latches the breaker and returns its
+                # message directly instead of the "retry ONCE" text — inviting a retry the gate will
+                # refuse next time would be self-contradictory.
+                backend.consecutive_bash_failures += 1
+                if backend.consecutive_bash_failures >= _MAX_CONSECUTIVE_SANDBOX_FAILURES:
+                    backend.bash_unavailable = True
+                    return _BASH_BREAKER_ERROR
+                return _BASH_TRANSIENT_ERROR
+
+            # Any RunCommandsResponse means the transport succeeded (whatever the per-command exit
+            # codes), so it resets the consecutive-failure counter.
+            backend.consecutive_bash_failures = 0
 
             # The sandbox is authoritative: bash mutations already live in /workspace/repo,
             # so there is no local repo to keep in sync here.
