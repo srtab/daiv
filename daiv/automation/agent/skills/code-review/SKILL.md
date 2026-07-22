@@ -16,12 +16,14 @@ This skill runs in two phases. The **review workflow** finds and verifies high-s
 
 ## Run the review
 
-1. **Read `references/review-workflow.md` and follow it.** It walks scope → Stage 0 (per-repo review rules) → Stage 1 (detector fan-out, or an inline triage pass for trivially small changes) → Stage 2 (merge + adversarial verification) → severity, and hands off the **verified findings**.
+1. **Always read `references/review-workflow.md` first; do not pre-judge the diff.** It walks scope → Stage 0 (per-repo review rules) → Stage 1 (detector fan-out, or an inline triage pass for trivially small changes) → Stage 2 (merge + adversarial verification) → severity, and hands off the **verified findings**.
 2. **Interactive mode:** render the survivors using the interactive output protocol at the end of `review-workflow.md`, and return it as the final message. Done.
 3. **Delivery mode:** once the workflow hands off verified findings, **read `references/gitlab-delivery.md` and follow it** to post them. Read it *before* posting anything — the marker, anchor, and dedup machinery is not reconstructable from memory.
 
 ## Non-negotiables (every mode)
 
+- **Every run enters `references/review-workflow.md` — no verdict before it.** "This diff is trivial/obvious" is not an exit: judging triviality is the workflow's triage gate, and it is not yours to run from the router.
+- **Delivery mode always completes `references/gitlab-delivery.md`, even at zero findings.** "No findings" is not "nothing to deliver" — prior notes, pending replies, and the existing summary still get reconciled there; what (if anything) gets posted is that reference's decision, not yours.
 - **Precision over recall.** Adversarially refute every finding; over-pruning is acceptable. Present only confirmed survivors — no strikethrough, no "on closer reading this is fine."
 - **Never post style, formatting, whitespace, or import-ordering findings.** That's a linter's or formatter's job.
 - **Detectors run as `cr-*` subagents, never `general-purpose`.** A `general-purpose` dispatch returns prose with no `findings` array and breaks the merge. If a `cr-*` type didn't load, skip it and report the gap in the status line — never substitute.
@@ -32,7 +34,7 @@ This skill runs in two phases. The **review workflow** finds and verifies high-s
 
 ## References
 
-- `references/review-workflow.md` — the review itself (scope, detect, verify, severity, interactive output). **Required reading every run.**
-- `references/gitlab-delivery.md` — posting to GitLab (markers, dedup, inline + summary, pending replies, status line). **Required in delivery mode.**
+- `references/review-workflow.md` — the review itself (scope, detect, verify, severity, interactive output).
+- `references/gitlab-delivery.md` — posting to GitLab (markers, dedup, inline + summary, pending replies, status line).
 - `references/principles.md`, `references/few-shot-examples.md` — the *why* behind a finding and how short a useful comment can be; open a section when a finding's framing is unclear.
 - `references/marker-format.md`, `examples/example-review-output.md` — marker field semantics and a complete delivery example; open during delivery if a field's purpose is unclear or you need the output shape.

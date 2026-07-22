@@ -172,6 +172,7 @@ Do **not** return the review markdown when delivery succeeded — the comments a
 
 - If posting an inline finding fails (HTTP error, invalid position, etc.), demote it to discussion-only and continue. If the summary post fails too, return the full review as markdown and surface the error.
 - If the `gitlab` tool isn't loadable or returns 403s, demote to interactive mode and return markdown.
+- If the `bash` tool reports it's unavailable for the rest of the conversation (a sandbox transport outage tripped the circuit breaker), `scripts/marker.py` can no longer run — markers, anchors, and composed bodies cannot be computed. Demote to interactive mode, return the review as markdown, and surface the outage; never hand-compute a marker or anchor to route around it.
 - Never re-invoke the `skill` tool to restart the review.
 
 ## Reference material (optional)
