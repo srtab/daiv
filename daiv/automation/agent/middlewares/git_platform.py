@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -184,6 +185,12 @@ This tool is best for retrieving the current state of:
 - Prefer single-line suggestions by default. Use multi-line suggestions only when the replacement range is clear and tightly scoped.
 - Use suggestions only for concrete code replacements. If the feedback is ambiguous, high-level, or not safely expressible as code, use a normal comment instead.
 
+**Posting a body from a file (`--body-file`):**
+- Anywhere `--body "<text>"` is accepted for creating/updating a note, discussion, or reply, you may instead pass `--body-file <path>` to read the body from a file. `--body` and `--body-file` are mutually exclusive — passing both is an error.
+- The file is read from the sandbox filesystem (the same place your `bash`/`write_file` tools write), so a script can prepare the exact body and you post it without re-typing or re-escaping it.
+- Prefer `--body-file` for long or structured bodies (multi-line prose, `suggestion` blocks, or any body whose first line must be preserved byte-for-byte) — it avoids quoting mistakes and accidental re-serialization of the content.
+- Applies to `project-merge-request-discussion create`, `project-merge-request-discussion-note create`, and their `update` forms (and any other subcommand that takes `--body`).
+
 **Operational guidance:**
 - Do NOT try to fetch URLs returned by this tool; they require authentication
 - If a subcommand fails because you need flags, use targeted help: `<object> <action> --help`
@@ -290,6 +297,7 @@ Use this tool for GitLab issues, merge requests, pipelines, jobs, and traces.
 - First identify the exact target line in the current MR diff.
 - Then inspect the latest MR diff/version to obtain the SHA triplet needed for anchoring (`base_sha`, `start_sha`, `head_sha`).
 - Only then create the comment with `project-merge-request-discussion create --mr-iid <mr_iid> --body "<comment>" --position "<structured position payload>"`.
+- Instead of `--body "<comment>"` you may pass `--body-file <path>` to read the comment body from a sandbox file (mutually exclusive with `--body`). Prefer it when the body is long or contains a suggestion block, so you never hand-escape it.
 - If the user is replying to an existing inline thread, use `project-merge-request-discussion-note create --discussion-id <discussion_id>`.
 - If the exact inline anchor cannot be resolved safely, fall back to a regular MR note and say the inline position could not be determined reliably.
 - Prefer single-line inline comments. Multi-line diff comments are more brittle and should only be attempted when the required range metadata is clearly available.
@@ -531,7 +539,105 @@ def _parse_gitlab_flag(args: list[str], flag: str) -> str | None:
     return None
 
 
-async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime[RuntimeCtx]) -> str:
+def _escape_leading_at(value: str) -> str:
+    """Double a leading ``@`` so the python-gitlab CLI's ``_parse_value`` does not treat the value
+    as a *host* file path (it reads ``@path`` as a file and exits 1). Purely a string fix, applied
+    to any ``--body`` value entering the subprocess — content-agnostic."""
+    return f"@{value}" if value.startswith("@") else value
+
+
+def _strip_gitlab_flags(args: list[str], flags: set[str]) -> list[str]:
+    """Return ``args`` with every ``--flag value`` / ``--flag=value`` occurrence of ``flags`` removed."""
+    out: list[str] = []
+    drop_value = False
+    for arg in args:
+        if drop_value:
+            drop_value = False
+            continue
+        if arg in flags:
+            drop_value = True  # also drop the following value token
+            continue
+        if any(arg.startswith(f"{flag}=") for flag in flags):
+            continue
+        out.append(arg)
+    return out
+
+
+async def _read_backend_file(path: str, *, backend: BackendProtocol) -> tuple[str | None, str | None]:
+    """Read a file's text through the injected filesystem backend (the sandbox fs, never the host).
+
+    ``git_platform`` runs host-side, so a body file written by a sandbox script (e.g.
+    ``marker.py compose``) is only reachable through ``backend.aread`` — the same ``SandboxFileBackend``
+    route ``_write_output_to_file`` uses for writes. Returns ``(content, None)`` on success or
+    ``(None, "error: ...")`` on failure.
+    """
+    try:
+        result = await backend.aread(path)
+    except Exception as exc:
+        logger.exception("[%s] Failed to read file %s via backend.", GITLAB_TOOL_NAME, path)
+        return None, f"error: Failed to read file '{path}'. Details: {exc}"
+    if result.error:
+        return None, f"error: Failed to read file '{path}'. Details: {result.error}"
+    file_data = result.file_data
+    if not file_data:
+        return None, f"error: Failed to read file '{path}': the backend returned no content."
+    content = file_data["content"]
+    if file_data.get("encoding") == "base64":
+        content = base64.b64decode(content).decode("utf-8", errors="replace")
+    return content, None
+
+
+async def _resolve_gitlab_body(args: list[str], *, backend: BackendProtocol) -> tuple[str | None, str | None]:
+    """Resolve a note body from ``--body`` or ``--body-file`` (mutually exclusive).
+
+    ``--body-file`` is fully content-agnostic: it just reads the file through ``backend`` — no
+    ``daiv-cr`` or marker knowledge lives here. Returns ``(body, None)`` (``body`` is ``None`` when
+    neither flag is present) or ``(None, "error: ...")``. No CLI escaping is applied: the caller
+    decides (the subprocess path escapes a leading ``@``; the inline Python-API path uses the body
+    verbatim).
+    """
+    has_body = any(arg == "--body" or arg.startswith("--body=") for arg in args)
+    has_body_file = any(arg == "--body-file" or arg.startswith("--body-file=") for arg in args)
+    if has_body and has_body_file:
+        return None, "error: Pass either --body or --body-file, not both."
+    if has_body_file:
+        body_file = _parse_gitlab_flag(args, "--body-file")
+        if not body_file:
+            return None, "error: --body-file requires a file path."
+        return await _read_backend_file(body_file, backend=backend)
+    return _parse_gitlab_flag(args, "--body"), None
+
+
+async def _materialize_gitlab_body(
+    splitted_subcommand: list[str], *, backend: BackendProtocol
+) -> tuple[list[str] | None, str | None]:
+    """Rewrite ``--body-file`` into a subprocess-ready ``--body`` for the python-gitlab CLI.
+
+    Reads the body file through ``backend`` (the sandbox fs), then materializes it into ``--body``
+    with a leading ``@`` escaped to ``@@``. When only ``--body`` is present, the same escaping is
+    applied in place (fixing the latent bug where a body opening with a ``@mention`` made the CLI
+    read it as a host file path). Returns ``(rewritten_args, None)`` or ``(None, "error: ...")``;
+    args are returned unchanged when no body flag is present.
+    """
+    rest = splitted_subcommand[2:]
+    has_body = any(arg == "--body" or arg.startswith("--body=") for arg in rest)
+    has_body_file = any(arg == "--body-file" or arg.startswith("--body-file=") for arg in rest)
+    if not has_body and not has_body_file:
+        return splitted_subcommand, None
+    body, err = await _resolve_gitlab_body(rest, backend=backend)
+    if err:
+        return None, err
+    if body is None:
+        # A body flag was present but carried no value; leave it for the CLI to reject.
+        return splitted_subcommand, None
+    new_rest = _strip_gitlab_flags(rest, {"--body", "--body-file"})
+    new_rest += ["--body", _escape_leading_at(body)]
+    return splitted_subcommand[:2] + new_rest, None
+
+
+async def _create_gitlab_inline_discussion(
+    args: list[str], runtime: ToolRuntime[RuntimeCtx], *, backend: BackendProtocol
+) -> str:
     """
     Create an inline MR diff discussion via the python-gitlab Python API.
 
@@ -542,18 +648,23 @@ async def _create_gitlab_inline_discussion(args: list[str], runtime: ToolRuntime
     Args:
         args: Parsed subcommand arguments after `project-merge-request-discussion create`.
         runtime: The tool runtime carrying the repository context.
+        backend: The filesystem backend used to read a ``--body-file`` (sandbox fs, not the host).
 
     Returns:
         A string suitable for returning from the gitlab tool.
     """
     mr_iid_str = _parse_gitlab_flag(args, "--mr-iid")
-    body = _parse_gitlab_flag(args, "--body")
+    # Body comes from --body or --body-file (mutually exclusive). The Python API takes the body
+    # verbatim, so no ``@`` escaping here — that is a python-gitlab CLI quirk, irrelevant to this path.
+    body, body_err = await _resolve_gitlab_body(args, backend=backend)
+    if body_err:
+        return body_err
     position_str = _parse_gitlab_flag(args, "--position")
 
     if not mr_iid_str:
         return "error: --mr-iid is required for inline discussion creation"
     if not body:
-        return "error: --body is required for inline discussion creation"
+        return "error: --body or --body-file is required for inline discussion creation"
     if not position_str:
         return "error: --position is required for inline discussion creation"
 
@@ -630,7 +741,13 @@ async def _run_gitlab_subcommand(
     if resource == "project-merge-request-discussion" and action == "create":
         rest_args = splitted_subcommand[2:]
         if any(arg == "--position" or arg.startswith("--position=") for arg in rest_args):
-            return await _create_gitlab_inline_discussion(rest_args, runtime)
+            return await _create_gitlab_inline_discussion(rest_args, runtime, backend=backend)
+
+    # Resolve --body-file into a subprocess-ready --body (and escape a leading @) for the CLI path.
+    # The inline path above returns early and handles its own body, so this only runs for the CLI.
+    splitted_subcommand, body_err = await _materialize_gitlab_body(splitted_subcommand, backend=backend)
+    if body_err:
+        return body_err
 
     envs = {
         "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),

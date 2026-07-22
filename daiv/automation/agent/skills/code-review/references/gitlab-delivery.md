@@ -16,12 +16,14 @@ Carry these in from the verified-findings handoff:
 
 ## Marker format
 
-`scripts/marker.py` is the canonical implementation of the marker contract — **never compute anchors, positions, or markers by hand.** Its `resolve`, `anchor`, `build`, and `parse-notes` subcommands are deterministic and version-stable. Run `scripts/marker.py <cmd> --help` for arguments. Field meanings, daiv-authored detection, and resolution semantics live in `references/marker-format.md`.
+`scripts/marker.py` is the canonical implementation of the marker contract — **never compute anchors, positions, or markers by hand, and never hand-type a marker line into a `--body` argument.** Its `resolve`, `compose`, and `parse-notes` subcommands are deterministic and version-stable. Run `scripts/marker.py <cmd> --help` for arguments. Field meanings, daiv-authored detection, and resolution semantics live in `references/marker-format.md`.
+
+Every posting step (2, 5, 6) follows the same three beats: **write the prose to a sandbox file → `marker.py compose …` (it prepends the marker line and prints a body-file path) → `gitlab … --body-file <that path>`.** `compose` guarantees the marker's first line is byte-identical to the contract, so findings always dedup and replies are always recognized as daiv-authored on re-review; hand-transcribing the marker into `--body` re-serializes it (single quotes, key reordering) and breaks that.
 
 This procedure decides only two things; the script does the rest:
 
 - **Anchor target — which line.** Inline findings anchor on **added or context** lines on the new side of the diff. Pure-deletion findings (no new-side line) demote to the summary. For a multi-line finding (`suggestion:-N+M`, or a question over a contiguous block), the target is the **first** new-side line of the range. The model picks the line; the script computes everything else.
-- **Dedup fingerprint — what to compare.** Inline: `(kind, archetype, file, anchor)`; summary: `kind=summary` (exactly one summary daiv note per MR). Step 4 builds these.
+- **Dedup fingerprint — what to compare.** Inline: `(kind, archetype, file, anchor)`; summary: `kind=summary` (exactly one summary daiv note per MR). Step 4 forms these.
 
 ## Step 1 — Acquire context and dedup state
 
@@ -58,12 +60,14 @@ For each discussion in `pending_replies`, decide the outcome from its conversati
 
 Daiv resolves only when it withdraws; posting without resolving is the default. Resolving doesn't leak a repost — the marker stays on the resolved note, keeping its fingerprint in the dedup set.
 
-Build each reply's marker with `scripts/marker.py build --kind reply --sha <head_sha>` and place its output as the reply body's first physical line.
+Compose the reply body, then post it via `--body-file` — never hand-type the marker into `--body`:
 
-Post the reply:
+1. Write the reply prose (everything the reader should see) to a sandbox file, e.g. `/workspace/tmp/reply.md`.
+2. Compose the post-ready body: `python3 scripts/marker.py compose --kind reply --sha <head_sha> --prose-file /workspace/tmp/reply.md`. It prepends the marker line and prints the composed body path.
+3. Post it, passing that path to `--body-file`:
 
 ```
-gitlab project-merge-request-discussion-note create --mr-iid <iid> --discussion-id <discussion_id> --body "<reply body>"
+gitlab project-merge-request-discussion-note create --mr-iid <iid> --discussion-id <discussion_id> --body-file <composed body path>
 ```
 
 Resolve the thread (only in the *Daiv concedes* case):
@@ -117,47 +121,36 @@ Form the fingerprint `["inline", archetype, file, anchor]` and compare:
 
 ## Step 5 — Post inline findings
 
-For each surviving inline finding:
+For each surviving inline finding, write the prose, compose the body, then post it with `--position`:
 
-1. Build the marker line with `scripts/marker.py build --kind inline --sha <head_sha> --archetype <X> --file <new_path> --line <new_line> --anchor <anchor>` — `<new_line>` is the `new_line` from Step 4's resolve output. Capture verbatim as the note body's first line.
-2. Post via `gitlab project-merge-request-discussion create` with `--position`, using that same `new_line` (plus `old_line` when Step 4 returned `line_type: "context"`) — follow the `gitlab` tool's guidance; don't invent your own.
-
-Body shape depends on the archetype:
-
-- **Fix archetype** (the four archetypes from Step 3): marker line, a short comment (1-2 sentences), then a `suggestion` block replacing the target range — the suggestion IS the value.
-- **Question archetype** (`question`): marker line, then 1-2 sentences ending in `?`, no `suggestion` block — the question IS the value.
+1. **Write the prose** (everything after the marker line) to a sandbox file, e.g. `/workspace/tmp/finding.md`. Its shape depends on the archetype:
+   - **Fix archetype** (the four archetypes from Step 3): a short comment (1-2 sentences), then a `suggestion` block replacing the target range — the suggestion IS the value.
+   - **Question archetype** (`question`): 1-2 sentences ending in `?`, no `suggestion` block — the question IS the value.
+2. **Compose the body** — `compose` prepends the marker line (never hand-type it): `python3 scripts/marker.py compose --kind inline --sha <head_sha> --archetype <X> --file <new_path> --line <new_line> --anchor <anchor> --prose-file /workspace/tmp/finding.md`. `<new_line>` and `<anchor>` are Step 4's resolve output. It prints the composed body path.
+3. **Post** via `gitlab project-merge-request-discussion create` with `--body-file <composed body path>` and `--position`, using that same `new_line` (plus `old_line` when Step 4 returned `line_type: "context"`) — follow the `gitlab` tool's guidance; don't invent your own.
 
 **Suggestion range header — must match the replaced span exactly.** The block header `suggestion:-A+B` replaces `A` lines above and `B` lines below the anchored line. Findings anchor on the **first** new-side line of the range (Step 3), so **`A` is always `0`**; set **`B` = `(last new-side line of the range) − (anchor `new_line` from Step 4)`** — `0` for a single line, `1` for the anchor plus one line below, and so on. The block body must contain **exactly** the lines that replace that span (every line in the range, unchanged ones restated verbatim) — a body whose line count contradicts `B`, or a `B` that reaches past the hunk's last new-side line, makes GitLab reject the create with HTTP 500. This is not transient: recompute the range against Step 4's resolve output and repost once corrected — never retry the same malformed block. When unsure of the span, prefer a single-line `suggestion:-0+0`; if the change genuinely needs a wider range you cannot pin to the diff, demote to discussion-only.
 
-Keep bodies tight — prose is justification, not filler. Example marker lines:
-
-```
-<!-- daiv-cr {"v":1,"kind":"inline","archetype":"remove_dead_lines","file":"services/api.py","line":42,"anchor":"a1b2c3d4","sha":"abc1234"} -->
-<!-- daiv-cr {"v":1,"kind":"inline","archetype":"question","file":"env_files/all/grafana.env","line":9,"anchor":"b2c3d4e5","sha":"abc1234"} -->
-```
+Keep bodies tight — prose is justification, not filler.
 
 ## Step 6 — Post or update the summary discussion
 
-Compose **one** top-level summary containing:
+The summary is **one** top-level note containing:
 
-- A visible status line right under the marker: `**Code review** — as of <short head_sha> · N new · M carried forward` (fresh summary: omit the counts).
+- A visible status line as the prose's first line (it lands right under the marker `compose` prepends): `**Code review** — as of <short head_sha> · N new · M carried forward` (fresh summary: omit the counts).
 - All discussion-only findings, grouped by severity (High/Medium/Low) — same shape as the interactive Findings list: one-line summary + `<details>` block.
 - A short **Questions** section for discussion-only questions (cross-file or un-anchored) — targeted questions go inline (Step 3), not here.
 - An index of the inline findings (file + line + archetype), **cumulative across reviews** — the prior summary's entries plus this run's — so reviewers see the full picture without expanding diffs.
 
 **Delta-only re-reviews must not shrink the summary.** A discussion-only finding has no inline fingerprint — the prior summary's `body` (Step 1) is its only record. Re-read it and **carry forward every prior discussion-only finding; drop one only when this run actively disproves it or reposts it inline** (the inline copy supersedes the prose) — outside the delta or merely not re-reported, it stays. The body you post is the **union** of carried-forward prior findings and this run's — never this run's alone. Mark what this update added with a leading **🆕** (severity groups and inline index alike); strip the prior run's 🆕 marks. (On a **full** re-review everything was re-adjudicated, so the union reduces to this run's findings; the inline index stays cumulative regardless.)
 
-Build the marker with `scripts/marker.py build --kind summary --sha <head_sha>` and place its output as the body's first physical line. Example:
+Write the summary prose (status line, findings, questions, inline index — the content above) to a sandbox file, e.g. `/workspace/tmp/summary.md`, then compose the body: `python3 scripts/marker.py compose --kind summary --sha <head_sha> --prose-file /workspace/tmp/summary.md`. It prepends the summary marker and prints the composed body path — post or update with that path:
 
-```
-<!-- daiv-cr {"v":1,"kind":"summary","sha":"abc1234"} -->
-```
+If `summary` from Step 1 was non-null, **update the existing note in place** (`gitlab project-merge-request-discussion-note update --mr-iid <iid> --discussion-id <discussion_id> --id <note_id> --body-file <composed body path>`) — here `--id` is the **note** id (`summary.note_id`), not the discussion id (Step 2). The summary always reflects current state (this run's plus carried-forward) — one discussion per MR, never a second, and never license to drop still-valid findings. Inline discussions are never updated or deleted — the dedup set prevents reposts.
 
-If `summary` from Step 1 was non-null, **update the existing note in place** (`gitlab project-merge-request-discussion-note update --mr-iid <iid> --discussion-id <discussion_id> --id <note_id> --body "..."`) — here `--id` is the **note** id (`summary.note_id`), not the discussion id (Step 2). The summary always reflects current state (this run's plus carried-forward) — one discussion per MR, never a second, and never license to drop still-valid findings. Inline discussions are never updated or deleted — the dedup set prevents reposts.
+An in-place edit is **silent** — GitLab notifies no one. If the update changed anything, also post a one-line reply in the summary discussion (compose a `--kind reply` body and post via `--body-file`, as in Step 2), e.g. `Updated for <short sha>: 2 new (1 inline), 1 resolved.`; nothing changed → no reply.
 
-An in-place edit is **silent** — GitLab notifies no one. If the update changed anything, also post a one-line reply in the summary discussion (command + `--kind reply` marker as in Step 2), e.g. `Updated for <short sha>: 2 new (1 inline), 1 resolved.`; nothing changed → no reply.
-
-If `summary` was null, create a fresh discussion (`project-merge-request-discussion create --mr-iid <iid> --body "..."` with no `--position`).
+If `summary` was null, create a fresh discussion (`project-merge-request-discussion create --mr-iid <iid> --body-file <composed body path>` with no `--position`).
 
 If there are zero discussion-only findings AND zero inline findings AND no prior summary, write **nothing** — don't post an empty summary.
 

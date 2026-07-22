@@ -4,9 +4,11 @@
 # normal package path. Load the module by file path and exercise the functions
 # directly — the contract that matters is byte-stable output across reruns
 # (anchors, JSON payloads, parse paths), which is exactly what these tests pin.
+import hashlib
 import importlib.util
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -92,6 +94,140 @@ class TestBuildMarker:
     def test_unknown_kind_raises(self):
         with pytest.raises(SystemExit, match="unknown kind"):
             marker.build_marker("nonsense", sha="abc")
+
+
+class TestCompose:
+    """The ``compose`` subcommand writes a post-ready body (marker line + verbatim prose) to a
+    file so the delivery step never hand-transcribes (and re-serializes) the marker into a shell
+    arg. The first line must be byte-identical to ``build`` for the same fields."""
+
+    def _run(self, argv, capsys):
+        old = sys.argv
+        sys.argv = ["marker.py", *argv]
+        try:
+            code = marker.main()
+        finally:
+            sys.argv = old
+        out, err = capsys.readouterr()
+        return code, out, err
+
+    def test_compose_inline_writes_marker_line_plus_verbatim_prose(self, tmp_path, capsys):
+        # The whole point: first line is exactly build's double-quoted marker; the rest is the
+        # prose bytes untouched (no JSON re-encoding of caller text). The printed path is the out.
+        prose = "Dead code — drop it.\n\n```suggestion:-0+0\n    return None\n```\n"
+        prose_file = tmp_path / "prose.md"
+        prose_file.write_text(prose, encoding="utf-8")
+        out_file = tmp_path / "body.md"
+        code, stdout, _ = self._run(
+            [
+                "compose",
+                "--kind",
+                "inline",
+                "--sha",
+                "abc1234",
+                "--archetype",
+                "remove_dead_lines",
+                "--file",
+                "services/api.py",
+                "--line",
+                "42",
+                "--anchor",
+                "a1b2c3d4",
+                "--prose-file",
+                str(prose_file),
+                "--out",
+                str(out_file),
+            ],
+            capsys,
+        )
+        assert code == 0
+        assert stdout.strip() == str(out_file)
+        body = out_file.read_text(encoding="utf-8")
+        expected_marker = marker.build_marker(
+            "inline", sha="abc1234", archetype="remove_dead_lines", file="services/api.py", line=42, anchor="a1b2c3d4"
+        )
+        first_line, remainder = body.split("\n", 1)
+        assert first_line == expected_marker
+        assert remainder == prose
+
+    def test_compose_first_line_roundtrips_through_parse_marker(self, tmp_path, capsys):
+        # Load-bearing regression guard: the marker composed by ``compose`` must always be
+        # ``json.loads``-parseable by ``parse_marker`` — that is what keeps findings deduping and
+        # replies recognized on re-review, and is exactly what the old hand-transcription broke.
+        prose_file = tmp_path / "prose.md"
+        prose_file.write_text("Is this branch reachable?\n", encoding="utf-8")
+        out_file = tmp_path / "body.md"
+        code, _, _ = self._run(
+            [
+                "compose",
+                "--kind",
+                "inline",
+                "--sha",
+                "abc1234",
+                "--archetype",
+                "question",
+                "--file",
+                "env_files/all/grafana.env",
+                "--line",
+                "9",
+                "--anchor",
+                "b2c3d4e5",
+                "--prose-file",
+                str(prose_file),
+                "--out",
+                str(out_file),
+            ],
+            capsys,
+        )
+        assert code == 0
+        # Feed the whole composed body (parse_marker reads only its first line) — proves the
+        # posted note is dedup-parseable.
+        parsed = marker.parse_marker(out_file.read_text(encoding="utf-8"))
+        assert parsed == {
+            "v": 1,
+            "kind": "inline",
+            "archetype": "question",
+            "file": "env_files/all/grafana.env",
+            "line": 9,
+            "anchor": "b2c3d4e5",
+            "sha": "abc1234",
+        }
+
+    def test_compose_reply_roundtrips_through_parse_marker(self, tmp_path, capsys):
+        # Replies matter as much as findings: a corrupt reply marker leaves the thread perpetually
+        # "pending" and daiv re-replies every run. The composed reply marker must parse.
+        prose_file = tmp_path / "prose.md"
+        prose_file.write_text("Still applies — see the call site.\n", encoding="utf-8")
+        out_file = tmp_path / "reply.md"
+        code, _, _ = self._run(
+            ["compose", "--kind", "reply", "--sha", "abc1234", "--prose-file", str(prose_file), "--out", str(out_file)],
+            capsys,
+        )
+        assert code == 0
+        assert marker.parse_marker(out_file.read_text(encoding="utf-8")) == {"v": 1, "kind": "reply", "sha": "abc1234"}
+
+    def test_compose_default_out_is_content_derived_hash(self, tmp_path, capsys, monkeypatch):
+        # No --out → the path is DEFAULT_BODY_DIR/cr-body-<hash8>.md where hash8 is the first 8 hex
+        # of the composed body's SHA-256, so a stateless rerun can neither collide nor reuse a
+        # stale file. Redirect the dir into tmp_path so the test never touches /workspace.
+        monkeypatch.setattr(marker, "DEFAULT_BODY_DIR", str(tmp_path))
+        prose_file = tmp_path / "prose.md"
+        prose_file.write_text("## Findings\n\nnone.\n", encoding="utf-8")
+        code, stdout, _ = self._run(
+            ["compose", "--kind", "summary", "--sha", "abc1234", "--prose-file", str(prose_file)], capsys
+        )
+        assert code == 0
+        out_path = stdout.strip()
+        body_bytes = Path(out_path).read_bytes()
+        expected_hash = hashlib.sha256(body_bytes).hexdigest()[:8]
+        assert out_path == str(tmp_path / f"cr-body-{expected_hash}.md")
+
+    def test_compose_missing_prose_file_exits_1(self, tmp_path, capsys):
+        code, _, err = self._run(
+            ["compose", "--kind", "summary", "--sha", "abc", "--prose-file", str(tmp_path / "nope.md")], capsys
+        )
+        assert code == 1
+        assert "prose file not found" in err
 
 
 class TestParseMarker:

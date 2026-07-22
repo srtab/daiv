@@ -23,10 +23,16 @@ from codebase.base import GitPlatform
 LARGE_TOOL_RESULTS_PREFIX = "/workspace/large_tool_results"
 
 
-def _mock_backend(*, error: str | None = None):
-    """Filesystem backend stub whose ``awrite`` records calls and returns a WriteResult-like obj."""
+def _mock_backend(
+    *, error: str | None = None, read_content: str | None = None, read_error: str | None = None, read_encoding="utf-8"
+):
+    """Filesystem backend stub. ``awrite`` records calls and returns a WriteResult-like obj;
+    ``aread`` returns a ReadResult-like obj (``error`` + ``file_data`` dict) so ``--body-file`` is
+    served from the (mocked) sandbox fs — the local filesystem is never touched."""
     backend = Mock()
     backend.awrite = AsyncMock(return_value=Mock(error=error))
+    file_data = None if read_error is not None else {"content": read_content or "", "encoding": read_encoding}
+    backend.aread = AsyncMock(return_value=Mock(error=read_error, file_data=file_data))
     return backend
 
 
@@ -350,6 +356,158 @@ class TestGitLabToolInlineDiscussionFallback:
 
         assert result.startswith("error:")
         assert "--mr-iid" in result
+
+
+def _gitlab_settings_mock():
+    mock_settings = Mock()
+    mock_settings.GITLAB_AUTH_TOKEN.get_secret_value.return_value = "test-token"  # noqa: S106
+    mock_settings.GITLAB_URL.encoded_string.return_value = "https://gitlab.com"
+    return mock_settings
+
+
+class TestGitLabBodyFile:
+    """``--body-file <path>`` is a content-agnostic flag: it reads the note body through the
+    injected sandbox filesystem backend (never the host) and materializes it into ``--body`` for
+    the python-gitlab CLI. No ``daiv-cr`` / marker awareness lives in the generic tool."""
+
+    async def test_body_file_read_via_backend_and_materialized_into_body(self):
+        # The body posted to the CLI equals the content the (mocked) backend.aread returns, and the
+        # host filesystem is never consulted — the read goes through backend.aread(path).
+        runtime = _make_gitlab_runtime()
+        backend = _mock_backend(read_content="Summary body from a sandbox file.")
+
+        with (
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            patch("automation.agent.middlewares.git_platform.settings", _gitlab_settings_mock()),
+        ):
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(b'{"id": "d1"}\n', b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            result = await _run_gl(
+                "project-merge-request-discussion create --mr-iid 5 --body-file /workspace/tmp/cr-body-abc.md",
+                runtime,
+                backend=backend,
+            )
+
+        assert result == '{"id": "d1"}'
+        backend.aread.assert_awaited_once_with("/workspace/tmp/cr-body-abc.md")
+        argv = list(create_proc.call_args.args)
+        assert "--body-file" not in argv  # rewritten away
+        assert argv[argv.index("--body") + 1] == "Summary body from a sandbox file."
+
+    async def test_body_file_leading_at_escaped_to_double_at(self):
+        # python-gitlab's CLI reads a value opening with '@' as a host file path; escape to '@@'.
+        runtime = _make_gitlab_runtime()
+        backend = _mock_backend(read_content="@channel please review this")
+
+        with (
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            patch("automation.agent.middlewares.git_platform.settings", _gitlab_settings_mock()),
+        ):
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(b'{"id": "d1"}\n', b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            await _run_gl(
+                "project-merge-request-discussion create --mr-iid 5 --body-file /workspace/tmp/b.md",
+                runtime,
+                backend=backend,
+            )
+
+        argv = list(create_proc.call_args.args)
+        assert argv[argv.index("--body") + 1] == "@@channel please review this"
+
+    async def test_plain_body_leading_at_escaped_in_cli_path(self):
+        # The @@ escaping is generic — it also fixes a hand-typed --body opening with a @mention.
+        runtime = _make_gitlab_runtime()
+
+        with (
+            patch("automation.agent.middlewares.git_platform.asyncio.create_subprocess_exec") as create_proc,
+            patch("automation.agent.middlewares.git_platform.settings", _gitlab_settings_mock()),
+        ):
+            proc = Mock()
+            proc.communicate = AsyncMock(return_value=(b"ok\n", b""))
+            proc.returncode = 0
+            create_proc.return_value = proc
+
+            await _run_gl('project-merge-request-note create --mr-iid 5 --body "@reviewer take a look"', runtime)
+
+        argv = list(create_proc.call_args.args)
+        assert argv[argv.index("--body") + 1] == "@@reviewer take a look"
+
+    async def test_body_and_body_file_together_is_error(self):
+        runtime = _make_gitlab_runtime()
+        backend = _mock_backend(read_content="x")
+
+        result = await _run_gl(
+            'project-merge-request-discussion create --mr-iid 5 --body "inline" --body-file /workspace/tmp/b.md',
+            runtime,
+            backend=backend,
+        )
+
+        assert result.startswith("error:")
+        assert "both" in result.lower() or "either" in result.lower()
+
+    async def test_body_file_backend_read_failure_is_error(self):
+        runtime = _make_gitlab_runtime()
+        backend = _mock_backend(read_error="File '/workspace/tmp/b.md': not found")
+
+        result = await _run_gl(
+            "project-merge-request-discussion create --mr-iid 5 --body-file /workspace/tmp/b.md",
+            runtime,
+            backend=backend,
+        )
+
+        assert result.startswith("error:")
+        assert "not found" in result
+
+    async def test_inline_discussion_reads_body_from_body_file(self):
+        # The inline (Python-API) path also honours --body-file, reading through the backend.
+        runtime = _make_gitlab_runtime()
+        backend = _mock_backend(read_content="Inline finding body.")
+        position_json = json.dumps(VALID_POSITION)
+
+        with patch("automation.agent.middlewares.git_platform.RepoClient") as mock_rc:
+            mock_rc.create_instance.return_value.create_merge_request_inline_discussion.return_value = "disc-1"
+
+            result = await _run_gl(
+                f"project-merge-request-discussion create --mr-iid 10 --body-file /workspace/tmp/b.md "
+                f"--position {json.dumps(position_json)}",
+                runtime,
+                backend=backend,
+            )
+
+        assert json.loads(result)["id"] == "disc-1"
+        backend.aread.assert_awaited_once_with("/workspace/tmp/b.md")
+        mock_rc.create_instance.return_value.create_merge_request_inline_discussion.assert_called_once_with(
+            "group/repo", 10, "Inline finding body.", VALID_POSITION
+        )
+
+    async def test_inline_discussion_body_file_not_at_escaped(self):
+        # The @@ escaping is a CLI quirk only; the inline path passes the body to the Python API
+        # verbatim, so a leading '@' must NOT be doubled.
+        runtime = _make_gitlab_runtime()
+        backend = _mock_backend(read_content="@mention in an inline body")
+        position_json = json.dumps(VALID_POSITION)
+
+        with patch("automation.agent.middlewares.git_platform.RepoClient") as mock_rc:
+            mock_rc.create_instance.return_value.create_merge_request_inline_discussion.return_value = "disc-1"
+
+            await _run_gl(
+                f"project-merge-request-discussion create --mr-iid 10 --body-file /workspace/tmp/b.md "
+                f"--position {json.dumps(position_json)}",
+                runtime,
+                backend=backend,
+            )
+
+        call = mock_rc.create_instance.return_value.create_merge_request_inline_discussion.call_args
+        assert call.args[2] == "@mention in an inline body"
+
+    async def test_tool_description_documents_body_file(self):
+        assert "--body-file" in GITLAB_TOOL_DESCRIPTION
 
 
 def test_large_tool_results_prefix_uses_artifacts_root_for_composite():

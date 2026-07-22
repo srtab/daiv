@@ -5,6 +5,7 @@ Subcommands:
   anchor       compute the 8-hex anchor for an inline finding
   resolve      resolve a target line to new_line/old_line/line_type/in_diff/anchor via the shared diff file
   build        build a <!-- daiv-cr ... --> marker line (inline | summary | reply)
+  compose      write a post-ready note body (marker line + verbatim prose) to a file
   parse-notes  parse MR discussions (from a file path, or stdin); emit dedup state + pending replies
 
 The skill owns prose, severity, and posting via the gitlab tool. This script
@@ -36,6 +37,7 @@ def compute_anchor(target: str, next_line: str | None) -> str:
 
 
 DEFAULT_DIFF_PATH = "/workspace/tmp/review-change.diff"
+DEFAULT_BODY_DIR = "/workspace/tmp"
 MAX_RESOLVE_MATCHES = 20
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
@@ -305,6 +307,29 @@ def main() -> int:
     p_build.add_argument("--line", type=int, help="Inline only: new_line from the diff.")
     p_build.add_argument("--anchor", help="Inline only: 8-hex anchor from `marker.py anchor`.")
 
+    p_compose = sub.add_parser(
+        "compose", help="Write a post-ready note body (marker line + verbatim prose from --prose-file) to a file."
+    )
+    p_compose.add_argument("--kind", choices=["inline", "summary", "reply"], required=True)
+    p_compose.add_argument("--sha", required=True, help="head_sha at posting time.")
+    p_compose.add_argument("--archetype", help="Inline only: archetype name.")
+    p_compose.add_argument("--file", help="Inline only: new_path from the diff.")
+    p_compose.add_argument("--line", type=int, help="Inline only: new_line from the diff.")
+    p_compose.add_argument("--anchor", help="Inline only: 8-hex anchor from `marker.py anchor`.")
+    p_compose.add_argument(
+        "--prose-file",
+        dest="prose_file",
+        required=True,
+        help="Path to the note prose (everything after the marker line). Read verbatim, byte-for-byte.",
+    )
+    p_compose.add_argument(
+        "--out",
+        default=None,
+        help=f"Where to write the composed body. Default: {DEFAULT_BODY_DIR}/cr-body-<hash8>.md, where "
+        "hash8 is the first 8 hex of the composed body's SHA-256 (content-derived so a stateless rerun "
+        "cannot collide with or silently reuse a stale body file).",
+    )
+
     p_parse = sub.add_parser(
         "parse-notes",
         help="Parse existing MR discussions (JSON array) from a file path, or stdin. Emit dedup state on stdout.",
@@ -371,6 +396,32 @@ def main() -> int:
                 args.kind, args.sha, archetype=args.archetype, file=args.file, line=args.line, anchor=args.anchor
             )
         )
+        return 0
+
+    if args.cmd == "compose":
+        prose_path = Path(args.prose_file)
+        if not prose_path.is_file():
+            sys.stderr.write(f"prose file not found: {args.prose_file}\n")
+            return 1
+        # `build_marker` owns the (double-quoted, byte-stable) first line; SystemExit on a
+        # missing inline field propagates exactly as `build` does.
+        marker_line = build_marker(
+            args.kind, args.sha, archetype=args.archetype, file=args.file, line=args.line, anchor=args.anchor
+        )
+        # Prose is read as raw bytes and appended verbatim — the caller's text is never JSON
+        # re-encoded, so a `suggestion` block (backticks, quotes, newlines) survives intact.
+        prose_bytes = prose_path.read_bytes()
+        body_bytes = marker_line.encode("utf-8") + b"\n" + prose_bytes
+        if args.out:
+            out_path = Path(args.out)
+        else:
+            # Content-derived name: a stateless rerun with the same body reuses the same file, and
+            # a different body can never clobber it (no counter state to track `<n>`).
+            hash8 = hashlib.sha256(body_bytes).hexdigest()[:8]
+            out_path = Path(DEFAULT_BODY_DIR) / f"cr-body-{hash8}.md"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(body_bytes)
+        print(str(out_path))
         return 0
 
     if args.cmd == "parse-notes":
