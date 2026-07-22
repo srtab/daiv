@@ -76,38 +76,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed chat runs failing immediately with `TypeError: RuntimeCtx.__init__() got an unexpected keyword argument 'thread_id'`; the chat agent now always forces its typed `RuntimeCtx` as the run context.
-- Fixed the Redis checkpoint serializer to round-trip `_DeltaSnapshot` values, and to tolerate lossy legacy snapshots on read (resumed sessions no longer crash on old checkpoints).
-- Fixed chat transcript rendering: OpenAI Responses API tool calls now render in session transcripts, parallel `tool_call` siblings render reliably with repaired streaming args, tall user messages collapse, redundant repaints are skipped, and follow-up turns no longer echo the assistant's previous turn.
-- Hardened the agent's workspace file tools against sandbox transport faults: a transient failure — most notably the `409 "Session is busy"` returned when batched tool calls contend on the one-at-a-time session — now degrades to a retryable tool-result error instead of aborting the run. The `bash` tool's classifier also treats `409` as transient.
-- Hardened MCP tool loading so a single broken or slow server can no longer freeze chats and runs: tools load per server with a timeout (`MCP_TOOL_LOAD_TIMEOUT`, default 30s), and a failing server is skipped.
-- Fixed GitLab clones failing during the brief window in which a freshly minted project-scoped clone token is not yet accepted for git-over-HTTPS: an auth-rejected clone is retried on a short backoff, and a genuinely dead cached token is dropped and re-minted instead of wedging every clone of that project.
-- Fixed the agent's git credential leaking into the sandbox, and the git clone credential is refreshed on warm sandbox reuse so resumed sessions no longer fail to publish with an expired token.
-- Fixed the agent to recover from non-fast-forward push rejections and to open a new MR when the source branch is protected.
-- Made thread continuation race-safe: at most one active run per `thread_id` (DB partial unique constraint), an atomic compare-and-swap FIFO dispatcher, and a bail-out after 3 consecutive dispatch failures so a broker outage does not mass-fail the queue.
-- Fixed MCP batch-poll timeout responses reporting placeholder statuses instead of each job's real status, unauthenticated `submit_job` calls creating orphan runs, and malformed `thread_id` values (now a proper 422).
-- Fixed MCP server URL validation to accept internal hostnames.
-- Fixed the step budget being measured by absolute `langgraph_step` instead of per run.
-- Fixed Anthropic 1-hour ephemeral cache writes being billed incorrectly in usage tracking.
-- Fixed `httpx` connection-pool leaks in the sandbox client and model catalog adapters.
-- Fixed database reconnects under IPVS by adding libpq TCP keepalives.
-- Fixed cron dispatch running schedules owned by inactive users.
-- Fixed dashboard activity breakdown misclassifying jobs, velocity attribution, long values overflowing the run rail, and unlocalized issue/MR iids in templates.
-- Fixed skill middleware leaking host paths in load errors, dropping in-memory history on `/clear`, and stale global skills not being rematerialized.
+- Fixed the configured GitLab PAT being embedded in clone URLs, leaking the full-access credential into the workspace's `.git/config` and the sandbox: git clone/push now uses a short-lived, project-scoped token (see the GitLab token entry under Changed).
+- Fixed the agent failing to publish after a non-fast-forward push rejection, and failing when the source branch is protected (it now opens a new MR).
 - Fixed `web_fetch` to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing redirect loops and DNS rebinding.
-- Fixed `PullRequestMetadata.branch` validation rejecting invalid branch names that previously passed an incomplete regex.
-- Standardized LangSmith metadata and tags across all agent invocation paths (Jobs API and Chat API traces were missing `scope`, `repository`, and `git_platform`).
-- Fixed `__version__` in `daiv/daiv/__init__.py` to match `pyproject.toml`.
+- Fixed `PullRequestMetadata.branch` validation accepting invalid branch names (e.g. with spaces or uppercase) through an incomplete regex.
+- Fixed `/clear` not dropping the agent's in-memory conversation history.
+- Fixed intermittent database reconnects on some deployments by adding libpq TCP keepalives.
+- Fixed `__version__` in `daiv/daiv/__init__.py` reporting `1.1.0` instead of the released version.
 - Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
 
 ### Removed
 
 - **Breaking:** Removed the `mcp-proxy` container, its API configuration endpoint, and the `MCP_PROXY_HOST`/`MCP_PROXY_ADDR`/`MCP_PROXY_AUTH_TOKEN`/`MCP_CONFIG_API_KEY` settings. MCP servers are managed as database rows from the dashboard; existing `docker-compose.yml` and stack files must be updated.
-- **Breaking:** Removed the deprecated `MCP_SERVERS_CONFIG_FILE`, `MCP_SENTRY_URL`, and `MCP_CONTEXT7_URL` settings (read once by data migrations at upgrade time, then ignored).
-- **Breaking:** Removed `sandbox.ephemeral` from `.daiv.yml`; sandbox sessions are persistent between bash calls.
-- Removed the deployment-level `DAIV_SANDBOX_BASE_IMAGE`, `DAIV_SANDBOX_NETWORK_ENABLED`, `DAIV_SANDBOX_CPU`, `DAIV_SANDBOX_MEMORY`, and `DAIV_SANDBOX_EPHEMERAL` settings — manage runtime values through the Sandbox Environments UI (`DAIV_SANDBOX_TIMEOUT` and `DAIV_SANDBOX_API_KEY` remain).
+- Removed the `sandbox:` block from `.daiv.yml` — sandbox runtime is configured exclusively through Sandbox Environments in the dashboard.
+- Removed the deployment-level `DAIV_SANDBOX_BASE_IMAGE`, `DAIV_SANDBOX_CPU`, and `DAIV_SANDBOX_MEMORY` settings — manage runtime values through the Sandbox Environments UI (`DAIV_SANDBOX_TIMEOUT` and `DAIV_SANDBOX_API_KEY` remain).
 - Removed GPT-4.1-mini, GPT-4.1, and GPT-5.2 from the model catalog; added GPT-5.4, GPT-5.4-mini, Z-AI GLM-5-turbo, and MiniMax M2-7.
-- Removed `command_policy` support; only built-in safety rules apply. Per-environment policies will return in a future iteration.
 
 ## [2.0.0] - 2026-03-14
 
