@@ -40,7 +40,7 @@ from core.utils import async_download_url, build_uri, is_git_auth_error_text
 from daiv import USER_AGENT
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from gitlab.v4.objects import ProjectHook, ProjectMergeRequest
 
@@ -68,16 +68,28 @@ MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
 # (GitLab's unique-reaction constraint 409s the retry, so it cannot duplicate).
 _NO_TRANSIENT_RETRY_ON_WRITE = {"retry_transient_errors": False}
 
+# A freshly minted project access token (see :func:`get_ephemeral_clone_token`) is not always
+# immediately accepted for git-over-HTTPS: GitLab appears to propagate the token's project
+# authorization asynchronously after the create call returns (observed on git.eurotux.com /
+# GitLab 19.x), so a clone issued microseconds later can be rejected with `could not read Username`
+# (prompts are disabled). This is the same class of async-propagation race the MR-create retry above
+# handles. Retry the *same* token on this backoff schedule (~15s over four retries, before one final
+# attempt) until the authorization lands — re-minting instead would just produce another brand-new
+# token that hits the same window.
+CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+
 
 def _is_clone_auth_error(error: GitCommandError) -> bool:
     """True when a clone failed because the remote rejected the credential (HTTP auth), as opposed
     to a missing branch, a bad URL, or a network error.
 
-    Only auth rejections are worth retrying with a freshly minted token; everything else would fail
-    identically the second time. A clone that under-matches would silently keep serving the dead
-    cached token — the exact wedge this self-heal exists to break — so it reuses the shared marker set
-    (:func:`core.utils.is_git_auth_error_text`) the push side uses; over-matching costs at most one
-    extra (still-failing) clone attempt.
+    Only auth rejections are worth retrying (with propagation backoff, then one re-mint); everything
+    else would fail identically on a retry and so propagates immediately. A clone that under-matches
+    would silently keep serving the dead cached token — the exact wedge this self-heal exists to
+    break — so it reuses the shared marker set (:func:`core.utils.is_git_auth_error_text`) the push
+    side uses. Keep the markers tight, though: with the retry loop, over-matching a non-credential
+    failure (e.g. a proxy or WAF 403) now costs the full propagation-and-re-mint budget (~30s / up to
+    ten attempts) before the real error surfaces.
     """
     return is_git_auth_error_text(f"{error.stderr or ''} {error}")
 
@@ -404,20 +416,30 @@ class GitLabClient(RepoClient):
 
     def _clone(self, repository: Repository, sha: str, clone_dir: Path) -> Repo:
         """
-        Clone ``repository`` at ``sha`` into ``clone_dir``, healing a stale cached clone token.
+        Clone ``repository`` at ``sha`` into ``clone_dir``, tolerating clone-token propagation lag
+        and healing a genuinely stale cached token.
 
-        The credential rides a command-scoped env header (:func:`git_auth_env`) instead of the
+        The credential rides a command-scoped env header (:class:`GitAuthEnv`) instead of the
         clone URL, so it never persists in ``.git/config`` — which is seeded into the sandbox —
         or appears on argv. In-sandbox git authenticates via the egress proxy's injected header;
         local-mode (sandbox-disabled) git gets the same env per invocation via
         :meth:`RepoClient.get_git_auth_env`.
 
-        A clone token is cached for a day but the project access token behind it can die sooner
-        (revoked, project/instance reset). Because the cache is consulted before any API call, a
-        dead token would otherwise be served to — and fail — every clone of the project until the
-        cache window closes. So when a clone is rejected for auth *and* it used the ephemeral token,
-        drop that token and retry once with a freshly minted one. The PAT fallback is not retried:
-        re-minting can't produce a different credential when the ephemeral token was unavailable.
+        Two distinct auth-failure modes are handled, in order:
+
+        1. **Propagation lag.** A just-minted project access token can be briefly rejected while
+           GitLab propagates its authorization (see
+           :const:`CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS`). Retry the *same* token on the
+           backoff schedule — re-minting here would only produce another token in the same window.
+        2. **Genuinely dead cached token.** A clone token is cached for a day but the token behind
+           it can die sooner (revoked, project/instance reset). Because the cache is consulted
+           before any API call, a dead token would otherwise be served to — and fail — every clone
+           of the project until the cache window closes. So once the propagation retries are
+           exhausted and the token still fails auth, drop it and re-mint once (the fresh token then
+           gets the same propagation tolerance).
+
+        The PAT fallback gets neither: it is long-lived, so an auth rejection is a real
+        misconfiguration rather than a propagation blip, and there is no ephemeral token to evict.
         """
         from codebase.clients.base import GitAuthEnv
 
@@ -430,20 +452,62 @@ class GitLabClient(RepoClient):
                 env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
             )
 
+        def attempt(clone_token: str) -> Repo:
+            # The PAT is long-lived, so a rejection is a real misconfiguration, not a mint-propagation
+            # blip: give it a single fail-fast attempt. A freshly minted ephemeral token may just be
+            # lagging propagation, so it gets the backoff window instead. Applied to both the initial
+            # token and the re-minted one (which resolves to the PAT if provisioning has since broken).
+            if clone_token == self.client.private_token:
+                return clone_with(clone_token)
+            return self._clone_awaiting_token_propagation(clone_with, clone_token, repository, clone_dir)
+
         token = self._get_clone_token(repository)
         try:
-            return clone_with(token)
+            return attempt(token)
         except GitCommandError as e:
             if token == self.client.private_token or not _is_clone_auth_error(e):
                 raise
             logger.warning(
-                "Clone of %s was rejected for authentication; dropping the cached ephemeral token "
-                "and retrying once with a freshly minted one.",
+                "Clone of %s kept being rejected for authentication after the propagation window; "
+                "dropping the cached ephemeral token and retrying with a freshly minted one.",
                 repository.slug,
             )
             invalidate_clone_token(repository.pk)
             shutil.rmtree(clone_dir, ignore_errors=True)
-            return clone_with(self._get_clone_token(repository))
+            return attempt(self._get_clone_token(repository))
+
+    def _clone_awaiting_token_propagation(
+        self, clone_with: Callable[[str], Repo], token: str, repository: Repository, clone_dir: Path
+    ) -> Repo:
+        """Clone with ``token``, retrying past GitLab's clone-credential propagation lag.
+
+        A freshly minted project access token is not always immediately accepted for
+        git-over-HTTPS (see :const:`CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS`); retry the same
+        token on the backoff schedule until the authorization lands. The partial clone directory
+        left by a rejected attempt is removed before the next one, since git refuses to clone into
+        a non-empty directory. A non-auth failure (missing branch, bad URL, network) propagates
+        immediately — waiting won't fix it.
+        """
+        retries = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
+        for attempt, delay in enumerate(retries, start=1):
+            try:
+                return clone_with(token)
+            except GitCommandError as e:
+                if not _is_clone_auth_error(e):
+                    raise
+                logger.warning(
+                    "Clone of %s was rejected for authentication (retry %d/%d in %.1fs); a freshly "
+                    "minted clone token may not have propagated yet.",
+                    repository.slug,
+                    attempt,
+                    len(retries),
+                    delay,
+                )
+                shutil.rmtree(clone_dir, ignore_errors=True)
+                time.sleep(delay)
+        # Retries exhausted: this final attempt's result — or its error, if the token never became
+        # valid — is the caller's to handle.
+        return clone_with(token)
 
     def _get_clone_token(self, repository: Repository) -> str:
         """

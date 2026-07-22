@@ -229,16 +229,16 @@ description: >
 
 1. Read `CHANGELOG.md` from the repository root
 2. Determine the change type: Added, Changed, Fixed, Removed
-3. Add an entry under the `[Unreleased]` section
+3. Add an entry under the `## Unreleased` section
 4. Follow the existing format and style in the file
 5. Keep entries concise — one line per change
 
 ## Format
 
-Use [Keep a Changelog](https://keepachangelog.com/) format:
+Use [Common Changelog](https://common-changelog.org/) format:
 
 ```markdown
-## [Unreleased]
+## Unreleased
 
 ### Added
 - New feature description
