@@ -71,7 +71,11 @@ class StepBudgetMiddleware(AgentMiddleware):
 
     Optionally also injects a periodic state-aware heartbeat every ``heartbeat_every_calls``
     model calls (used by subagent stacks) so a long-running or pattern-locked subagent is
-    periodically re-grounded; budget reminders take precedence when both would fire.
+    periodically re-grounded; budget reminders take precedence when both would fire. The
+    heartbeat cadence is measured per-run from the request's message history (the number of
+    completed ``AIMessage``s in ``request.messages`` + 1 gives the ordinal of the current
+    call), so a single middleware instance shared across multiple ``task`` invocations of the
+    same subagent does not accumulate counts across runs.
 
     Budget is measured *per run*, not against the absolute ``langgraph_step``. LangGraph
     applies ``recursion_limit`` relative to the resume point (it sets
@@ -103,16 +107,14 @@ class StepBudgetMiddleware(AgentMiddleware):
         # Absolute ``langgraph_step`` this run started at, captured lazily on the first model
         # call; consumption is then measured relative to it (see class docstring).
         self._baseline_step: int | None = None
-        # Model calls seen by this instance; drives the periodic heartbeat cadence.
-        self._model_calls = 0
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelCallResult:
-        self._model_calls += 1
+        calls = sum(isinstance(m, AIMessage) for m in request.messages) + 1
         reminder = self._budget_reminder()
-        if reminder is None and self.heartbeat_every_calls and self._model_calls % self.heartbeat_every_calls == 0:
-            reminder = self._heartbeat_reminder(request)
+        if reminder is None and self.heartbeat_every_calls and calls % self.heartbeat_every_calls == 0:
+            reminder = self._heartbeat_reminder(request, calls)
         if reminder is None:
             return await handler(request)
         return await handler(append_system_reminder(request, reminder))
@@ -158,7 +160,7 @@ class StepBudgetMiddleware(AgentMiddleware):
         )
         return template.format(turns=turns)
 
-    def _heartbeat_reminder(self, request: ModelRequest) -> str:
+    def _heartbeat_reminder(self, request: ModelRequest, calls: int) -> str:
         """State-aware periodic reminder: model-call count plus this run's file-read stats.
 
         The stats make the reminder out-of-distribution for a pattern-locked model — naming the
@@ -180,5 +182,5 @@ class StepBudgetMiddleware(AgentMiddleware):
                 if count >= HEARTBEAT_REREAD_FLOOR
             )
             files_part = f" You have read {len(reads)} distinct file(s)" + (f"; most re-read: {top}." if top else ".")
-        logger.info("Injecting heartbeat reminder at model call %d.", self._model_calls)
-        return HEARTBEAT_REMINDER.format(calls=self._model_calls, files_part=files_part)
+        logger.info("Injecting heartbeat reminder at model call %d.", calls)
+        return HEARTBEAT_REMINDER.format(calls=calls, files_part=files_part)

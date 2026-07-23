@@ -599,7 +599,7 @@ def _compile_subagent(
     Shared by ``load_custom_subagents`` (per-repo markdown subagents) and
     ``load_builtin_code_review_detectors`` (skill-shipped detector charters). ``tools`` binds
     extra tools directly on the model (used by custom subagents to eagerly bind MCP tools when
-    deferral is off); detectors pass none.
+    deferral is off); detectors pass the ``submit_findings`` tool.
     """
     runnable = create_agent(
         model=model,
