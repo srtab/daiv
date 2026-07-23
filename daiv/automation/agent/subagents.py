@@ -28,6 +28,7 @@ from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
+from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.submit_findings import SubmitFindingsEnforcerMiddleware, build_submit_findings_tool
 from automation.agent.middlewares.todos import DAIVTodoListMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
@@ -106,6 +107,11 @@ SUBAGENT_ALWAYS_LOADED_TOOLS = frozenset({
     "write_todos",
 })
 
+# Heartbeat cadence for subagents (model calls between periodic progress reminders). ~25 calls is
+# far above any healthy short delegation but interrupts a degenerate loop early: the 68M-token
+# runaway detectors would have been re-grounded ~9 times instead of looping ~230 turns unprompted.
+SUBAGENT_HEARTBEAT_EVERY_CALLS = 25
+
 
 def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) -> list[AgentMiddleware[Any, Any, Any]]:
     """The summarization + observability tail common to every subagent stack.
@@ -133,6 +139,12 @@ def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) 
         # error message flows back as the task result / deferred-output text so the orchestrator
         # sees a failed subagent, not "no findings".
         LoopBreakerMiddleware(terminal="error"),
+        # Periodic steering for long subagent runs: LoopBreaker only catches byte-identical
+        # repeats, so a drifting loop (e.g. read_file with a walking offset) slips past it. The
+        # heartbeat re-grounds the model every N calls with its own usage stats, and the standard
+        # near-limit budget warnings now apply inside subagents too (measured per-invocation via
+        # the lazily-captured baseline). Reminders only — deliberately no hard step cap.
+        StepBudgetMiddleware(heartbeat_every_calls=SUBAGENT_HEARTBEAT_EVERY_CALLS),
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),

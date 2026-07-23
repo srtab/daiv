@@ -930,6 +930,20 @@ class TestDetectorMiddleware:
         assert types.index(LoopBreakerMiddleware) < types.index(SubmitFindingsEnforcerMiddleware)
         assert isinstance(middleware[-1], DeferredOutputMiddleware)
 
+    def test_shared_subagent_middleware_includes_heartbeat_step_budget(self, mock_model, mock_backend):
+        from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
+        from automation.agent.middlewares.step_budget import StepBudgetMiddleware
+        from automation.agent.subagents import SUBAGENT_HEARTBEAT_EVERY_CALLS, _shared_subagent_middleware
+
+        stack = _shared_subagent_middleware(mock_model, mock_backend)
+
+        budgets = [m for m in stack if isinstance(m, StepBudgetMiddleware)]
+        assert len(budgets) == 1
+        assert budgets[0].heartbeat_every_calls == SUBAGENT_HEARTBEAT_EVERY_CALLS
+        # The breaker stays outer: its terminal response must short-circuit past the heartbeat.
+        types = [type(m) for m in stack]
+        assert types.index(LoopBreakerMiddleware) < types.index(StepBudgetMiddleware)
+
 
 class TestShippedDetectorCharters:
     """Lock the five detector charter files that ship inside the code-review skill."""
