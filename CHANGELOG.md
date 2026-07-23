@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deactivated users are now rejected on the API-key and MCP OAuth bearer paths (previously outstanding keys/tokens kept working).
 - MCP `submit_job` now enforces the same per-user rate limit as the REST jobs and chat endpoints.
 - MCP `get_job_status` and job pollers are now scoped to the authenticated user.
+- Code-review detectors now record findings by calling an explicit `submit_findings` tool instead of forced structured output. Forced structured output pinned `tool_choice="any"` on every detector model call, so the model could never reason in text nor stop — on weaker models this degenerated into token-burning tool loops. An enforcement middleware guarantees the tool is called before a detector can finish (a detector that never calls it is reported as failed, never as "no findings") and ends any run that keeps calling tools after submitting.
+- Subagents (detectors, explore, general-purpose, custom) now receive periodic state-aware progress reminders — including which files they keep re-reading — plus the near-limit step-budget warnings previously reserved for the main agent, steering long or stuck runs back on track before they burn the recursion budget.
 
 ### Added
 
