@@ -182,6 +182,90 @@ def test_apply_platform_egress_reachability_only_when_no_token():
     assert PLATFORM_EGRESS_SECRET_NAME not in result.secrets
 
 
+def test_refresh_platform_egress_swaps_token_without_duplicating_rule():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, apply_platform_egress, refresh_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    # A turn-start augmented config: an env rule + the platform rule with the stale token.
+    env = EgressConfigRequest(
+        policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
+        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
+    )
+    stale = apply_platform_egress(env, GitEgressCredential(host="github.com", value=SecretStr("Basic STALE")))
+
+    client = Mock()
+    client.get_git_egress_credential.return_value = GitEgressCredential(
+        host="github.com", value=SecretStr("Basic FRESH")
+    )
+    fresh = refresh_platform_egress(stale, client, Mock())
+
+    # Only the platform secret's value changed; rules (and other secrets) are untouched — no dup rule.
+    assert [r.host for r in fresh.policy.rules] == ["github.com", "api.openai.com"]
+    assert fresh.secrets[PLATFORM_EGRESS_SECRET_NAME].value.get_secret_value() == "Basic FRESH"
+    assert fresh.secrets["s1"].value.get_secret_value() == "sk"
+
+
+def test_refresh_platform_egress_noop_when_egress_none():
+    from unittest.mock import Mock
+
+    from sandbox_envs.services import refresh_platform_egress
+
+    client = Mock()
+    assert refresh_platform_egress(None, client, Mock()) is None
+    client.get_git_egress_credential.assert_not_called()
+
+
+def test_refresh_platform_egress_unchanged_when_token_is_identical():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import apply_platform_egress, refresh_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    env = EgressConfigRequest(
+        policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
+        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
+    )
+    stale = apply_platform_egress(env, GitEgressCredential(host="gitlab.example.com", value=SecretStr("Basic SAME")))
+
+    client = Mock()
+    # GitLab's day-cached clone token: the re-mint returns the byte-identical credential. There is no
+    # fresh token to deliver, so return the config unchanged (→ caller skips the pointless retry).
+    client.get_git_egress_credential.return_value = GitEgressCredential(
+        host="gitlab.example.com", value=SecretStr("Basic SAME")
+    )
+    assert refresh_platform_egress(stale, client, Mock()) is stale
+
+
+def test_refresh_platform_egress_unchanged_when_credential_tokenless():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import apply_platform_egress, refresh_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    env = EgressConfigRequest(
+        policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
+        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
+    )
+    stale = apply_platform_egress(env, GitEgressCredential(host="github.com", value=SecretStr("Basic STALE")))
+
+    client = Mock()
+    client.get_git_egress_credential.return_value = GitEgressCredential(host="github.com", value=None)
+    # Nothing to swap in (token-less / eval platform): return the config unchanged rather than
+    # dropping the existing (still possibly-valid) secret.
+    assert refresh_platform_egress(stale, client, Mock()) is stale
+
+
 @pytest.mark.asyncio
 async def test_resolve_returns_none_for_none_id():
     assert await resolve_sandbox_env(None) is None

@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed the agent losing its work when a long sandbox turn outlived the git-platform token: the publish push runs in-sandbox authenticated by the egress proxy's token, which is minted at turn start and expires (GitHub installation tokens after 1h), so a turn running longer than that (e.g. a dependency bump that runs the test suite repeatedly) failed to push with an authentication error. The publisher now re-mints the token onto the live session and retries once when a remote git op is rejected for auth.
 - Fixed the configured GitLab PAT being embedded in clone URLs, leaking the full-access credential into the workspace's `.git/config` and the sandbox: git clone/push now uses a short-lived, project-scoped token (see the GitLab token entry under Changed).
 - Fixed the agent failing to publish after a non-fast-forward push rejection, and failing when the source branch is protected (it now opens a new MR).
 - Fixed `web_fetch` to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing redirect loops and DNS rebinding.

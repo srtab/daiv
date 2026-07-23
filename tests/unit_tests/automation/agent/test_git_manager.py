@@ -93,12 +93,39 @@ class FakeSandboxClient:
     def ran(self, needle: str) -> bool:
         return any(needle in command for command in self.commands)
 
+    def ran_count(self, needle: str) -> int:
+        return sum(needle in command for command in self.commands)
 
-def _sandbox_manager(responses: dict[str, tuple[int, str]] | None = None) -> tuple[GitManager, FakeSandboxClient]:
+
+def _sandbox_manager(
+    responses: dict[str, tuple[int, str]] | None = None, *, on_auth_failure=None
+) -> tuple[GitManager, FakeSandboxClient]:
     client = FakeSandboxClient(responses)
     backend = SandboxFileBackend(client=client)
     backend.bind_session("sid")
-    return GitManager.for_sandbox(backend), client
+    return GitManager.for_sandbox(backend, on_auth_failure=on_auth_failure), client
+
+
+def _healing_sandbox_manager(
+    responses: dict[str, tuple[int, str]], *, heal_to: dict[str, tuple[int, str]] | None = None
+) -> tuple[GitManager, FakeSandboxClient, AsyncMock]:
+    """A sandbox manager wired with an ``on_auth_failure`` that models a fresh token fixing the auth
+    failure: when invoked it rewrites the client's ``responses`` to ``heal_to`` (default ``{}`` = every
+    command now succeeds) and returns ``True``. Returns ``(manager, client, refresh_mock)``.
+
+    Inlined rather than folded into :func:`_sandbox_manager` because the heal callback must close over
+    the ``client`` at ``AsyncMock`` construction time — the client has to exist before the manager.
+    """
+    client = FakeSandboxClient(responses)
+
+    async def _heal() -> bool:
+        client.responses = {} if heal_to is None else heal_to
+        return True
+
+    refresh = AsyncMock(side_effect=_heal)
+    backend = SandboxFileBackend(client=client)
+    backend.bind_session("sid")
+    return GitManager.for_sandbox(backend, on_auth_failure=refresh), client, refresh
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +332,123 @@ async def test_push_head_to_raises_git_command_error_on_other_failure() -> None:
     gm, _ = _sandbox_manager({"push origin HEAD:b": (1, "fatal: some other push failure")})
     with pytest.raises(GitCommandError):
         await gm.push_head_to("b")
+
+
+# ---------------------------------------------------------------------------
+# on_auth_failure: sandbox egress-token refresh + retry-once (long-turn expiry)
+# ---------------------------------------------------------------------------
+# A turn that outlives the egress token minted at turn start (GitHub installation tokens live 1h)
+# hits an auth rejection on the publish's first in-sandbox network op. The manager invokes the
+# injected refresh callback and retries once so the freshly-minted token is used.
+
+_AUTH_FAIL = (128, "fatal: could not read Username for 'https://github.com': No such device or address")
+
+
+async def test_status_snapshot_refreshes_egress_and_retries_lsremote_on_auth_failure() -> None:
+    gm, client, refresh = _healing_sandbox_manager({"ls-remote --heads origin": _AUTH_FAIL})
+
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+
+    assert snap.remote_branches == []
+    refresh.assert_awaited_once()
+    assert client.ran_count("ls-remote --heads origin") == 2
+
+
+async def test_push_head_to_refreshes_egress_and_retries_on_auth_failure() -> None:
+    gm, client, refresh = _healing_sandbox_manager({"push origin HEAD:b": _AUTH_FAIL})
+
+    assert await gm.push_head_to("b") == "b"
+    refresh.assert_awaited_once()
+    assert client.ran_count("push origin HEAD:b") == 2
+
+
+async def test_auth_retry_refreshes_at_most_once_then_surfaces_error() -> None:
+    # The token stays rejected even after refresh (e.g. a genuine permission problem). The manager
+    # refreshes once, retries once, then lets the classifier raise — it must not loop.
+    refresh = AsyncMock(return_value=True)
+    gm, client = _sandbox_manager({"ls-remote --heads origin": _AUTH_FAIL}, on_auth_failure=refresh)
+
+    with pytest.raises(GitPushPermissionError):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    refresh.assert_awaited_once()
+    assert client.ran_count("ls-remote --heads origin") == 2
+
+
+async def test_auth_retry_skipped_when_refresh_reports_failure() -> None:
+    # Refresh could not deliver a fresh token (older sandbox / transport error): do not retry, let
+    # the original auth failure surface unchanged (the pre-existing handled behavior).
+    refresh = AsyncMock(return_value=False)
+    gm, client = _sandbox_manager({"ls-remote --heads origin": _AUTH_FAIL}, on_auth_failure=refresh)
+
+    with pytest.raises(GitPushPermissionError):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    refresh.assert_awaited_once()
+    assert client.ran_count("ls-remote --heads origin") == 1
+
+
+async def test_auth_retry_not_attempted_without_callback() -> None:
+    # No callback (local-mode publisher / capture path): classify-and-raise exactly as before.
+    gm, client = _sandbox_manager({"ls-remote --heads origin": _AUTH_FAIL})
+    with pytest.raises(GitPushPermissionError):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert client.ran_count("ls-remote --heads origin") == 1
+
+
+async def test_refresh_fires_on_later_push_after_lsremote_succeeded() -> None:
+    # The real turn-end flow: status_snapshot's ls-remote still authenticates, but the token dies
+    # before the push. The single per-manager refresh must fire on the push — not only on the first
+    # remote op of the manager's life.
+    gm, client, refresh = _healing_sandbox_manager({"push origin HEAD:b": _AUTH_FAIL})
+
+    await gm.status_snapshot(base_branch="main", mr_source_branch=None)  # ls-remote OK → no refresh
+    refresh.assert_not_awaited()
+
+    assert await gm.push_head_to("b") == "b"  # push auth-fails → refresh → retry OK
+    refresh.assert_awaited_once()
+    assert client.ran_count("push origin HEAD:b") == 2
+
+
+async def test_auth_refresh_budget_is_shared_across_ops() -> None:
+    # The one-shot refresh is per-manager and spans distinct ops: once ls-remote consumed it, a later
+    # push that also auth-fails must NOT trigger a second mint — it surfaces the error instead.
+    # heal_to keeps push rejected so only ls-remote recovers after the (single) refresh.
+    gm, client, refresh = _healing_sandbox_manager(
+        {"ls-remote --heads origin": _AUTH_FAIL, "push origin HEAD:b": _AUTH_FAIL},
+        heal_to={"push origin HEAD:b": _AUTH_FAIL},
+    )
+
+    await gm.status_snapshot(base_branch="main", mr_source_branch=None)  # ls-remote fails → refresh → OK
+    refresh.assert_awaited_once()
+
+    with pytest.raises(GitPushPermissionError):
+        await gm.push_head_to("b")  # push auth-fails, but the budget is spent → no 2nd refresh → raises
+    refresh.assert_awaited_once()
+    assert client.ran_count("push origin HEAD:b") == 1  # not retried
+
+
+async def test_auth_retry_scoped_to_remote_ops_only() -> None:
+    # A LOCAL op whose output merely *contains* an auth marker must NOT trigger a refresh — only a
+    # remote op (ls-remote/push/fetch) can hit an expired egress token. get_diff runs only local git.
+    refresh = AsyncMock(return_value=True)
+    gm, _ = _sandbox_manager(
+        {"diff HEAD": (128, "fatal: permission denied while reading file")}, on_auth_failure=refresh
+    )
+    with pytest.raises(GitCommandError):
+        await gm.get_diff()
+    refresh.assert_not_awaited()
+
+
+async def test_auth_retry_ignores_successful_op_with_auth_like_output() -> None:
+    # A remote op that SUCCEEDS (exit 0) but whose output happens to contain an auth marker (e.g. a
+    # branch literally named after one) must not trigger a spurious refresh.
+    refresh = AsyncMock(return_value=True)
+    gm, client = _sandbox_manager(
+        {"ls-remote --heads origin": (0, "deadbeef\trefs/heads/permission-denied\n")}, on_auth_failure=refresh
+    )
+    snap = await gm.status_snapshot(base_branch="main", mr_source_branch=None)
+    assert snap.remote_branches == ["permission-denied"]
+    refresh.assert_not_awaited()
+    assert client.ran_count("ls-remote --heads origin") == 1
 
 
 # ---------------------------------------------------------------------------

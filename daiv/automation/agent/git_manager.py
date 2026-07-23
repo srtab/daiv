@@ -14,17 +14,24 @@ from automation.agent.constants import REPO_PATH
 from core.utils import is_git_auth_error_text
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from typing import NoReturn
 
     from git import Repo
 
     from automation.agent.middlewares.file_system import SandboxFileBackend
     from codebase.clients.base import GitAuthEnv
+    from core.sandbox.schemas import RunCommandsResponse
 
 logger = logging.getLogger("daiv.tools")
 
 
 _SHELL_SAFE_ARG = re.compile(r"^[A-Za-z0-9_./@=:,+-]+$")
+
+# git subcommands that reach ``origin`` over the network — the only ones whose failure can stem from
+# an expired/rejected in-sandbox credential and thus warrant an egress-token refresh + retry. A local
+# op (``diff``, ``status``) is never retried even if its output happens to contain an auth marker.
+_REMOTE_GIT_SUBCOMMANDS = frozenset({"ls-remote", "push", "fetch", "pull"})
 
 
 def _shell_quote(arg: str) -> str:
@@ -93,6 +100,7 @@ class GitManager:
         sandbox_backend: SandboxFileBackend | None = None,
         repo_path: str | None = None,
         auth_env: GitAuthEnv | None = None,
+        on_auth_failure: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         if (repo is None) == (sandbox_backend is None):
             raise ValueError("GitManager requires exactly one of `repo` (local) or `sandbox_backend` (sandbox).")
@@ -102,6 +110,8 @@ class GitManager:
         self._sandbox_backend = sandbox_backend
         self._repo_path = repo_path
         self._auth_env = auth_env
+        self._on_auth_failure = on_auth_failure
+        self._auth_refreshed = False
 
     @classmethod
     def for_local(cls, repo: Repo, *, auth_env: GitAuthEnv | None = None) -> GitManager:
@@ -118,14 +128,28 @@ class GitManager:
         return cls(repo=repo, auth_env=auth_env)
 
     @classmethod
-    def for_sandbox(cls, sandbox_backend: SandboxFileBackend, *, repo_path: str | None = None) -> GitManager:
+    def for_sandbox(
+        cls,
+        sandbox_backend: SandboxFileBackend,
+        *,
+        repo_path: str | None = None,
+        on_auth_failure: Callable[[], Awaitable[bool]] | None = None,
+    ) -> GitManager:
         """Sandbox-mode manager that runs git in the session's ``repo_path`` (``/workspace/repo``).
 
         Takes the run's already-bound :class:`SandboxFileBackend` — the single session handle.
         The backend's ``_require_bound`` guard surfaces an unbound-session programming error on
         the first command, so no session id is threaded here.
+
+        ``on_auth_failure`` (the publisher's egress-token refresh) is invoked at most once, when an
+        in-sandbox **remote** git op (ls-remote/push/fetch/pull) fails with an auth-rejection marker: the
+        egress token minted at turn start expires after a day-plus / an hour (per platform), so a turn
+        that outlives it would otherwise fail the publish. The callback re-mints a token onto the live
+        proxy and returns ``True`` when the op is worth retrying; the failing command then runs once
+        more. ``None`` (local mode, or the read-only capture path) keeps the classify-and-raise
+        behavior unchanged.
         """
-        return cls(sandbox_backend=sandbox_backend, repo_path=repo_path)
+        return cls(sandbox_backend=sandbox_backend, repo_path=repo_path, on_auth_failure=on_auth_failure)
 
     # -- git invocation ------------------------------------------------------
     async def _git(self, *args: str, check: bool = True) -> _GitResult:
@@ -138,17 +162,79 @@ class GitManager:
         return result
 
     async def _git_sandbox(self, args: tuple[str, ...]) -> _GitResult:
-        backend = self._sandbox_backend
-        if backend is None:  # pragma: no cover - guaranteed by __init__
-            raise RuntimeError("GitManager is not in sandbox mode")
-        command = " ".join(_shell_quote(token) for token in ("git", "-C", self._repo_path, *args))
-        response = await backend.run_commands([command], fail_fast=True)
+        response = await self._run_sandbox([args], fail_fast=True)
         if not response.results:
             # The sandbox always returns one result per command; an empty list is a wire-level
             # anomaly. Fail with context rather than a bare IndexError on ``results[0]``.
             raise SandboxGitProtocolError(f"Sandbox returned no result for: git {' '.join(args)}")
         result = response.results[0]
         return _GitResult(exit_code=result.exit_code, output=result.output)
+
+    @staticmethod
+    def _touches_remote(commands: list[tuple[str, ...]]) -> bool:
+        """Whether any command in the batch is a git op that reaches ``origin`` over the network."""
+        return any(args and args[0] in _REMOTE_GIT_SUBCOMMANDS for args in commands)
+
+    @staticmethod
+    def _has_auth_failure(response: RunCommandsResponse) -> bool:
+        """Whether any command in the response failed (non-zero) with a credential-rejection marker.
+
+        The non-zero gate matters: a remote op that *succeeded* (exit 0) with auth-like text in its
+        output (e.g. a branch literally named ``permission-denied``) is not a credential problem.
+        """
+        return any(r.exit_code != 0 and is_git_auth_error_text(r.output) for r in response.results)
+
+    async def _run_sandbox(self, commands: list[tuple[str, ...]], *, fail_fast: bool) -> RunCommandsResponse:
+        """Run a batch of git commands in the sandbox, refreshing the egress token + retrying once on
+        an auth rejection of a **remote** op.
+
+        The retry is deliberately narrow so it never masks a real failure or wastes a token mint:
+        - scoped to batches that contain a remote op (``_touches_remote``: ls-remote/push/fetch/pull)
+          — a local ``diff`` whose content merely mentions "permission denied" is not a credential
+          problem;
+        - gated on a *non-zero* exit carrying an auth marker (see :meth:`_has_auth_failure`);
+        - bounded to a single refresh per manager (``_auth_refreshed``) — spanning *distinct* ops, so
+          the ls-remote → push sequence of one publish shares one budget; if the token is still
+          rejected after the refresh, the higher-level classifier raises ``GitPushPermissionError``
+          rather than looping;
+        - a no-op without ``on_auth_failure`` (local mode / capture path), and only retried when the
+          callback reports it delivered a fresh credential (``True``).
+
+        The retry re-runs the **whole** batch, so it assumes a remote-touching batch is idempotent.
+        That holds for every current call site — the only remote-containing batch is
+        :meth:`status_snapshot`'s read-only reads, and mutating remote ops (``push``) are issued as
+        single-command ``_git`` calls. A future batch mixing a remote op with a side-effecting one
+        would be silently re-executed here, so keep remote-touching batches read-only.
+        """
+        backend = self._sandbox_backend
+        if backend is None:  # pragma: no cover - guaranteed by __init__
+            raise RuntimeError("GitManager is not in sandbox mode")
+        cmd_strs = [" ".join(_shell_quote(tok) for tok in ("git", "-C", self._repo_path, *args)) for args in commands]
+        response = await backend.run_commands(cmd_strs, fail_fast=fail_fast)
+
+        if (
+            self._on_auth_failure is None
+            or self._auth_refreshed
+            or not self._touches_remote(commands)
+            or not self._has_auth_failure(response)
+        ):
+            return response
+
+        self._auth_refreshed = True
+        if not await self._on_auth_failure():
+            return response
+
+        logger.info("Refreshed the sandbox egress credential after an in-sandbox git auth rejection; retrying")
+        response = await backend.run_commands(cmd_strs, fail_fast=fail_fast)
+        if self._has_auth_failure(response):
+            # A genuinely fresh token was delivered and the op is *still* rejected — so the cause is
+            # not token expiry. Surface that here (the classifier only logs a generic auth failure) so
+            # the real diagnosis (branch protection / insufficient token scope) is not mistaken for it.
+            logger.warning(
+                "In-sandbox git op still auth-rejected after an egress-token refresh; the cause is "
+                "likely not token expiry (e.g. branch protection or insufficient token scope)"
+            )
+        return response
 
     async def _git_local(self, args: tuple[str, ...]) -> _GitResult:
         repo = self.repo
@@ -187,10 +273,7 @@ class GitManager:
         if not commands:
             return []
         if self._sandbox_backend is not None:
-            cmd_strs = [
-                " ".join(_shell_quote(tok) for tok in ("git", "-C", self._repo_path, *args)) for args in commands
-            ]
-            response = await self._sandbox_backend.run_commands(cmd_strs, fail_fast=False)
+            response = await self._run_sandbox(commands, fail_fast=False)
             if len(response.results) != len(commands):
                 raise SandboxGitProtocolError(
                     f"Sandbox returned {len(response.results)} results for {len(commands)} git commands"

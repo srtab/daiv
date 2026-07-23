@@ -114,6 +114,42 @@ def apply_platform_egress(
     return EgressConfigRequest(policy=policy, secrets=secrets)
 
 
+def refresh_platform_egress(
+    egress: EgressConfigRequest | None, repo_client: RepoClient, repository: Repository
+) -> EgressConfigRequest | None:
+    """Re-mint the git-platform token and swap it into an already-augmented egress config.
+
+    Turn start builds ``ctx.sandbox.egress`` via :func:`augment_sandbox_with_platform_egress`, which
+    embeds a short-lived platform token under the reserved ``PLATFORM_EGRESS_SECRET_NAME`` secret. A
+    turn that outlives that token's TTL (GitHub installation tokens live 1h) would fail the in-sandbox
+    publish push. This mints a fresh credential and replaces **only** that secret's value — the
+    allow-rule (host, methods, inject reference) and every other secret are untouched — so the result
+    carries no duplicate platform rule, unlike naively re-running :func:`apply_platform_egress` on an
+    already-augmented config (which prepends a second rule).
+
+    Returns ``egress`` **unchanged** (same object, so the caller's identity check skips delivery)
+    when there is nothing useful to refresh: no egress proxy at all (``egress is None``); a host-only
+    / token-less credential (e.g. the SWE eval platform) with no secret to rotate; or a re-mint that
+    yields the **same token** as the incumbent. The last case is why this is only effective on
+    platforms that mint a fresh token per call (GitHub installation tokens): GitLab clone tokens are
+    day-cached (see ``gitlab/clone_tokens.py``), so re-minting returns the byte-identical token — a
+    retry with it would fail identically, so we report "nothing changed" rather than burn the caller's
+    one-shot retry on a dead credential."""
+    from core.sandbox.schemas import EgressConfigRequest, EgressSecret
+
+    if egress is None:
+        return egress
+    credential = repo_client.get_git_egress_credential(repository)
+    if credential is None or credential.value is None:
+        return egress
+    incumbent = egress.secrets.get(PLATFORM_EGRESS_SECRET_NAME)
+    if incumbent is not None and incumbent.value.get_secret_value() == credential.value.get_secret_value():
+        return egress
+    secrets = dict(egress.secrets)
+    secrets[PLATFORM_EGRESS_SECRET_NAME] = EgressSecret(header=credential.header, value=credential.value)
+    return EgressConfigRequest(policy=egress.policy, secrets=secrets)
+
+
 def augment_sandbox_with_platform_egress(
     sandbox: SandboxRuntime, repo_client: RepoClient, repository: Repository
 ) -> SandboxRuntime:

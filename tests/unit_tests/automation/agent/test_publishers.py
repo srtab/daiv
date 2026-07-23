@@ -35,8 +35,9 @@ def _patch_open_git_manager(monkeypatch, gm: Mock) -> dict:
     captured = {}
 
     @asynccontextmanager
-    async def _fake_open(*, sandbox_backend, gitrepo, auth_env=None):  # noqa: ARG001
+    async def _fake_open(*, sandbox_backend, gitrepo, auth_env=None, on_auth_failure=None):  # noqa: ARG001
         captured["auth_env"] = auth_env
+        captured["on_auth_failure"] = on_auth_failure
         yield gm
 
     monkeypatch.setattr("automation.agent.publishers.open_git_manager", _fake_open)
@@ -259,6 +260,85 @@ class TestPublishLocalAuthEnv:
 
         assert captured["auth_env"] is None
         publisher.client.get_git_auth_env.assert_not_called()
+
+
+class TestPublishSandboxEgressRefresh:
+    async def test_sandbox_mode_wires_egress_refresh_callback(self, monkeypatch):
+        """Sandbox publishes open the manager with the egress-refresh callback so a long turn whose
+        turn-start token expired can re-mint + retry the in-sandbox network op."""
+        publisher = _make_publisher()
+        publisher.sandbox_backend = Mock()
+        captured = _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
+
+        await publisher.publish(merge_request=None)
+
+        assert captured["on_auth_failure"] == publisher._refresh_sandbox_egress
+
+    async def test_local_mode_no_egress_refresh_callback(self, monkeypatch):
+        """Local mode has no live egress proxy — the callback must not be wired."""
+        publisher = _make_publisher()  # sandbox_backend defaults to None
+        captured = _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
+
+        await publisher.publish(merge_request=None)
+
+        assert captured["on_auth_failure"] is None
+
+    async def test_refresh_re_mints_and_delivers_to_live_session(self, monkeypatch):
+        from core.sandbox.schemas import EgressConfigRequest
+
+        publisher = _make_publisher()
+        publisher.sandbox_backend = Mock()
+        publisher.sandbox_backend.refresh_egress = AsyncMock()
+        publisher.ctx.sandbox.egress = EgressConfigRequest()
+
+        fresh = EgressConfigRequest()
+        monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", Mock(return_value=fresh))
+
+        assert await publisher._refresh_sandbox_egress() is True
+        publisher.sandbox_backend.refresh_egress.assert_awaited_once_with(fresh)
+
+    async def test_refresh_returns_false_when_nothing_to_refresh(self, monkeypatch):
+        from core.sandbox.schemas import EgressConfigRequest
+
+        publisher = _make_publisher()
+        publisher.sandbox_backend = Mock()
+        publisher.sandbox_backend.refresh_egress = AsyncMock()
+        egress = EgressConfigRequest()
+        publisher.ctx.sandbox.egress = egress
+
+        # refresh_platform_egress returns the same object when there is no token to rotate.
+        monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", Mock(return_value=egress))
+
+        assert await publisher._refresh_sandbox_egress() is False
+        publisher.sandbox_backend.refresh_egress.assert_not_awaited()
+
+    async def test_refresh_returns_false_on_delivery_error(self, monkeypatch):
+        import httpx
+
+        from core.sandbox.schemas import EgressConfigRequest
+
+        publisher = _make_publisher()
+        publisher.sandbox_backend = Mock()
+        publisher.sandbox_backend.refresh_egress = AsyncMock(side_effect=httpx.ConnectError("down"))
+        publisher.ctx.sandbox.egress = EgressConfigRequest()
+        monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", Mock(return_value=EgressConfigRequest()))
+
+        assert await publisher._refresh_sandbox_egress() is False
+
+    async def test_refresh_returns_false_on_mint_error(self, monkeypatch):
+        # The failure is in the token MINT (not the sidecar delivery) — e.g. a GitHub installation-token
+        # 401 on re-mint. The broad except degrades to the pre-existing behavior; delivery never runs.
+        from core.sandbox.schemas import EgressConfigRequest
+
+        publisher = _make_publisher()
+        publisher.sandbox_backend = Mock()
+        publisher.sandbox_backend.refresh_egress = AsyncMock()
+        publisher.ctx.sandbox.egress = EgressConfigRequest()
+        mint = Mock(side_effect=RuntimeError("mint failed"))
+        monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", mint)
+
+        assert await publisher._refresh_sandbox_egress() is False
+        publisher.sandbox_backend.refresh_egress.assert_not_awaited()
 
 
 class TestPublishSuggestsContextFile:
