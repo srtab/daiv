@@ -39,7 +39,7 @@ setup:
 	@echo "       docker compose --profile full up      # all services"
 
 test:
-	LANGCHAIN_TRACING_V2=false uv run pytest -s tests/unit_tests
+	LANGCHAIN_TRACING_V2=false uv run pytest -s tests/unit_tests -n auto
 
 lint: lint-check lint-format
 
