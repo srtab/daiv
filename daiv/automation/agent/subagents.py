@@ -28,6 +28,7 @@ from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
+from automation.agent.middlewares.submit_findings import SubmitFindingsEnforcerMiddleware, build_submit_findings_tool
 from automation.agent.middlewares.todos import DAIVTodoListMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
@@ -66,7 +67,9 @@ You will be given the change's scope: source/target refs, the SHA triplet, the n
 
 **You are read-only.** Use `bash` only for read-only inspection: `git diff`/`show`/`log`/`status`, `grep`, `find`, `cat`, and read-mode `sed`/`awk` (never `sed -i`). Never mutate the workspace — no output redirects (`>`, `>>`, `tee`), no `sed -i` / `python -c` writes, no formatters, tests, builds, or package managers, and no `git add`/`commit`/`checkout`/`reset`/`restore`/`clean`. If confirming a finding would need code execution, raise it as a `question` finding instead of running it.
 
-Set `archetype` to one of the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else."""  # noqa: E501
+Set `archetype` to one of the six schema values only: the four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else.
+
+**Finishing.** Findings are recorded ONLY through the `submit_findings` tool — findings left in prose are discarded. As you work, note intermediate conclusions briefly in text alongside your tool calls so you never re-derive them. When your audit is complete, call `submit_findings` exactly once with every finding (`{"findings": []}` when the change is clean), then finish with a one-line text summary."""  # noqa: E501
 
 logger = logging.getLogger("daiv.agent")
 
@@ -124,11 +127,10 @@ def _shared_subagent_middleware(model: BaseChatModel, backend: BackendProtocol) 
             trim_tokens_to_summarize=None,
             truncate_args_settings=summarization_defaults["truncate_args_settings"],
         ),
-        # Subagents (incl. cr-* detectors) are forced to tool_choice="any" by structured output,
-        # so they have no natural stop; a stuck model loops to recursion_limit. On a stuck loop the
-        # breaker finalizes the subagent with an explicit ERROR message (NOT a raise — a raised
-        # exception would propagate out of the task tool's ToolNode and abort the whole parent run).
-        # The error message flows back as the task result / deferred-output text so the orchestrator
+        # A stuck model can loop tool calls to recursion_limit. On a stuck loop the breaker
+        # finalizes the subagent with an explicit ERROR message (NOT a raise — a raised exception
+        # would propagate out of the task tool's ToolNode and abort the whole parent run). The
+        # error message flows back as the task result / deferred-output text so the orchestrator
         # sees a failed subagent, not "no findings".
         LoopBreakerMiddleware(terminal="error"),
         AnthropicPromptCachingMiddleware(),
@@ -227,6 +229,9 @@ def _build_detector_middleware(
     if fallback_models:
         middleware.append(ModelFallbackMiddleware(*fallback_models))
 
+    # Inside LoopBreaker (appended after the shared stack) so the breaker's terminal error is
+    # never nudge-retried; see the enforcer's class docstring for the two directions it closes.
+    middleware.append(SubmitFindingsEnforcerMiddleware())
     # Keep this last: after_agent hooks fire in reverse append order, so appending last makes this
     # run first in the exit chain. The detector's SandboxMiddleware is built with close_session=False,
     # so it never closes the (parent-owned) shared session itself — the point of running first is to
@@ -237,11 +242,12 @@ def _build_detector_middleware(
     return middleware
 
 
-def _load_detector_response_format(schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH) -> dict:
-    """Wrap the canonical per-finding schema into the object schema a detector returns.
+def _load_detector_findings_schema(schema_path: Path = CODE_REVIEW_FINDING_SCHEMA_PATH) -> dict:
+    """Wrap the canonical per-finding schema into the object schema a detector submits.
 
-    Detectors emit ``{"findings": [<finding>, ...]}``; deepagents serializes the
-    ``structured_response`` into the task ToolMessage for the orchestrator.
+    Detectors record ``{"findings": [<finding>, ...]}`` by calling the ``submit_findings``
+    tool; this schema is advertised as that tool's args schema (so the model sees the full
+    finding shape) and re-validated handler-side on every call.
     """
     finding_schema = json.loads(schema_path.read_text(encoding="utf-8"))
     return {
@@ -282,7 +288,7 @@ def load_builtin_code_review_detectors(
         return []
 
     try:
-        response_format = _load_detector_response_format(schema_path)
+        findings_schema = _load_detector_findings_schema(schema_path)
     except OSError, json.JSONDecodeError:
         # Same graceful-degradation contract as the missing-dir guard above: a missing or corrupt
         # finding schema must disable code-review detectors only, never abort the whole agent build.
@@ -290,6 +296,7 @@ def load_builtin_code_review_detectors(
         # reviews — so an unguarded read here would take down all agent invocations over one asset.
         logger.exception("Code-review finding schema %s missing or invalid; skipping detector subagents", schema_path)
         return []
+    submit_findings_tool = build_submit_findings_tool(findings_schema)
     detectors: list[CompiledSubAgent] = []
     failed: list[str] = []  # charter file stems that were present but didn't compile
 
@@ -342,7 +349,7 @@ def load_builtin_code_review_detectors(
                 body=f"{SHARED_DETECTOR_PREAMBLE}\n\n{body}",
                 middleware=middleware,
                 working_directory=working_directory,
-                response_format=response_format,
+                tools=[submit_findings_tool],
             )
         )
         logger.info("Loaded code-review detector '%s' from %s", frontmatter["name"], md_file)

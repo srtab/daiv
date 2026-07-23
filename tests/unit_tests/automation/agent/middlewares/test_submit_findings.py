@@ -1,4 +1,3 @@
-import pytest
 from langchain.agents.middleware import ModelRequest
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -59,7 +58,6 @@ class TestBuildSubmitFindingsTool:
         assert "Validation failed" in result
         assert SUBMIT_FINDINGS_TOOL_NAME in result  # tells the model to retry the same tool
 
-    @pytest.mark.skip(reason="enabled in Task 4")
     def test_real_detector_schema_accepts_empty_findings(self):
         # Pin the integration with the real skill schema: the wrapped object schema from
         # subagents.py must at minimum accept the empty submission.
