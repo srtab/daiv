@@ -27,8 +27,9 @@ REQUIRED_FIELDS = tuple(_SCHEMA["required"])
 # Dedup precedence: the higher rank wins when two findings collapse to one key. Declared EXPLICITLY
 # (not derived from the BARS enum's array order) so reordering the enum in finding.schema.json can't
 # silently invert severity. Kept out of the schema file itself because that schema is also embedded as
-# the detectors' structured-output response_format, which must stay a clean JSON-Schema subset — so the
-# rank lives here and is coverage-checked against BARS (a new bar must get an explicit rank, below).
+# the args schema of the detectors' ``submit_findings`` tool, which must stay a clean JSON-Schema
+# subset that providers can accept — so the rank lives here and is coverage-checked against BARS (a
+# new bar must get an explicit rank, below).
 _BAR_RANK = {"defect": 3, "structural": 2, "question": 1}
 if set(_BAR_RANK) != set(BARS):
     raise ValueError(f"_BAR_RANK must cover exactly the bar enum {BARS}; got {tuple(_BAR_RANK)}")
@@ -115,6 +116,30 @@ def merge(raw: list) -> dict:
     return {"findings": deduped, "candidates": len(deduped), "dropped": dropped, "merged": len(valid) - len(deduped)}
 
 
+def status_notes(*, candidates: int, dropped: int, merged: int, skipped: int, total_files: int) -> list[str]:
+    """Plain-language obligations for the status line, derived from the merge stats.
+
+    The reference docs point the agent here instead of re-explaining each stat:
+    every note is something the run must surface (gitlab-delivery.md Step 7 /
+    the interactive output), so an empty list means a clean, unremarkable merge.
+    """
+    notes: list[str] = []
+    if skipped:
+        notes.append(
+            f"{skipped}/{total_files} detector output file(s) failed to deliver findings — report them as "
+            "failed detectors in the status line; do not read this as a legitimately empty outcome."
+        )
+    if dropped:
+        notes.append(f"{dropped} finding(s) failed schema validation and were dropped — surface in the status line.")
+    if merged:
+        notes.append(
+            f"{merged} duplicate finding(s) collapsed across detectors (strongest bar kept) — note in the status line."
+        )
+    if total_files > 0 and candidates == 0 and skipped == 0 and dropped == 0:
+        notes.append("All detectors returned empty findings — a legitimately empty review.")
+    return notes
+
+
 def read_findings_from_files(paths: list) -> tuple[list, int]:
     """Read raw findings from detector output files.
 
@@ -158,8 +183,14 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.cmd == "merge":
+        if not args.paths:
+            sys.stderr.write(
+                "no detector output files given to merge; expected one path per detector. "
+                "An empty path list is a fan-out failure, not a legitimately empty review.\n"
+            )
+            return 1
         raw, skipped = read_findings_from_files(args.paths)
-        if args.paths and skipped == len(args.paths):
+        if skipped == len(args.paths):
             sys.stderr.write(
                 f"all {len(args.paths)} detector output file(s) were skipped; findings were lost "
                 "(see messages above). Treating as a failed merge, not an empty review.\n"
@@ -174,6 +205,13 @@ def main() -> int:
         # `skipped` comes from read_findings_from_files (file I/O), not from merge()'s pure transform,
         # so it is injected here rather than added to merge()'s return dict.
         result["skipped"] = skipped
+        result["notes"] = status_notes(
+            candidates=result["candidates"],
+            dropped=result["dropped"],
+            merged=result["merged"],
+            skipped=skipped,
+            total_files=len(args.paths),
+        )
         json.dump(result, sys.stdout)
         sys.stdout.write("\n")
         return 0

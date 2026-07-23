@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from typing import TYPE_CHECKING
 
 from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import AIMessage
 from langgraph.config import get_config
 
 from automation.agent.middlewares.reminders import append_system_reminder
@@ -40,6 +42,18 @@ BUDGET_FINALIZE = (
     "</system-reminder>"
 )
 
+HEARTBEAT_TOP_REREADS = 3
+HEARTBEAT_REREAD_FLOOR = 3
+
+HEARTBEAT_REMINDER = (
+    "<system-reminder>"
+    "Progress check: you have made {calls} model calls in this run.{files_part} "
+    "Re-reading a file you have already read rarely yields new information. "
+    "Briefly state in text what you have concluded so far and what remains, then take the "
+    "smallest next step. If you already have what you need, produce your final output now."
+    "</system-reminder>"
+)
+
 
 class StepBudgetMiddleware(AgentMiddleware):
     """
@@ -55,6 +69,14 @@ class StepBudgetMiddleware(AgentMiddleware):
     in-flight request and never persisted to the conversation state, so it repeats on
     every call while the budget stays low.
 
+    Optionally also injects a periodic state-aware heartbeat every ``heartbeat_every_calls``
+    model calls (used by subagent stacks) so a long-running or pattern-locked subagent is
+    periodically re-grounded; budget reminders take precedence when both would fire. The
+    heartbeat cadence is measured per-run from the request's message history (the number of
+    completed ``AIMessage``s in ``request.messages`` + 1 gives the ordinal of the current
+    call), so a single middleware instance shared across multiple ``task`` invocations of the
+    same subagent does not accumulate counts across runs.
+
     Budget is measured *per run*, not against the absolute ``langgraph_step``. LangGraph
     applies ``recursion_limit`` relative to the resume point (it sets
     ``stop = resume_step + recursion_limit + 1`` on every entry), so each invocation gets a
@@ -69,11 +91,19 @@ class StepBudgetMiddleware(AgentMiddleware):
     """
 
     def __init__(
-        self, warn_remaining_steps: int = WARN_REMAINING_STEPS, finalize_remaining_steps: int = FINALIZE_REMAINING_STEPS
+        self,
+        warn_remaining_steps: int = WARN_REMAINING_STEPS,
+        finalize_remaining_steps: int = FINALIZE_REMAINING_STEPS,
+        *,
+        heartbeat_every_calls: int | None = None,
     ):
         super().__init__()
+        if heartbeat_every_calls is not None and heartbeat_every_calls < 1:
+            msg = f"heartbeat_every_calls must be >= 1 when set, got {heartbeat_every_calls!r}"
+            raise ValueError(msg)
         self.warn_remaining_steps = warn_remaining_steps
         self.finalize_remaining_steps = finalize_remaining_steps
+        self.heartbeat_every_calls = heartbeat_every_calls
         # Absolute ``langgraph_step`` this run started at, captured lazily on the first model
         # call; consumption is then measured relative to it (see class docstring).
         self._baseline_step: int | None = None
@@ -81,7 +111,10 @@ class StepBudgetMiddleware(AgentMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelCallResult:
+        calls = sum(isinstance(m, AIMessage) for m in request.messages) + 1
         reminder = self._budget_reminder()
+        if reminder is None and self.heartbeat_every_calls and calls % self.heartbeat_every_calls == 0:
+            reminder = self._heartbeat_reminder(request, calls)
         if reminder is None:
             return await handler(request)
         return await handler(append_system_reminder(request, reminder))
@@ -126,3 +159,28 @@ class StepBudgetMiddleware(AgentMiddleware):
             remaining,
         )
         return template.format(turns=turns)
+
+    def _heartbeat_reminder(self, request: ModelRequest, calls: int) -> str:
+        """State-aware periodic reminder: model-call count plus this run's file-read stats.
+
+        The stats make the reminder out-of-distribution for a pattern-locked model — naming the
+        file it keeps re-reading is what breaks the attractor; a generic "stay on track" would
+        just be absorbed into the loop. Budget reminders take precedence (see the caller):
+        near the limit, "finalize now" is the more urgent signal.
+        """
+        reads: Counter[str] = Counter()
+        for message in request.messages:
+            if isinstance(message, AIMessage):
+                for tool_call in message.tool_calls or []:
+                    if tool_call["name"] == "read_file" and (path := tool_call["args"].get("file_path")):
+                        reads[path] += 1
+        files_part = ""
+        if reads:
+            top = ", ".join(
+                f"{path.rsplit('/', 1)[-1]} ({count}x)"
+                for path, count in reads.most_common(HEARTBEAT_TOP_REREADS)
+                if count >= HEARTBEAT_REREAD_FLOOR
+            )
+            files_part = f" You have read {len(reads)} distinct file(s)" + (f"; most re-read: {top}." if top else ".")
+        logger.info("Injecting heartbeat reminder at model call %d.", calls)
+        return HEARTBEAT_REMINDER.format(calls=calls, files_part=files_part)

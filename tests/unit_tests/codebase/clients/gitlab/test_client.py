@@ -415,7 +415,31 @@ class TestGitLabClient:
 
         assert result == "disc-abc"
         mock_project.mergerequests.get.assert_called_once_with(5, lazy=True)
-        mock_mr.discussions.create.assert_called_once_with({"body": "This looks wrong.", "position": _POSITION})
+        mock_mr.discussions.create.assert_called_once_with(
+            {"body": "This looks wrong.", "position": _POSITION}, retry_transient_errors=False
+        )
+
+    def test_create_merge_request_inline_discussion_disables_transient_retry(self, gitlab_client):
+        """The create POST must disable python-gitlab's transient-error retry.
+
+        The client-level ``retry_transient_errors=True`` retries 5xx with backoff; GitLab can 500
+        *after* persisting the note, so retrying a non-idempotent discussion-create POST duplicates
+        the comment (observed in production as one inline finding posted 12×). This write must opt out.
+        """
+        mock_project = Mock()
+        mock_mr = Mock()
+        mock_discussion = Mock()
+        mock_discussion.id = "disc-abc"
+        mock_project.mergerequests.get.return_value = mock_mr
+        mock_mr.discussions.create.return_value = mock_discussion
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        gitlab_client.create_merge_request_inline_discussion(
+            repo_id="group/repo", merge_request_id=5, body="This looks wrong.", position=_POSITION
+        )
+
+        _, kwargs = mock_mr.discussions.create.call_args
+        assert kwargs.get("retry_transient_errors") is False
 
     def test_create_merge_request_inline_discussion_returns_discussion_id(self, gitlab_client):
         """The returned value must be the discussion ID string from GitLab."""

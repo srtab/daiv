@@ -915,6 +915,35 @@ class TestDetectorMiddleware:
         assert deferred_idx > sandbox_idx, "DeferredOutputMiddleware must be appended after SandboxMiddleware"
         assert middleware[sandbox_idx].close_session is False
 
+    def test_detector_middleware_has_enforcer_inside_loop_breaker_and_deferred_last(self, mock_model, mock_backend):
+        from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
+        from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
+        from automation.agent.middlewares.submit_findings import SubmitFindingsEnforcerMiddleware
+        from automation.agent.subagents import _build_detector_middleware
+
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=False, name="cr-correctness")
+
+        types = [type(m) for m in middleware]
+        assert SubmitFindingsEnforcerMiddleware in types
+        # The enforcer must nest INSIDE the breaker: a LoopBreaker terminal response is
+        # tool-call-free and unsubmitted, and an outer enforcer would nudge-retry it back to life.
+        assert types.index(LoopBreakerMiddleware) < types.index(SubmitFindingsEnforcerMiddleware)
+        assert isinstance(middleware[-1], DeferredOutputMiddleware)
+
+    def test_shared_subagent_middleware_includes_heartbeat_step_budget(self, mock_model, mock_backend):
+        from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
+        from automation.agent.middlewares.step_budget import StepBudgetMiddleware
+        from automation.agent.subagents import SUBAGENT_HEARTBEAT_EVERY_CALLS, _shared_subagent_middleware
+
+        stack = _shared_subagent_middleware(mock_model, mock_backend)
+
+        budgets = [m for m in stack if isinstance(m, StepBudgetMiddleware)]
+        assert len(budgets) == 1
+        assert budgets[0].heartbeat_every_calls == SUBAGENT_HEARTBEAT_EVERY_CALLS
+        # The breaker stays outer: its terminal response must short-circuit past the heartbeat.
+        types = [type(m) for m in stack]
+        assert types.index(LoopBreakerMiddleware) < types.index(StepBudgetMiddleware)
+
 
 class TestShippedDetectorCharters:
     """Lock the five detector charter files that ship inside the code-review skill."""
@@ -997,10 +1026,10 @@ class TestBuiltinCodeReviewDetectors:
         ctx.gitrepo.working_dir = str(repo_dir)
         return ctx
 
-    def test_response_format_wraps_finding_schema(self):
-        from automation.agent.subagents import _load_detector_response_format
+    def test_findings_schema_wraps_finding_schema(self):
+        from automation.agent.subagents import _load_detector_findings_schema
 
-        rf = _load_detector_response_format()
+        rf = _load_detector_findings_schema()
         assert rf["type"] == "object"
         assert rf["required"] == ["findings"]
         assert rf["properties"]["findings"]["type"] == "array"
@@ -1222,15 +1251,13 @@ class TestBuiltinCodeReviewDetectors:
             )
         assert not [r for r in caplog.records if "failed to load" in r.message]
 
-    def test_detectors_compiled_with_structured_response_format(
-        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx
-    ):
-        # The whole fan-out depends on each detector emitting {"findings": [...]} via structured
-        # output — the orchestrator parses that envelope in Stage 2. _load_detector_response_format
-        # builds the schema once; assert it actually reaches EVERY compiled detector. A dropped
-        # response_format= kwarg would silently return free-form prose and break the merge, and no
-        # other test would fail (test_response_format_wraps_finding_schema only checks the builder).
-        from automation.agent.subagents import _load_detector_response_format, load_builtin_code_review_detectors
+    def test_detectors_compiled_with_submit_findings_tool(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        # Detectors must NOT use forced structured output: response_format makes langchain force
+        # tool_choice="any" on every model call, so the model can never think in text nor stop —
+        # a weak model pattern-locks into token-burning read loops (the 68M-token runaway).
+        # Findings flow through the submit_findings tool instead; dropping the tool (or
+        # reintroducing response_format=) would silently break the review merge.
+        from automation.agent.subagents import load_builtin_code_review_detectors
 
         agents_dir = tmp_path / "agents"
         agents_dir.mkdir()
@@ -1241,7 +1268,6 @@ class TestBuiltinCodeReviewDetectors:
             _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
         )
 
-        expected_rf = _load_detector_response_format()
         with patch("automation.agent.subagents.create_agent") as mock_create:
             mock_create.return_value = Mock()
             load_builtin_code_review_detectors(
@@ -1254,7 +1280,9 @@ class TestBuiltinCodeReviewDetectors:
             )
 
         assert mock_create.call_count == 2
-        assert all(call.kwargs["response_format"] == expected_rf for call in mock_create.call_args_list)
+        assert all(call.kwargs["response_format"] is None for call in mock_create.call_args_list)
+        for call in mock_create.call_args_list:
+            assert [tool.name for tool in call.kwargs["tools"]] == ["submit_findings"]
 
     def test_returns_empty_when_schema_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
         # A missing finding schema must degrade code-review to no detectors, NOT abort the whole

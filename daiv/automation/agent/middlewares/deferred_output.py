@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Any
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
+from automation.agent.middlewares.submit_findings import SUBMIT_FINDINGS_TOOL_NAME, SUBMITTED_MARKER
 from codebase.context import RuntimeCtx  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -23,13 +24,13 @@ _DIGEST_LEN = 12
 class DeferredOutputMiddleware(AgentMiddleware[AgentState[Any], RuntimeCtx]):
     """Defer a subagent's final output to a file on the workspace filesystem.
 
-    When on a subagent's middleware stack, ``aafter_agent`` writes the subagent's output — its
-    ``structured_response`` serialized as JSON, else its last message's text — to
-    ``<output_dir>/<name>-<sha256[:12]>.<ext>`` via the backend, then clears ``structured_response``
-    and appends a one-line pointer message. deepagents builds the ``task`` ToolMessage from that
-    pointer (``_return_command_with_state_update`` falls to its last-message branch once
-    ``structured_response`` is ``None``), so the orchestrator gets a path instead of the payload and
-    never transcribes it back out.
+    When on a subagent's middleware stack, ``aafter_agent`` writes the subagent's output — the last
+    successfully submitted ``submit_findings`` payload, else its ``structured_response`` serialized
+    as JSON, else its last message's text — to ``<output_dir>/<name>-<sha256[:12]>.<ext>`` via the
+    backend, then clears ``structured_response`` and appends a one-line pointer message. deepagents
+    builds the ``task`` ToolMessage from that pointer (``_return_command_with_state_update`` falls to
+    its last-message branch once ``structured_response`` is ``None``), so the orchestrator gets a
+    path instead of the payload and never transcribes it back out.
 
     The write goes through ``backend.awrite`` (not a ``write_file`` tool), so a read-only detector
     emits a file without gaining any write tool. On any write failure the hook returns ``None`` (no
@@ -76,19 +77,47 @@ class DeferredOutputMiddleware(AgentMiddleware[AgentState[Any], RuntimeCtx]):
         return {"structured_response": None, "messages": [AIMessage(content=pointer)]}
 
     def _extract(self, state: AgentState[Any]) -> tuple[str, str] | None:
+        messages = state.get("messages") or []
+        if (submitted := self._submitted_payload(messages)) is not None:
+            return submitted, ".json"
         structured = state.get("structured_response")
         if structured is not None:
             return self._serialize(structured), ".json"
-        messages = state.get("messages") or []
         if messages and (text := messages[-1].text):
             return text, ".txt"
         return None
 
     @staticmethod
+    def _submitted_payload(messages: list[Any]) -> str | None:
+        """Serialized payload of the last successful ``submit_findings`` call, or ``None``.
+
+        The tool validates and acknowledges but deliberately keeps no state — the recorded
+        payload IS the tool-call args in history. Success is keyed on the tool's
+        ``SUBMITTED_MARKER`` acknowledgement so a validation-failed attempt is never exported.
+        """
+        successful_ids = {
+            message.tool_call_id
+            for message in messages
+            if isinstance(message, ToolMessage)
+            and message.name == SUBMIT_FINDINGS_TOOL_NAME
+            and isinstance(message.content, str)
+            and message.content.startswith(SUBMITTED_MARKER)
+        }
+        if not successful_ids:
+            return None
+        for message in reversed(messages):
+            if isinstance(message, AIMessage):
+                for tool_call in message.tool_calls or []:
+                    if tool_call["name"] == SUBMIT_FINDINGS_TOOL_NAME and tool_call["id"] in successful_ids:
+                        return json.dumps({"findings": tool_call["args"].get("findings", [])})
+        return None
+
+    @staticmethod
     def _serialize(structured: Any) -> str:
         # Mirror deepagents' serialization for dict and pydantic responses so the file matches what
-        # would have been inlined (subagents.py _return_command_with_state_update). Detector
-        # response_format is a JSON-schema dict, so this takes the json.dumps branch.
+        # would have been inlined (subagents.py _return_command_with_state_update). This is the
+        # general structured_response serialization path: pydantic models use model_dump_json,
+        # everything else (dicts, etc.) falls through to json.dumps.
         if hasattr(structured, "model_dump_json"):
             return structured.model_dump_json()
         return json.dumps(structured)
