@@ -640,25 +640,6 @@ class SandboxFileBackend(BackendProtocol):
     edits in place and leaves the existing file's mode untouched.
     """
 
-    consecutive_bash_failures: int = 0
-    """Count of consecutive transient sandbox transport failures observed by the ``bash`` tool
-    wrapper (``sandbox.py``). Mutated only there — other backend methods (file tools) don't
-    participate in the breaker. Reset to 0 by any ``RunCommandsResponse`` (transport succeeded,
-    whatever the per-command exit codes). Lives on this instance (not checkpointed ``AgentState``)
-    because it must be run-scoped, not thread-scoped, and shared with every subagent — see the
-    class docstring and ``bash_unavailable`` below.
-    """
-
-    bash_unavailable: bool = False
-    """Latched ``True`` once the bash circuit breaker trips — either a single non-retryable
-    (``BashFailure.PERMANENT``) failure, or ``consecutive_bash_failures`` reaching
-    ``sandbox._MAX_CONSECUTIVE_SANDBOX_FAILURES``. The ``bash`` tool wrapper checks this before
-    dispatching to the sandbox; once ``True``, further ``bash`` calls short-circuit without ever
-    calling ``run_commands`` again. Because subagents share this exact backend instance with the
-    parent (see the class docstring), one dead sandbox trips the breaker for the whole run,
-    detectors included.
-    """
-
     def __init__(self, *, client: DAIVSandboxClient | None = None, session_id: str | None = None) -> None:
         self._client = client
         self._session_id = session_id
