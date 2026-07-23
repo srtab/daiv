@@ -33,3 +33,26 @@ async def test_open_git_manager_sandbox_mode_ignores_auth_env():
     async with open_git_manager(sandbox_backend=backend, gitrepo=None, auth_env=auth_env) as gm:
         assert gm._sandbox_backend is backend
         assert gm._auth_env is None
+
+
+async def test_open_git_manager_sandbox_mode_forwards_on_auth_failure():
+    """The egress-refresh callback is wired onto sandbox-mode managers so a remote-op auth failure
+    can re-mint the token and retry."""
+    backend = MagicMock()
+
+    async def _refresh() -> bool:
+        return True
+
+    async with open_git_manager(sandbox_backend=backend, gitrepo=None, on_auth_failure=_refresh) as gm:
+        assert gm._on_auth_failure is _refresh
+
+
+async def test_open_git_manager_local_mode_ignores_on_auth_failure():
+    """Local mode has no egress proxy to refresh; the callback must not attach there."""
+    repo = MagicMock()
+
+    async def _refresh() -> bool:  # pragma: no cover - never invoked
+        return True
+
+    async with open_git_manager(sandbox_backend=None, gitrepo=repo, on_auth_failure=_refresh) as gm:
+        assert gm._on_auth_failure is None

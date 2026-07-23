@@ -90,8 +90,17 @@ class GitChangePublisher(ChangePublisher):
         if self.sandbox_backend is None:
             auth_env = await sync_to_async(self.client.get_git_auth_env)(self.ctx.repository)
 
+        # Sandbox git is authenticated by the egress proxy using a platform token minted at turn
+        # start; a turn that outlives its TTL (GitHub installation tokens live 1h) would fail this
+        # publish's first in-sandbox network op. Wire the re-mint-and-retry callback so the manager
+        # can recover. Local mode overlays a fresh per-invocation credential instead (no live proxy).
+        on_auth_failure = self._refresh_sandbox_egress if self.sandbox_backend is not None else None
+
         async with open_git_manager(
-            sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
+            sandbox_backend=self.sandbox_backend,
+            gitrepo=self.ctx.gitrepo,
+            auth_env=auth_env,
+            on_auth_failure=on_auth_failure,
         ) as git_manager:
             snapshot = await git_manager.status_snapshot(
                 base_branch=default_branch,
@@ -175,6 +184,41 @@ class GitChangePublisher(ChangePublisher):
             published=True,
             protected_branch_fallback_source=protected_branch_fallback_source,
         )
+
+    async def _refresh_sandbox_egress(self) -> bool:
+        """Re-mint the git-platform token and push it onto the live sandbox session, so the manager
+        can retry a remote git op that the turn-start token could no longer authenticate.
+
+        Returns ``True`` when a fresh credential was delivered (the caller then retries once), and
+        ``False`` when there is nothing to refresh (no egress proxy, a token-less/eval platform, or a
+        re-mint that returned the same token — e.g. GitLab's day-cached clone token) or the refresh
+        could not be delivered. On ``False`` the caller lets the original auth error surface as the
+        pre-existing handled ``GitPushPermissionError`` — never worse than today.
+
+        Only wired in sandbox mode. The broad ``except`` is deliberate: this is best-effort recovery,
+        the platform mint and the sidecar PUT raise a spread of platform-/transport-specific errors
+        the (platform-agnostic) publisher shouldn't enumerate, and any failure degrades cleanly to the
+        original error. The stack trace is logged so a persistent refresh failure stays diagnosable.
+        """
+        from sandbox_envs.services import refresh_platform_egress
+
+        backend = self.sandbox_backend
+        sandbox = self.ctx.sandbox
+        if backend is None or sandbox is None:  # pragma: no cover - only wired in sandbox mode
+            return False
+        try:
+            egress = await sync_to_async(refresh_platform_egress)(sandbox.egress, self.client, self.ctx.repository)
+            # refresh_platform_egress returns the *input* object when there was nothing to swap in
+            # (no proxy, token-less platform, or an unchanged token) — so identity means "nothing to
+            # deliver". The explicit `is None` also narrows the `EgressConfigRequest | None` return for
+            # the type checker before the non-null refresh_egress call below.
+            if egress is None or egress is sandbox.egress:
+                return False
+            await backend.refresh_egress(egress)
+        except Exception:
+            logger.exception("Could not refresh the sandbox egress token after a git auth failure; not retrying")
+            return False
+        return True
 
     async def _diff_to_metadata(self, commit_message_diff: str, pr_metadata_diff: str | None = None) -> dict[str, Any]:
         """
