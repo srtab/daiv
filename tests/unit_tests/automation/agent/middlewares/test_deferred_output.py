@@ -3,9 +3,10 @@ import json
 from unittest.mock import AsyncMock, Mock
 
 from deepagents.backends.protocol import WriteResult
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
+from automation.agent.middlewares.submit_findings import SUBMIT_FINDINGS_TOOL_NAME, SUBMITTED_MARKER
 
 _OUTPUT_DIR = "/workspace/tmp/subagent-output"
 
@@ -109,3 +110,70 @@ async def test_serialize_failure_keeps_inline_output_and_skips_write():
 
     assert result is None
     backend.awrite.assert_not_awaited()
+
+
+def _submit_round_trip(findings: list, call_id: str = "call-1", ok: bool = True) -> list:
+    return [
+        AIMessage(
+            content="", tool_calls=[{"name": SUBMIT_FINDINGS_TOOL_NAME, "args": {"findings": findings}, "id": call_id}]
+        ),
+        ToolMessage(
+            content=(f"{SUBMITTED_MARKER} ({len(findings)} finding(s))." if ok else "Validation failed: nope"),
+            name=SUBMIT_FINDINGS_TOOL_NAME,
+            tool_call_id=call_id,
+        ),
+    ]
+
+
+async def test_submitted_findings_extracted_from_tool_call_as_json():
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
+    findings = [{"detector": "performance", "line": 10}]
+    payload = json.dumps({"findings": findings})
+    expected_path = f"{_OUTPUT_DIR}/cr-correctness-{_digest(payload)}.json"
+
+    state = {"messages": [*_submit_round_trip(findings), AIMessage(content="Done: 1 finding.")]}
+    result = await _mw(backend).aafter_agent(state, Mock())
+
+    backend.awrite.assert_awaited_once_with(expected_path, payload)
+    assert expected_path in result["messages"][0].text
+
+
+async def test_submitted_payload_wins_over_trailing_text_and_structured_response():
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
+    payload = json.dumps({"findings": []})
+
+    state = {
+        "messages": [*_submit_round_trip([]), AIMessage(content="prose that must NOT be exported")],
+        "structured_response": {"findings": [{"detector": "stale"}]},
+    }
+    await _mw(backend).aafter_agent(state, Mock())
+
+    written_payload = backend.awrite.await_args.args[1]
+    assert written_payload == payload
+
+
+async def test_validation_failed_submit_does_not_count_falls_back_to_text():
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
+
+    state = {"messages": [*_submit_round_trip([{}], ok=False), AIMessage(content="gave up")]}
+    await _mw(backend).aafter_agent(state, Mock())
+
+    # Nothing was recorded → the .txt fallback path (failed detector), never a fabricated .json.
+    written_path = backend.awrite.await_args.args[0]
+    assert written_path.endswith(".txt")
+    assert backend.awrite.await_args.args[1] == "gave up"
+
+
+async def test_last_successful_submit_wins():
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
+    first = _submit_round_trip([{"detector": "old"}], call_id="c1")
+    second = _submit_round_trip([{"detector": "new"}], call_id="c2")
+
+    state = {"messages": [*first, *second, AIMessage(content="done")]}
+    await _mw(backend).aafter_agent(state, Mock())
+
+    assert json.loads(backend.awrite.await_args.args[1]) == {"findings": [{"detector": "new"}]}
