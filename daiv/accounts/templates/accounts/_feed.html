@@ -1,0 +1,23 @@
+{% load i18n %}
+{% comment %}
+Console Feed region body (Story 2.3). Rendered inside the ``console-feed`` section of
+_console_body.html. Lists RUN_FEED rows newest-first, each rendered from its RunEnvelope; the
+zero-state seal shows when nothing needs attention. The ``feedStream`` Alpine consumer live-
+resolves ``classifying…`` items via SSE (see feed-stream.js): it reads ``#feed-in-flight`` and,
+on a resolution frame, re-fetches the item from ``feed_item`` and swaps it outerHTML. Do not
+reuse ``sessionStream`` — it hard-codes ``#session-in-flight``.
+{% endcomment %}
+<div x-data="feedStream('{% url 'session_stream' %}', '{% url 'feed_item' run_id='00000000-0000-0000-0000-000000000000' %}')"
+     @htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'console-main') reconnect()">
+  {# In-flight collector — INVERSE of the sessions predicate: terminal-but-unclassified run ids. #}
+  <div id="feed-in-flight" data-ids="{{ feed_in_flight_ids }}" hidden></div>
+  {% if feed_has_attention %}
+    <div class="flex flex-col gap-2" role="list" aria-live="polite">
+      {% for item in feed_items %}
+        {% include "accounts/_feed_item.html" with item=item %}
+      {% endfor %}
+    </div>
+  {% else %}
+    {% include "accounts/_feed_zero_state.html" with zero=feed_zero %}
+  {% endif %}
+</div>

@@ -89,3 +89,115 @@ def logged_in_client(user):
     c = Client()
     c.force_login(user)
     return c
+
+
+def _create_envelope(run, status=None):
+    from sessions.models import EnvelopeStatus, RunEnvelope
+
+    return RunEnvelope.objects.create(run=run, status=status or EnvelopeStatus.ALL_CLEAR, summary="")
+
+
+@pytest.mark.django_db
+class TestResolvedEnvelopeIds:
+    """Story 2.3 AC9 — the Feed live-resolve helper (inverse of the session-status predicate)."""
+
+    def test_returns_only_runs_with_envelopes(self, user):
+        session = _create_session(user=user)
+        classified = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+        pending = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+        _create_envelope(classified)
+
+        from sessions.views import resolved_envelope_ids
+
+        resolved = resolved_envelope_ids({classified.id, pending.id})
+        assert resolved == {classified.id}
+
+    def test_empty_input_returns_empty(self):
+        from sessions.views import resolved_envelope_ids
+
+        assert resolved_envelope_ids(set()) == set()
+
+
+@pytest.mark.django_db
+class TestFeedStreamEndpoint:
+    def test_feed_ids_param_returns_sse_stream(self, logged_in_client, user):
+        session = _create_session(user=user)
+        run = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+        resp = logged_in_client.get(reverse("session_stream"), {"feed_ids": str(run.id)})
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.get("Content-Type", "")
+
+    def test_neither_ids_nor_feed_ids_returns_400(self, logged_in_client):
+        resp = logged_in_client.get(reverse("session_stream"), {"feed_ids": "not-a-uuid"})
+        assert resp.status_code == 400
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_emits_envelope_resolved_frame(monkeypatch, user):
+    """A pending feed id gains an envelope → the stream emits an ``envelope: resolved`` frame."""
+    from asgiref.sync import sync_to_async
+    from sessions import views as sviews
+    from sessions.views import SessionStreamView
+
+    monkeypatch.setattr(sviews, "POLL_INTERVAL", 0.01)
+
+    def _seed():
+        session = _create_session(user=user)
+        run = _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+        _create_envelope(run)
+        return run
+
+    run = await sync_to_async(_seed)()
+
+    frames = [chunk async for chunk in SessionStreamView()._stream([], [run.id], user)]
+    joined = "".join(frames)
+    assert f'"id": "{run.id}"' in joined
+    assert '"envelope": "resolved"' in joined
+    assert '"done": true' in joined
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_resolves_feed_id_that_gains_envelope_across_ticks(monkeypatch, user):
+    """A terminal feed id with NO envelope on the first tick is not discarded; the resolution frame
+    fires only once the envelope lands on a later tick, then the stream completes.
+
+    This is the load-bearing across-tick case: the feed id is already TERMINAL on the first poll but
+    still has no envelope, so it must survive the terminal tick (the relaxed-discard — unlike a
+    session-status id, which is dropped the instant it is terminal). If that discard were reverted
+    the id would be gone before the envelope arrives and no ``envelope: resolved`` frame would ever
+    be emitted.
+    """
+    from asgiref.sync import sync_to_async
+    from sessions import views as sviews
+    from sessions.views import SessionStreamView
+
+    monkeypatch.setattr(sviews, "POLL_INTERVAL", 0.01)
+
+    def _seed():
+        session = _create_session(user=user)
+        # Terminal run, but deliberately NO envelope yet — still "classifying" for the Feed.
+        return _create_run(session, user=user, status=RunStatus.SUCCESSFUL)
+
+    run = await sync_to_async(_seed)()
+
+    # The envelope lands ACROSS ticks: absent on the first probe, present on the second.
+    calls = {"n": 0}
+
+    def _fake_resolved(run_ids):
+        calls["n"] += 1
+        return {run.id} if calls["n"] >= 2 else set()
+
+    monkeypatch.setattr(sviews, "resolved_envelope_ids", _fake_resolved)
+
+    frames = [chunk async for chunk in SessionStreamView()._stream([], [run.id], user)]
+
+    resolved_frames = [f for f in frames if '"envelope": "resolved"' in f]
+    # (1) No resolution before the envelope lands: it took more than one probe (the id survived the
+    # terminal first tick) for the frame to appear.
+    assert calls["n"] >= 2
+    # (2) Exactly one resolved frame, carrying this run id.
+    assert len(resolved_frames) == 1
+    assert f'"id": "{run.id}"' in resolved_frames[0]
+    # (3) The stream then completes cleanly (nothing left tracked).
+    assert '"done": true' in frames[-1]
+    assert '"complete": true' in frames[-1]

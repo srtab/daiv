@@ -6,14 +6,19 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
+from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils.decorators import method_decorator
 from django.utils.timezone import localdate
 from django.views import View
+from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from django_filters.views import FilterView
-from sessions.models import Run, RunStatus, SessionOrigin
+from notifications.choices import EventType
+from notifications.models import Notification
+from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, SessionOrigin
 
 from accounts.context_processors import running_jobs_count
 from accounts.emails import send_welcome_email
@@ -22,6 +27,7 @@ from accounts.forms import APIKeyCreateForm, UserCreateForm, UserUpdateForm
 from accounts.mixins import AdminRequiredMixin, BreadcrumbMixin
 from accounts.models import APIKey, User
 from codebase.models import MergeMetric
+from core.utils import is_htmx
 from schedules.models import ScheduledJob
 
 logger = logging.getLogger(__name__)
@@ -107,31 +113,313 @@ def _format_duration(td: timedelta | None) -> str:
     return f"{hours}h {minutes}m"
 
 
+def _resolve_period(request, default: str = DEFAULT_PERIOD) -> tuple[str, date | None]:
+    """Resolve the stateless ``?period=`` querystring to a ``(period_key, cutoff_date)`` pair.
+
+    Falls back to ``default`` for a missing/invalid value — the personal console uses the module
+    ``DEFAULT_PERIOD`` ("today"), while the org ``ManagerLensView`` passes ``default="all"`` because
+    org velocity is cumulative. ``cutoff_date`` is ``None`` for the "all time" period, today's date
+    for the zero-day "today" period, and ``today - days`` otherwise. Shared by both console surfaces
+    so they honour the same range semantics with no persisted state.
+    """
+    period = request.GET.get("period", default)
+    if period not in PERIOD_DAYS:
+        period = default
+    days = PERIOD_DAYS[period]
+    cutoff_date = localdate() - timedelta(days=days) if days is not None else None
+    if days == 0:
+        cutoff_date = localdate()
+    return period, cutoff_date
+
+
+def get_velocity_data(cutoff_date: date | None) -> dict | None:
+    """Aggregate org-wide code-velocity + DAIV-attribution from ``MergeMetric``.
+
+    Org-wide by design — ``MergeMetric.objects.all()`` (never user-scoped, never derived from
+    ``RunEnvelope`` per AD-10); an optional ``cutoff_date`` restricts to merges on/after that date.
+    Returns ``None`` when there are zero matching rows so the caller can render an honest cold-load
+    state instead of a misleading zero reading. Single source of truth for the Manager Lens.
+    """
+    merges = MergeMetric.objects.all()
+    if cutoff_date is not None:
+        merges = merges.filter(merged_at__date__gte=cutoff_date)
+
+    stats = merges.aggregate(
+        total=Count("id"),
+        total_added=Sum("lines_added", default=0),
+        total_removed=Sum("lines_removed", default=0),
+        daiv_merges=Count("id", filter=Q(daiv_commits__gt=0)),
+        total_commits_sum=Sum("total_commits", default=0),
+        daiv_commits_sum=Sum("daiv_commits", default=0),
+    )
+
+    if not stats["total"]:
+        return None
+
+    total_merges = stats["total"]
+    daiv_merges = stats["daiv_merges"]
+    human_merges = total_merges - daiv_merges
+    total_commits = stats["total_commits_sum"]
+    daiv_commits = stats["daiv_commits_sum"]
+    human_commits = max(0, total_commits - daiv_commits)
+    max_lines = max(stats["total_added"], stats["total_removed"], 1)
+
+    return {
+        "total_merges": total_merges,
+        "lines_added": stats["total_added"],
+        "lines_removed": stats["total_removed"],
+        "net_lines": stats["total_added"] - stats["total_removed"],
+        "daiv_merges_pct": _format_pct(daiv_merges, total_merges),
+        "daiv_merges_pct_raw": min(_raw_pct(daiv_merges, total_merges) or 0, 100),
+        "daiv_merges": daiv_merges,
+        "human_merges": human_merges,
+        "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
+        "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
+        "daiv_commits": daiv_commits,
+        "human_commits": human_commits,
+        "lines_added_pct": round(stats["total_added"] / max_lines * 100, 1),
+        "lines_removed_pct": round(stats["total_removed"] / max_lines * 100, 1),
+    }
+
+
+# The console Feed lists the user's RUN_FEED rows newest-first; a single page (mirrors the
+# notifications ``paginate_by``). Render content comes from each run's live RunEnvelope.
+FEED_PAGE_SIZE = 20
+
+# Per-status accent applied inline as ``var(--color-status-*)`` — the status utility classes are
+# not all compiled and the Feed reuses existing tokens without a Tailwind rebuild. Classifying has
+# no accent (neutral/dashed). Keyed on the hyphenated ``EnvelopeStatus`` values.
+_FEED_ACCENT_VARS = {
+    EnvelopeStatus.ALL_CLEAR: "--color-status-clear",
+    EnvelopeStatus.FOUND_ISSUES: "--color-status-found",
+    EnvelopeStatus.NEEDS_ATTENTION: "--color-status-attn",
+    EnvelopeStatus.FAILED: "--color-status-fail",
+}
+
+
+def build_feed_item(run: Run, notification: Notification | None, envelope: RunEnvelope | None) -> dict:
+    """Assemble the render-ready Feed item for a run from its (already-resolved) envelope.
+
+    ``envelope is None`` is the "classifying…" state (the classifier has not written the envelope
+    yet — there is no ``pending`` row/status). The caller resolves the envelope and passes it in:
+    the dashboard batches them in one query (avoids an N+1), and ``FeedItemView`` resolves the one
+    run's envelope via ``RunEnvelope.objects.for_run``. Reads status/count/summary straight off the
+    envelope (never recomputed). ``read_at`` is carried for Story 2.4 but is NOT rendered here (no
+    unread delta / badge / mark-seen in Story 2.3).
+    """
+    if envelope is None:
+        status_slug = "classifying"
+        accent_var = ""
+    else:
+        status_slug = envelope.status
+        accent_var = _FEED_ACCENT_VARS.get(envelope.status, "")
+    return {
+        "run": run,
+        "envelope": envelope,
+        "status_slug": status_slug,
+        "accent_var": accent_var,
+        "read_at": notification.read_at if notification is not None else None,
+        "link_url": notification.link_url if notification is not None else "",
+    }
+
+
+class FeedItemView(LoginRequiredMixin, TemplateView):
+    """Render a single Feed item (the SSE re-fetch source, Story 2.3 AC9).
+
+    Owner-scoped: only renders if the requesting user holds a ``RUN_FEED`` row for that run
+    (mirrors ``MarkNotificationReadView``'s owner-scoped guard) — else 404. The resolved partial
+    omits the classifying/in-flight hooks, so the client stops streaming for that item.
+    """
+
+    template_name = "accounts/_feed_item.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        run_id = self.kwargs["run_id"]
+        notification = (
+            Notification.objects
+            .filter(
+                recipient=self.request.user,
+                event_type=EventType.RUN_FEED,
+                source_type="sessions.Run",
+                source_id=str(run_id),
+            )
+            .order_by("-created")
+            .first()
+        )
+        if notification is None:
+            raise Http404
+        run = Run.objects.filter(pk=run_id).first()
+        if run is None:
+            raise Http404
+        ctx["item"] = build_feed_item(run, notification, RunEnvelope.objects.for_run(run))
+        return ctx
+
+
+@method_decorator(require_POST, name="dispatch")
+class FeedItemSeenView(LoginRequiredMixin, TemplateView):
+    """Mark the requester's own Feed row for a run seen, then re-render the seen item (Story 2.4).
+
+    Owner-scoped exactly like ``FeedItemView``: only the requesting user's ``RUN_FEED`` row for that
+    run is touched — a cross-user request, a run with no Feed row, or a deleted run all 404.
+    ``mark_as_read`` is idempotent, so a repeat POST is a no-op. The ``HX-Trigger: feed:seen`` header
+    pushes the persistent badge container to re-fetch its fragment (which re-reads the envelope-aware
+    ``feed_unread_count``), announcing the change via its ``aria-live`` region.
+    """
+
+    template_name = "accounts/_feed_item.html"
+
+    def post(self, request, run_id):
+        notification = (
+            Notification.objects
+            .filter(
+                recipient=request.user, event_type=EventType.RUN_FEED, source_type="sessions.Run", source_id=str(run_id)
+            )
+            .order_by("-created")
+            .first()
+        )
+        if notification is None:
+            raise Http404
+        run = Run.objects.filter(pk=run_id).first()
+        if run is None:
+            raise Http404
+        notification.mark_as_read()
+        resp = self.render_to_response({"item": build_feed_item(run, notification, RunEnvelope.objects.for_run(run))})
+        resp["HX-Trigger"] = "feed:seen"
+        return resp
+
+
+class FeedUnreadBadgeView(LoginRequiredMixin, TemplateView):
+    """Render just the Feed unread badge fragment (the ``feed:seen`` live-refresh target).
+
+    The count comes from the ``feed_unread_count`` context processor, so the fragment is correct
+    both on a full console load and on every ``feed:seen`` re-fetch.
+    """
+
+    template_name = "accounts/_feed_unread_badge.html"
+
+
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = "accounts/dashboard.html"
+
+    def get_template_names(self) -> list[str]:
+        # HTMX requests get just the console-body fragment (three region sections);
+        # a normal GET renders the full shell. Mirrors ``SessionListView`` so later
+        # stories' region partials refresh in place.
+        if is_htmx(self.request):
+            return ["accounts/_console_body.html"]
+        return ["accounts/dashboard.html"]
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        period = self.request.GET.get("period", DEFAULT_PERIOD)
-        if period not in PERIOD_DAYS:
-            period = DEFAULT_PERIOD
-        days = PERIOD_DAYS[period]
-        cutoff_date = localdate() - timedelta(days=days) if days is not None else None
-        if days == 0:
-            cutoff_date = localdate()
+        period, cutoff_date = _resolve_period(self.request)
 
+        # Personal-by-default (AC1): the console default carries NO org/aggregate content for
+        # anyone — admin OR member. Org velocity / total_users now live ONLY in the Manager Lens
+        # (``ManagerLensView``); every read here is personal-scoped via ``visible_to`` / ``user=``.
         user = self.request.user
         context["activity"] = self._get_activity_data(cutoff_date, user)
         context["active_api_keys"] = APIKey.objects.filter(user=user, revoked=False).count()
         context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
         context["current_period"] = period
-        context["velocity"] = self._get_velocity_data(cutoff_date) if user.is_admin else None
         context["active_schedules"] = ScheduledJob.objects.filter(user=user, is_enabled=True).count()
-        if user.is_admin:
-            context["total_users"] = User.objects.count()
+        context.update(self._get_feed_data(user))
 
         return context
+
+    def _get_feed_data(self, user: User) -> dict:
+        """Build the console Feed: RUN_FEED rows newest-first, each rendered from its live envelope.
+
+        Rows come from the Feed notifications (the per-user seen-state anchor); render content comes
+        from the live Run + RunEnvelope. Envelopes for the rendered page are batched in one query
+        (no N+1). The zero-state seal shows only when NOTHING across the user's whole feed needs
+        attention — decided over the full set, not just the rendered page, so a finding paged past
+        ``FEED_PAGE_SIZE`` is never hidden behind a false "nothing needs you." ``for_run`` is
+        sync-only and ``DashboardView`` is sync, so direct calls are correct.
+        """
+        feed_qs = Notification.objects.filter(recipient=user, event_type=EventType.RUN_FEED)
+        notifications = list(feed_qs.order_by("-created")[:FEED_PAGE_SIZE])
+        run_ids = [n.source_id for n in notifications]
+        runs_by_id = {str(pk): run for pk, run in Run.objects.filter(pk__in=run_ids).in_bulk().items()}
+        # Batch the page's envelopes in one query rather than one ``for_run`` per row (N+1).
+        envelopes_by_run = {str(env.run_id): env for env in RunEnvelope.objects.filter(run_id__in=run_ids)}
+
+        items: list[dict] = []
+        in_flight_ids: list[str] = []
+        latest_finished = None
+        for notification in notifications:
+            run = runs_by_id.get(notification.source_id)
+            if run is None:
+                # The run was deleted out from under a stale Feed row; skip it rather than 500.
+                continue
+            item = build_feed_item(run, notification, envelope=envelopes_by_run.get(str(run.id)))
+            items.append(item)
+            if item["status_slug"] == "classifying":
+                in_flight_ids.append(str(run.id))
+            if run.finished_at and (latest_finished is None or run.finished_at > latest_finished):
+                latest_finished = run.finished_at
+
+        # Seal decision. A run "needs attention" when it is classifying or non-all-clear. If any
+        # rendered item already needs attention we render the list; otherwise confirm across the
+        # WHOLE feed (not just this page) before sealing, so a finding paged past row 20 is never
+        # masked by a false "nothing needs you." The full scan runs only in the all-clear case.
+        page_has_attention = any(item["status_slug"] != EnvelopeStatus.ALL_CLEAR for item in items)
+        if not items:
+            has_attention, all_clear_count = False, 0
+        elif page_has_attention:
+            has_attention, all_clear_count = True, 0
+        else:
+            has_attention, all_clear_count = self._feed_attention_summary(feed_qs)
+
+        zero = None
+        if not has_attention:
+            if items:
+                zero = {
+                    "variant": "audited-clean",
+                    "all_clear_count": all_clear_count,
+                    "last_checked": latest_finished,
+                    "next_sweep": self._next_sweep(user),
+                }
+            else:
+                zero = {"variant": "never-ran"}
+
+        return {
+            "feed_items": items,
+            "feed_in_flight_ids": ",".join(in_flight_ids),
+            "feed_has_attention": has_attention,
+            "feed_zero": zero,
+        }
+
+    @staticmethod
+    def _feed_attention_summary(feed_qs) -> tuple[bool, int]:
+        """Return ``(has_attention, all_clear_count)`` over the FULL feed set.
+
+        ``has_attention`` is True when any feed run is classifying (no envelope yet) or has a
+        non-all-clear envelope. Called only when the rendered page is entirely all-clear, to avoid a
+        false zero-state seal that would hide a finding paged past ``FEED_PAGE_SIZE`` and to count
+        all-clear runs across the whole feed (not just the page).
+        """
+        run_ids = list(feed_qs.values_list("source_id", flat=True))
+        if not run_ids:
+            return False, 0
+        statuses = list(RunEnvelope.objects.filter(run_id__in=run_ids).values_list("status", flat=True))
+        all_clear_count = sum(1 for status in statuses if status == EnvelopeStatus.ALL_CLEAR)
+        # Fewer envelopes than feed runs ⇒ at least one run is still classifying (no envelope) — don't seal.
+        classifying = len(statuses) < len(run_ids)
+        has_non_all_clear = any(status != EnvelopeStatus.ALL_CLEAR for status in statuses)
+        return (classifying or has_non_all_clear), all_clear_count
+
+    @staticmethod
+    def _next_sweep(user: User):
+        """Earliest upcoming scheduled-run time across the user's enabled schedules, or None."""
+        return (
+            ScheduledJob.objects
+            .filter(user=user, is_enabled=True, next_run_at__isnull=False)
+            .order_by("next_run_at")
+            .values_list("next_run_at", flat=True)
+            .first()
+        )
 
     def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
         visible = Run.objects.visible_to(user)
@@ -228,47 +516,41 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             "segments": segments,
         }
 
-    def _get_velocity_data(self, cutoff_date: date | None) -> dict | None:
-        merges = MergeMetric.objects.all()
-        if cutoff_date is not None:
-            merges = merges.filter(merged_at__date__gte=cutoff_date)
 
-        stats = merges.aggregate(
-            total=Count("id"),
-            total_added=Sum("lines_added", default=0),
-            total_removed=Sum("lines_removed", default=0),
-            daiv_merges=Count("id", filter=Q(daiv_commits__gt=0)),
-            total_commits_sum=Sum("total_commits", default=0),
-            daiv_commits_sum=Sum("daiv_commits", default=0),
-        )
+class ManagerLensView(AdminRequiredMixin, TemplateView):
+    """Admin-only org-impact surface — the relocated Code-Velocity / DAIV-attribution content.
 
-        if not stats["total"]:
-            return None
+    ``AdminRequiredMixin`` raises ``PermissionDenied`` (→ HTTP 403) for a logged-in non-admin, so a
+    forged direct request is denied server-side, not merely hidden (AC6). Reuses the stateless
+    ``?period=`` idiom and the shared module-level ``get_velocity_data`` computation (no duplicated
+    query). Nothing about the current surface is persisted (AC4) — the Lens is simply a distinct
+    route from the personal console, so a fresh landing is always ``/dashboard/``.
+    """
 
-        total_merges = stats["total"]
-        daiv_merges = stats["daiv_merges"]
-        human_merges = total_merges - daiv_merges
-        total_commits = stats["total_commits_sum"]
-        daiv_commits = stats["daiv_commits_sum"]
-        human_commits = max(0, total_commits - daiv_commits)
-        max_lines = max(stats["total_added"], stats["total_removed"], 1)
+    template_name = "accounts/manager_lens.html"
 
-        return {
-            "total_merges": total_merges,
-            "lines_added": stats["total_added"],
-            "lines_removed": stats["total_removed"],
-            "net_lines": stats["total_added"] - stats["total_removed"],
-            "daiv_merges_pct": _format_pct(daiv_merges, total_merges),
-            "daiv_merges_pct_raw": min(_raw_pct(daiv_merges, total_merges) or 0, 100),
-            "daiv_merges": daiv_merges,
-            "human_merges": human_merges,
-            "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
-            "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
-            "daiv_commits": daiv_commits,
-            "human_commits": human_commits,
-            "lines_added_pct": round(stats["total_added"] / max_lines * 100, 1),
-            "lines_removed_pct": round(stats["total_removed"] / max_lines * 100, 1),
-        }
+    def get_template_names(self) -> list[str]:
+        # HTMX (the top-bar toggle) swaps in the body fragment; a normal GET / no-JS deep link
+        # renders the full shell. Mirrors ``SessionListView`` / ``DashboardView``.
+        if is_htmx(self.request):
+            return ["accounts/_manager_lens.html"]
+        return ["accounts/manager_lens.html"]
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        _, cutoff_date = _resolve_period(self.request, default="all")
+
+        # Org-scoped by design — this is the ONE place org velocity / total_users render. The Lens
+        # defaults to the cumulative "all" window (not the personal console's "today"): org velocity
+        # is cumulative, so a fresh visit shows real historical impact instead of an empty view.
+        # ``get_velocity_data`` then returns ``None`` only for a genuinely-empty org (zero
+        # ``MergeMetric`` rows ever) — the honest cold-load skeleton, never a "DAIV did nothing"
+        # zero (AC5). No range switcher on the Lens yet — that arrives with Epic 3.
+        context["velocity"] = get_velocity_data(cutoff_date)
+        context["total_users"] = User.objects.count()
+
+        return context
 
 
 class APIKeyListView(LoginRequiredMixin, ListView):

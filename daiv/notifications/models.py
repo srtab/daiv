@@ -40,13 +40,15 @@ class Notification(TimeStampedModel):
             models.Index(fields=["recipient", "-created"], name="notif_recipient_created_idx"),
         ]
         constraints = [
-            # At most one batch-finished Notification per (recipient, batch). The batch_id
-            # lives in source_id; two workers can race when the last sibling jobs finish
-            # near-simultaneously, so we let the DB elect a single winner and the losing
-            # insert is swallowed at the application layer.
+            # At most one Notification per (recipient, source, event_type) for the event types
+            # whose emitters can race or re-fire. JOB_BATCH_FINISHED: the batch_id lives in
+            # source_id and two workers can race when the last siblings finish near-simultaneously.
+            # RUN_FEED (Story 2.3): the per-Run Feed row must be written exactly once per recipient
+            # even across re-emits/retries. In both cases the DB elects a single winner and the
+            # losing insert is swallowed at the application layer.
             models.UniqueConstraint(
                 fields=["recipient", "source_type", "source_id", "event_type"],
-                condition=models.Q(event_type=EventType.JOB_BATCH_FINISHED),
+                condition=models.Q(event_type__in=[EventType.JOB_BATCH_FINISHED, EventType.RUN_FEED]),
                 name="notif_unique_per_batch_recipient",
             )
         ]
@@ -66,9 +68,18 @@ class Notification(TimeStampedModel):
             self.save(update_fields=["read_at", "modified"])
 
     @classmethod
-    def mark_all_read_for(cls, user) -> int:
+    def mark_all_read_for(cls, user, exclude_event_types: tuple = ()) -> int:
+        """Mark all of ``user``'s unread notifications read.
+
+        ``exclude_event_types`` scopes the update so callers can leave certain event types
+        untouched — the bell's on-open mark-all-read passes ``(EventType.RUN_FEED,)`` so
+        opening the bell never clears the Feed's independent seen-state (Story 2.3, AC8).
+        """
         now = timezone.now()
-        return cls.objects.filter(recipient=user, read_at__isnull=True).update(read_at=now, modified=now)
+        qs = cls.objects.filter(recipient=user, read_at__isnull=True)
+        if exclude_event_types:
+            qs = qs.exclude(event_type__in=exclude_event_types)
+        return qs.update(read_at=now, modified=now)
 
 
 class NotificationDelivery(TimeStampedModel):

@@ -1,0 +1,61 @@
+{% load i18n %}
+{% comment %}
+Review Console main column — three stacked placeholder regions (Story 2.1).
+Structural skeletons only; Hero/Queue/Feed content and the "you have N" count
+are wired by later stories (Epic 3 / Epic 4 / Story 2.3). This partial carries
+NO job-creation control (FR-3). Reused verbatim as the HTMX body fragment.
+Each region is marked aria-busy while its content is pending; the decorative
+shimmer skeletons are aria-hidden so assistive tech is not read empty rows.
+{% endcomment %}
+<div class="flex flex-col gap-5">
+  {# ── Hero ─────────────────────────────────────────────────────────────── #}
+  <section data-testid="console-hero" aria-labelledby="console-hero-heading" aria-busy="true"
+           class="rounded-xl border border-border bg-surface-2 p-[22px]">
+    <header class="mb-4 flex items-center gap-2">
+      <span class="h-1.5 w-1.5 rounded-full bg-status-clear"></span>
+      <h2 id="console-hero-heading"
+          class="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-text-faint">
+        {% translate "Today" %}
+      </h2>
+    </header>
+    <div class="space-y-3" aria-hidden="true">
+      <div class="skeleton h-9 w-2/3 rounded-md"></div>
+      <div class="skeleton h-4 w-2/5 rounded-md"></div>
+    </div>
+  </section>
+
+  {# ── Needs-me queue ───────────────────────────────────────────────────── #}
+  <section data-testid="console-queue" aria-labelledby="console-queue-heading" aria-busy="true">
+    <header class="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 id="console-queue-heading" class="text-[14px] font-semibold tracking-tight text-text">
+        {% translate "Needs-me queue" %}
+      </h2>
+      {# "you have N" count container — populated in Epic 4; announced politely. #}
+      <span data-testid="console-queue-count" aria-live="polite"
+            class="font-mono text-[12px] tabular-nums text-text-muted"></span>
+    </header>
+    <div class="overflow-hidden rounded-xl border border-border bg-surface-2" aria-hidden="true">
+      <div class="skeleton h-16 border-b border-border"></div>
+      <div class="skeleton h-16 border-b border-border"></div>
+      <div class="skeleton h-16"></div>
+    </div>
+  </section>
+
+  {# ── Feed (Story 2.3) ─────────────────────────────────────────────────── #}
+  <section data-testid="console-feed" aria-labelledby="console-feed-heading">
+    <header class="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 id="console-feed-heading" class="text-[14px] font-semibold tracking-tight text-text">
+        {% translate "Feed" %}
+      </h2>
+      <span class="font-mono text-[11px] uppercase tracking-[0.14em] text-text-faint">
+        {% translate "what happened" %}
+      </span>
+      {# Persistent aria-live container: only its inner fragment swaps on ``feed:seen`` so the live
+         region survives and the change (including to 0) is announced. #}
+      <span id="feed-unread" role="status" aria-live="polite" class="ml-auto"
+            hx-get="{% url 'feed_unread_badge' %}" hx-trigger="feed:seen from:body"
+            hx-target="this" hx-swap="innerHTML">{% include "accounts/_feed_unread_badge.html" %}</span>
+    </header>
+    {% include "accounts/_feed.html" %}
+  </section>
+</div>

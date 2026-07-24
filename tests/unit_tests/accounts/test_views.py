@@ -1,15 +1,22 @@
 import uuid
+from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.messages import get_messages
 from django.core import mail
+from django.template.loader import get_template
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from notifications.choices import EventType
+from notifications.models import Notification
+from sessions.envelopes import build_actionable_item
+from sessions.models import EnvelopeStatus, Run, RunEnvelope, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, Role, User
+from schedules.models import Frequency, ScheduledJob
 
 
 @pytest.fixture
@@ -384,3 +391,365 @@ class TestDashboardChatSegment:
         assert seg_by_label.get("Chat", 0) == 2
         # Other gets only the UI_JOB run (1), not the chat runs
         assert seg_by_label.get("Other", 0) == 1
+
+
+# ---------------------------------------------------------------------------
+# Story 2.3 — The Feed: emit and render "what happened"
+# ---------------------------------------------------------------------------
+
+
+def _make_feed_run(
+    user,
+    *,
+    envelope_status=None,
+    summary="",
+    n_actionable=0,
+    finished=True,
+    read_at=None,
+    repo_id="group/project",
+    next_run_at=None,
+):
+    """Build a SCHEDULE run (+ optional RunEnvelope + a RUN_FEED notification) for ``user``.
+
+    ``envelope_status=None`` leaves the run unclassified — the "classifying…" state (``for_run``
+    returns None). A ``found-issues`` envelope needs ``n_actionable`` items to carry a count.
+    """
+    schedule = ScheduledJob.objects.create(
+        user=user,
+        name="nightly",
+        prompt="p",
+        repos=[{"repo_id": repo_id, "ref": ""}],
+        frequency=Frequency.DAILY,
+        time="12:00",
+        next_run_at=next_run_at,
+    )
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id=repo_id, user=user, scheduled_job=schedule
+    )
+    run = Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.SCHEDULE,
+        repo_id=repo_id,
+        status=RunStatus.SUCCESSFUL,
+        user=user,
+        finished_at=timezone.now() if finished else None,
+    )
+    if envelope_status is not None:
+        actionable = [
+            build_actionable_item(id=str(i), kind="bug", label=f"issue {i}", ref="a.py") for i in range(n_actionable)
+        ]
+        RunEnvelope.objects.create(run=run, status=envelope_status, summary=summary, actionable=actionable)
+    Notification.objects.create(
+        recipient=user,
+        event_type=EventType.RUN_FEED,
+        source_type="sessions.Run",
+        source_id=str(run.pk),
+        subject="nightly",
+        body="",
+        link_url=reverse("session_detail", kwargs={"thread_id": session.thread_id}),
+        read_at=read_at,
+    )
+    return run
+
+
+@pytest.mark.django_db
+class TestFeedRender:
+    """AC2/AC3/AC5 — five render states keyed off the RunEnvelope."""
+
+    def test_found_issues_renders_expanded_with_count_and_summary(self, member_client, member_user):
+        _make_feed_run(
+            member_user, envelope_status=EnvelopeStatus.FOUND_ISSUES, summary="Two problems in auth.", n_actionable=2
+        )
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-testid="feed-item"' in content
+        assert 'data-status="found-issues"' in content
+        assert "Two problems in auth." in content
+        assert "2 items" in content
+
+    def test_needs_attention_renders_summary(self, member_client, member_user):
+        _make_feed_run(
+            member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, summary="Review the migration plan."
+        )
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-status="needs-attention"' in content
+        assert "Review the migration plan." in content
+
+    def test_all_clear_renders_quiet_in_a_mixed_feed(self, member_client, member_user):
+        # A mix (one item needs attention) forces the list to render, so the quiet all-clear card shows.
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.FOUND_ISSUES, summary="x", n_actionable=1)
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-status="all-clear"' in content
+        assert "we checked — nothing needs you" in content
+
+    def test_failed_reads_as_tooling_problem_not_a_finding(self, member_client, member_user):
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.FAILED, summary="MCP connector down")
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-status="failed"' in content
+        assert "Tooling problem — MCP connector down" in content
+        # A failed run never carries a finding count — the found-issues count span (the only place
+        # that inline color is used) must be absent.
+        assert "var(--color-status-found)" not in content
+
+    def test_classifying_renders_pending_and_registers_in_flight(self, member_client, member_user):
+        run = _make_feed_run(member_user, envelope_status=None)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-status="classifying"' in content
+        assert "classifying" in content
+        assert 'aria-live="polite"' in content
+        # The run id is registered on the in-flight collector for the SSE consumer.
+        assert str(run.id) in content.split('id="feed-in-flight"')[1].split(">")[0]
+
+    def test_no_action_buttons_rendered(self, member_client, member_user):
+        # Epic 5 owns fix/review/retry buttons; the Feed renders status + summary + drill-through,
+        # plus Story 2.4's seen-state dismiss control — but never an envelope action button.
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.FOUND_ISSUES, summary="x", n_actionable=1)
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, summary="y")
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.FAILED, summary="z")
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert "Fix it" not in content
+        assert "Review this" not in content
+        feed = content.split('data-testid="console-feed"')[1]
+        # The only buttons in the Feed are seen-state dismiss controls, never an Epic 5 action.
+        assert feed.count("<button") == feed.count('data-testid="feed-item-dismiss"')
+
+    def test_drill_through_links_to_session_detail(self, member_client, member_user):
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        # A lone all-clear renders the seal, so add an attention item to force the list.
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.FAILED, summary="z")
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert reverse("session_detail", kwargs={"thread_id": run.session_id}) in content
+
+
+@pytest.mark.django_db
+class TestFeedZeroState:
+    """AC6 — the "nothing needs you." seal, distinguishing audited-clean from never-ran."""
+
+    def test_never_ran_seal(self, member_client, member_user):
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-testid="feed-zero-state"' in content
+        assert 'data-variant="never-ran"' in content
+        assert "No scheduled runs yet." in content
+
+    def test_audited_clean_seal_with_audit_meta(self, member_client, member_user):
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert 'data-testid="feed-zero-state"' in content
+        assert 'data-variant="audited-clean"' in content
+        assert "run all clear" in content
+        assert "last checked" in content
+
+    def test_audited_clean_appends_next_sweep_when_present(self, member_client, member_user):
+        _make_feed_run(
+            member_user,
+            envelope_status=EnvelopeStatus.ALL_CLEAR,
+            next_run_at=timezone.now() + timezone.timedelta(hours=3),
+        )
+        response = member_client.get(reverse("dashboard"))
+        content = response.content.decode()
+        assert "next sweep" in content
+
+
+@pytest.mark.django_db
+class TestFeedItemView:
+    """AC9 — the per-item partial endpoint (SSE re-fetch source)."""
+
+    def test_returns_partial_for_owned_run(self, member_client, member_user):
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        response = member_client.get(reverse("feed_item", kwargs={"run_id": run.id}))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-testid="feed-item"' in content
+        assert 'data-status="all-clear"' in content
+
+    def test_404_for_run_without_feed_row(self, member_client, member_user, admin_user):
+        # A run owned by another user (member has no RUN_FEED row for it) → 404.
+        run = _make_feed_run(admin_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        response = member_client.get(reverse("feed_item", kwargs={"run_id": run.id}))
+        assert response.status_code == 404
+
+    def test_404_for_unknown_run(self, member_client, member_user):
+        response = member_client.get(reverse("feed_item", kwargs={"run_id": uuid.uuid4()}))
+        assert response.status_code == 404
+
+    def test_resolved_run_drops_classifying_hooks(self, member_client, member_user):
+        # Before classification: the item is classifying (aria-busy). After the envelope lands, the
+        # re-fetched partial renders the resolved status and omits the classifying/in-flight hooks.
+        run = _make_feed_run(member_user, envelope_status=None)
+        pending = member_client.get(reverse("feed_item", kwargs={"run_id": run.id})).content.decode()
+        assert 'data-status="classifying"' in pending
+        assert "aria-busy" in pending
+
+        RunEnvelope.objects.create(run=run, status=EnvelopeStatus.ALL_CLEAR, summary="")
+        resolved = member_client.get(reverse("feed_item", kwargs={"run_id": run.id})).content.decode()
+        assert 'data-status="all-clear"' in resolved
+        assert "aria-busy" not in resolved
+
+
+class TestFeedI18n:
+    """AC7 — all new Feed microcopy is externalized (no bare hard-coded strings)."""
+
+    def test_feed_item_strings_are_translated(self):
+        src = Path(get_template("accounts/_feed_item.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "classifying…" %}' in src
+        assert '{% translate "we checked — nothing needs you" %}' in src
+        assert "Tooling problem" in src
+
+    def test_zero_state_strings_are_translated(self):
+        src = Path(get_template("accounts/_feed_zero_state.html").origin.name).read_text(encoding="utf-8")
+        assert '{% translate "nothing needs you." %}' in src
+        assert '{% translate "No scheduled runs yet." %}' in src
+        assert "runs all clear" in src
+
+
+# ---------------------------------------------------------------------------
+# Story 2.4 — Per-user seen/unread and mark-seen
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestFeedItemSeen:
+    """AC3/AC7 — owner-scoped, idempotent single-item mark-seen."""
+
+    def test_own_unread_marks_seen_and_triggers(self, member_client, member_user):
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, summary="y")
+        response = member_client.post(reverse("feed_item_seen", kwargs={"run_id": run.id}))
+        assert response.status_code == 200
+        notif = Notification.objects.get(recipient=member_user, source_id=str(run.pk))
+        assert notif.read_at is not None
+        content = response.content.decode()
+        # The re-rendered item is the seen treatment — no unread cue, no dismiss control.
+        assert 'data-testid="feed-item"' in content
+        assert 'data-testid="feed-item-unread"' not in content
+        assert 'data-testid="feed-item-dismiss"' not in content
+        assert response["HX-Trigger"] == "feed:seen"
+
+    def test_cross_user_is_404(self, member_client, admin_user):
+        run = _make_feed_run(admin_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        response = member_client.post(reverse("feed_item_seen", kwargs={"run_id": run.id}))
+        assert response.status_code == 404
+
+    def test_unknown_run_is_404(self, member_client, member_user):
+        response = member_client.post(reverse("feed_item_seen", kwargs={"run_id": uuid.uuid4()}))
+        assert response.status_code == 404
+
+    def test_deleted_run_is_404(self, member_client, member_user):
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        Run.objects.filter(pk=run.pk).delete()  # orphan the RUN_FEED row
+        response = member_client.post(reverse("feed_item_seen", kwargs={"run_id": run.id}))
+        assert response.status_code == 404
+
+    def test_get_is_405(self, member_client, member_user):
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        response = member_client.get(reverse("feed_item_seen", kwargs={"run_id": run.id}))
+        assert response.status_code == 405
+
+    def test_repeat_is_idempotent(self, member_client, member_user):
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        first = member_client.post(reverse("feed_item_seen", kwargs={"run_id": run.id}))
+        assert first.status_code == 200
+        notif = Notification.objects.get(recipient=member_user, source_id=str(run.pk))
+        first_read_at = notif.read_at
+        assert first_read_at is not None
+        second = member_client.post(reverse("feed_item_seen", kwargs={"run_id": run.id}))
+        assert second.status_code == 200
+        notif.refresh_from_db()
+        assert notif.read_at == first_read_at  # unchanged — mark_as_read no-ops when already read
+
+    def test_per_user_isolation(self, member_client, member_user, admin_user):
+        # AC1 — two users hold a Feed row for the same run; marking one seen leaves the other unread.
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        Notification.objects.create(
+            recipient=admin_user,
+            event_type=EventType.RUN_FEED,
+            source_type="sessions.Run",
+            source_id=str(run.pk),
+            subject="n",
+            body="",
+            link_url="/",
+        )
+        member_client.post(reverse("feed_item_seen", kwargs={"run_id": run.id}))
+        member_notif = Notification.objects.get(recipient=member_user, source_id=str(run.pk))
+        admin_notif = Notification.objects.get(recipient=admin_user, source_id=str(run.pk))
+        assert member_notif.read_at is not None
+        assert admin_notif.read_at is None
+
+    def test_marking_feed_seen_leaves_bell_row_unread(self, member_client, member_user):
+        # AC6 — a bell (non-RUN_FEED) unread row stays unread when a Feed item is marked seen.
+        bell = Notification.objects.create(
+            recipient=member_user, event_type=EventType.JOB_FINISHED, subject="s", body="b", link_url="/"
+        )
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        member_client.post(reverse("feed_item_seen", kwargs={"run_id": run.id}))
+        bell.refresh_from_db()
+        assert bell.read_at is None
+
+
+@pytest.mark.django_db
+class TestFeedRenderDelta:
+    """AC2/AC3/AC8 — unseen vs seen cues, dismiss gating, and the drill-through wiring."""
+
+    def _feed_section(self, member_client):
+        content = member_client.get(reverse("dashboard")).content.decode()
+        return content.split('data-testid="console-feed"')[1]
+
+    def test_unseen_resolved_carries_unread_and_dismiss(self, member_client, member_user):
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, summary="y")
+        feed = self._feed_section(member_client)
+        assert 'data-testid="feed-item-unread"' in feed
+        assert 'data-testid="feed-item-dismiss"' in feed
+
+    def test_unseen_classifying_carries_unread_not_dismiss(self, member_client, member_user):
+        _make_feed_run(member_user, envelope_status=None)  # classifying — no envelope yet
+        feed = self._feed_section(member_client)
+        assert 'data-testid="feed-item-unread"' in feed
+        assert 'data-testid="feed-item-dismiss"' not in feed
+
+    def test_seen_item_carries_neither_cue(self, member_client, member_user):
+        # A seen needs-attention item still renders (attention is envelope-status, not read state).
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION, read_at=timezone.now())
+        feed = self._feed_section(member_client)
+        assert 'data-testid="feed-item"' in feed
+        assert 'data-testid="feed-item-unread"' not in feed
+        assert 'data-testid="feed-item-dismiss"' not in feed
+
+    def test_drill_through_link_marks_seen(self, member_client, member_user):
+        run = _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        feed = self._feed_section(member_client)
+        assert reverse("feed_item_seen", kwargs={"run_id": run.id}) in feed
+        assert 'hx-post="' in feed
+
+    def test_badge_shows_attention_total(self, member_client, member_user):
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        _make_feed_run(member_user, envelope_status=None)  # classifying counts
+        content = member_client.get(reverse("dashboard")).content.decode()
+        assert 'data-testid="feed-unread-badge"' in content
+        # The sr-only text counts ATTENTION items, not "unread" (P2) — the per-item unread dots keep
+        # their own bare "unread" label, so the badge must announce the distinct attention wording.
+        assert "2 need attention" in content
+
+    def test_badge_absent_at_zero_but_attention_seal_persists(self, member_client, member_user):
+        # Only an unread all-clear run → attention count 0 → badge chip absent, but the non-empty
+        # "nothing needs your attention" sr-only text persists so the to-zero swap is announced (P2).
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.ALL_CLEAR)
+        content = member_client.get(reverse("dashboard")).content.decode()
+        assert 'data-testid="feed-unread-badge"' not in content
+        assert "nothing needs your attention" in content
+
+    def test_badge_is_not_teal_nor_you_have_n(self, member_client, member_user):
+        _make_feed_run(member_user, envelope_status=EnvelopeStatus.NEEDS_ATTENTION)
+        content = member_client.get(reverse("dashboard")).content.decode()
+        badge = content.split('data-testid="feed-unread-badge"')[1][:160]
+        assert "text-text-muted" in badge  # neutral/muted, mono
+        assert "teal" not in badge
+        assert "accent" not in badge
+        assert "you have" not in content.lower()

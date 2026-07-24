@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import Error as DatabaseError
 from django.utils.functional import SimpleLazyObject
 
@@ -14,7 +15,9 @@ logger = logging.getLogger("daiv.accounts")
 NAV_SECTION_MCP_GLOBAL = "mcp_servers_global"
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
-    "dashboard": {"dashboard"},
+    # The admin Manager Lens is a console surface under Dashboard — keep the Dashboard
+    # sidebar item highlighted when it is open.
+    "dashboard": {"dashboard", "manager_lens"},
     "sessions": {
         "session_list",
         "session_new",
@@ -97,6 +100,63 @@ def running_jobs_count(request, user) -> int:
         running = 0
     request._daiv_running_jobs = running
     return running
+
+
+def feed_unread_attention_count(user) -> int:
+    """Count the user's unread Feed rows that still NEED ATTENTION (Story 2.4, Option 1).
+
+    Envelope-aware, unlike the bell's flat unread count: a row counts only when its run still
+    exists AND its envelope is not ``all-clear``. A ``classifying`` run (terminal but no envelope
+    yet) counts — it needs attention until it resolves; an unread ``all-clear`` run does not (quiet
+    by design, so the badge never contradicts the "nothing needs you." seal); a row whose ``Run``
+    was deleted does not. Three small queries, all scoped to the user's unread ``RUN_FEED`` rows
+    (per-user, low volume) — never an unscoped notification-table scan.
+    """
+    from notifications.choices import EventType
+    from notifications.models import Notification
+    from sessions.models import EnvelopeStatus, Run, RunEnvelope
+
+    source_ids = list(
+        Notification.objects.filter(recipient=user, event_type=EventType.RUN_FEED, read_at__isnull=True).values_list(
+            "source_id", flat=True
+        )
+    )
+    if not source_ids:
+        return 0
+    existing = {str(pk) for pk in Run.objects.filter(pk__in=source_ids).values_list("pk", flat=True)}
+    all_clear = {
+        str(run_id)
+        for run_id in RunEnvelope.objects.filter(run_id__in=source_ids, status=EnvelopeStatus.ALL_CLEAR).values_list(
+            "run_id", flat=True
+        )
+    }
+    # classifying (run exists, no envelope) is not in ``all_clear`` → counts.
+    return sum(1 for source_id in source_ids if source_id in existing and source_id not in all_clear)
+
+
+def feed_unread_count(request) -> dict[str, Any]:
+    """Expose the user's unread-attention Feed count to every template (the console badge).
+
+    Mirrors the sibling ``nav`` processor: the anonymous guard is eager (cheap), but the count is
+    wrapped in ``SimpleLazyObject`` so the 1-3 queries run ONLY when a template actually references
+    ``feed_unread_count`` (the badge appears only on the console) — not on every authenticated
+    request app-wide. The guard degrades to ``0`` (logged) rather than breaking page rendering; it
+    also catches ``ValueError``/``ValidationError`` because a malformed ``source_id`` (non-UUID)
+    raises on the ``pk__in`` UUID filter, and this processor is global. Envelope-aware via
+    ``feed_unread_attention_count`` — it is NOT the bell count's inverse.
+    """
+    if not getattr(request, "user", None) or not request.user.is_authenticated:
+        return {}
+    user = request.user
+
+    def _count() -> int:
+        try:
+            return feed_unread_attention_count(user)
+        except DatabaseError, ValueError, ValidationError:
+            logger.exception("Failed to compute feed unread count for user %s", user.pk)
+            return 0
+
+    return {"feed_unread_count": SimpleLazyObject(_count)}
 
 
 def nav(request) -> dict[str, Any]:
