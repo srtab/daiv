@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-21 15:27+0100\n"
+"POT-Creation-Date: 2026-07-22 07:26-0500\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -111,6 +111,9 @@ msgid_plural "you have %(n)s"
 msgstr[0] "tens %(n)s"
 msgstr[1] "tens %(n)s"
 
+msgid "caught up"
+msgstr "em dia"
+
 msgid "Feed"
 msgstr "Feed"
 
@@ -145,6 +148,19 @@ msgstr "Problema de ferramenta"
 
 msgid "needs your attention"
 msgstr "precisa da tua atenção"
+
+# Story 5.1 — Finding -> Fix scope/intent preview
+msgid "Fix it"
+msgstr "Corrigir"
+
+msgid "Retry"
+msgstr "repetir"
+
+msgid "Review this"
+msgstr "Rever isto"
+
+msgid "Re-run"
+msgstr "repetir agora"
 
 msgid "mark seen"
 msgstr "marcar como visto"
@@ -182,6 +198,42 @@ msgstr "próxima verificação %(sweep)s"
 
 msgid "No scheduled runs yet."
 msgstr "Ainda não há execuções agendadas."
+
+msgid "Start a fix"
+msgstr "Iniciar uma correção"
+
+msgid "Review what will run before starting it. Nothing happens until you confirm."
+msgstr "Reveja o que será executado antes de iniciar. Nada acontece até confirmar."
+
+msgid "Close"
+msgstr "Fechar"
+
+msgid "Scope"
+msgstr "Âmbito"
+
+msgid "default branch"
+msgstr "ramo predefinido"
+
+msgid "What will be attempted"
+msgstr "O que será tentado"
+
+msgid "Instruction"
+msgstr "Instrução"
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "This finding is no longer actionable — nothing to start."
+msgstr "Esta deteção já não é acionável — nada para iniciar."
+
+msgid "Fix started"
+msgstr "Correção iniciada"
+
+msgid "A change session is on its way."
+msgstr "Uma sessão de alteração está a caminho."
+
+msgid "View session"
+msgstr "Ver sessão"
 
 msgid "today"
 msgstr "hoje"
@@ -345,20 +397,14 @@ msgstr "rever"
 msgid "Fix"
 msgstr "corrigir"
 
-msgid "Retry"
-msgstr "repetir"
-
 msgid "View run"
 msgstr "ver execução"
 
-msgid "DAIV checked your work — nothing is waiting on you."
-msgstr "O DAIV verificou o teu trabalho — nada está à tua espera."
-
 #, python-format
-msgid "checked %(counter)s run · last checked %(checked)s"
-msgid_plural "checked %(counter)s runs · last checked %(checked)s"
-msgstr[0] "verificada %(counter)s execução · última verificação %(checked)s"
-msgstr[1] "verificadas %(counter)s execuções · última verificação %(checked)s"
+msgid "checked %(counter)s run"
+msgid_plural "checked %(counter)s runs"
+msgstr[0] "verificada %(counter)s execução"
+msgstr[1] "verificadas %(counter)s execuções"
 
 msgid "No runs yet."
 msgstr "Ainda não há execuções."
@@ -441,6 +487,12 @@ msgstr "90 dias"
 msgid "All time"
 msgstr "Desde sempre"
 
+msgid "Retry started…"
+msgstr "Repetição iniciada…"
+
+msgid "Re-run started…"
+msgstr "Reexecução iniciada…"
+
 msgid "Welcome to DAIV"
 msgstr "Bem-vindo ao DAIV"
 
@@ -509,14 +561,38 @@ msgstr "Autorizar"
 msgid "Authorizing will grant this application access to your DAIV account"
 msgstr "Ao autorizar, irá conceder a esta aplicação acesso à sua conta DAIV"
 
-msgid "caught up"
-msgstr "em dia"
+msgid "This finding is no longer actionable — nothing was started."
+msgstr "Esta deteção já não é acionável — nada foi iniciado."
+
+msgid "Repository not found or not accessible."
+msgstr "Repositório não encontrado ou não acessível."
+
+msgid "Could not start the fix. Please try again in a moment."
+msgstr "Não foi possível iniciar a correção. Tente novamente daqui a instantes."
+
+msgid "Retry this run?"
+msgstr "Repetir esta execução?"
+
+msgid "This run can no longer be retried — nothing was started."
+msgstr "Esta execução já não pode ser repetida — nada foi iniciado."
+
+msgid "This run can no longer be retried — nothing to start."
+msgstr "Já não é possível repetir esta execução — nada para iniciar."
+
+msgid "Could not start the run. Please try again in a moment."
+msgstr "Não foi possível iniciar a execução. Tente novamente daqui a instantes."
+
+msgid "Re-run schedule?"
+msgstr "Repetir agendamento?"
+
+#~ msgid "DAIV checked your work — nothing is waiting on you."
+#~ msgstr "O DAIV verificou o teu trabalho — nada está à tua espera."
 
 #, python-format
-msgid "checked %(counter)s run"
-msgid_plural "checked %(counter)s runs"
-msgstr[0] "verificada %(counter)s execução"
-msgstr[1] "verificadas %(counter)s execuções"
+#~ msgid "checked %(counter)s run · last checked %(checked)s"
+#~ msgid_plural "checked %(counter)s runs · last checked %(checked)s"
+#~ msgstr[0] "verificada %(counter)s execução · última verificação %(checked)s"
+#~ msgstr[1] "verificadas %(counter)s execuções · última verificação %(checked)s"
 
 #~ msgid "stale"
 #~ msgstr "parado"

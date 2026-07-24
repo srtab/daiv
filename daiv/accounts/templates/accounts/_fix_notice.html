@@ -1,0 +1,9 @@
+{% load i18n %}
+{% comment %}
+Inline notice (Story 5.1) — a calm no-launch message retargeted INTO the open preview dialog's
+``#fix-preview-error`` sink (revoked access, stale/tampered state, or a transient submit failure).
+No region swap, no ``fix:started`` trigger; the dialog stays open so the user sees why nothing ran.
+``message`` is a view-authored, already-translated string.
+{% endcomment %}
+<p data-testid="fix-notice" class="border-t border-border px-6 py-3 text-[13px]"
+   style="color: var(--color-status-fail)">{{ message }}</p>

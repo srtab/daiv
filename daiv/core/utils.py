@@ -82,12 +82,18 @@ def is_valid_url(url: str) -> bool:
 
 
 def is_htmx(request) -> bool:
-    """True when the request was issued by HTMX (carries the ``HX-Request`` header).
+    """True when the request should be served a live HTMX partial fragment.
 
     Shared by views that serve a results-only fragment to HTMX and the full page
-    otherwise (e.g. ``SessionListView``, the ``sandbox_envs`` env views).
+    otherwise (the console/dashboard surfaces, the session list, the ``sandbox_envs``
+    env views).
+
+    Returns ``False`` on an HTMX history-restore request (``HX-History-Restore-Request:
+    true``, sent alongside ``HX-Request: true`` on a Back-navigation cache miss): htmx
+    restores the response into the history element (the ``<body>``) and expects the full
+    document, so those requests must receive the full page, not the chrome-less fragment.
     """
-    return request.headers.get("HX-Request") == "true"
+    return request.headers.get("HX-Request") == "true" and request.headers.get("HX-History-Restore-Request") != "true"
 
 
 def build_uri(uri: str, path: str):

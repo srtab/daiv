@@ -1,4 +1,5 @@
 from django.contrib.sites.models import Site
+from django.test import RequestFactory
 
 import httpx
 import pytest
@@ -10,6 +11,7 @@ from core.utils import (
     build_uri,
     extract_valid_image_mimetype,
     is_git_auth_error_text,
+    is_htmx,
     is_valid_url,
     prefixed_email_subject,
 )
@@ -91,6 +93,31 @@ class IsValidUrlTest:
         assert is_valid_url("not-a-url") is False
         assert is_valid_url("") is False
         assert is_valid_url("file:///local/path") is False
+
+
+class TestIsHtmx:
+    """``is_htmx`` is True only for a *live partial swap* — an HTMX request that is NOT a
+    history-restore. A history-restore GET (Back-navigation cache miss) carries both
+    ``HX-Request`` and ``HX-History-Restore-Request`` and must receive the full page, so it
+    returns False. ``request.headers.get`` is case-insensitive, so the test client's
+    ``HTTP_*`` header names match the ``HX-*`` lookups."""
+
+    def test_live_partial_swap_returns_true(self):
+        request = RequestFactory().get("/", HTTP_HX_REQUEST="true")
+        assert is_htmx(request) is True
+
+    def test_history_restore_returns_false(self):
+        request = RequestFactory().get("/", HTTP_HX_REQUEST="true", HTTP_HX_HISTORY_RESTORE_REQUEST="true")
+        assert is_htmx(request) is False
+
+    def test_plain_navigation_returns_false(self):
+        request = RequestFactory().get("/")
+        assert is_htmx(request) is False
+
+    def test_restore_header_without_hx_request_returns_false(self):
+        # Defensive: a restore header on a non-HTMX request is still a full-page render.
+        request = RequestFactory().get("/", HTTP_HX_HISTORY_RESTORE_REQUEST="true")
+        assert is_htmx(request) is False
 
 
 class BuildUriTest:

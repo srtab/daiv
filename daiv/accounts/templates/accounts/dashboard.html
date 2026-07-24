@@ -19,8 +19,9 @@
      swap) and href (no-JS fallback / deep-link). Sits OUTSIDE #console-main so Alpine keeps the
      active/aria-current state across the swap; a hard load is already correct because Alpine seeds
      ``range`` from the server-resolved ``current_period``. Teal = active pill. Mirrors
-     _manager_lens_toggle.html. (hx-push-url touches the known is_htmx / HX-History-Restore-Request
-     gap — see deferred-work.md; not fixed here.) {% endcomment %}
+     _manager_lens_toggle.html. The hx-push-url history-restore (Back-navigation cache miss) is
+     handled by the shared ``is_htmx`` fix (Story 6.1): it returns ``False`` on a
+     HX-History-Restore-Request, so htmx re-restores the full page, not the fragment. {% endcomment %}
   <div data-testid="range-switcher" x-data="{ range: '{{ current_period }}' }"
        role="group" aria-label="{% translate 'Time range' %}"
        class="hidden items-center gap-0.5 rounded-md border border-border bg-ground p-0.5 md:flex">
@@ -70,4 +71,20 @@
 {% block app_content %}
 {# #console-main is the HTMX swap target for the top-bar Manager-Lens toggle. #}
 <div id="console-main">{% include "accounts/_console_body.html" %}</div>
+
+{% comment %} Story 5.1 — the persistent Finding -> Fix preview dialog mount + the OOB announce
+   region, mounted OUTSIDE #console-main so they survive every Manager-Lens / range-switch console
+   swap and the announce region is never clobbered (deferred-work.md:53-55). A ``fix it`` button
+   ``hx-get``s the scope/intent preview into ``#fix-preview-mount``; only the preview's explicit
+   confirm POST launches a run and fires ``fix:started``, which this region announces politely. {% endcomment %}
+<div id="fix-preview-mount"></div>
+{% translate "Fix started" as fix_started_label %}
+{% translate "Retry started…" as retry_started_label %}
+{% translate "Re-run started…" as rerun_started_label %}
+<div id="fix-announce" role="status" aria-live="polite" class="sr-only"
+     x-data="{ msg: '' }"
+     @fix:started.window="msg = '{{ fix_started_label|escapejs }}'"
+     @retry:started.window="msg = '{{ retry_started_label|escapejs }}'"
+     @rerun:started.window="msg = '{{ rerun_started_label|escapejs }}'"
+     x-text="msg"></div>
 {% endblock app_content %}
