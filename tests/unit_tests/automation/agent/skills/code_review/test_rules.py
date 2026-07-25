@@ -158,6 +158,40 @@ class TestSnapshot:
         assert any("not a degraded review" in note for note in manifest["notes"])
 
 
+class TestWorkflowDocCoupling:
+    """Stage 0's prose and this script's manifest must not drift apart.
+
+    The orchestrator is a model reading review-workflow.md: if the doc names a manifest key the
+    script does not emit (or vice versa), Stage 0 silently mis-gates cr-custom-rules with no
+    other test failing.
+    """
+
+    @staticmethod
+    def _workflow() -> str:
+        path = _RULES_PATH.parent.parent / "references" / "review-workflow.md"
+        return path.read_text(encoding="utf-8")
+
+    def test_stage_0_invokes_the_snapshot_script(self):
+        workflow = self._workflow()
+        assert "scripts/rules.py snapshot" in workflow
+        assert "--base-sha" in workflow
+
+    def test_stage_0_gates_on_the_manifest_keys_the_script_emits(self, repo, snap_dir):
+        (repo / "README.md").write_text("hi\n")
+        base = _commit(repo, "base")
+        manifest = rules.snapshot(str(repo), base, str(snap_dir))
+
+        workflow = self._workflow()
+        for key in ("dispatch_custom_rules", "degraded", "absent", "notes"):
+            assert key in manifest, f"script stopped emitting {key}"
+            assert key in workflow, f"review-workflow.md does not mention {key}"
+
+    def test_stage_0_forbids_the_working_tree_fallback(self):
+        # The failure this whole workstream exists to prevent: reading the PR's own rule file.
+        workflow = self._workflow()
+        assert "never fall back to the working-tree copy" in workflow
+
+
 class TestCli:
     def test_snapshot_prints_manifest_json_and_exits_zero(self, repo, snap_dir, capsys, monkeypatch):
         (repo / ".agents" / "review-rules.md").write_text("base rule\n")

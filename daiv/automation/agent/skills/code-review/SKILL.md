@@ -16,7 +16,7 @@ This skill runs in two phases. The **review workflow** finds and verifies high-s
 
 ## Run the review
 
-1. **Always read `references/review-workflow.md` first; do not pre-judge the diff.** It walks scope → Stage 0 (per-repo review rules) → Stage 1 (detector fan-out, or an inline triage pass for trivially small changes) → Stage 2 (merge + adversarial verification) → severity, and hands off the **verified findings**.
+1. **Always read `references/review-workflow.md` first; do not pre-judge the diff.** It walks scope → Stage 0 (trusted base-revision review rules) → Stage 1 (detector fan-out, or an inline triage pass for trivially small changes) → Stage 2 (merge + adversarial verification) → severity, and hands off the **verified findings**.
 2. **Interactive mode:** render the survivors using the interactive output protocol at the end of `review-workflow.md`, and return it as the final message. Done.
 3. **Delivery mode:** once the workflow hands off verified findings, **read `references/gitlab-delivery.md` and follow it** to post them. Read it *before* posting anything — the marker, anchor, and dedup machinery is not reconstructable from memory.
 
