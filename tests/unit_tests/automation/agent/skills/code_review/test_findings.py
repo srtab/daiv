@@ -246,6 +246,25 @@ class TestReadFindingsFromFiles:
         assert skipped == 1
         assert "no 'findings' array" in capsys.readouterr().err
 
+    def test_txt_with_valid_json_counted_as_skipped(self, tmp_path, capsys):
+        # A .txt deferral means DeferredOutputMiddleware did NOT see a marker-verified
+        # submit_findings call — the detector failed to record findings. Even if the text
+        # happens to be valid JSON (e.g. a model printing {"findings": []} instead of calling
+        # the tool), it must be counted as skipped, not as a legitimately empty review.
+        txt = tmp_path / "cr-security-abc.txt"
+        txt.write_text(json.dumps({"findings": []}), encoding="utf-8")
+        good = tmp_path / "cr-correctness-abc.json"
+        good.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
+        raw, skipped = findings.read_findings_from_files([str(txt), str(good)])
+        # The .txt counts as skipped even though its content parses as JSON.
+        assert skipped == 1
+        # The sibling .json still contributes its finding.
+        assert len(raw) == 1
+        assert raw[0] == _f()
+        err = capsys.readouterr().err
+        assert "non-.json deferral" in err
+        assert "cr-security-abc.txt" in err
+
 
 class TestMergeCli:
     def test_cli_merges_files(self, tmp_path, monkeypatch, capsys):

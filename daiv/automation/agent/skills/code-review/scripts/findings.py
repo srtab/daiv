@@ -148,11 +148,25 @@ def read_findings_from_files(paths: list) -> tuple[list, int]:
     output must not abort the whole merge.
 
     Returns ``(raw_findings, skipped_count)`` where ``skipped_count`` is the number of files that
-    could not be read (missing, OSError/JSONDecodeError, or a dict whose ``findings`` is not a list).
+    could not be read (missing, OSError/JSONDecodeError, a dict whose ``findings`` is not a list,
+    or a non-``.json`` path).
+
+    **Extension check**: ``.json`` is the authoritative signal of a successful submission.
+    ``DeferredOutputMiddleware`` writes ``.json`` only for a marker-verified ``submit_findings``
+    payload; anything else — a loop-breaker error, a model's give-up text, even text that happens
+    to be valid JSON — is deferred as ``.txt``. A non-``.json`` path therefore means the detector
+    never successfully recorded findings, regardless of whether its content parses as JSON.
     """
     raw: list = []
     skipped = 0
     for path in paths:
+        if not str(path).endswith(".json"):
+            sys.stderr.write(
+                f"skipping non-.json deferral {path}: a .txt deferral means the detector "
+                "failed to record findings (loop-breaker error or model give-up text)\n"
+            )
+            skipped += 1
+            continue
         try:
             with Path(path).open(encoding="utf-8") as fh:
                 data = json.load(fh)
