@@ -868,7 +868,7 @@ Create `tests/unit_tests/automation/agent/skills/code_review/test_rules.py`:
 # object store proves that.
 import importlib.util
 import json
-import subprocess
+import subprocess  # noqa: S404
 import sys
 from pathlib import Path
 
@@ -883,7 +883,10 @@ _SPEC.loader.exec_module(rules)
 
 
 def _git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True, text=True).stdout.strip()
+    proc = subprocess.run(  # noqa: S603, S607
+        ["git", "-C", str(root), *args], capture_output=True, check=True, text=True
+    )
+    return proc.stdout.strip()
 
 
 def _commit(root: Path, message: str) -> str:
@@ -896,7 +899,7 @@ def _commit(root: Path, message: str) -> str:
 def repo(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     (root / ".agents").mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True, capture_output=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True, capture_output=True)  # noqa: S603, S607
     for key, value in (("user.email", "t@example.com"), ("user.name", "T"), ("commit.gpgsign", "false")):
         _git(root, "config", key, value)
     return root
@@ -1059,7 +1062,7 @@ rules depends on transcription.
 import argparse
 import json
 import re
-import subprocess
+import subprocess  # noqa: S404
 import sys
 from pathlib import Path
 
