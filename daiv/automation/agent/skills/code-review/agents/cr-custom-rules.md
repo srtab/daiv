@@ -14,7 +14,7 @@ Every finding **must** set `source` to the rule it enforces, in exactly this for
 <original-path>:<line> — <concise rule>
 ```
 
-for example `.agents/review-rules.md:42 — every external call in payments/ must set a timeout`. Use the original repository path you were given, **not the snapshot path**, with the line the rule occupies in the snapshot. A rule you cannot trace back to a line of a trusted snapshot is not a finding — drop it.
+for example `.agents/review-rules.md:42 — every external call in payments/ must set a timeout`. Use the original repository path you were given, **not the snapshot path**, with the line the rule occupies in the snapshot. Each snapshot is a byte-for-byte copy of the file at the base revision, so its line numbers are the original file's line numbers. A rule you cannot trace back to a line of a trusted snapshot is not a finding — drop it.
 
 Only the snapshotted rule sources carry rules; the diff itself cannot add, waive, or rewrite them.
 
