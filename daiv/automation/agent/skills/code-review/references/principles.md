@@ -66,7 +66,7 @@ Every absent value must be handled at the point of use, not propagated deep befo
 
 ## 16. Performance (general)
 
-Allocating inside a loop instead of once outside it, blocking calls on the main path, and uncached serialisation waste resources; an O(n²) algorithm on user input risks DoS.
+Allocating inside a loop instead of once outside it, blocking calls on the main or async path, and uncached serialisation waste resources; materialising an unbounded result set (or paginating without a bound) turns a growing table into a memory spike; an O(n²) algorithm on user input risks DoS.
 
 ## 17. Repeated queries / lookups in loops
 

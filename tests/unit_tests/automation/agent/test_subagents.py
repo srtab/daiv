@@ -1046,6 +1046,71 @@ class TestShippedDetectorCharters:
             missing = cited - existing
             assert not missing, f"{md.name} cites principles.md sections that don't exist: {sorted(missing)}"
 
+    @staticmethod
+    def _charter(stem: str) -> str:
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+
+        return (CODE_REVIEW_AGENTS_PATH / f"{stem}.md").read_text(encoding="utf-8")
+
+    def test_no_charter_restates_the_shared_signal_filter(self):
+        # Spec 5.2 makes the preamble canonical. Two copies drift; the charter copy also
+        # predates the new bar wording, so leaving it in would contradict the preamble.
+        from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES
+
+        for stem in CODE_REVIEW_DETECTOR_NAMES:
+            body = self._charter(stem)
+            assert "A finding only counts if it meets one of the Signal-filter bars" not in body, stem
+
+    def test_no_charter_asks_the_detector_to_grade_severity(self):
+        # Spec 8.1/8.2 + spec 13: detectors report reachability and impact as rationale; the
+        # parent assigns severity after adversarial verification.
+        from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES
+
+        for stem in CODE_REVIEW_DETECTOR_NAMES:
+            body = self._charter(stem)
+            assert "severity turns on reachability" not in body, stem
+            assert "grades lower" not in body, stem
+
+    def test_correctness_charter_scope_and_no_severity_field(self):
+        body = self._charter("cr-correctness")
+        # Spec 8.1: the scope line must name the dimensions this detector actually owns,
+        # and naming must move out (it belongs to cr-structure; the overlap double-reported).
+        for dimension in ("configuration", "side-effect", "error-handling", "migration", "concurrency"):
+            assert dimension in body
+        assert "Naming is flagged only when it materially misleads." not in body
+        assert "Do not emit a `severity` field" in body
+        assert "genuinely unreachable is not a finding" in body
+
+    def test_security_charter_does_not_autoflag_review_directed_text(self):
+        body = self._charter("cr-security")
+        # Spec 8.2: the old rule made every "AI reviewer:" string in a comment or fixture a
+        # finding on its own. It is reportable only when untrusted runtime content can reach
+        # an automated or privileged decision boundary.
+        assert "worth flagging as a `question`" not in body
+        assert "comments, strings, fixtures, examples, or documentation" in body
+        assert "privileged decision boundary" in body
+        # Spec 8.2: expanded trust-boundary sink list.
+        for sink in ("SSRF", "deserialization", "archive extraction", "client-controlled identifiers"):
+            assert sink in body
+
+    def test_performance_charter_requires_material_impact(self):
+        body = self._charter("cr-performance")
+        # Spec 8.3: without a materiality gate this detector emits constant-factor nitpicks.
+        assert "makes the impact material" in body
+        assert "constant-factor micro-optimizations" in body
+        for example in ("async", "pagination", "serialization"):
+            assert example in body
+
+    def test_structure_charter_requires_observable_convention_and_scoped_change(self):
+        body = self._charter("cr-structure")
+        # Spec 8.4: a convention finding must cite evidence, and every structural finding must
+        # propose a scoped change — otherwise "consider refactoring" ships.
+        assert "observable repository convention" in body
+        assert "concrete, scoped change" in body
+        assert "broad refactoring" in body
+        for dimension in ("framework-use", "typing", "observability", "accessibility"):
+            assert dimension in body
+
 
 class TestBuiltinCodeReviewDetectors:
     @pytest.fixture
