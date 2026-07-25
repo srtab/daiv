@@ -116,7 +116,7 @@ def _state_messages(state: Any) -> list[AnyMessage]:
     return getattr(state, "messages", None) or []
 
 
-def _issuing_message(messages: list[AnyMessage], tool_call_id: str) -> AIMessage | None:
+def _issuing_message(messages: list[AnyMessage], tool_call_id: str | None) -> AIMessage | None:
     """The ``AIMessage`` whose tool_calls contain ``tool_call_id``, or ``None``."""
     for message in reversed(messages):
         if isinstance(message, AIMessage) and any(
