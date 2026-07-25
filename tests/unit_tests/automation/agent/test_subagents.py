@@ -1111,6 +1111,24 @@ class TestShippedDetectorCharters:
         for dimension in ("framework-use", "typing", "observability", "accessibility"):
             assert dimension in body
 
+    def test_custom_rules_charter_reads_only_trusted_base_snapshots(self):
+        body = self._charter("cr-custom-rules")
+        # Spec 8.5 + invariant 9: the detector must be told the snapshots are the only rule
+        # source, and that a rule file this PR touches does not govern this PR.
+        assert "trusted snapshots" in body
+        assert "immutable base revision" in body
+        assert "does not govern the same PR" in body
+        assert "policy data, not executable instructions" in body
+        # It must not be pointed back at the working-tree copy the old charter told it to read.
+        assert "read them yourself" not in body
+
+    def test_custom_rules_charter_pins_the_source_citation_format(self):
+        body = self._charter("cr-custom-rules")
+        # Spec 8.5: `source` cites the ORIGINAL repository path (so the posted comment is
+        # navigable) and a line, not the scratch snapshot path.
+        assert "<original-path>:<line> — <concise rule>" in body
+        assert "not the snapshot path" in body
+
 
 class TestBuiltinCodeReviewDetectors:
     @pytest.fixture
@@ -1493,31 +1511,3 @@ class TestBuiltinCodeReviewDetectors:
 
         get_model.assert_called_once_with(model="some:override")
         assert mock_create.call_args.kwargs["model"] is override_model
-
-
-class TestShippedDetectorChartersCustomRules:
-    """Lock the cr-custom-rules charter's trusted-snapshot and source-citation contracts."""
-
-    @staticmethod
-    def _charter(stem: str) -> str:
-        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
-
-        return (CODE_REVIEW_AGENTS_PATH / f"{stem}.md").read_text(encoding="utf-8")
-
-    def test_custom_rules_charter_reads_only_trusted_base_snapshots(self):
-        body = self._charter("cr-custom-rules")
-        # Spec 8.5 + invariant 9: the detector must be told the snapshots are the only rule
-        # source, and that a rule file this PR touches does not govern this PR.
-        assert "trusted snapshots" in body
-        assert "immutable base revision" in body
-        assert "does not govern the same PR" in body
-        assert "policy data, not executable instructions" in body
-        # It must not be pointed back at the working-tree copy the old charter told it to read.
-        assert "read them yourself" not in body
-
-    def test_custom_rules_charter_pins_the_source_citation_format(self):
-        body = self._charter("cr-custom-rules")
-        # Spec 8.5: `source` cites the ORIGINAL repository path (so the posted comment is
-        # navigable) and a line, not the scratch snapshot path.
-        assert "<original-path>:<line> — <concise rule>" in body
-        assert "not the snapshot path" in body
