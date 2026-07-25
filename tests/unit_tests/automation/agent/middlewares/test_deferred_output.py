@@ -177,3 +177,60 @@ async def test_last_successful_submit_wins():
     await _mw(backend).aafter_agent(state, Mock())
 
     assert json.loads(backend.awrite.await_args.args[1]) == {"findings": [{"detector": "new"}]}
+
+
+async def test_last_successful_submit_in_one_message_wins():
+    # Task 3's batch guard makes two submissions in a single AIMessage unreachable, but the
+    # extractor must still be deterministic if it ever happens: iterate the message's tool_calls
+    # newest-first so the rule is the same as the cross-message rule (last successful wins),
+    # rather than silently exporting the earlier payload.
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
+    state = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": SUBMIT_FINDINGS_TOOL_NAME, "args": {"findings": [{"detector": "old"}]}, "id": "c1"},
+                    {"name": SUBMIT_FINDINGS_TOOL_NAME, "args": {"findings": [{"detector": "new"}]}, "id": "c2"},
+                ],
+            ),
+            ToolMessage(content=f"{SUBMITTED_MARKER} (1).", name=SUBMIT_FINDINGS_TOOL_NAME, tool_call_id="c1"),
+            ToolMessage(content=f"{SUBMITTED_MARKER} (1).", name=SUBMIT_FINDINGS_TOOL_NAME, tool_call_id="c2"),
+            AIMessage(content="done"),
+        ]
+    }
+
+    await _mw(backend).aafter_agent(state, Mock())
+
+    assert json.loads(backend.awrite.await_args.args[1]) == {"findings": [{"detector": "new"}]}
+
+
+async def test_batch_rejected_submit_falls_back_to_txt():
+    # A rejected batch carries no success marker, so it must degrade to the .txt failed-detector
+    # path exactly like a validation failure — never a fabricated clean .json.
+    from automation.agent.middlewares.submit_findings import BATCHED_SUBMIT_REJECTION
+
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
+    state = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "read_file", "args": {}, "id": "r1"},
+                    {"name": SUBMIT_FINDINGS_TOOL_NAME, "args": {"findings": [{"detector": "x"}]}, "id": "s1"},
+                ],
+            ),
+            ToolMessage(content="contents", name="read_file", tool_call_id="r1"),
+            ToolMessage(
+                content=BATCHED_SUBMIT_REJECTION.format(siblings=1), name=SUBMIT_FINDINGS_TOOL_NAME, tool_call_id="s1"
+            ),
+            AIMessage(content="gave up"),
+        ]
+    }
+
+    await _mw(backend).aafter_agent(state, Mock())
+
+    assert backend.awrite.await_args.args[0].endswith(".txt")
+    assert backend.awrite.await_args.args[1] == "gave up"

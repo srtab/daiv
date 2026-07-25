@@ -93,7 +93,13 @@ class DeferredOutputMiddleware(AgentMiddleware[AgentState[Any], RuntimeCtx]):
 
         The tool validates and acknowledges but deliberately keeps no state — the recorded
         payload IS the tool-call args in history. Success is keyed on the tool's
-        ``SUBMITTED_MARKER`` acknowledgement so a validation-failed attempt is never exported.
+        ``SUBMITTED_MARKER`` acknowledgement, so neither a validation-failed attempt nor a
+        batch rejected by ``SubmitFindingsEnforcerMiddleware`` is ever exported.
+
+        Both scans run newest-first: across messages, and across the tool_calls within a
+        message. So "the last successful submission wins" holds even for two successful calls
+        inside one ``AIMessage`` — a state the batch guard makes unreachable, but which must
+        resolve deterministically rather than export the earlier payload if it ever occurs.
         """
         successful_ids = {
             message.tool_call_id
@@ -107,7 +113,7 @@ class DeferredOutputMiddleware(AgentMiddleware[AgentState[Any], RuntimeCtx]):
             return None
         for message in reversed(messages):
             if isinstance(message, AIMessage):
-                for tool_call in message.tool_calls or []:
+                for tool_call in reversed(message.tool_calls or []):
                     if tool_call["name"] == SUBMIT_FINDINGS_TOOL_NAME and tool_call["id"] in successful_ids:
                         return json.dumps({"findings": tool_call["args"].get("findings", [])})
         return None
