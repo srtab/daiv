@@ -1414,6 +1414,9 @@ class TestBuiltinCodeReviewDetectors:
         assert all(call.kwargs["response_format"] is None for call in mock_create.call_args_list)
         for call in mock_create.call_args_list:
             assert [tool.name for tool in call.kwargs["tools"]] == ["submit_findings"]
+            # Spec 3.1: nothing may reintroduce a forced-tool mode. `create_agent` has no
+            # tool_choice kwarg today; assert its absence so adding one is a deliberate act.
+            assert "tool_choice" not in call.kwargs
 
     def test_returns_empty_when_schema_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
         # A missing finding schema must degrade code-review to no detectors, NOT abort the whole
