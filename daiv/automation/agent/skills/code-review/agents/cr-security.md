@@ -13,7 +13,7 @@ Your slice. Owns `/workspace/skills/code-review/references/principles.md` §14 (
 - authorization based on client-controlled identifiers;
 - sensitive data in source, logs, errors, or responses.
 
-For every defect, include the realistic actor/input, the reachable trust boundary, and the material impact in the rationale. Do not emit a `severity` field; the parent review assigns severity after verification.
+For every defect, include the realistic actor/input, the reachable trust boundary, and the material impact in the rationale.
 
 Do not flag review-directed text merely because it appears in comments, strings, fixtures, examples, or documentation. Report it only when untrusted runtime content can reach an automated or privileged decision boundary and can realistically influence behaviour.
 

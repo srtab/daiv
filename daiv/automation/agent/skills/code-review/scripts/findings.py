@@ -148,14 +148,15 @@ def read_findings_from_files(paths: list) -> tuple[list, int]:
     output must not abort the whole merge.
 
     Returns ``(raw_findings, skipped_count)`` where ``skipped_count`` is the number of files that
-    could not be read (missing, OSError/JSONDecodeError, a dict whose ``findings`` is not a list,
-    or a non-``.json`` path).
+    could not be read (missing, OSError/JSONDecodeError, a dict with no ``findings`` key or whose
+    ``findings`` is not a list, or a non-``.json`` path).
 
-    **Extension check**: ``.json`` is the authoritative signal of a successful submission.
-    ``DeferredOutputMiddleware`` writes ``.json`` only for a marker-verified ``submit_findings``
-    payload; anything else — a loop-breaker error, a model's give-up text, even text that happens
-    to be valid JSON — is deferred as ``.txt``. A non-``.json`` path therefore means the detector
-    never successfully recorded findings, regardless of whether its content parses as JSON.
+    **Extension check**: ``.json`` is the authoritative signal of a successful submission, and a
+    non-``.json`` path means the detector never recorded findings — regardless of whether its
+    content happens to parse as JSON. A loop-breaker error, a nudge-exhausted give-up, or any
+    other final text is deferred as ``.txt``. (The agent-side invariant that makes ``.json``
+    reachable only through a validated ``submit_findings`` call is documented in ``AGENTS.md``;
+    this script cannot import it, and deliberately does not restate its mechanics.)
     """
     raw: list = []
     skipped = 0
@@ -178,11 +179,15 @@ def read_findings_from_files(paths: list) -> tuple[list, int]:
             sys.stderr.write(f"skipping unreadable findings file {path}: {exc}\n")
             skipped += 1
             continue
-        items = data.get("findings", []) if isinstance(data, dict) else data
+        # `.get`, not `["findings"]` with a `[]` default: a dict with no `findings` key is a
+        # malformed payload, not an empty one, and it has to reach the `skipped` branch below.
+        # Defaulting to [] would extend nothing, leave `skipped` at 0, and make the detector read
+        # as legitimately clean — the exact conflation the .json/.txt split exists to prevent.
+        items = data.get("findings") if isinstance(data, dict) else data
         if isinstance(items, list):
             raw.extend(items)
         else:
-            sys.stderr.write(f"skipping findings file {path}: no 'findings' array\n")
+            sys.stderr.write(f"skipping findings file {path}: no usable 'findings' array (missing or not a list)\n")
             skipped += 1
     return raw, skipped
 

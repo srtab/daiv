@@ -949,15 +949,16 @@ class TestShippedDetectorCharters:
     """Lock the five detector charter files that ship inside the code-review skill."""
 
     def test_shared_preamble_states_the_terminal_submission_contract(self):
-        # Invariants 2-4: submission is the sole tool call in its response AND the last of the run.
-        # A prompt that drops either half lets a detector batch a read with its submission or
-        # resume auditing after recording — both of which the enforcer then has to clean up.
+        # Invariants 2-4: submission is the sole tool call in its response, and the run ends there.
+        # A prompt that drops either half lets a detector batch a read with its submission, or
+        # leaves it expecting a turn after recording that it will never get — so it defers
+        # inspection until after a submission that is already the end of the run.
         from automation.agent.subagents import SHARED_DETECTOR_PREAMBLE
 
         body = SHARED_DETECTOR_PREAMBLE.lower()
         assert "only tool call" in body
-        assert "final tool call" in body
-        assert "one-line acknowledgement" in body
+        assert "ends the run immediately" in body
+        assert "complete every inspection and reasoning step first" in body
 
     def test_shared_preamble_requires_static_evidence_over_questions(self):
         # Spec 5.1: insufficient static evidence means OMIT, not "raise it as a question".
@@ -1063,22 +1064,26 @@ class TestShippedDetectorCharters:
 
     def test_no_charter_asks_the_detector_to_grade_severity(self):
         # Spec 8.1/8.2 + spec 13: detectors report reachability and impact as rationale; the
-        # parent assigns severity after adversarial verification.
-        from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES
+        # parent assigns severity after adversarial verification. The rule is stated once, in the
+        # preamble — a charter that restates it is a third place to edit when severity ownership
+        # changes, and the charter/preamble split ("shared → preamble, per-dimension → charter")
+        # loses the rule that decides where an edit goes.
+        from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES, SHARED_DETECTOR_PREAMBLE
 
+        assert "Do not emit a `severity` field" in SHARED_DETECTOR_PREAMBLE
         for stem in CODE_REVIEW_DETECTOR_NAMES:
             body = self._charter(stem)
             assert "severity turns on reachability" not in body, stem
             assert "grades lower" not in body, stem
+            assert "Do not emit a `severity` field" not in body, stem
 
-    def test_correctness_charter_scope_and_no_severity_field(self):
+    def test_correctness_charter_scope(self):
         body = self._charter("cr-correctness")
         # Spec 8.1: the scope line must name the dimensions this detector actually owns,
         # and naming must move out (it belongs to cr-structure; the overlap double-reported).
         for dimension in ("configuration", "side-effect", "error-handling", "migration", "concurrency"):
             assert dimension in body
         assert "Naming is flagged only when it materially misleads." not in body
-        assert "Do not emit a `severity` field" in body
         assert "genuinely unreachable is not a finding" in body
 
     def test_security_charter_does_not_autoflag_review_directed_text(self):

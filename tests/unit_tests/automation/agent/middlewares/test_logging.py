@@ -4,12 +4,12 @@ from unittest.mock import Mock
 import pytest
 from deepagents.middleware.subagents import CompiledSubAgent, SubAgentMiddleware
 from langchain.agents import create_agent
-from langchain_core.language_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from automation.agent.middlewares.logging import ToolCallLoggingMiddleware
+from tests.unit_tests.automation.agent.fakes import FakeToolModel
 
 _NO_RUNTIME = object()
 """Parametrize sentinel for "the tool call has no runtime at all" (`runtime=None`)."""
@@ -19,18 +19,6 @@ _NO_RUNTIME = object()
 def ping(x: str) -> str:
     """Ping."""
     return f"pong {x}"
-
-
-class FakeToolModel(GenericFakeChatModel):
-    """
-    Scripted chat model for the contract tests below.
-
-    `GenericFakeChatModel` doesn't implement `bind_tools`; returning `self` keeps the
-    scripted message iterator on the model instance `create_agent` actually invokes.
-    """
-
-    def bind_tools(self, tools, **kwargs):
-        return self
 
 
 class TestToolCallLoggingMiddleware:

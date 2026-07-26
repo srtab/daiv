@@ -90,8 +90,10 @@ Define team-specific review rules in `.agents/review-rules.md` at the repository
 - *Never log request or response bodies.*
 - *New Celery tasks must be idempotent.*
 
-The code review agent checks for rule sources at the start of every review and, when any exist, runs a dedicated `custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
+The code review agent reads these rule sources **as they exist at the merge request's base revision** and, when any exist there, runs a dedicated `custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
 
-You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped only when none of these files exist.
+Reading from the base revision means a merge request cannot change the rules that govern its own review. A rule file the merge request **adds or edits** does not apply to that merge request — the new rules take effect once merged, and the file itself is reviewed as ordinary diff content. A rule file the merge request **deletes** still governs it. If the base revision cannot be read (for example, an incomplete clone), the agent reports custom-rule coverage as degraded rather than silently reviewing without rules.
+
+You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped when none of these files exist at the base revision.
 
 Every custom-rule finding passes the same false-positive checks as built-in findings, so a noisy `AGENTS.md` will not flood the review.

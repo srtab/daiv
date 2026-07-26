@@ -244,13 +244,27 @@ class TestReadFindingsFromFiles:
         raw, skipped = findings.read_findings_from_files([str(bad), str(good)])
         assert len(raw) == 1
         assert skipped == 1
-        assert "no 'findings' array" in capsys.readouterr().err
+        assert "no usable 'findings' array" in capsys.readouterr().err
+
+    def test_skips_json_object_with_no_findings_key(self, tmp_path, capsys):
+        # A dict with no `findings` key is malformed, not empty. Defaulting to [] would extend
+        # nothing and leave `skipped` at 0, so a broken detector would read as legitimately
+        # clean — the exact conflation the .json/.txt split exists to prevent.
+        bad = tmp_path / "bad.json"
+        bad.write_text(json.dumps({"error": "detector crashed"}), encoding="utf-8")
+        good = tmp_path / "g.json"
+        good.write_text(json.dumps({"findings": [_f()]}), encoding="utf-8")
+
+        raw, skipped = findings.read_findings_from_files([str(bad), str(good)])
+
+        assert len(raw) == 1
+        assert skipped == 1
+        assert "no usable 'findings' array" in capsys.readouterr().err
 
     def test_txt_with_valid_json_counted_as_skipped(self, tmp_path, capsys):
-        # A .txt deferral means DeferredOutputMiddleware did NOT see a marker-verified
-        # submit_findings call — the detector failed to record findings. Even if the text
-        # happens to be valid JSON (e.g. a model printing {"findings": []} instead of calling
-        # the tool), it must be counted as skipped, not as a legitimately empty review.
+        # A .txt deferral means the detector never recorded findings through `submit_findings`.
+        # Even if the text happens to be valid JSON (e.g. a model printing {"findings": []}
+        # instead of calling the tool), it must be counted as skipped, not as an empty review.
         txt = tmp_path / "cr-security-abc.txt"
         txt.write_text(json.dumps({"findings": []}), encoding="utf-8")
         good = tmp_path / "cr-correctness-abc.json"

@@ -24,15 +24,17 @@ Relative paths (`scripts/…`, `references/…`, `examples/…`, `agents/…`) r
 
 ## Stage 0 — Snapshot the per-repo review rules (trusted, base-revision)
 
-Custom review rules must come from the review's **immutable base revision**: a rule file this PR adds or edits must not govern its own review, or a diff could grant itself authority over how it is reviewed. Run the snapshot script once, with the MR's real `base_sha` from the SHA triplet — **not** the delta detection base:
+Custom review rules must come from the review's **immutable base revision**: a rule file this PR adds or edits must not govern its own review, or a diff could grant itself authority over how it is reviewed. Run the snapshot script once, with the MR's real `base_sha` from the SHA triplet — **not** the delta detection base (that one is a commit *on the source branch*, so it already contains the PR's rule edits):
 
 ```
 python3 scripts/rules.py snapshot --base-sha <base_sha> --repo /workspace/repo
 ```
 
-Outside delivery mode there may be no SHA triplet: derive the base with `git merge-base <target> <source>` and pass that. If the script cannot run at all (a disk-backed run with no `bash`), skip `cr-custom-rules` and report custom-rule coverage as degraded — never substitute the working-tree rule files.
+`--base-sha` must be a **full 40-character object id**. The script refuses `HEAD`, a branch name, or a short sha and degrades every source, because those are mutable and on a PR branch resolve to a commit containing the PR's own rule edits.
 
-It reads `.agents/review-rules.md` (authoritative), `AGENTS.md`, and `.agents/AGENTS.md` at `base_sha`, writes each one that exists into `/workspace/tmp/code-review-rules/`, and prints a manifest: `{"sources": [{"path", "snapshot", "authoritative"}], "absent": [...], "degraded": [...], "notes": [...], "dispatch_custom_rules": <bool>}`.
+Outside delivery mode there may be no SHA triplet: derive the base with `git merge-base <target> <source>` and pass that (it prints a full object id). If the script cannot run at all (a disk-backed run with no `bash`), skip `cr-custom-rules` and report custom-rule coverage as degraded — never substitute the working-tree rule files.
+
+It reads `.agents/review-rules.md` (authoritative), `AGENTS.md`, and `.agents/AGENTS.md` at `base_sha`, writes each one that exists into `/workspace/tmp/code-review-rules/`, and prints a manifest: `{"base_sha", "snapshot_dir", "sources": [{"path", "snapshot", "authoritative"}], "absent": [...], "degraded": [...], "notes": [...], "dispatch_custom_rules": <bool>}`.
 
 - **`dispatch_custom_rules: false`** — no rule source existed at the base revision: **skip `cr-custom-rules`** in Stage 1. A rule file this PR *adds* appears in `absent`; the other detectors review it as ordinary diff content, and it governs only after merge.
 - **`dispatch_custom_rules: true`** — dispatch `cr-custom-rules`, passing every `sources` entry's `snapshot` path **and** its original `path` (the detector cites the original path in `source`), plus `base_sha`.
@@ -70,13 +72,13 @@ Each detector returns `{"findings": [ ... ]}` (delivered as a file pointer at St
 - **`bar`** — the Signal-filter class (`defect` / `structural` / `question`).
 - **`archetype`** — one of six values: four inline fix types (`remove_dead_lines`, `use_framework_idiom`, `replace_with_constant`, `swap_library_call`), `question`, or `discussion` for everything else (renames, cross-file/structural, prose-heavy cases).
   - Only the six schema strings are valid. The named discussion patterns in `references/few-shot-examples.md` Part 2 (e.g. `rename`, `move_to_other_module`) are documentation labels — they all serialize as `archetype: "discussion"`. `findings.py` drops anything else as malformed and counts it under `dropped`. The parent finalizes inline-eligibility during delivery bucketing (`gitlab-delivery.md` Step 3).
-- **`source`** — required on `custom-rules` findings (enforced by `findings.py`) so the posted comment can cite the rule.
+- **`source`** — required on `custom-rules` findings so the posted comment can cite the rule. Refused at submission time (the detector is told to cite the rule and resubmit), with `findings.py merge` as the backstop that counts an uncited one under `dropped`.
 
 `findings.py merge` does not validate the `suggestion`/archetype coupling — delivery bucketing handles that.
 
 ## Stage 2 — Verify (adjudicate)
 
-Each detector defers its findings to a file — its `task` result is a one-line pointer to an absolute path, normally `.json` (e.g. `/workspace/tmp/subagent-output/cr-correctness-<hash>.json`), but a loop-stopped detector defers `.txt` instead (handled by `skipped` below). Collect one path per detector, then pass them to the merge script:
+Each detector defers its findings to a file — its `task` result is a one-line pointer to an absolute path, normally `.json` (e.g. `/workspace/tmp/subagent-output/cr-correctness-<hash>.json`), but a detector that never recorded a successful submission (loop-stopped, batch-rejected, or gave up after the finalize nudges) defers `.txt` instead (handled by `skipped` below). Collect one path per detector, then pass them to the merge script:
 
 ```
 python3 scripts/findings.py merge <path1.json> <path2.json> ...
@@ -86,7 +88,7 @@ python3 scripts/findings.py merge <path1.json> <path2.json> ...
 
 Two hard rules:
 
-- **Non-zero exit means the findings were lost, not absent** — every detector output file was unreadable. Surface the stderr diagnostic, retry the affected detectors if possible, and never deliver an empty review as though detection succeeded.
+- **Non-zero exit means the findings were lost, not absent** — no detector output file yielded findings (unreadable, or a `.txt` deferral meaning nothing was recorded). Surface the stderr diagnostic, retry the affected detectors if possible, and never deliver an empty review as though detection succeeded.
 - **`skipped > 0` (with exit 0) means that many detectors failed to deliver findings** — report them as failed detectors, distinct from a legitimately empty review (`skipped == 0` and `candidates == 0`).
 
 In **interactive mode** an all-zero result means "No findings." In **delivery mode** an empty result does *not* skip delivery — the reconciliation steps still run (`gitlab-delivery.md` covers which). This merge is the pre-delivery cross-detector dedup — distinct from the anchor-based delivery dedup in `gitlab-delivery.md` Step 4.
@@ -164,7 +166,7 @@ Same shape as Findings. Each question anchors on a specific file:line and poses 
 ## Workflow-phase error recovery
 
 - If a tool call fails, switch to an alternative (e.g. platform tool instead of `bash git diff`) and continue — never re-invoke the `skill` tool to restart the review.
-- If the `task` tool can't fan out in parallel (rejected, or a detector `task` errors), dispatch sequentially. If you must run detection inline, first **read the relevant `agents/cr-*.md` charter(s)** — each carries its `principles.md` map, Signal-filter bars, never-flag rules, and calibration not restated here — apply those slices manually; don't abort the review.
+- If the `task` tool can't fan out in parallel (rejected, or a detector `task` errors), dispatch sequentially. If you must run detection inline, first **read the relevant `agents/cr-*.md` charter(s)** — each carries its `principles.md` map and per-dimension calibration. The charters do **not** carry the shared rules (those are prepended only when a detector subagent is compiled), so apply these yourself: the Signal-filter bars (Stage 2 above), the never-flag rule (`SKILL.md`), omit a finding when static evidence is insufficient rather than raising it as a question, pair every `bar: "question"` with `archetype: "question"`, and keep inspection read-only. Don't abort the review.
 
 ## Reference material (optional)
 

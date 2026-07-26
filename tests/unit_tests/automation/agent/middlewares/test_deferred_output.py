@@ -6,7 +6,6 @@ from deepagents.backends.protocol import WriteResult
 from langchain_core.messages import AIMessage, ToolMessage
 
 from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
-from automation.agent.middlewares.submit_findings import SUBMIT_FINDINGS_TOOL_NAME, SUBMITTED_MARKER
 
 _OUTPUT_DIR = "/workspace/tmp/subagent-output"
 
@@ -53,6 +52,8 @@ async def test_text_output_written_as_txt():
 
 
 async def test_write_failure_keeps_inline_output():
+    # Never drop output: returning None leaves `structured_response` set, so deepagents inlines
+    # the payload instead of handing the orchestrator a pointer to a file that was never written.
     backend = Mock()
     backend.awrite = AsyncMock(return_value=WriteResult(error="disk full"))
 
@@ -60,7 +61,7 @@ async def test_write_failure_keeps_inline_output():
         {"structured_response": {"findings": []}, "messages": [AIMessage(content="done")]}, Mock()
     )
 
-    assert result is None  # no state update -> structured_response survives -> deepagents inlines it
+    assert result is None
 
 
 async def test_write_raises_keeps_inline_output():
@@ -112,125 +113,66 @@ async def test_serialize_failure_keeps_inline_output_and_skips_write():
     backend.awrite.assert_not_awaited()
 
 
-def _submit_round_trip(findings: list, call_id: str = "call-1", ok: bool = True) -> list:
-    return [
-        AIMessage(
-            content="", tool_calls=[{"name": SUBMIT_FINDINGS_TOOL_NAME, "args": {"findings": findings}, "id": call_id}]
-        ),
-        ToolMessage(
-            content=(f"{SUBMITTED_MARKER} ({len(findings)} finding(s))." if ok else "Validation failed: nope"),
-            name=SUBMIT_FINDINGS_TOOL_NAME,
-            tool_call_id=call_id,
-        ),
-    ]
+async def test_a_promoted_submission_is_exported_as_json():
+    # The seam between the two middlewares: `submit_findings` records findings by promoting them
+    # into `structured_response`, and this middleware exports that channel. Nothing errors if the
+    # two ever disagree on the key — langgraph silently drops an unknown `Command.update` key and
+    # the detector would just look empty — so pin the producer against the consumer.
+    from automation.agent.middlewares.submit_findings import _promote_submission
 
-
-async def test_submitted_findings_extracted_from_tool_call_as_json():
     backend = Mock()
     backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
     findings = [{"detector": "performance", "line": 10}]
+    promoted = _promote_submission(
+        ToolMessage(
+            content="Findings recorded (1).", name="submit_findings", tool_call_id="c1", artifact={"findings": findings}
+        )
+    )
+
+    result = await _mw(backend).aafter_agent({**promoted.update, "messages": []}, Mock())
+
     payload = json.dumps({"findings": findings})
-    expected_path = f"{_OUTPUT_DIR}/cr-correctness-{_digest(payload)}.json"
-
-    state = {"messages": [*_submit_round_trip(findings), AIMessage(content="Done: 1 finding.")]}
-    result = await _mw(backend).aafter_agent(state, Mock())
-
-    backend.awrite.assert_awaited_once_with(expected_path, payload)
-    assert expected_path in result["messages"][0].text
+    backend.awrite.assert_awaited_once_with(f"{_OUTPUT_DIR}/cr-correctness-{_digest(payload)}.json", payload)
+    assert result["structured_response"] is None
 
 
-async def test_submitted_payload_wins_over_trailing_text_and_structured_response():
-    backend = Mock()
-    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
-    payload = json.dumps({"findings": []})
-
-    state = {
-        "messages": [*_submit_round_trip([]), AIMessage(content="prose that must NOT be exported")],
-        "structured_response": {"findings": [{"detector": "stale"}]},
-    }
-    await _mw(backend).aafter_agent(state, Mock())
-
-    written_payload = backend.awrite.await_args.args[1]
-    assert written_payload == payload
-
-
-async def test_validation_failed_submit_does_not_count_falls_back_to_text():
+async def test_unsubmitted_run_falls_back_to_txt():
+    # A detector that never recorded findings leaves no `structured_response`, so its final text
+    # is deferred as `.txt` — which `findings.py merge` counts as a failed detector rather than a
+    # clean one. A fabricated `.json` here would read downstream as "audited, nothing found".
     backend = Mock()
     backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
 
-    state = {"messages": [*_submit_round_trip([{}], ok=False), AIMessage(content="gave up")]}
-    await _mw(backend).aafter_agent(state, Mock())
-
-    # Nothing was recorded → the .txt fallback path (failed detector), never a fabricated .json.
-    written_path = backend.awrite.await_args.args[0]
-    assert written_path.endswith(".txt")
-    assert backend.awrite.await_args.args[1] == "gave up"
-
-
-async def test_last_successful_submit_wins():
-    backend = Mock()
-    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
-    first = _submit_round_trip([{"detector": "old"}], call_id="c1")
-    second = _submit_round_trip([{"detector": "new"}], call_id="c2")
-
-    state = {"messages": [*first, *second, AIMessage(content="done")]}
-    await _mw(backend).aafter_agent(state, Mock())
-
-    assert json.loads(backend.awrite.await_args.args[1]) == {"findings": [{"detector": "new"}]}
-
-
-async def test_last_successful_submit_in_one_message_wins():
-    # Task 3's batch guard makes two submissions in a single AIMessage unreachable, but the
-    # extractor must still be deterministic if it ever happens: iterate the message's tool_calls
-    # newest-first so the rule is the same as the cross-message rule (last successful wins),
-    # rather than silently exporting the earlier payload.
-    backend = Mock()
-    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
-    state = {
-        "messages": [
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {"name": SUBMIT_FINDINGS_TOOL_NAME, "args": {"findings": [{"detector": "old"}]}, "id": "c1"},
-                    {"name": SUBMIT_FINDINGS_TOOL_NAME, "args": {"findings": [{"detector": "new"}]}, "id": "c2"},
-                ],
-            ),
-            ToolMessage(content=f"{SUBMITTED_MARKER} (1).", name=SUBMIT_FINDINGS_TOOL_NAME, tool_call_id="c1"),
-            ToolMessage(content=f"{SUBMITTED_MARKER} (1).", name=SUBMIT_FINDINGS_TOOL_NAME, tool_call_id="c2"),
-            AIMessage(content="done"),
-        ]
-    }
-
-    await _mw(backend).aafter_agent(state, Mock())
-
-    assert json.loads(backend.awrite.await_args.args[1]) == {"findings": [{"detector": "new"}]}
-
-
-async def test_batch_rejected_submit_falls_back_to_txt():
-    # A rejected batch carries no success marker, so it must degrade to the .txt failed-detector
-    # path exactly like a validation failure — never a fabricated clean .json.
-    from automation.agent.middlewares.submit_findings import BATCHED_SUBMIT_REJECTION
-
-    backend = Mock()
-    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
-    state = {
-        "messages": [
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {"name": "read_file", "args": {}, "id": "r1"},
-                    {"name": SUBMIT_FINDINGS_TOOL_NAME, "args": {"findings": [{"detector": "x"}]}, "id": "s1"},
-                ],
-            ),
-            ToolMessage(content="contents", name="read_file", tool_call_id="r1"),
-            ToolMessage(
-                content=BATCHED_SUBMIT_REJECTION.format(siblings=1), name=SUBMIT_FINDINGS_TOOL_NAME, tool_call_id="s1"
-            ),
-            AIMessage(content="gave up"),
-        ]
-    }
-
-    await _mw(backend).aafter_agent(state, Mock())
+    await _mw(backend).aafter_agent({"messages": [AIMessage(content="gave up")]}, Mock())
 
     assert backend.awrite.await_args.args[0].endswith(".txt")
     assert backend.awrite.await_args.args[1] == "gave up"
+
+
+async def test_trailing_empty_ai_message_does_not_erase_a_failed_detector():
+    # Anthropic occasionally emits an empty `end_turn` AIMessage after a final tool call.
+    # Reading messages[-1] literally would extract nothing, defer NO file at all, and make the
+    # detector vanish from the fan-out — downstream that is indistinguishable from a clean run,
+    # because `merge` only counts the files it is handed.
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
+    state = {"messages": [AIMessage(content="blocked: could not read the diff"), AIMessage(content="")]}
+
+    result = await _mw(backend).aafter_agent(state, Mock())
+
+    assert backend.awrite.await_args.args[0].endswith(".txt")
+    assert backend.awrite.await_args.args[1] == "blocked: could not read the diff"
+    assert result is not None
+
+
+async def test_detector_with_no_extractable_text_still_defers_a_failure_sentinel():
+    # The contract is that a failed detector always leaves a path for `merge` to count as
+    # skipped. "No submission and no text" must not become "no file".
+    backend = Mock()
+    backend.awrite = AsyncMock(return_value=WriteResult(path="ok"))
+
+    result = await _mw(backend).aafter_agent({"messages": [AIMessage(content="")]}, Mock())
+
+    assert backend.awrite.await_args.args[0].endswith(".txt")
+    assert "no structured output" in backend.awrite.await_args.args[1]
+    assert result is not None
