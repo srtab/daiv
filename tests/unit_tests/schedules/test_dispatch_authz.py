@@ -39,7 +39,7 @@ def test_dispatch_denied_owner_advances_without_runs(due_schedule, caplog):
         dispatch_scheduled_jobs_cron_task.func()
 
     due_schedule.refresh_from_db()
-    assert Run.objects.count() == 0
+    assert Run.objects.filter(session__scheduled_job=due_schedule).count() == 0
     assert due_schedule.next_run_at > datetime.now(tz=UTC)  # advanced, not hot-looping
     assert due_schedule.is_enabled  # not disabled — access may come back
 

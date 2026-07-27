@@ -128,7 +128,7 @@ async def test_run_job_task_forwards_overrides():
     assert "use_max" not in captured_kwargs
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_persists_resolved_model():
     """The resolved model/thinking are written back onto the Run + Session so the
     session detail view reflects what the run actually executed with, not the empty
@@ -177,7 +177,7 @@ async def test_run_job_task_persists_resolved_model():
     assert run.agent_thinking_level == "xhigh"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_run_job_task_leaves_model_empty_when_setup_fails_before_resolution():
     """A run that dies before the model is resolved (e.g. the git clone inside
     ``set_runtime_ctx``) leaves ``agent_model`` empty — the UI falls back to the

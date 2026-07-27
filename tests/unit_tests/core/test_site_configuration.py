@@ -39,14 +39,14 @@ class TestCaching:
         instance = SiteConfiguration.get_cached()
         assert instance.pk == 1
 
-    async def test_get_cached_works_in_async_context_cold_cache(self, db):
+    async def test_get_cached_works_in_async_context_cold_cache(self, transactional_db):
         """When called from an async context with cold cache, fetches via thread pool."""
         django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
         result = SiteConfiguration.get_cached()
         assert result is not None
         assert result.pk == 1
 
-    async def test_get_cached_populates_cache_in_async_context(self, db):
+    async def test_get_cached_populates_cache_in_async_context(self, transactional_db):
         """Cold cache async fetch should populate cache for subsequent calls."""
         django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
         SiteConfiguration.get_cached()
