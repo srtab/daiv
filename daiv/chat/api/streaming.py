@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from ag_ui.core.events import CustomEvent, EventType, RunErrorEvent
+from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
 from copilotkit import LangGraphAGUIAgent
 from langgraph.store.memory import InMemoryStore
 from sessions.locks import SessionLock
@@ -28,10 +28,9 @@ from .event_filter import SubagentEventFilter
 from .threads import ChatSessionService
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from ag_ui.core import RunAgentInput
-    from ag_ui.core.events import BaseEvent
 
     from codebase.base import MergeRequest
     from codebase.context import RuntimeCtx
@@ -102,6 +101,53 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         # through ``config['configurable']``.
         stream_kwargs["context"] = self._runtime_context
         return stream_kwargs
+
+    async def _handle_single_event(self, event: Any, state: dict[str, Any]) -> AsyncGenerator[Any]:
+        """Stamp the source LangGraph event's provenance onto any AGUI event upstream
+        emits without a ``raw_event``.
+
+        ``ag_ui_langgraph`` builds every event type with ``raw_event=event`` *except*
+        the ``REASONING_*`` family (``handle_reasoning_event`` and the redacted-thinking
+        ``ReasoningEncryptedValueEvent``), which it emits bare. ``SubagentEventFilter``
+        reads provenance exclusively from ``raw_event.metadata.langgraph_checkpoint_ns``,
+        so untagged reasoning reads back as top-level: a subagent's *thinking* bleeds
+        into the parent turn even though its text and tool calls are correctly dropped.
+
+        Stamping here rather than inferring the namespace in the filter is deliberate,
+        but *not* because the filter lacks the information: upstream yields a RAW event
+        carrying the same metadata immediately before dispatching each LangGraph event
+        (``agent.py`` ``_handle_stream_events``), so a "namespace of the last event that
+        had one" tracker would work today. It would just be betting on undocumented
+        yield ordering and on that RAW emission staying unconditional. Carrying
+        provenance *on* the event removes the bet.
+
+        Only the two keys the filter consumes are copied — stamping the whole metadata
+        dict would serialize ~550 bytes of LangGraph internals onto every reasoning
+        delta, and a thinking stream emits one event per delta.
+
+        Known limit: upstream tracks reasoning state per *run*, not per namespace
+        (``active_run["reasoning_process"]``), so the closing REASONING_END /
+        REASONING_ENCRYPTED_VALUE frames are stamped with whatever chunk is in flight
+        when they fire. A subagent whose reasoning is still open when its model stream
+        ends can therefore emit a stray unmatched END under the parent's namespace —
+        a dangling frame, never readable content.
+        """
+        metadata = event.get("metadata") if isinstance(event, dict) else None
+        if not isinstance(metadata, dict):
+            metadata = {}
+        provenance = {k: metadata[k] for k in ("langgraph_checkpoint_ns", "emit-messages") if k in metadata}
+
+        async for agui_event in super()._handle_single_event(event, state):
+            # The isinstance check is always true at runtime — every member of
+            # upstream's ``ProcessedEvents`` union subclasses ``BaseEvent``. Keep it
+            # anyway: ``copilotkit.LangGraphAGUIAgent`` *declares* this method as
+            # yielding ``str``, so it is the only form that narrows the loop variable
+            # for ``ty``. Dropping it reintroduces "unresolved attribute raw_event
+            # on type str"; a bare ``agui_event: BaseEvent`` declaration conflicts
+            # with the inherited signature instead.
+            if provenance and isinstance(agui_event, BaseEvent) and agui_event.raw_event is None:
+                agui_event.raw_event = {"metadata": provenance}
+            yield agui_event
 
     def get_schema_keys(self, config: Any) -> dict[str, list[str]]:
         # Upstream calls ``graph.config_schema().schema()`` which recurses into

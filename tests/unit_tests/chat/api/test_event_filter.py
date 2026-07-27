@@ -10,6 +10,9 @@ subagent has already streamed events.
 from ag_ui.core.events import (
     EventType,
     RawEvent,
+    ReasoningMessageContentEvent,
+    ReasoningMessageStartEvent,
+    ReasoningStartEvent,
     StateSnapshotEvent,
     TextMessageContentEvent,
     TextMessageStartEvent,
@@ -19,11 +22,14 @@ from ag_ui.core.events import (
     ToolCallStartEvent,
 )
 
-from chat.api.event_filter import SubagentEventFilter
+from chat.api.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 
 
-def _ev(klass, *, ns: str = "", chunk: dict | None = None, **kwargs):
-    raw: dict = {"metadata": {"langgraph_checkpoint_ns": ns}}
+def _ev(klass, *, ns: str = "", chunk: dict | None = None, emit_messages: bool | None = None, **kwargs):
+    metadata: dict = {"langgraph_checkpoint_ns": ns}
+    if emit_messages is not None:
+        metadata["emit-messages"] = emit_messages
+    raw: dict = {"metadata": metadata}
     if chunk is not None:
         raw["data"] = {"chunk": chunk}
     return klass(raw_event=raw, **kwargs)
@@ -661,3 +667,73 @@ async def test_filter_skips_synthesis_when_latest_ai_has_no_tool_calls():
     )
     out = await _drain(_filter([snapshot]))
     assert [e.type for e in out] == [EventType.STATE_SNAPSHOT]
+
+
+def test_reasoning_event_types_covers_every_reasoning_event():
+    """``REASONING_EVENT_TYPES`` is hand-maintained against a pinned ag-ui version.
+
+    Without this guard, an upgrade that adds a reasoning event type silently stops
+    gating it — subagent thinking would start leaking again with every test green.
+    """
+    assert {t for t in EventType if t.name.startswith("REASONING")} == REASONING_EVENT_TYPES
+
+
+def _reasoning_burst(*, ns: str = "", emit_messages: bool | None = None, mid: str = "r1", delta: str = "secret"):
+    """The event trio a single thinking chunk produces upstream."""
+    return [
+        _ev(ReasoningStartEvent, ns=ns, emit_messages=emit_messages, message_id=mid),
+        _ev(ReasoningMessageStartEvent, ns=ns, emit_messages=emit_messages, message_id=mid, role="reasoning"),
+        _ev(ReasoningMessageContentEvent, ns=ns, emit_messages=emit_messages, message_id=mid, delta=delta),
+    ]
+
+
+async def test_filter_keeps_top_level_reasoning():
+    """The main agent's own thinking must still reach the chat."""
+    out = await _drain(_filter(_reasoning_burst(ns="model:abc", delta="my own thought")))
+    assert [e.type for e in out] == [
+        EventType.REASONING_START,
+        EventType.REASONING_MESSAGE_START,
+        EventType.REASONING_MESSAGE_CONTENT,
+    ]
+
+
+async def test_filter_drops_nested_subagent_reasoning():
+    """Subagent thinking must not bleed into the parent turn. Upstream builds
+    ``REASONING_*`` events with no ``raw_event``, so they only reach the filter
+    with a namespace because ``RuntimeContextLangGraphAGUIAgent`` stamps one.
+    """
+    events = [
+        *_reasoning_burst(ns="model:abc", mid="r-top", delta="parent thought"),
+        *_reasoning_burst(ns="tools:par|model:sub", mid="r-sub", delta="subagent thought"),
+    ]
+    out = await _drain(_filter(events))
+    assert all(e.message_id == "r-top" for e in out)
+    assert "subagent thought" not in "".join(getattr(e, "delta", "") for e in out)
+
+
+async def test_filter_drops_reasoning_when_emit_messages_false():
+    """``emit-messages: False`` silences text upstream but not reasoning (the
+    reasoning branch returns before upstream's gate). The publish pipeline's
+    diff_to_metadata subagents rely on it, so the filter enforces it here.
+    """
+    out = await _drain(_filter(_reasoning_burst(ns="model:abc", emit_messages=False, delta="publish thought")))
+    assert out == []
+
+
+async def test_filter_keeps_tool_calls_when_emit_messages_false():
+    """The emit-messages gate covers reasoning only. The chat renders the
+    publish subagents' TOOL_CALL_* frames as progress chips ("Creating merge
+    request…"), so those must survive.
+    """
+    events = [
+        _ev(
+            ToolCallStartEvent,
+            ns="model:abc",
+            emit_messages=False,
+            tool_call_id="tc-1",
+            tool_call_name="CommitMetadata",
+        ),
+        _ev(ToolCallEndEvent, ns="model:abc", emit_messages=False, tool_call_id="tc-1"),
+    ]
+    out = await _drain(_filter(events))
+    assert [e.type for e in out] == [EventType.TOOL_CALL_START, EventType.TOOL_CALL_END]

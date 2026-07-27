@@ -10,6 +10,27 @@ if TYPE_CHECKING:
 
     from ag_ui.core.events import BaseEvent
 
+# ``ag_ui_langgraph`` honors ``emit-messages: False`` for text frames only: the
+# reasoning branch returns before upstream reaches that gate, so a subagent
+# configured to stay silent still streams its thinking. The filter applies the
+# same gate to reasoning.
+#
+# Scoping it to reasoning is upstream's own taxonomy, not a DAIV carve-out:
+# upstream splits the flag in two (``emit-messages`` and ``emit-tool-calls``), so
+# "messages ⊃ text + reasoning" while tool calls are a separate axis. Extending
+# this gate to TOOL_CALL_* would also break the publish pipeline, which runs under
+# ``emit-messages: False`` and relies on its tool frames reaching the chat as
+# progress chips ("Creating merge request…").
+REASONING_EVENT_TYPES = frozenset({
+    EventType.REASONING_START,
+    EventType.REASONING_MESSAGE_START,
+    EventType.REASONING_MESSAGE_CONTENT,
+    EventType.REASONING_MESSAGE_CHUNK,
+    EventType.REASONING_MESSAGE_END,
+    EventType.REASONING_END,
+    EventType.REASONING_ENCRYPTED_VALUE,
+})
+
 
 class SubagentEventFilter:
     """Reorder/suppress AGUI events so subagent frames don't leak into the parent turn,
@@ -30,6 +51,8 @@ class SubagentEventFilter:
     2. With ``stream_subgraphs=True``, every chunk emitted from inside
        ``subagent.ainvoke()`` flows through the parent's stream with a
        nested ``langgraph_checkpoint_ns`` (``"tools:UUID|model:UUID"``).
+       ``REASONING_*`` events arrive with no namespace of their own; see
+       ``_metadata`` and ``RuntimeContextLangGraphAGUIAgent._handle_single_event``.
 
     3. When the LLM emits parallel tool_calls in a single AIMessage,
        ag_ui_langgraph only tracks one ``current_stream.tool_call_id`` at a
@@ -58,6 +81,8 @@ class SubagentEventFilter:
       tool's body. Tracking each tcid's natural-start chunk index keeps its
       own deltas while still dropping siblings ag_ui_langgraph misroutes,
     * drops every nested event (``|`` in ns),
+    * drops ``REASONING_*`` events whose emitter set ``emit-messages: False``
+      (see ``REASONING_EVENT_TYPES``),
     * drops the LATE OnToolEnd re-emitted START/ARGS/END for tool_calls we
       already synthesized (deduping by tool_call_id).
     """
@@ -73,6 +98,9 @@ class SubagentEventFilter:
             is_nested = "|" in ns
 
             if is_nested:
+                continue
+
+            if event.type in REASONING_EVENT_TYPES and not self._emit_messages(event):
                 continue
 
             if event.type == EventType.STATE_SNAPSHOT:
@@ -106,8 +134,25 @@ class SubagentEventFilter:
             yield event
 
     @staticmethod
-    def _checkpoint_ns(event: BaseEvent) -> str:
-        """Extract the LangGraph checkpoint namespace from an AGUI event's raw_event.
+    def _metadata(event: BaseEvent) -> dict:
+        """Return the LangGraph metadata carried by an AGUI event, or ``{}``.
+
+        Upstream attaches the source LangGraph event to ``raw_event`` (RAW events
+        carry it on ``event`` instead). ``REASONING_*`` events get neither — they
+        only carry metadata because ``RuntimeContextLangGraphAGUIAgent`` stamps a
+        minimal ``{"metadata": {...}}`` onto them.
+        """
+        raw = getattr(event, "raw_event", None)
+        if not isinstance(raw, dict):
+            raw = getattr(event, "event", None)
+        if not isinstance(raw, dict):
+            return {}
+        md = raw.get("metadata")
+        return md if isinstance(md, dict) else {}
+
+    @classmethod
+    def _checkpoint_ns(cls, event: BaseEvent) -> str:
+        """Extract the LangGraph checkpoint namespace from an AGUI event.
 
         A ``|`` in the namespace means the event was emitted from a *nested*
         LangGraph execution — i.e. from inside a subagent invoked by the parent's
@@ -115,14 +160,17 @@ class SubagentEventFilter:
         ``"<node>:UUID"`` segment (e.g. ``"model:..."``, ``"tools:..."``) with no
         pipe.
         """
-        # RAW events carry their LC payload on ``event``; others on ``raw_event``.
-        raw = getattr(event, "raw_event", None)
-        if not isinstance(raw, dict):
-            raw = getattr(event, "event", None)
-        if not isinstance(raw, dict):
-            return ""
-        md = raw.get("metadata") or {}
-        return str(md.get("langgraph_checkpoint_ns", "") or "")
+        return str(cls._metadata(event).get("langgraph_checkpoint_ns", "") or "")
+
+    @classmethod
+    def _emit_messages(cls, event: BaseEvent) -> bool:
+        """Whether the emitting runnable opted into streaming its messages.
+
+        Mirrors upstream exactly: default ``True``, then plain truthiness. The
+        default also keeps any event whose metadata never reached us — an unstamped
+        event would otherwise vanish.
+        """
+        return bool(cls._metadata(event).get("emit-messages", True))
 
     def _is_misrouted_arg(self, event: BaseEvent) -> bool:
         """True if a natural TOOL_CALL_ARGS event's underlying chunk belongs to a
