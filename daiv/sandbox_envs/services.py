@@ -122,28 +122,31 @@ def refresh_platform_egress(
     Turn start builds ``ctx.sandbox.egress`` via :func:`augment_sandbox_with_platform_egress`, which
     embeds a short-lived platform token under the reserved ``PLATFORM_EGRESS_SECRET_NAME`` secret. A
     turn that outlives that token's TTL (GitHub installation tokens live 1h) would fail the in-sandbox
-    publish push. This mints a fresh credential and replaces **only** that secret's value — the
-    allow-rule (host, methods, inject reference) and every other secret are untouched — so the result
-    carries no duplicate platform rule, unlike naively re-running :func:`apply_platform_egress` on an
-    already-augmented config (which prepends a second rule).
+    publish push, so the publisher re-mints right before publishing. This replaces **only** that
+    secret's value — the allow-rule (host, methods, inject reference) and every other secret are
+    untouched — so the result carries no duplicate platform rule, unlike naively re-running
+    :func:`apply_platform_egress` on an already-augmented config (which prepends a second rule).
 
-    Returns ``egress`` **unchanged** (same object, so the caller's identity check skips delivery)
-    when there is nothing useful to refresh: no egress proxy at all (``egress is None``); a host-only
-    / token-less credential (e.g. the SWE eval platform) with no secret to rotate; or a re-mint that
-    yields the **same token** as the incumbent. The last case is why this is only effective on
-    platforms that mint a fresh token per call (GitHub installation tokens): GitLab clone tokens are
-    day-cached (see ``gitlab/clone_tokens.py``), so re-minting returns the byte-identical token — a
-    retry with it would fail identically, so we report "nothing changed" rather than burn the caller's
-    one-shot retry on a dead credential."""
+    Returns ``egress`` **unchanged** (same object, so the caller's identity check skips the sidecar
+    delivery) when there is nothing useful to refresh: no egress proxy at all (``egress is None``); a
+    config that never carried the platform secret (turn start resolved a host-only credential, so the
+    rule was built with ``inject=None`` — a token minted now would sit in ``secrets`` unreferenced by
+    any rule, never injected); a host-only / token-less credential (e.g. the SWE eval platform) with
+    no token to swap in; or a re-mint that yields the **same token** as the incumbent. The last case
+    is why this is only effective on platforms that mint a fresh token per call (GitHub installation
+    tokens): GitLab clone tokens are day-cached (see ``gitlab/clone_tokens.py``), so re-minting
+    returns the byte-identical token — there is nothing new to deliver."""
     from core.sandbox.schemas import EgressConfigRequest, EgressSecret
 
     if egress is None:
         return egress
+    incumbent = egress.secrets.get(PLATFORM_EGRESS_SECRET_NAME)
+    if incumbent is None:
+        return egress
     credential = repo_client.get_git_egress_credential(repository)
     if credential is None or credential.value is None:
         return egress
-    incumbent = egress.secrets.get(PLATFORM_EGRESS_SECRET_NAME)
-    if incumbent is not None and incumbent.value.get_secret_value() == credential.value.get_secret_value():
+    if incumbent.value.get_secret_value() == credential.value.get_secret_value():
         return egress
     secrets = dict(egress.secrets)
     secrets[PLATFORM_EGRESS_SECRET_NAME] = EgressSecret(header=credential.header, value=credential.value)

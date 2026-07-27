@@ -237,7 +237,7 @@ def test_refresh_platform_egress_unchanged_when_token_is_identical():
 
     client = Mock()
     # GitLab's day-cached clone token: the re-mint returns the byte-identical credential. There is no
-    # fresh token to deliver, so return the config unchanged (→ caller skips the pointless retry).
+    # fresh token to deliver, so return the config unchanged (→ caller skips the pointless delivery).
     client.get_git_egress_credential.return_value = GitEgressCredential(
         host="gitlab.example.com", value=SecretStr("Basic SAME")
     )
@@ -264,6 +264,30 @@ def test_refresh_platform_egress_unchanged_when_credential_tokenless():
     # Nothing to swap in (token-less / eval platform): return the config unchanged rather than
     # dropping the existing (still possibly-valid) secret.
     assert refresh_platform_egress(stale, client, Mock()) is stale
+
+
+def test_refresh_platform_egress_unchanged_when_config_never_carried_platform_secret():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import apply_platform_egress, refresh_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
+
+    env = EgressConfigRequest(
+        policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
+        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
+    )
+    # Turn start resolved a HOST-ONLY credential (no token): the platform rule was built with
+    # inject=None and no platform secret was embedded.
+    stale = apply_platform_egress(env, GitEgressCredential(host="github.com", value=None))
+
+    client = Mock()
+    # Even if a token could be minted now, no rule references the platform secret — the proxy would
+    # never inject it. Return the config unchanged, without even minting.
+    assert refresh_platform_egress(stale, client, Mock()) is stale
+    client.get_git_egress_credential.assert_not_called()
 
 
 @pytest.mark.asyncio

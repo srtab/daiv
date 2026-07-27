@@ -84,23 +84,20 @@ class GitChangePublisher(ChangePublisher):
 
         # Local-mode git (sandbox-disabled runs) pushes from the DAIV-container clone, whose
         # .git/config deliberately holds no credential — overlay the per-run credential on its git
-        # subprocesses. Sandbox runs skip the lookup: in-sandbox git authenticates via the egress
-        # proxy, and (on GitHub) the lookup mints a token via a platform API call.
+        # subprocesses. Sandbox runs skip the lookup — in-sandbox git authenticates via the egress
+        # proxy's platform token, minted at turn start with a platform-fixed TTL (GitHub installation
+        # tokens live 1h). A turn that outlives it would fail this publish's network git ops
+        # (ls-remote/push) and lose the run's work, so re-mint and deliver a fresh token onto the
+        # live session first. Best-effort: a failed refresh degrades to publishing with the
+        # turn-start token, i.e. the pre-existing behavior.
         auth_env: GitAuthEnv | None = None
         if self.sandbox_backend is None:
             auth_env = await sync_to_async(self.client.get_git_auth_env)(self.ctx.repository)
-
-        # Sandbox git is authenticated by the egress proxy using a platform token minted at turn
-        # start; a turn that outlives its TTL (GitHub installation tokens live 1h) would fail this
-        # publish's first in-sandbox network op. Wire the re-mint-and-retry callback so the manager
-        # can recover. Local mode overlays a fresh per-invocation credential instead (no live proxy).
-        on_auth_failure = self._refresh_sandbox_egress if self.sandbox_backend is not None else None
+        else:
+            await self._refresh_sandbox_egress()
 
         async with open_git_manager(
-            sandbox_backend=self.sandbox_backend,
-            gitrepo=self.ctx.gitrepo,
-            auth_env=auth_env,
-            on_auth_failure=on_auth_failure,
+            sandbox_backend=self.sandbox_backend, gitrepo=self.ctx.gitrepo, auth_env=auth_env
         ) as git_manager:
             snapshot = await git_manager.status_snapshot(
                 base_branch=default_branch,
@@ -185,27 +182,29 @@ class GitChangePublisher(ChangePublisher):
             protected_branch_fallback_source=protected_branch_fallback_source,
         )
 
-    async def _refresh_sandbox_egress(self) -> bool:
-        """Re-mint the git-platform token and push it onto the live sandbox session, so the manager
-        can retry a remote git op that the turn-start token could no longer authenticate.
+    async def _refresh_sandbox_egress(self) -> None:
+        """Re-mint the git-platform token and deliver it onto the live sandbox session, so the
+        publish's in-sandbox network git ops (ls-remote/push) run with a fresh credential even when
+        the turn outlived the token minted at turn start.
 
-        Returns ``True`` when a fresh credential was delivered (the caller then retries once), and
-        ``False`` when there is nothing to refresh (no egress proxy, a token-less/eval platform, or a
-        re-mint that returned the same token — e.g. GitLab's day-cached clone token) or the refresh
-        could not be delivered. On ``False`` the caller lets the original auth error surface as the
-        pre-existing handled ``GitPushPermissionError`` — never worse than today.
+        Refreshing unconditionally before the first network op — rather than reacting to a failed
+        one — keeps the recovery independent of git's auth-error wording, which varies by version and
+        transport. Delivery is skipped when there is nothing to refresh (no egress proxy, a
+        token-less/eval platform, or a re-mint that returned the same token — e.g. GitLab's
+        day-cached clone token).
 
-        Only wired in sandbox mode. The broad ``except`` is deliberate: this is best-effort recovery,
-        the platform mint and the sidecar PUT raise a spread of platform-/transport-specific errors
-        the (platform-agnostic) publisher shouldn't enumerate, and any failure degrades cleanly to the
-        original error. The stack trace is logged so a persistent refresh failure stays diagnosable.
+        Only called in sandbox mode. Best-effort by design — the broad ``except`` is deliberate: the
+        platform mint and the sidecar PUT raise a spread of platform-/transport-specific errors the
+        (platform-agnostic) publisher shouldn't enumerate, and any failure degrades cleanly to
+        publishing with the turn-start token (the pre-existing behavior). The stack trace is logged
+        so a persistent refresh failure stays diagnosable.
         """
         from sandbox_envs.services import refresh_platform_egress
 
         backend = self.sandbox_backend
         sandbox = self.ctx.sandbox
-        if backend is None or sandbox is None:  # pragma: no cover - only wired in sandbox mode
-            return False
+        if backend is None or sandbox is None:  # pragma: no cover - only called in sandbox mode
+            return
         try:
             egress = await sync_to_async(refresh_platform_egress)(sandbox.egress, self.client, self.ctx.repository)
             # refresh_platform_egress returns the *input* object when there was nothing to swap in
@@ -213,12 +212,13 @@ class GitChangePublisher(ChangePublisher):
             # deliver". The explicit `is None` also narrows the `EgressConfigRequest | None` return for
             # the type checker before the non-null refresh_egress call below.
             if egress is None or egress is sandbox.egress:
-                return False
+                return
             await backend.refresh_egress(egress)
+            logger.info("Refreshed the sandbox egress token before publish")
         except Exception:
-            logger.exception("Could not refresh the sandbox egress token after a git auth failure; not retrying")
-            return False
-        return True
+            logger.exception(
+                "Could not refresh the sandbox egress token before publish; proceeding with the turn-start token"
+            )
 
     async def _diff_to_metadata(self, commit_message_diff: str, pr_metadata_diff: str | None = None) -> dict[str, Any]:
         """

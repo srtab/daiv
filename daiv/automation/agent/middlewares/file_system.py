@@ -691,12 +691,12 @@ class SandboxFileBackend(BackendProtocol):
         """Push a freshly-resolved egress config onto this run's live session (the proxy hot-reloads
         on its next request). Raises ``httpx.HTTPError`` on failure, like the other client calls here.
 
-        Used by the publisher's auth-failure retry: the platform token embedded at turn start expires
-        (GitHub installation tokens live 1h), so a turn that outran it re-mints one and delivers it
-        here before retrying the in-sandbox publish push. This is the turn-END delivery of the same
+        Used by the publisher's pre-publish token refresh: the platform token embedded at turn start
+        expires (GitHub installation tokens live 1h), so the publisher re-mints one and delivers it
+        here before running the in-sandbox publish git ops. This is the turn-END delivery of the same
         egress config that ``SandboxMiddleware._arefresh_egress`` delivers at turn START (both wrap
         ``DAIVSandboxClient.update_egress``); they differ in orchestration — turn-start recreates the
-        session on failure, turn-end lets the caller degrade to the pre-existing auth error.
+        session on failure, turn-end lets the caller degrade to publishing with the turn-start token.
         """
         client, session_id = self._require_bound()
         await client.update_egress(session_id, egress)
