@@ -6,7 +6,12 @@ from jobs.tasks import _acquire_session_lock
 from sessions.locks import SessionLock
 from sessions.models import Session, SessionOrigin
 
-pytestmark = pytest.mark.django_db
+# ``transaction=True``: these are async DB tests. Async writes commit and escape the
+# plain-``django_db`` savepoint rollback (a known footgun in this project's in-memory
+# SQLite), so the created Session rows would leak into later tests that make global
+# ``Session``/``Run`` count assertions. The transactional flush after each test cleans
+# them up. Same reasoning as ``tests/unit_tests/sessions/test_chat_runs.py``.
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
 async def _mk_session(**kwargs):

@@ -39,14 +39,19 @@ class TestCaching:
         instance = SiteConfiguration.get_cached()
         assert instance.pk == 1
 
-    async def test_get_cached_works_in_async_context_cold_cache(self, db):
+    # ``transactional_db`` (not ``db``) on the two cold-cache tests below: the fetch they exercise
+    # runs ``get_instance()`` in a thread pool, so the singleton row it creates lands on a
+    # thread-local connection outside the plain-``db`` savepoint and commits for real — leaking a
+    # test-created singleton into every later test in the same worker that reads site config.
+    # The other async tests here patch ``get_instance``/``submit`` out, so they never write.
+    async def test_get_cached_works_in_async_context_cold_cache(self, transactional_db):
         """When called from an async context with cold cache, fetches via thread pool."""
         django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
         result = SiteConfiguration.get_cached()
         assert result is not None
         assert result.pk == 1
 
-    async def test_get_cached_populates_cache_in_async_context(self, db):
+    async def test_get_cached_populates_cache_in_async_context(self, transactional_db):
         """Cold cache async fetch should populate cache for subsequent calls."""
         django_cache.delete(SITE_CONFIGURATION_CACHE_KEY)
         SiteConfiguration.get_cached()

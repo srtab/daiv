@@ -23,6 +23,13 @@ make makemessages && make compilemessages
 
 - Unit tests live in `tests/unit_tests/` mirroring `daiv/` structure.
 - `asyncio_mode = "auto"` — no need for `@pytest.mark.asyncio`.
+- **An async test that writes to the DB needs `django_db(transaction=True)`** (or the
+  `transactional_db` fixture), never plain `django_db`. Async ORM writes run on a thread-local
+  connection, not the one pytest-django wrapped in a rollback-only atomic block, so under plain
+  `django_db` they commit for real: the rows outlive the test and stay visible to every later test
+  in that xdist worker (breaking table-wide `.count()` assertions) until some later transactional
+  test's flush. The same collision can instead surface as `OperationalError: database table is
+  locked`, depending on what ran before — so treat either symptom as this bug.
 - Python **3.14 only** (`requires-python = ">=3.14,<3.15"`).
 - Never edit `pyproject.toml` directly; use `uv add <pkg>==<version>` / `uv remove <pkg>`.
 
