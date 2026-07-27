@@ -693,10 +693,11 @@ class SandboxFileBackend(BackendProtocol):
 
         Used by the publisher's pre-publish token refresh: the platform token embedded at turn start
         expires (GitHub installation tokens live 1h), so the publisher re-mints one and delivers it
-        here before running the in-sandbox publish git ops. This is the turn-END delivery of the same
-        egress config that ``SandboxMiddleware._arefresh_egress`` delivers at turn START (both wrap
-        ``DAIVSandboxClient.update_egress``); they differ in orchestration — turn-start recreates the
-        session on failure, turn-end lets the caller degrade to publishing with the turn-start token.
+        here before running the in-sandbox publish git ops. This is the turn-END counterpart of the
+        delivery ``SandboxMiddleware._arefresh_egress`` makes when reusing a warm session at turn
+        START (both wrap ``DAIVSandboxClient.update_egress``); they differ in orchestration —
+        turn-start recreates the session on failure, turn-end lets the caller degrade to publishing
+        with the turn-start token.
         """
         client, session_id = self._require_bound()
         await client.update_egress(session_id, egress)

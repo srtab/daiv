@@ -274,7 +274,8 @@ class TestPublishSandboxEgressRefresh:
         publisher.sandbox_backend = Mock()
         publisher.ctx.sandbox.egress = EgressConfigRequest()
         fresh = EgressConfigRequest()
-        monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", Mock(return_value=fresh))
+        remint = Mock(return_value=fresh)
+        monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", remint)
 
         order: list[str] = []
         publisher.sandbox_backend.refresh_egress = AsyncMock(side_effect=lambda _egress: order.append("refresh"))
@@ -288,6 +289,10 @@ class TestPublishSandboxEgressRefresh:
 
         await publisher.publish(merge_request=None)
 
+        # Pin the wiring, not just the call: a wrong argument (e.g. `sandbox` instead of
+        # `sandbox.egress`) would be swallowed by the best-effort except in production and silently
+        # disable the feature on every publish, while a mock with a fixed return stays green.
+        remint.assert_called_once_with(publisher.ctx.sandbox.egress, publisher.client, publisher.ctx.repository)
         publisher.sandbox_backend.refresh_egress.assert_awaited_once_with(fresh)
         assert order == ["refresh", "snapshot"]
 
@@ -302,9 +307,10 @@ class TestPublishSandboxEgressRefresh:
 
         publisher._refresh_sandbox_egress.assert_not_awaited()
 
-    async def test_publish_proceeds_when_refresh_fails(self, monkeypatch):
+    async def test_publish_proceeds_when_refresh_fails(self, monkeypatch, caplog):
         """A failed refresh (e.g. the GitHub re-mint errors) must not abort the publish — it
-        degrades to publishing with the turn-start token, the pre-existing behavior."""
+        degrades to publishing with the turn-start token, the pre-existing behavior — but the
+        failure must stay diagnosable (exception-logged), or the degradation is truly silent."""
         from core.sandbox.schemas import EgressConfigRequest
 
         publisher = _make_publisher()
@@ -315,9 +321,11 @@ class TestPublishSandboxEgressRefresh:
         )
         _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
 
-        outcome = await publisher.publish(merge_request=None)
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            outcome = await publisher.publish(merge_request=None)
 
         assert outcome == PublishOutcome(merge_request=None, published=False)
+        assert "Could not refresh the sandbox egress token" in caplog.text
 
     async def test_refresh_skips_delivery_when_nothing_to_refresh(self, monkeypatch):
         from core.sandbox.schemas import EgressConfigRequest
@@ -336,9 +344,9 @@ class TestPublishSandboxEgressRefresh:
 
         publisher.sandbox_backend.refresh_egress.assert_not_awaited()
 
-    async def test_refresh_swallows_delivery_error(self, monkeypatch):
-        # The failure is in the sidecar DELIVERY (mint succeeded): swallow it and proceed with the
-        # turn-start token rather than failing the publish.
+    async def test_refresh_swallows_delivery_error(self, monkeypatch, caplog):
+        # The failure is in the sidecar DELIVERY (mint succeeded): swallow it — but exception-log
+        # it — and proceed with the turn-start token rather than failing the publish.
         import httpx
 
         from core.sandbox.schemas import EgressConfigRequest
@@ -349,9 +357,11 @@ class TestPublishSandboxEgressRefresh:
         publisher.ctx.sandbox.egress = EgressConfigRequest()
         monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", Mock(return_value=EgressConfigRequest()))
 
-        await publisher._refresh_sandbox_egress()  # must not raise
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            await publisher._refresh_sandbox_egress()  # must not raise
 
         publisher.sandbox_backend.refresh_egress.assert_awaited_once()
+        assert "Could not refresh the sandbox egress token" in caplog.text
 
 
 class TestPublishSuggestsContextFile:

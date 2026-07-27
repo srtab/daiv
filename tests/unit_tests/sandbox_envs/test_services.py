@@ -208,6 +208,11 @@ def test_refresh_platform_egress_swaps_token_without_duplicating_rule():
     assert [r.host for r in fresh.policy.rules] == ["github.com", "api.openai.com"]
     assert fresh.secrets[PLATFORM_EGRESS_SECRET_NAME].value.get_secret_value() == "Basic FRESH"
     assert fresh.secrets["s1"].value.get_secret_value() == "sk"
+    # The changed-token half of the identity contract: the publisher skips delivery when it gets the
+    # SAME object back (`is` check), so a real swap MUST come back as a new object with the input
+    # unmutated — an in-place mutation would silently disable every delivery.
+    assert fresh is not stale
+    assert stale.secrets[PLATFORM_EGRESS_SECRET_NAME].value.get_secret_value() == "Basic STALE"
 
 
 def test_refresh_platform_egress_noop_when_egress_none():
@@ -263,6 +268,10 @@ def test_refresh_platform_egress_unchanged_when_credential_tokenless():
     client.get_git_egress_credential.return_value = GitEgressCredential(host="github.com", value=None)
     # Nothing to swap in (token-less / eval platform): return the config unchanged rather than
     # dropping the existing (still possibly-valid) secret.
+    assert refresh_platform_egress(stale, client, Mock()) is stale
+
+    # Same for the no-credential-at-all arm (clone URL without a resolvable host).
+    client.get_git_egress_credential.return_value = None
     assert refresh_platform_egress(stale, client, Mock()) is stale
 
 
