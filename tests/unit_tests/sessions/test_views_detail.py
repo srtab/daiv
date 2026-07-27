@@ -411,6 +411,31 @@ def test_detail_in_flight_context(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_detail_renders_session_live_flag(member_client, member_user):
+    """``sessionLive`` reaches chat() as a JS boolean, mirroring is_in_flight.
+
+    It is the only signal the load-time scroll has for telling a still-working
+    session from a finished one (see parkViewport() in chat-stream.js), so the
+    template wiring is worth pinning.
+    """
+    session_live = _create_session(user=member_user)
+    _create_run(session_live, status=RunStatus.RUNNING)
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_live.thread_id}))
+
+    assert "sessionLive: true" in resp.content.decode()
+
+    session_done = _create_session(user=member_user)
+    _create_run(session_done, status=RunStatus.SUCCESSFUL)
+
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_done.thread_id}))
+
+    assert "sessionLive: false" in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_poll_transcript_only_for_background_runs(member_client, member_user):
     """poll_transcript is True only for non-chat in-flight runs; chat runs manage themselves via AG-UI stream."""
     # Case 1: in-flight CHAT run — poller must NOT engage (chat uses AG-UI stream).

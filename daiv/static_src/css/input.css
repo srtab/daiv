@@ -804,6 +804,10 @@ main:has(.chat-shell) {
   .chat-turn {
     padding: 0.5rem 0;
     animation: fade-up 0.45s ease-out both;
+    /* Breathing room left above a turn the page scrolls to, so it reads as the
+       top of a block rather than as content clipped by the viewport edge.
+       Consumed by chat-stream.js's parkViewport() via scrollIntoView(). */
+    scroll-margin-top: 1rem;
   }
 
   .chat-turn__body {
