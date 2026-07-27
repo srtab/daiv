@@ -57,6 +57,10 @@
          streamEndpoint: "{% url 'api:chat_run_stream' %}",
          cancelEndpoint: "{% url 'api:chat_run_cancel' %}",
          activeRunId: "{{ chat_active_run_id|default:''|escapejs }}",
+         {# Covers both live holders — a chat run this tab rejoins via the relay, and a #}
+         {# background run the transcript poller follows — so the load-time scroll can #}
+         {# tell "still working" from "finished" without duplicating that logic in JS. #}
+         sessionLive: {{ is_in_flight|yesno:"true,false" }},
          csrfToken: "{{ csrf_token|escapejs }}",
          thread: {% if session %}{
            thread_id: "{{ session.thread_id|escapejs }}",
@@ -183,7 +187,7 @@
                 </div>
               </template>
               <template x-if="turn.role !== 'run_status'">
-                <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true }">
+                <article class="chat-turn" :class="{ [`chat-turn--${turn.role}`]: true }" :data-role="turn.role">
                   <div class="chat-turn__body">
                     <template x-for="(seg, si) in visibleSegments(turn)" :key="si">
                       <div class="chat-segment" :class="`chat-segment--${seg.type}`">

@@ -286,10 +286,11 @@
         this.resuming = false;
       }
 
-      // Park the viewport at the latest turn on page load. $nextTick waits for
-      // Alpine to materialize x-for'd turns into DOM so scrollHeight is final.
+      // Park the viewport on page load. $nextTick waits for Alpine to
+      // materialize x-for'd turns into DOM; parkViewport() then settles the
+      // height shifts that land after that first render.
       if (this.turns.length) {
-        this.$nextTick(() => this.scrollToBottom({ force: true }));
+        this.$nextTick(() => this.parkViewport());
       }
     },
 
@@ -919,6 +920,46 @@
     _appendTextSegment(turn, content) {
       turn.segments.push({ type: "text", content });
       return turn.segments[turn.segments.length - 1];
+    },
+
+    // Where the viewport lands on page load. A live session belongs at the
+    // bottom, so streamed output arrives in view. A finished one opens at the
+    // *top of the last assistant message* instead: that final answer is what
+    // the reader came for, and anchoring to the bottom buries its opening
+    // lines above the fold whenever it is taller than the viewport.
+    parkViewport() {
+      if (config.sessionLive) {
+        this.scrollToBottom({ force: true });
+        return;
+      }
+      // Two frames deep, because anything that changes height *above* the
+      // target after we measure drags it back off the top edge. One rAF clears
+      // the userClamp children, which queue their collapse on $nextTick; their
+      // "Show more" toggles then reveal a frame later, growing each collapsed
+      // bubble again. Chrome and Firefox would absorb that second shift with
+      // scroll anchoring, but Safari has none — so settle it here instead of
+      // depending on the browser to paper over it.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const el = this._scrollEl;
+        if (!el) return;
+        // Last rendered assistant turn — querying the DOM rather than `turns`
+        // keeps this in step with isTurnVisible(), which drops empty turns.
+        // `data-role` is the handle, not the `chat-turn--${role}` class: that
+        // one is composed at render time and no stylesheet declares the
+        // assistant variant, so keying on it would break silently.
+        const rendered = el.querySelectorAll('.chat-turn[data-role="assistant"]');
+        const target = rendered[rendered.length - 1];
+        if (!target) {
+          // A run that failed before answering: the tail is still the most
+          // useful place to be.
+          el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+          return;
+        }
+        // Breathing room above it comes from .chat-turn's scroll-margin-top,
+        // and the browser clamps at the end of the scroll range — so a short
+        // final answer degrades to the old bottom-anchored position for free.
+        target.scrollIntoView({ block: "start", behavior: "auto" });
+      }));
     },
 
     scrollToBottom({ force = false } = {}) {
