@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed a chat thread becoming permanently unusable once the merge request it opened was merged with source-branch deletion (GitLab's default). The thread stayed pinned to the deleted branch, so every later turn failed to clone it with an opaque "Run failed"; the branch pill is read-only on an existing thread, leaving no way to recover. Such a thread now continues on the repository default branch — where the merged work lives — and says so in the conversation. A branch the platform API still reports as present is treated as a transient advertisement miss and left as a hard error rather than silently retargeted.
 - Fixed the configured GitLab PAT being embedded in clone URLs, leaking the full-access credential into the workspace's `.git/config` and the sandbox: git clone/push now uses a short-lived, project-scoped token (see the GitLab token entry under Changed).
 - Fixed the agent failing to publish after a non-fast-forward push rejection, and failing when the source branch is protected (it now opens a new MR).
 - Fixed `web_fetch` to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing redirect loops and DNS rebinding.

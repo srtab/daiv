@@ -217,6 +217,32 @@ class TestGitMiddleware:
         lookup.assert_not_called()
         assert result["merge_request"] is state_mr
 
+    async def test_abefore_agent_drops_state_mr_whose_source_branch_is_not_the_current_ref(self):
+        """A checkpointed MR for a branch this run is not on is stale and must not carry forward.
+
+        Reachable whenever the pinned branch disappears: the chat ref fallback retargets the
+        default branch after a merged MR's source branch is deleted, and the checkpoint still
+        holds that merged MR. Keeping it would re-pin the session to the dead branch (via
+        ``persist_ref``, which reads the streamed MR) and make the publisher push HEAD to
+        ``merge_request.source_branch`` — recreating the deleted branch, silently attached to an
+        already-merged MR, with no new MR opened for the work.
+        """
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        stale_state_mr = _mr(branch="chore/merged-and-deleted")
+
+        with (
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value="main"),
+            patch(
+                "automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)
+            ) as lookup,
+        ):
+            result = await middleware.abefore_agent({"merge_request": stale_state_mr}, runtime)
+
+        # Falls through to the open-MR lookup for the branch actually checked out.
+        lookup.assert_awaited_once_with(runtime.context)
+        assert result["merge_request"] is None
+
     async def test_abefore_agent_runtime_context_overrides_state_in_mr_scope(self):
         middleware = GitMiddleware()
         runtime = _make_runtime(scope=Scope.MERGE_REQUEST)

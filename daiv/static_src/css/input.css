@@ -905,6 +905,9 @@ main:has(.chat-shell) {
   .chat-run-status--aborted {
     @apply border-white/10 bg-white/[0.03] text-gray-400;
   }
+  .chat-run-status--notice {
+    @apply border-blue-400/25 bg-blue-500/[0.08] text-blue-200;
+  }
 
   .chat-text :where(p, ul, ol, pre, blockquote, h1, h2, h3, h4, h5, h6, hr, table, dl) {
     margin: 0 0 0.65rem 0;

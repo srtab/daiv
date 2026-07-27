@@ -112,6 +112,10 @@ class SWERepoClient(RepoClient):
         """SWE sandbox repos have no remote branch protection."""
         return False
 
+    def branch_exists(self, repo_id: str, branch: str) -> bool | None:
+        """Unknown: SWE eval clones are SHA-pinned and have no branch API to consult."""
+        return None
+
     def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
         """List branches is not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support listing branches")

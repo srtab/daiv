@@ -20,6 +20,7 @@ from automation.agent.usage_tracking import build_usage_summary, track_usage_met
 from automation.agent.utils import build_langsmith_config, get_daiv_agent_kwargs
 from codebase.base import Scope
 from codebase.context import set_runtime_ctx
+from codebase.exceptions import RepositoryRefNotFoundError
 from core.checkpointer import open_checkpointer
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
 
@@ -29,6 +30,7 @@ from .threads import ChatSessionService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+    from contextlib import AbstractAsyncContextManager
 
     from ag_ui.core import RunAgentInput
     from ag_ui.core.events import BaseEvent
@@ -138,6 +140,10 @@ class ChatRunStreamer:
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
+    # True when this run created the ``Session`` row, i.e. it is the thread's first turn. Gates
+    # the missing-ref fallback: a ref the caller just chose is theirs to correct, only a ref the
+    # thread inherited (pinned by ``persist_ref``) is worth healing behind their back.
+    session_created: bool = False
     # When set, ``{id, name, scope}`` of the env the view auto-resolved for this run.
     # The chat composer's locked pill is still showing "Auto" on the client; the
     # streamer's first emit swaps it to the real name without waiting for a page
@@ -152,9 +158,28 @@ class ChatRunStreamer:
         if self.run_id != self.input_data.run_id:
             raise ValueError(f"run_id mismatch: {self.run_id!r} vs input_data {self.input_data.run_id!r}")
 
+    def _open_runtime_ctx(self, ref: str | None) -> AbstractAsyncContextManager[RuntimeCtx]:
+        """Open this run's runtime context at ``ref``; ``None`` means "resolve the default branch".
+
+        Delegating the ``None`` case to ``set_runtime_ctx`` keeps a single default-branch
+        resolution path — the streamer never re-derives it.
+        """
+        return set_runtime_ctx(
+            repo_id=self.repo_id,
+            scope=Scope.GLOBAL,
+            ref=ref,
+            sandbox_env_id=self.sandbox_environment_id,
+            acting_user_id=self.user_id,
+        )
+
     async def events(self) -> AsyncIterator[BaseEvent]:
         last_mr: MergeRequest | None = None
         clean_run = False
+        # The branch this turn actually runs on. Diverges from ``self.ref`` only when the pinned
+        # ref turns out to be gone from the remote and the run falls back to the default branch;
+        # ``missing_ref`` then names the dead branch so the end-of-run persist can't re-pin it.
+        effective_ref = self.ref
+        missing_ref: str | None = None
         # Set when the agent surfaces a failure. ``ag_ui_langgraph`` reports a LangGraph
         # stream error as a RUN_ERROR *event* and then returns normally (it does not raise),
         # so a clean loop exit is not sufficient proof of success — this flag is folded into
@@ -175,23 +200,62 @@ class ChatRunStreamer:
             # what would have run even if agent setup fails.
             if self.auto_resolved_env is not None:
                 yield CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
-            async with (
-                open_checkpointer() as checkpointer,
-                set_runtime_ctx(
-                    repo_id=self.repo_id,
-                    scope=Scope.GLOBAL,
-                    ref=self.ref,
-                    sandbox_env_id=self.sandbox_environment_id,
-                    acting_user_id=self.user_id,
-                ) as runtime_ctx,
-            ):
+            async with contextlib.AsyncExitStack() as stack:
+                checkpointer = await stack.enter_async_context(open_checkpointer())
+                try:
+                    runtime_ctx = await stack.enter_async_context(self._open_runtime_ctx(effective_ref))
+                except RepositoryRefNotFoundError as err:
+                    if self.session_created:
+                        # First turn of a thread: the caller chose this ref moments ago and can
+                        # simply choose another, so an honest failure beats silently running
+                        # somewhere else. Surfaces through the generic handler (Sentry included),
+                        # which is what we want for a ref that never existed.
+                        raise
+                    # An established thread is pinned to a branch the remote no longer has —
+                    # overwhelmingly because the MR this thread opened was merged with
+                    # source-branch deletion (GitLab's default), so the work now lives on the
+                    # default branch. Retarget it for this turn and heal the stored ref: without
+                    # this, *every* later turn dies here, and the composer's branch pill is
+                    # read-only on an existing thread, so the user cannot repoint it themselves.
+                    # A second miss (the default branch is gone too) is a normal run failure.
+                    logger.warning(
+                        "chat: ref %s no longer exists in %s (thread_id=%s run_id=%s); falling back to the "
+                        "default branch. git said: %s",
+                        effective_ref,
+                        self.repo_id,
+                        self.thread_id,
+                        self.run_id,
+                        getattr(err.__cause__, "stderr", None) or err.__cause__,
+                        exc_info=err,
+                    )
+                    runtime_ctx = await stack.enter_async_context(self._open_runtime_ctx(None))
+                    if not (default_branch := runtime_ctx.config.default_branch):
+                        # Nothing to fall back *to* (e.g. an empty repository). Keep the original
+                        # error rather than inventing a ref name and persisting it.
+                        raise
+                    effective_ref = default_branch
+                    missing_ref = self.ref
+                    # The pill must not claim a heal that didn't land: on a write failure the
+                    # client keeps showing the old ref and words the notice as this-turn-only.
+                    ref_persisted = True
+                    try:
+                        await ChatSessionService.repoint_ref(self.thread_id, effective_ref)
+                    except Exception:
+                        ref_persisted = False
+                        # The turn can still run on the fallback branch; only the healing is lost.
+                        logger.exception("chat: failed to repoint session ref for thread_id=%s", self.thread_id)
+                    yield CustomEvent(
+                        type=EventType.CUSTOM,
+                        name="ref_fallback",
+                        value={"ref": effective_ref, "previous_ref": self.ref, "persisted": ref_persisted},
+                    )
                 # Record the turn as a RUNNING Run once we're committed to executing.
                 chat_run = await start_chat_run(
                     session_id=self.thread_id,
                     user_id=self.user_id,
                     prompt=self.prompt,
                     repo_id=self.repo_id,
-                    ref=self.ref,
+                    ref=effective_ref,
                     message_id=self.message_id,
                 )
                 agent_kwargs = get_daiv_agent_kwargs(
@@ -318,7 +382,9 @@ class ChatRunStreamer:
             succeeded = clean_run and run_error_message is None
             if succeeded:
                 try:
-                    await ChatSessionService.persist_ref(self.thread_id, self.ref, last_mr)
+                    await ChatSessionService.persist_ref(
+                        self.thread_id, effective_ref, last_mr, missing_ref=missing_ref
+                    )
                 except Exception:
                     logger.exception("chat: failed to persist session ref for thread_id=%s", self.thread_id)
             if chat_run is not None:

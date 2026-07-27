@@ -268,6 +268,26 @@ class GitLabClient(RepoClient):
             logger.warning("Failed to check protection for %s@%s; assuming unprotected", repo_id, branch, exc_info=True)
             return False
 
+    def branch_exists(self, repo_id: str, branch: str) -> bool | None:
+        """
+        Resolve existence via ``GET /projects/:id/repository/branches/:branch``.
+
+        Only a 404 counts as "absent"; any other failure returns ``None`` (unknown) so callers
+        never read an API outage as a deleted branch.
+        """
+        project = self.client.projects.get(repo_id, lazy=True)
+        try:
+            project.branches.get(branch)
+        except GitlabError as e:
+            if e.response_code == 404:
+                return False
+            logger.warning("Could not determine whether %s@%s exists", repo_id, branch, exc_info=True)
+            return None
+        except Exception:  # noqa: BLE001 — transport errors (TLS, DNS, reset) are also "unknown"
+            logger.warning("Could not determine whether %s@%s exists", repo_id, branch, exc_info=True)
+            return None
+        return True
+
     def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
         """
         Return up to ``limit`` branch names, optionally filtered by server-side substring ``search``.
@@ -394,14 +414,18 @@ class GitLabClient(RepoClient):
 
         Yields:
             The repository object cloned to the temporary directory.
+
+        Raises:
+            RepositoryRefNotFoundError: If ``sha`` is a branch the remote no longer has.
         """
-        from codebase.clients.utils import safe_slug
+        from codebase.clients.utils import safe_slug, translate_missing_ref
 
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
             clone_dir = Path(tmpdir) / "repo"
-            repo = self._clone(repository, sha, clone_dir)
+            with translate_missing_ref(self, repository.slug, sha):
+                repo = self._clone(repository, sha, clone_dir)
             self._configure_commit_identity(repo)
             yield repo
 

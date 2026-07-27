@@ -209,6 +209,23 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def branch_exists(self, repo_id: str, branch: str) -> bool | None:
+        """
+        Return whether ``branch`` currently exists on the remote.
+
+        Three-valued on purpose: ``None`` means the platform could not answer (API or transport
+        failure) and must not be read as either presence or absence. Callers that act
+        destructively on absence — see :func:`codebase.clients.utils.translate_missing_ref` —
+        require the definite ``False``, so an unreachable platform is never mistaken for a
+        deleted branch.
+
+        Args:
+            repo_id: The repository ID.
+            branch: The branch name to check.
+        """
+        pass
+
+    @abc.abstractmethod
     def list_branches(self, repo_id: str, search: str | None = None, limit: int = 20) -> list[str]:
         """
         Return up to ``limit`` branch names for ``repo_id``.

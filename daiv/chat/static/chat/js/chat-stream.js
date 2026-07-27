@@ -411,7 +411,11 @@
     // ---------- Derived getters (right rail) ---------------------------
 
     get runStatus() {
-      const last = this.turns[this.turns.length - 1];
+      // Skip trailing notices: they are informational, never a run outcome, so they must
+      // neither paint the rail red nor reach the segment scan below (they carry no segments).
+      let i = this.turns.length - 1;
+      while (i >= 0 && this.turns[i].status === "notice") i--;
+      const last = this.turns[i];
       if (last?.role === "run_status") {
         return last.status === "aborted"
           ? { tone: "idle", label: "stopped" }
@@ -853,6 +857,24 @@
         } else if (this.selectedSandboxEnvId) {
           console.debug("chat: ignored resolved_env (user picked %o)", this.selectedSandboxEnvId, v);
         }
+      } else if (type === AGUI.CUSTOM && evt.name === "ref_fallback") {
+        // The branch this thread was pinned to is gone from the remote (usually its own MR
+        // was merged with source-branch deletion) and the run retargeted the default branch.
+        // Move the pill to match what actually ran and say why — the pill alone changing
+        // would look like the agent silently switched branches.
+        const v = evt.value || {};
+        if (v.ref) {
+          // Move the pill only when the server persisted the new ref; otherwise the pill would
+          // claim a heal the DB doesn't have and silently revert on the next page load.
+          if (v.persisted !== false) {
+            this._applyRepoState({ ref: v.ref });
+            this._pushNotice(`Branch ${v.previous_ref || "?"} no longer exists — continuing on ${v.ref}.`);
+          } else {
+            this._pushNotice(
+              `Branch ${v.previous_ref || "?"} no longer exists — running this turn on ${v.ref}.`,
+            );
+          }
+        }
       } else if (type === AGUI.STATE_SNAPSHOT) {
         // Snapshots fire on every node exit and almost always carry an
         // unchanged merge_request. Dedupe on identity so we don't churn
@@ -914,6 +936,19 @@
     _hasRunStatusMarker() {
       const runId = this._activeRun ? this._activeRun.runId : null;
       return runId != null && this.turns.some((t) => t.id === `run-status-${runId}`);
+    },
+
+    _pushNotice(message) {
+      // Informational sibling of `_pushRunStatus`, deliberately keyed apart from
+      // `run-status-${runId}`: a notice must neither be overwritten by this run's terminal
+      // status nor count as the run-status marker `_finishTurn` looks for. Client-only —
+      // it explains a mid-run decision and is not replayed on reload (the composer pill,
+      // which the server persisted, carries the outcome across refreshes).
+      const runId = this._activeRun ? this._activeRun.runId : uuid();
+      const id = `run-notice-${runId}`;
+      if (this.turns.some((t) => t.id === id)) return;
+      this.turns.push({ id, role: "run_status", status: "notice", message });
+      this.scrollToBottom();
     },
 
     _appendTextSegment(turn, content) {

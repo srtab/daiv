@@ -15,6 +15,7 @@ from codebase.clients.gitlab.client import (
     GitLabClient,
     _is_source_branch_missing_error,
 )
+from codebase.exceptions import RepositoryRefNotFoundError
 
 _CLONE_URL = "https://gitlab.com/group/repo.git"
 
@@ -380,18 +381,55 @@ class TestGitLabClient:
 
         assert "No git credential resolved for group/repo" in caplog.text
 
-    def test_load_repo_does_not_retry_non_auth_clone_failures(self, gitlab_client, clone_setup):
+    @pytest.mark.parametrize(
+        ("stderr", "branch_exists", "expected_exception"),
+        [
+            pytest.param(
+                "fatal: Remote branch nope not found in upstream origin",
+                False,
+                RepositoryRefNotFoundError,
+                id="missing-branch-confirmed-by-api-is-translated",
+            ),
+            pytest.param(
+                "fatal: Remote branch nope not found in upstream origin",
+                True,
+                GitCommandError,
+                id="missing-branch-contradicted-by-api-stays-raw",
+            ),
+            pytest.param(
+                "fatal: Remote branch nope not found in upstream origin",
+                None,
+                GitCommandError,
+                id="missing-branch-unknown-to-api-stays-raw",
+            ),
+            pytest.param(
+                "fatal: unable to access 'https://gitlab.com/group/repo.git/': Could not resolve host",
+                False,
+                GitCommandError,
+                id="transport-failure-stays-raw",
+            ),
+        ],
+    )
+    def test_load_repo_does_not_retry_non_auth_clone_failures(
+        self, gitlab_client, clone_setup, stderr, branch_exists, expected_exception
+    ):
         """A missing branch (or any non-auth 128) won't be fixed by a fresh credential, so it must
-        not trigger the token-rotation retry."""
+        not trigger the token-rotation retry.
+
+        A branch the *API also* reports gone surfaces as ``RepositoryRefNotFoundError`` so callers
+        can act on it — a chat thread pinned to a merged MR's deleted source branch retargets the
+        default branch instead of failing every later turn. git's wording on its own is not
+        enough: an advertisement miss the API contradicts (or can't confirm) stays a raw error,
+        because the chat fallback would otherwise abandon a live branch.
+        """
         repository, clone_from, _ = clone_setup
-        clone_from.side_effect = GitCommandError(
-            "git clone", 128, "fatal: Remote branch nope not found in upstream origin"
-        )
+        clone_from.side_effect = GitCommandError("git clone", 128, stderr)
 
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"),
             patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
-            pytest.raises(GitCommandError),
+            patch.object(type(gitlab_client), "branch_exists", return_value=branch_exists),
+            pytest.raises(expected_exception),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
@@ -860,6 +898,26 @@ class TestGitLabClient:
         for error in (GitlabGetError("404", response_code=404), GitlabAuthenticationError("401")):
             mock_project.branches.get.side_effect = error
             assert gitlab_client.is_branch_protected("group/repo", "missing") is False
+
+    def test_branch_exists_distinguishes_absent_from_unknown(self, gitlab_client):
+        """Three-valued on purpose: only a 404 means "gone". Anything else is ``None``, because a
+        caller acting on absence (``translate_missing_ref`` → the chat ref fallback) must never
+        mistake an API outage for a deleted branch."""
+        from gitlab.exceptions import GitlabAuthenticationError
+
+        mock_project = Mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        mock_project.branches.get.side_effect = None
+        mock_project.branches.get.return_value = Mock()
+        assert gitlab_client.branch_exists("group/repo", "dev") is True
+
+        mock_project.branches.get.side_effect = GitlabGetError("404", response_code=404)
+        assert gitlab_client.branch_exists("group/repo", "gone") is False
+
+        for error in (GitlabAuthenticationError("401"), GitlabGetError("500", response_code=500), OSError("reset")):
+            mock_project.branches.get.side_effect = error
+            assert gitlab_client.branch_exists("group/repo", "dunno") is None
 
     def test_get_merge_request_by_branches_returns_none_when_empty(self, gitlab_client):
         """Empty list → ``None`` (not an exception)."""

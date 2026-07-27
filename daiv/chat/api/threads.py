@@ -112,15 +112,34 @@ class ChatSessionService:
         return session, created
 
     @staticmethod
-    async def persist_ref(thread_id: str, original_ref: str, mr: MergeRequest | dict | None) -> None:
+    async def persist_ref(
+        thread_id: str, original_ref: str, mr: MergeRequest | dict | None, *, missing_ref: str | None = None
+    ) -> None:
         """Sync ``Session.ref`` with the agent's final ``merge_request``.
 
         Accepts both a live ``MergeRequest`` instance and a dict (the snapshot
         gets rehydrated through the checkpointer as a plain dict, so resumed
         runs land here in dict shape).
+
+        ``missing_ref`` is a branch this run already proved absent from the remote; an MR pointing
+        at it is stale by definition and must never be pinned. ``GitMiddleware`` drops such an MR
+        before it can stream, so this is the belt-and-braces at the write itself — re-pinning it
+        would undo the very heal :meth:`repoint_ref` just performed.
         """
         if mr is None:
             return
         new_ref = mr.get("source_branch") if isinstance(mr, dict) else getattr(mr, "source_branch", None)
-        if new_ref and new_ref != original_ref:
+        if new_ref and new_ref != original_ref and new_ref != missing_ref:
             await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+
+    @staticmethod
+    async def repoint_ref(thread_id: str, ref: str) -> None:
+        """Retarget ``Session.ref`` at ``ref`` because the stored one is unusable.
+
+        Unlike :meth:`persist_ref` — which records where a *successful* run ended up — this heals
+        a ref the remote has already rejected as missing, so it is written immediately rather than
+        gated on the turn succeeding: the pinned branch is gone either way, and leaving it in place
+        would wedge every later turn (the composer's branch pill is read-only on an existing
+        thread, so the user could not repoint it themselves).
+        """
+        await Session.objects.filter(thread_id=thread_id).aupdate(ref=ref)

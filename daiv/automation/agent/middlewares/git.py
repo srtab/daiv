@@ -202,11 +202,26 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # In this case, ignore the branch name and merge request ID from the state,
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
-        elif merge_request is None:
-            # Surface any pre-existing open MR on the current branch so the chat
-            # composer pill reflects reality from the very first turn. Issue-scope
-            # runs always start on the default branch, where this lookup short-circuits.
-            merge_request = await self._alookup_open_mr(runtime.context)
+        else:
+            current_ref = get_repo_ref(runtime.context.gitrepo)
+            if merge_request is not None and merge_request.source_branch != current_ref:
+                # The checkpointed MR belongs to a branch this run is not on — e.g. a chat thread
+                # whose pinned branch was deleted when that very MR merged, so the run fell back
+                # to the default branch. Carrying it forward would re-pin the session to the dead
+                # branch and make the publisher push HEAD to it (recreating it, silently attached
+                # to a merged MR). Same staleness rule ``_effective_mr_iid`` applies to the prompt.
+                logger.warning(
+                    "Dropping stale state MR #%s (source branch %s) — this run is on %s",
+                    merge_request.merge_request_id,
+                    merge_request.source_branch,
+                    current_ref,
+                )
+                merge_request = None
+            if merge_request is None:
+                # Surface any pre-existing open MR on the current branch so the chat
+                # composer pill reflects reality from the very first turn. Issue-scope
+                # runs always start on the default branch, where this lookup short-circuits.
+                merge_request = await self._alookup_open_mr(runtime.context)
 
         update: dict[str, Any] = {
             "merge_request": merge_request,

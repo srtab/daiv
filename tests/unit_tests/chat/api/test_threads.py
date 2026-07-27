@@ -83,6 +83,32 @@ async def test_persist_ref_noop_when_no_mr_captured():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_persist_ref_refuses_to_pin_a_ref_already_proven_missing():
+    """After a ref fallback, an MR still pointing at the deleted branch is stale — pinning it
+    would undo the heal ``repoint_ref`` just wrote and re-wedge the thread."""
+    with patch("chat.api.threads.Session.objects.filter") as filter_mock:
+        await ChatSessionService.persist_ref(
+            "t-ref-4", "dev", SimpleNamespace(source_branch="chore/merged"), missing_ref="chore/merged"
+        )
+
+    filter_mock.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_repoint_ref_overwrites_the_stored_ref():
+    user = await User.objects.acreate_user(username="u-ref-5", email="ref5@x.com", password="x")  # noqa: S106
+    await Session.objects.acreate(
+        thread_id="t-ref-5", origin=SessionOrigin.CHAT, user=user, repo_id="a/b", ref="chore/merged"
+    )
+
+    await ChatSessionService.repoint_ref("t-ref-5", "dev")
+
+    refreshed = await Session.objects.aget(thread_id="t-ref-5")
+    assert refreshed.ref == "dev"
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_get_or_create_creates_chat_origin_session():
     user = await User.objects.acreate_user(username="u-create-1", email="create1@x.com", password="x")  # noqa: S106
     input_data = _fake_input(["hello"])

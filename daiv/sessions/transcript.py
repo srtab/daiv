@@ -19,9 +19,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
-# Closed value set for a run-status marker's ``status`` key: ``failed`` renders the red
-# error chip, ``aborted`` the neutral "stopped" one. Mirrored client-side in
-# ``chat-stream.js`` (``_pushRunStatus``) — keep the two in sync. (Markers stay plain
+# Closed value set for a *replayed* run-status marker's ``status`` key: ``failed`` renders the
+# red error chip, ``aborted`` the neutral "stopped" one. Mirrored client-side in
+# ``chat-stream.js`` (``_pushRunStatus``) — keep the two in sync. The client has one further
+# status, ``notice`` (``_pushNotice``), which is deliberately absent here: notices explain a
+# decision taken mid-run and are not reconstructible from a ``Run`` row, so they are live-only.
+# Adding one to this set means giving it a durable source first. (Markers stay plain
 # ``dict[str, Any]`` to interleave with ``chat.turns.build_turns`` output and serialise
 # straight into the Alpine-rendered turns payload; the shape is ``id``/``role``/``status``/
 # ``message``.)

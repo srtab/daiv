@@ -17,6 +17,7 @@ import pytest
 from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent
 
 from chat.api.streaming import ChatRunStreamer, RuntimeContextLangGraphAGUIAgent
+from codebase.exceptions import RepositoryRefNotFoundError
 
 
 @pytest.fixture(autouse=True)
@@ -83,7 +84,7 @@ async def test_events_captures_merge_request_from_state_snapshot_and_persists_re
     persist_calls = []
     release_calls = []
 
-    async def _capture_persist(thread_id, original_ref, captured_mr):
+    async def _capture_persist(thread_id, original_ref, captured_mr, **_kwargs):
         persist_calls.append((thread_id, original_ref, captured_mr))
 
     async def _capture_release(thread_id, run_id):
@@ -126,7 +127,7 @@ async def test_events_captures_latest_merge_request_when_multiple_snapshots():
 
     persist_calls = []
 
-    async def _capture_persist(thread_id, original_ref, captured_mr):
+    async def _capture_persist(thread_id, original_ref, captured_mr, **_kwargs):
         persist_calls.append((thread_id, original_ref, captured_mr))
 
     with (
@@ -156,7 +157,7 @@ async def test_events_persists_none_when_no_state_snapshot_carries_merge_request
 
     persist_calls = []
 
-    async def _capture_persist(thread_id, original_ref, captured_mr):
+    async def _capture_persist(thread_id, original_ref, captured_mr, **_kwargs):
         persist_calls.append((thread_id, original_ref, captured_mr))
 
     with (
@@ -196,7 +197,7 @@ async def test_events_skips_persist_ref_when_run_errored():
     persist_calls: list = []
     release_calls: list = []
 
-    async def _capture_persist(*args):
+    async def _capture_persist(*args, **_kwargs):
         persist_calls.append(args)
 
     async def _capture_release(*args):
@@ -272,7 +273,7 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
 
     persist_calls: list = []
 
-    async def _capture_persist(*args):
+    async def _capture_persist(*args, **_kwargs):
         persist_calls.append(args)
 
     streamed_events: list = []
@@ -606,3 +607,187 @@ async def test_events_buffers_text_deltas_into_result_summary():
     assert captured["success"] is True
     assert captured["response_text"].startswith("Hello ")
     assert len(captured["response_text"]) == 2000  # truncated at the cap
+
+
+class TestMissingRefFallback:
+    """A session pinned to a branch that no longer exists must not wedge the thread.
+
+    ``persist_ref`` retargets ``Session.ref`` at the MR's source branch so follow-up turns
+    continue on it; when that MR is merged with source-branch deletion (GitLab's default),
+    the branch is gone and every later turn's clone fails. The run falls back to the
+    repository default branch instead of dying with an opaque "Run failed".
+    """
+
+    @staticmethod
+    def _ctx_factory(failures: int, default_branch: str = "dev"):
+        """``set_runtime_ctx`` stand-in raising ``RepositoryRefNotFoundError`` on entry for the
+        first ``failures`` calls, then yielding a ctx whose config reports ``default_branch``.
+        Records the ``ref=`` each call was made with.
+        """
+        refs: list = []
+
+        def _factory(*_args, **kwargs):
+            refs.append(kwargs.get("ref"))
+            attempt = len(refs)
+            ctx = MagicMock()
+
+            # ``AsyncExitStack`` resolves ``__aenter__`` on the type and calls it with the
+            # context manager as the first argument — hence ``*_args``.
+            async def _aenter(*_args):
+                if attempt <= failures:
+                    raise RepositoryRefNotFoundError("a/b", str(kwargs.get("ref")))
+                resolved = MagicMock()
+                resolved.config.default_branch = default_branch
+                return resolved
+
+            ctx.__aenter__ = AsyncMock(side_effect=_aenter)
+            ctx.__aexit__ = AsyncMock(return_value=None)
+            return ctx
+
+        return _factory, refs
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_falls_back_to_default_branch_and_repoints_session(self):
+        ctx_factory, refs = self._ctx_factory(failures=1)
+        started: dict = {}
+        repointed: list = []
+
+        async def _capture_start(**kwargs):
+            started.update(kwargs)
+            return SimpleNamespace(pk="run-pk")
+
+        async def _capture_repoint(thread_id, ref):
+            repointed.append((thread_id, ref))
+
+        persisted: list = []
+
+        async def _capture_persist(thread_id, original_ref, mr, *, missing_ref=None):
+            persisted.append((thread_id, original_ref, mr, missing_ref))
+
+        with (
+            patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+            patch("chat.api.streaming.set_runtime_ctx", ctx_factory),
+            patch("chat.api.streaming.start_chat_run", side_effect=_capture_start),
+            patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+            patch("chat.api.streaming.ChatSessionService.repoint_ref", side_effect=_capture_repoint),
+            patch("chat.api.streaming.ChatSessionService.persist_ref", side_effect=_capture_persist),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        ):
+            events = [e async for e in _streamer().events()]
+
+        # First attempt uses the pinned ref; the retry passes ref=None so set_runtime_ctx
+        # resolves the default branch itself (no duplicated resolution in the streamer).
+        assert refs == ["main", None]
+        # No RUN_ERROR: the turn ran.
+        assert not [e for e in events if e.type == EventType.RUN_ERROR]
+        # The user is told the base moved, and the stored ref is healed so the composer pill
+        # and every later turn stop pointing at the deleted branch.
+        notices = [e for e in events if e.type == EventType.CUSTOM and e.name == "ref_fallback"]
+        assert [n.value for n in notices] == [{"ref": "dev", "previous_ref": "main", "persisted": True}]
+        assert repointed == [("t-stream", "dev")]
+        # The Run row records the branch that actually ran, not the dead one.
+        assert started["ref"] == "dev"
+        # End-of-run persistence compares against the branch that ran, and is told which ref was
+        # proven missing — otherwise a checkpointed MR for the dead branch would be written
+        # straight back, undoing the heal.
+        assert persisted == [("t-stream", "dev", None, "main")]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_fallback_reports_when_the_heal_could_not_be_persisted(self):
+        """A failed ``repoint_ref`` must not let the client claim a heal the DB doesn't have —
+        the pill would silently revert on the next page load."""
+        ctx_factory, _ = self._ctx_factory(failures=1)
+
+        with (
+            patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+            patch("chat.api.streaming.set_runtime_ctx", ctx_factory),
+            patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+            patch("chat.api.streaming.ChatSessionService.repoint_ref", side_effect=RuntimeError("db down")),
+            patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        ):
+            events = [e async for e in _streamer().events()]
+
+        notices = [e for e in events if e.type == EventType.CUSTOM and e.name == "ref_fallback"]
+        assert [n.value["persisted"] for n in notices] == [False]
+        # The turn still runs on the fallback branch — only the healing was lost.
+        assert not [e for e in events if e.type == EventType.RUN_ERROR]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_first_turn_of_a_thread_does_not_fall_back(self):
+        """On a brand-new session the caller chose this ref moments ago and can choose another,
+        so surface the failure instead of silently running against a different branch."""
+        ctx_factory, refs = self._ctx_factory(failures=1)
+
+        with (
+            patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+            patch("chat.api.streaming.set_runtime_ctx", ctx_factory),
+            patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+            patch("chat.api.streaming.ChatSessionService.repoint_ref", new=AsyncMock()) as repoint,
+            patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        ):
+            streamer = ChatRunStreamer(
+                repo_id="a/b",
+                ref="typoed-branch",
+                thread_id="t-stream",
+                run_id="r-1",
+                input_data=SimpleNamespace(thread_id="t-stream", run_id="r-1"),
+                session_created=True,
+            )
+            events = [e async for e in streamer.events()]
+
+        assert refs == ["typoed-branch"]  # no second attempt
+        repoint.assert_not_called()
+        assert not [e for e in events if e.type == EventType.CUSTOM and e.name == "ref_fallback"]
+        assert [e.code for e in events if e.type == EventType.RUN_ERROR] == ["run_failed"]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_repo_without_a_default_branch_surfaces_the_original_error(self):
+        """Nothing to fall back *to* (an empty repository): keep the original error rather than
+        inventing a ref name like ``"None"`` and persisting it."""
+        ctx_factory, refs = self._ctx_factory(failures=1, default_branch=None)
+
+        with (
+            patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+            patch("chat.api.streaming.set_runtime_ctx", ctx_factory),
+            patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+            patch("chat.api.streaming.ChatSessionService.repoint_ref", new=AsyncMock()) as repoint,
+            patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        ):
+            events = [e async for e in _streamer().events()]
+
+        assert refs == ["main", None]
+        repoint.assert_not_called()
+        assert [e.code for e in events if e.type == EventType.RUN_ERROR] == ["run_failed"]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_default_branch_also_missing_surfaces_run_error(self):
+        """Exactly one fallback attempt: a repo whose default branch is gone too must
+        surface a failure instead of retrying forever.
+        """
+        ctx_factory, refs = self._ctx_factory(failures=2)
+
+        with (
+            patch("chat.api.streaming.open_checkpointer", _mock_ctx),
+            patch("chat.api.streaming.set_runtime_ctx", ctx_factory),
+            patch("chat.api.streaming.create_daiv_agent", new=AsyncMock()),
+            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+            patch("chat.api.streaming.ChatSessionService.repoint_ref", new=AsyncMock()),
+            patch("chat.api.streaming.ChatSessionService.persist_ref", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+        ):
+            events = [e async for e in _streamer().events()]
+
+        assert refs == ["main", None]
+        assert [e.code for e in events if e.type == EventType.RUN_ERROR] == ["run_failed"]

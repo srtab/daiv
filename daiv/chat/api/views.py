@@ -278,6 +278,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
         auto_resolved_env=auto_resolved_env,
+        session_created=created,
     )
     # The run is detached from this request: it executes as a background task
     # and publishes to the relay, so a client disconnect no longer kills it.
