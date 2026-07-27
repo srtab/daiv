@@ -182,21 +182,33 @@ def test_apply_platform_egress_reachability_only_when_no_token():
     assert PLATFORM_EGRESS_SECRET_NAME not in result.secrets
 
 
-def test_refresh_platform_egress_swaps_token_without_duplicating_rule():
-    from unittest.mock import Mock
-
+def _augmented_egress(token: str | None, *, host: str = "github.com"):
+    """A turn-start augmented config, as ``augment_sandbox_with_platform_egress`` builds it: an env
+    rule (``api.openai.com`` + secret ``s1``) with the platform rule for ``token`` layered on top
+    (host-only — ``inject=None``, no platform secret — when ``token`` is ``None``)."""
     from pydantic import SecretStr
-    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, apply_platform_egress, refresh_platform_egress
+    from sandbox_envs.services import apply_platform_egress
 
     from codebase.clients.base import GitEgressCredential
     from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
 
-    # A turn-start augmented config: an env rule + the platform rule with the stale token.
     env = EgressConfigRequest(
         policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
         secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
     )
-    stale = apply_platform_egress(env, GitEgressCredential(host="github.com", value=SecretStr("Basic STALE")))
+    credential = GitEgressCredential(host=host, value=SecretStr(token) if token is not None else None)
+    return apply_platform_egress(env, credential)
+
+
+def test_refresh_platform_egress_swaps_token_without_duplicating_rule():
+    from unittest.mock import Mock
+
+    from pydantic import SecretStr
+    from sandbox_envs.services import PLATFORM_EGRESS_SECRET_NAME, refresh_platform_egress
+
+    from codebase.clients.base import GitEgressCredential
+
+    stale = _augmented_egress("Basic STALE")
 
     client = Mock()
     client.get_git_egress_credential.return_value = GitEgressCredential(
@@ -229,16 +241,11 @@ def test_refresh_platform_egress_unchanged_when_token_is_identical():
     from unittest.mock import Mock
 
     from pydantic import SecretStr
-    from sandbox_envs.services import apply_platform_egress, refresh_platform_egress
+    from sandbox_envs.services import refresh_platform_egress
 
     from codebase.clients.base import GitEgressCredential
-    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
 
-    env = EgressConfigRequest(
-        policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
-        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
-    )
-    stale = apply_platform_egress(env, GitEgressCredential(host="gitlab.example.com", value=SecretStr("Basic SAME")))
+    stale = _augmented_egress("Basic SAME", host="gitlab.example.com")
 
     client = Mock()
     # GitLab's day-cached clone token: the re-mint returns the byte-identical credential. There is no
@@ -252,17 +259,11 @@ def test_refresh_platform_egress_unchanged_when_token_is_identical():
 def test_refresh_platform_egress_unchanged_when_credential_tokenless():
     from unittest.mock import Mock
 
-    from pydantic import SecretStr
-    from sandbox_envs.services import apply_platform_egress, refresh_platform_egress
+    from sandbox_envs.services import refresh_platform_egress
 
     from codebase.clients.base import GitEgressCredential
-    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
 
-    env = EgressConfigRequest(
-        policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
-        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
-    )
-    stale = apply_platform_egress(env, GitEgressCredential(host="github.com", value=SecretStr("Basic STALE")))
+    stale = _augmented_egress("Basic STALE")
 
     client = Mock()
     client.get_git_egress_credential.return_value = GitEgressCredential(host="github.com", value=None)
@@ -278,19 +279,11 @@ def test_refresh_platform_egress_unchanged_when_credential_tokenless():
 def test_refresh_platform_egress_unchanged_when_config_never_carried_platform_secret():
     from unittest.mock import Mock
 
-    from pydantic import SecretStr
-    from sandbox_envs.services import apply_platform_egress, refresh_platform_egress
+    from sandbox_envs.services import refresh_platform_egress
 
-    from codebase.clients.base import GitEgressCredential
-    from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret
-
-    env = EgressConfigRequest(
-        policy=EgressPolicy(rules=[EgressRule(host="api.openai.com", methods=["GET"], inject="s1")]),
-        secrets={"s1": EgressSecret(header="Authorization", value=SecretStr("sk"))},
-    )
     # Turn start resolved a HOST-ONLY credential (no token): the platform rule was built with
     # inject=None and no platform secret was embedded.
-    stale = apply_platform_egress(env, GitEgressCredential(host="github.com", value=None))
+    stale = _augmented_egress(None)
 
     client = Mock()
     # Even if a token could be minted now, no rule references the platform secret — the proxy would
