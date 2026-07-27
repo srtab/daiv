@@ -52,7 +52,7 @@ dimensions (correctness, security, performance, structure, custom-rules).
 | Question | Decision |
 |---|---|
 | Motivation | Simplification — current pipeline is too complex/brittle |
-| Delivery | Summary-only; **multiple stacking reports**, one per run |
+| Delivery | Summary-only; **multiple stacking reports**, one per run; the platform layer auto-posts the final message — the agent never posts |
 | Re-review scope | Only the diff between last reviewed head and current head |
 | Precision | Detector self-filter (confidence ≥ 80) + light parent judgment |
 | Charters | Fully self-contained; delete `references/` content files |
@@ -91,11 +91,16 @@ The five dimensions survive unchanged as the five charters.
 One file, no phase references. Workflow:
 
 1. **Mode.** *Delivery mode* when the runtime has `Scope.MERGE_REQUEST` with a
-   `merge_request_id`, the platform is GitLab, and the `gitlab` tool loads (via
-   `tool_search` if needed); *interactive mode* otherwise. In delivery mode, list the MR
-   notes and collect previous review markers
-   (`<!-- daiv:code-review run=N head=<sha> -->`) to find the last reviewed head and the
-   next run number.
+   `merge_request_id` and the platform is GitLab; *interactive mode* otherwise. In
+   **both modes the report is returned as the final assistant message** — in delivery
+   mode the platform layer posts that message automatically as a new MR discussion
+   (the same mechanism other MR flows use, e.g.
+   `CommentsAddressorManager._leave_comment`), so delivery mode only changes the report
+   dressing (marker, run number, footer). In delivery mode, load the `gitlab` tool (via
+   `tool_search` if needed) **only to read** the MR notes and collect previous review
+   markers (`<!-- daiv:code-review run=N head=<sha> -->`), yielding the last reviewed
+   head and the next run number (`max(run) + 1`). If the notes cannot be read, treat it
+   as "no previous review": full review, and omit the run number from the header.
 
 2. **Review scope (incremental).**
    - First review: `git diff <target>...<source>` — the full MR change.
@@ -141,16 +146,17 @@ One file, no phase references. Workflow:
    severity. Deduplicate overlapping findings across detectors by judgment (same file,
    same line, same underlying issue → keep the strongest framing).
 
-6. **Deliver.**
-   - Delivery mode: post the report as **one new top-level MR discussion** via the
-     `gitlab` tool. Reports stack — never edit or resolve a previous report. The posted
-     report is the deliverable (do not also return the markdown).
-   - Interactive mode: return the report as the final assistant message; never post it
-     yourself.
+6. **Finalize.** Return the report as the final assistant message — in both modes.
+   - Delivery mode: the platform layer posts the message automatically as **one new
+     top-level MR discussion**. **Never post the report yourself via the `gitlab`
+     tool** — it would appear on the MR twice. Reports stack; never edit or resolve a
+     previous report.
+   - Interactive mode: the message is simply the reply.
 
 Non-negotiables carried over from v3.x: precision over recall; never report style,
 formatting, whitespace, or import-ordering findings; detectors run as `cr-*` subagents,
-never `general-purpose`; never re-invoke the `skill` tool to restart a review.
+never `general-purpose`; never re-invoke the `skill` tool to restart a review. New in
+v4: the final message **is** the deliverable — never post it via the `gitlab` tool.
 
 ### 3. Report format (both modes)
 
@@ -192,7 +198,10 @@ Rules:
   mode omits the number unless it is a re-review within the conversation).
 - The **hidden HTML marker** on the first line carries the state for the next
   incremental run (`run`, `head`). It renders invisibly on GitLab. It is trivial
-  embed-and-extract — no script.
+  embed-and-extract — no script. **Only messages that completed a review of the scope
+  carry the marker** (including "No findings" and "nothing applicable" reports). The
+  "already reviewed" reply and failure messages must not include one — a marker records
+  its `head` as reviewed, and neither of those reviewed anything.
 - Sections appear only when non-empty; an empty review still posts a short "No findings"
   report so the marker records the reviewed head.
 - **Recommended Actions**: ordered list, merge-blocking items first. Omit when there are
@@ -277,15 +286,14 @@ only consumer (verify at implementation time).
 
 | Failure | Behavior |
 |---|---|
-| `gitlab` tool unavailable / 403 | Demote to interactive mode (unchanged) |
+| `gitlab` tool unavailable / MR notes unreadable | Treat as no previous review: full review, omit the run number (posting is unaffected — it is automatic) |
 | Shared diff file write fails | Dispatch anyway; detectors run `git diff` themselves |
 | A `cr-*` type not offered by `task` | Skip it; note the uncovered dimension in the report body |
 | Detector `task` errors / loop-stopped | Continue with the rest; note the gap in the report body |
 | Parallel dispatch rejected | Fall back to sequential dispatch |
-| All detectors fail | Do not post a "No findings" report — report the failure instead |
+| All detectors fail | Never produce a "No findings" report — the final message reports the failure, without a marker (the scope was not reviewed) |
 | Force-push / unreachable `last_head` | Full re-review; one-sentence notice in the report |
-| Head unchanged since last review | Do not post; short "already reviewed" reply |
-| Posting the discussion fails | Return the report as the final message with a note that posting failed |
+| Head unchanged since last review | Return a short "already reviewed at `<sha>`" message, without a marker (it is auto-posted like any final message) |
 
 ### 7. Tests
 
