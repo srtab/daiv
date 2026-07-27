@@ -38,6 +38,7 @@ from deepagents.middleware.filesystem import FilesystemPermission, GlobSchema, G
 from automation.agent.constants import REPO_PATH, SKILLS_CACHE_PATH, SKILLS_PATH, TMP_PATH, WORKSPACE_PATH
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.schemas import (
+    EgressConfigRequest,
     FsDeleteRequest,
     FsEditRequest,
     FsError,
@@ -685,6 +686,21 @@ class SandboxFileBackend(BackendProtocol):
         """
         client, session_id = self._require_bound()
         return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast))
+
+    async def refresh_egress(self, egress: EgressConfigRequest) -> None:
+        """Push a freshly-resolved egress config onto this run's live session (the proxy hot-reloads
+        on its next request). Raises ``httpx.HTTPError`` on failure, like the other client calls here.
+
+        Used by the publisher's pre-publish token refresh: the platform token embedded at turn start
+        expires (GitHub installation tokens live 1h), so the publisher re-mints one and delivers it
+        here before running the in-sandbox publish git ops. This is the turn-END counterpart of the
+        delivery ``SandboxMiddleware._arefresh_egress`` makes when reusing a warm session at turn
+        START (both wrap ``DAIVSandboxClient.update_egress``); they differ in orchestration —
+        turn-start recreates the session on failure, turn-end lets the caller degrade to publishing
+        with the turn-start token.
+        """
+        client, session_id = self._require_bound()
+        await client.update_egress(session_id, egress)
 
     # -- path mapping -------------------------------------------------------
     # The sandbox is authoritative and the agent addresses files by their sandbox-absolute path

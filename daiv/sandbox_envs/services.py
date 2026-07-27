@@ -114,6 +114,52 @@ def apply_platform_egress(
     return EgressConfigRequest(policy=policy, secrets=secrets)
 
 
+def refresh_platform_egress(
+    egress: EgressConfigRequest | None, repo_client: RepoClient, repository: Repository
+) -> EgressConfigRequest | None:
+    """Re-mint the git-platform token and swap it into an already-augmented egress config.
+
+    Turn start builds ``ctx.sandbox.egress`` via :func:`augment_sandbox_with_platform_egress`, which
+    embeds a short-lived platform token under the reserved ``PLATFORM_EGRESS_SECRET_NAME`` secret. A
+    turn that outlives that token's TTL (GitHub installation tokens live 1h) would fail the in-sandbox
+    publish push, so the publisher re-mints right before publishing. This replaces **only** that
+    secret's value — the allow-rule (host, methods, inject reference) and every other secret are
+    untouched — so the result carries no duplicate platform rule, unlike naively re-running
+    :func:`apply_platform_egress` on an already-augmented config (which prepends a second rule).
+
+    Returns ``egress`` **unchanged** (same object, so the caller's identity check skips the sidecar
+    delivery) when there is nothing useful to refresh: no egress proxy at all (``egress is None``); a
+    config that never carried the platform secret (e.g. turn start resolved a host-only credential,
+    so the rule was built with ``inject=None`` — a token minted now would sit in ``secrets``
+    unreferenced by any rule, never injected); a host-only / token-less credential (e.g. the SWE eval
+    platform) with no token to swap in; or a re-mint that yields the **same token** as the incumbent.
+    The last case is why the swap effectively fires only on platforms that mint a fresh token per
+    call (GitHub installation tokens): GitLab clone tokens are day-cached (see
+    ``gitlab/clone_tokens.py``) and are always served with >=24h of validity left, so no turn
+    outlives them — within the cache window a re-mint returns the byte-identical token and there is
+    nothing new to deliver. Each skip is debug-logged so a publish that later fails on auth stays
+    diagnosable (which skip fired, vs. a refresh that was delivered)."""
+    from core.sandbox.schemas import EgressConfigRequest, EgressSecret
+
+    if egress is None:
+        logger.debug("Not refreshing platform egress for %s: no egress proxy", repository.slug)
+        return egress
+    incumbent = egress.secrets.get(PLATFORM_EGRESS_SECRET_NAME)
+    if incumbent is None:
+        logger.debug("Not refreshing platform egress for %s: config carries no platform secret", repository.slug)
+        return egress
+    credential = repo_client.get_git_egress_credential(repository)
+    if credential is None or credential.value is None:
+        logger.debug("Not refreshing platform egress for %s: no token could be resolved", repository.slug)
+        return egress
+    if incumbent.value.get_secret_value() == credential.value.get_secret_value():
+        logger.debug("Not refreshing platform egress for %s: re-mint returned the incumbent token", repository.slug)
+        return egress
+    secrets = dict(egress.secrets)
+    secrets[PLATFORM_EGRESS_SECRET_NAME] = EgressSecret(header=credential.header, value=credential.value)
+    return EgressConfigRequest(policy=egress.policy, secrets=secrets)
+
+
 def augment_sandbox_with_platform_egress(
     sandbox: SandboxRuntime, repo_client: RepoClient, repository: Repository
 ) -> SandboxRuntime:

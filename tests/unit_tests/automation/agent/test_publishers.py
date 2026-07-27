@@ -77,6 +77,19 @@ def _make_publisher(*, git_platform: GitPlatform = GitPlatform.GITLAB, context_f
     return publisher
 
 
+def _make_sandbox_publisher(*, egress="default"):
+    """A sandbox-mode publisher: bound backend mock (with an awaitable ``refresh_egress``) and a
+    real turn-start egress config on ctx — what the pre-publish refresh reads. Pass ``egress=None``
+    for a run without an egress proxy."""
+    from core.sandbox.schemas import EgressConfigRequest
+
+    publisher = _make_publisher()
+    publisher.sandbox_backend = Mock()
+    publisher.sandbox_backend.refresh_egress = AsyncMock()
+    publisher.ctx.sandbox.egress = EgressConfigRequest() if egress == "default" else egress
+    return publisher
+
+
 class TestSuggestContextFile:
     async def test_posts_comment_when_file_missing(self):
         publisher = _make_publisher()
@@ -251,14 +264,103 @@ class TestPublishLocalAuthEnv:
     async def test_sandbox_mode_skips_credential_env(self, monkeypatch):
         """Sandbox git authenticates via the egress proxy's injected header; minting a token here
         would be a needless platform API call and a needless secret in memory."""
-        publisher = _make_publisher()
-        publisher.sandbox_backend = Mock()
+        publisher = _make_sandbox_publisher(egress=None)  # no egress proxy → the pre-publish refresh no-ops
         captured = _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
 
         await publisher.publish(merge_request=None)
 
         assert captured["auth_env"] is None
         publisher.client.get_git_auth_env.assert_not_called()
+
+
+class TestPublishSandboxEgressRefresh:
+    async def test_sandbox_publish_refreshes_egress_before_git_ops(self, monkeypatch):
+        """Sandbox publishes re-mint the platform token and deliver it onto the live session BEFORE
+        the first in-sandbox network git op, so a turn that outlived the turn-start token (GitHub
+        installation tokens live 1h) still pushes with a fresh credential."""
+        from automation.agent.git_manager import RepoStatus
+        from core.sandbox.schemas import EgressConfigRequest
+
+        publisher = _make_sandbox_publisher()
+        fresh = EgressConfigRequest()
+        remint = Mock(return_value=fresh)
+        monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", remint)
+
+        order: list[str] = []
+        publisher.sandbox_backend.refresh_egress = AsyncMock(side_effect=lambda _egress: order.append("refresh"))
+        gm = _fake_git_manager()
+        gm.status_snapshot = AsyncMock(
+            side_effect=lambda **_kw: (
+                order.append("snapshot") or RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False)
+            )
+        )
+        _patch_open_git_manager(monkeypatch, gm)
+
+        await publisher.publish(merge_request=None)
+
+        # Pin the wiring, not just the call: a wrong argument (e.g. `sandbox` instead of
+        # `sandbox.egress`) would be swallowed by the best-effort except in production and silently
+        # disable the feature on every publish, while a mock with a fixed return stays green.
+        remint.assert_called_once_with(publisher.ctx.sandbox.egress, publisher.client, publisher.ctx.repository)
+        publisher.sandbox_backend.refresh_egress.assert_awaited_once_with(fresh)
+        assert order == ["refresh", "snapshot"]
+
+    async def test_local_mode_does_not_refresh_egress(self, monkeypatch):
+        """Local mode has no live egress proxy to refresh — its credential is a fresh
+        per-invocation ``auth_env`` overlay instead."""
+        publisher = _make_publisher()  # sandbox_backend defaults to None
+        publisher._refresh_sandbox_egress = AsyncMock()
+        _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
+
+        await publisher.publish(merge_request=None)
+
+        publisher._refresh_sandbox_egress.assert_not_awaited()
+
+    async def test_publish_proceeds_when_refresh_fails(self, monkeypatch, caplog):
+        """A failed refresh (e.g. the GitHub re-mint errors) must not abort the publish — it
+        degrades to publishing with the turn-start token, the pre-existing behavior — but the
+        failure must stay diagnosable (exception-logged), or the degradation is truly silent."""
+        publisher = _make_sandbox_publisher()
+        monkeypatch.setattr(
+            "sandbox_envs.services.refresh_platform_egress", Mock(side_effect=RuntimeError("mint failed"))
+        )
+        _patch_open_git_manager(monkeypatch, _fake_git_manager(dirty=False, diff=""))
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            outcome = await publisher.publish(merge_request=None)
+
+        assert outcome == PublishOutcome(merge_request=None, published=False)
+        assert "Could not refresh the sandbox egress token" in caplog.text
+
+    async def test_refresh_skips_delivery_when_nothing_to_refresh(self, monkeypatch):
+        publisher = _make_sandbox_publisher()
+
+        # refresh_platform_egress returns the same object when there is no token to rotate (no
+        # proxy, token-less platform, or an identical re-mint — e.g. GitLab's day-cached token).
+        monkeypatch.setattr(
+            "sandbox_envs.services.refresh_platform_egress", Mock(return_value=publisher.ctx.sandbox.egress)
+        )
+
+        await publisher._refresh_sandbox_egress()
+
+        publisher.sandbox_backend.refresh_egress.assert_not_awaited()
+
+    async def test_refresh_swallows_delivery_error(self, monkeypatch, caplog):
+        # The failure is in the sidecar DELIVERY (mint succeeded): swallow it — but exception-log
+        # it — and proceed with the turn-start token rather than failing the publish.
+        import httpx
+
+        from core.sandbox.schemas import EgressConfigRequest
+
+        publisher = _make_sandbox_publisher()
+        publisher.sandbox_backend.refresh_egress = AsyncMock(side_effect=httpx.ConnectError("down"))
+        monkeypatch.setattr("sandbox_envs.services.refresh_platform_egress", Mock(return_value=EgressConfigRequest()))
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            await publisher._refresh_sandbox_egress()  # must not raise
+
+        publisher.sandbox_backend.refresh_egress.assert_awaited_once()
+        assert "Could not refresh the sandbox egress token" in caplog.text
 
 
 class TestPublishSuggestsContextFile:

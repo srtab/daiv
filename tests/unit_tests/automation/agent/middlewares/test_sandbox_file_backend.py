@@ -440,6 +440,24 @@ async def test_delete_transport_error_returns_false_and_logs(backend, client, ca
     assert "transport failure" in caplog.text
 
 
+async def test_refresh_egress_forwards_to_client(backend, client):
+    from core.sandbox.schemas import EgressConfigRequest
+
+    egress = EgressConfigRequest()
+    await backend.refresh_egress(egress)
+
+    # Forwarded to update_egress under the bound session id with the given config.
+    client.update_egress.assert_awaited_once_with("sid", egress)
+
+
+async def test_refresh_egress_before_bind_raises(client):
+    from core.sandbox.schemas import EgressConfigRequest
+
+    unbound = SandboxFileBackend(client=client)
+    with pytest.raises(RuntimeError, match="not bound"):
+        await unbound.refresh_egress(EgressConfigRequest())
+
+
 async def test_run_commands_forwards_to_client(backend, client):
     client.run_commands.return_value = RunCommandsResponse(
         results=[RunCommandResult(command="echo hi", output="hi", exit_code=0)]
