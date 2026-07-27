@@ -29,37 +29,43 @@ if TYPE_CHECKING:
 
 CLAUDE_MAX_TOKENS = 16_384
 
-CLAUDE_THINKING_MODELS = (
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-6",
-    "claude-sonnet-5",
-    "claude-opus-4-5",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
-    "claude-haiku-4-5",
-    "claude-fable-5",
-    "anthropic/claude-sonnet-4.5",
-    "anthropic/claude-sonnet-4.6",
-    "anthropic/claude-sonnet-5",
-    "anthropic/claude-opus-4.5",
-    "anthropic/claude-opus-4.6",
-    "anthropic/claude-opus-4.7",
-    "anthropic/claude-opus-4.8",
-    "anthropic/claude-haiku-4.5",
-    "anthropic/claude-fable-5",
+# Every thinking-capable Claude model, declared once: native Anthropic name, OpenRouter
+# slug, and whether it belongs to the adaptive-thinking generation. Both spellings are
+# spelled out rather than derived from each other — a future naming scheme would silently
+# mint a wrong slug. Names are matched as prefixes, so dated variants (e.g.
+# ``claude-opus-5-20260101``) are covered.
+_CLAUDE_MODELS = (
+    # (anthropic name, openrouter slug, adaptive thinking)
+    ("claude-sonnet-4-5", "anthropic/claude-sonnet-4.5", False),
+    ("claude-sonnet-4-6", "anthropic/claude-sonnet-4.6", False),
+    ("claude-sonnet-5", "anthropic/claude-sonnet-5", True),
+    ("claude-opus-4-5", "anthropic/claude-opus-4.5", False),
+    ("claude-opus-4-6", "anthropic/claude-opus-4.6", False),
+    ("claude-opus-4-7", "anthropic/claude-opus-4.7", True),
+    ("claude-opus-4-8", "anthropic/claude-opus-4.8", True),
+    ("claude-opus-5", "anthropic/claude-opus-5", True),
+    ("claude-haiku-4-5", "anthropic/claude-haiku-4.5", False),
+    ("claude-fable-5", "anthropic/claude-fable-5", True),
 )
 
-# Claude 5-generation models removed support for the ``temperature`` sampling
-# parameter — sending it returns a 400 ``invalid_request_error`` ("`temperature` is
-# deprecated for this model"). Matched as prefixes so dated variants (e.g.
-# ``claude-sonnet-5-20260101``) are covered; includes the OpenRouter slugs.
-CLAUDE_NO_TEMPERATURE_MODELS = (
-    "claude-sonnet-5",
-    "claude-fable-5",
-    "anthropic/claude-sonnet-5",
-    "anthropic/claude-fable-5",
+CLAUDE_THINKING_MODELS = tuple(name for native, slug, _ in _CLAUDE_MODELS for name in (native, slug))
+
+# Opus 4.7 and every later generation removed the manual extended-thinking config:
+# ``thinking={"type": "enabled", "budget_tokens": N}`` returns a 400
+# ("`thinking.type.enabled` is not supported for this model. Use `thinking.type.adaptive`
+# and `output_config.effort` to control thinking behavior."). Thinking depth is driven by
+# the effort level instead. Derived from the table so it cannot drift out of
+# ``CLAUDE_THINKING_MODELS``: the adaptive branch is only reachable for thinking-capable
+# models, so a model listed here but not there would silently get no thinking at all.
+CLAUDE_ADAPTIVE_THINKING_MODELS = tuple(
+    name for native, slug, adaptive in _CLAUDE_MODELS if adaptive for name in (native, slug)
 )
+
+# The same generation also removed the sampling parameters — sending ``temperature``
+# returns a 400 ``invalid_request_error``. Dropping sampling params and dropping manual
+# thinking are two distinct API rules that currently cover exactly the same models; if
+# they ever diverge, give this its own column in ``_CLAUDE_MODELS``.
+CLAUDE_NO_TEMPERATURE_MODELS = CLAUDE_ADAPTIVE_THINKING_MODELS
 
 OPENAI_THINKING_MODELS = (
     "gpt-5.2",
@@ -77,6 +83,24 @@ OPENAI_THINKING_MODELS = (
 ANTHROPIC_STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 
 
+# Anthropic's ``output_config.effort`` scale. Our ThinkingLevel adds ``minimal``, which
+# has no upstream equivalent — down-map it to ``low`` (the same treatment ``xhigh`` gets
+# on the native OpenAI path). ``max`` is intentionally unused: nothing maps to it.
+_ANTHROPIC_EFFORT_BY_LEVEL = {
+    ThinkingLevel.MINIMAL: "low",
+    ThinkingLevel.LOW: "low",
+    ThinkingLevel.MEDIUM: "medium",
+    ThinkingLevel.HIGH: "high",
+    ThinkingLevel.XHIGH: "xhigh",
+}
+
+# Import-time parity guard, mirroring _OPENROUTER_ANTHROPIC_MAX_TOKENS below: a new
+# ThinkingLevel without an effort mapping would crash mid-request with a bare KeyError.
+assert set(ThinkingLevel) == _ANTHROPIC_EFFORT_BY_LEVEL.keys(), (
+    f"_ANTHROPIC_EFFORT_BY_LEVEL missing entries for {set(ThinkingLevel) - _ANTHROPIC_EFFORT_BY_LEVEL.keys()}"
+)
+
+
 def _anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int) -> tuple[int, int]:
     if thinking_level == ThinkingLevel.MINIMAL:
         return max_tokens + 1_024, 1_024
@@ -85,8 +109,9 @@ def _anthropic_thinking_tokens(*, thinking_level: ThinkingLevel, max_tokens: int
     if thinking_level == ThinkingLevel.MEDIUM:
         return max_tokens + 25_600, 25_600
     if thinking_level in (ThinkingLevel.HIGH, ThinkingLevel.XHIGH):
-        # Sonnet/Haiku cap output at 64K without the ``output-128k`` beta; XHIGH
-        # differentiates from HIGH on OpenRouter, not here.
+        # Sonnet/Haiku cap output at 64K without the ``output-128k`` beta. XHIGH and HIGH
+        # share that ceiling — they diverge via ``effort`` on the adaptive path and via the
+        # OpenRouter budget table, never through max_tokens here.
         return 64_000, 64_000 - max_tokens
     raise ValueError(f"Unsupported thinking level: {thinking_level}")
 
@@ -101,10 +126,23 @@ def _apply_anthropic_thinking(kw: dict, thinking_level: ThinkingLevel | None, mo
     max_tokens, budget = _anthropic_thinking_tokens(
         thinking_level=thinking_level, max_tokens=kw.get("max_tokens", CLAUDE_MAX_TOKENS)
     )
-    # Anthropic requires temperature=1 when thinking is enabled.
-    kw["temperature"] = 1
+    # Keep the per-level output ceiling on both paths: with adaptive thinking there is no
+    # client-side budget, so max_tokens is the only ceiling and thinking is billed against it.
     kw["max_tokens"] = max_tokens
-    kw["thinking"] = {"type": "enabled", "budget_tokens": budget}
+
+    if model_name.startswith(CLAUDE_ADAPTIVE_THINKING_MODELS):
+        # ``display`` must be requested explicitly: it defaults to "omitted" on these
+        # models, which streams thinking blocks with empty text, so the reasoning never
+        # reaches DAIV at all — live AG-UI events and reloaded transcripts alike end up
+        # with nothing to show. ``effort`` is langchain-anthropic's shorthand for
+        # ``output_config.effort`` and takes precedence over any output_config we or
+        # with_structured_output pass, so it can't be clobbered by the ``format`` key.
+        kw["thinking"] = {"type": "adaptive", "display": "summarized"}
+        kw["effort"] = _ANTHROPIC_EFFORT_BY_LEVEL[thinking_level]
+    else:
+        # Anthropic requires temperature=1 when manual thinking is enabled.
+        kw["temperature"] = 1
+        kw["thinking"] = {"type": "enabled", "budget_tokens": budget}
 
 
 def _apply_openai_reasoning(kw: dict, thinking_level: ThinkingLevel | None, model_name: str) -> None:
@@ -148,7 +186,8 @@ def _apply_openrouter_thinking(kw: dict, thinking_level: ThinkingLevel | None, m
     kw["extra_body"] = {"reasoning": {"enabled": True, "effort": thinking_level}}
     if model_name.startswith(CLAUDE_THINKING_MODELS):
         # Anthropic requires temperature=1 when thinking is enabled; OpenRouter
-        # passes the kwarg through to the upstream Anthropic API.
+        # passes the kwarg through to the upstream Anthropic API. Models that reject
+        # sampling params get it stripped again by _apply_temperature_support.
         kw["temperature"] = 1
         kw["max_tokens"] = _OPENROUTER_ANTHROPIC_MAX_TOKENS[thinking_level]
 
@@ -157,9 +196,9 @@ def _apply_temperature_support(kw: dict, model_name: str) -> None:
     """Drop ``temperature`` for models that no longer accept it.
 
     The base kwargs always seed ``temperature`` (and the thinking helpers may override
-    it to ``1``), but Claude 5-generation models deprecated the parameter and reject any
-    request that includes it. Run this last so it wins over every provider/thinking
-    branch and any caller-supplied ``temperature``."""
+    it to ``1``), but Opus 4.7 and every later generation removed the sampling parameters
+    and reject any request that includes them. Run this last so it wins over every
+    provider/thinking branch and any caller-supplied ``temperature``."""
     if model_name.startswith(CLAUDE_NO_TEMPERATURE_MODELS):
         kw.pop("temperature", None)
 

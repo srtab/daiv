@@ -372,26 +372,85 @@ class TestGetModelKwargs:
         assert kw["thinking"]["type"] == "enabled"
         assert kw["thinking"]["budget_tokens"] == 64_000 - 16_384
 
-    @pytest.mark.parametrize("model_name", ["claude-sonnet-5", "claude-fable-5"])
-    def test_claude5_thinking_enables_budget_without_temperature(self, model_name):
-        """Claude 5 models are thinking-capable, so a thinking level enables the extended-
-        thinking budget. Anthropic normally pairs that with temperature=1, but Claude 5
-        rejects temperature, so it must be stripped from the final kwargs."""
+    @pytest.mark.parametrize(
+        "model_name", ["claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5", "claude-fable-5"]
+    )
+    def test_adaptive_thinking_models_use_effort_not_budget(self, model_name):
+        """Opus 4.7+ rejects ``thinking.type=enabled``/``budget_tokens`` with a 400 and
+        drives depth through ``output_config.effort`` instead. The per-level output ceiling
+        carries over, ``display`` is requested explicitly (it defaults to omitted), and
+        temperature must be stripped — the same generation rejects sampling params."""
+        self._enable_seed("anthropic", "sk-a")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec(f"anthropic:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
+        )
+        assert kw["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert kw["effort"] == "medium"
+        assert kw["max_tokens"] == 16_384 + 25_600
+        assert "temperature" not in kw
+
+    def test_adaptive_thinking_model_dated_variant(self):
+        """Model names are matched as prefixes, so dated snapshots take the adaptive path."""
+        self._enable_seed("anthropic", "sk-a")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec("anthropic:claude-opus-5-20260101"), thinking_level=ThinkingLevelChoices.HIGH
+        )
+        assert kw["thinking"]["type"] == "adaptive"
+        assert kw["effort"] == "high"
+
+    @pytest.mark.parametrize(
+        ("thinking_level", "expected_effort"),
+        [
+            # Anthropic's effort scale has no ``minimal`` — sending it verbatim would 400,
+            # so it down-maps to ``low``. ``xhigh`` is a real level here, unlike on the
+            # native OpenAI path, so it passes through undowmapped.
+            (ThinkingLevelChoices.MINIMAL, "low"),
+            (ThinkingLevelChoices.LOW, "low"),
+            (ThinkingLevelChoices.MEDIUM, "medium"),
+            (ThinkingLevelChoices.HIGH, "high"),
+            (ThinkingLevelChoices.XHIGH, "xhigh"),
+        ],
+    )
+    def test_adaptive_thinking_effort_mapping(self, thinking_level, expected_effort):
+        """Pins every row of the ThinkingLevel -> ``output_config.effort`` mapping."""
+        self._enable_seed("anthropic", "sk-a")
+        kw = BaseAgent.get_model_kwargs(
+            resolved=parse_model_spec("anthropic:claude-opus-4-8"), thinking_level=thinking_level
+        )
+        assert kw["effort"] == expected_effort
+
+    @pytest.mark.parametrize("model_name", ["claude-opus-4-8", "claude-fable-5"])
+    def test_adaptive_thinking_model_without_thinking_level_drops_temperature(self, model_name):
+        """No thinking level means no ``thinking`` field at all (valid on these models),
+        but the seeded ``temperature=0`` would still 400 — it has to go."""
+        self._enable_seed("anthropic", "sk-a")
+        kw = BaseAgent.get_model_kwargs(resolved=parse_model_spec(f"anthropic:{model_name}"))
+        assert "thinking" not in kw
+        assert "effort" not in kw
+        assert "temperature" not in kw
+        assert kw["max_tokens"] == 16_384
+
+    @pytest.mark.parametrize("model_name", ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"])
+    def test_pre_adaptive_models_keep_budget_tokens(self, model_name):
+        """Models older than Opus 4.7 still take the manual extended-thinking budget
+        (paired with temperature=1) — they don't accept ``output_config.effort``."""
         self._enable_seed("anthropic", "sk-a")
         kw = BaseAgent.get_model_kwargs(
             resolved=parse_model_spec(f"anthropic:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
         )
         assert kw["thinking"] == {"type": "enabled", "budget_tokens": 25_600}
-        assert kw["max_tokens"] == 16_384 + 25_600
-        assert "temperature" not in kw
+        assert kw["temperature"] == 1
+        assert "effort" not in kw
 
-    def test_claude5_openrouter_thinking_enables_without_temperature(self):
+    @pytest.mark.parametrize(
+        "model_name", ["anthropic/claude-opus-4.7", "anthropic/claude-opus-5", "anthropic/claude-sonnet-5"]
+    )
+    def test_adaptive_generation_openrouter_thinking_without_temperature(self, model_name):
         """The OpenRouter Anthropic path also seeds temperature=1 for Claude thinking
-        models; Claude 5 must still end up with it stripped."""
+        models; the adaptive generation must still end up with it stripped."""
         self._enable_seed("openrouter", "sk-or")
         kw = BaseAgent.get_model_kwargs(
-            resolved=parse_model_spec("openrouter:anthropic/claude-sonnet-5"),
-            thinking_level=ThinkingLevelChoices.MEDIUM,
+            resolved=parse_model_spec(f"openrouter:{model_name}"), thinking_level=ThinkingLevelChoices.MEDIUM
         )
         assert kw["extra_body"]["reasoning"]["enabled"] is True
         assert kw["extra_body"]["reasoning"]["effort"] == ThinkingLevelChoices.MEDIUM
