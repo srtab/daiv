@@ -109,6 +109,94 @@ class TestGitMiddleware:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
             assert await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime) is None
 
+    async def test_aafter_agent_records_pending_branch_when_mr_could_not_be_opened(self):
+        """Pushed but MR-less: the branch is recorded and the turn still counts as code changes.
+
+        Without the record the next turn would generate another unique branch name and leave this
+        one orphaned on the remote — the retry amplification that produced a `-1`/`-2` trail.
+        """
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=None, published=True, pending_branch="daiv/feature")
+            )
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
+
+        assert result == {
+            "pending_mr_branch": "daiv/feature",
+            "pending_mr_branch_verified": False,
+            "code_changes": True,
+            "merge_request": None,
+            "protected_branch_fallback_source": None,
+        }
+
+    async def test_aafter_agent_drops_the_state_mr_when_the_work_moved_to_a_pending_branch(self):
+        """The state MR must not survive a pending outcome: it no longer holds the run's work.
+
+        Reachable via the protected-branch fallback — publish abandons the original MR (its source
+        branch is protected), pushes to a fresh branch, and the MR create hits the visibility lag.
+        Leaving the original in state makes the reply link an MR that lacks this turn's commits, and
+        suppresses the pending notice because a merge request appears to exist.
+        """
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        original = _mr(iid=10, branch="protected-branch")
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(
+                    merge_request=None,
+                    published=True,
+                    pending_branch="daiv/replacement",
+                    pending_branch_verified=True,
+                    protected_branch_fallback_source="protected-branch",
+                )
+            )
+            result = await mw.aafter_agent({"session_id": "s", "merge_request": original}, runtime)
+
+        assert result["merge_request"] is None
+        assert result["pending_mr_branch"] == "daiv/replacement"
+        assert result["pending_mr_branch_verified"] is True
+        # The protected-branch notice is the only explanation for why the original MR was abandoned,
+        # so it has to survive the pending path too.
+        assert result["protected_branch_fallback_source"] == "protected-branch"
+
+    async def test_aafter_agent_clears_a_pending_branch_that_is_no_longer_owed(self):
+        """Publish reporting nothing owed must expire the pending state, not leave it forever.
+
+        ``pending_mr_branch`` is thread-scoped, and the reply renders a notice from it. Without this
+        the notice re-appears on every later turn in the thread — including turns that pushed nothing
+        — describing work that was already dealt with.
+        """
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
+            result = await mw.aafter_agent(
+                {"session_id": "s", "merge_request": None, "pending_mr_branch": "daiv/stale"}, runtime
+            )
+
+        assert result == {"pending_mr_branch": None, "pending_mr_branch_verified": False}
+
+    async def test_aafter_agent_hands_the_pending_branch_back_to_the_publisher(self):
+        """A branch owed an MR from an earlier turn is passed into publish so it's reused."""
+        mw = GitMiddleware(auto_commit_changes=True, sandbox_backend=_bound_backend())
+        runtime = MagicMock()
+        runtime.context.scope = Scope.GLOBAL
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub = pub_cls.return_value
+            pub.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent(
+                {"session_id": "s", "merge_request": None, "pending_mr_branch": "daiv/feature"}, runtime
+            )
+
+        assert pub.publish.await_args.kwargs["pending_branch"] == "daiv/feature"
+        # The MR now exists, so nothing is owed one any more.
+        assert result["pending_mr_branch"] is None
+
     async def test_aafter_agent_confirms_existing_mr_without_fallback_key(self):
         """A clean tree already on its MR: publish returns the MR with ``published=False``, so
         aafter confirms it in state WITHOUT touching ``protected_branch_fallback_source`` (a
@@ -123,7 +211,12 @@ class TestGitMiddleware:
             )
             result = await middleware.aafter_agent({"merge_request": state_mr}, runtime)
 
-        assert result == {"merge_request": state_mr, "code_changes": True}
+        assert result == {
+            "merge_request": state_mr,
+            "code_changes": True,
+            "pending_mr_branch": None,
+            "pending_mr_branch_verified": False,
+        }
 
     async def test_aafter_agent_passes_backend_to_publisher(self):
         """Daiv publishes via the publisher; the run's bound backend is injected at construction
@@ -199,9 +292,59 @@ class TestGitMiddleware:
             result = await middleware.abefore_agent({}, runtime)
 
         lookup.assert_awaited_once_with(runtime.context)
-        # `protected_branch_fallback_source` is reset to None so a stale signal from
-        # a prior checkpointed turn cannot bleed into this run's reply rendering.
+        # `protected_branch_fallback_source` is reset to None so a stale signal from a prior
+        # checkpointed turn cannot bleed into this run's reply rendering. The pending-branch keys are
+        # absent because nothing was owed: clearing is conditional on the found MR being the one that
+        # owed branch was pushed for, so an unrelated MR never touches the debt.
         assert result == {"merge_request": existing_mr, "code_changes": False, "protected_branch_fallback_source": None}
+
+    async def test_abefore_agent_preserves_a_pending_branch_when_no_mr_is_found(self):
+        """An MR-less turn must leave ``pending_mr_branch`` ALONE — the whole retry hinges on it.
+
+        The clearing sits inside ``if merge_request is not None`` while the sibling reset of
+        ``protected_branch_fallback_source`` is unconditional two lines above, so hoisting it out looks
+        like a tidy-up. It isn't: it wipes the branch the next publish is supposed to reuse, and every
+        turn then mints another one beside the orphan. Nothing else in the suite notices.
+        """
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+
+        with (
+            patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=None)),
+        ):
+            result = await middleware.abefore_agent({"pending_mr_branch": "daiv/owed-an-mr"}, runtime)
+
+        assert "pending_mr_branch" not in result
+
+    async def test_abefore_agent_keeps_the_debt_when_the_mr_in_hand_is_not_the_one_owed(self):
+        """An MR in hand is not proof the debt was settled — and in MR scope it usually isn't.
+
+        A pending branch on an MR-scope thread can only come from the protected-source-branch fallback,
+        where the in-hand MR is the *original* one publish could not push to. Since ``abefore_agent``
+        takes that MR straight from the webhook context on every turn, clearing on "any MR" wipes the
+        debt before publish can reuse it: the turn falls back again, mints another branch, and orphans
+        the previous one — the exact amplification this state exists to prevent.
+        """
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.MERGE_REQUEST)
+        runtime.context.merge_request = _mr(iid=10, branch="protected-branch")
+
+        result = await middleware.abefore_agent({"pending_mr_branch": "daiv/replacement"}, runtime)
+
+        assert "pending_mr_branch" not in result
+
+    async def test_abefore_agent_clears_the_debt_when_its_own_mr_exists(self):
+        """The debt is settled only when an MR now exists *for that branch* — then it must be dropped,
+        or the reply keeps telling the user a merge request is still pending."""
+        middleware = GitMiddleware()
+        runtime = _make_runtime(scope=Scope.MERGE_REQUEST)
+        runtime.context.merge_request = _mr(iid=11, branch="daiv/owed")
+
+        result = await middleware.abefore_agent({"pending_mr_branch": "daiv/owed"}, runtime)
+
+        assert result["pending_mr_branch"] is None
+        assert result["pending_mr_branch_verified"] is False
 
     async def test_abefore_agent_skips_lookup_when_state_has_mr(self):
         middleware = GitMiddleware()
@@ -348,7 +491,7 @@ class TestGitMiddleware:
         runtime = _make_runtime()
         existing_mr = MagicMock(source_branch="feature-x")
         client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(return_value=existing_mr)
+        client.get_open_merge_request = MagicMock(return_value=existing_mr)
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
@@ -357,7 +500,7 @@ class TestGitMiddleware:
             mr = await GitMiddleware._alookup_open_mr(runtime.context)  # noqa: SLF001
 
         assert mr is existing_mr
-        client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x", "main")
+        client.get_open_merge_request.assert_called_once_with("a/b", "feature-x", preferred_target_branch="main")
 
     async def test_alookup_open_mr_skips_detached_head(self):
         """Commit-pinned runs (SWE-bench evals check out a raw SHA) have no branch, so
@@ -382,7 +525,7 @@ class TestGitMiddleware:
         or, worse, match a same-named repo's MR."""
         runtime = _make_runtime()
         client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(return_value=None)
+        client.get_open_merge_request = MagicMock(return_value=None)
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
@@ -409,7 +552,7 @@ class TestGitMiddleware:
 
         runtime = _make_runtime()
         client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(side_effect=GitlabError("gitlab down"))
+        client.get_open_merge_request = MagicMock(side_effect=GitlabError("gitlab down"))
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
@@ -427,7 +570,7 @@ class TestGitMiddleware:
 
         runtime = _make_runtime()
         client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(side_effect=requests.ConnectionError("dns failure"))
+        client.get_open_merge_request = MagicMock(side_effect=requests.ConnectionError("dns failure"))
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),
@@ -443,7 +586,7 @@ class TestGitMiddleware:
         """
         runtime = _make_runtime()
         client = MagicMock()
-        client.get_merge_request_by_branches = MagicMock(side_effect=KeyError("missing field"))
+        client.get_open_merge_request = MagicMock(side_effect=KeyError("missing field"))
 
         with (
             patch("automation.agent.middlewares.git.get_repo_ref", return_value="feature-x"),

@@ -40,6 +40,8 @@ from core.utils import async_download_url
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from github.PullRequest import PullRequest
+
 
 logger = logging.getLogger("daiv.clients")
 
@@ -496,12 +498,14 @@ class GitHubClient(RepoClient):
             ):
                 raise e
 
-            prs = repo.get_pulls(base=target_branch, head=source_branch, state="open")
+            prs = repo.get_pulls(base=target_branch, head=self._head_filter(repo_id, source_branch), state="open")
 
-            if not prs:
+            # `next(iter(...))`, not `if not prs` / `prs[0]`: PyGithub's PaginatedList defines neither
+            # __bool__ nor __len__, so a truthiness guard never fires and indexing an empty listing
+            # raises IndexError — masking the 422 that actually explains what happened.
+            pr = next(iter(prs), None)
+            if pr is None:
                 raise e
-
-            pr = prs[0]
             pr.edit(title=title, body=description)
 
             if pr.draft and not as_draft:
@@ -515,39 +519,55 @@ class GitHubClient(RepoClient):
         if assignee_id and not any(assignee.id == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=pr.number,
-            source_branch=pr.head.ref,
-            target_branch=pr.base.ref,
-            title=pr.title,
-            description=pr.body or "",
-            labels=[label.name for label in pr.labels],
-            web_url=pr.html_url,
-            sha=pr.head.sha,
-            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
-            draft=pr.draft,
-        )
+        return self._serialize_pull_request(repo_id, pr)
 
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
+    def get_open_merge_request(
+        self, repo_id: str, source_branch: str, *, preferred_target_branch: str | None = None
     ) -> MergeRequest | None:
         """
-        Return the open pull request for this source/target branch pair, or ``None``.
+        Return the open pull request whose head branch is ``source_branch``, or ``None``.
+
+        Not filtered by base branch — see :meth:`RepoClient.get_open_merge_request` for why.
+        GitHub allows several open PRs from one head branch, so the listing is ordered
+        newest-updated-first and ``preferred_target_branch`` wins over that order when it matches.
+
+        The head filter must be ``owner:ref`` (see :meth:`_head_filter`), and the loop re-checks
+        ``pr.head.ref`` anyway: adopting the wrong PR here is not a bad read but a write, since the
+        publisher pushes the run's commits onto whatever branch comes back.
 
         Args:
             repo_id: The repository ID.
             source_branch: The source branch.
-            target_branch: The target branch.
+            preferred_target_branch: Base branch to prefer when several open PRs match.
 
         Returns:
-            The pull request if one open PR matches, otherwise ``None``.
+            The matching open PR, or ``None`` if the branch has none.
         """
         repo = self.client.get_repo(repo_id, lazy=True)
-        prs = repo.get_pulls(state="open", base=target_branch, head=source_branch)
-        pr = next(iter(prs), None)
-        if pr is None:
-            return None
+        prs = repo.get_pulls(
+            state="open", head=self._head_filter(repo_id, source_branch), sort="updated", direction="desc"
+        )
+        selected = self.select_preferred_merge_request(
+            (pr for pr in prs if pr.head.ref == source_branch),
+            preferred_target_branch=preferred_target_branch,
+            target_branch_of=lambda pr: pr.base.ref,
+        )
+        return None if selected is None else self._serialize_pull_request(repo_id, selected)
+
+    @staticmethod
+    def _head_filter(repo_id: str, source_branch: str) -> str:
+        """Qualify a branch name for GitHub's ``head`` query parameter.
+
+        GitHub matches ``head`` only in ``owner:ref`` form and **silently discards** the parameter
+        otherwise — a bare ref returns the repository's entire open-PR listing rather than an empty
+        one, so the failure looks like a successful match on the wrong PR. ``repo_id`` is the
+        ``owner/repo`` full name, which supplies the owner for DAIV's own (same-repo) branches.
+        """
+        return f"{repo_id.split('/')[0]}:{source_branch}"
+
+    @staticmethod
+    def _serialize_pull_request(repo_id: str, pr: PullRequest) -> MergeRequest:
+        """Map a PyGithub pull request onto DAIV's platform-neutral :class:`MergeRequest`."""
         return MergeRequest(
             repo_id=repo_id,
             merge_request_id=pr.number,
@@ -611,19 +631,7 @@ class GitHubClient(RepoClient):
         if assignee_id is not None and not any(assignee.id == assignee_id for assignee in pr.assignees):
             pr.add_to_assignees(assignee_id)
 
-        return MergeRequest(
-            repo_id=repo_id,
-            merge_request_id=pr.number,
-            source_branch=pr.head.ref,
-            target_branch=pr.base.ref,
-            title=pr.title,
-            description=pr.body or "",
-            labels=[label.name for label in pr.labels],
-            web_url=pr.html_url,
-            sha=pr.head.sha,
-            author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
-            draft=pr.draft,
-        )
+        return self._serialize_pull_request(repo_id, pr)
 
     def create_merge_request_comment(
         self,

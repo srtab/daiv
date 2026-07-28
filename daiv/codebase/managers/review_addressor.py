@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from redis.exceptions import RedisError
 from unidiff import LINE_TYPE_CONTEXT, Hunk, PatchedFile
 from unidiff.patch import Line
 
@@ -303,7 +301,7 @@ class CommentsAddressorManager(BaseManager):
                         context=self.ctx,
                     )
             except Exception:
-                draft_published = await self._recover_draft(
+                recovery = await self._recover_draft(
                     daiv_agent,
                     agent_config,
                     entity_label="merge request",
@@ -311,19 +309,23 @@ class CommentsAddressorManager(BaseManager):
                 )
                 # _recover_draft may have updated state with the recovered MR, so
                 # re-read here rather than reusing a pre-recovery snapshot.
-                fallback_footer = self._render_protected_branch_footer(
-                    await self._safe_get_state(daiv_agent, agent_config)
+                fallback_footer = self._render_footers(
+                    await self._safe_get_state(
+                        daiv_agent, agent_config, entity=f"merge request {self.merge_request.merge_request_id}"
+                    )
                 )
                 self._add_unable_to_address_review_note(
-                    draft_published=draft_published, fallback_footer=fallback_footer
+                    draft_published=recovery.merge_request is not None, fallback_footer=fallback_footer
                 )
                 raise
             else:
                 response_text = ""
                 # Read the snapshot once so the fallback footer and AgentResult share
                 # the same checkpoint read instead of round-tripping Redis twice.
-                snapshot = await self._safe_get_state(daiv_agent, agent_config)
-                fallback_footer = self._render_protected_branch_footer(snapshot)
+                snapshot = await self._safe_get_state(
+                    daiv_agent, agent_config, entity=f"merge request {self.merge_request.merge_request_id}"
+                )
+                fallback_footer = self._render_footers(snapshot)
                 if (
                     result
                     and "messages" in result
@@ -347,16 +349,6 @@ class CommentsAddressorManager(BaseManager):
                     snapshot=snapshot,
                 )
 
-    async def _safe_get_state(self, agent, config):
-        """Read agent state, returning None on transport/serialization failure."""
-        try:
-            return await agent.aget_state(config=config)
-        except RedisError, OSError, json.JSONDecodeError:
-            logger.warning(
-                "Failed to read agent state for merge request %d", self.merge_request.merge_request_id, exc_info=True
-            )
-            return None
-
     def _render_protected_branch_footer(self, snapshot) -> str | None:
         """
         Render the protected-branch fallback footer when the publisher swapped to a
@@ -374,10 +366,15 @@ class CommentsAddressorManager(BaseManager):
             # not a partial checkpoint, so stay silent.
             return None
         if new_mr is None:
+            if snapshot.values.get("pending_mr_branch"):
+                # Not a raced checkpoint: the replacement MR is genuinely still owed, and the
+                # pending-branch notice (composed alongside this one) is what explains where the
+                # work went. Nothing to warn about.
+                return None
             # The publisher writes ``protected_branch_fallback_source`` and ``merge_request``
-            # together when it swaps to a fresh MR; a fallback source with no MR means the
-            # checkpoint was raced/partial. The user gets the reply with no breadcrumb to the
-            # new MR in that case — surface it to the operator.
+            # together when it swaps to a fresh MR; a fallback source with neither an MR nor a
+            # pending branch means the checkpoint was raced/partial. The user gets the reply with
+            # no breadcrumb to the new MR in that case — surface it to the operator.
             logger.warning(
                 "Partial protected-branch fallback state on MR %d "
                 "(source_branch=%r, merge_request=%r); dropping footer.",
@@ -397,11 +394,20 @@ class CommentsAddressorManager(BaseManager):
             },
         )
 
-    @staticmethod
-    def _append_footer(body: str, footer: str | None) -> str:
-        if not footer:
-            return body
-        return f"{body.rstrip()}\n\n{footer.lstrip()}"
+    def _render_footers(self, snapshot) -> str | None:
+        """Extend the base set with the MR-scope-only protected-branch footer.
+
+        In practice at most one renders: the protected-branch footer links the replacement MR by URL, so
+        it stands down when that MR is still owed and the pending notice absorbs its explanation instead
+        (see :func:`render_pending_branch_notice`). Composed as a list anyway so a future footer adds
+        rather than replaces, and joined through :meth:`_append_footer` so the blank-line rule stays in
+        one place.
+        """
+        rendered: str | None = None
+        for footer in (self._render_protected_branch_footer(snapshot), super()._render_footers(snapshot)):
+            if footer:
+                rendered = footer.strip() if rendered is None else self._append_footer(rendered, footer)
+        return rendered
 
     def _add_unable_to_address_review_note(self, *, draft_published: bool = False, fallback_footer: str | None = None):
         """

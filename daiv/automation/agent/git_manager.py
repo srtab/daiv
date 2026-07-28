@@ -49,12 +49,24 @@ class _GitResult:
 
 @dataclass(frozen=True)
 class RepoStatus:
-    """One-shot snapshot of the run's repo state, gathered in <=2 sandbox round-trips."""
+    """One-shot snapshot of the run's repo state, gathered in at most three sandbox round-trips."""
 
     dirty: bool
     diff: str
     remote_branches: list[str]
     has_unpushed: bool
+
+    diff_base: str
+    """Branch ``diff`` was actually computed against.
+
+    Normally the ``base_branch`` the caller asked for, but ``status_snapshot`` substitutes the fallback
+    when the requested base doesn't resolve in the clone. Since the diff is what the commit message and
+    PR description are derived from, a silent substitution changes them — so which base won is part of
+    the value rather than only a log line.
+
+    Required rather than defaulted: ``status_snapshot`` always knows the answer, and a sentinel would
+    only push a "was this recorded?" guard onto every consumer.
+    """
 
 
 class SandboxGitProtocolError(RuntimeError):
@@ -258,6 +270,27 @@ class GitManager:
         batch_b = await self._git_batch([("diff", "--no-index", "/dev/null", f) for f in untracked])
         return self._append_untracked(diff_res.output, untracked, batch_b)
 
+    async def get_range_diff(self, *, base_branch: str, head_branch: str) -> str:
+        """Unified diff of what ``origin/<head_branch>`` adds on top of ``origin/<base_branch>``.
+
+        Unlike :meth:`get_diff` and :meth:`status_snapshot` this ignores the working tree entirely — it
+        describes work that is already on the remote (read from the local remote-tracking refs; nothing
+        is fetched). Used when a turn owes a merge request for a branch an *earlier* turn pushed: this
+        workspace may be a fresh clone that never contained those commits, so the remote branch is the
+        only place the change still exists.
+
+        Three-dot on purpose: ``base...head`` diffs from the merge base, so commits that landed on the
+        base branch since the push don't show up as reversals of someone else's work.
+
+        Keyword-only because the two parameters are same-typed branch names whose order decides the
+        direction: swapping them returns an empty diff whenever the base hasn't moved, and the caller
+        reads an empty diff as "this branch holds no work" and drops the record of it.
+
+        Both refs must exist in the clone; a missing one raises ``GitCommandError`` rather than
+        returning an empty diff, so the caller can tell "branch gone" from "branch has no changes".
+        """
+        return (await self._git("diff", f"origin/{base_branch}...origin/{head_branch}")).output
+
     async def get_changed_files(self, ref: str = "HEAD") -> list[str]:
         """Paths changed in the working tree vs ``ref``, including untracked files.
 
@@ -271,20 +304,35 @@ class GitManager:
         self._require_ok(specs[1], untracked_res)
         return self._nonempty_lines(changed_res.output) + self._nonempty_lines(untracked_res.output)
 
-    async def status_snapshot(self, *, base_branch: str, mr_source_branch: str | None) -> RepoStatus:
-        """Collect everything the publisher needs in at most two sandbox round-trips.
+    async def status_snapshot(
+        self, *, base_branch: str, mr_source_branch: str | None, fallback_base_branch: str | None = None
+    ) -> RepoStatus:
+        """Collect everything the publisher needs in at most three sandbox round-trips.
 
         Batch A (one round-trip): working-tree status, diff vs ``origin/<base_branch>``, untracked
-        file list, remote branch list, and — when ``mr_source_branch`` is given —
-        ``origin/<mr_source_branch>..HEAD``. Batch B (only when untracked files exist): one
-        ``diff --no-index`` per untracked file, in a single round-trip. Replaces the previous
-        is_dirty/get_diff/has_unpushed/remote_branches sequence (~5+U round-trips) with <=2.
+        file list, remote branch list, a check that the base ref resolves, and — when
+        ``mr_source_branch`` is given — ``origin/<mr_source_branch>..HEAD``. Batch B (only when
+        untracked files exist): one ``diff --no-index`` per untracked file, in a single round-trip.
+        Replaces the previous is_dirty/get_diff/has_unpushed/remote_branches sequence (~5+U
+        round-trips) with <=3.
+
+        All three branch arguments are bare names — ``origin/`` is prefixed here.
+
+        ``base_branch`` is the run's review base (an MR's target branch, else the repo default), so it
+        is no longer guaranteed to exist in the clone: most often a checkpointed MR whose target was
+        merged and deleted since, or a target branch deleted on the remote after the clone. Pass
+        ``fallback_base_branch`` (the repo default) to recompute the diff against it when the base ref
+        doesn't resolve: one extra round-trip in that rare case, versus a raised ``GitCommandError``
+        that would abort the publish and strand the run's work. When the fallback is absent or equal to
+        the base — the ordinary MR-less call shape — the original failure still raises. Whichever base
+        won is reported back in :attr:`RepoStatus.diff_base`.
         """
         batch_a: list[tuple[str, ...]] = [
             ("status", "--porcelain"),
             ("diff", f"origin/{base_branch}"),
             ("ls-files", "--others", "--exclude-standard"),
             ("ls-remote", "--heads", "origin"),
+            ("rev-parse", "--verify", "--quiet", f"origin/{base_branch}"),
         ]
         log_idx = -1
         if mr_source_branch:
@@ -292,14 +340,37 @@ class GitManager:
             log_idx = len(batch_a) - 1
 
         res = await self._git_batch(batch_a)
-        status_res, diff_res, untracked_res, lsremote_res = res[0], res[1], res[2], res[3]
+        status_res, diff_res, untracked_res, lsremote_res, baseref_res = res[0], res[1], res[2], res[3], res[4]
 
         # Exit-code discipline (same as the per-method versions): a real ref never exits non-zero for
         # "differences found", and an empty branch list from a failing ls-remote would risk a colliding
         # branch name, so raise rather than silently parse.
         self._require_ok(batch_a[0], status_res)
-        self._require_ok(batch_a[1], diff_res)
         self._require_ok(batch_a[2], untracked_res)
+
+        # The diff's own exit code is checked below against whichever spec produced it: a real ref never
+        # exits non-zero for "differences found", so a failure here is a broken ref, not a big diff.
+        diff_spec = batch_a[1]
+        diff_base = base_branch
+        if baseref_res.exit_code != 0 and fallback_base_branch and fallback_base_branch != base_branch:
+            # Both results go in the message on purpose. `rev-parse --verify --quiet` exits 1 with no
+            # output for a genuinely absent ref, but 128 with a `fatal:` for a corrupt clone or a broken
+            # `refs/remotes/origin/<base>` — and if the fallback diff then succeeds, that corruption is
+            # absorbed silently. Without the evidence every case reads as "the target branch was deleted".
+            logger.warning(
+                "status_snapshot: base ref 'origin/%s' does not resolve in this clone (rev-parse exit %s: %s; "
+                "diff exit %s: %s); diffing against 'origin/%s' instead.",
+                base_branch,
+                baseref_res.exit_code,
+                baseref_res.output.strip() or "<no output>",
+                diff_res.exit_code,
+                diff_res.output.strip() or "<no output>",
+                fallback_base_branch,
+            )
+            diff_spec = ("diff", f"origin/{fallback_base_branch}")
+            diff_base = fallback_base_branch
+            diff_res = (await self._git_batch([diff_spec]))[0]
+        self._require_ok(diff_spec, diff_res)
         # ls-remote is the publish flow's FIRST network op, so in local mode a rejected/absent
         # credential lands here before the push. Classify it as the same actionable transport error a
         # push would raise (auth → GitPushPermissionError, unreachable → GitPushNetworkError) instead
@@ -333,6 +404,7 @@ class GitManager:
             diff=diff,
             remote_branches=self._parse_remote_branches(lsremote_res.output),
             has_unpushed=has_unpushed,
+            diff_base=diff_base,
         )
 
     # -- mutations -----------------------------------------------------------

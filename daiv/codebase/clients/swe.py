@@ -335,8 +335,8 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
 
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
+    def get_open_merge_request(
+        self, repo_id: str, source_branch: str, *, preferred_target_branch: str | None = None
     ) -> MergeRequest | None:
         """SWE runs have no merge-request concept: there is never an open MR, so report
         none rather than raising — platform-agnostic callers (e.g. GitMiddleware's

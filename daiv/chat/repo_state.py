@@ -63,6 +63,10 @@ def mr_to_payload(mr: object) -> dict[str, Any] | None:
 async def aget_existing_mr_payload(repo_id: str, ref: str) -> dict[str, Any] | None:
     """Look up an open MR for ``ref`` on the configured git platform.
 
+    Matches on the source branch alone (the default branch is only a tie-break preference), so the
+    composer's MR pill also reflects a ref under review against a release branch or stacked on
+    another feature branch.
+
     Returns ``None`` for the default branch, missing inputs, or known
     platform/transport errors (logged). Other exceptions propagate.
     """
@@ -73,7 +77,9 @@ async def aget_existing_mr_payload(repo_id: str, ref: str) -> dict[str, Any] | N
         if ref == config.default_branch:
             return None
         client = RepoClient.create_instance()
-        mr = await sync_to_async(client.get_merge_request_by_branches)(repo_id, ref, config.default_branch)
+        mr = await sync_to_async(client.get_open_merge_request)(
+            repo_id, ref, preferred_target_branch=config.default_branch
+        )
     except _PLATFORM_ERRORS:
         logger.exception("Failed to look up existing merge request for %s on %s", repo_id, ref)
         return None

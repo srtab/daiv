@@ -59,10 +59,10 @@ class TestSWERepoClient:
         with pytest.raises(ValueError, match="repo_host"):
             client.get_repository("psf/requests")
 
-    def test_get_merge_request_by_branches_returns_none(self, swe_client):
+    def test_get_open_merge_request_returns_none(self, swe_client):
         """SWE runs have no merge-request concept: report "no open MR" instead of raising,
         so platform-agnostic callers (GitMiddleware's MR lookup) fall through gracefully."""
-        assert swe_client.get_merge_request_by_branches("psf/requests", "feature-x", "main") is None
+        assert swe_client.get_open_merge_request("psf/requests", "feature-x", preferred_target_branch="main") is None
 
     def test_list_repositories_not_supported(self, swe_client):
         """Test that listing repositories raises NotImplementedError."""

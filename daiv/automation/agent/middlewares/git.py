@@ -103,6 +103,33 @@ class GitState(AgentState):
     posted as a separate comment.
     """
 
+    pending_mr_branch: Annotated[str | None, PrivateStateAttr]
+    """
+    Branch this thread pushed and still owes a merge request, because the platform kept
+    reporting the just-pushed branch as missing (see ``PublishOutcome.pending_branch``).
+    Carried across turns so a later publish retries the MR on that same branch — otherwise
+    each turn would mint another unique branch and leave the previous one orphaned.
+
+    Cleared in exactly three places: at turn start when an MR is in hand *whose source branch is this
+    one* (matching matters — an MR-scope turn always has the webhook's MR, which for a protected-branch
+    fallback is precisely not the branch that is owed); when a publish opens the MR; and when a publish
+    reports the debt is void (the branch was merged, or is gone from the clone). A turn that never
+    reaches publish at all — ``auto_commit_changes=False``, or the unbound-sandbox short-circuit —
+    leaves it untouched.
+
+    A human opening the MR by hand is not noticed directly: the MR lookup keys on the run's ref, never on
+    this generated branch. The next publish finds it via the platform's "already exists" response and
+    settles the debt that way.
+    """
+
+    pending_mr_branch_verified: Annotated[bool | None, PrivateStateAttr]
+    """
+    Whether ``pending_mr_branch`` was actually confirmed on the remote, as opposed to assumed present
+    because the confirming read failed too (see ``MergeRequestBranchNotVisibleError.verified``). Only a
+    confirmed branch may be described to the user as holding their work safely — an unconfirmed claim
+    is what would stop someone redoing work that never landed.
+    """
+
     model_patch: NotRequired[str]
     """
     Unified diff of the run's working-tree changes vs ``HEAD`` (untracked files included),
@@ -208,11 +235,20 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # runs always start on the default branch, where this lookup short-circuits.
             merge_request = await self._alookup_open_mr(runtime.context)
 
-        update: dict[str, Any] = {
-            "merge_request": merge_request,
-            "code_changes": False,
-            "protected_branch_fallback_source": None,
-        }
+        update: dict[str, Any] = {"merge_request": merge_request, "code_changes": False}
+        if not state.get("pending_mr_branch"):
+            # Reset so a stale signal from a prior checkpointed turn cannot bleed into this run's reply.
+            # Held back while a branch is still owed a merge request, though: the fallback is *why* that
+            # branch exists, and the reviewer needs it explained on whichever later turn opens the MR.
+            update["protected_branch_fallback_source"] = None
+        if merge_request is not None and merge_request.source_branch == state.get("pending_mr_branch"):
+            # The debt is settled only when an MR now exists *for the owed branch* — then drop it, or the
+            # reply keeps claiming a merge request is still pending. Matching on the source branch is
+            # load-bearing, not defensive: an MR-scope turn always has the webhook's MR in hand, and a
+            # pending branch there can only have come from that MR's source branch being protected, so
+            # "any MR" would wipe the debt every turn and orphan another branch each time. An MR-less
+            # turn writes no key at all, preserving whatever was checkpointed.
+            update |= {"pending_mr_branch": None, "pending_mr_branch_verified": False}
         if pre_run_dirty_files:
             update["pre_run_dirty_files"] = pre_run_dirty_files
         return update
@@ -259,6 +295,12 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         for a repo living elsewhere would 404 or, worse, match a same-named repo's MR.
         Soft-fails on platform/transport errors so the agent can still run — the publisher
         will create a fresh MR if needed. Programming bugs propagate.
+
+        The MR's *target* branch is not part of the match, only a tie-break preference: a ref
+        under review against a release branch (or stacked on another feature branch) has an open
+        MR just the same, and missing it is expensive — the publisher would push the run's work to
+        a brand-new branch and open a second MR against the default branch instead of adding a
+        commit to the MR the run is working inside.
         """
         if context.gitrepo.head.is_detached:
             logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", context.repository.slug)
@@ -268,8 +310,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return None
         try:
             client = RepoClient.create_instance(git_platform=context.git_platform)
-            return await sync_to_async(client.get_merge_request_by_branches)(
-                context.repository.slug, current_branch, context.config.default_branch
+            return await sync_to_async(client.get_open_merge_request)(
+                context.repository.slug, current_branch, preferred_target_branch=context.config.default_branch
             )
         except _MR_LOOKUP_PLATFORM_ERRORS:
             logger.exception(
@@ -374,7 +416,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         *decision* lives in :meth:`GitChangePublisher.publish`, which returns a
         :class:`PublishOutcome`: a no-op turn (clean tree already on its MR, or no changes at
         all) publishes nothing. We map the outcome onto the streamed ``merge_request`` field
-        and the private ``code_changes`` / ``protected_branch_fallback_source`` flags.
+        and the private ``code_changes`` / ``protected_branch_fallback_source`` /
+        ``pending_mr_branch`` / ``pending_mr_branch_verified`` flags.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
         straight to the after_agent chain) skip ``SandboxMiddleware.abefore_agent``, so the run's
@@ -412,13 +455,14 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             return update or None
 
         publisher = GitChangePublisher(runtime.context, sandbox_backend=self._sandbox_backend)
-        outcome = await publisher.publish(merge_request=self._state_merge_request(state), skip_ci=self.skip_ci)
+        outcome = await publisher.publish(
+            merge_request=self._state_merge_request(state),
+            skip_ci=self.skip_ci,
+            pending_branch=state.get("pending_mr_branch"),
+        )
 
-        if outcome.merge_request is None:
-            return update or None
-
-        self._record_issue_mr(outcome.merge_request, runtime)
-        update |= {"merge_request": outcome.merge_request, "code_changes": True}
-        if outcome.published:
-            update["protected_branch_fallback_source"] = outcome.protected_branch_fallback_source
-        return update
+        if outcome.merge_request is not None:
+            self._record_issue_mr(outcome.merge_request, runtime)
+        # Shared with BaseManager._recover_draft so the two writers of this state cannot drift.
+        update |= outcome.state_update(had_pending_branch=bool(state.get("pending_mr_branch")))
+        return update or None

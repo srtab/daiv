@@ -28,7 +28,7 @@ from codebase.base import (
 from codebase.conf import settings
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     from git import Repo
     from github import Github
@@ -420,21 +420,60 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
+    def get_open_merge_request(
+        self, repo_id: str, source_branch: str, *, preferred_target_branch: str | None = None
     ) -> MergeRequest | None:
         """
-        Return the first open merge request for this source/target branch pair, or ``None``.
+        Return the open merge request whose source branch is ``source_branch``, or ``None``.
+
+        Deliberately *not* filtered by target branch. A branch under review against a release
+        branch or another feature branch (a stacked MR) is still that branch's MR, and matching
+        only MRs targeting the repo default made those invisible: the publisher then took its
+        "branch has no MR" path and minted a duplicate branch and MR against the wrong target
+        instead of adding a commit to the MR the run was working inside.
+
+        ``preferred_target_branch`` is a *preference*, not a filter: when several open MRs share one
+        source branch it wins over the ordering below, but an MR targeting something else is still
+        returned rather than skipped. Keyword-only so that reads at the call site — the old
+        ``(repo_id, source, target)`` shape made a preference look exactly like the filter it replaced.
+
+        With several open MRs and no preference match, the winner is whichever the remote most
+        recently updated — and the caller cannot tell whether its preference was honoured. That
+        matters because the publisher takes the returned MR's target branch as the diff base and
+        pushes into its source branch, so the ordering is pinned explicitly rather than left
+        incidental.
 
         Args:
             repo_id: The repository ID.
             source_branch: The source branch.
-            target_branch: The target branch.
+            preferred_target_branch: Target branch to prefer when several open MRs match.
 
         Returns:
-            The first open MR matching the branch pair, or ``None`` if none exist.
+            The matching open MR, or ``None`` if the branch has none.
         """
         pass
+
+    @staticmethod
+    def select_preferred_merge_request[T](
+        candidates: Iterable[T], *, preferred_target_branch: str | None, target_branch_of: Callable[[T], str]
+    ) -> T | None:
+        """Pick from an already newest-updated-first listing per :meth:`get_open_merge_request`'s policy.
+
+        Returns the first candidate targeting ``preferred_target_branch``; failing that the first
+        candidate overall (so an MR against another target is still found, not skipped); ``None`` if the
+        listing is empty. Scanning continues past a non-matching first entry because a later page may
+        still hold the preferred target, and only exhausting the listing proves it doesn't.
+
+        Shared by both providers: the policy above is what decides the publisher's diff base and which
+        branch it pushes into, so a per-client copy is a policy that can drift silently.
+        """
+        first: T | None = None
+        for candidate in candidates:
+            if preferred_target_branch is None or target_branch_of(candidate) == preferred_target_branch:
+                return candidate
+            if first is None:
+                first = candidate
+        return first
 
     @abc.abstractmethod
     def get_merge_request_comment(self, repo_id: str, merge_request_id: int, comment_id: str) -> Discussion:

@@ -1,0 +1,14 @@
+---
+
+#### ⏳ Changes pushed to `{{ branch }}`, {% if is_gitlab %}merge request{% else %}pull request{% endif %} still pending
+{% if protected_source_branch %}
+I couldn't push to this {% if is_gitlab %}merge request{% else %}pull request{% endif %}'s source branch (`{{ protected_source_branch }}`) because it's protected on the remote, so I pushed the changes to `{{ branch }}` instead.
+{% else %}
+I pushed the changes to `{{ branch }}`.
+{% endif %}
+The platform then kept reporting that branch as missing, so the {% if is_gitlab %}merge request{% else %}pull request{% endif %} could not be opened yet.
+{% if verified %}
+Nothing is lost — the branch is on the remote. Re-run me and I'll open the {% if is_gitlab %}merge request{% else %}pull request{% endif %} on that same branch, or open it yourself.
+{% else %}
+I could not confirm the branch on the remote either (that check failed too), so please check `{{ branch }}` before assuming the changes landed.
+{% endif %}

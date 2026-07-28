@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.core.exceptions import ImproperlyConfigured
 
 from git import GitCommandError, Repo
-from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
+from gitlab import Gitlab, GitlabCreateError, GitlabGetError, GitlabOperationError
 from gitlab.const import AccessLevel
 from gitlab.exceptions import GitlabError
 
@@ -35,6 +35,7 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_NAME
 from core.utils import async_download_url, build_uri, is_git_auth_error_text
 from daiv import USER_AGENT
@@ -55,9 +56,16 @@ logger = logging.getLogger("daiv.clients")
 # instant, landing squarely in that window, so the create can fail with
 # `400 {'source_branch': ['does not exist']}` for a branch that was *just* pushed successfully. Retry
 # the create until the branch becomes visible (a successful create is the signal), sleeping these many
-# seconds between attempts (~15s of backoff over four retries) before one final attempt whose error
-# surfaces to the caller.
-MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+# seconds between attempts before one final attempt.
+#
+# The window is sized from a measured failure, not a guess: on git.eurotux.com (GitLab 19.1.2) a push
+# accepted at 11:45:19Z only had its post-receive processing run ~37s later, at 11:45:56Z — while a push
+# to a sibling project the same minute took <1s. The lag is per-push scheduling jitter, so the budget
+# has to cover the tail rather than the median; these delays sum to 60s, and exhausting them now
+# degrades (see `_create_merge_request_awaiting_branch`) instead of failing the run.
+# A test asserts the total stays >= 60s, so shrinking the budget fails the suite rather than silently
+# re-opening the failure; the individual steps are free to change.
+MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0)
 
 # A freshly minted project access token (see :func:`get_ephemeral_clone_token`) is not always
 # immediately accepted for git-over-HTTPS: GitLab appears to propagate the token's project
@@ -701,15 +709,20 @@ class GitLabClient(RepoClient):
             "work_in_progress": as_draft,
         }
         try:
-            merge_request = self._create_merge_request_awaiting_branch(project, payload, source_branch)
+            merge_request = self._create_merge_request_awaiting_branch(project, payload, source_branch, repo_id)
             return self._serialize_merge_request(repo_id, merge_request)
         except GitlabCreateError as e:
             if e.response_code != 409:
                 raise e
-            if merge_requests := project.mergerequests.list(
+            # A 409 means an MR already exists for this exact branch pair, so the target filter belongs
+            # here (unlike `get_open_merge_request`, which must not filter): it is how GitLab decided to
+            # reject, so it is how we find what it rejected against. `next(..., None)` rather than
+            # truthiness + `.next()`: a generator is always truthy and an exhausted one would raise
+            # StopIteration instead of re-raising the 409 that explains the failure.
+            merge_requests = project.mergerequests.list(
                 source_branch=source_branch, target_branch=target_branch, iterator=True
-            ):
-                merge_request = merge_requests.next()
+            )
+            if (merge_request := next(merge_requests, None)) is not None:
                 merge_request.title = title
                 merge_request.description = description
                 merge_request.labels = labels or []
@@ -720,7 +733,7 @@ class GitLabClient(RepoClient):
             raise e
 
     def _create_merge_request_awaiting_branch(
-        self, project: Any, payload: dict[str, Any], source_branch: str
+        self, project: Any, payload: dict[str, Any], source_branch: str, repo_id: str
     ) -> ProjectMergeRequest:
         """Create the merge request, retrying past GitLab's post-push branch-visibility race.
 
@@ -729,6 +742,18 @@ class GitLabClient(RepoClient):
         branch as missing (see :func:`_is_source_branch_missing_error`); retry the create on the
         backoff schedule until the branch is visible. Any other ``GitlabCreateError`` (e.g. the 409
         for an MR that already exists) propagates immediately for the caller to handle.
+
+        Once the whole window is exhausted the possible causes stop being equivalent, so they are told
+        apart instead of all crashing the run (see :meth:`_branch_presence`): only a *confirmed absent*
+        branch means the rejection was accurate (the push went somewhere else), and that still raises
+        the raw ``GitlabCreateError``. A branch that is present — or that could not be checked — is
+        still the visibility lag, and :class:`MergeRequestBranchNotVisibleError` lets the caller keep
+        the pushed work, carrying whether the branch was actually confirmed.
+
+        The sleep budget blocks for up to ~60s under ``sync_to_async``, which defaults to
+        ``thread_sensitive=True`` — so it occupies the shared thread-sensitive executor and holds up other
+        sync work (ORM calls) in the same context for that long. If the process is killed inside the
+        window, ``aafter_agent`` never records the pending branch and it is orphaned.
         """
         retries = MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS
         for attempt, delay in enumerate(retries, start=1):
@@ -746,32 +771,112 @@ class GitLabClient(RepoClient):
                     delay,
                 )
                 time.sleep(delay)
-        # Retries exhausted: the branch should be visible now, so this final attempt's result — or its
-        # error, if the branch genuinely never appeared — is the caller's to handle.
-        return project.mergerequests.create(payload)
 
-    def get_merge_request_by_branches(
-        self, repo_id: str, source_branch: str, target_branch: str
+        try:
+            return project.mergerequests.create(payload)
+        except GitlabCreateError as e:
+            if not _is_source_branch_missing_error(e):
+                raise
+            presence = self._branch_presence(project, source_branch)
+            if presence is False:
+                raise
+            # Logged at error level on purpose: this is the operator's only signal that a branch is
+            # sitting on the remote without an MR. Sentry's default LoggingIntegration only turns
+            # ERROR into an issue, and before this degradation existed the same platform condition
+            # raised and *did* page — that is how the lag was measured in the first place. A warning
+            # here would make orphaned branches accumulate silently.
+            logger.exception(
+                "MR create still reports source branch '%s' (%s) missing after ~%.0fs; %s. Leaving the pushed "
+                "work on the branch for a later turn to open the MR.",
+                source_branch,
+                repo_id,
+                sum(retries),
+                "the branch is confirmed on the remote"
+                if presence
+                else "the branch could NOT be confirmed either — the work on it is UNVERIFIED",
+            )
+            # `is True`, not truthiness: `None` means unverified and must never round up to verified.
+            raise MergeRequestBranchNotVisibleError(source_branch, verified=presence is True) from e
+
+    @staticmethod
+    def _branch_presence(project: Any, branch: str) -> bool | None:
+        """Whether ``branch`` is on the remote, read straight from the repository.
+
+        Three-valued on purpose: ``True`` confirmed present, ``False`` confirmed absent, ``None``
+        unknown because the read itself failed. Used only to classify an exhausted MR-create window,
+        where those readings diverge — a branch that is there means the create was wrong (visibility
+        lag) and the run's work can be kept; a branch that is not means the create was right and the
+        raw error should surface.
+
+        Collapsing ``None`` into ``True`` would keep the work (the safe direction) but would also
+        launder an assumption into the "your changes are safe on this branch" message, so the caller
+        needs the distinction. The catch is deliberately as broad as that fallback: 404 is the only
+        *evidence* of absence, and the failures most likely here are precisely the ones a narrow
+        ``GitlabGetError`` misses — a read timeout on the same overloaded instance whose post-receive lag
+        caused this in the first place (the client's timeout is 10s), or a 401 if the configured token was
+        revoked. Mirrors :meth:`is_branch_protected`, which fails open on the same endpoint.
+        """
+        try:
+            project.branches.get(branch)
+        except GitlabGetError as e:
+            # `False` is the only reading that discards the run's work, so it demands the strictest
+            # evidence: a bare 404 also covers "project not found" (a lazy project ref, a token that lost
+            # access), which says nothing about the branch. `getattr` because an SDK error without the
+            # attribute would otherwise escape both handlers and fail the publish.
+            if getattr(e, "response_code", None) == 404 and "branch" in str(e).lower():
+                # Worth logging: an operator seeing the raw 400 otherwise cannot tell whether DAIV
+                # checked the remote and found nothing, or never checked at all.
+                logger.error(
+                    "Branch '%s' is confirmed absent on the remote after the MR-create window; the push did "
+                    "not land where the MR create looked.",
+                    branch,
+                )
+                return False
+            verification_error: Exception = e
+        except Exception as e:  # noqa: BLE001 — fail open on SDK + transport errors per docstring
+            verification_error = e
+        else:
+            return True
+        logger.error(
+            "Could not verify whether branch '%s' exists (%r); assuming it does and keeping the pushed work, "
+            "UNVERIFIED.",
+            branch,
+            verification_error,
+            # Explicit exception object, not `exc_info=True`: this runs outside the handler, where the
+            # ambient exception is already cleared and `True` would log "NoneType: None". The traceback is
+            # what separates "GitLab timed out" from "we broke the call", now that the catch is this wide.
+            exc_info=verification_error,
+        )
+        return None
+
+    def get_open_merge_request(
+        self, repo_id: str, source_branch: str, *, preferred_target_branch: str | None = None
     ) -> MergeRequest | None:
         """
-        Return the open merge request for this source/target branch pair, or ``None``.
+        Return the open merge request whose source branch is ``source_branch``, or ``None``.
+
+        Not filtered by target branch — see :meth:`RepoClient.get_open_merge_request` for why.
+        GitLab allows several open MRs from one source branch, so the listing is ordered
+        newest-updated-first and ``preferred_target_branch`` wins over that order when it matches.
 
         Args:
             repo_id: The repository ID.
             source_branch: The source branch.
-            target_branch: The target branch.
+            preferred_target_branch: Target branch to prefer when several open MRs match.
 
         Returns:
-            The merge request if one open MR matches, otherwise ``None``.
+            The matching open MR, or ``None`` if the branch has none.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_requests = project.mergerequests.list(
-            source_branch=source_branch, target_branch=target_branch, state="opened", iterator=True
+            source_branch=source_branch, state="opened", order_by="updated_at", sort="desc", iterator=True
         )
-        merge_request = next(merge_requests, None)
-        if merge_request is None:
-            return None
-        return self._serialize_merge_request(repo_id, merge_request)
+        selected = self.select_preferred_merge_request(
+            merge_requests,
+            preferred_target_branch=preferred_target_branch,
+            target_branch_of=lambda mr: mr.target_branch,
+        )
+        return None if selected is None else self._serialize_merge_request(repo_id, selected)
 
     def update_merge_request(
         self,

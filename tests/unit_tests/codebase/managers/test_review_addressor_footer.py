@@ -126,6 +126,63 @@ class TestRenderProtectedBranchFooter:
         mock_logger.warning.assert_not_called()
 
 
+class TestRenderFooters:
+    """The reply comment is the only surface the person who triggered the run actually reads, so every
+    "where did your work go" signal has to be composed into it — not just the protected-branch one."""
+
+    def test_includes_the_pending_branch_notice(self, stub_base_init):
+        manager = _make_manager(stub_base_init)
+        snapshot = SimpleNamespace(
+            values={"merge_request": None, "pending_mr_branch": "daiv/owed", "pending_mr_branch_verified": True}
+        )
+
+        rendered = manager._render_footers(snapshot)
+
+        assert rendered is not None
+        assert "daiv/owed" in rendered
+
+    def test_combines_the_protected_branch_and_pending_notices(self, stub_base_init):
+        """The double fault (protected source branch, then the visibility lag) needs both explanations:
+        why the original MR was abandoned, and where the replacement work went."""
+        manager = _make_manager(stub_base_init)
+        snapshot = SimpleNamespace(
+            values={
+                "protected_branch_fallback_source": "feature",
+                "merge_request": None,
+                "pending_mr_branch": "daiv/replacement",
+                "pending_mr_branch_verified": True,
+            }
+        )
+
+        rendered = manager._render_footers(snapshot)
+
+        assert rendered is not None
+        assert "feature" in rendered
+        assert "daiv/replacement" in rendered
+
+    def test_returns_none_when_there_is_nothing_to_say(self, stub_base_init):
+        manager = _make_manager(stub_base_init)
+        snapshot = SimpleNamespace(values={"merge_request": _new_mr_value()})
+
+        assert manager._render_footers(snapshot) is None
+
+    def test_does_not_warn_about_a_partial_checkpoint_on_the_pending_path(self, stub_base_init):
+        """A fallback source with no MR used to mean a raced checkpoint. It now also means "the
+        replacement MR is still owed", which is a real state with its own notice — warning about it
+        would page an operator for normal degradation."""
+        manager = _make_manager(stub_base_init)
+        snapshot = SimpleNamespace(
+            values={
+                "protected_branch_fallback_source": "feature",
+                "merge_request": None,
+                "pending_mr_branch": "daiv/replacement",
+            }
+        )
+        with patch("codebase.managers.review_addressor.logger") as mock_logger:
+            manager._render_footers(snapshot)
+        mock_logger.warning.assert_not_called()
+
+
 class TestAppendFooter:
     def test_returns_body_unchanged_when_footer_is_none(self):
         assert CommentsAddressorManager._append_footer("the body", None) == "the body"
@@ -165,7 +222,7 @@ class TestSafeGetState:
         snapshot = SimpleNamespace(values={})
         agent.aget_state = AsyncMock(return_value=snapshot)
 
-        result = await manager._safe_get_state(agent, {"configurable": {}})
+        result = await manager._safe_get_state(agent, {"configurable": {}}, entity="merge request 99")
 
         assert result is snapshot
 
@@ -174,7 +231,7 @@ class TestSafeGetState:
         agent = Mock()
         agent.aget_state = AsyncMock(side_effect=RedisError("connection refused"))
 
-        result = await manager._safe_get_state(agent, {"configurable": {}})
+        result = await manager._safe_get_state(agent, {"configurable": {}}, entity="merge request 99")
 
         assert result is None
 
@@ -184,7 +241,7 @@ class TestSafeGetState:
         agent = Mock()
         agent.aget_state = AsyncMock(side_effect=OSError("network unreachable"))
 
-        result = await manager._safe_get_state(agent, {"configurable": {}})
+        result = await manager._safe_get_state(agent, {"configurable": {}}, entity="merge request 99")
 
         assert result is None
 
@@ -194,7 +251,7 @@ class TestSafeGetState:
         agent = Mock()
         agent.aget_state = AsyncMock(side_effect=json.JSONDecodeError("bad", "<doc>", 0))
 
-        result = await manager._safe_get_state(agent, {"configurable": {}})
+        result = await manager._safe_get_state(agent, {"configurable": {}}, entity="merge request 99")
 
         assert result is None
 
@@ -206,4 +263,4 @@ class TestSafeGetState:
         agent.aget_state = AsyncMock(side_effect=KeyError("checkpoint key missing"))
 
         with pytest.raises(KeyError):
-            await manager._safe_get_state(agent, {"configurable": {}})
+            await manager._safe_get_state(agent, {"configurable": {}}, entity="merge request 99")

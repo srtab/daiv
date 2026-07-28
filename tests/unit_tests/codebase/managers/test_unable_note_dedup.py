@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from automation.agent.publishers import PublishOutcome
 from codebase.base import GitPlatform, Issue, MergeRequest, User
 from codebase.managers.base import BaseManager
 from codebase.managers.issue_addressor import IssueAddressorManager
@@ -61,6 +62,9 @@ _AGENT_KWARGS = {"model_names": ["m"], "thinking_level": "medium"}
 def _failing_agent() -> MagicMock:
     agent = MagicMock()
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))
+    # The error paths read state to render reply footers; stub it as awaitable so the test exercises
+    # the note-dedup logic rather than tripping over a non-awaitable MagicMock.
+    agent.aget_state = AsyncMock(return_value=None)
     return agent
 
 
@@ -85,7 +89,11 @@ class TestReviewNotePostedOnce:
             patch("codebase.managers.review_addressor.create_daiv_agent", AsyncMock(return_value=_failing_agent())),
             patch("codebase.managers.review_addressor.build_langsmith_config", return_value={"configurable": {}}),
             patch("codebase.managers.review_addressor.track_usage_metadata", MagicMock()),
-            patch.object(CommentsAddressorManager, "_recover_draft", AsyncMock(return_value=False)),
+            patch.object(
+                CommentsAddressorManager,
+                "_recover_draft",
+                AsyncMock(return_value=PublishOutcome(merge_request=None, published=False)),
+            ),
             patch.object(CommentsAddressorManager, "_safe_get_state", AsyncMock(return_value=None)),
             pytest.raises(RuntimeError),
         ):
@@ -106,7 +114,11 @@ class TestIssueNotePostedOnce:
             patch("codebase.managers.issue_addressor.create_daiv_agent", AsyncMock(return_value=_failing_agent())),
             patch("codebase.managers.issue_addressor.build_langsmith_config", return_value={"configurable": {}}),
             patch("codebase.managers.issue_addressor.track_usage_metadata", MagicMock()),
-            patch.object(IssueAddressorManager, "_recover_draft", AsyncMock(return_value=False)),
+            patch.object(
+                IssueAddressorManager,
+                "_recover_draft",
+                AsyncMock(return_value=PublishOutcome(merge_request=None, published=False)),
+            ),
             pytest.raises(RuntimeError),
         ):
             await IssueAddressorManager.address_issue(issue=issue, runtime_ctx=_ctx())

@@ -4,8 +4,9 @@ from unittest.mock import Mock, call, patch
 from django.core.exceptions import ImproperlyConfigured
 
 import pytest
+import requests
 from git import GitCommandError
-from gitlab.exceptions import GitlabCreateError, GitlabGetError
+from gitlab.exceptions import GitlabAuthenticationError, GitlabCreateError, GitlabGetError
 
 from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
@@ -15,6 +16,7 @@ from codebase.clients.gitlab.client import (
     GitLabClient,
     _is_source_branch_missing_error,
 )
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 
 _CLONE_URL = "https://gitlab.com/group/repo.git"
 
@@ -474,10 +476,33 @@ class TestGitLabClient:
         assert result.source_branch == "feat/x"
         assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
 
-    def test_update_or_create_merge_request_raises_when_branch_never_appears(self, gitlab_client):
-        """If the branch stays invisible past the retry budget, the create error surfaces."""
+    def test_update_or_create_merge_request_degrades_when_the_pushed_branch_does_exist(self, gitlab_client):
+        """Window exhausted but the branch *is* on the remote: the visibility lag outlived the budget.
+
+        The typed error keeps that case separable from a genuinely missing branch, so the caller can
+        keep the run's pushed work instead of failing the whole job over a platform delay.
+        """
         mock_project = Mock()
         mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.return_value = Mock(name="branch")
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(MergeRequestBranchNotVisibleError) as e:
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert e.value.source_branch == "feat/x"
+        # One attempt per backoff step, plus the final attempt after the retries are exhausted.
+        expected_attempts = len(MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS) + 1
+        assert mock_project.mergerequests.create.call_count == expected_attempts
+        mock_project.branches.get.assert_called_once_with("feat/x")
+
+    def test_update_or_create_merge_request_raises_when_branch_is_genuinely_missing(self, gitlab_client):
+        """A 404 on the branch means GitLab was right — the raw create error surfaces as before."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.side_effect = GitlabGetError("404 Branch Not Found", response_code=404)
         gitlab_client.client.projects.get.return_value = mock_project
 
         with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(GitlabCreateError):
@@ -485,9 +510,70 @@ class TestGitLabClient:
                 repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
             )
 
-        # One attempt per backoff step, plus the final attempt after the retries are exhausted.
-        expected_attempts = len(MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS) + 1
-        assert mock_project.mergerequests.create.call_count == expected_attempts
+    @pytest.mark.parametrize(
+        "verification_error",
+        [
+            pytest.param(GitlabGetError("500 Server Error", response_code=500), id="server-error"),
+            # 401 is raised straight from python-gitlab's http_request and is a sibling of GitlabError,
+            # NOT a subclass of GitlabGetError — a short-lived project token expiring mid-turn lands here.
+            pytest.param(GitlabAuthenticationError("401 Unauthorized"), id="auth-error"),
+            # python-gitlab re-raises transport failures raw once its own retries are spent. A read
+            # timeout is *correlated* with the load spike that causes the visibility lag in the first
+            # place, so this is the expected verification failure, not an exotic one.
+            pytest.param(requests.ReadTimeout("timed out"), id="read-timeout"),
+            pytest.param(requests.ConnectionError("connection reset"), id="connection-error"),
+        ],
+    )
+    def test_update_or_create_merge_request_keeps_work_when_verification_itself_fails(
+        self, gitlab_client, verification_error
+    ):
+        """An inconclusive branch check (anything but a 404) must not cost the run its pushed work.
+
+        Discarding a completed turn requires *evidence* the branch is absent; a failed second opinion
+        is not that, so every inconclusive outcome degrades to the typed error the publisher can keep
+        the work from. An error class escaping here fails the publish and orphans the pushed branch —
+        the exact outcome this whole path exists to prevent.
+        """
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.side_effect = verification_error
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(MergeRequestBranchNotVisibleError) as e:
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        # The branch was never confirmed, so the caller must not tell the user the work is safe.
+        assert e.value.verified is False
+
+    def test_update_or_create_merge_request_reports_a_confirmed_branch_as_verified(self, gitlab_client):
+        """A successful branch GET is the only thing that earns the "the work is safe" claim.
+
+        Kept separate from the inconclusive cases because the two produce the same exception type and
+        only this flag tells the user-facing wording which one happened.
+        """
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = self._branch_missing_error()
+        mock_project.branches.get.return_value = Mock(name="branch")
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch("codebase.clients.gitlab.client.time.sleep"), pytest.raises(MergeRequestBranchNotVisibleError) as e:
+            gitlab_client.update_or_create_merge_request(
+                repo_id="group/repo", source_branch="feat/x", target_branch="main", title="Title", description="Desc"
+            )
+
+        assert e.value.verified is True
+
+    def test_branch_visibility_budget_covers_the_measured_lag(self):
+        """The budget's justification is a *measured* ~37s post-receive tail on git.eurotux.com.
+
+        Pinned because the tuple reads like an arbitrary timeout: a well-meaning "tune this down" would
+        silently re-open the failure it was sized for, and every other test in this file derives its
+        expectations from the constant, so none of them would notice. The floor is the documented 60s
+        budget, not just the measurement — the margin over the observed tail is the point.
+        """
+        assert sum(MERGE_REQUEST_BRANCH_VISIBILITY_RETRY_BACKOFF_SECONDS) >= 60
 
     def test_update_or_create_merge_request_does_not_retry_unrelated_400(self, gitlab_client):
         """A 400 that isn't the branch-visibility race must fail fast (no retry/sleep)."""
@@ -512,9 +598,10 @@ class TestGitLabClient:
             error_message="Another open merge request already exists", response_code=409
         )
         existing_mr = self._merge_request_mock(source_branch="feat/x")
-        mock_iterator = Mock()
-        mock_iterator.next.return_value = existing_mr
-        mock_project.mergerequests.list.return_value = mock_iterator
+        # A real iterator, matching python-gitlab's RESTObjectList (which implements __next__): the
+        # previous Mock-with-.next() double would have hidden that an exhausted listing must fall
+        # through to re-raising the 409 rather than blowing up.
+        mock_project.mergerequests.list.return_value = iter([existing_mr])
         gitlab_client.client.projects.get.return_value = mock_project
 
         with patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep:
@@ -818,21 +905,50 @@ class TestGitLabClient:
         _, kwargs = mock_project.branches.list.call_args
         assert kwargs["per_page"] == 100
 
-    def test_get_merge_request_by_branches_returns_first_open_match(self, gitlab_client):
-        """When an open MR exists for the source/target pair, return the serialized MR."""
+    def test_get_open_merge_request_does_not_filter_by_target_branch(self, gitlab_client):
+        """The listing must not constrain ``target_branch``.
+
+        An MR targeting a release branch (or another feature branch) is still the source branch's
+        MR. Filtering on the repo default made those invisible, and the publisher then pushed the
+        run's work to a brand-new branch and opened a second MR against the default branch.
+        """
         mock_project = Mock()
-        mock_mr = Mock()
+        mock_mr = Mock(target_branch="release/phase-4")
         mock_project.mergerequests.list.return_value = iter([mock_mr])
         gitlab_client.client.projects.get.return_value = mock_project
         sentinel = Mock(name="serialized")
         with patch.object(gitlab_client, "_serialize_merge_request", return_value=sentinel) as serialize:
-            result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+            result = gitlab_client.get_open_merge_request("group/repo", "feat-x", preferred_target_branch="main")
 
         assert result is sentinel
         mock_project.mergerequests.list.assert_called_once_with(
-            source_branch="feat-x", target_branch="main", state="opened", iterator=True
+            source_branch="feat-x", state="opened", order_by="updated_at", sort="desc", iterator=True
         )
         serialize.assert_called_once_with("group/repo", mock_mr)
+
+    def test_get_open_merge_request_prefers_the_requested_target_branch(self, gitlab_client):
+        """With several open MRs off one source branch, the preferred target wins over recency."""
+        mock_project = Mock()
+        newest = Mock(target_branch="release/phase-4")
+        preferred = Mock(target_branch="main")
+        mock_project.mergerequests.list.return_value = iter([newest, preferred])
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch.object(gitlab_client, "_serialize_merge_request", side_effect=lambda _, mr: mr):
+            result = gitlab_client.get_open_merge_request("group/repo", "feat-x", preferred_target_branch="main")
+        assert result is preferred
+
+    def test_get_open_merge_request_falls_back_to_most_recently_updated(self, gitlab_client):
+        """No MR targets the preference → the first of the newest-updated-first listing is used."""
+        mock_project = Mock()
+        newest = Mock(target_branch="release/phase-4")
+        older = Mock(target_branch="release/phase-3")
+        mock_project.mergerequests.list.return_value = iter([newest, older])
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        with patch.object(gitlab_client, "_serialize_merge_request", side_effect=lambda _, mr: mr):
+            result = gitlab_client.get_open_merge_request("group/repo", "feat-x", preferred_target_branch="main")
+        assert result is newest
 
     def test_is_branch_protected_returns_true_when_branch_protected(self, gitlab_client):
         mock_project = Mock()
@@ -861,13 +977,13 @@ class TestGitLabClient:
             mock_project.branches.get.side_effect = error
             assert gitlab_client.is_branch_protected("group/repo", "missing") is False
 
-    def test_get_merge_request_by_branches_returns_none_when_empty(self, gitlab_client):
+    def test_get_open_merge_request_returns_none_when_empty(self, gitlab_client):
         """Empty list → ``None`` (not an exception)."""
         mock_project = Mock()
         mock_project.mergerequests.list.return_value = iter([])
         gitlab_client.client.projects.get.return_value = mock_project
 
-        result = gitlab_client.get_merge_request_by_branches("group/repo", "feat-x", "main")
+        result = gitlab_client.get_open_merge_request("group/repo", "feat-x", preferred_target_branch="main")
 
         assert result is None
 

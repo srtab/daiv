@@ -139,48 +139,72 @@ class IssueAddressorManager(BaseManager):
                 with track_usage_metadata() as usage_handler:
                     result = await daiv_agent.ainvoke({"messages": messages}, config=agent_config, context=self.ctx)
             except Exception:
-                draft_published = await self._recover_draft(
+                recovery = await self._recover_draft(
                     daiv_agent, agent_config, entity_label="issue", entity_id=self.issue.iid
                 )
-                self._add_unable_to_address_issue_note(draft_published=draft_published)
+                # Only an actual MR may be announced as one; a pending branch is named by the footer
+                # instead, read back after recovery so it reflects what was just checkpointed.
+                self._add_unable_to_address_issue_note(
+                    draft_published=recovery.merge_request is not None,
+                    fallback_footer=self._render_footers(
+                        await self._safe_get_state(daiv_agent, agent_config, entity=f"issue {self.issue.iid}")
+                    ),
+                )
                 raise
             else:
                 response_text = ""
+                # Read the snapshot once so the reply's footers and the AgentResult share the same
+                # checkpoint read instead of round-tripping Redis twice.
+                snapshot = await self._safe_get_state(daiv_agent, agent_config, entity=f"issue {self.issue.iid}")
                 if (
                     result
                     and "messages" in result
                     and result["messages"]
                     and (response_text := extract_text_content(result["messages"][-1].content).strip())
                 ):
-                    self._leave_comment(response_text)
+                    self._leave_comment(self._append_footer(response_text, self._render_footers(snapshot)))
                 else:
                     logger.warning(
                         "Agent returned empty response for issue %d (result keys: %s)",
                         self.issue.iid,
                         list(result.keys()) if result else None,
                     )
-                    self._add_unable_to_address_issue_note()
+                    self._add_unable_to_address_issue_note(fallback_footer=self._render_footers(snapshot))
 
                 return await self._build_agent_result(
-                    daiv_agent, agent_config, response=response_text, usage=build_usage_summary(usage_handler).to_dict()
+                    daiv_agent,
+                    agent_config,
+                    response=response_text,
+                    usage=build_usage_summary(usage_handler).to_dict(),
+                    snapshot=snapshot,
                 )
 
-    def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):
+    def _add_unable_to_address_issue_note(self, *, draft_published: bool = False, fallback_footer: str | None = None):
         """
         Add a note to the issue to inform the user that the response could not be generated.
+
+        Args:
+            draft_published: Whether an actual draft merge request was created. Must stay false for a
+                branch that was pushed but has no MR yet — the note announces a merge request, and
+                sending someone to look for one that doesn't exist is worse than saying nothing.
+            fallback_footer: Pre-rendered notice naming a branch the run still owes a merge request,
+                so the work is findable even though there is no MR to link.
         """
         if not self._claim_unable_note():
             return
         self._leave_comment(
-            render_to_string(
-                "codebase/unable_address_issue.txt",
-                {
-                    "bot_name": BOT_NAME,
-                    "bot_username": self.ctx.bot_username,
-                    "draft_published": draft_published,
-                    "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
-                    "is_github": self.ctx.git_platform == GitPlatform.GITHUB,
-                },
+            self._append_footer(
+                render_to_string(
+                    "codebase/unable_address_issue.txt",
+                    {
+                        "bot_name": BOT_NAME,
+                        "bot_username": self.ctx.bot_username,
+                        "draft_published": draft_published,
+                        "is_gitlab": self.ctx.git_platform == GitPlatform.GITLAB,
+                        "is_github": self.ctx.git_platform == GitPlatform.GITHUB,
+                    },
+                ),
+                fallback_footer,
             ),
             # GitHub doesn't support replying to comments, so we need to provide a reply_to_id only for GitLab.
             reply_to_id=self.mention_comment_id if self.ctx.git_platform == GitPlatform.GITLAB else None,

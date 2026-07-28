@@ -49,12 +49,12 @@ async def test_returns_none_when_ref_is_default_branch_and_skips_lookup():
 
     assert result is None
     factory.assert_not_called()
-    repo_client.get_merge_request_by_branches.assert_not_called()
+    repo_client.get_open_merge_request.assert_not_called()
 
 
 async def test_returns_payload_on_happy_path():
     repo_client = MagicMock()
-    repo_client.get_merge_request_by_branches.return_value = _make_mr()
+    repo_client.get_open_merge_request.return_value = _make_mr()
     with (
         patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
@@ -64,12 +64,12 @@ async def test_returns_payload_on_happy_path():
     assert result == mr_to_payload(_make_mr())
     assert result["id"] == 42
     assert result["draft"] is True
-    repo_client.get_merge_request_by_branches.assert_called_once_with("a/b", "feature-x", "main")
+    repo_client.get_open_merge_request.assert_called_once_with("a/b", "feature-x", preferred_target_branch="main")
 
 
 async def test_returns_none_when_lookup_returns_none():
     repo_client = MagicMock()
-    repo_client.get_merge_request_by_branches.return_value = None
+    repo_client.get_open_merge_request.return_value = None
     with (
         patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
@@ -100,7 +100,7 @@ async def test_swallows_errors_from_client_call():
     from gitlab.exceptions import GitlabError
 
     repo_client = MagicMock()
-    repo_client.get_merge_request_by_branches.side_effect = GitlabError("api 500")
+    repo_client.get_open_merge_request.side_effect = GitlabError("api 500")
     with (
         patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
@@ -117,7 +117,7 @@ async def test_swallows_requests_transport_errors():
     import requests
 
     repo_client = MagicMock()
-    repo_client.get_merge_request_by_branches.side_effect = requests.ConnectionError("dns failure")
+    repo_client.get_open_merge_request.side_effect = requests.ConnectionError("dns failure")
     with (
         patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),
@@ -132,7 +132,7 @@ async def test_propagates_unexpected_errors():
     they should surface as 500s rather than masking as a fake 'no MR'.
     """
     repo_client = MagicMock()
-    repo_client.get_merge_request_by_branches.side_effect = KeyError("missing field")
+    repo_client.get_open_merge_request.side_effect = KeyError("missing field")
     with (
         patch("chat.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
         patch("chat.repo_state.RepoClient.create_instance", return_value=repo_client),

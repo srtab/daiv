@@ -1,4 +1,5 @@
 import inspect
+import logging
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
@@ -9,10 +10,13 @@ from automation.agent.git_manager import RepoStatus
 from automation.agent.publishers import GitChangePublisher, PublishOutcome
 from codebase.base import GitPlatform, MergeRequest, User
 from codebase.clients.base import GitAuthEnv
+from codebase.exceptions import MergeRequestBranchNotVisibleError
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 
 
-def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches=(), has_unpushed: bool = True) -> Mock:
+def _fake_git_manager(
+    *, dirty: bool = True, diff: str = "diff", remote_branches=(), has_unpushed: bool = True, diff_base: str = "main"
+) -> Mock:
     """A stand-in for the (sandbox/local) GitManager the publisher opens via open_git_manager.
 
     The publisher reads everything it needs from a single ``status_snapshot``; the mutation methods
@@ -21,12 +25,17 @@ def _fake_git_manager(*, dirty: bool = True, diff: str = "diff", remote_branches
     gm = Mock()
     gm.status_snapshot = AsyncMock(
         return_value=RepoStatus(
-            dirty=dirty, diff=diff, remote_branches=list(remote_branches), has_unpushed=has_unpushed
+            dirty=dirty,
+            diff=diff,
+            remote_branches=list(remote_branches),
+            has_unpushed=has_unpushed,
+            diff_base=diff_base,
         )
     )
     gm.commit_all = AsyncMock()
     gm.push_head_to = AsyncMock(return_value="pushed")
     gm.unique_branch_name = Mock(side_effect=lambda name, existing: name)
+    gm.get_range_diff = AsyncMock(return_value="range diff")
     return gm
 
 
@@ -204,6 +213,27 @@ class TestCreateMergeRequestDescription:
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
         assert "is protected on the remote" not in description
 
+    async def test_targets_the_repo_default_branch_by_default(self):
+        publisher = self._make_publisher_with_no_issue()
+
+        await publisher._create_merge_request("feature", "Title", "Body", as_draft=False)
+
+        assert publisher.client.update_or_create_merge_request.call_args.kwargs["target_branch"] == "main"
+
+    async def test_inherits_the_target_branch_of_the_mr_it_replaces(self):
+        """The replacement MR reviews the same change against the same base.
+
+        Re-pointing it at the repo default would silently turn a release-branch review into a much
+        larger default-branch one.
+        """
+        publisher = self._make_publisher_with_no_issue()
+        original = _make_merge_request(source_branch="dev", target_branch="release/phase-4", merge_request_id=42)
+
+        await publisher._create_merge_request("feature-fix", "Title", "Body", as_draft=False, fallback_from_mr=original)
+
+        kwargs = publisher.client.update_or_create_merge_request.call_args.kwargs
+        assert kwargs["target_branch"] == "release/phase-4"
+
     async def test_back_link_uses_github_terminology(self):
         publisher = self._make_publisher_with_no_issue(git_platform=GitPlatform.GITHUB)
         original = _make_merge_request(
@@ -291,7 +321,8 @@ class TestPublishSandboxEgressRefresh:
         gm = _fake_git_manager()
         gm.status_snapshot = AsyncMock(
             side_effect=lambda **_kw: (
-                order.append("snapshot") or RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False)
+                order.append("snapshot")
+                or RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False, diff_base="main")
             )
         )
         _patch_open_git_manager(monkeypatch, gm)
@@ -460,7 +491,9 @@ class TestPublishSuggestsContextFile:
 
             # Second call: clean tree, no diff versus base → publish short-circuits, and the
             # outcome carries no fallback source.
-            gm.status_snapshot.return_value = RepoStatus(dirty=False, diff="", remote_branches=[], has_unpushed=False)
+            gm.status_snapshot.return_value = RepoStatus(
+                dirty=False, diff="", remote_branches=[], has_unpushed=False, diff_base="main"
+            )
             second = await publisher.publish(merge_request=None)
             assert second.protected_branch_fallback_source is None
 
@@ -513,6 +546,435 @@ class TestPublishSuggestsContextFile:
             # (the branch may have moved under the run, e.g. a concurrent push).
             gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True)
             mock_suggest.assert_not_called()
+
+
+class TestPublishDiffBase:
+    """Which branch the run's work is diffed against — the review base, not always the default."""
+
+    async def test_diffs_against_the_default_branch_without_an_mr(self, monkeypatch):
+        publisher = _make_publisher()
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None)
+
+        assert gm.status_snapshot.await_args.kwargs["base_branch"] == "main"
+
+    async def test_diffs_against_the_mr_target_branch(self, monkeypatch):
+        """A run inside an MR is reviewed against that MR's target.
+
+        Diffing the repo default instead pulled in every commit separating the two branches, so a
+        small change on a branch stacked off a release branch reached diff_to_metadata as that
+        release branch's whole history — and the commit message and generated branch name then
+        described that history rather than the run's change.
+        """
+        publisher = _make_publisher()
+        mr = _make_merge_request(source_branch="feat/x", target_branch="release/phase-4")
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feat/x", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=mr)
+
+        kwargs = gm.status_snapshot.await_args.kwargs
+        assert kwargs["base_branch"] == "release/phase-4"
+        # The repo default rides along as the fallback: a target branch deleted on the remote after
+        # the clone must not abort the publish and strand the run's work.
+        assert kwargs["fallback_base_branch"] == "main"
+
+
+class TestPublishOutcomeInvariants:
+    """The class docstring claims these are "checked rather than merely documented" — pin that.
+
+    Every consumer branches on this combination to decide what the user is told and what gets
+    checkpointed, and there are two independent writers, so an illegal combination silently reports the
+    wrong thing. Deleting the guards is otherwise invisible: 25 construction sites exercise only the
+    passing direction.
+    """
+
+    def test_rejects_a_pending_branch_alongside_an_open_mr(self):
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            PublishOutcome(merge_request=_make_merge_request(), published=True, pending_branch="daiv/x")
+
+    def test_rejects_an_unpublished_pending_branch(self):
+        with pytest.raises(ValueError, match="published must be True"):
+            PublishOutcome(merge_request=None, published=False, pending_branch="daiv/x")
+
+    def test_rejects_a_published_turn_that_says_nothing_about_where_the_work_went(self):
+        with pytest.raises(ValueError, match="must report where the work went"):
+            PublishOutcome(merge_request=None, published=True)
+
+    def test_rejects_a_verified_flag_with_no_branch_to_describe(self):
+        with pytest.raises(ValueError, match="needs one"):
+            PublishOutcome(merge_request=None, published=False, pending_branch_verified=True)
+
+    def test_accepts_the_four_legal_shapes(self):
+        mr = _make_merge_request()
+        assert PublishOutcome(merge_request=None, published=False).published is False
+        assert PublishOutcome(merge_request=mr, published=False).merge_request is mr
+        assert PublishOutcome(merge_request=mr, published=True).published is True
+        assert (
+            PublishOutcome(
+                merge_request=None, published=True, pending_branch="daiv/x", pending_branch_verified=True
+            ).pending_branch
+            == "daiv/x"
+        )
+
+
+class TestPublishOutcomeStateUpdate:
+    """Both state writers go through this, so it is the one place the interlocking keys are decided."""
+
+    def test_an_mr_settles_an_outstanding_debt(self):
+        update = PublishOutcome(merge_request=_make_merge_request(), published=True).state_update(
+            had_pending_branch=True
+        )
+        assert update["pending_mr_branch"] is None
+        assert update["pending_mr_branch_verified"] is False
+        assert update["code_changes"] is True
+
+    def test_settling_a_debt_keeps_the_reason_the_branch_existed(self):
+        """The fallback happened on the turn that created the owed branch, so the turn that finally opens
+        the MR must not overwrite it with its own `None` — that is the only explanation the reviewer gets
+        for being sent to a different merge request."""
+        update = PublishOutcome(merge_request=_make_merge_request(), published=True).state_update(
+            had_pending_branch=True
+        )
+        assert "protected_branch_fallback_source" not in update
+
+    def test_a_fresh_publish_records_its_own_fallback_signal(self):
+        update = PublishOutcome(
+            merge_request=_make_merge_request(), published=True, protected_branch_fallback_source="release/1.2"
+        ).state_update(had_pending_branch=False)
+        assert update["protected_branch_fallback_source"] == "release/1.2"
+
+    def test_a_pending_branch_invalidates_the_state_mr(self):
+        update = PublishOutcome(merge_request=None, published=True, pending_branch="daiv/x").state_update(
+            had_pending_branch=False
+        )
+        assert update["merge_request"] is None
+        assert update["pending_mr_branch"] == "daiv/x"
+
+    def test_nothing_published_expires_only_an_existing_debt(self):
+        outcome = PublishOutcome(merge_request=None, published=False)
+        assert outcome.state_update(had_pending_branch=True) == {
+            "pending_mr_branch": None,
+            "pending_mr_branch_verified": False,
+        }
+        assert outcome.state_update(had_pending_branch=False) == {}
+
+
+class TestPublishDiffBaseSubstitution:
+    async def test_reports_when_the_diff_base_was_substituted(self, monkeypatch, caplog):
+        """A substituted base must not pass unremarked: it silently changes the generated metadata.
+
+        This whole change set exists because diffing the wrong base makes the commit message, PR
+        description and branch name describe unrelated history. The fallback deliberately re-enters that
+        state, so the publisher — the thing that then generates all three — has to say so.
+        """
+
+        publisher = _make_publisher()
+        mr = _make_merge_request(source_branch="feat/x", target_branch="release/gone")
+        gm = _fake_git_manager(diff_base="main")
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="b", title="T", description="D"),
+                    "commit_message": Mock(commit_message="m"),
+                },
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            await publisher.publish(merge_request=mr)
+
+        assert "release/gone" in caplog.text
+        assert "main" in caplog.text
+
+    async def test_silent_when_the_requested_base_was_used(self, monkeypatch, caplog):
+
+        publisher = _make_publisher()
+        mr = _make_merge_request(source_branch="feat/x", target_branch="release/1.2")
+        _patch_open_git_manager(monkeypatch, _fake_git_manager(diff_base="release/1.2"))
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="b", title="T", description="D"),
+                    "commit_message": Mock(commit_message="m"),
+                },
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            await publisher.publish(merge_request=mr)
+
+        assert "generated against" not in caplog.text
+
+
+class TestPublishPendingBranch:
+    """Pushed work whose MR the platform refused to open must survive the turn."""
+
+    def _metadata(self, publisher, branch: str = "feature"):
+        return patch.object(
+            publisher,
+            "_diff_to_metadata",
+            return_value={
+                "pr_metadata": Mock(branch=branch, title="Title", description="Desc"),
+                "commit_message": Mock(commit_message="commit msg"),
+            },
+        )
+
+    async def test_reports_the_branch_instead_of_failing(self, monkeypatch):
+
+        publisher = _make_publisher()
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            self._metadata(publisher),
+            patch.object(
+                publisher,
+                "_create_merge_request",
+                side_effect=MergeRequestBranchNotVisibleError("feature", verified=True),
+            ),
+            patch.object(publisher, "_suggest_context_file") as mock_suggest,
+        ):
+            outcome = await publisher.publish(merge_request=None)
+
+        # published=True: the commits are on the remote, only the MR is missing.
+        assert outcome == PublishOutcome(
+            merge_request=None, published=True, pending_branch="feature", pending_branch_verified=True
+        )
+        gm.push_head_to.assert_awaited_once()
+        mock_suggest.assert_not_called()
+
+    async def test_reuses_the_pending_branch_on_a_later_turn(self, monkeypatch):
+        publisher = _make_publisher()
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            self._metadata(publisher, branch="freshly-generated"),
+            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None, pending_branch="daiv/owed-an-mr")
+
+        # The owed branch is pushed to again — no new name minted beside it — and remote work is
+        # integrated, since a re-cloned workspace is not a descendant of the earlier turn's commit.
+        gm.unique_branch_name.assert_not_called()
+        gm.push_head_to.assert_awaited_once_with("daiv/owed-an-mr", integrate_on_reject=True)
+
+    async def test_records_that_the_branch_could_not_be_confirmed(self, monkeypatch):
+        """An unverified branch must stay distinguishable all the way to the reply.
+
+        Telling someone their work is safe is what stops them redoing it, so "we could not check"
+        cannot be reported as "confirmed on the remote".
+        """
+
+        publisher = _make_publisher()
+        _patch_open_git_manager(monkeypatch, _fake_git_manager())
+
+        with (
+            self._metadata(publisher),
+            patch.object(
+                publisher,
+                "_create_merge_request",
+                side_effect=MergeRequestBranchNotVisibleError("feature", verified=False),
+            ),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            outcome = await publisher.publish(merge_request=None)
+
+        assert outcome.pending_branch == "feature"
+        assert outcome.pending_branch_verified is False
+
+    async def test_opens_the_owed_mr_when_the_turn_changed_nothing(self, monkeypatch):
+        """The advertised remedy ("re-run and DAIV opens it on that branch") must actually happen.
+
+        An issue-scope re-run starts from a fresh clone of the default branch, so the tree is clean and
+        the diff empty — the "nothing to publish" short-circuit would return before the owed MR was ever
+        retried, leaving the branch MR-less forever while every reply promised otherwise.
+        """
+        publisher = _make_publisher()
+        mr = _make_merge_request(source_branch="daiv/owed-an-mr")
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            self._metadata(publisher),
+            patch.object(publisher, "_create_merge_request", return_value=mr) as create,
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            outcome = await publisher.publish(merge_request=None, pending_branch="daiv/owed-an-mr")
+
+        assert outcome == PublishOutcome(merge_request=mr, published=True)
+        assert create.await_args.args[0] == "daiv/owed-an-mr"
+        # Nothing new to commit or push — this turn only owes the merge request.
+        gm.commit_all.assert_not_called()
+        gm.push_head_to.assert_not_called()
+
+    async def test_owed_mr_metadata_comes_from_the_pending_branch(self, monkeypatch):
+        """Title/description must describe what is *on the branch*, not the empty working tree."""
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=self._metadata_value()) as meta,
+            patch.object(publisher, "_create_merge_request", return_value=_make_merge_request()),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            await publisher.publish(merge_request=None, pending_branch="daiv/owed-an-mr")
+
+        gm.get_range_diff.assert_awaited_once_with(base_branch="main", head_branch="daiv/owed-an-mr")
+        assert meta.await_args.kwargs["pr_metadata_diff"] == "range diff"
+        # This path commits nothing, so a commit message must NOT be requested: the two halves are
+        # independent agents, and asking for one buys a discarded LLM call over the whole branch diff.
+        assert not meta.await_args.kwargs.get("commit_message_diff")
+        assert not meta.await_args.args
+
+    async def test_owed_mr_stays_pending_when_the_platform_refuses_again(self, monkeypatch):
+        """A retry that hits the same lag must keep owing the *same* branch, not start a new one."""
+
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=self._metadata_value()),
+            patch.object(
+                publisher,
+                "_create_merge_request",
+                side_effect=MergeRequestBranchNotVisibleError("daiv/owed-an-mr", verified=True),
+            ),
+        ):
+            outcome = await publisher.publish(merge_request=None, pending_branch="daiv/owed-an-mr")
+
+        assert outcome == PublishOutcome(
+            merge_request=None, published=True, pending_branch="daiv/owed-an-mr", pending_branch_verified=True
+        )
+        gm.unique_branch_name.assert_not_called()
+
+    async def test_voids_the_debt_when_the_owed_branch_is_gone_from_the_remote(self, monkeypatch):
+        """A vanished pending branch must void the debt, not crash the turn.
+
+        `get_range_diff` raises when `origin/<branch>` doesn't resolve, and nothing upstream catches it:
+        the exception escapes publish, the manager's recovery calls publish again and hits the same
+        crash, and because it happens before any state write the pending branch stays checkpointed — so
+        EVERY later turn on the thread fails identically and the agent's reply is discarded each time.
+        The triggers are ordinary: the user follows the notice's advice and opens the MR themselves, it
+        merges, and GitLab deletes the source branch.
+        """
+        from git import GitCommandError
+
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        gm.get_range_diff = AsyncMock(side_effect=GitCommandError("git diff", 128))
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with patch.object(publisher, "_diff_to_metadata") as meta:
+            outcome = await publisher.publish(merge_request=None, pending_branch="daiv/deleted")
+
+        # published=False is what makes the middleware expire the stale pending state.
+        assert outcome == PublishOutcome(merge_request=None, published=False)
+        meta.assert_not_called()
+
+    async def test_voids_the_debt_when_the_owed_branch_holds_no_changes(self, monkeypatch):
+        """A branch that adds nothing over the base owes no merge request — expire it rather than
+        opening an empty MR (which the platform rejects) or keeping the notice forever."""
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        gm.get_range_diff = AsyncMock(return_value="   \n")
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with (
+            patch.object(publisher, "_diff_to_metadata") as meta,
+            patch.object(publisher, "_create_merge_request") as create,
+        ):
+            outcome = await publisher.publish(merge_request=None, pending_branch="daiv/empty")
+
+        assert outcome == PublishOutcome(merge_request=None, published=False)
+        meta.assert_not_called()
+        create.assert_not_called()
+
+    async def test_owed_mr_keeps_the_draft_flag_and_suggests_the_context_file(self, monkeypatch):
+        """The retry must behave like the create it stands in for: recovery publishes drafts, and the
+        context-file suggestion is pinned on the normal create path for the same reason."""
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+        mr = _make_merge_request()
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=self._metadata_value()),
+            patch.object(publisher, "_create_merge_request", return_value=mr) as create,
+            patch.object(publisher, "_suggest_context_file") as suggest,
+        ):
+            await publisher.publish(merge_request=None, pending_branch="daiv/owed", as_draft=True)
+
+        assert create.await_args.kwargs["as_draft"] is True
+        suggest.assert_awaited_once_with(mr)
+
+    async def test_an_mr_in_hand_wins_over_a_pending_branch_for_the_push_target(self, monkeypatch):
+        """Both can be set at once (recovery writes state directly), and the MR must win: pushing the
+        run's commits to the pending branch instead would silently stop feeding the in-review MR."""
+        publisher = _make_publisher()
+        gm = _fake_git_manager()
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with self._metadata(publisher):
+            await publisher.publish(
+                merge_request=_make_merge_request(source_branch="feature"), pending_branch="daiv/owed"
+            )
+
+        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True)
+
+    async def test_nothing_to_publish_still_short_circuits_without_a_pending_branch(self, monkeypatch):
+        """The owed-MR path must not weaken the ordinary no-op turn (no metadata call, no push)."""
+        publisher = _make_publisher()
+        gm = _fake_git_manager(dirty=False, diff="", has_unpushed=False)
+        _patch_open_git_manager(monkeypatch, gm)
+
+        with patch.object(publisher, "_diff_to_metadata") as meta:
+            outcome = await publisher.publish(merge_request=None, pending_branch=None)
+
+        assert outcome == PublishOutcome(merge_request=None, published=False)
+        meta.assert_not_called()
+        gm.get_range_diff.assert_not_called()
+
+    @staticmethod
+    def _metadata_value():
+        return {
+            "pr_metadata": Mock(branch="freshly-generated", title="Title", description="Desc"),
+            "commit_message": Mock(commit_message="commit msg"),
+        }
 
 
 class TestPublishDecision:

@@ -11,7 +11,7 @@ from automation.agent.graph import create_daiv_agent
 from automation.agent.results import AgentResult, build_agent_result
 from automation.agent.usage_tracking import build_usage_summary, track_usage_metadata
 from automation.agent.utils import build_langsmith_config, extract_text_content, get_daiv_agent_kwargs
-from codebase.base import Scope
+from codebase.base import GitPlatform, Scope
 from codebase.context import set_runtime_ctx
 from core.checkpointer import open_checkpointer
 
@@ -191,5 +191,9 @@ async def run_job_task(
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
     return await build_agent_result(
-        daiv_agent, config, response=response_text, usage=build_usage_summary(usage_handler).to_dict()
+        daiv_agent,
+        config,
+        response=response_text,
+        usage=build_usage_summary(usage_handler).to_dict(),
+        is_gitlab=runtime_ctx.git_platform == GitPlatform.GITLAB,
     )

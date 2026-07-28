@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -564,7 +565,7 @@ def _backend_for(client) -> SandboxFileBackend:
 async def test_status_snapshot_one_round_trip_when_clean() -> None:
     client = MagicMock()
     client.run_commands = AsyncMock(
-        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("", 0))
+        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc\n", 0), ("", 0))
     )
     gm = GitManager.for_sandbox(_backend_for(client))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
@@ -573,14 +574,14 @@ async def test_status_snapshot_one_round_trip_when_clean() -> None:
     assert client.run_commands.await_count == 1
     sent = client.run_commands.await_args.args[1]
     assert sent.fail_fast is False
-    assert len(sent.commands) == 5
+    assert len(sent.commands) == 6
 
 
 async def test_status_snapshot_second_round_trip_only_for_untracked() -> None:
     client = MagicMock()
     client.run_commands = AsyncMock(
         side_effect=[
-            _resp(("?? new.py\n", 0), ("", 0), ("new.py\n", 0), ("abc\trefs/heads/main\n", 0)),
+            _resp(("?? new.py\n", 0), ("", 0), ("new.py\n", 0), ("abc\trefs/heads/main\n", 0), ("abc\n", 0)),
             _resp(("+++ b/new.py\n+hello\n", 1)),
         ]
     )
@@ -657,7 +658,7 @@ def test_append_untracked_with_empty_base_has_no_leading_blank_line() -> None:
 async def test_status_snapshot_raises_on_batch_a_command_failure(failing_index: int, command_fragment: str) -> None:
     # A non-zero exit from any batch-A query must raise rather than parse to a misleading empty value
     # (e.g. a failing ls-remote parsing to [] would risk a colliding branch name).
-    outputs = [("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0)]
+    outputs = [("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc\n", 0)]
     outputs[failing_index] = ("boom", 128)
     client = MagicMock()
     client.run_commands = AsyncMock(return_value=_resp(*outputs))
@@ -673,7 +674,9 @@ async def test_status_snapshot_has_unpushed_true_when_log_has_output() -> None:
     # mr_source_branch present and `git log origin/<src>..HEAD` returns commits -> has_unpushed True.
     client = MagicMock()
     client.run_commands = AsyncMock(
-        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc123 commit\n", 0))
+        return_value=_resp(
+            ("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc\n", 0), ("abc123 commit\n", 0)
+        )
     )
     gm = GitManager.for_sandbox(_backend_for(client))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
@@ -685,11 +688,145 @@ async def test_status_snapshot_treats_log_failure_as_unpushed() -> None:
     # unpushed" rather than raising, mirroring has_unpushed().
     client = MagicMock()
     client.run_commands = AsyncMock(
-        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("fatal: bad revision", 128))
+        return_value=_resp(
+            ("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc\n", 0), ("fatal: bad revision", 128)
+        )
     )
     gm = GitManager.for_sandbox(_backend_for(client))
     snap = await gm.status_snapshot(base_branch="main", mr_source_branch="feat/x")
     assert snap.has_unpushed is True
+
+
+async def test_status_snapshot_falls_back_when_base_ref_is_unknown() -> None:
+    # The base is now the MR's target branch, which can be absent from the clone (deleted on the
+    # remote after the clone). Rather than raising — which would abort the publish and strand the
+    # run's work — the diff is recomputed against the fallback base in a second round-trip.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[
+            _resp(
+                ("", 0),
+                ("fatal: ambiguous argument 'origin/release/gone'", 128),
+                ("", 0),
+                ("abc\trefs/heads/main\n", 0),
+                ("", 1),
+            ),
+            _resp(("diff --git a/x.py b/x.py\n", 0)),
+        ]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    snap = await gm.status_snapshot(base_branch="release/gone", mr_source_branch=None, fallback_base_branch="main")
+    assert "x.py" in snap.diff
+    assert client.run_commands.await_count == 2
+    assert client.run_commands.await_args.args[1].commands == ["git -C /workspace/repo diff origin/main"]
+
+
+async def test_status_snapshot_raises_when_base_ref_unknown_and_no_fallback() -> None:
+    # Without a usable fallback the missing base ref is still a hard failure: no silent diff against
+    # a base nobody asked for.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(
+            ("", 0), ("fatal: ambiguous argument 'origin/nope'", 128), ("", 0), ("abc\trefs/heads/main\n", 0), ("", 1)
+        )
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    with pytest.raises(GitCommandError):
+        await gm.status_snapshot(base_branch="nope", mr_source_branch=None)
+
+
+async def test_status_snapshot_records_which_base_the_diff_used() -> None:
+    # The whole point of choosing a base is that the commit message, PR description and branch name
+    # are generated from that diff. When the fallback silently swaps the base, a log line is the only
+    # trace — so the substitution is part of the value, letting the publisher see what it actually got.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[
+            _resp(
+                ("", 0),
+                ("fatal: ambiguous argument 'origin/release/gone'", 128),
+                ("", 0),
+                ("abc\trefs/heads/main\n", 0),
+                ("", 1),
+            ),
+            _resp(("diff --git a/x.py b/x.py\n", 0)),
+        ]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    snap = await gm.status_snapshot(base_branch="release/gone", mr_source_branch=None, fallback_base_branch="main")
+    assert snap.diff_base == "main"
+
+
+async def test_status_snapshot_reports_the_requested_base_when_it_resolves() -> None:
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(("", 0), ("", 0), ("", 0), ("abc\trefs/heads/main\n", 0), ("abc\n", 0))
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    snap = await gm.status_snapshot(base_branch="release/1.2", mr_source_branch=None, fallback_base_branch="main")
+    assert snap.diff_base == "release/1.2"
+
+
+async def test_status_snapshot_raises_when_the_fallback_equals_the_base() -> None:
+    # The production call shape for every MR-less run: publish always passes the default branch as the
+    # fallback, so base == fallback. Re-running the identical diff would be pointless, and swallowing
+    # the failure would hide a broken clone — it must still raise.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        return_value=_resp(
+            ("", 0), ("fatal: ambiguous argument 'origin/main'", 128), ("", 0), ("abc\trefs/heads/main\n", 0), ("", 1)
+        )
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    with pytest.raises(GitCommandError):
+        await gm.status_snapshot(base_branch="main", mr_source_branch=None, fallback_base_branch="main")
+    assert client.run_commands.await_count == 1
+
+
+async def test_status_snapshot_raises_when_the_fallback_diff_also_fails() -> None:
+    # Falling back is not a licence to swallow: if the fallback diff fails too, the error names the
+    # fallback ref that actually failed rather than the base the caller asked for.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[
+            _resp(
+                ("", 0),
+                ("fatal: ambiguous argument 'origin/release/gone'", 128),
+                ("", 0),
+                ("abc\trefs/heads/main\n", 0),
+                ("", 1),
+            ),
+            _resp(("fatal: bad object origin/main", 128)),
+        ]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    with pytest.raises(GitCommandError) as exc_info:
+        await gm.status_snapshot(base_branch="release/gone", mr_source_branch=None, fallback_base_branch="main")
+    assert "origin/main" in str(exc_info.value)
+
+
+async def test_status_snapshot_fallback_logs_the_discarded_failure(caplog) -> None:
+    # `rev-parse --verify --quiet` exits 1 with no output for "ref absent" but 128 with a fatal: for a
+    # corrupt clone or a broken remote ref. Reporting both as "does not resolve in this clone" would
+    # misattribute real corruption to a deleted target branch — and if the fallback diff then succeeds,
+    # absorb it entirely. So the evidence goes in the log.
+    client = MagicMock()
+    client.run_commands = AsyncMock(
+        side_effect=[
+            _resp(
+                ("", 0),
+                ("fatal: bad object origin/release/gone", 128),
+                ("", 0),
+                ("abc\trefs/heads/main\n", 0),
+                ("fatal: not a git repository", 128),
+            ),
+            _resp(("diff --git a/x.py b/x.py\n", 0)),
+        ]
+    )
+    gm = GitManager.for_sandbox(_backend_for(client))
+    with caplog.at_level(logging.WARNING):
+        await gm.status_snapshot(base_branch="release/gone", mr_source_branch=None, fallback_base_branch="main")
+    assert "not a git repository" in caplog.text
 
 
 async def test_status_snapshot_raises_on_result_count_mismatch() -> None:
@@ -724,6 +861,35 @@ async def test_get_diff_local_includes_tracked_changes_and_untracked(tmp_path: P
 async def test_get_diff_local_empty_when_clean(tmp_path: Path) -> None:
     repo, _ = _init_repo_with_origin(tmp_path)
     assert await GitManager.for_local(repo).get_diff() == ""
+
+
+async def test_get_range_diff_uses_a_three_dot_range_between_remote_refs() -> None:
+    # The exact revision spec is load-bearing and easy to get wrong in a way nothing else notices.
+    # Two-dot, or the operands swapped, both return an EMPTY diff when the base hasn't moved — which
+    # `_open_owed_merge_request` reads as "the branch holds no work" and uses to drop the pending
+    # state, orphaning a pushed branch. Three-dot (from the merge base) is also what keeps commits
+    # that landed on the base since the push from showing up as reversals of someone else's work.
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(("diff --git a/x.py b/x.py\n", 0)))
+    gm = GitManager.for_sandbox(_backend_for(client))
+
+    diff = await gm.get_range_diff(base_branch="main", head_branch="daiv/owed")
+
+    assert diff == "diff --git a/x.py b/x.py\n"
+    sent = client.run_commands.await_args.args[1]
+    assert sent.commands == ["git -C /workspace/repo diff origin/main...origin/daiv/owed"]
+
+
+async def test_get_range_diff_raises_when_a_ref_does_not_resolve() -> None:
+    # Exit-code discipline: a vanished branch must be a raised error, not an empty diff that reads as
+    # "no changes". The caller turns this into "the debt is void" deliberately; it must not be able to
+    # arrive there by accident.
+    client = MagicMock()
+    client.run_commands = AsyncMock(return_value=_resp(("fatal: ambiguous argument 'origin/gone'", 128)))
+    gm = GitManager.for_sandbox(_backend_for(client))
+
+    with pytest.raises(GitCommandError):
+        await gm.get_range_diff(base_branch="main", head_branch="gone")
 
 
 async def test_get_diff_sandbox_single_round_trip_when_no_untracked() -> None:

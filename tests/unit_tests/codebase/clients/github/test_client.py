@@ -393,36 +393,102 @@ class TestGitHubClient:
 
         assert result == ["a", "b"]
 
-    def test_get_merge_request_by_branches_returns_first_open_match(self, github_client):
-        """When an open PR exists for the source/target pair, return a serialized MergeRequest."""
-        mock_repo = Mock()
+    @staticmethod
+    def _pull_mock(number: int = 7, base_ref: str = "main", head_ref: str = "feat-x"):
         mock_pr = Mock()
-        mock_pr.number = 7
-        mock_pr.head = Mock(ref="feat-x", sha="abc123")
-        mock_pr.base = Mock(ref="main")
+        mock_pr.number = number
+        mock_pr.head = Mock(ref=head_ref, sha="abc123")
+        mock_pr.base = Mock(ref=base_ref)
         mock_pr.title = "feat: add x"
         mock_pr.body = "details"
         label = Mock()
         label.name = "enhancement"
         mock_pr.labels = [label]
-        mock_pr.html_url = "https://github.com/o/r/pull/7"
+        mock_pr.html_url = f"https://github.com/o/r/pull/{number}"
         mock_user = Mock(id=1, login="alice")
         mock_user.name = "Alice"
         mock_pr.user = mock_user
         mock_pr.draft = True
+        return mock_pr
+
+    def test_get_open_merge_request_does_not_filter_by_base_branch(self, github_client):
+        """The listing must not constrain ``base``: a PR onto a release branch is still this
+        branch's PR, and missing it sends the publisher off to open a duplicate against the default
+        branch instead of adding a commit to the PR the run is working inside."""
+        mock_repo = Mock()
+        mock_pr = self._pull_mock(base_ref="release/phase-4")
         mock_repo.get_pulls.return_value = iter([mock_pr])
         github_client.client.get_repo.return_value = mock_repo
 
-        result = github_client.get_merge_request_by_branches("owner/repo", "feat-x", "main")
+        result = github_client.get_open_merge_request("owner/repo", "feat-x", preferred_target_branch="main")
 
         assert result is not None
         assert result.merge_request_id == 7
         assert result.source_branch == "feat-x"
-        assert result.target_branch == "main"
+        assert result.target_branch == "release/phase-4"
         assert result.draft is True
         assert result.web_url == "https://github.com/o/r/pull/7"
         assert result.labels == ["enhancement"]
-        mock_repo.get_pulls.assert_called_once_with(state="open", base="main", head="feat-x")
+        mock_repo.get_pulls.assert_called_once_with(state="open", head="owner:feat-x", sort="updated", direction="desc")
+
+    def test_get_open_merge_request_qualifies_the_head_filter_with_the_repo_owner(self, github_client):
+        """GitHub silently DROPS ``head`` unless it is ``owner:ref`` — a bare ref returns every open PR.
+
+        Verified against the live API: ``?state=open&head=<bogus-branch>`` returns the full unfiltered
+        listing, while ``?state=open&head=<owner>:<branch>`` returns just that branch's PR. Without the
+        qualifier this method hands the publisher an unrelated PR, whose branch the run then pushes onto
+        (``integrate_on_reject=True``) and whose base becomes the diff base.
+        """
+        mock_repo = Mock()
+        mock_repo.get_pulls.return_value = iter([])
+        github_client.client.get_repo.return_value = mock_repo
+
+        github_client.get_open_merge_request("some-org/some-repo", "fix/thing", preferred_target_branch="main")
+
+        assert mock_repo.get_pulls.call_args.kwargs["head"] == "some-org:fix/thing"
+
+    def test_get_open_merge_request_ignores_pulls_from_another_head_branch(self, github_client):
+        """Defence in depth for the same API quirk: never adopt a PR whose head isn't the asked-for branch.
+
+        The server-side filter is the primary guard, but it has silently degraded to "no filter" before,
+        and the cost of trusting it is the run's commits landing on a stranger's PR branch. Also caps the
+        fallback scan, which would otherwise page through every open PR in the repo.
+        """
+        mock_repo = Mock()
+        mock_repo.get_pulls.return_value = iter([
+            self._pull_mock(number=9, base_ref="main", head_ref="someone-elses-branch")
+        ])
+        github_client.client.get_repo.return_value = mock_repo
+
+        assert github_client.get_open_merge_request("owner/repo", "feat-x", preferred_target_branch="main") is None
+
+    def test_get_open_merge_request_prefers_the_requested_base_branch(self, github_client):
+        """With several open PRs off one head branch, the preferred base wins over recency."""
+        mock_repo = Mock()
+        mock_repo.get_pulls.return_value = iter([
+            self._pull_mock(number=9, base_ref="release/phase-4"),
+            self._pull_mock(number=7, base_ref="main"),
+        ])
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_open_merge_request("owner/repo", "feat-x", preferred_target_branch="main")
+
+        assert result is not None
+        assert (result.merge_request_id, result.target_branch) == (7, "main")
+
+    def test_get_open_merge_request_falls_back_to_most_recently_updated(self, github_client):
+        """No PR targets the preference → the first of the newest-updated-first listing is used."""
+        mock_repo = Mock()
+        mock_repo.get_pulls.return_value = iter([
+            self._pull_mock(number=9, base_ref="release/phase-4"),
+            self._pull_mock(number=7, base_ref="release/phase-3"),
+        ])
+        github_client.client.get_repo.return_value = mock_repo
+
+        result = github_client.get_open_merge_request("owner/repo", "feat-x", preferred_target_branch="main")
+
+        assert result is not None
+        assert (result.merge_request_id, result.target_branch) == (9, "release/phase-4")
 
     def test_is_branch_protected_returns_true_when_branch_protected(self, github_client):
         mock_repo = Mock()
@@ -448,13 +514,34 @@ class TestGitHubClient:
             mock_repo.get_branch.side_effect = GithubException(status, "error", None)
             assert github_client.is_branch_protected("owner/repo", "missing") is False
 
-    def test_get_merge_request_by_branches_returns_none_when_empty(self, github_client):
-        """No open PR matching the branch pair → ``None``."""
+    def test_update_or_create_merge_request_qualifies_the_head_filter_when_recovering_from_422(self, github_client):
+        """The post-422 "find the PR that already exists" lookup needs the same ``owner:ref`` qualifier.
+
+        Here an unfiltered listing is worse than a wrong read: the recovered PR is immediately edited
+        with this run's title and description, so adopting a stranger's PR overwrites it.
+        """
+        mock_repo = Mock()
+        mock_repo.create_pull.side_effect = GithubException(
+            422, {"errors": [{"message": "A pull request already exists for owner:feat-x."}]}, None
+        )
+        existing = self._pull_mock(number=7, base_ref="main")
+        existing.draft = False
+        mock_repo.get_pulls.return_value = [existing]
+        github_client.client.get_repo.return_value = mock_repo
+
+        github_client.update_or_create_merge_request(
+            repo_id="owner/repo", source_branch="feat-x", target_branch="main", title="T", description="D"
+        )
+
+        assert mock_repo.get_pulls.call_args.kwargs["head"] == "owner:feat-x"
+
+    def test_get_open_merge_request_returns_none_when_empty(self, github_client):
+        """No open PR on the head branch → ``None``."""
         mock_repo = Mock()
         mock_repo.get_pulls.return_value = iter([])
         github_client.client.get_repo.return_value = mock_repo
 
-        result = github_client.get_merge_request_by_branches("owner/repo", "feat-x", "main")
+        result = github_client.get_open_merge_request("owner/repo", "feat-x", preferred_target_branch="main")
 
         assert result is None
 
