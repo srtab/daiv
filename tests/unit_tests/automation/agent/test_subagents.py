@@ -964,7 +964,47 @@ class TestShippedDetectorCharters:
         assert "`ERROR:`" in skill_md, "SKILL.md lost the ERROR: sentinel from LoopBreakerMiddleware"
         assert "**Verify**" in skill_md, "SKILL.md lost the Verify-line resolution step"
         assert "**Rule:**" in skill_md, "SKILL.md lost the cr-custom-rules rule-citation passthrough"
+        # A Question carries `Ask:` where every other finding carries `Fix:`. Without a consumer here
+        # the orchestrator has no instruction for that bullet and would publish a Question with no
+        # question in it.
+        assert "**Ask:**" in skill_md, "SKILL.md lost the Question `Ask:` bullet consumer"
         assert f"{TMP_PATH}/review-change.diff" in skill_md, "SKILL.md's shared diff path drifted from TMP_PATH"
+
+    def test_skill_md_classifies_only_error_shaped_results_as_failed(self):
+        # Step 5's classifier is the gate every detector report passes through. It must key failure
+        # on the ERROR:/empty shape, NOT on an allow-list of opening lines: the preamble and
+        # cr-custom-rules both instruct a detector to disclose a coverage caveat (an unread
+        # supplementary rule source, a diff it could not finish), which pushes prose ahead of the
+        # first `###` heading. A classifier that demanded a leading heading would score those honest
+        # reports as crashes, discard their findings, and mark the review partial — punishing the
+        # detector that disclosed over the one that stayed silent. Locked because both halves of the
+        # coupling are prose in different files.
+        from automation.agent.subagents import _CODE_REVIEW_SKILL_PATH
+
+        skill_md = (_CODE_REVIEW_SKILL_PATH / "SKILL.md").read_text(encoding="utf-8")
+
+        assert "caveat" in skill_md, "SKILL.md no longer tolerates a detector's own coverage caveat"
+        assert "only if it opens with" not in skill_md, (
+            "Step 5 reintroduced an opens-with success test; a detector's coverage caveat would be "
+            "misclassified as a crash"
+        )
+
+    def test_skill_md_forbids_any_text_above_the_delivery_marker(self):
+        # review_addressor posts the final message verbatim, and Step 1 trusts a marker only in the
+        # note's first few lines — so a lead-in sentence above the marker costs the next run a
+        # duplicate full review of the whole MR. The main agent prompt actively trains the opposite
+        # reflex ("lead with the answer"), which is why this has to be stated as a non-negotiable
+        # rather than left implicit in the template.
+        from automation.agent.subagents import _CODE_REVIEW_SKILL_PATH
+
+        skill_md = (_CODE_REVIEW_SKILL_PATH / "SKILL.md").read_text(encoding="utf-8")
+
+        assert "No greeting" in skill_md, "SKILL.md lost the no-preamble-above-the-marker rule"
+        # The read side stays deliberately lenient about a lead-in a past run already emitted;
+        # tightening it to "first line only" would strand every such note as unreadable.
+        assert "column 3 is **`3` or less**" in skill_md, (
+            "SKILL.md's marker trust check lost its tolerance for a stray lead-in in an existing note"
+        )
 
     def test_charters_carry_precision_gate_and_report_contract(self):
         # The charters are fully self-contained (no shared references, no structured schema), so
@@ -993,6 +1033,9 @@ class TestShippedDetectorCharters:
             # The anchor the published report is built from: the orchestrator strips Confidence and
             # Verify but carries Location through as the finding's `file:line`.
             assert "- **Location:**" in body, f"{md.name} lost the location anchor field"
+            # A Question has no fix to name, so the format has to say what replaces `Fix:` — without
+            # this the detector either invents a fix or silently deviates from the report shape.
+            assert "- **Ask:**" in body, f"{md.name} lost the Question variant of the report format"
 
         custom = (CODE_REVIEW_AGENTS_PATH / "cr-custom-rules.md").read_text(encoding="utf-8")
         assert "**Rule:**" in custom, "cr-custom-rules lost the rule-citation field"
@@ -1002,6 +1045,36 @@ class TestShippedDetectorCharters:
         assert "ERROR: could not read rule source" in custom, (
             "cr-custom-rules lost the unreadable-rule-source ERROR contract"
         )
+
+    def test_shared_charter_blocks_stay_identical_across_the_five_detectors(self):
+        # The charters are self-contained by design, which means the precision machinery is
+        # copy-pasted five times. The test above only checks each block *exists* per file, so one
+        # charter's gate or rubric could drift from its siblings and every test would still pass —
+        # and a review whose five detectors grade on different scales cannot be aggregated by the
+        # orchestrator's cross-detector severity pass (Step 5). Lock the blocks that must be common;
+        # the per-dimension severity *addendum* is deliberately allowed to differ, since a rubric
+        # worded for wrong-results defects does not bound security or structure findings.
+        import re
+
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+
+        def section(body: str, heading: str) -> str:
+            match = re.search(rf"^## {heading}\n(.*?)(?=^## |\Z)", body, re.S | re.M)
+            assert match, f"missing '## {heading}' section"
+            return match.group(1).strip()
+
+        charters = {md.name: md.read_text(encoding="utf-8") for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md"))}
+
+        for heading in ("Confidence gate", "Never flag"):
+            variants = {section(body, heading) for body in charters.values()}
+            assert len(variants) == 1, f"'## {heading}' has drifted between charters: {len(variants)} variants"
+
+        # Severity: the four rubric bullets must match everywhere; surrounding prose may differ.
+        rubrics = {
+            name: tuple(line for line in section(body, "Severity").splitlines() if line.startswith("- **"))
+            for name, body in charters.items()
+        }
+        assert len(set(rubrics.values())) == 1, f"severity rubric bullets have drifted between charters: {rubrics}"
 
 
 class TestBuiltinCodeReviewDetectors:

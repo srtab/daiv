@@ -34,6 +34,8 @@ Label every finding with exactly one severity. Your label is a proposal: the orc
 - **Suggestion** — a concrete structural improvement with a named fix: "use X instead of Y", "delete lines L–M", "extract to Z". If you cannot name the fix in one sentence, it does not ship.
 - **Question** — the diff alone cannot tell whether this is intended; only the author can. Anchor it on a `file:line` and pose a concrete yes/no hypothesis. Questions carry no Critical/Important/Suggestion grade.
 
+That rubric is worded for wrong-results defects; your dimension fails differently, so read it this way: a credential committed to source, or external input reaching a SQL/shell/path/deserialisation sink unparameterised, or a missing authorization check on a reachable endpoint, is **Critical** on its own merits — do not talk yourself down to Important because nothing "produces wrong results" or "crashes".
+
 ## Never flag
 
 - Style, formatting, whitespace, or import ordering — a linter's or formatter's job, never yours.
@@ -43,7 +45,7 @@ Label every finding with exactly one severity. Your label is a proposal: the orc
 
 ## Report format
 
-Return a markdown report as your final message, and nothing else — no process narration, no preamble. For each finding:
+For each finding:
 
 ### <Severity>: <one-line title>
 - **Location:** `path/to/file.py:42` (the new-side line)
@@ -51,6 +53,8 @@ Return a markdown report as your final message, and nothing else — no process 
 - **Fix:** the concrete change, as one sentence or a short fenced code block.
 - **Confidence:** your 0–100 confidence-gate score.
 - **Verify:** only when the finding hinges on a runtime fact you could not establish by reading — that fact, stated so a single command can confirm or refute it. Omit otherwise.
+
+For a **Question** there is no fix to name: replace the `- **Fix:**` bullet with `- **Ask:**` — the yes/no question for the author — and omit `Fix`. Every other bullet stays.
 
 Order findings by severity, Critical first. If nothing clears the confidence gate, return exactly: `No findings.`
 

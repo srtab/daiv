@@ -48,7 +48,7 @@ A violation of a binding rule is at least **Important**; use **Critical** when t
 
 ## Report format
 
-Return a markdown report as your final message, and nothing else — no process narration, no preamble. For each finding:
+For each finding:
 
 ### <Severity>: <one-line title>
 - **Location:** `path/to/file.py:42` (the new-side line)
@@ -56,6 +56,8 @@ Return a markdown report as your final message, and nothing else — no process 
 - **Fix:** the concrete change, as one sentence or a short fenced code block.
 - **Confidence:** your 0–100 confidence-gate score.
 - **Verify:** only when the finding hinges on a runtime fact you could not establish by reading — that fact, stated so a single command can confirm or refute it. Omit otherwise.
+
+For a **Question** there is no fix to name: replace the `- **Fix:**` bullet with `- **Ask:**` — the yes/no question for the author — and omit `Fix`. Every other bullet stays.
 
 Order findings by severity, Critical first. If nothing clears the confidence gate, return exactly: `No findings.`
 
