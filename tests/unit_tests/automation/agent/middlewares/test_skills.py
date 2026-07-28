@@ -182,8 +182,8 @@ class TestSkillsMiddleware:
 
     def test_collect_skill_files_surfaces_incomplete_skill_for_broken_asset(self, tmp_path: Path, monkeypatch):
         """A non-SKILL.md asset (scripts/, references/) that fails to read must surface an
-        ``incomplete`` warning — the code-review skill depends on scripts/findings.py at runtime, so a
-        silently-dropped asset would otherwise only surface mid-review. The manifest itself loads, so
+        ``incomplete`` warning — the skill-creator skill depends on scripts/init_skill.py at runtime,
+        so a silently-dropped asset would otherwise only surface mid-use. The manifest itself loads, so
         this is distinct from the SKILL.md-missing error."""
         source = tmp_path / "src"
         (source / "skill-one").mkdir(parents=True)

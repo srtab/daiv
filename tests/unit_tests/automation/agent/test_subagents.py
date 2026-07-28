@@ -193,7 +193,7 @@ class TestGeneralPurposeMiddleware:
         assert breakers[0].terminal == "error"
 
     def test_detector_stack_includes_loop_breaker_with_error_terminal(self, mock_model, mock_backend):
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True)
         breakers = [m for m in middleware if isinstance(m, LoopBreakerMiddleware)]
         assert len(breakers) == 1
         assert breakers[0].terminal == "error"
@@ -840,7 +840,7 @@ class TestDetectorMiddleware:
 
         from automation.agent.subagents import READ_ONLY_PERMISSIONS, _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True)
         fs = next(m for m in middleware if isinstance(m, FilesystemMiddleware))
         assert fs._permissions == READ_ONLY_PERMISSIONS
 
@@ -853,7 +853,7 @@ class TestDetectorMiddleware:
         from automation.agent.middlewares.web_search import WebSearchMiddleware
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True)
         assert any(isinstance(m, SandboxMiddleware) for m in middleware)
         assert not any(isinstance(m, GitPlatformMiddleware) for m in middleware)
         assert not any(isinstance(m, WebSearchMiddleware) for m in middleware)
@@ -864,7 +864,7 @@ class TestDetectorMiddleware:
         from automation.agent.middlewares.sandbox import SandboxMiddleware
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=False, name="cr-correctness")
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=False)
         assert not any(isinstance(m, SandboxMiddleware) for m in middleware)
 
     def test_threads_client_and_sandbox_backend_into_sandbox_middleware(self, mock_model, mock_backend):
@@ -877,44 +877,21 @@ class TestDetectorMiddleware:
         sentinel_client = Mock()
         sentinel_backend = Mock()
         middleware = _build_detector_middleware(
-            mock_model,
-            mock_backend,
-            sandbox_enabled=True,
-            client=sentinel_client,
-            sandbox_backend=sentinel_backend,
-            name="cr-correctness",
+            mock_model, mock_backend, sandbox_enabled=True, client=sentinel_client, sandbox_backend=sentinel_backend
         )
         sandbox_mw = next(m for m in middleware if isinstance(m, SandboxMiddleware))
         assert sandbox_mw._client is sentinel_client
         assert sandbox_mw._sandbox_backend is sentinel_backend
         assert sandbox_mw.close_session is False
 
-    def test_includes_deferred_output_middleware(self, mock_model, mock_backend):
-        from automation.agent.constants import SUBAGENT_OUTPUT_PATH
-        from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
+    def test_no_deferred_output_middleware(self, mock_model, mock_backend):
+        # Detectors return their prose report inline as the task result; nothing may divert the
+        # final message to a file. Guards against reintroducing DeferredOutputMiddleware (removed
+        # with the structured-findings pipeline).
         from automation.agent.subagents import _build_detector_middleware
 
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
-        deferred = [m for m in middleware if isinstance(m, DeferredOutputMiddleware)]
-        assert len(deferred) == 1
-        assert deferred[0]._name == "cr-correctness"
-        assert deferred[0]._output_dir == SUBAGENT_OUTPUT_PATH
-
-    def test_deferred_output_runs_before_sandbox_teardown(self, mock_model, mock_backend):
-        # The detector defers its findings file in DeferredOutputMiddleware.aafter_agent, which must
-        # complete while the shared sandbox session is still alive. after_agent hooks fire in reverse
-        # append order, so DeferredOutputMiddleware must be appended AFTER SandboxMiddleware to run
-        # first on the way out. Lock both halves of that guard: the relative order, and that the
-        # detector's SandboxMiddleware never closes the (parent-owned) session itself.
-        from automation.agent.middlewares.deferred_output import DeferredOutputMiddleware
-        from automation.agent.middlewares.sandbox import SandboxMiddleware
-        from automation.agent.subagents import _build_detector_middleware
-
-        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True, name="cr-correctness")
-        sandbox_idx = next(i for i, m in enumerate(middleware) if isinstance(m, SandboxMiddleware))
-        deferred_idx = next(i for i, m in enumerate(middleware) if isinstance(m, DeferredOutputMiddleware))
-        assert deferred_idx > sandbox_idx, "DeferredOutputMiddleware must be appended after SandboxMiddleware"
-        assert middleware[sandbox_idx].close_session is False
+        middleware = _build_detector_middleware(mock_model, mock_backend, sandbox_enabled=True)
+        assert not any(type(m).__name__ == "DeferredOutputMiddleware" for m in middleware)
 
 
 class TestShippedDetectorCharters:
@@ -952,6 +929,10 @@ class TestShippedDetectorCharters:
         body = SHARED_DETECTOR_PREAMBLE.lower()
         assert "read-only" in body, "shared preamble is missing the read-only directive"
         assert "sed -i" in body, "shared preamble is missing the no-mutation command guidance"
+        assert "archetype" not in body, "slimmed preamble must not mention the deleted archetype enum"
+        assert "final message" in body, "preamble must state the report-is-final-message contract"
+        assert "untrusted" in body, "preamble must carry the untrusted-input guard"
+        assert "never re-read" in body, "preamble must carry the read-the-diff-once directive"
 
     def test_agents_dir_holds_exactly_the_five_cr_charters(self):
         # SKILL.md's fan-out step and the loader both key on the literal `cr-*.md` glob under
@@ -1002,22 +983,6 @@ class TestBuiltinCodeReviewDetectors:
         ctx = Mock()
         ctx.gitrepo.working_dir = str(repo_dir)
         return ctx
-
-    def test_response_format_wraps_finding_schema(self):
-        from automation.agent.subagents import _load_detector_response_format
-
-        rf = _load_detector_response_format()
-        assert rf["type"] == "object"
-        assert rf["required"] == ["findings"]
-        assert rf["properties"]["findings"]["type"] == "array"
-        item = rf["properties"]["findings"]["items"]
-        assert item["properties"]["detector"]["enum"] == [
-            "correctness",
-            "security",
-            "performance",
-            "structure",
-            "custom-rules",
-        ]
 
     def test_loads_detectors_from_dir(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
         from automation.agent.subagents import load_builtin_code_review_detectors
@@ -1228,15 +1193,11 @@ class TestBuiltinCodeReviewDetectors:
             )
         assert not [r for r in caplog.records if "failed to load" in r.message]
 
-    def test_detectors_compiled_with_structured_response_format(
-        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx
-    ):
-        # The whole fan-out depends on each detector emitting {"findings": [...]} via structured
-        # output — the orchestrator parses that envelope in Stage 2. _load_detector_response_format
-        # builds the schema once; assert it actually reaches EVERY compiled detector. A dropped
-        # response_format= kwarg would silently return free-form prose and break the merge, and no
-        # other test would fail (test_response_format_wraps_finding_schema only checks the builder).
-        from automation.agent.subagents import _load_detector_response_format, load_builtin_code_review_detectors
+    def test_detectors_compiled_without_response_format(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
+        # Detectors are prose reporters: a response_format would force tool_choice="any", remove
+        # the natural text stop, and re-open the runaway-loop failure mode the structured pipeline
+        # had. Assert no compiled detector carries one.
+        from automation.agent.subagents import load_builtin_code_review_detectors
 
         agents_dir = tmp_path / "agents"
         agents_dir.mkdir()
@@ -1247,7 +1208,6 @@ class TestBuiltinCodeReviewDetectors:
             _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
         )
 
-        expected_rf = _load_detector_response_format()
         with patch("automation.agent.subagents.create_agent") as mock_create:
             mock_create.return_value = Mock()
             load_builtin_code_review_detectors(
@@ -1260,53 +1220,7 @@ class TestBuiltinCodeReviewDetectors:
             )
 
         assert mock_create.call_count == 2
-        assert all(call.kwargs["response_format"] == expected_rf for call in mock_create.call_args_list)
-
-    def test_returns_empty_when_schema_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
-        # A missing finding schema must degrade code-review to no detectors, NOT abort the whole
-        # agent build (this loader runs inside create_daiv_agent on every run). Mirrors the
-        # missing-dir guard: return [] and surface the cause at ERROR.
-        import logging
-
-        from automation.agent.subagents import load_builtin_code_review_detectors
-
-        agents_dir = tmp_path / "agents"
-        agents_dir.mkdir()
-        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
-
-        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
-            result = load_builtin_code_review_detectors(
-                mock_model,
-                mock_backend,
-                mock_runtime_ctx,
-                working_directory="/workspace/repo/",
-                sandbox_enabled=False,
-                agents_dir=agents_dir,
-                schema_path=tmp_path / "missing.json",
-            )
-        assert result == []
-        assert any("missing or invalid" in r.message for r in caplog.records)
-
-    def test_returns_empty_when_schema_corrupt(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
-        # A malformed schema (JSONDecodeError) degrades the same way as a missing one.
-        from automation.agent.subagents import load_builtin_code_review_detectors
-
-        agents_dir = tmp_path / "agents"
-        agents_dir.mkdir()
-        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
-        bad_schema = tmp_path / "bad.json"
-        bad_schema.write_text("{ not valid json")
-
-        result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=agents_dir,
-            schema_path=bad_schema,
-        )
-        assert result == []
+        assert all(call.kwargs.get("response_format") is None for call in mock_create.call_args_list)
 
     def test_detector_model_override_used_when_valid(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
         # A charter `model:` override must actually replace the default for that detector. The two

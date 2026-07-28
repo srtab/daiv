@@ -78,11 +78,9 @@ class LoopBreakerMiddleware(AgentMiddleware):
     takes a terminal action:
 
     - ``terminal="error"`` (subagents): return a tool-call-free ``AIMessage`` framed as a failure.
-      It flows back as the ``task`` tool's result for general-purpose/explore subagents, or — for
-      ``cr-*`` detectors — as the deferred-output text (``DeferredOutputMiddleware`` writes the last
-      message when there is no ``structured_response``). The stuck subagent ends cleanly (its
+      It flows back as the task result text the parent reads. The stuck subagent ends cleanly (its
       ``after_agent`` still runs), the parent run is NOT aborted, and the result reads as an error
-      rather than "no findings".
+      rather than an empty/absent report.
     - ``terminal="finalize"`` (parent): return a tool-call-free ``AIMessage`` so the graph routes to
       END and ``after_agent`` hooks (git publish, patch capture, sandbox teardown) still run.
     """

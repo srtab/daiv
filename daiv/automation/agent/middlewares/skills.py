@@ -247,10 +247,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                         # Surface read failures by skill name so the agent can warn a user who invokes
                         # the skill. A broken SKILL.md means the skill won't load at all; a broken
                         # asset (scripts/, references/) means the skill loads but is incomplete — the
-                        # code-review skill, e.g., depends on scripts/findings.py and scripts/marker.py
-                        # at runtime, so a missing one would otherwise only surface mid-review. Host
-                        # paths stay in the log only — ``exc.strerror`` is the OS message without the
-                        # path (which lives in ``exc.filename``).
+                        # skill-creator skill, e.g., depends on scripts/init_skill.py at runtime, so a
+                        # missing one would otherwise only surface mid-use. Host paths stay in the log
+                        # only — ``exc.strerror`` is the OS message without the path (which lives in
+                        # ``exc.filename``).
                         reason = exc.strerror or type(exc).__name__
                         if source_path.name == "SKILL.md":
                             errors.append(f"Cannot load skill '{skill_dir.name}': {reason}")
