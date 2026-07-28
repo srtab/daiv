@@ -965,12 +965,10 @@ class TestShippedDetectorCharters:
             assert name in skill_md, f"SKILL.md never dispatches {name}"
         assert "No findings." in skill_md, "SKILL.md lost the no-findings sentinel it classifies on"
         assert "`ERROR:`" in skill_md, "SKILL.md lost the ERROR: sentinel from LoopBreakerMiddleware"
-        assert "**Verify**" in skill_md, "SKILL.md lost the Verify-line resolution step"
+        assert "**Verify**" not in skill_md, "SKILL.md still references the removed Verify resolution step"
         assert "**Rule:**" in skill_md, "SKILL.md lost the cr-custom-rules rule-citation passthrough"
-        # A Question carries `Ask:` where every other finding carries `Fix:`. Without a consumer here
-        # the orchestrator has no instruction for that bullet and would publish a Question with no
-        # question in it.
-        assert "**Ask:**" in skill_md, "SKILL.md lost the Question `Ask:` bullet consumer"
+        assert "- **Ask:**" not in skill_md, "SKILL.md still references the removed Question Ask bullet"
+        assert "### Questions" not in skill_md, "SKILL.md still carries the removed Questions section"
         assert f"{TMP_PATH}/review-change.diff" in skill_md, "SKILL.md's shared diff path drifted from TMP_PATH"
 
     def test_skill_md_classifies_only_error_shaped_results_as_failed(self):
