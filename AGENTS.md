@@ -94,14 +94,13 @@ over `wc -l` of the diff and the detector reads it in a single call with `limit`
 `FsReadRequest.limit` having no upper bound. That is an optimisation — one call instead of N — not
 the defence against reviewing only the diff's head; the backend's continuation notice is, and the
 preamble quotes its wording as the paging trigger, so keep the two in step), the untrusted-input
-guard, the Verify-vs-Question split,
-the final-message-is-the-report contract, and the read-only contract. That last one is the only *unconditional* guard against a
+guard, the final-message-is-the-report contract, and the read-only contract. That last one is the only *unconditional* guard against a
 detector mutating the shared workspace **via bash** (the filesystem tools are separately fenced
 by the enforced `READ_ONLY_PERMISSIONS`; bash carries only the global/per-repo
 `SANDBOX_COMMAND_POLICY_DISALLOW`, which is empty by default).
 `test_charters_carry_precision_gate_and_report_contract` locks the charter blocks,
 `test_shared_preamble_*` the preamble, and `test_skill_md_consumes_the_contracts_the_charters_produce`
-the orchestrator side — every sentinel the charters emit (`No findings.`, `ERROR:`, `Verify`,
+the orchestrator side — every sentinel the charters emit (`No findings.`, `ERROR:`,
 `Rule:`) has a consumer in `SKILL.md` and the coupling is prose on both sides.
 
 A detector that **crashes** (recursion limit, exhausted fallbacks, sandbox error) is converted
