@@ -85,7 +85,10 @@ uv run --all-extras python scripts/dump_schemas.py \
 **Code-review detector output** — the `cr-*` detectors are prose reporters: each returns a
 markdown report (findings ordered by severity, or the literal `No findings.`) as its final
 message, which the `task` tool hands back to the review orchestrator directly — no structured
-`response_format`, no deferred output files. Each charter under
+`response_format`, no deferred output files. The orchestrator is a pure **aggregator**: it
+collates the detector reports and runs no sandbox probes and re-reads no source to second-guess
+or re-grade a finding — each detector already owns its evidence and its confidence decision.
+Each charter under
 `daiv/automation/agent/skills/code-review/agents/` is fully self-contained (severity rubric,
 ≥80 confidence gate, never-flag rules, report format); `SHARED_DETECTOR_PREAMBLE` in
 `subagents.py` prepends the shared plumbing — diff-file protocol (including the
