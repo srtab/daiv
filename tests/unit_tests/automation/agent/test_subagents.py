@@ -954,31 +954,36 @@ class TestShippedDetectorCharters:
         assert "sed -i" in body, "shared preamble is missing the no-mutation command guidance"
 
     def test_agents_dir_holds_exactly_the_five_cr_charters(self):
-        # review-workflow.md's inline-detection fallback tells the parent to read
-        # `agents/cr-*.md`. Lock that this literal glob resolves to exactly the five detector
-        # charters, so renaming the dir or a file (silently breaking that reference) is caught.
+        # SKILL.md's fan-out step and the loader both key on the literal `cr-*.md` glob under
+        # agents/. Lock that it resolves to exactly the five detector charters, so renaming the
+        # dir or a file (silently dropping a dimension) is caught.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH, CODE_REVIEW_DETECTOR_NAMES
 
         stems = {p.stem for p in CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")}
         assert stems == set(CODE_REVIEW_DETECTOR_NAMES)
 
-    def test_principle_citations_resolve_to_existing_sections(self):
-        # The charters cite principles.md sections as ``§N``; those numbers are coupled to the
-        # ``## N.`` headings by convention only. Reordering/inserting a section in principles.md
-        # would silently invalidate the citations with no other test failing — so guard the
-        # coupling here: every cited ``§N`` must resolve to a ``## N.`` heading that exists.
-        import re
-
+    def test_charters_carry_precision_gate_and_report_contract(self):
+        # The charters are fully self-contained (no shared references, no structured schema), so
+        # the blocks that keep the prose pipeline precise live only inside each file: the >=80
+        # confidence gate, the severity rubric, the never-flag rules, and the exact no-findings
+        # sentinel the orchestrator keys on. A charter edit that drops one would degrade review
+        # precision with no other test failing — lock the section headings and sentinels here.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
 
-        principles = (CODE_REVIEW_AGENTS_PATH.parent / "references" / "principles.md").read_text(encoding="utf-8")
-        existing = {int(n) for n in re.findall(r"^##\s+(\d+)\.", principles, re.MULTILINE)}
-        assert existing, "no numbered sections found in principles.md"
+        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
+            body = md.read_text(encoding="utf-8")
+            assert "## Confidence gate" in body, f"{md.name} lost its confidence gate"
+            assert "80" in body, f"{md.name} lost the >=80 reporting threshold"
+            assert "## Severity" in body, f"{md.name} lost the severity rubric"
+            for label in ("Critical", "Important", "Suggestion", "Question"):
+                assert label in body, f"{md.name} lost the {label} severity label"
+            assert "## Never flag" in body, f"{md.name} lost the never-flag rules"
+            assert "No findings." in body, f"{md.name} lost the no-findings sentinel"
+            assert "**Confidence:**" in body, f"{md.name} lost the confidence field in the report format"
+            assert "**Verify:**" in body, f"{md.name} lost the runtime-fact Verify field"
 
-        for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
-            cited = {int(n) for n in re.findall(r"§(\d+)", md.read_text(encoding="utf-8"))}
-            missing = cited - existing
-            assert not missing, f"{md.name} cites principles.md sections that don't exist: {sorted(missing)}"
+        custom = (CODE_REVIEW_AGENTS_PATH / "cr-custom-rules.md").read_text(encoding="utf-8")
+        assert "**Rule:**" in custom, "cr-custom-rules lost the rule-citation field"
 
 
 class TestBuiltinCodeReviewDetectors:
