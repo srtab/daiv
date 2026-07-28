@@ -84,14 +84,15 @@ pull_request_assistant:
 
 ## Review reports
 
-Each review is posted as a single discussion on the merge request — findings grouped by
+Each review is posted as a single comment on the pull request — findings grouped by
 severity (Critical / Important / Suggestions), open questions for the author, and a short
-list of recommended actions. Reviews **stack**: a re-review posts a new report covering only
-the commits since the previous one (after a force-push, the next report covers the full
-change again and says so). If a review could not cover one of its dimensions — say the
-security detector failed — the report says so, and the next review re-covers that span
-rather than treating it as done. Reply to a report's discussion and mention DAIV to ask
-about a finding or have it apply a fix.
+list of recommended actions. On GitLab, reviews **stack**: a re-review posts a new report
+covering only the commits since the previous one (after a force-push, the next report covers
+the full change again and says so). If a review could not cover one of its dimensions — say
+the security detector failed — the report says so, and the next review re-covers that span
+rather than treating it as done. On GitHub reviews do not stack: the report carries no
+tracking marker, so each one stands alone and covers the whole pull request. Reply to a
+report and mention DAIV to ask about a finding or have it apply a fix.
 
 ## Custom review rules
 

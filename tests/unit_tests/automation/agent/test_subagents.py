@@ -954,7 +954,9 @@ class TestShippedDetectorCharters:
         for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
             body = md.read_text(encoding="utf-8")
             assert "## Confidence gate" in body, f"{md.name} lost its confidence gate"
-            assert "80" in body, f"{md.name} lost the >=80 reporting threshold"
+            assert "Report only findings scoring 80 or above" in body, (
+                f"{md.name} lost the >=80 reporting threshold sentence"
+            )
             assert "## Severity" in body, f"{md.name} lost the severity rubric"
             for label in ("Critical", "Important", "Suggestion", "Question"):
                 assert label in body, f"{md.name} lost the {label} severity label"

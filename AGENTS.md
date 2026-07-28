@@ -90,7 +90,8 @@ message, which the `task` tool hands back to the review orchestrator directly �
 ≥80 confidence gate, never-flag rules, report format); `SHARED_DETECTOR_PREAMBLE` in
 `subagents.py` prepends only the shared plumbing — diff-file protocol, the untrusted-input
 guard, and the read-only contract, the latter being the sole guard against a detector
-mutating the shared workspace
+mutating the shared workspace **via bash** (the filesystem tools are separately fenced by the
+enforced `READ_ONLY_PERMISSIONS`; bash carries no per-subagent command policy)
 (`test_charters_carry_precision_gate_and_report_contract` locks the charter blocks).
 
 **Icons in templates** — never hand-roll an inline `<svg>` for a UI icon. Use `{% load icon_tags %}{% icon "name" "css-classes" %}`; see `DESIGN.md` §Icon System for the mechanism and the icon directory. Exceptions (keep inline): animated spinners, SVGs that need `<title>`/Alpine `:class` on the element itself, and brand/logo `<img>` tags.
