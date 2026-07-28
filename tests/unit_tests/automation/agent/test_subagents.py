@@ -936,6 +936,9 @@ class TestShippedDetectorCharters:
         # reporting a clean pass. Both halves matter: read to the end, but don't re-read a page.
         assert "end to end" in body, "preamble must require reading the whole diff"
         assert "offset" in body, "preamble must tell the detector how to page the diff"
+        assert "single pass" in body, "preamble must carry the single-pass bounded-review procedure"
+        assert "semantically equivalent" in body, "preamble must forbid semantically-equivalent re-search"
+        assert "**verify**" not in body, "shared preamble must not resurrect the removed Verify handoff"
 
     def test_agents_dir_holds_exactly_the_five_cr_charters(self):
         # The loader globs `*.md`, not `cr-*.md`; this test additionally locks that the `cr-`
