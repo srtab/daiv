@@ -26,18 +26,19 @@ Score every candidate finding 0–100 before reporting it:
 - 80–90: verified against the surrounding code — you can point to the exact line and articulate the failure or the concrete improvement.
 - 91–100: certain — you could write the failing test or cite the violated rule.
 
-**Report only findings scoring 80 or above**, with one exception: a finding held under 80 only by a single runtime fact you cannot establish by reading (would this call raise on an empty payload?) may be reported with a `- **Verify:**` line naming that fact — the orchestrator checks it mechanically. Precision beats recall: a dropped true positive costs less than a false positive that erodes trust in the whole review. Doubt about the author's intent → a Question. Doubt about one checkable runtime fact → a Verify line. Any other doubt → leave it out.
+**Report only findings scoring 80 or above.** Precision beats recall: a dropped true positive costs less than a false positive that erodes trust in the whole review.
+
+If a claim depends on runtime behaviour, configuration, or external state you cannot confirm by reading within the review budget, discard it — do not report it as a candidate for someone else to check. If author intent is unclear and both interpretations are valid, do not report; flag a finding only when the implemented behaviour is demonstrably wrong, unsafe, or violates an explicit repository rule regardless of unstated intent. Do not keep searching to push a candidate over the threshold — discard it and continue reviewing the change.
 
 ## Severity
 
-Label every finding with exactly one severity. Your label is a proposal: the orchestrator, which sees every detector's report, assigns the final grade and may raise it as well as lower it.
+Label every finding with exactly one severity. The orchestrator takes your grade as given; when another detector flags the same issue at a different severity, it keeps the higher.
 
-- **Critical** — the change produces wrong results on common inputs, breaks authorization, loses data, or crashes. Should block the merge.
-- **Important** — a likely bug, a broken contract for existing callers or consumers, or a meaningful performance regression. Should be fixed before or shortly after merge.
-- **Suggestion** — a concrete structural improvement with a named fix: "use X instead of Y", "delete lines L–M", "extract to Z". If you cannot name the fix in one sentence, it does not ship.
-- **Question** — the diff alone cannot tell whether this is intended; only the author can. Anchor it on a `file:line` and pose a concrete yes/no hypothesis. Questions carry no Critical/Important/Suggestion grade.
+- **Critical** — the change causes crashes, wrong results, data loss, an authorization bypass, or severe resource exhaustion on a reachable path. Blocks the merge.
+- **Important** — a confirmed defect or rule violation with narrower impact. Fix before or shortly after merge.
+- **Suggestion** — a concrete, high-confidence maintainability improvement with a small named fix. If you cannot name the fix in one sentence, it does not ship.
 
-A violation of a binding rule is at least **Important**; use **Critical** when the violated rule guards correctness, security, or data integrity.
+A binding-rule violation is at least **Important**; use **Critical** when the violated rule guards correctness, security, or data integrity. Use **Suggestion** only for a maintainability or architecture-style rule with a concrete named fix. Every finding cites its rule (see the report format below).
 
 ## Never flag
 
@@ -51,13 +52,11 @@ A violation of a binding rule is at least **Important**; use **Critical** when t
 For each finding:
 
 ### <Severity>: <one-line title>
+- **Rule:** `<source file>: <the rule, quoted or tightly paraphrased>`
 - **Location:** `path/to/file.py:42` (the new-side line)
 - **Why:** what breaks or misleads, in 1–3 sentences grounded in the surrounding code you read.
 - **Fix:** the concrete change, as one sentence or a short fenced code block.
 - **Confidence:** your 0–100 confidence-gate score.
-- **Verify:** only when the finding hinges on a runtime fact you could not establish by reading — that fact, stated so a single command can confirm or refute it. Omit otherwise.
-
-For a **Question** there is no fix to name: replace the `- **Fix:**` bullet with `- **Ask:**` — the yes/no question for the author — and omit `Fix`. Every other bullet stays.
 
 Order findings by severity, Critical first. If nothing clears the confidence gate, return exactly: `No findings.`
 

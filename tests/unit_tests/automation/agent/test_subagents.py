@@ -1007,12 +1007,20 @@ class TestShippedDetectorCharters:
         )
 
     def test_charters_carry_precision_gate_and_report_contract(self):
-        # The charters are fully self-contained (no shared references, no structured schema), so
-        # the blocks that keep the prose pipeline precise live only inside each file: the >=80
-        # confidence gate, the severity rubric, the never-flag rules, and the exact no-findings
-        # sentinel the orchestrator keys on. A charter edit that drops one would degrade review
-        # precision with no other test failing — lock the section headings and sentinels here.
+        # The charters are self-contained, so the precision blocks live inside each file: the >=80
+        # gate, the severity subset for that dimension, the never-flag rules, and the no-findings
+        # sentinel. The terminal contract removed Verify and Question, so assert those tokens are
+        # gone as well — a charter edit that reintroduced one would degrade the contract with no
+        # other test failing.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
+
+        expected_severities = {
+            "cr-correctness.md": {"Critical", "Important"},
+            "cr-security.md": {"Critical", "Important"},
+            "cr-performance.md": {"Critical", "Important"},
+            "cr-structure.md": {"Important", "Suggestion"},
+            "cr-custom-rules.md": {"Critical", "Important", "Suggestion"},
+        }
 
         for md in sorted(CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")):
             body = md.read_text(encoding="utf-8")
@@ -1021,39 +1029,33 @@ class TestShippedDetectorCharters:
                 f"{md.name} lost the >=80 reporting threshold sentence"
             )
             assert "## Severity" in body, f"{md.name} lost the severity rubric"
-            # Assert the rubric *bullets*, not bare labels: every label also appears in the
-            # confidence-gate prose and the calibration example, so `label in body` would survive
-            # deleting the whole rubric list.
-            for label in ("Critical", "Important", "Suggestion", "Question"):
-                assert f"- **{label}**" in body, f"{md.name} lost the {label} severity rubric entry"
+
+            present = {label for label in ("Critical", "Important", "Suggestion") if f"- **{label}**" in body}
+            assert present == expected_severities[md.name], (
+                f"{md.name} severity grades {present} != expected {expected_severities[md.name]}"
+            )
+            # Terminal contract: no Verify escape, no Question mode.
+            assert "- **Question**" not in body, f"{md.name} still carries the removed Question severity"
+            assert "**Verify:**" not in body, f"{md.name} still carries the removed Verify field"
+            assert "- **Ask:**" not in body, f"{md.name} still carries the removed Question Ask variant"
+
             assert "## Never flag" in body, f"{md.name} lost the never-flag rules"
             assert "No findings." in body, f"{md.name} lost the no-findings sentinel"
             assert "**Confidence:**" in body, f"{md.name} lost the confidence field in the report format"
-            assert "**Verify:**" in body, f"{md.name} lost the runtime-fact Verify field"
-            # The anchor the published report is built from: the orchestrator strips Confidence and
-            # Verify but carries Location through as the finding's `file:line`.
             assert "- **Location:**" in body, f"{md.name} lost the location anchor field"
-            # A Question has no fix to name, so the format has to say what replaces `Fix:` — without
-            # this the detector either invents a fix or silently deviates from the report shape.
-            assert "- **Ask:**" in body, f"{md.name} lost the Question variant of the report format"
 
         custom = (CODE_REVIEW_AGENTS_PATH / "cr-custom-rules.md").read_text(encoding="utf-8")
         assert "**Rule:**" in custom, "cr-custom-rules lost the rule-citation field"
-        # cr-custom-rules reads its own rule sources, so an unreadable source must surface as a
-        # failed dimension. Returning `No findings.` there would tell the author their change
-        # complies with rules that were never applied.
         assert "ERROR: could not read rule source" in custom, (
             "cr-custom-rules lost the unreadable-rule-source ERROR contract"
         )
 
     def test_shared_charter_blocks_stay_identical_across_the_five_detectors(self):
-        # The charters are self-contained by design, which means the precision machinery is
-        # copy-pasted five times. The test above only checks each block *exists* per file, so one
-        # charter's gate or rubric could drift from its siblings and every test would still pass —
-        # and a review whose five detectors grade on different scales cannot be aggregated by the
-        # orchestrator's cross-detector severity pass (Step 5). Lock the blocks that must be common;
-        # the per-dimension severity *addendum* is deliberately allowed to differ, since a rubric
-        # worded for wrong-results defects does not bound security or structure findings.
+        # Confidence gate and Never flag stay byte-identical across all five (a review whose
+        # detectors grade on different scales cannot be aggregated). Severity subsets now differ by
+        # dimension, but each severity label's bullet DEFINITION must be identical wherever it
+        # appears — otherwise two detectors grade the same label on different scales and the
+        # aggregator's keep-the-higher pass is meaningless.
         import re
 
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
@@ -1069,12 +1071,14 @@ class TestShippedDetectorCharters:
             variants = {section(body, heading) for body in charters.values()}
             assert len(variants) == 1, f"'## {heading}' has drifted between charters: {len(variants)} variants"
 
-        # Severity: the four rubric bullets must match everywhere; surrounding prose may differ.
-        rubrics = {
-            name: tuple(line for line in section(body, "Severity").splitlines() if line.startswith("- **"))
-            for name, body in charters.items()
-        }
-        assert len(set(rubrics.values())) == 1, f"severity rubric bullets have drifted between charters: {rubrics}"
+        label_defs: dict[str, set[str]] = {}
+        for body in charters.values():
+            for line in section(body, "Severity").splitlines():
+                if line.startswith("- **"):
+                    label = line.split("**")[1]
+                    label_defs.setdefault(label, set()).add(line.strip())
+        for label, defs in label_defs.items():
+            assert len(defs) == 1, f"severity label '{label}' has drifted between charters: {defs}"
 
 
 class TestBuiltinCodeReviewDetectors:
