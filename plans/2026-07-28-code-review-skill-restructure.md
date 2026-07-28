@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Implemented (PR #1432). Kept as the implementation record. The shipped
+`SKILL.md`, charters, and `subagents.py` are authoritative wherever this plan differs — it
+diverges at least on delivery being a plain **comment** rather than a discussion, on the
+run-number-when-notes-are-unreadable rule, and on the docs wording, and it predates the
+review fixes (diff paging, the no-complete-marker branch, the observable delivery-mode gate,
+the crash guard, and the Verify-outcome split).
+
 **Goal:** Restructure the code-review skill to the pr-review-toolkit shape: one short orchestrator `SKILL.md`, five self-contained prose-reporting detector charters, zero scripts — per the approved spec `specs/2026-07-27-code-review-skill-restructure-design.md`.
 
 **Architecture:** Detectors become rich personas that return markdown reports inline (no structured `response_format`, no deferred output files). The orchestrator filters applicable detectors, fans out in parallel, aggregates with a skeptical pass, and returns ONE report as its final message — the platform layer auto-posts it in MR context. Re-reviews scope to the diff since the last reviewed head, tracked via a hidden HTML marker in each posted report. All merge/marker/schema machinery is deleted.

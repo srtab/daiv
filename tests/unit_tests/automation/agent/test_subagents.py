@@ -907,9 +907,7 @@ class TestShippedDetectorCharters:
         md_files = sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md"))
         names = set()
         for md in md_files:
-            parsed = _parse_subagent_frontmatter(
-                md.read_text(encoding="utf-8"), str(md), permitted_reserved_names=frozenset(CODE_REVIEW_DETECTOR_NAMES)
-            )
+            parsed = _parse_subagent_frontmatter(md.read_text(encoding="utf-8"), str(md))
             assert parsed is not None, f"{md.name} failed frontmatter parse"
             frontmatter, body = parsed
             assert frontmatter["description"].strip()
@@ -932,16 +930,41 @@ class TestShippedDetectorCharters:
         assert "archetype" not in body, "slimmed preamble must not mention the deleted archetype enum"
         assert "final message" in body, "preamble must state the report-is-final-message contract"
         assert "untrusted" in body, "preamble must carry the untrusted-input guard"
-        assert "never re-read" in body, "preamble must carry the read-the-diff-once directive"
+        assert "never re-read" in body, "preamble must carry the no-repeat-inspection directive"
+        # `read_file` returns 100 lines by default and never says it truncated, so the paging
+        # mandate is what stops a detector from reviewing only the head of a long diff and still
+        # reporting a clean pass. Both halves matter: read to the end, but don't re-read a page.
+        assert "end to end" in body, "preamble must require reading the whole diff"
+        assert "offset" in body, "preamble must tell the detector how to page the diff"
 
     def test_agents_dir_holds_exactly_the_five_cr_charters(self):
-        # SKILL.md's fan-out step and the loader both key on the literal `cr-*.md` glob under
-        # agents/. Lock that it resolves to exactly the five detector charters, so renaming the
-        # dir or a file (silently dropping a dimension) is caught.
+        # The loader globs `*.md`, not `cr-*.md`; this test additionally locks that the `cr-`
+        # prefix convention holds, so a renamed or added charter — silently dropping a dimension or
+        # inventing one — is caught.
         from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH, CODE_REVIEW_DETECTOR_NAMES
 
         stems = {p.stem for p in CODE_REVIEW_AGENTS_PATH.glob("cr-*.md")}
         assert stems == set(CODE_REVIEW_DETECTOR_NAMES)
+
+    def test_skill_md_consumes_the_contracts_the_charters_produce(self):
+        # Every sentinel the charters emit has a consumer in SKILL.md, and the coupling is prose on
+        # both sides — nothing but this test holds them together. A detector added to
+        # CODE_REVIEW_DETECTOR_NAMES but never added to Step 3's dispatch table would load, appear
+        # in the `task` tool's agent list, and never be dispatched: a dead dimension with no other
+        # failing test. Same for the sentinels the orchestrator keys on, and for the shared diff
+        # path (renaming TMP_PATH would break the hand-off for all five detectors at once).
+        from automation.agent.constants import TMP_PATH
+        from automation.agent.subagents import _CODE_REVIEW_SKILL_PATH, CODE_REVIEW_DETECTOR_NAMES
+
+        skill_md = (_CODE_REVIEW_SKILL_PATH / "SKILL.md").read_text(encoding="utf-8")
+
+        for name in CODE_REVIEW_DETECTOR_NAMES:
+            assert name in skill_md, f"SKILL.md never dispatches {name}"
+        assert "No findings." in skill_md, "SKILL.md lost the no-findings sentinel it classifies on"
+        assert "`ERROR:`" in skill_md, "SKILL.md lost the ERROR: sentinel from LoopBreakerMiddleware"
+        assert "**Verify**" in skill_md, "SKILL.md lost the Verify-line resolution step"
+        assert "**Rule:**" in skill_md, "SKILL.md lost the cr-custom-rules rule-citation passthrough"
+        assert f"{TMP_PATH}/review-change.diff" in skill_md, "SKILL.md's shared diff path drifted from TMP_PATH"
 
     def test_charters_carry_precision_gate_and_report_contract(self):
         # The charters are fully self-contained (no shared references, no structured schema), so
@@ -958,15 +981,27 @@ class TestShippedDetectorCharters:
                 f"{md.name} lost the >=80 reporting threshold sentence"
             )
             assert "## Severity" in body, f"{md.name} lost the severity rubric"
+            # Assert the rubric *bullets*, not bare labels: every label also appears in the
+            # confidence-gate prose and the calibration example, so `label in body` would survive
+            # deleting the whole rubric list.
             for label in ("Critical", "Important", "Suggestion", "Question"):
-                assert label in body, f"{md.name} lost the {label} severity label"
+                assert f"- **{label}**" in body, f"{md.name} lost the {label} severity rubric entry"
             assert "## Never flag" in body, f"{md.name} lost the never-flag rules"
             assert "No findings." in body, f"{md.name} lost the no-findings sentinel"
             assert "**Confidence:**" in body, f"{md.name} lost the confidence field in the report format"
             assert "**Verify:**" in body, f"{md.name} lost the runtime-fact Verify field"
+            # The anchor the published report is built from: the orchestrator strips Confidence and
+            # Verify but carries Location through as the finding's `file:line`.
+            assert "- **Location:**" in body, f"{md.name} lost the location anchor field"
 
         custom = (CODE_REVIEW_AGENTS_PATH / "cr-custom-rules.md").read_text(encoding="utf-8")
         assert "**Rule:**" in custom, "cr-custom-rules lost the rule-citation field"
+        # cr-custom-rules reads its own rule sources, so an unreadable source must surface as a
+        # failed dimension. Returning `No findings.` there would tell the author their change
+        # complies with rules that were never applied.
+        assert "ERROR: could not read rule source" in custom, (
+            "cr-custom-rules lost the unreadable-rule-source ERROR contract"
+        )
 
 
 class TestBuiltinCodeReviewDetectors:
@@ -999,12 +1034,7 @@ class TestBuiltinCodeReviewDetectors:
         )
 
         result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=agents_dir,
+            mock_model, mock_backend, working_directory="/workspace/repo/", sandbox_enabled=False, agents_dir=agents_dir
         )
 
         names = {s["name"] for s in result}
@@ -1017,7 +1047,6 @@ class TestBuiltinCodeReviewDetectors:
         result = load_builtin_code_review_detectors(
             mock_model,
             mock_backend,
-            mock_runtime_ctx,
             working_directory="/workspace/repo/",
             sandbox_enabled=False,
             agents_dir=tmp_path / "missing",
@@ -1046,7 +1075,6 @@ class TestBuiltinCodeReviewDetectors:
             result = load_builtin_code_review_detectors(
                 mock_model,
                 mock_backend,
-                mock_runtime_ctx,
                 working_directory="/workspace/repo/",
                 sandbox_enabled=False,
                 agents_dir=agents_dir,
@@ -1063,7 +1091,7 @@ class TestBuiltinCodeReviewDetectors:
         from automation.agent.subagents import CODE_REVIEW_DETECTOR_NAMES, load_builtin_code_review_detectors
 
         result = load_builtin_code_review_detectors(
-            mock_model, mock_backend, mock_runtime_ctx, working_directory="/workspace/repo/", sandbox_enabled=False
+            mock_model, mock_backend, working_directory="/workspace/repo/", sandbox_enabled=False
         )
         assert {s["name"] for s in result} == set(CODE_REVIEW_DETECTOR_NAMES)
 
@@ -1079,12 +1107,7 @@ class TestBuiltinCodeReviewDetectors:
         (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
 
         result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=agents_dir,
+            mock_model, mock_backend, working_directory="/workspace/repo/", sandbox_enabled=False, agents_dir=agents_dir
         )
         assert {s["name"] for s in result} == {"cr-security"}
 
@@ -1099,12 +1122,7 @@ class TestBuiltinCodeReviewDetectors:
         (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
 
         result = load_builtin_code_review_detectors(
-            mock_model,
-            mock_backend,
-            mock_runtime_ctx,
-            working_directory="/workspace/repo/",
-            sandbox_enabled=False,
-            agents_dir=agents_dir,
+            mock_model, mock_backend, working_directory="/workspace/repo/", sandbox_enabled=False, agents_dir=agents_dir
         )
         assert {s["name"] for s in result} == {"cr-security"}
 
@@ -1135,7 +1153,6 @@ class TestBuiltinCodeReviewDetectors:
             result = load_builtin_code_review_detectors(
                 mock_model,
                 mock_backend,
-                mock_runtime_ctx,
                 working_directory="/workspace/repo/",
                 sandbox_enabled=False,
                 agents_dir=agents_dir,
@@ -1166,14 +1183,60 @@ class TestBuiltinCodeReviewDetectors:
             result = load_builtin_code_review_detectors(
                 mock_model,
                 mock_backend,
-                mock_runtime_ctx,
                 working_directory="/workspace/repo/",
                 sandbox_enabled=False,
                 agents_dir=agents_dir,
+                expected_names=("cr-correctness", "cr-security"),
             )
 
         assert {s["name"] for s in result} == {"cr-security"}
-        assert any("cr-correctness" in r.message and "loaded 1/2" in r.message for r in caplog.records)
+        assert any("failed=cr-correctness" in r.message and "loaded 1/2 expected" in r.message for r in caplog.records)
+
+    def test_logs_error_when_an_expected_charter_is_absent(
+        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog
+    ):
+        # The likeliest deploy shortfall is a charter that isn't there at all — renamed, deleted, or
+        # not packaged. It never enters the compile loop, so reconciling against the *directory* saw
+        # nothing wrong and happily reported "loaded 1/1". Reconcile against the expected roster.
+        import logging
+
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-security.md").write_text(_make_subagent_md(name="cr-security", description="Good", body="y"))
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            result = load_builtin_code_review_detectors(
+                mock_model,
+                mock_backend,
+                working_directory="/workspace/repo/",
+                sandbox_enabled=False,
+                agents_dir=agents_dir,
+                expected_names=("cr-correctness", "cr-security"),
+            )
+
+        assert {s["name"] for s in result} == {"cr-security"}
+        assert any("absent=cr-correctness" in r.message and "loaded 1/2 expected" in r.message for r in caplog.records)
+
+    def test_logs_error_when_agents_dir_is_missing(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
+        # A missing dir is the whole capability gone (every dimension uncovered), so it logs louder
+        # than one bad charter, not quieter.
+        import logging
+
+        from automation.agent.subagents import load_builtin_code_review_detectors
+
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            result = load_builtin_code_review_detectors(
+                mock_model,
+                mock_backend,
+                working_directory="/workspace/repo/",
+                sandbox_enabled=False,
+                agents_dir=tmp_path / "does-not-exist",
+            )
+
+        assert result == []
+        assert any(r.levelno == logging.ERROR and "not found" in r.message for r in caplog.records)
 
     def test_no_error_logged_when_all_load(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx, caplog):
         import logging
@@ -1188,12 +1251,12 @@ class TestBuiltinCodeReviewDetectors:
             load_builtin_code_review_detectors(
                 mock_model,
                 mock_backend,
-                mock_runtime_ctx,
                 working_directory="/workspace/repo/",
                 sandbox_enabled=False,
                 agents_dir=agents_dir,
+                expected_names=("cr-security",),
             )
-        assert not [r for r in caplog.records if "failed to load" in r.message]
+        assert not [r for r in caplog.records if "unavailable" in r.message]
 
     def test_detectors_compiled_without_response_format(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
         # Detectors are prose reporters: a response_format would force tool_choice="any", remove
@@ -1215,7 +1278,6 @@ class TestBuiltinCodeReviewDetectors:
             load_builtin_code_review_detectors(
                 mock_model,
                 mock_backend,
-                mock_runtime_ctx,
                 working_directory="/workspace/repo/",
                 sandbox_enabled=False,
                 agents_dir=agents_dir,
@@ -1223,6 +1285,74 @@ class TestBuiltinCodeReviewDetectors:
 
         assert mock_create.call_count == 2
         assert all(call.kwargs.get("response_format") is None for call in mock_create.call_args_list)
+
+    def test_shared_preamble_reaches_every_compiled_detector_prompt(
+        self, tmp_path, mock_model, mock_backend, mock_runtime_ctx
+    ):
+        # Asserting the constant's text is not enough: the prepend at the _compile_subagent call
+        # site is what puts it in front of the model. Drop that and the charters still load, every
+        # other test still passes, and detectors quietly lose the read-only bash contract (the only
+        # unconditional guard against a detector mutating the shared workspace via bash), the
+        # untrusted-input guard, and the final-message-is-the-report contract.
+        from automation.agent.subagents import SHARED_DETECTOR_PREAMBLE, load_builtin_code_review_detectors
+
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "cr-correctness.md").write_text(
+            _make_subagent_md(name="cr-correctness", description="Correctness detector", body="Find correctness bugs.")
+        )
+        (agents_dir / "cr-security.md").write_text(
+            _make_subagent_md(name="cr-security", description="Security detector", body="Find security bugs.")
+        )
+
+        with patch("automation.agent.subagents.create_agent") as mock_create:
+            mock_create.return_value = Mock()
+            load_builtin_code_review_detectors(
+                mock_model,
+                mock_backend,
+                working_directory="/workspace/repo/",
+                sandbox_enabled=False,
+                agents_dir=agents_dir,
+            )
+
+        assert mock_create.call_count == 2
+        for call in mock_create.call_args_list:
+            prompt = call.kwargs["system_prompt"]
+            assert prompt.startswith(SHARED_DETECTOR_PREAMBLE), (
+                "compiled detector prompt does not lead with SHARED_DETECTOR_PREAMBLE"
+            )
+
+    async def test_detector_crash_becomes_an_error_report_instead_of_aborting_the_run(self):
+        # deepagents' `task` tool awaits the subagent's ainvoke with no error handling, and
+        # create_agent builds its ToolNode without handle_tool_errors — so anything a detector
+        # raises would propagate out of the ToolNode and kill the parent review, discarding every
+        # sibling detector's completed work. The guard converts it into the same `ERROR:` final
+        # message the LoopBreaker produces, which SKILL.md Step 5 classifies as an uncovered
+        # dimension. Without this, the skill's "continue with the rest" contract is unenforceable.
+        from langgraph.errors import GraphRecursionError
+
+        from automation.agent.subagents import _guard_subagent_crash
+
+        inner = Mock()
+        inner.ainvoke = AsyncMock(side_effect=GraphRecursionError("recursion limit reached"))
+
+        result = await _guard_subagent_crash(inner, "cr-correctness").ainvoke({"messages": []})
+
+        assert result["messages"][-1].content.startswith("ERROR:")
+        assert "cr-correctness" in result["messages"][-1].content
+
+    async def test_crash_guard_does_not_swallow_cancellation(self):
+        # Cancellation must stay fatal: swallowing CancelledError would turn a cancelled review into
+        # a report of five failed detectors and keep the run alive past its own teardown.
+        import asyncio
+
+        from automation.agent.subagents import _guard_subagent_crash
+
+        inner = Mock()
+        inner.ainvoke = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await _guard_subagent_crash(inner, "cr-security").ainvoke({"messages": []})
 
     def test_detector_model_override_used_when_valid(self, tmp_path, mock_model, mock_backend, mock_runtime_ctx):
         # A charter `model:` override must actually replace the default for that detector. The two
@@ -1245,7 +1375,6 @@ class TestBuiltinCodeReviewDetectors:
             load_builtin_code_review_detectors(
                 mock_model,
                 mock_backend,
-                mock_runtime_ctx,
                 working_directory="/workspace/repo/",
                 sandbox_enabled=False,
                 agents_dir=agents_dir,

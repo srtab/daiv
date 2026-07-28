@@ -90,9 +90,15 @@ list of recommended actions. On GitLab, reviews **stack**: a re-review posts a n
 covering only the commits since the previous one (after a force-push, the next report covers
 the full change again and says so). If a review could not cover one of its dimensions — say
 the security detector failed — the report says so, and the next review re-covers that span
-rather than treating it as done. On GitHub reviews do not stack: the report carries no
-tracking marker, so each one stands alone and covers the whole pull request. Reply to a
-report and mention DAIV to ask about a finding or have it apply a fix.
+rather than treating it as done. A review requested when nothing has changed since the last
+one answers with a one-line "already reviewed" note instead of a fresh report.
+
+On GitHub the report carries no tracking marker: re-review scope comes from the conversation
+history on the pull request rather than from the reports themselves, so it is lost if that
+conversation is cleared — after which the next report covers the whole pull request again.
+
+You can reply on the merge/pull request and mention DAIV to ask about a finding or have it
+apply a fix.
 
 ## Custom review rules
 
@@ -102,7 +108,7 @@ Define team-specific review rules in `.agents/review-rules.md` at the repository
 - *Never log request or response bodies.*
 - *New Celery tasks must be idempotent.*
 
-The code review agent checks for rule sources at the start of every review and, when any exist, runs a dedicated `custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
+The code review agent checks for rule sources at the start of every review and, when any exist, runs a dedicated `cr-custom-rules` detector against the diff; each violation it posts cites the rule it enforces.
 
 You don't need a dedicated `.agents/review-rules.md`: rules already written in your repository's `AGENTS.md` and `.agents/AGENTS.md` are picked up as a **secondary** source — the agent mines them for concrete, diff-checkable conventions. When sources disagree, `.agents/review-rules.md` wins. The detector is skipped only when none of these files exist.
 

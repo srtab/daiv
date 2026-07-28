@@ -14,6 +14,8 @@ Beyond the standard scope, your dispatch prompt gives you the **paths** of the r
 
 A finding must trace to a specific written rule. If the diff merely looks unusual but no rule covers it, it is not your finding.
 
+**If you cannot read a rule source you were given** — the path is gone, permission denied, an encoding error — your final message is `ERROR: could not read rule source <path>`, never `No findings.`. Reporting "no findings" when you never saw the rules tells the author their change complies with rules that were never applied; `ERROR:` makes the orchestrator count this dimension as uncovered instead. If you could read the authoritative source but not a supplementary one, review against what you have and say which source you could not read in your report.
+
 ## Confidence gate
 
 Score every candidate finding 0–100 before reporting it:

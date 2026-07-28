@@ -1,7 +1,19 @@
 # Code-review skill restructure — align with pr-review-toolkit
 
 **Date:** 2026-07-27
-**Status:** Approved design, pending implementation plan
+**Status:** Implemented (PR #1432). Kept as the design record; the shipped behaviour is
+`daiv/automation/agent/skills/code-review/SKILL.md`, which is authoritative where the two differ.
+
+Known divergences, decided during implementation and review — this document is **not** the
+reference for them:
+
+- Reports are posted as a plain MR **comment** (`notes.create`), not a discussion/thread. Every
+  "discussion" in this spec means "comment".
+- When the MR's notes cannot be read, the review still carries a `run=1` marker and a
+  `## Code Review #1` header; the spec's "omit the run number" rule was dropped.
+- The orchestrator *does* have a verification stage: it resolves each finding's `Verify` line with
+  at most one non-mutating command, and may **upgrade** as well as downgrade severities.
+- The `partial` marker token, and the trusted-marker acceptance rules, post-date this spec.
 
 ## Context
 

@@ -276,7 +276,6 @@ async def create_daiv_agent(
         *load_builtin_code_review_detectors(
             model,
             backend,
-            ctx,
             working_directory,
             sandbox_enabled=_sandbox_enabled,
             fallback_models=fallback_models,

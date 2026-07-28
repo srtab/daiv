@@ -88,11 +88,27 @@ message, which the `task` tool hands back to the review orchestrator directly �
 `response_format`, no deferred output files. Each charter under
 `daiv/automation/agent/skills/code-review/agents/` is fully self-contained (severity rubric,
 ≥80 confidence gate, never-flag rules, report format); `SHARED_DETECTOR_PREAMBLE` in
-`subagents.py` prepends only the shared plumbing — diff-file protocol, the untrusted-input
-guard, and the read-only contract, the latter being the sole guard against a detector
-mutating the shared workspace **via bash** (the filesystem tools are separately fenced by the
-enforced `READ_ONLY_PERMISSIONS`; bash carries no per-subagent command policy)
-(`test_charters_carry_precision_gate_and_report_contract` locks the charter blocks).
+`subagents.py` prepends the shared plumbing — diff-file protocol (including the
+**read-to-the-line-count mandate**: `read_file` defaults to 100 lines, so the orchestrator hands
+over `wc -l` of the diff and the detector reads it in a single call with `limit` set to that count,
+`FsReadRequest.limit` having no upper bound. That is an optimisation — one call instead of N — not
+the defence against reviewing only the diff's head; the backend's continuation notice is, and the
+preamble quotes its wording as the paging trigger, so keep the two in step), the untrusted-input
+guard, the Verify-vs-Question split,
+the final-message-is-the-report contract, and the read-only contract. That last one is the only *unconditional* guard against a
+detector mutating the shared workspace **via bash** (the filesystem tools are separately fenced
+by the enforced `READ_ONLY_PERMISSIONS`; bash carries only the global/per-repo
+`SANDBOX_COMMAND_POLICY_DISALLOW`, which is empty by default).
+`test_charters_carry_precision_gate_and_report_contract` locks the charter blocks,
+`test_shared_preamble_*` the preamble, and `test_skill_md_consumes_the_contracts_the_charters_produce`
+the orchestrator side — every sentinel the charters emit (`No findings.`, `ERROR:`, `Verify`,
+`Rule:`) has a consumer in `SKILL.md` and the coupling is prose on both sides.
+
+A detector that **crashes** (recursion limit, exhausted fallbacks, sandbox error) is converted
+into an `ERROR:`-prefixed final message by `_guard_subagent_crash`, so it costs one dimension
+instead of aborting the whole review — deepagents' `task` tool has no error handling and
+`create_agent` builds its `ToolNode` without `handle_tool_errors`, so an uncaught raise would
+propagate out and kill the parent run.
 
 **Icons in templates** — never hand-roll an inline `<svg>` for a UI icon. Use `{% load icon_tags %}{% icon "name" "css-classes" %}`; see `DESIGN.md` §Icon System for the mechanism and the icon directory. Exceptions (keep inline): animated spinners, SVGs that need `<title>`/Alpine `:class` on the element itself, and brand/logo `<img>` tags.
 
