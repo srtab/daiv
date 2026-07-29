@@ -68,11 +68,14 @@ IMPORTANT:
 - Convert to repo-relative paths in all user-visible text.
 """
 
-# The agent is calling write_file on a file that already exists, gets rejected
-# ("Cannot write because it already exists"), then correctly switches to edit_file. This wastes one tool call.
+# Steers the agent to edit_file for existing files, saving the wasted call it otherwise spends
+# discovering the rejection. Stated as a preference, not a mechanism: whether an overwrite is refused
+# is backend-dependent since deepagents 0.7 (the disk backend replaces the file; the sandbox can
+# still answer ALREADY_EXISTS), and one description serves both — see the note on _GREP_DESCRIPTION.
 _WRITE_FILE_EXTRA = (
-    "IMPORTANT: This tool can ONLY create new files. It will fail on files that already exist. "
-    "To modify existing files, always use `edit_file` instead."
+    "IMPORTANT: To modify a file that already exists, use `edit_file`. This tool replaces the entire "
+    "file, and on sandbox runs it is rejected outright for a path that already exists. Use it only to "
+    "create a new file, or to deliberately rewrite one end to end."
 )
 
 
@@ -152,20 +155,22 @@ _align_arg_schema(GrepSchema, {"pattern": _GREP_PATTERN_ARG_DESCRIPTION, "path":
 # same process-wide-constant, race-free mechanism as the grep alignment above. Pinned by
 # tests/.../test_file_system.py::test_glob_arg_schema_warns_root_anchoring.
 _GLOB_PATTERN_ARG_DESCRIPTION = (
-    "Glob pattern (supports *, **, ?, [abc]). Lead with `**/` to match anywhere beneath the search "
-    "root, e.g. `**/*.py` or `**/test_*.py`."
+    "Glob pattern (supports *, **, ?, [abc], and brace alternation like {py,md}). Lead with `**/` to "
+    "match anywhere beneath the search root, e.g. `**/*.py` or `**/test_*.py`."
 )
 _GLOB_PATH_ARG_DESCRIPTION = (
     "Absolute base directory to search from. Defaults to the filesystem root `/` — which is NOT the "
-    "repository. Set it to the repository root to scope the search there, or lead the pattern with `**/`."
+    "repository, and which reports repository files under more than one path. Set it to the repository "
+    "root to scope the search there and get canonical `/workspace/repo/...` paths back."
 )
 _align_arg_schema(GlobSchema, {"pattern": _GLOB_PATTERN_ARG_DESCRIPTION, "path": _GLOB_PATH_ARG_DESCRIPTION})
 
 _GLOB_EXTRA = (
     "Prefer this tool over shell `find` in bash to locate files by name or pattern inside the "
-    "workspace. IMPORTANT: `path` defaults to the FILESYSTEM ROOT `/`, not the repository, so a bare "
-    "pattern like `tests/**/*.py` matches nothing under the repo. Either lead the pattern with `**/` "
-    "(e.g. `**/test_*.py`) so it descends into the repo, or set `path` to the repository root. "
+    "workspace. IMPORTANT: set `path` to the repository root when you mean to search the repository. "
+    "Left unset, the search spans the whole workspace and reports the same repository file under more "
+    "than one path, only one of which is the canonical `/workspace/repo/...` form you can read back. "
+    "Brace alternation works too, e.g. `**/*.{py,md}`. "
     "(Searching outside the workspace, `find`-style `-path` predicates, and piping matches into "
     "`grep` have no glob equivalent — those remain legitimate uses of bash `find`.)"
 )

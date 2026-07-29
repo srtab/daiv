@@ -79,6 +79,49 @@ async def test_upstream_success_prefixes_remain_stable(setup):
     )
 
 
+def test_write_file_description_does_not_contradict_upstream():
+    """DAIV's write_file guidance must not assert a mechanism upstream has changed.
+
+    Through deepagents 0.6 the disk backend refused to overwrite, so DAIV's appended text said
+    write_file "can ONLY create new files". 0.7 replaces the file instead and says so in its own
+    description, which turned the appended line into a contradiction inside one tool description.
+    Whether an overwrite is refused is now backend-dependent, so the guidance may only express a
+    preference.
+    """
+    from automation.agent.middlewares.file_system import WRITE_FILE_TOOL_DESCRIPTION
+
+    assert "edit_file" in WRITE_FILE_TOOL_DESCRIPTION, "must still steer edits to edit_file"
+    assert "ONLY create new files" not in WRITE_FILE_TOOL_DESCRIPTION
+    assert "will fail on files that already exist" not in WRITE_FILE_TOOL_DESCRIPTION
+
+
+async def test_glob_description_does_not_claim_bare_patterns_fail(tmp_path: Path):
+    """A bare repo-relative glob pattern does match, so the description must not say otherwise.
+
+    ``CompositeBackend.aglob`` merges the default backend with every route when ``path`` is unset,
+    so ``tests/**/*.py`` resolves under ``/workspace/repo`` without a ``**/`` prefix. Pin both the
+    claim and the behaviour, so neither can drift back independently.
+    """
+    from automation.agent.constants import REPO_PATH
+    from automation.agent.middlewares.file_system import GLOB_TOOL_DESCRIPTION, build_disk_workspace_backend
+
+    assert "matches nothing under the repo" not in GLOB_TOOL_DESCRIPTION
+    assert "repository root" in GLOB_TOOL_DESCRIPTION
+
+    clone = tmp_path / "repo"
+    (clone / "tests").mkdir(parents=True)
+    (clone / "tests" / "test_a.py").write_text("x\n")
+    backend = build_disk_workspace_backend(clone)
+
+    bare = await backend.aglob("tests/**/*.py")
+    paths = [e["path"] for e in (bare.matches or [])]
+
+    assert f"{REPO_PATH}/tests/test_a.py" in paths, "a bare repo-relative pattern must still match"
+    # Scoping to the repo root is what yields the single canonical path the description recommends.
+    scoped = await backend.aglob("tests/**/*.py", path=REPO_PATH)
+    assert [e["path"] for e in (scoped.matches or [])] == [f"{REPO_PATH}/tests/test_a.py"]
+
+
 def test_grep_arg_schema_describes_regex(setup):
     """The grep tool's input schema must describe ``pattern`` as a regex, not literal text.
 
