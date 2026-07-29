@@ -1,53 +1,62 @@
 """Regression guards for the DAIV harness profile's middleware exclusions.
 
-The profile excludes the *upstream* ``TodoListMiddleware`` (and the upstream
-``AnthropicPromptCachingMiddleware``) so ``create_deep_agent``'s auto-added
-instance is dropped. Because the exclusion matches by **exact type**, DAIV must
-supply its own middleware as a *subclass* — otherwise its instance is dropped
-alongside the auto-added one and the main agent loses the ``write_todos`` tool
-entirely. These tests pin that contract.
+Every ``excluded_middleware`` entry must correspond to a middleware that is actually
+present in some assembled stack: deepagents' ``_verify_excluded_middleware_coverage``
+raises ``ValueError`` when an entry matches nothing. deepagents 0.7 stopped auto-adding
+``TodoListMiddleware``, so an entry for it is now stale and would break every run —
+these tests pin that it is gone and that a real agent still builds.
 """
 
+from deepagents import create_deep_agent
 from deepagents._excluded_middleware import _apply_excluded_middleware
 from langchain.agents.middleware import TodoListMiddleware
+from langchain_anthropic import ChatAnthropic
+from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware as UpstreamAnthropicPromptCaching
 
-from automation.agent.middlewares.todos import DAIVTodoListMiddleware
-from automation.agent.profile import DAIV_HARNESS_PROFILE
-
-
-def test_daiv_todo_subclass_is_distinct_from_upstream():
-    # The fix relies on DAIVTodoListMiddleware being a *subclass* (distinct exact type)
-    # of the upstream class the profile excludes.
-    assert issubclass(DAIVTodoListMiddleware, TodoListMiddleware)
-    assert DAIVTodoListMiddleware is not TodoListMiddleware
+from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
+from automation.agent.profile import DAIV_HARNESS_PROFILE, register
 
 
-def test_daiv_todo_middleware_registers_write_todos_tool():
-    # Subclassing must not break tool registration — the whole point is to keep write_todos.
-    mw = DAIVTodoListMiddleware(system_prompt="todo guidance")
-    assert any(tool.name == "write_todos" for tool in mw.tools)
+def test_profile_does_not_exclude_todo_middleware():
+    # deepagents 0.7 no longer auto-adds TodoListMiddleware, so DAIV's own instance is the only
+    # one in the stack. Excluding the class would both drop that instance (the filter also runs
+    # over user-supplied middleware) and trip the matched-nothing coverage check.
+    assert TodoListMiddleware not in DAIV_HARNESS_PROFILE.excluded_middleware
 
 
-def test_profile_excludes_upstream_todo_but_preserves_daiv_subclass():
-    # Reproduce the main-agent stack create_deep_agent assembles: the auto-added upstream
-    # instance plus DAIV's own subclass, both present before the profile filter runs.
-    auto_added = TodoListMiddleware()
-    daiv_own = DAIVTodoListMiddleware(system_prompt="todo guidance")
+def test_daiv_todo_middleware_survives_the_profile_filter():
+    daiv_own = TodoListMiddleware(system_prompt="todo guidance")
 
-    filtered = _apply_excluded_middleware([auto_added, daiv_own], DAIV_HARNESS_PROFILE)
-    survivor_types = [type(m) for m in filtered]
+    filtered = _apply_excluded_middleware([daiv_own], DAIV_HARNESS_PROFILE)
 
-    # The auto-added upstream instance is dropped (exact-type match) ...
-    assert TodoListMiddleware not in survivor_types
-    # ... while DAIV's subclass survives — exactly one middleware remains, nothing else.
-    assert DAIVTodoListMiddleware in survivor_types
     assert len(filtered) == 1
-    # End-to-end: the surviving middleware still exposes write_todos to the agent.
     assert any(tool.name == "write_todos" for m in filtered for tool in m.tools)
 
 
-def test_profile_lists_upstream_todo_middleware_as_excluded():
-    # Guard the exclusion entry itself: it must target the upstream base class (so the
-    # auto-added instance is what gets dropped), never DAIV's subclass.
-    assert TodoListMiddleware in DAIV_HARNESS_PROFILE.excluded_middleware
-    assert DAIVTodoListMiddleware not in DAIV_HARNESS_PROFILE.excluded_middleware
+def test_profile_excludes_upstream_prompt_caching_but_keeps_daivs_subclass():
+    # Class-form (exact-type) exclusion is mandatory here: DAIV's subclass shares upstream's
+    # ``__name__``, so a string-form entry would match both and leave no caching at all.
+    assert UpstreamAnthropicPromptCaching in DAIV_HARNESS_PROFILE.excluded_middleware
+    assert AnthropicPromptCachingMiddleware not in DAIV_HARNESS_PROFILE.excluded_middleware
+
+    filtered = _apply_excluded_middleware(
+        [UpstreamAnthropicPromptCaching(), AnthropicPromptCachingMiddleware()], DAIV_HARNESS_PROFILE
+    )
+
+    assert [type(m) for m in filtered] == [AnthropicPromptCachingMiddleware]
+
+
+def test_real_create_deep_agent_builds_under_the_daiv_profile():
+    """End-to-end guard on the profile itself, with nothing patched.
+
+    The rest of the suite patches ``create_deep_agent``, so a profile that upstream rejects
+    (a stale ``excluded_middleware`` entry, an unknown field) passes every other test and only
+    fails in production. A provider the profile is registered for is required — otherwise the
+    DAIV profile never resolves and the assembly this guards is skipped.
+    """
+    register()
+    model = ChatAnthropic(model="claude-sonnet-4-5-20250929", api_key="sk-ant-not-used")
+
+    agent = create_deep_agent(model=model, middleware=[TodoListMiddleware(system_prompt="todo guidance")])
+
+    assert agent is not None

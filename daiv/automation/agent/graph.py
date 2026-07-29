@@ -11,6 +11,7 @@ from langchain.agents.middleware import (
     InterruptOnConfig,
     ModelFallbackMiddleware,
     ModelRequest,
+    TodoListMiddleware,
     dynamic_prompt,
 )
 
@@ -46,7 +47,6 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SKILLS_TOOL_NAME, SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
-from automation.agent.middlewares.todos import DAIVTodoListMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.prompts import DAIV_SYSTEM_PROMPT, REPO_RELATIVE_SYSTEM_REMINDER, WRITE_TODOS_SYSTEM_PROMPT
@@ -312,10 +312,9 @@ async def create_daiv_agent(
             tools=WORKSPACE_FS_TOOLS,
             _permissions=main_agent_permissions,
         ),
-        # DAIVTodoListMiddleware (a subclass), not the bare TodoListMiddleware: the harness profile
-        # excludes the base by exact type, so a bare instance here would be dropped alongside the one
-        # create_deep_agent auto-adds, leaving the main agent with no write_todos. See todos.py.
-        DAIVTodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
+        # deepagents 0.7 no longer auto-adds TodoListMiddleware, so DAIV's instance is the only
+        # source of write_todos and the harness profile excludes nothing here.
+        TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=_sandbox_enabled)),
         *([SlashCommandMiddleware(subagents=subagents)] if ctx.config.slash_commands.enabled else []),
         *(
             [SandboxMiddleware(agent_root=agent_root, client=run_client, sandbox_backend=sandbox_backend)]
